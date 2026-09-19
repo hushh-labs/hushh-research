@@ -20,6 +20,11 @@ import {
 } from "@/lib/one-location/location-control-state";
 import type { PersonalKnowledgeModelMetadata } from "@/lib/services/personal-knowledge-model-service";
 import type { FeedListResponse } from "@/lib/services/feed-service";
+import { dispatchConnectionGraphChanged } from "@/lib/connections/connection-graph-events";
+import {
+  dispatchOneLocationStateChanged,
+  type OneLocationStateDomain,
+} from "@/lib/one-location/one-location-state-events";
 
 type DomainSummaryPatch = Record<string, unknown>;
 
@@ -706,6 +711,21 @@ export class CacheSyncService {
     this.onConnectionCapabilityMutated(userId);
     OneLocationStateResource.invalidate(userId);
     clearLocationWorkspaceMemory(userId);
+    dispatchConnectionGraphChanged(userId);
+  }
+
+  /**
+   * Invalidate One Location once, then fan the mutation out to every tab.
+   * Consumers decide which bounded projections (for example the SMS roster)
+   * need an additional authoritative read from the supplied domains.
+   */
+  static onOneLocationStateMutated(
+    userId: string,
+    domains: OneLocationStateDomain[] = ["workspace"],
+  ): void {
+    if (!userId) return;
+    OneLocationStateResource.invalidate(userId);
+    dispatchOneLocationStateChanged(userId, domains);
   }
 
   /**

@@ -1,6 +1,8 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { isNative } from "@/lib/capacitor/platform";
+import styles from "./onboarding-native.module.css";
 import { ChevronLeft, User } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
@@ -19,6 +21,7 @@ export function OnboardingShell({
   hideTerminal = false,
   allowInvalidPress = false,
   heroImage,
+  wideTitle = false,
   onBack,
   onContinue,
   onSkip,
@@ -47,6 +50,11 @@ export function OnboardingShell({
     alt?: string;
     badge?: boolean;
   };
+  // The welcome step's title ("How will you register?") wraps to 3 short
+  // lines at the shared accent-step width; every other accent step's title
+  // already fits in 1-2 lines there, so this widens the title column for
+  // just that one step instead of changing the shared default.
+  wideTitle?: boolean;
   // When true the Continue button stays pressable even if the step gate is not
   // satisfied, so the page can run field-level validation (scroll to the first
   // missing field + inline "fill this to continue") instead of a dead, silently
@@ -62,9 +70,11 @@ export function OnboardingShell({
   const continueDisabled = saving || (!canContinue && !allowInvalidPress);
   const isHero = heroImage?.variant === "hero";
   const isAccent = heroImage?.variant === "accent";
+  const [native, setNative] = useState(false);
+  useEffect(() => setNative(isNative()), []);
   useScrollReset(currentStepIndex, { enabled: true });
   return (
-    <div className="mx-auto flex w-full max-w-[54rem] flex-col px-5 pb-[calc(var(--app-bottom-inset)+6rem)] sm:px-6">
+    <div data-native={native || undefined} className={cn(styles.shell, "mx-auto flex w-full max-w-[54rem] flex-col px-5 pb-[calc(var(--app-bottom-inset)+6rem)] sm:px-6")}>
       <div className="flex w-full flex-col">
         {/* Progress + step counter share one row (design has no back arrow —
             back/forward is by swipe within the pinned chrome). */}
@@ -137,11 +147,12 @@ export function OnboardingShell({
             "space-y-2",
             isHero ? "mt-0" : "mt-[30px]",
             isAccent && "relative min-h-[196px] overflow-visible",
+            isAccent && wideTitle && styles.accentHeader,
           )}
         >
           {isAccent ? (
             <div
-              className="pointer-events-none absolute h-[190px] select-none sm:h-[214px]"
+              className={cn(styles.portrait, "pointer-events-none absolute h-[190px] select-none sm:h-[214px]")}
               style={{ right: "0px", top: "-6px" }}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -186,12 +197,13 @@ export function OnboardingShell({
               ) : null}
             </div>
           ) : null}
-          <p className="ui-text-section-label mb-2 block">{eyebrow}</p>
+          <p className={cn(styles.eyebrow, "ui-text-section-label mb-2 block")}>{eyebrow}</p>
           <h1
             className={cn(
               "ria-screen-title",
+              styles.title,
               isHero && "ria-screen-title--hero",
-              isAccent ? "max-w-[212px]" : "max-w-[18ch]",
+              isAccent ? (wideTitle ? "max-w-[190px]" : "max-w-[212px]") : "max-w-[18ch]",
               "text-3xl font-bold tracking-tight text-foreground sm:text-4xl"
             )}
           >
@@ -200,7 +212,10 @@ export function OnboardingShell({
           <p
             className={cn(
               "text-[16px] leading-[1.5] text-muted-foreground",
-              isAccent ? "max-w-[232px]" : "max-w-[34rem] text-[17px]"
+              styles.description,
+              isAccent
+                ? wideTitle ? "max-w-[190px]" : "max-w-[232px]"
+                : "max-w-[34rem] text-[17px]"
             )}
           >
             {description}

@@ -136,6 +136,12 @@ describe("RIA Clients page", () => {
     fireEvent.click(screen.getByRole("button", { name: /Around you/i }));
 
     expect(screen.getByText("Nearby records pane")).toBeInTheDocument();
+    const nearbyPane = screen.getByText("Nearby records pane");
+    fireEvent.click(screen.getByRole("button", { name: /^Connected$/i }));
+    expect(nearbyPane).not.toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: /Around you/i }));
+    expect(screen.getByText("Nearby records pane")).toBe(nearbyPane);
+    expect(nearbyPane).toBeVisible();
     expect(push).not.toHaveBeenCalled();
   });
 });

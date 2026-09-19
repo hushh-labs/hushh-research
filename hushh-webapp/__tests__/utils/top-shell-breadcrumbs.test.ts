@@ -313,7 +313,7 @@ describe("top shell breadcrumbs", () => {
       align: "center",
       hideBack: false,
       items: [
-        { label: "RIA", href: "/ria/onboarding" },
+        { label: "Advisor", href: "/ria/onboarding" },
         { label: "Claim profile" },
       ],
     });
@@ -326,7 +326,7 @@ describe("top shell breadcrumbs", () => {
       width: "content",
       align: "center",
       hideBack: false,
-      items: [{ label: "RIA", href: "/one/setup" }, { label: "Claim profile" }],
+      items: [{ label: "Advisor", href: "/one/setup" }, { label: "Claim profile" }],
     });
   });
 
@@ -370,6 +370,48 @@ describe("top shell breadcrumbs", () => {
         { label: "Setup", href: "/one/setup" },
         { label: "Finance" },
       ],
+    });
+  });
+
+  it("retraces a capability setup step to the capabilities checklist it was opened from", () => {
+    const fromCapabilities = new URLSearchParams();
+    fromCapabilities.set("from", "/one/setup/capabilities");
+
+    expect(
+      resolveTopShellBreadcrumb("/one/setup/gmail", fromCapabilities),
+    ).toEqual({
+      backHref: "/one/setup/capabilities",
+      width: "content",
+      align: "center",
+      hideBack: false,
+      items: [
+        { label: "One", href: "/one" },
+        { label: "Setup", href: "/one/setup/capabilities" },
+        { label: "Email" },
+      ],
+    });
+  });
+
+  it("hides the back arrow on the mandatory AI-choice step, matching the hub it now bypasses", () => {
+    expect(resolveTopShellBreadcrumb("/one/setup/connections")).toEqual({
+      backHref: "/one/setup",
+      width: "content",
+      align: "center",
+      hideBack: true,
+      items: [
+        { label: "Set up", href: "/one/setup" },
+        { label: "Choose your AI" },
+      ],
+    });
+  });
+
+  it("returns the dashboard's optional-capabilities checklist to the dashboard, not the hub it wasn't opened from", () => {
+    expect(resolveTopShellBreadcrumb("/one/setup/capabilities")).toEqual({
+      backHref: "/one",
+      width: "content",
+      align: "center",
+      hideBack: false,
+      items: [{ label: "One", href: "/one" }, { label: "Setup" }],
     });
   });
 
@@ -961,7 +1003,7 @@ describe("top shell breadcrumbs", () => {
       width: "profile",
       align: "center",
       items: [
-        { label: "RIA", href: "/ria/profile" },
+        { label: "Advisor", href: "/ria/profile" },
         { label: "Clients", href: "/ria/clients" },
         { label: "Workspace" },
       ],
@@ -974,7 +1016,7 @@ describe("top shell breadcrumbs", () => {
       width: "profile",
       align: "center",
       items: [
-        { label: "RIA", href: "/ria/profile" },
+        { label: "Advisor", href: "/ria/profile" },
         { label: "Clients", href: "/ria/clients" },
         { label: "Workspace", href: "/ria/clients/user_123" },
         { label: "Account detail" },
@@ -988,7 +1030,7 @@ describe("top shell breadcrumbs", () => {
       width: "profile",
       align: "center",
       items: [
-        { label: "RIA", href: "/ria/profile" },
+        { label: "Advisor", href: "/ria/profile" },
         { label: "Clients", href: "/ria/clients" },
         { label: "Workspace", href: "/ria/clients/user_123" },
         { label: "Request detail" },

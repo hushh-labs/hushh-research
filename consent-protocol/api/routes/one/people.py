@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
@@ -15,6 +16,8 @@ from hushh_mcp.services.person_profile_service import (
     PersonProfileNotFoundError,
     PersonProfileService,
 )
+
+logger = logging.getLogger(__name__)
 
 public_router = APIRouter(prefix="/api/public/people", tags=["Public People"])
 router = APIRouter(prefix="/api/one/people", tags=["People"])
@@ -40,6 +43,11 @@ def _not_found(exc: Exception) -> HTTPException:
         return HTTPException(status_code=404, detail="Person profile was not found.")
     if isinstance(exc, ConnectionsError):
         return HTTPException(status_code=exc.status_code, detail=str(exc))
+    # An unexpected exception here would otherwise vanish: FastAPI logs an
+    # unhandled exception's traceback, but this handler always converts it to
+    # a clean HTTPException before it reaches that layer, so nothing was ever
+    # recorded for a real 500 -- every occurrence was unreproducible from logs.
+    logger.exception("people_route.unexpected_error")
     return HTTPException(status_code=500, detail="Person profile is unavailable.")
 
 

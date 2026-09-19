@@ -93,6 +93,53 @@ describe("named Circle flows", () => {
     vi.clearAllMocks();
   });
 
+  it("offers Proceed to SMS only when the SMS Circle has another member", async () => {
+    const onProceedToSms = vi.fn();
+    const ownerOnly = circle("sms-circle", "SMS Circle");
+    const { rerender } = render(
+      <CircleDetailFlow
+        circleId="sms-circle"
+        {...detailProps(async () => ownerOnly)}
+        onProceedToSms={onProceedToSms}
+      />,
+    );
+
+    await screen.findByText("SMS Circle");
+    expect(
+      screen.queryByRole("button", { name: "Proceed to SMS" }),
+    ).toBeNull();
+
+    const withContact = {
+      ...ownerOnly,
+      memberCount: 2,
+      members: [
+        ...ownerOnly.members,
+        {
+          userId: "contact-user",
+          displayName: "Jhumma Kumari",
+          role: "member" as const,
+          phoneVerified: true,
+          secureLocationReady: true,
+        },
+      ],
+    };
+    rerender(
+      <CircleDetailFlow
+        key="sms-circle-with-contact"
+        circleId="sms-circle"
+        {...detailProps(async () => withContact)}
+        onProceedToSms={onProceedToSms}
+      />,
+    );
+
+    const proceed = await screen.findByRole("button", {
+      name: "Proceed to SMS",
+    });
+    expect(proceed).toHaveClass("max-w-[320px]", "mx-auto");
+    fireEvent.click(proceed);
+    expect(onProceedToSms).toHaveBeenCalledTimes(1);
+  });
+
   it("renders viewer-relative contact provenance in a Circle roster", async () => {
     const onLoad = vi.fn(async () => ({
       ...circle("circle-1", "Family"),
@@ -398,12 +445,61 @@ describe("named Circle flows", () => {
     expect(await screen.findByRole("button", { name: "Open Circle" })).toBeTruthy();
     expect(screen.getByText("Meena · 1 member")).toBeTruthy();
 
+    // "Use Another Code" asks first so an accidental tap cannot wipe the
+    // reviewed preview. Answering Yes runs the same clear-and-refocus flow.
+    // (While the modal is open the background is inert, so the preview is
+    // asserted again only after the dialog closes.)
     fireEvent.click(screen.getByRole("button", { name: "Use Another Code" }));
+    expect(
+      await screen.findByText(/Are you sure you don't want to join/i),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Yes" }));
     expect(screen.queryByRole("button", { name: "Open Circle" })).toBeNull();
     await waitFor(() =>
       expect(screen.getByLabelText("Circle invite code")).toHaveFocus(),
     );
     expect(screen.getByLabelText("Circle invite code")).toHaveValue("");
+  });
+
+  it("keeps the reviewed preview when the discard confirm answers No", async () => {
+    const preview: OneLocationCircleInvitePreview = {
+      name: "Meena Family",
+      kind: "family",
+      ownerDisplayName: "Meena",
+      memberCount: 1,
+      expiresAt: "2026-07-27T00:00:00Z",
+      alreadyMember: true,
+    };
+    const onResolve = vi.fn(async () => preview);
+    const onJoin = vi.fn(async () => undefined);
+
+    render(
+      <JoinCircleFlow busy={false} onResolve={onResolve} onJoin={onJoin} />,
+    );
+
+    fireEvent.change(screen.getByLabelText("Circle invite code"), {
+      target: { value: "2345-6789-ABCD" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Review Circle" }));
+
+    expect(await screen.findByRole("button", { name: "Open Circle" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Use Another Code" }));
+    expect(
+      await screen.findByText(/Are you sure you don't want to join/i),
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "No" }));
+    await waitFor(() =>
+      expect(
+        screen.queryByText(/Are you sure you don't want to join/i),
+      ).toBeNull(),
+    );
+    expect(screen.getByRole("button", { name: "Open Circle" })).toBeTruthy();
+    expect(screen.getByLabelText("Circle invite code")).toHaveValue(
+      "2345-6789-ABCD",
+    );
   });
 
   it("ignores a stale preview and joins the exact code that was reviewed", async () => {
@@ -2281,6 +2377,55 @@ describe("a caller-requested re-read keeps the screen where it was", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 40));
     expect(onLoad).toHaveBeenCalledTimes(1);
+  });
+
+  it("reconciles an open Add people picker and drops a removed connection", async () => {
+    const onLoad = vi.fn(async () => circle("circle-1", "K Family"));
+    const onLoadEligibleConnections = vi
+      .fn()
+      .mockResolvedValueOnce({
+        eligibleConnections: [
+          {
+            connectionId: "connection-asha",
+            userId: "asha-user",
+            displayName: "Asha Meena",
+          },
+        ],
+        pendingInvites: [],
+        remainingCapacity: 4,
+      })
+      .mockResolvedValueOnce({
+        eligibleConnections: [],
+        pendingInvites: [],
+        remainingCapacity: 4,
+      });
+    const props = {
+      ...detailProps(onLoad),
+      onLoadEligibleConnections,
+    };
+    const view = render(
+      <CircleDetailFlow circleId="circle-1" {...props} reloadSignal={0} />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Add people" }));
+    const asha = await screen.findByRole("button", { name: /Asha Meena/i });
+    fireEvent.click(asha);
+    expect(screen.getByRole("button", { name: "Add 1 person" })).toBeEnabled();
+
+    view.rerender(
+      <CircleDetailFlow circleId="circle-1" {...props} reloadSignal={1} />,
+    );
+
+    await waitFor(() =>
+      expect(onLoadEligibleConnections).toHaveBeenCalledTimes(2),
+    );
+    expect(screen.queryByText("Asha Meena")).toBeNull();
+    expect(
+      within(screen.getByRole("dialog", { name: "Add people" })).getByRole(
+        "button",
+        { name: "Add people" },
+      ),
+    ).toBeDisabled();
   });
 });
 

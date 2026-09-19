@@ -851,7 +851,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
                     idToken,
                     requestId: request.id,
                   });
-                  CacheSyncService.onConnectionCapabilityMutated(userId);
+                  CacheSyncService.onConnectionGraphMutated(userId);
                   notifyFeedActionResolved();
                   await connectionsRefresh({ force: true });
                 },

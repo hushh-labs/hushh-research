@@ -96,9 +96,10 @@ describe("PublicLocationViewPageClient", () => {
       await screen.findByText("Neelesh Meena's live location"),
     ).toBeTruthy();
     expect(
-      screen.getByText(/Neelesh Meena is sharing live location with you/),
+      screen.getByText(/Live updates appear here automatically/),
     ).toBeTruthy();
-    expect(screen.getByText("Neelesh Meena's location")).toBeTruthy();
+    expect(screen.getByText("Latest update")).toBeTruthy();
+    expect(screen.getAllByText(/Neelesh Meena/i)).toHaveLength(1);
     expect(screen.queryByText(/A trusted person/)).toBeNull();
   });
 
@@ -112,7 +113,7 @@ describe("PublicLocationViewPageClient", () => {
 
     expect(await screen.findByText("Shared location")).toBeTruthy();
     expect(
-      screen.getByText(/A trusted person is sharing live location/),
+      screen.getByText(/Live updates appear here automatically/),
     ).toBeTruthy();
     expect(screen.queryByText(/A trusted person's/)).toBeNull();
   });
@@ -122,13 +123,22 @@ describe("PublicLocationViewPageClient", () => {
 
     const badge = await screen.findByText("Live");
     expect(badge).toBeTruthy();
-    // Green, and specifically the success role's solid fill — not the accent,
-    // which follows a per-account colour preference and rendered this status
-    // gold for anyone who had changed it.
+    // A calm, high-contrast glass chip: the green communicates live state,
+    // while the neutral surface avoids a heavy block over the map.
     const chip = badge.closest("div");
-    expect(chip?.className).toContain("bg-[color:var(--app-success)]");
+    expect(chip?.className).toContain("bg-white/90");
+    expect(chip?.className).toContain("text-[color:var(--app-success)]");
+    expect(chip?.className).not.toContain("bg-[color:var(--app-success)]");
     expect(chip?.className).not.toContain("var(--app-accent)");
     expect(screen.queryByText("Public location")).toBeNull();
+  });
+
+  it("keeps the directions action compact and centered", async () => {
+    render(<PublicLocationViewPageClient />);
+
+    const directions = await screen.findByRole("link", { name: "Directions" });
+    expect(directions).toHaveClass("w-fit", "min-w-36", "rounded-full");
+    expect(directions).not.toHaveClass("w-full");
   });
 
   it("counts the window down instead of printing a timestamp to subtract", async () => {

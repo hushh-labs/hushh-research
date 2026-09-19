@@ -14,6 +14,8 @@
 import { Clock, Loader2, Lock, Navigation } from "@/components/icons";
 
 import { LiveMap } from "@/components/one-location/live-map";
+import { useAuth } from "@/hooks/use-auth";
+import { useEffectiveAvatarUrl } from "@/hooks/use-effective-avatar-url";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 import type { PlainLocationPoint } from "@/lib/one-location/types";
 import { cn } from "@/lib/utils";
@@ -145,6 +147,10 @@ export function SharingStatusCard({
 }) {
   const markers = people.slice(0, MARKER_SLOTS.length);
   const showLive = live ?? isSharing;
+  // Self backdrop: the owner's face (photo or initials fallback), never the
+  // stock pin. `point` here is documented as YOUR live location.
+  const { user } = useAuth();
+  const selfAvatarUrl = useEffectiveAvatarUrl();
 
   return (
     <div className="relative overflow-hidden rounded-[20px] bg-white shadow-[0_4px_16px_rgba(0,0,0,0.06)] dark:bg-[color:var(--app-primary-surface)] dark:shadow-none dark:ring-1 dark:ring-inset dark:ring-[color:var(--app-separator)]">
@@ -152,7 +158,12 @@ export function SharingStatusCard({
         {/* Backdrop: the real live map when we have a fix, else a stylised map. */}
         {point ? (
           <div className="pointer-events-none absolute inset-0">
-            <LiveMap point={point} className="h-full w-full" />
+            <LiveMap
+              point={point}
+              className="h-full w-full"
+              avatarUrl={selfAvatarUrl}
+              displayName={user?.displayName ?? null}
+            />
           </div>
         ) : (
           <MapBackdrop />

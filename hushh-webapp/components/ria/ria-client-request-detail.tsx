@@ -103,7 +103,7 @@ export function RiaClientRequestDetail({
   if (riaCapability === "setup") {
     return (
       <RiaCompatibilityState
-        title="Complete RIA onboarding"
+        title="Complete Advisor onboarding"
         description="Finish onboarding before opening request detail routes."
         nativeTest={{
           routeId: "/ria/clients/[userId]/requests/[requestId]",

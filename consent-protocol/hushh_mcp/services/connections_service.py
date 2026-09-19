@@ -243,6 +243,25 @@ def _default_resolution_notifier(
     )
 
 
+def _default_disconnect_notifier(
+    *,
+    recipient_user_id: str,
+    counterpart_user_id: str,
+    actor_user_id: str,
+    connection_id: str,
+    revocation_id: str,
+) -> None:
+    from hushh_mcp.services.push_notifications import send_connection_removed_push
+
+    send_connection_removed_push(
+        recipient_user_id,
+        counterpart_user_id,
+        actor_user_id=actor_user_id,
+        connection_id=connection_id,
+        revocation_id=revocation_id,
+    )
+
+
 def _default_scope_entries_lookup(owner_user_id: str) -> list[dict[str, Any]]:
     """Read discoverable scope metadata only; never materialized information."""
     from hushh_mcp.consent.scope_generator import (
@@ -271,6 +290,7 @@ class ConnectionsService:
         notifier: Callable[..., Any] | None = None,
         cancel_notifier: Callable[..., Any] | None = None,
         resolution_notifier: Callable[..., Any] | None = None,
+        disconnect_notifier: Callable[..., Any] | None = None,
     ) -> None:
         self._directory_lookup = directory_lookup or _default_directory_lookup
         self._directory_search = directory_search or _default_directory_search
@@ -282,6 +302,9 @@ class ConnectionsService:
         )
         self._resolution_notifier = (
             resolution_notifier if resolution_notifier is not None else _default_resolution_notifier
+        )
+        self._disconnect_notifier = (
+            disconnect_notifier if disconnect_notifier is not None else _default_disconnect_notifier
         )
 
     # ---- DB seam ----
@@ -1725,6 +1748,30 @@ class ConnectionsService:
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("connections.notify_resolved_failed error=%s", exc)
+
+    def _notify_connection_removed(
+        self,
+        recipient_user_id: str,
+        counterpart_user_id: str,
+        *,
+        actor_user_id: str,
+        connection_id: str,
+        revocation_id: str,
+    ) -> None:
+        """Wake one side after disconnect commits; notifier failures are inert."""
+        notifier = getattr(self, "_disconnect_notifier", None)
+        if notifier is None:
+            return
+        try:
+            notifier(
+                recipient_user_id=recipient_user_id,
+                counterpart_user_id=counterpart_user_id,
+                actor_user_id=actor_user_id,
+                connection_id=connection_id,
+                revocation_id=revocation_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("connections.notify_removed_failed error=%s", exc)
 
     def _load_request(self, request_id: str, *, for_update: bool = False) -> dict[str, Any]:
         lock_clause = " FOR UPDATE" if for_update else ""
@@ -3897,6 +3944,7 @@ class ConnectionsService:
 
     def remove_connection(self, user_id: str, connection_id: str) -> dict[str, Any]:
         user_id = (user_id or "").strip()
+        removed_pair: tuple[str, str, str, str] | None = None
         with self._transaction():
             # Resolve the immutable pair without taking a row lock, then share
             # the same deterministic per-user graph gate as contact sync,
@@ -4038,4 +4086,23 @@ class ConnectionsService:
                         event_type="connection_revoked",
                         source_row_id=connection_source_id,
                     )
+                removed_pair = (
+                    user_a_id,
+                    user_b_id,
+                    str(conn.get("id") or connection_id),
+                    str(conn.get("revoked_at") or ""),
+                )
+        if removed_pair:
+            user_a_id, user_b_id, removed_connection_id, revocation_id = removed_pair
+            for recipient, counterpart in (
+                (user_a_id, user_b_id),
+                (user_b_id, user_a_id),
+            ):
+                self._notify_connection_removed(
+                    recipient,
+                    counterpart,
+                    actor_user_id=user_id,
+                    connection_id=removed_connection_id,
+                    revocation_id=revocation_id,
+                )
         return {"removed": 1 if conn else 0}

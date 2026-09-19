@@ -27,6 +27,7 @@ from hushh_mcp.one_voice.config import OneVoiceLiveConfig
 from hushh_mcp.one_voice.conversations import Conversation, ConversationNotOwned, ConversationStore
 from hushh_mcp.one_voice.live_client import LiveEvent, LiveSessionPort
 from hushh_mcp.one_voice.pending_actions import (
+    PendingAction,
     PendingActionConflict,
     PendingActionStore,
 )
@@ -56,7 +57,9 @@ _NOT_SUCCESS = {
 # never bumps the rejected counter; the settled result does one or the other.
 # ``scope_review_required`` is the same shape for a confirmed accept: the
 # review screen is open and nothing has been accepted yet.
-_AWAITING_DEVICE = frozenset({protocol.LOCATION_UPDATES_PENDING, "scope_review_required"})
+_AWAITING_DEVICE = frozenset(
+    {protocol.LOCATION_UPDATES_PENDING, "scope_review_required", protocol.SOS_GRANTS_CREATED}
+)
 
 
 class Transport(Protocol):
@@ -605,7 +608,13 @@ class VoiceSession:
                 "result": public,
             }
         )
-        await self._send(protocol.voice_state("complete" if status == "executed" else "listening"))
+        # An awaiting step settles the card but not the turn: "complete" only
+        # once the device outcome is in and verified.
+        await self._send(
+            protocol.voice_state(
+                "complete" if status == "executed" and not awaiting else "listening"
+            )
+        )
 
     # -- client steps --------------------------------------------------------
 
@@ -622,6 +631,9 @@ class VoiceSession:
         if step.get("kind") == "open_request_review":
             await self._settle_request_review_step(step, frame)
             return
+        if step.get("purpose") == "sos" and step.get("kind") == "publish_location_envelopes":
+            await self._settle_sos_publish_step(step, frame)
+            return
         event: dict[str, Any] = {
             "kind": "client_step",
             "step": step.get("kind"),
@@ -629,26 +641,50 @@ class VoiceSession:
             "status": frame.status,
             "payload": frame.payload,
         }
-        if step.get("purpose") == "sos" and step.get("kind") == "publish_location_envelopes":
-            # "sent" is decided by the server from the database, never by the client claim.
-            outcome = await self.executor.call(
-                self.ctx,
-                "report_save_my_soul_delivery",
-                {"grant_ids": list(step.get("grant_ids") or [])},
-            )
-            event["verification"] = outcome.result.public()
-            await self._send(
-                protocol.tool_result(
-                    call_id=None,
-                    tool="report_save_my_soul_delivery",
-                    result_public=outcome.result.public(),
-                )
-            )
-        elif step.get("kind") == "publish_location_envelopes":
+        if step.get("kind") == "publish_location_envelopes":
             event["verification"] = await self._verify_grants_published(
                 list(step.get("grant_ids") or [])
             )
         await self._inject_event(event)
+
+    async def _settle_sos_publish_step(
+        self, step: dict[str, Any], frame: protocol.ClientStepResultFrame
+    ) -> None:
+        """Final outcome of a Save My Soul alert this session armed.
+
+        The device only says whether its publish step ran; whether anyone was
+        reached is decided by ``report_save_my_soul_delivery`` from the stored
+        envelopes on the exact grant set the trigger armed (the step record
+        carries it, so the model cannot narrow it). The raw client payload
+        never reaches the model. A late or failed report still verifies: an
+        envelope may have been stored even though the device's reply was lost.
+        The trigger card resolves a second time with the verified report so
+        the client can replace "armed" with the real outcome.
+        """
+        grant_ids = [str(gid) for gid in (step.get("grant_ids") or []) if gid]
+        outcome = await self.executor.call(
+            self.ctx, "report_save_my_soul_delivery", {"grant_ids": grant_ids}
+        )
+        report = outcome.result
+        public = report.public()
+        public["device_step"] = {
+            "status": frame.status,
+            "late": self.clock() > float(step.get("expires_at") or 0),
+        }
+        report = report.model_copy(update={"device_step": public["device_step"]})
+        pending = step.get("pending")
+        settled = ToolCallOutcome(
+            result=report,
+            spec=outcome.spec,
+            pending=pending if isinstance(pending, PendingAction) else None,
+        )
+        ok = report.status in {"sos_sent", "sos_partial"}
+        await self._after_execution(
+            settled, source="device", ok=ok, call_id=str(step.get("call_id") or "") or None
+        )
+        if ok:
+            self.turn.ok_results += 1
+            self._last_turn_ok = True
 
     async def _settle_location_updates_step(
         self, step: dict[str, Any], frame: protocol.ClientStepResultFrame
@@ -931,6 +967,9 @@ class VoiceSession:
                 "tool": outcome.spec.name if outcome.spec else None,
                 "spec": outcome.spec,
                 "call_id": call_id,
+                # The card this step belongs to, so its settlement can resolve
+                # the same card again with the verified outcome.
+                "pending": outcome.pending,
                 "requested_at": requested_at,
                 "expires_at": requested_at + timeout_s + CLIENT_STEP_GRACE_SECONDS,
             }

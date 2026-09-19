@@ -40,7 +40,7 @@ The authored segmentation, intent, merge, structure, and One instructions live i
 their `consent-protocol/hushh_mcp/agents/*/agent.yaml` manifests. Segmentation carries
 source input as JSON; both ADK and direct-client execution use the manifest's system
 instruction. Exact source validation remains mandatory. Context transfers must
-preserve the subject, historical/current/planned status, negation, and uncertainty.
+preserve the subject, its historical, current or intended status, negation, and uncertainty.
 Unknown-information lists are not affirmative facts, and embedded instructions
 cannot authorize sharing or mutations. Repetition is not a reason to create
 duplicate memories.

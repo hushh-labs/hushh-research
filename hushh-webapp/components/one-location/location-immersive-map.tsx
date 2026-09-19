@@ -854,7 +854,13 @@ export function LocationImmersiveMap({
   }, [isCheckInSurface, nearbyCheckInAvailable, router, searchParams]);
 
   const openNearbyCheckIn = useCallback(() => {
-    if (!nearbyCheckInAvailable || !rendererReady || demoMode) {
+    // Check-in's own route opens its sheet as the screen itself: the map
+    // behind is context, not the gate. Requiring renderer consent here is what
+    // held the whole flow behind Your Map's Continue on a fresh session.
+    if (!nearbyCheckInAvailable || demoMode) {
+      return;
+    }
+    if (!isCheckInSurface && !rendererReady) {
       return;
     }
     // Already on the flow's own route: re-opening is a state change, not a
@@ -1567,11 +1573,16 @@ export function LocationImmersiveMap({
 
   /**
    * The owner's own position is drawn as their avatar in HTML, so the renderer
-   * must not also draw a pin under it — two markers on one coordinate.
+   * must never draw a pin under it -- two markers on one coordinate, and the
+   * generic pin flashes on first paint / for a beat on every cold start while
+   * the camera has not reported yet.
    *
-   * Three flags, none of which changes more than once per screen, so this does
-   * not churn the marker bridge: `rendererReady` is the consent gate,
-   * `cameraReported` is whether anything can be projected at all, and
+   * The self marker stays in `visibleMarkers` (initial framing, people tray,
+   * search index all count it) but is always filtered out of `rendererMarkers`
+   * and `nameLabels` below: before the avatar can project there is briefly NO
+   * self marker rather than the WRONG one. The HTML avatar itself carries the
+   * initials fallback, so it still reads as a face the moment it appears.
+   *
    * Both Your Map and Check-in use the same owner marker. Check-in still keeps
    * its place pin, connector and place-color key; only the generic blue
    * self-location pin is replaced by the owner's avatar.
@@ -1579,20 +1590,13 @@ export function LocationImmersiveMap({
    * Check-in still answers "how far am I from the place I am checking in to?"
    * with the place pin, connector and place-color key. Its owner key is now the
    * avatar itself, so the legend and map agree about the owner's marker.
-   *
-   * Everything else about the self marker is unchanged — it stays in
-   * `visibleMarkers`, so initial framing, the people tray and the search index
-   * still count it.
    */
   const selfPinDrawnAsAvatar = rendererReady && cameraReported;
 
-  /** What the renderer is asked to draw: everything except the owner's own pin. */
+  /** What the renderer is asked to draw: everything except the owner's own pin -- always. */
   const rendererMarkers = useMemo(
-    () =>
-      selfPinDrawnAsAvatar
-        ? visibleMarkers.filter((marker) => marker.kind !== "self")
-        : visibleMarkers,
-    [selfPinDrawnAsAvatar, visibleMarkers],
+    () => visibleMarkers.filter((marker) => marker.kind !== "self"),
+    [visibleMarkers],
   );
 
   /**
@@ -3099,9 +3103,20 @@ export function LocationImmersiveMap({
               aria-hidden
             />
           </span>
-          <p className="relative text-sm font-medium text-muted-foreground">
-            Loading your map…
-          </p>
+          {isCheckInSurface ? (
+            <>
+              <p className="relative text-[17px] font-semibold leading-[22px] text-foreground">
+                Checking you in…
+              </p>
+              <p className="relative -mt-1.5 text-sm font-normal leading-5 text-muted-foreground">
+                Getting the map and nearby places ready.
+              </p>
+            </>
+          ) : (
+            <p className="relative text-sm font-medium text-muted-foreground">
+              Loading your map…
+            </p>
+          )}
         </div>
       ) : null}
       {/*
@@ -3111,7 +3126,9 @@ export function LocationImmersiveMap({
         control, instead of offering a Continue that leads back to the same
         blank canvas.
       */}
-      {!rendererReady && status !== "unavailable" ? (
+      {!rendererReady &&
+      !isCheckInSurface &&
+      status !== "unavailable" ? (
         <section
           className={MAP_CONSENT_PANEL_CLASSNAME}
           data-testid="one-location-map-disclosure"
@@ -3886,7 +3903,9 @@ export function LocationImmersiveMap({
           </div>
         </section>
       ) : null}
-      {rendererReady && nearbyCheckInAvailable && !demoMode ? (
+      {(isCheckInSurface ? true : rendererReady) &&
+      nearbyCheckInAvailable &&
+      !demoMode ? (
         <NearbyCheckInSheet
           open={nearbyCheckInOpen}
           ownerId={auth.userId}

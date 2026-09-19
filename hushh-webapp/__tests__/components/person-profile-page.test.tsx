@@ -368,7 +368,9 @@ describe("PersonProfilePage request catalog tools", () => {
   it("distinguishes an unavailable catalog from an empty one and allows retry", async () => {
     mocks.getViewer.mockRejectedValueOnce(new Error("temporary failure"));
     render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
-    expect(await screen.findByRole("alert")).toHaveTextContent("couldn’t check available information");
+    // The retry card carries the shipped copy ("We couldn't load your connection
+    // with <name> right now") and stays identity-scoped to this viewer.
+    expect(await screen.findByRole("alert")).toHaveTextContent("couldn’t load your connection");
     expect(screen.queryByRole("heading", { name: "Available to request" })).not.toBeInTheDocument();
     mocks.getViewer.mockResolvedValue(viewerProfile());
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));

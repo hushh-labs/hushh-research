@@ -13,7 +13,7 @@
 /** Capability titles, mirrored from the `ONE_CAPABILITIES` catalog. */
 const CAPABILITY_TITLES: Record<string, string> = {
   finance: "Finance",
-  ria: "RIA",
+  ria: "Advisor",
   gmail: "Gmail",
   email: "KYC",
   location: "Location",

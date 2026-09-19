@@ -151,7 +151,21 @@ import { AppleIcon, GoogleIcon } from "@/lib/morphy-ux/social-icons";
 import { shouldUseGoogleBrandMark } from "@/lib/profile/profile-auth-provider-presentation";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import { cn } from "@/lib/utils";
+import { DisplayNameEditor } from "@/components/profile/display-name-editor";
 import { AccountService } from "@/lib/services/account-service";
+import {
+  AccountResetNotConfirmedError,
+  classifyDeletionError,
+  lifecycleOutcomeToVoice,
+  marketplaceOutcomeToVoice,
+  resetErrorMessage,
+  resolveMarketplaceTarget,
+  resolveResetOutcome,
+  supportOutcomeToVoice,
+  type LifecycleOutcome,
+  type MarketplaceOutcome,
+  type SupportSubmitOutcome,
+} from "@/lib/profile/profile-action-outcomes";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import {
   setOnboardingFlowActiveCookie,
@@ -603,6 +617,7 @@ function ProfilePageContent({
   const [isDeleting, setIsDeleting] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
+  const [editingDisplayName, setEditingDisplayName] = useState(false);
   const [pendingProfileTarget, setPendingProfileTarget] = useState<{
     panel: ProfilePanel;
     detail: ProfileDetail | null;
@@ -1508,8 +1523,11 @@ function ProfilePageContent({
     }
   };
 
-  const handleDeleteAccount = async () => {
-    if (!user) return;
+  // Returns what actually happened so the voice wrapper narrates the same
+  // outcome the screen shows. "unknown" (a lost response after a possible
+  // commit) is kept distinct from "failed"; neither is ever spoken as deleted.
+  const handleDeleteAccount = async (): Promise<LifecycleOutcome> => {
+    if (!user) return "auth_failed";
 
     setIsDeleting(true);
 
@@ -1527,7 +1545,7 @@ function ProfilePageContent({
       morphyToast.error("Failed to delete account. Please try again.");
       setIsDeleting(false);
       setShowDeleteConfirm(false);
-      return;
+      return "auth_failed";
     }
 
     if (resolution.kind === "needs_unlock") {
@@ -1538,7 +1556,7 @@ function ProfilePageContent({
       setShowDeleteConfirm(false);
       setVaultUnlockReason("delete_account");
       setShowVaultUnlock(true);
-      return;
+      return "needs_unlock";
     }
 
     setHasVault(resolution.hasVault);
@@ -1575,8 +1593,10 @@ function ProfilePageContent({
         expectedUserId: user.uid,
         skipFcmCleanup: true,
       });
+      return "deleted";
     } catch (error) {
       console.error("Delete account error:", error);
+      return classifyDeletionError(error);
     } finally {
       setIsDeleting(false);
       setShowDeleteConfirm(false);
@@ -1613,8 +1633,10 @@ function ProfilePageContent({
     }
   };
 
-  const handleResetAccount = async () => {
-    if (!user) return;
+  const handleResetAccount = async (): Promise<
+    "reset" | "not_reset" | "unknown" | "needs_unlock" | "auth_failed"
+  > => {
+    if (!user) return "auth_failed";
 
     setIsResetting(true);
 
@@ -1629,7 +1651,7 @@ function ProfilePageContent({
       morphyToast.error("Failed to reset account. Please try again.");
       setIsResetting(false);
       setShowResetConfirm(false);
-      return;
+      return "auth_failed";
     }
 
     if (resolution.kind === "needs_unlock") {
@@ -1638,18 +1660,32 @@ function ProfilePageContent({
       setShowResetConfirm(false);
       setVaultUnlockReason("reset_account");
       setShowVaultUnlock(true);
-      return;
+      return "needs_unlock";
     }
 
     setHasVault(resolution.hasVault);
 
     // Branded actionable loading: keep the toast in its loading state until the
     // reset has been acknowledged and local state has been cleared.
+    //
+    // Success cleanup runs only on a reset the backend actually confirmed
+    // (`success && account_reset`). A resolved promise whose flags say
+    // otherwise -- or say nothing -- is not a reset, and a lost response is
+    // never permission to reset again.
+    // `committed` is set the moment the backend confirms, so a failure in the
+    // local cleanup that follows is reported as a committed reset with a
+    // failed refresh -- not as an unknown backend outcome.
+    const settlement = { committed: false };
     try {
       await morphyToast
         .promise(
           (async () => {
-            await AccountService.resetAccount(resolution.token);
+            const result = await AccountService.resetAccount(resolution.token);
+            const resetOutcome = resolveResetOutcome(result);
+            if (resetOutcome !== "reset") {
+              throw new AccountResetNotConfirmedError(resetOutcome);
+            }
+            settlement.committed = true;
 
             CacheSyncService.onAccountDeleted(user.uid);
             await UserLocalStateService.clearForUser(user.uid);
@@ -1663,7 +1699,7 @@ function ProfilePageContent({
           {
             loading: "Resetting your account...",
             success: "Account reset. Restarting onboarding...",
-            error: "Failed to reset account. Please try again.",
+            error: (error: unknown) => resetErrorMessage(error),
             variant: "destructive",
           },
         )
@@ -1671,8 +1707,11 @@ function ProfilePageContent({
 
       await new Promise((resolve) => setTimeout(resolve, 1200));
       router.replace(ROUTES.ONE_SETUP);
+      return "reset";
     } catch (error) {
       console.error("Reset account error:", error);
+      if (error instanceof AccountResetNotConfirmedError) return error.outcome;
+      return settlement.committed ? "reset" : "unknown";
     } finally {
       setIsResetting(false);
       setShowResetConfirm(false);
@@ -1729,29 +1768,37 @@ function ProfilePageContent({
     }
   };
 
-  const handleMarketplaceOptInToggle = async () => {
-    if (!user) return;
+  // `target` is the reviewed state a voice confirmation carries; the switch
+  // passes nothing and flips. The stored value comes back from the setter and
+  // is what the UI and the voice wrapper both report.
+  const handleMarketplaceOptInToggle = async (
+    target?: boolean,
+  ): Promise<MarketplaceOutcome> => {
+    if (!user) return { kind: "no_user" };
     try {
       setSavingMarketplaceOptIn(true);
       const idToken = await user.getIdToken();
       const result = await RiaService.setInvestorMarketplaceOptIn(
         idToken,
-        !marketplaceOptIn,
+        target ?? !marketplaceOptIn,
       );
-      setMarketplaceOptIn(Boolean(result.investor_marketplace_opt_in));
+      const stored = Boolean(result.investor_marketplace_opt_in);
+      setMarketplaceOptIn(stored);
       CacheSyncService.onMarketplaceVisibilityChanged(user.uid);
       await refreshPersonaState({ force: true });
       toast.success(
-        result.investor_marketplace_opt_in
+        stored
           ? "Investor marketplace profile is now discoverable."
           : "Investor marketplace profile is now hidden.",
       );
+      return { kind: "set", value: stored };
     } catch (error) {
       console.error(
         "[ProfilePage] Failed to update marketplace opt-in:",
         error,
       );
       toast.error("Couldn't update marketplace visibility.");
+      return { kind: "failed" };
     } finally {
       setSavingMarketplaceOptIn(false);
     }
@@ -1784,8 +1831,11 @@ function ProfilePageContent({
     updateProfileView({ panel, detail }, "push");
   }
 
-  async function submitSupportMessage(messageOverride?: string) {
-    if (!user || sendingSupportMessage) return;
+  async function submitSupportMessage(
+    messageOverride?: string,
+  ): Promise<SupportSubmitOutcome> {
+    if (!user) return { kind: "no_user" };
+    if (sendingSupportMessage) return { kind: "busy" };
 
     // Voice dictates the message rather than typing it into the composer, and
     // React state set in the same tick would not be readable here. Every
@@ -1799,7 +1849,7 @@ function ProfilePageContent({
       setSupportMessageError("Add a few more details.");
       setSupportComposerState({ status: "editing" });
       supportMessageRef.current?.focus();
-      return;
+      return { kind: "too_short" };
     }
 
     if (
@@ -1810,7 +1860,7 @@ function ProfilePageContent({
       setSupportReplyEmailError("Enter a valid email.");
       setSupportComposerState({ status: "editing" });
       supportReplyEmailRef.current?.focus();
-      return;
+      return { kind: "invalid_reply_email" };
     }
 
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
@@ -1818,7 +1868,7 @@ function ProfilePageContent({
         status: "error",
         message: "You're offline. Reconnect to send your message.",
       });
-      return;
+      return { kind: "offline" };
     }
 
     setSupportMessageError(null);
@@ -1841,17 +1891,23 @@ function ProfilePageContent({
       });
 
       if (!result.accepted) {
-        throw new Error("Support message was not accepted.");
+        setSupportComposerState({
+          status: "error",
+          message: "We couldn't send your message. Try again.",
+        });
+        return { kind: "rejected" };
       }
 
       setSupportComposerState({ status: "sent", kind: supportKind });
       setSupportMessage("");
+      return { kind: "accepted" };
     } catch (error) {
       console.error("[ProfilePage] Failed to send support message:", error);
       setSupportComposerState({
         status: "error",
         message: "We couldn't send your message. Try again.",
       });
+      return { kind: "failed" };
     }
   }
 
@@ -2583,12 +2639,11 @@ function ProfilePageContent({
           },
         };
       }
-      void handleDeleteAccount();
-      return {
-        status: "started" as const,
-        summary:
-          "Starting account deletion. You may need to unlock your vault.",
-      };
+      // Awaited, not fired: the spoken outcome is what actually happened --
+      // deleted, needs unlock, blocked by an external resource, failed, or
+      // genuinely unknown. "started" was narrated as done.
+      const outcome = await handleDeleteAccount();
+      return lifecycleOutcomeToVoice(outcome);
     },
     { enabled: Boolean(user) },
   );
@@ -2600,16 +2655,11 @@ function ProfilePageContent({
       // setter. Wired directly, "make me discoverable" would HIDE someone who
       // already was. So a stated intent is honoured as a target state, and
       // only a bare "toggle" actually flips.
-      const raw = slots?.enabled;
-      const desired =
-        typeof raw === "boolean"
-          ? raw
-          : typeof raw === "string"
-            ? ["true", "on", "yes", "enabled"].includes(
-                raw.trim().toLowerCase(),
-              )
-            : null;
-      if (desired !== null && desired === marketplaceOptIn) {
+      const { target: desired, alreadyThere } = resolveMarketplaceTarget(
+        slots?.enabled,
+        marketplaceOptIn,
+      );
+      if (alreadyThere && desired !== null) {
         return {
           status: "succeeded" as const,
           summary: desired
@@ -2638,11 +2688,11 @@ function ProfilePageContent({
           },
         };
       }
-      void handleMarketplaceOptInToggle();
-      return {
-        status: "started" as const,
-        summary: "Updating your visibility.",
-      };
+      // The confirmation card carried the reviewed target; apply exactly that
+      // and report the stored value. A delayed tap must not invert the result
+      // because the switch moved in between.
+      const outcome = await handleMarketplaceOptInToggle(desired ?? undefined);
+      return marketplaceOutcomeToVoice(outcome);
     },
     { enabled: Boolean(user) },
   );
@@ -2661,8 +2711,10 @@ function ProfilePageContent({
             "Tell me a bit more about the problem and I will send it to support.",
         };
       }
-      await submitSupportMessage(message);
-      return { status: "succeeded" as const, summary: "Sent that to support." };
+      // Only the real service's accepted result is "sent"; an early return or
+      // a caught error names why nothing went out and leaves the draft.
+      const outcome = await submitSupportMessage(message);
+      return supportOutcomeToVoice(outcome);
     },
     { enabled: Boolean(user) },
   );
@@ -3390,7 +3442,25 @@ function ProfilePageContent({
           iconTone="blue"
           title="Display name"
           description={user.displayName || "Not available"}
+          trailing={
+            <span className="profile-account-inline-action">
+              {editingDisplayName ? "Close" : "Edit"}
+            </span>
+          }
+          onClick={() => setEditingDisplayName((open) => !open)}
         />
+        {editingDisplayName ? (
+          <div
+            className="px-4 pb-3"
+            data-testid="profile-account-display-name-editor"
+          >
+            <DisplayNameEditor
+              user={user}
+              onSaved={() => setEditingDisplayName(false)}
+              onCancel={() => setEditingDisplayName(false)}
+            />
+          </div>
+        ) : null}
         <SettingsRow
           icon={Mail}
           iconTone="orange"

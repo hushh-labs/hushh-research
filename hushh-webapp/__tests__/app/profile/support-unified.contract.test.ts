@@ -59,3 +59,36 @@ describe("Profile Help & feedback unified support flow", () => {
     expect(source).toContain("Replies go to");
   });
 });
+
+describe("Profile support voice settlement", () => {
+  // Graph observation 6: the local voice wrapper returned "succeeded" after
+  // submitSupportMessage early-returned on validation/offline or caught an
+  // error. Only the service's accepted result may be narrated as sent.
+  const source = readFileSync(
+    join(process.cwd(), "components/profile/profile-workspace-page.tsx"),
+    "utf8",
+  );
+
+  it("submitSupportMessage returns a typed outcome from every exit", () => {
+    expect(source).toContain(
+      "async function submitSupportMessage(\n    messageOverride?: string,\n  ): Promise<SupportSubmitOutcome>",
+    );
+    for (const kind of ["no_user", "busy", "too_short", "invalid_reply_email", "offline", "rejected", "accepted", "failed"]) {
+      expect(source).toContain(`return { kind: "${kind}" };`);
+    }
+    // No bare early return remains inside the function body.
+    const body = source.slice(
+      source.indexOf("async function submitSupportMessage("),
+      source.indexOf("async function handleDisconnectGmail()"),
+    );
+    expect(body).not.toMatch(/\n\s*return;\n/);
+  });
+
+  it("the voice wrapper narrates that outcome, never an unconditional 'sent'", () => {
+    expect(source).toContain("const outcome = await submitSupportMessage(message);");
+    expect(source).toContain("return supportOutcomeToVoice(outcome);");
+    expect(source).not.toContain(
+      'await submitSupportMessage(message);\n      return { status: "succeeded" as const, summary: "Sent that to support." };',
+    );
+  });
+});

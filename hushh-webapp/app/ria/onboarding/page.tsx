@@ -147,8 +147,8 @@ function resolveRiaSubmitErrorMessage(
     error instanceof Error ? error.message : "Failed to submit onboarding.";
   if (/ria intelligence verification provider unavailable/i.test(message)) {
     return options.localVerificationBypassEnabled
-      ? "Live RIA verification is unavailable. For UAT or fake-license testing, go back to the licence step and use Bypass for dev/UAT."
-      : "Live RIA verification is unavailable. Please try again later with a regulator-backed CRD or licence.";
+      ? "Live advisor verification is unavailable. For UAT or fake-license testing, go back to the licence step and use Bypass for dev/UAT."
+      : "Live advisor verification is unavailable. Please try again later with a regulator-backed CRD or licence.";
   }
   if (/verification provider unavailable/i.test(message)) {
     return options.localVerificationBypassEnabled
@@ -1005,7 +1005,7 @@ export default function RiaOnboardingPage({
       if (advisoryOutcome === "verified" || advisoryOutcome === "active") {
         await RiaOnboardingDraftLocalService.clear(user.uid);
         setShouldPersistDraft(false);
-        toast.success("Credentials verified. Your advisor profile is now live in the RIA directory.");
+        toast.success("Credentials verified. Your advisor profile is now live in the advisor directory.");
       } else if (advisoryOutcome === "rejected") {
         toast.error("Verification failed");
         setError(result.verification_message || "Verification was rejected.");
@@ -1120,7 +1120,7 @@ export default function RiaOnboardingPage({
     if (!user) {
       return (
         <div className="rounded-[var(--ria-card-radius)] border border-dashed px-4 py-6 text-sm text-muted-foreground">
-          Sign in to continue the RIA onboarding flow.
+          Sign in to continue the advisor onboarding flow.
         </div>
       );
     }
@@ -1128,7 +1128,7 @@ export default function RiaOnboardingPage({
     if (iamUnavailable) {
       return (
         <div className="rounded-[var(--ria-card-radius)] border border-[color:var(--ria-warning-border)] bg-[color:var(--ria-warning-bg)] px-4 py-6 text-sm text-foreground">
-          RIA onboarding is unavailable in this environment. The backend IAM
+          Advisor onboarding is unavailable in this environment. The backend IAM
           schema has not been activated yet.
         </div>
       );
@@ -1294,6 +1294,7 @@ export default function RiaOnboardingPage({
             onSkip={setupMode && !advisoryAccessReady ? onSetupSkip : undefined}
             allowInvalidPress={currentStep.id === "services"}
             heroImage={RIA_ONBOARDING_STEP_IMAGES[currentStep.id]}
+            wideTitle={currentStep.id === "welcome"}
             onBack={handleBack}
             onContinue={handleContinue}
           >

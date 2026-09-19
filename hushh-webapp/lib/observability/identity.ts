@@ -40,6 +40,17 @@ import { resolveAnalyticsMeasurementId } from "@/lib/observability/env";
 const USER_ID_SALT = "hushh-observability-v1";
 
 let lastAppliedUserId: string | null | undefined;
+let lastAppliedUserInfo: AnalyticsUserInfo | null | undefined;
+
+export function getCurrentAnalyticsUserContext(): {
+  userId: string | null;
+  userInfo: AnalyticsUserInfo | null;
+} {
+  return {
+    userId: lastAppliedUserId || null,
+    userInfo: lastAppliedUserInfo || null,
+  };
+}
 
 function toHex(buffer: ArrayBuffer): string {
   return Array.from(new Uint8Array(buffer))
@@ -83,7 +94,13 @@ async function applyNativeUserId(userId: string | null): Promise<boolean> {
   }
 }
 
-function applyWebUserId(userId: string | null): boolean {
+export interface AnalyticsUserInfo {
+  email?: string | null;
+  displayName?: string | null;
+  phoneNumber?: string | null;
+}
+
+function applyWebUserId(userId: string | null, userInfo?: AnalyticsUserInfo | null): boolean {
   if (typeof window === "undefined" || typeof window.gtag !== "function") {
     // gtag is injected `afterInteractive`, so an auth state restored during
     // hydration arrives before it exists. Reporting failure here is what lets
@@ -97,37 +114,14 @@ function applyWebUserId(userId: string | null): boolean {
   const measurementId = resolveAnalyticsMeasurementId();
   if (!measurementId) return false;
 
-  // `set`, not a second `config`.
-  //
-  // This used to re-`config` the measurement id, on the reasoning that it
-  // would scope the identity to that id the way the adapter scopes events
-  // with `send_to`. Sound reasoning, but the runtime does not honour it: a
-  // `config` issued after the stream is already initialised does not attach
-  // `user_id` to subsequent hits, and it fails silently -- no error, no
-  // exception, and this function returned true, so the id was memoised as
-  // applied and never retried.
-  //
-  // Measured on the live production page with the transport intercepted:
-  //
-  //   gtag('config', id, { user_id })  ->  next event sent  uid absent
-  //   gtag('set', { user_id })         ->  next event sent  uid present
-  //
-  // Which matches what we saw in BigQuery: 67 completed web sign-ins over a
-  // month and not one `user_id`, while iOS -- which goes through Firebase
-  // Analytics rather than gtag -- bound 16 of 17.
-  //
-  // `set` is page-global rather than scoped to one measurement id. That is
-  // fine while the page configures exactly one; if a second property is ever
-  // added, this needs revisiting.
-  //
-  // `send_page_view` is deliberately gone: it was only needed because a
-  // repeated `config` re-applies gtag's default of true and would have fired
-  // a spurious page view on every sign-in. `set` does not re-initialise the
-  // stream, so that hazard disappears with it.
-  //
-  // Guarded because this is third-party code called from the auth state
-  // handler. Analytics identity is never allowed to disturb a sign-in.
   try {
+    const userProps = userId && userInfo ? {
+      email: userInfo.email || null,
+      user_email: userInfo.email || null,
+      display_name: userInfo.displayName || null,
+      phone_number: userInfo.phoneNumber || null,
+    } : null;
+
     (
       window.gtag as unknown as (
         command: string,
@@ -139,7 +133,27 @@ function applyWebUserId(userId: string | null): boolean {
       // attribute the next person's events to them. On a shared family device
       // that is exactly the wrong outcome.
       user_id: userId,
+      ...(userProps ? {
+        user_properties: userProps,
+        email: userInfo?.email || null,
+        user_email: userInfo?.email || null,
+        display_name: userInfo?.displayName || null,
+        phone_number: userInfo?.phoneNumber || null,
+      } : {}),
     });
+
+    if (userProps) {
+      try {
+        (
+          window.gtag as unknown as (
+            command: string,
+            subcommand: string,
+            params: Record<string, unknown>
+          ) => void
+        )("set", "user_properties", userProps);
+      } catch {}
+    }
+
     return true;
   } catch {
     return false;
@@ -155,18 +169,36 @@ function applyWebUserId(userId: string | null): boolean {
  * deliberately not remembered, so the next auth event retries it.
  */
 export async function setObservabilityUserId(
-  firebaseUid: string | null
+  firebaseUid: string | null,
+  userInfo?: AnalyticsUserInfo | null
 ): Promise<void> {
   const userId = firebaseUid ? await resolveAnalyticsUserId(firebaseUid) : null;
-  if (userId === lastAppliedUserId) return;
+  if (userId === lastAppliedUserId && !firebaseUid) return;
 
   const applied = Capacitor.isNativePlatform()
     ? await applyNativeUserId(userId)
-    : applyWebUserId(userId);
+    : applyWebUserId(userId, userInfo);
 
   // Only memoize what actually landed. Memoizing first meant a page where gtag
   // had not yet loaded bound nothing and then short-circuited forever, which
   // made cross-surface stitching -- the entire reason this file exists -- a
   // no-op on web for anyone already signed in at load.
-  if (applied) lastAppliedUserId = userId;
+  if (applied) {
+    lastAppliedUserId = userId;
+    lastAppliedUserInfo = userInfo;
+  } else if (!Capacitor.isNativePlatform() && userId) {
+    // Retry on web if gtag script is still loading asynchronously after hydration
+    let attempts = 0;
+    const interval = setInterval(() => {
+      attempts += 1;
+      const ok = applyWebUserId(userId, userInfo);
+      if (ok) {
+        lastAppliedUserId = userId;
+        lastAppliedUserInfo = userInfo;
+        clearInterval(interval);
+      } else if (attempts >= 10) {
+        clearInterval(interval);
+      }
+    }, 1000);
+  }
 }

@@ -16,6 +16,7 @@ import { toast } from "sonner";
 
 import { SaveLocationModal } from "@/components/one-location/onboarding/save-location-modal";
 import type { PickedLocation } from "@/components/one-location/onboarding/location-picker-map";
+import { SectionLabel } from "@/components/app-ui/typography";
 import { GOOGLE_MAPS_RENDERER_CONSENT_VERSION } from "@/lib/one-location/map-renderer-consent";
 import { useAuth } from "@/lib/firebase/auth-context";
 import {
@@ -593,15 +594,18 @@ export function SavedLocationsSection() {
         className="w-full min-w-0"
         data-testid="settings-saved-locations"
       >
-        <div className="mb-2 flex items-baseline justify-between gap-3 px-[6px]">
-          <p className="text-[13px] font-normal leading-[18px] text-[color:var(--app-secondary-label)]">
+        <div className="mb-2 flex items-center justify-between gap-3 px-[6px]">
+          {/* Same SectionLabel as the Automatic approval / Safety sections
+              above: one hierarchy, one size. items-center keeps the action
+              vertically centered with the label at every width. */}
+          <SectionLabel as="p" compact>
             Places
-          </p>
+          </SectionLabel>
           <button
             type="button"
             onClick={() => void handleAdd()}
             disabled={!hasVaultAccess || locationControl.paused || capturing}
-            className="press-scale relative inline-flex h-auto min-h-0 items-center gap-1.5 rounded-none px-0 text-[15px] font-normal leading-5 text-[color:var(--app-accent)] transition-opacity after:absolute after:-inset-x-3 after:-inset-y-3 after:content-[''] disabled:cursor-not-allowed disabled:opacity-45"
+            className="press-scale relative inline-flex h-auto min-h-0 items-center gap-1.5 rounded-none px-0 text-[13px] font-semibold leading-[18px] text-[color:var(--app-accent)] transition-opacity after:absolute after:-inset-x-3 after:-inset-y-3 after:content-[''] disabled:cursor-not-allowed disabled:opacity-45"
           >
             {capturing ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
@@ -650,7 +654,7 @@ export function SavedLocationsSection() {
           ) : locations.length === 0 ? (
             <div className="flex min-h-[110px] items-center justify-center p-5 text-center sm:min-h-[119px]">
               <div>
-                <p className="text-[17px] font-semibold leading-[22px] tracking-[-0.3px] text-[color:var(--app-secondary-label)]">
+                <p className="text-[15px] font-semibold leading-5 text-[color:var(--app-secondary-label)]">
                   No places yet
                 </p>
                 <p className="sr-only">

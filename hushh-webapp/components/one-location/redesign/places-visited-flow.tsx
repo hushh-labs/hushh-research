@@ -51,6 +51,7 @@ import {
   removeVisitNote,
   type VisitNote,
 } from "@/lib/one-location/visit-notes";
+import { trackReviewHandoffOpened } from "@/lib/observability/location-events";
 import type { OneLocationPlaceRating } from "@/lib/one-location/types";
 import { isNative } from "@/lib/capacitor/platform";
 import { cn } from "@/lib/utils";
@@ -287,6 +288,7 @@ export function PlacesVisitedFlow() {
                         href={place.googleReviewUrl}
                         target={isNative() ? undefined : "_blank"}
                         rel="noopener noreferrer"
+                        onClick={() => trackReviewHandoffOpened()}
                         aria-label={`Review ${place.label} on Google`}
                       >
                         Google

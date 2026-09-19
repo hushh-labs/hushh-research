@@ -8,8 +8,15 @@
 /** Keeps the public-link controls together and aligned to the card's content edge. */
 export const PUBLIC_LINK_CONTROLS_CLASSNAME = "w-full space-y-3 sm:max-w-[280px]";
 
+/** Keeps the create-link form compact and centred inside the wider Links card. */
+export const PUBLIC_LINK_CREATE_FORM_CLASSNAME =
+  "flex flex-col items-stretch space-y-4 px-4 pb-4 pt-2";
+
+export const PUBLIC_LINK_DURATION_GROUP_CLASSNAME =
+  "mx-auto w-full max-w-[420px]";
+
 export const PUBLIC_LINK_PRIMARY_CTA_CLASSNAME =
-  "h-11 min-h-11 w-fit min-w-[9rem] rounded-[14px] px-5 text-[15px] font-semibold leading-5 bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90";
+  "mx-auto self-center h-11 min-h-11 w-fit min-w-[9rem] rounded-[14px] px-6 text-[15px] font-semibold leading-5 bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90";
 
 export const DURATION_EQUAL_BUTTONS_GROUP_CLASSNAME =
   "grid w-full grid-cols-3 gap-2";

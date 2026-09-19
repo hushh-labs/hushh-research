@@ -100,14 +100,15 @@ class PendingAction:
         )
 
     def public(self) -> dict[str, Any]:
-        """What the client may see. Never the receipt hash."""
+        """What the client may see. Never the receipt hash, never the server's
+        own prepared-effect snapshot (underscore keys in ``args``)."""
         return {
             "pending_action_id": self.id,
             "tool": self.tool_name,
             "gateway_action_id": self.gateway_action_id,
             "tier": self.tier,
             "summary": self.summary,
-            "args": self.args,
+            "args": {k: v for k, v in (self.args or {}).items() if not str(k).startswith("_")},
             "status": self.status,
             "shown_at": self.shown_at,
             "expires_at": self.expires_at,

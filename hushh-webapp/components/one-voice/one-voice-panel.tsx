@@ -14,9 +14,16 @@
  */
 
 import { useEffect, useState } from "react";
+import { Loader2 } from "@/components/icons";
 
-import type { ToolResultPublic } from "@/lib/one-voice/protocol";
+import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
+import {
+  SOS_PUBLISH_PURPOSE,
+  SOS_PUBLISH_STEP_KIND,
+  type ToolResultPublic,
+} from "@/lib/one-voice/protocol";
 import type {
+  ClientStepView,
   ToolTimelineItem,
   VoiceSessionController,
   VoiceSessionState,
@@ -127,6 +134,18 @@ export function selectPanelResult(state: VoiceSessionState): PanelResultSlot {
   return null;
 }
 
+/**
+ * The device is publishing a Save My Soul position for the relay: the
+ * `publish_location_envelopes` step with purpose `sos` is still outstanding.
+ * Shown from any route (the bridge that runs it is mounted app-wide), so a
+ * person who confirmed the card on Home sees that the position is on its way.
+ */
+export function isSosPublishStep(step: ClientStepView | null): boolean {
+  if (!step || step.kind !== SOS_PUBLISH_STEP_KIND) return false;
+  const payload = step.payload;
+  return payload.purpose === SOS_PUBLISH_PURPOSE || payload.sos === true;
+}
+
 /** True when there is anything worth opening the panel for. */
 export function panelHasContent(state: VoiceSessionState): boolean {
   return (
@@ -134,6 +153,7 @@ export function panelHasContent(state: VoiceSessionState): boolean {
     state.entities.length > 0 ||
     state.candidatePicker !== null ||
     state.pendingAction !== null ||
+    isSosPublishStep(state.clientStep) ||
     selectPanelResult(state) !== null ||
     state.error !== null
   );
@@ -151,6 +171,7 @@ export function OneVoicePanel({
   const picker = state.candidatePicker;
   const pending = state.pendingAction;
   const resultSlot = selectPanelResult(state);
+  const sosPublishing = isSosPublishStep(state.clientStep);
   const error = state.error;
 
   useEffect(() => {
@@ -241,6 +262,28 @@ export function OneVoicePanel({
           onConfirm={() => void confirm()}
           onCancel={() => controller.cancelPending()}
         />
+      ) : null}
+
+      {sosPublishing ? (
+        <div
+          data-testid="one-voice-sos-publishing"
+          role="status"
+          aria-live="polite"
+          className={cn(
+            "flex min-h-11 items-center gap-2.5 rounded-[var(--app-card-radius-standard,24px)] border border-[color:var(--app-separator)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-2.5",
+          )}
+        >
+          <Loader2
+            className={cn(
+              "h-4 w-4 shrink-0 animate-spin motion-reduce:animate-none",
+              roleClasses("action").glyph,
+            )}
+            aria-hidden
+          />
+          <span className="text-[13px] font-medium text-[color:var(--app-label)]">
+            Sending your position…
+          </span>
+        </div>
       ) : null}
 
       {resultSlot ? (

@@ -10,6 +10,7 @@ import os
 import re
 import secrets
 import uuid
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager, nullcontext
 from datetime import datetime, timedelta, timezone
@@ -43,6 +44,10 @@ from hushh_mcp.services.people_search_sql import people_query_match_params
 from hushh_mcp.services.ria_status import RIA_VERIFIED_STATUS_SQL
 from hushh_mcp.types import AgentID, UserID
 from mcp_modules.log_redaction import redact_log_field, redact_log_value
+
+# Upper bound on a roster-scoped recipient lookup (``list_verified_recipients``
+# with ``user_ids``); the SMS roster is far smaller, this only caps the IN list.
+SOS_ROSTER_LOOKUP_MAX = 50
 
 logger = logging.getLogger(__name__)
 
@@ -1436,6 +1441,29 @@ class OneLocationAgentService:
                     del self._key_writer_connection
                 else:
                     self._key_writer_connection = previous_connection
+
+    @contextmanager
+    def sos_incident_guard(self, *, owner_user_id: str) -> Iterator[None]:
+        """Serialize one owner's Save My Soul arming across devices and workers.
+
+        Holds an owner-scoped advisory transaction lock while the caller
+        re-reads the live SOS lane and creates the alert's grants, so two
+        arming attempts that race (voice and voice, two tabs, two workers)
+        cannot both see "nothing active" and each create a full set. The
+        per-pair lane replacement inside ``create_grant`` still guarantees at
+        most one active SOS grant per recipient when a caller bypasses this.
+        Only PostgreSQL has advisory locks; elsewhere this is a no-op.
+        """
+        lock_key = f"one-location-sos-incident:{owner_user_id}"
+        with get_db_connection() as connection:
+            if connection.dialect.name != "postgresql":
+                yield
+                return
+            connection.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0))"),
+                {"lock_key": lock_key},
+            )
+            yield
 
     def _assert_envelope_precision_matches_preference(
         self,
@@ -4196,8 +4224,26 @@ class OneLocationAgentService:
         return self._recipient_payload(row, allow_email_handle=True) or {}
 
     def list_verified_recipients(
-        self, *, owner_user_id: str, limit: int = 50
+        self,
+        *,
+        owner_user_id: str,
+        limit: int = 50,
+        user_ids: Sequence[str] | None = None,
     ) -> list[dict[str, Any]]:
+        # ``user_ids`` narrows the same eligibility predicate to a known set
+        # (the SMS roster, at most a handful of people) so a caller that must
+        # see every one of them never depends on where they fall in the
+        # alphabetical page. It never widens eligibility.
+        wanted = [str(uid) for uid in (user_ids or []) if str(uid or "").strip()][
+            :SOS_ROSTER_LOOKUP_MAX
+        ]
+        id_filter = ""
+        id_params: dict[str, Any] = {}
+        if user_ids is not None:
+            if not wanted:
+                return []
+            id_params = {f"wanted_{index}": uid for index, uid in enumerate(wanted)}
+            id_filter = "AND a.user_id IN (" + ", ".join(f":{key}" for key in id_params) + ")"
         # A recipient is eligible through either the canonical two-way
         # connections graph or shared active named-Circle membership. Neither
         # relationship grants location access: the explicit encrypted grant
@@ -4312,10 +4358,15 @@ class OneLocationAgentService:
                     AND mine.status = 'active'
                 )
               )
+              {id_filter}
             ORDER BY COALESCE(a.display_name, a.phone_number, a.user_id), a.user_id
             LIMIT :limit
-            """,  # nosec B608 - RIA_VERIFIED_STATUS_SQL is a static module constant.
-            {"owner_user_id": owner_user_id, "limit": max(1, min(int(limit), 100))},
+            """,  # nosec B608 - RIA_VERIFIED_STATUS_SQL and id_filter are static/param-only.
+            {
+                "owner_user_id": owner_user_id,
+                "limit": max(1, min(int(limit), 100)),
+                **id_params,
+            },
         )
 
         # Relationship-scoped: the statement above admits a person only on an
@@ -9242,8 +9293,22 @@ class OneLocationAgentService:
         # the emergency (SMS / Save My Soul) lane and every other share, and a
         # person can hold one of each at the same time -- so "a share ended"
         # without naming the lane is genuinely ambiguous to the recipient.
-        revoked_share_kind = str(row.get("share_kind") or "").strip().lower()
-        revoked_via_sms = revoked_share_kind == "sos"
+        #
+        # `share_kind` is not a column on this table: it lives in
+        # `metadata->>'share_kind'`, with the legacy `reason = 'sos_panic'`
+        # marker for rows written before it was persisted -- the same two
+        # sources `_SHARE_LANE_MATCH_SQL` honours. Reading a non-existent
+        # column here made every SOS stop look like an ordinary revoke.
+        revoked_metadata = _loads_json(row.get("metadata"))
+        if not isinstance(revoked_metadata, dict):
+            revoked_metadata = {}
+        stored_share_kind = str(revoked_metadata.get("share_kind") or "").strip().lower()
+        revoked_via_sms = _is_sos_lane(stored_share_kind) or (
+            not stored_share_kind and _classify_share_kind(revoked_metadata.get("reason")) == "sos"
+        )
+        # Only the emergency lane is named; everything else keeps the
+        # "standard" projection it always had (the split is sos vs the rest).
+        revoked_share_kind = "sos" if revoked_via_sms else ""
         self._insert_event(
             owner_user_id=str(row.get("owner_user_id") or owner_user_id),
             actor_user_id=owner_user_id,
@@ -9281,7 +9346,7 @@ class OneLocationAgentService:
         recipient_user_id = str(transition["recipient_user_id"] or "") or None
         owner_label = str(transition["owner_label"] or "")
         recipient_label = str(transition["recipient_label"] or "")
-        revoked_share_kind = str(row.get("share_kind") or transition["revoked_share_kind"] or "")
+        revoked_share_kind = str(transition["revoked_share_kind"] or "")
         revoked_via_sms = bool(transition["revoked_via_sms"])
         notification_user_id = str(
             (recipient_user_id if actor_is_owner else str(row.get("owner_user_id") or "")) or ""

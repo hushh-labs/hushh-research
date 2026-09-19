@@ -7,6 +7,8 @@ depend on the other tool families.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -18,6 +20,7 @@ from hushh_mcp.one_voice.tools.base import (
     ConfirmedPerson,
     EntityContext,
     PersonRef,
+    Prepared,
     Rejected,
     ScreenContext,
     ToolContext,
@@ -93,6 +96,14 @@ class FakeLocationService:
         self.created: list[dict[str, Any]] = []
         self.revoked: list[str] = []
         self.calls: list[str] = []
+        self.recipient_filters: list[list[str]] = []
+        self.guard_depth = 0
+        self.guard_entries = 0
+        # Per-grant override of what revoke_grant answers (None = malformed/lost).
+        self.revoke_responses: dict[str, Any] = {}
+        # Raised by the second list_active_owner_grants read of a stop.
+        self.reread_error: Exception | None = None
+        self._grant_reads = 0
         self._seq = 0
 
     # reads
@@ -104,16 +115,34 @@ class FakeLocationService:
         return list(self.sms_contact_ids)
 
     def list_verified_recipients(
-        self, *, owner_user_id: str, limit: int = 50
+        self, *, owner_user_id: str, limit: int = 50, user_ids: list[str] | None = None
     ) -> list[dict[str, Any]]:
         self.calls.append("list_verified_recipients")
         assert owner_user_id == OWNER
         assert limit >= 50
-        return [dict(row) for row in self.recipients]
+        rows = [dict(row) for row in self.recipients]
+        if user_ids is not None:
+            # The roster-scoped read: only the ids asked for, in page order.
+            self.recipient_filters.append(list(user_ids))
+            rows = [row for row in rows if row["userId"] in set(user_ids)]
+        return rows
+
+    @contextmanager
+    def sos_incident_guard(self, *, owner_user_id: str) -> Iterator[None]:
+        assert owner_user_id == OWNER
+        self.guard_depth += 1
+        self.guard_entries += 1
+        try:
+            yield
+        finally:
+            self.guard_depth -= 1
 
     def list_active_owner_grants(self, *, owner_user_id: str) -> list[dict[str, Any]]:
         self.calls.append("list_active_owner_grants")
         assert owner_user_id == OWNER
+        self._grant_reads += 1
+        if self.reread_error is not None and self._grant_reads > 1:
+            raise self.reread_error
         return [dict(row) for row in self.owner_grants if row["status"] == "active"]
 
     def get_sos_voice_preference(self, *, user_id: str) -> dict[str, Any]:
@@ -123,6 +152,8 @@ class FakeLocationService:
     # writes
     def create_grant(self, **kwargs: Any) -> dict[str, Any]:
         self.calls.append("create_grant")
+        # Arming must happen under the owner's incident lock.
+        assert self.guard_depth == 1, "create_grant outside sos_incident_guard"
         recipient = kwargs["recipient_user_id"]
         if recipient in self.create_errors:
             raise self.create_errors[recipient]
@@ -140,6 +171,9 @@ class FakeLocationService:
         assert owner_user_id == OWNER
         if grant_id in self.revoke_errors:
             raise self.revoke_errors[grant_id]
+        if grant_id in self.revoke_responses:
+            # The write may or may not have landed; the answer is what's given.
+            return self.revoke_responses[grant_id]
         for row in self.owner_grants:
             if row["id"] == grant_id:
                 row["status"] = "revoked"
@@ -216,7 +250,7 @@ def test_catalog_binds_each_tool_to_the_briefed_policy_and_gateway_id():
     expected = {
         "get_save_my_soul_status": (ToolPolicy.read, "location.open_sos"),
         "trigger_save_my_soul": (ToolPolicy.confirm_tap, "location.trigger_sos"),
-        "report_save_my_soul_delivery": (ToolPolicy.read, "location.trigger_sos"),
+        "report_save_my_soul_delivery": (ToolPolicy.read, "location.verify_sos_delivery"),
         "stop_save_my_soul": (ToolPolicy.confirm_tap, "location.stop_sos"),
         "add_emergency_contact": (ToolPolicy.confirm_voice, "location.add_emergency_contact"),
         "remove_emergency_contact": (ToolPolicy.confirm_tap, "location.remove_emergency_contact"),
@@ -234,6 +268,12 @@ def test_catalog_binds_each_tool_to_the_briefed_policy_and_gateway_id():
         assert all(isinstance(item, str) for item in annotation.__args__), tool.name
         # Declarations inline PersonRef so the model sees only a user_id slot.
         assert "$defs" not in tool.declaration()["parameters_json_schema"]
+    # The two device-consequential cards are prepared from live state, and the
+    # trigger can only be confirmed inside a session that can run its step.
+    assert _tool("trigger_save_my_soul").prepare is sos.prepare_trigger
+    assert _tool("trigger_save_my_soul").device_step is True
+    assert _tool("stop_save_my_soul").prepare is sos.prepare_stop
+    assert all(not t.device_step for t in sos.TOOLS if t.name != "trigger_save_my_soul")
 
 
 def test_person_tools_take_only_canonical_ids():
@@ -260,15 +300,21 @@ def test_trigger_and_stop_refuse_free_text_recipients():
         sos.TriggerSaveMySoulInput.model_validate({"note": "x" * 141})
     with pytest.raises(ValidationError):
         sos.StopSaveMySoulInput.model_validate({"person": "Ravi"})
+    # The report needs no ids: it always covers the whole armed alert.
+    assert sos.ReportSaveMySoulDeliveryInput.model_validate({}).grant_ids == []
     with pytest.raises(ValidationError):
-        sos.ReportSaveMySoulDeliveryInput.model_validate({"grant_ids": []})
+        sos.ReportSaveMySoulDeliveryInput.model_validate({"grant_ids": ["g"] * 51})
     assert sos.TriggerSaveMySoulInput.model_validate({}).note is None
+    # 140 is the shared bound (message-limits.ts); 141 is rejected, never truncated.
+    assert sos.TriggerSaveMySoulInput.model_validate({"note": "x" * 140}).note == "x" * 140
 
 
 def test_trigger_description_states_that_sent_needs_client_publish_and_server_verification():
     description = _tool("trigger_save_my_soul").description
     assert "publish" in description and "verif" in description
-    assert "Never say the alert was 'sent'" in description
+    assert "ARMED, not sent" in description and "Never say 'sent'" in description
+    assert "never ask for a note first" in description
+    assert "cannot pick one person" in description
 
 
 # -- get_save_my_soul_status --------------------------------------------------
@@ -302,6 +348,25 @@ async def test_status_ready_names_real_contacts_and_flags_the_unready_one():
         "Ravi Kumar can't receive your location yet.",
     ]
     assert "Meera" not in " ".join(result.spoken_facts)
+    # The read was scoped to the roster, never the whole recipients page.
+    assert service.recipient_filters == [[AYESHA, RAVI]]
+
+
+async def test_status_offers_the_roster_ids_so_a_removal_can_be_confirmed_from_it():
+    service = _ready_service()
+    ctx = _ctx(service)
+    await sos.get_save_my_soul_status(ctx, sos.SaveMySoulStatusInput())
+    assert ctx.entities.offered_person_ids == [AYESHA, RAVI]
+    # Offered is not confirmed: the remove tool still needs confirm_person.
+    assert ctx.entities.person(AYESHA) is None
+
+
+async def test_status_with_an_active_alert_records_it_for_the_delivery_report():
+    service = _ready_service()
+    service.owner_grants = [_grant("g1", AYESHA, "Ayesha Sharma", envelope=True)]
+    ctx = _ctx(service)
+    await sos.get_save_my_soul_status(ctx, sos.SaveMySoulStatusInput())
+    assert ctx.sos_incident["grant_ids"] == ["g1"]
 
 
 async def test_status_active_counts_only_live_sos_grants():
@@ -342,25 +407,118 @@ async def test_status_maps_service_errors_to_rejected():
     assert result.spoken_facts == ["Location is unavailable."]
 
 
-# -- trigger_save_my_soul -----------------------------------------------------
+# -- trigger_save_my_soul: prepare (the card) ---------------------------------
+
+
+def _trigger():
+    return _tool("trigger_save_my_soul")
+
+
+async def test_prepare_names_who_gets_it_who_is_left_out_and_the_note():
+    service = _ready_service()
+    service.sms_contact_ids = [AYESHA, RAVI, MEERA]
+    service.recipients[2] = _recipient(MEERA, "Meera Nair", key=False)
+    prepared = await sos.prepare_trigger(
+        _ctx(service), sos.TriggerSaveMySoulInput(note="  Car   broke down ")
+    )
+    assert isinstance(prepared, Prepared)
+    assert prepared.summary == (
+        "send a Save My Soul alert to Ayesha Sharma and Ravi Kumar: your precise location "
+        'for 8 hours, leaving out Meera Nair who can\'t receive it yet, with the note "Car broke down"'
+    )
+    assert prepared.snapshot == {
+        "recipient_ids": sorted([AYESHA, RAVI]),
+        "excluded_ids": [MEERA],
+        "note": "Car broke down",
+        "duration_hours": 8,
+        "precision": "precise",
+    }
+    assert service.created == []
+
+
+async def test_prepare_without_note_does_not_mention_one():
+    prepared = await sos.prepare_trigger(_ctx(_ready_service()), sos.TriggerSaveMySoulInput())
+    assert isinstance(prepared, Prepared)
+    assert "note" not in prepared.summary
+    assert prepared.snapshot["note"] is None
+
+
+async def test_prepare_refuses_a_card_when_the_roster_cannot_be_read():
+    service = FakeLocationService()
+    service.roster_error = OneLocationAgentError("LOCATION_UNAVAILABLE", "Location is unavailable.")
+    result = await sos.prepare_trigger(_ctx(service), sos.TriggerSaveMySoulInput())
+    assert isinstance(result, Rejected)
+    assert result.reason_code == "roster_unavailable"
+    assert "haven't prepared an alert" in result.spoken_facts[0]
+    assert result.spoken_facts[1] == "Location is unavailable."
+
+
+async def test_prepare_answers_empty_roster_and_none_ready_without_a_card():
+    empty = await sos.prepare_trigger(_ctx(FakeLocationService()), sos.TriggerSaveMySoulInput())
+    assert empty.status == "no_emergency_contacts" and empty.needs == "setup"
+    service = _ready_service()
+    service.recipients = [
+        _recipient(AYESHA, "Ayesha Sharma", key=False),
+        _recipient(RAVI, "Ravi Kumar", verified=False),
+    ]
+    none_ready = await sos.prepare_trigger(_ctx(service), sos.TriggerSaveMySoulInput())
+    assert isinstance(none_ready, Rejected)
+    assert none_ready.reason_code == "no_sos_ready_contacts"
+    assert service.created == []
+
+
+async def test_prepare_with_an_active_alert_reports_it_instead_of_a_second_card():
+    service = _ready_service()
+    service.owner_grants = [_grant("g1", AYESHA, "Ayesha Sharma")]
+    ctx = _ctx(service)
+    result = await sos.prepare_trigger(ctx, sos.TriggerSaveMySoulInput())
+    assert result.status == "already_active"
+    assert result.grant_ids == ["g1"]
+    assert ctx.sos_incident["grant_ids"] == ["g1"]
+    assert "I won't start another" in result.spoken_facts[0]
+
+
+def test_trigger_summary_fallback_never_invents_names():
+    assert (
+        _trigger().summarize(_ctx(_ready_service()), sos.TriggerSaveMySoulInput())
+        == "send a Save My Soul alert to your emergency contacts"
+    )
+
+
+# -- trigger_save_my_soul: execution (after the tap) --------------------------
+
+
+def _prepared_ctx(service, *, recipient_ids=None, note=None, **kw):
+    ctx = _ctx(service, **kw)
+    ctx.prepared = {
+        "recipient_ids": sorted(recipient_ids if recipient_ids is not None else [AYESHA, RAVI]),
+        "excluded_ids": [],
+        "note": note,
+        "duration_hours": 8,
+        "precision": "precise",
+    }
+    return ctx
 
 
 async def test_trigger_arms_one_sos_grant_per_ready_contact_and_hands_publish_to_the_client():
     service = _ready_service()
     service.sms_contact_ids = [AYESHA, RAVI, MEERA]
     service.recipients[2] = _recipient(MEERA, "Meera Nair", key=False)
+    ctx = _prepared_ctx(service, note="Car broke down")
     result = await sos.trigger_save_my_soul(
-        _ctx(service), sos.TriggerSaveMySoulInput(note="  Car broke down  ")
+        ctx, sos.TriggerSaveMySoulInput(note="  Car broke down  ")
     )
 
     assert result.status == "sos_grants_created"
     assert result.needs == "client_step"
     assert result.grant_ids == ["grant-1", "grant-2"]
+    assert result.note == "Car broke down"
+    assert result.duration_hours == 8 and result.precision == "precise"
     assert result.client_step["kind"] == "publish_location_envelopes"
     assert result.client_step["purpose"] == "sos"
     assert result.client_step["grant_ids"] == ["grant-1", "grant-2"]
     assert result.client_step["sos"] is True
-    assert result.client_step["timeout_s"] == 25
+    assert result.client_step["timeout_s"] == 60
     assert [g["user_id"] for g in result.client_step["grants"]] == [AYESHA, RAVI]
     assert [c.user_id for c in result.skipped_no_key] == [MEERA]
     assert result.spoken_facts == [
@@ -368,6 +526,11 @@ async def test_trigger_arms_one_sos_grant_per_ready_contact_and_hands_publish_to
         "Meera Nair could not be included.",
     ]
     assert "sent" not in " ".join(result.spoken_facts).lower().replace("sending", "")
+    # The session is bound to exactly this grant set for the delivery report.
+    assert ctx.sos_incident["grant_ids"] == ["grant-1", "grant-2"]
+    assert ctx.sos_incident["source"] == "trigger"
+    # The whole pass (re-read, drift check, creates) ran under the owner lock once.
+    assert service.guard_entries == 1
 
     assert len(service.created) == 2
     for call, recipient in zip(service.created, (AYESHA, RAVI), strict=True):
@@ -384,8 +547,32 @@ async def test_trigger_arms_one_sos_grant_per_ready_contact_and_hands_publish_to
 
 async def test_trigger_without_note_uses_the_legacy_sos_reason_marker():
     service = _ready_service()
-    await sos.trigger_save_my_soul(_ctx(service), sos.TriggerSaveMySoulInput())
+    await sos.trigger_save_my_soul(_prepared_ctx(service), sos.TriggerSaveMySoulInput())
     assert {call["reason"] for call in service.created} == {"sos_panic"}
+
+
+async def test_trigger_refuses_when_the_audience_changed_since_the_card():
+    service = _ready_service()
+    ctx = _prepared_ctx(service, recipient_ids=[AYESHA, RAVI])
+    # Meera was added to the roster after the card was shown.
+    service.sms_contact_ids = [AYESHA, RAVI, MEERA]
+    result = await sos.trigger_save_my_soul(ctx, sos.TriggerSaveMySoulInput())
+    assert isinstance(result, Rejected)
+    assert result.reason_code == "sos_audience_changed"
+    assert result.needs == "confirmation"
+    assert "Ayesha Sharma, Ravi Kumar, and Meera Nair" in result.spoken_facts[0]
+    assert service.created == []
+    assert ctx.sos_incident is None
+
+
+async def test_trigger_refuses_when_someone_approved_became_unready():
+    service = _ready_service()
+    ctx = _prepared_ctx(service, recipient_ids=[AYESHA, RAVI])
+    service.recipients[1] = _recipient(RAVI, "Ravi Kumar", key=False)
+    result = await sos.trigger_save_my_soul(ctx, sos.TriggerSaveMySoulInput())
+    assert isinstance(result, Rejected)
+    assert result.reason_code == "sos_audience_changed"
+    assert service.created == []
 
 
 async def test_trigger_with_no_contacts_sends_nothing():
@@ -400,18 +587,22 @@ async def test_trigger_with_no_contacts_sends_nothing():
 async def test_trigger_when_already_active_creates_no_new_grants():
     service = _ready_service()
     service.owner_grants = [_grant("g1", AYESHA, "Ayesha Sharma")]
-    result = await sos.trigger_save_my_soul(_ctx(service), sos.TriggerSaveMySoulInput())
+    ctx = _prepared_ctx(service)
+    result = await sos.trigger_save_my_soul(ctx, sos.TriggerSaveMySoulInput())
     assert result.status == "already_active"
     assert result.grant_ids == ["g1"]
     assert result.needs is None
-    assert result.spoken_facts == ["Save My Soul is already active for Ayesha Sharma."]
+    assert result.spoken_facts[0].startswith("Save My Soul is already active for Ayesha Sharma.")
     assert service.created == []
+    assert ctx.sos_incident["grant_ids"] == ["g1"]
 
 
 async def test_trigger_skips_unverified_contacts_and_reports_them():
     service = _ready_service()
     service.recipients[1] = _recipient(RAVI, "Ravi Kumar", verified=False)
-    result = await sos.trigger_save_my_soul(_ctx(service), sos.TriggerSaveMySoulInput())
+    result = await sos.trigger_save_my_soul(
+        _prepared_ctx(service, recipient_ids=[AYESHA]), sos.TriggerSaveMySoulInput()
+    )
     assert result.status == "sos_grants_created"
     assert [c.user_id for c in result.skipped_not_phone_verified] == [RAVI]
     assert [call["recipient_user_id"] for call in service.created] == [AYESHA]
@@ -423,7 +614,7 @@ async def test_trigger_one_refused_contact_does_not_stop_the_others():
     service.create_errors[AYESHA] = OneLocationAgentError(
         "LOCATION_SMS_CONTACT_REQUIRED", "This person is not in your SMS contacts.", status_code=403
     )
-    result = await sos.trigger_save_my_soul(_ctx(service), sos.TriggerSaveMySoulInput())
+    result = await sos.trigger_save_my_soul(_prepared_ctx(service), sos.TriggerSaveMySoulInput())
     assert result.status == "sos_grants_created"
     assert result.grant_ids == ["grant-1"]
     assert [g.user_id for g in result.armed] == [RAVI]
@@ -440,6 +631,21 @@ async def test_trigger_one_refused_contact_does_not_stop_the_others():
     ]
 
 
+async def test_trigger_crash_on_a_later_contact_keeps_the_first_grant_armed():
+    """A create that dies mid-loop must not hide the grant already created."""
+    service = _ready_service()
+    service.create_errors[RAVI] = RuntimeError("connection reset")
+    ctx = _prepared_ctx(service)
+    result = await sos.trigger_save_my_soul(ctx, sos.TriggerSaveMySoulInput())
+    assert result.status == "sos_grants_created"
+    assert result.grant_ids == ["grant-1"]
+    assert result.failed == [
+        {"user_id": RAVI, "display_name": "Ravi Kumar", "reason_code": "RuntimeError"}
+    ]
+    assert result.client_step["grant_ids"] == ["grant-1"]
+    assert ctx.sos_incident["grant_ids"] == ["grant-1"]
+
+
 async def test_trigger_maps_a_total_service_refusal_to_rejected():
     service = _ready_service()
     error = OneLocationAgentError(
@@ -448,7 +654,7 @@ async def test_trigger_maps_a_total_service_refusal_to_rejected():
         status_code=409,
     )
     service.create_errors = {AYESHA: error, RAVI: error}
-    result = await sos.trigger_save_my_soul(_ctx(service), sos.TriggerSaveMySoulInput())
+    result = await sos.trigger_save_my_soul(_prepared_ctx(service), sos.TriggerSaveMySoulInput())
     assert isinstance(result, Rejected)
     assert result.reason_code == "LOCATION_RECIPIENT_UNAVAILABLE"
     assert result.spoken_facts == [error.message]
@@ -469,27 +675,32 @@ async def test_trigger_with_no_ready_contact_arms_nothing():
     assert service.created == []
 
 
-async def test_trigger_unknown_exceptions_propagate_to_the_executor():
+async def test_trigger_total_crash_is_a_rejection_with_no_grant():
     service = _ready_service()
     service.create_errors = {AYESHA: RuntimeError("boom"), RAVI: RuntimeError("boom")}
-    with pytest.raises(RuntimeError):
-        await sos.trigger_save_my_soul(_ctx(service), sos.TriggerSaveMySoulInput())
+    ctx = _prepared_ctx(service)
+    result = await sos.trigger_save_my_soul(ctx, sos.TriggerSaveMySoulInput())
+    assert isinstance(result, Rejected)
+    assert result.reason_code == "sos_arm_failed"
+    assert ctx.sos_incident is None
 
 
-def test_trigger_summary_names_the_real_contacts():
-    service = _ready_service()
-    summary = _tool("trigger_save_my_soul").summarize(_ctx(service), sos.TriggerSaveMySoulInput())
-    assert summary == "send a Save My Soul alert to Ayesha Sharma and Ravi Kumar"
-
-
-def test_trigger_summary_falls_back_when_the_roster_is_unreadable():
+async def test_trigger_roster_read_failure_is_a_rejection_not_an_empty_roster():
     service = FakeLocationService()
-    service.roster_error = RuntimeError("db down")
-    summary = _tool("trigger_save_my_soul").summarize(_ctx(service), sos.TriggerSaveMySoulInput())
-    assert summary == "send a Save My Soul alert to your emergency contacts"
+    service.roster_error = OneLocationAgentError("LOCATION_UNAVAILABLE", "Location is unavailable.")
+    result = await sos.trigger_save_my_soul(_ctx(service), sos.TriggerSaveMySoulInput())
+    assert isinstance(result, Rejected)
+    assert result.reason_code == "LOCATION_UNAVAILABLE"
+    assert service.created == []
 
 
 # -- report_save_my_soul_delivery ---------------------------------------------
+
+
+def _armed_ctx(service, grant_ids):
+    ctx = _ctx(service)
+    ctx.sos_incident = {"grant_ids": list(grant_ids), "armed_at": now_iso(), "source": "trigger"}
+    return ctx
 
 
 async def test_delivery_report_sent_only_when_every_grant_has_an_envelope():
@@ -499,11 +710,13 @@ async def test_delivery_report_sent_only_when_every_grant_has_an_envelope():
         _grant("g2", RAVI, "Ravi Kumar", envelope=True),
     ]
     result = await sos.report_save_my_soul_delivery(
-        _ctx(service), sos.ReportSaveMySoulDeliveryInput(grant_ids=["g1", "g2"])
+        _armed_ctx(service, ["g1", "g2"]), sos.ReportSaveMySoulDeliveryInput()
     )
     assert result.status == "sos_sent"
     assert result.delivered == ["Ayesha Sharma", "Ravi Kumar"]
     assert result.not_alerted == []
+    assert result.expected_grant_ids == ["g1", "g2"]
+    assert result.alert_active is True
     assert result.reason_code is None
     assert result.spoken_facts == ["Your position reached Ayesha Sharma and Ravi Kumar."]
 
@@ -515,7 +728,7 @@ async def test_delivery_report_partial_names_who_was_missed():
         _grant("g2", RAVI, "Ravi Kumar", envelope=False),
     ]
     result = await sos.report_save_my_soul_delivery(
-        _ctx(service), sos.ReportSaveMySoulDeliveryInput(grant_ids=["g1", "g2"])
+        _armed_ctx(service, ["g1", "g2"]), sos.ReportSaveMySoulDeliveryInput(grant_ids=["g1", "g2"])
     )
     assert result.status == "sos_partial"
     assert result.delivered == ["Ayesha Sharma"]
@@ -524,32 +737,128 @@ async def test_delivery_report_partial_names_who_was_missed():
     assert result.not_alerted_grant_ids == ["g2"]
     assert result.spoken_facts == [
         "Your position reached Ayesha Sharma.",
-        "Your position has not reached Ravi Kumar.",
+        "Your position has not reached Ravi Kumar; their share is armed but nothing was sent to them.",
     ]
 
 
-async def test_delivery_report_not_sent_when_no_envelope_and_unknown_ids_are_not_named():
+async def test_delivery_report_cannot_be_narrowed_to_the_successful_grants():
+    """Asking about only the delivered id must not turn a partial into sent."""
+    service = _ready_service()
+    service.owner_grants = [
+        _grant("g1", AYESHA, "Ayesha Sharma", envelope=True),
+        _grant("g2", RAVI, "Ravi Kumar", envelope=False),
+    ]
+    result = await sos.report_save_my_soul_delivery(
+        _armed_ctx(service, ["g1", "g2"]), sos.ReportSaveMySoulDeliveryInput(grant_ids=["g1"])
+    )
+    assert result.status == "sos_partial"
+    assert result.not_alerted == ["Ravi Kumar"]
+
+
+async def test_delivery_report_foreign_ids_are_unknown_and_never_named():
     service = _ready_service()
     service.owner_grants = [
         _grant("g1", AYESHA, "Ayesha Sharma", envelope=False),
         _grant("g3", MEERA, "Meera Nair", kind="share", envelope=True),  # not an SOS grant
     ]
     result = await sos.report_save_my_soul_delivery(
-        _ctx(service), sos.ReportSaveMySoulDeliveryInput(grant_ids=["g1", "g3", "missing"])
+        _armed_ctx(service, ["g1"]),
+        sos.ReportSaveMySoulDeliveryInput(grant_ids=["g1", "g3", "missing"]),
     )
     assert result.status == "sos_not_sent"
     assert result.delivered == []
     assert result.not_alerted == ["Ayesha Sharma"]
     assert result.unknown_grant_ids == ["g3", "missing"]
     assert result.reason_code == "envelope_missing"
+    assert result.alert_active is True
     assert result.spoken_facts == [
-        "Your position has not reached Ayesha Sharma.",
-        "2 alerts could not be verified.",
+        "Your position has not reached Ayesha Sharma; their share is armed but nothing was sent to them.",
+        "2 ids you asked about is not part of this alert.",
+        "The alert is still armed; you can try sending again or stop Save My Soul.",
     ]
     assert "Meera" not in " ".join(result.spoken_facts)
 
 
+async def test_delivery_report_without_a_session_record_covers_every_live_sos_grant():
+    """After a reconnect the session holds no record: server state decides."""
+    service = _ready_service()
+    service.owner_grants = [
+        _grant("g1", AYESHA, "Ayesha Sharma", envelope=True),
+        _grant("g2", RAVI, "Ravi Kumar", envelope=False),
+        _grant("g3", MEERA, "Meera Nair", kind="share", envelope=True),
+    ]
+    result = await sos.report_save_my_soul_delivery(
+        _ctx(service), sos.ReportSaveMySoulDeliveryInput(grant_ids=["g1"])
+    )
+    assert result.status == "sos_partial"
+    assert result.expected_grant_ids == ["g1", "g2"]
+
+
+async def test_delivery_report_with_nothing_armed_is_an_honest_no_op():
+    result = await sos.report_save_my_soul_delivery(
+        _ctx(_ready_service()), sos.ReportSaveMySoulDeliveryInput()
+    )
+    assert result.status == "sos_not_sent"
+    assert result.reason_code == "no_active_sos"
+    assert result.spoken_facts == ["There's no Save My Soul alert to check."]
+
+
+async def test_delivery_report_counts_an_ended_grant_as_not_reached():
+    service = _ready_service()
+    service.owner_grants = [
+        _grant("g1", AYESHA, "Ayesha Sharma", envelope=True),
+        _grant("g2", RAVI, "Ravi Kumar", status="revoked", envelope=True),
+    ]
+    result = await sos.report_save_my_soul_delivery(
+        _armed_ctx(service, ["g1", "g2"]), sos.ReportSaveMySoulDeliveryInput()
+    )
+    assert result.status == "sos_partial"
+    assert result.ended_grant_ids == ["g2"]
+    assert "1 share from this alert already ended." in result.spoken_facts
+
+
+async def test_delivery_report_is_unverified_when_the_server_cannot_be_read():
+    service = _ready_service()
+    service.reread_error = RuntimeError("db down")
+    service._grant_reads = 1  # the next read is the failing one
+    result = await sos.report_save_my_soul_delivery(
+        _armed_ctx(service, ["g1"]), sos.ReportSaveMySoulDeliveryInput()
+    )
+    assert result.status == "sos_unverified"
+    assert result.reason_code == "verification_unavailable"
+    assert result.alert_active is True
+    assert result.expected_grant_ids == ["g1"]
+    assert "can't verify delivery" in result.spoken_facts[0]
+    assert "nothing" not in result.spoken_facts[0].lower()
+
+
 # -- stop_save_my_soul --------------------------------------------------------
+
+
+async def test_prepare_stop_names_the_live_shares_it_will_end():
+    service = _ready_service()
+    service.owner_grants = [
+        _grant("g1", AYESHA, "Ayesha Sharma"),
+        _grant("g2", RAVI, "Ravi Kumar"),
+        _grant("g3", MEERA, "Meera Nair", kind="share"),
+    ]
+    prepared = await sos.prepare_stop(_ctx(service), sos.StopSaveMySoulInput())
+    assert isinstance(prepared, Prepared)
+    assert prepared.summary == (
+        "stop Save My Soul and end 2 live location shares to Ayesha Sharma and Ravi Kumar"
+    )
+    assert prepared.snapshot == {"grant_ids": ["g1", "g2"]}
+    assert service.revoked == []
+
+
+async def test_prepare_stop_without_a_live_alert_or_state_makes_no_card():
+    service = _ready_service()
+    assert (await sos.prepare_stop(_ctx(service), sos.StopSaveMySoulInput())).status == "not_active"
+    service.roster_error = OneLocationAgentError("LOCATION_UNAVAILABLE", "Location is unavailable.")
+    service.list_active_owner_grants = lambda **_: (_ for _ in ()).throw(service.roster_error)
+    result = await sos.prepare_stop(_ctx(service), sos.StopSaveMySoulInput())
+    assert isinstance(result, Rejected)
+    assert result.reason_code == "sos_state_unavailable"
 
 
 async def test_stop_revokes_every_live_sos_grant_and_leaves_ordinary_shares_alone():
@@ -559,14 +868,17 @@ async def test_stop_revokes_every_live_sos_grant_and_leaves_ordinary_shares_alon
         _grant("g2", RAVI, "Ravi Kumar"),
         _grant("g3", MEERA, "Meera Nair", kind="share"),
     ]
-    result = await sos.stop_save_my_soul(_ctx(service), sos.StopSaveMySoulInput())
+    ctx = _armed_ctx(service, ["g1", "g2"])
+    result = await sos.stop_save_my_soul(ctx, sos.StopSaveMySoulInput())
     assert result.status == "sos_stopped"
     assert result.stopped_count == 2
+    assert result.unresolved == []
     assert service.revoked == ["g1", "g2"]
     assert result.spoken_facts == [
         "Save My Soul stopped; 2 location shares to Ayesha Sharma and Ravi Kumar ended."
     ]
     assert next(g for g in service.owner_grants if g["id"] == "g3")["status"] == "active"
+    assert ctx.sos_incident is None
 
 
 async def test_stop_when_nothing_is_active():
@@ -579,23 +891,64 @@ async def test_stop_when_nothing_is_active():
     assert result.spoken_facts == ["Save My Soul isn't active, so there was nothing to stop."]
 
 
-async def test_stop_reports_a_share_it_could_not_end():
+async def test_stop_keeps_a_share_it_could_not_end_as_unresolved():
     service = _ready_service()
     service.owner_grants = [_grant("g1", AYESHA, "Ayesha Sharma"), _grant("g2", RAVI, "Ravi Kumar")]
     service.revoke_errors["g2"] = OneLocationAgentError(
         "LOCATION_GRANT_NOT_FOUND", "Share not found.", status_code=404
     )
-    result = await sos.stop_save_my_soul(_ctx(service), sos.StopSaveMySoulInput())
-    assert result.status == "sos_stopped"
+    ctx = _armed_ctx(service, ["g1", "g2"])
+    result = await sos.stop_save_my_soul(ctx, sos.StopSaveMySoulInput())
+    assert result.status == "sos_partially_stopped"
     assert result.stopped_count == 1
+    assert result.unresolved_grant_ids == ["g2"]
     assert result.failed == [{"grant_id": "g2", "reason_code": "LOCATION_GRANT_NOT_FOUND"}]
     assert result.spoken_facts == [
-        "Save My Soul stopped; 1 location share to Ayesha Sharma ended.",
-        "1 share could not be ended and is still live.",
+        "1 location share to Ayesha Sharma ended, but 1 share to Ravi Kumar may still be "
+        "live. Check Save My Soul or ask me to stop it again.",
     ]
+    # The unresolved share stays bound to the session for the next stop/report.
+    assert ctx.sos_incident["grant_ids"] == ["g2"]
 
 
-async def test_stop_maps_a_total_refusal_to_rejected():
+async def test_stop_treats_a_lost_or_malformed_revoke_answer_as_unresolved():
+    """None, {} and a wrong-id answer are not evidence that anything ended."""
+    service = _ready_service()
+    service.owner_grants = [
+        _grant("g1", AYESHA, "Ayesha Sharma"),
+        _grant("g2", RAVI, "Ravi Kumar"),
+        _grant("g4", MEERA, "Meera Nair"),
+    ]
+    service.revoke_responses = {"g1": None, "g2": {}, "g4": {"id": "other", "status": "revoked"}}
+    result = await sos.stop_save_my_soul(_ctx(service), sos.StopSaveMySoulInput())
+    assert isinstance(result, Rejected)
+    assert result.reason_code == "sos_stop_failed"
+    assert "3 location shares may still be live" in result.spoken_facts[0]
+
+
+async def test_stop_needs_the_reread_to_agree_the_share_ended():
+    """A revoke that says revoked while the re-read still lists it live is unresolved."""
+    service = _ready_service()
+    service.owner_grants = [_grant("g1", AYESHA, "Ayesha Sharma"), _grant("g2", RAVI, "Ravi Kumar")]
+    service.revoke_responses["g2"] = {"id": "g2", "status": "revoked"}  # row stays active
+    result = await sos.stop_save_my_soul(_ctx(service), sos.StopSaveMySoulInput())
+    assert result.status == "sos_partially_stopped"
+    assert result.unresolved_grant_ids == ["g2"]
+    assert {"grant_id": "g2", "reason_code": "still_active"} in result.failed
+
+
+async def test_stop_counts_only_positive_revoke_answers_when_the_reread_fails():
+    service = _ready_service()
+    service.owner_grants = [_grant("g1", AYESHA, "Ayesha Sharma"), _grant("g2", RAVI, "Ravi Kumar")]
+    service.revoke_responses["g2"] = None
+    service.reread_error = RuntimeError("db down")
+    result = await sos.stop_save_my_soul(_ctx(service), sos.StopSaveMySoulInput())
+    assert result.status == "sos_partially_stopped"
+    assert [g.grant_id for g in result.stopped] == ["g1"]
+    assert result.unresolved_grant_ids == ["g2"]
+
+
+async def test_stop_maps_a_total_refusal_to_a_stop_failure():
     service = _ready_service()
     service.owner_grants = [_grant("g1", AYESHA, "Ayesha Sharma")]
     service.revoke_errors["g1"] = OneLocationAgentError(
@@ -603,8 +956,10 @@ async def test_stop_maps_a_total_refusal_to_rejected():
     )
     result = await sos.stop_save_my_soul(_ctx(service), sos.StopSaveMySoulInput())
     assert isinstance(result, Rejected)
-    assert result.reason_code == "LOCATION_GRANT_NOT_FOUND"
-    assert result.spoken_facts == ["Share not found."]
+    assert result.reason_code == "sos_stop_failed"
+    assert result.spoken_facts == [
+        "Save My Soul could not be stopped. 1 location share may still be live."
+    ]
 
 
 def test_stop_summary():
@@ -813,3 +1168,151 @@ async def test_results_are_json_serializable():
     assert public["status"] == "sos_grants_created"
     assert public["armed"][0]["display_name"] == "Ayesha Sharma"
     assert public["client_step"]["grant_ids"] == ["grant-1", "grant-2"]
+
+
+# -- review-driven cases -------------------------------------------------------
+
+
+async def test_status_adds_the_roster_to_a_fresh_offer_instead_of_replacing_it():
+    """ "Add Priya": resolve_person offered Priya; a status read must not make
+    confirm_person(priya) fail with person_not_offered."""
+    service = _ready_service()
+    ctx = _ctx(service)
+    ctx.entities.offer_people(["user-priya"])
+    await sos.get_save_my_soul_status(ctx, sos.SaveMySoulStatusInput())
+    assert ctx.entities.offered_person_ids == ["user-priya", AYESHA, RAVI]
+
+
+async def test_status_without_a_live_alert_clears_a_stale_session_record():
+    service = _ready_service()
+    ctx = _armed_ctx(service, ["g-old"])
+    await sos.get_save_my_soul_status(ctx, sos.SaveMySoulStatusInput())
+    assert ctx.sos_incident is None
+
+
+async def test_delivery_report_follows_the_server_when_the_recorded_alert_was_replaced():
+    """Voice armed g1; the app stopped it and re-armed g3 (with an envelope).
+    The session record is stale: the report must cover g3, not call it ended."""
+    service = _ready_service()
+    service.owner_grants = [_grant("g3", AYESHA, "Ayesha Sharma", envelope=True)]
+    ctx = _armed_ctx(service, ["g1", "g2"])
+    result = await sos.report_save_my_soul_delivery(ctx, sos.ReportSaveMySoulDeliveryInput())
+    assert result.status == "sos_sent"
+    assert result.expected_grant_ids == ["g3"]
+    assert ctx.sos_incident["grant_ids"] == ["g3"]
+
+
+async def test_delivery_report_for_an_alert_that_ended_is_unverified_not_not_sent():
+    service = _ready_service()
+    service.owner_grants = [_grant("g1", AYESHA, "Ayesha Sharma", status="revoked", envelope=True)]
+    ctx = _armed_ctx(service, ["g1"])
+    result = await sos.report_save_my_soul_delivery(ctx, sos.ReportSaveMySoulDeliveryInput())
+    assert result.status == "sos_unverified"
+    assert result.reason_code == "alert_ended"
+    assert result.alert_active is False
+    assert result.ended_grant_ids == ["g1"]
+    assert ctx.sos_incident is None
+
+
+async def test_delivery_report_unverified_without_a_record_does_not_claim_inactive():
+    service = _ready_service()
+    service.reread_error = RuntimeError("db down")
+    service._grant_reads = 1
+    result = await sos.report_save_my_soul_delivery(
+        _ctx(service), sos.ReportSaveMySoulDeliveryInput()
+    )
+    assert result.status == "sos_unverified"
+    assert result.alert_active is None
+
+
+async def test_stop_refuses_when_a_share_the_card_never_named_went_live():
+    service = _ready_service()
+    service.owner_grants = [_grant("g1", AYESHA, "Ayesha Sharma"), _grant("g2", RAVI, "Ravi Kumar")]
+    ctx = _ctx(service)
+    ctx.prepared = {"grant_ids": ["g1"]}  # the card named only g1
+    result = await sos.stop_save_my_soul(ctx, sos.StopSaveMySoulInput())
+    assert isinstance(result, Rejected)
+    assert result.reason_code == "sos_scope_changed"
+    assert service.revoked == []
+
+
+async def test_stop_proceeds_when_some_named_shares_already_ended():
+    service = _ready_service()
+    service.owner_grants = [_grant("g1", AYESHA, "Ayesha Sharma")]
+    ctx = _ctx(service)
+    ctx.prepared = {"grant_ids": ["g1", "g2"]}  # g2 ended on its own since the card
+    result = await sos.stop_save_my_soul(ctx, sos.StopSaveMySoulInput())
+    assert result.status == "sos_stopped"
+    assert service.revoked == ["g1"]
+
+
+async def test_stop_wrong_id_revoke_answer_is_unresolved_even_when_the_reread_agrees():
+    """The answer names another grant: not evidence for this one, even if the
+    row happens to be gone on re-read."""
+    service = _ready_service()
+    service.owner_grants = [_grant("g1", AYESHA, "Ayesha Sharma"), _grant("g2", RAVI, "Ravi Kumar")]
+
+    def revoke(*, owner_user_id, grant_id):
+        service.owner_grants = [g for g in service.owner_grants if g["id"] != grant_id]
+        return {"id": "other" if grant_id == "g2" else grant_id, "status": "revoked"}
+
+    service.revoke_grant = revoke
+    result = await sos.stop_save_my_soul(_ctx(service), sos.StopSaveMySoulInput())
+    assert result.status == "sos_partially_stopped"
+    assert [g.grant_id for g in result.stopped] == ["g1"]
+    assert result.unresolved_grant_ids == ["g2"]
+
+
+async def test_add_during_a_live_alert_says_the_alert_was_not_sent_to_them():
+    service = _ready_service()
+    service.owner_grants = [_grant("g1", AYESHA, "Ayesha Sharma", envelope=True)]
+    ctx = _ctx(service, confirmed={MEERA: "Meera Nair"})
+    result = await sos.add_emergency_contact(ctx, _person_args(MEERA))
+    assert result.status == "added"
+    assert result.spoken_facts[-1] == (
+        "The Save My Soul alert that is active now was not sent to Meera Nair."
+    )
+    assert service.created == [] and service.revoked == []
+
+
+async def test_remove_during_a_live_alert_keeps_their_share_running_and_says_so():
+    service = _ready_service()
+    service.owner_grants = [_grant("g1", AYESHA, "Ayesha Sharma", envelope=True)]
+    ctx = _ctx(service, confirmed={AYESHA: "Ayesha Sharma"})
+    result = await sos.remove_emergency_contact(ctx, _person_args(AYESHA))
+    assert result.status == "removed"
+    assert service.sms_contact_ids == [RAVI]
+    assert service.revoked == []
+    assert next(g for g in service.owner_grants if g["id"] == "g1")["status"] == "active"
+    assert result.spoken_facts[-1] == (
+        "The live Save My Soul share to Ayesha Sharma is still running; stopping Save My "
+        "Soul is a separate step."
+    )
+
+
+async def test_prepare_refuses_a_card_on_a_non_service_read_failure_too():
+    service = FakeLocationService()
+    service.roster_error = RuntimeError("DatabaseExecutionError: connection refused")
+    result = await sos.prepare_trigger(_ctx(service), sos.TriggerSaveMySoulInput())
+    assert isinstance(result, Rejected)
+    assert result.reason_code == "roster_unavailable"
+
+
+async def test_a_guard_release_failure_after_arming_still_reports_the_grants():
+    service = _ready_service()
+
+    @contextmanager
+    def flaky_guard(*, owner_user_id):
+        service.guard_depth += 1
+        try:
+            yield
+        finally:
+            service.guard_depth -= 1
+        raise RuntimeError("lock connection dropped on commit")
+
+    service.sos_incident_guard = flaky_guard
+    ctx = _prepared_ctx(service)
+    result = await sos.trigger_save_my_soul(ctx, sos.TriggerSaveMySoulInput())
+    assert result.status == "sos_grants_created"
+    assert result.grant_ids == ["grant-1", "grant-2"]
+    assert ctx.sos_incident["grant_ids"] == ["grant-1", "grant-2"]
