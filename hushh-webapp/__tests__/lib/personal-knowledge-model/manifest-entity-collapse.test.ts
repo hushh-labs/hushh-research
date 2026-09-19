@@ -38,6 +38,28 @@ const TEN = Array.from({ length: 10 }, (_, index) => `T${index}`);
 const TWO_HUNDRED = Array.from({ length: 200 }, (_, index) => `T${index}`);
 
 describe("manifest entity-map collapse", () => {
+  it("excludes private entity entries and refuses leaves that became containers", () => {
+    expect(projectDomainDataForScope({
+      domain: "professional", scope: "attr.professional.work.*",
+      domainData: { work: { entities: {
+        public: { summary: "Synthetic" },
+        _private: { summary: "Hidden" },
+        changed: { summary: { secret: "Not a reviewed leaf" } },
+      } } },
+      approvedPaths: ["work.entities._entities.summary"],
+    })).toEqual({ professional: { work: { entities: { public: { summary: "Synthetic" } } } } });
+  });
+
+  it("keeps array fields attached to their original item when siblings are absent", () => {
+    const projected = projectDomainDataForScope({
+      domain: "professional",
+      scope: "attr.professional.projects.*",
+      domainData: { projects: [{ title: "Synthetic first" }, { status: "Synthetic second" }] },
+      approvedPaths: ["projects._items.title", "projects._items.status"],
+    });
+    expect(projected).toEqual({ professional: { projects: [{ title: "Synthetic first" }, { status: "Synthetic second" }] } });
+  });
+
   it("does not grow the path list as entities are added", () => {
     const small = buildPersonalKnowledgeModelStructureArtifacts({
       domain: "financial",

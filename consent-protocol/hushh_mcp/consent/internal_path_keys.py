@@ -111,4 +111,19 @@ def is_internal_manifest_path(path: str) -> bool:
     replaces looked only at the first segment, so nesting a structural key one
     level down was enough to publish it.
     """
-    return any(is_internal_path_segment(segment) for segment in str(path or "").split("."))
+    segments = [_normalize(segment) for segment in str(path or "").split(".")]
+    collection_segments = set(_contract()["schema_collection_segments"])
+    for index, segment in enumerate(segments):
+        if segment in collection_segments:
+            # These are manifest grammar, not arbitrary underscore-prefixed
+            # keys. Preserve the grammar while still checking every child.
+            if index == 0:
+                return True
+            if segment == "_entities" and (
+                index == len(segments) - 1 or segments[index - 1] != "entities"
+            ):
+                return True
+            continue
+        if is_internal_path_segment(segment):
+            return True
+    return False

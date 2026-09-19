@@ -21,6 +21,7 @@ from enum import Enum
 from typing import Any, Optional
 
 from db.db_client import JsonParam, get_db
+from hushh_mcp.consent.internal_path_keys import is_internal_manifest_path
 from hushh_mcp.consent.pkm_scope_policy import (
     is_externalizable_pkm_manifest_path,
     is_private_pkm_export_scope,
@@ -481,8 +482,10 @@ class PersonalKnowledgeModelService:
 
         segments: list[str] = []
         for part in raw.split("."):
-            if part.strip() == "_items":
-                segments.append("_items")
+            if part.strip().startswith("_"):
+                # Keep manifest grammar and private-key spelling identical to
+                # the browser's authored paths. Neither may become a new key.
+                segments.append(part.strip())
                 continue
             normalized_part = "".join(
                 ch if (ch.isalnum() or ch == "_") else "_" for ch in part.strip()
@@ -553,6 +556,8 @@ class PersonalKnowledgeModelService:
     ) -> bool:
         normalized = cls._normalize_manifest_path(path)
         if not normalized or path_type != "leaf":
+            return False
+        if is_internal_manifest_path(normalized):
             return False
         if not is_externalizable_pkm_manifest_path(domain=domain, path=normalized):
             return False

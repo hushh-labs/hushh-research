@@ -110,6 +110,9 @@ function normalizePathSegment(segment: string): string {
   // their leading underscore and turn them into ordinary keys.
   if (normalized === "_items") return "_items";
   if (normalized === ENTITY_COLLECTION_SEGMENT) return ENTITY_COLLECTION_SEGMENT;
+  // Private-key spelling is authority-bearing. Never turn `_private` into an
+  // ordinary public path while preparing a manifest or resolving one.
+  if (normalized.startsWith("_")) return normalized;
   return String(segment)
     .trim()
     .toLowerCase()
@@ -137,6 +140,7 @@ function titleizePath(path: string): string {
 }
 
 function cloneValue<T>(value: T): T {
+  if (value === undefined) return value;
   if (typeof globalThis.structuredClone === "function") {
     try {
       return globalThis.structuredClone(value);
@@ -479,6 +483,9 @@ export function buildPersonalKnowledgeModelStructureArtifacts(params: {
 
 function extractPathValue(value: unknown, segments: string[]): unknown {
   if (!segments.length) {
+    // An eligible leaf may have changed since review. Never export a newly
+    // introduced subtree under authority that described a scalar field.
+    if (value !== null && typeof value === "object") return undefined;
     return cloneValue(value);
   }
 
@@ -488,10 +495,10 @@ function extractPathValue(value: unknown, segments: string[]): unknown {
     if (!Array.isArray(value)) {
       return undefined;
     }
-    const extracted = value
-      .map((item) => extractPathValue(item, rest))
-      .filter((item) => item !== undefined);
-    return extracted.length ? extracted : undefined;
+    const extracted = value.map((item) => extractPathValue(item, rest));
+    // Preserve slots until all selected paths have been merged. Compacting
+    // each column separately can attach one item's field to another item.
+    return extracted.some(item => item !== undefined) ? extracted : undefined;
   }
   if (segment === ENTITY_COLLECTION_SEGMENT) {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -502,6 +509,7 @@ function extractPathValue(value: unknown, segments: string[]): unknown {
     // projected data still has to say which entity each value belongs to.
     const extracted: Record<string, unknown> = {};
     for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      if (key.trim().startsWith("_")) continue;
       const child = extractPathValue(item, rest);
       if (child !== undefined) {
         extracted[key] = child;
@@ -515,13 +523,16 @@ function extractPathValue(value: unknown, segments: string[]): unknown {
   }
 
   const record = value as Record<string, unknown>;
-  if (!Object.prototype.hasOwnProperty.call(record, segment)) {
-    return undefined;
-  }
-  return extractPathValue(record[segment], rest);
+  // The manifest uses canonical spelling; encrypted records retain the
+  // original spelling. This is the same codec as the manifest walk, not a
+  // semantic alias. Collisions are ambiguous even if one key is an exact hit.
+  const keys = Object.keys(record).filter(key => normalizePathSegment(key) === segment);
+  if (keys.length !== 1 || keys[0]!.trim().startsWith("_")) return undefined;
+  return extractPathValue(record[keys[0]!], rest);
 }
 
 function rebuildProjectedValue(segments: string[], value: unknown): unknown {
+  if (value === undefined) return undefined;
   if (!segments.length) {
     return cloneValue(value);
   }

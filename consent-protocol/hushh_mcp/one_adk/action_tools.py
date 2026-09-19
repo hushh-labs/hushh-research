@@ -2110,11 +2110,23 @@ def _resolve_person_for_information(
         if not selection_handle:
             selected = tool_context.state.get(_STATE_SELECTED_INFORMATION_PERSON)
             if isinstance(selected, dict):
-                retained_names = {
-                    normalize_spoken_name(str(selected.get(key) or ""))
-                    for key in ("displayName", "spoken")
-                }
-                if spoken and normalize_spoken_name(spoken) not in retained_names:
+                # Email punctuation is identity-bearing, not a name separator.
+                # Distinct addresses must take the authorized exact-lookup path.
+                retained_values = [
+                    str(selected.get(key) or "").strip() for key in ("displayName", "spoken")
+                ]
+                matches_retained = (
+                    spoken.casefold()
+                    in {value.casefold() for value in retained_values if "@" in value}
+                    if "@" in spoken
+                    else normalize_spoken_name(spoken)
+                    in {
+                        normalize_spoken_name(value)
+                        for value in retained_values
+                        if "@" not in value
+                    }
+                )
+                if spoken and not matches_retained:
                     confirm_changed_person = True
                 else:
                     selection_handle = str(selected.get("handle") or "")

@@ -616,6 +616,33 @@ class TestPropose:
         with pytest.raises(action_tools.ConsentLifecycleError):
             action_tools._resolve_person_for_information(None, "owner-b", spoken, context)
 
+    def test_email_punctuation_cannot_reuse_another_recipient(self):
+        context = _ctx(_state())
+        people = [
+            {
+                "displayName": "Alex",
+                "publicPersonRef": PERSON_REF,
+                "email": "alex+one@example.test",
+            },
+            {
+                "displayName": "Alex",
+                "publicPersonRef": "other-person",
+                "email": "alex.one@example.test",
+            },
+        ]
+        with _connections(*people):
+            assert (
+                action_tools._resolve_person_for_information(
+                    ConnectionsService(), "owner-a", people[0]["email"], context
+                )[0]
+                == PERSON_REF
+            )
+            with pytest.raises(action_tools.InformationPersonAmbiguous) as change:
+                action_tools._resolve_person_for_information(
+                    ConnectionsService(), "owner-a", people[1]["email"], context
+                )
+        assert change.value.candidates[0]["publicPersonRef"] == "other-person"
+
     def test_switching_from_a_unique_recipient_requires_a_new_choice(self):
         context = _ctx(_state())
         with _connections({"displayName": "Sarah Chen", "publicPersonRef": PERSON_REF}):

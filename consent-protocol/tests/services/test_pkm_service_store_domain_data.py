@@ -20,6 +20,43 @@ def _unwrap(value):
     return value.value if isinstance(value, JsonParam) else value
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        "employment.entities._entities.summary",
+        "employment.observations._items",
+        "employment._private.summary",
+    ],
+)
+def test_manifest_write_preserves_path_grammar_and_private_markers(path):
+    assert PersonalKnowledgeModelService._normalize_manifest_path(path) == path
+
+
+def test_manifest_round_trip_preserves_selected_collection_path_and_excludes_private():
+    service = PersonalKnowledgeModelService()
+    selected = "employment.entities._entities.summary"
+    private = "employment._private.summary"
+    manifest = service._normalize_manifest_payload(
+        "synthetic-owner",
+        "professional",
+        {
+            "manifest_version": 1,
+            "top_level_scope_paths": ["employment"],
+            "externalizable_paths": [selected, private],
+            "paths": [
+                {"json_path": path, "path_type": "leaf", "exposure_eligibility": True}
+                for path in [selected, private]
+            ],
+        },
+        {"json_paths": [selected, private]},
+    )
+    assert manifest.externalizable_paths == [selected]
+    assert {path.json_path: path.exposure_eligibility for path in manifest.paths} == {
+        selected: True,
+        private: False,
+    }
+
+
 def test_pkm_rpc_payload_unwraps_direct_postgres_and_db_shapes():
     payload = {"schema_version": "pkm_domain_snapshot.v1", "content_revision": 7}
 

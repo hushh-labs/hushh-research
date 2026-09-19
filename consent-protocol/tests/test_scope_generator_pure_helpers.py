@@ -229,6 +229,17 @@ class TestNormalizeDomainKey:
 
 
 class TestNormalizeScopePath:
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "employment.entities._entities.summary",
+            "employment.observations._items.summary",
+            "employment._private.summary",
+        ],
+    )
+    def test_preserves_collection_grammar_and_private_markers(self, path):
+        assert DynamicScopeGenerator._normalize_scope_path(path) == path
+
     def test_basic(self):
         assert DynamicScopeGenerator._normalize_scope_path("holdings") == "holdings"
 
