@@ -21,6 +21,19 @@ export type AgentPkmCaptureStatus = {
   saved: number;
 };
 
+/** Re-evaluate at each effect: time can expire without a React render. */
+export function isAgentPkmProcessingReady(state: {
+  authLoading: boolean;
+  sessionVerificationRequired?: boolean;
+  isVaultUnlocked: boolean;
+  vaultOwnerToken: string | null;
+  tokenExpiresAt: number | null;
+}, expectedToken: string): boolean {
+  return !state.authLoading && !state.sessionVerificationRequired &&
+    state.isVaultUnlocked && state.vaultOwnerToken === expectedToken &&
+    state.tokenExpiresAt !== null && Date.now() < state.tokenExpiresAt;
+}
+
 /** One turn can contain several distinct capture invocations, in any order. */
 export function aggregateAgentPkmCaptures(
   statuses: AgentPkmCaptureStatus[],

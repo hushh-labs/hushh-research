@@ -8,10 +8,10 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/agent/agent-pkm-memory", () => ({
   previewAgentPkmMemory: mocks.preview,
   addToPKM: mocks.save,
-  getPkmAutoSaveCards: (cards: Array<{ write_mode?: string; sharing_impact?: { active_recipient_count?: number } }>) =>
+  getPkmAutoSaveCards: (cards: Array<{ write_mode?: string; preparation_requires_review?: boolean; sharing_impact?: { active_recipient_count?: number } }>) =>
     cards.filter(
       (card) =>
-        card.write_mode === "can_save" &&
+        card.preparation_requires_review !== true && card.write_mode === "can_save" &&
         (card.sharing_impact?.active_recipient_count || 0) === 0,
     ),
 }));
@@ -237,6 +237,7 @@ describe("ingestNaturalLanguagePkm", () => {
     });
 
     expect(prepared.cards).toHaveLength(1);
+    expect(prepared.cards[0].preparation_requires_review).toBe(true);
     expect(prepared.sourceCoverage).toEqual([
       expect.objectContaining({
         disposition: "review_required",
@@ -244,6 +245,22 @@ describe("ingestNaturalLanguagePkm", () => {
         accountedFactCount: 1,
       }),
     ]);
+  });
+
+  it.each([34, 96, 97])("does not automatically save incomplete preparation at %i characters", async (length) => {
+    const source = "I prefer tea. I prefer warm rooms.".padEnd(length, ".");
+    mocks.preview.mockResolvedValue({
+      cards: [{ card_id: "one", source_text: "I prefer tea.", write_mode: "can_save" }],
+      preview_summary: { total_segments_detected: 2 },
+    });
+    mocks.save.mockResolvedValue({ attempted: 0, saved: 0, failed: 0, domains: [], results: [] });
+    const result = await ingestNaturalLanguagePkm({
+      userId: "user_1", message: source, currentDomains: [], vaultKey: "test-key",
+      vaultOwnerToken: "test-token", source: "test", writePolicy: "auto_save_only",
+      confirmation: { confirmedByUser: true, surface: "web", source: "test" },
+    });
+    expect(mocks.save).toHaveBeenCalledWith(expect.objectContaining({ cards: [] }));
+    expect(result.sourceCoverage.some(block => block.disposition === "review_required")).toBe(true);
   });
 
   it("keeps packed eligible details review-required when source coverage is incomplete", async () => {

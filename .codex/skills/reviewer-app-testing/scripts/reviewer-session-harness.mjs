@@ -116,6 +116,16 @@ async function waitForValue(readValue, label, timeoutMs) {
   throw new Error(`Timed out waiting for ${label}.`);
 }
 
+/** A loaded route beacon can describe anonymous or locked UI, not admission. */
+export async function waitForReviewerVaultAdmission(page, expectedUserId, timeoutMs = 60_000) {
+  if (!expectedUserId) throw new Error("Reviewer admission requires a configured identity.");
+  await page.waitForFunction((expected) => {
+    const bridge = window.__HUSHH_NATIVE_TEST__;
+    return bridge?.bootstrapState === "vault_unlocked" &&
+      bridge?.bootstrapUserId === expected;
+  }, expectedUserId, { timeout: timeoutMs });
+}
+
 export async function createReviewerSessionHarness({
   repoRoot,
   appOrigin = "https://uat.one.hushh.ai",

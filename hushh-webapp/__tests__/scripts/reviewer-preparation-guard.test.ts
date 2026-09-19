@@ -1,9 +1,49 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // The harness owns this policy; no browser, account, or secrets are needed here.
 // @ts-expect-error The canonical Node rehearsal script has no TS declaration.
-import { installReadOnlyMutationGuard } from "../../../.codex/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs";
+import { installReadOnlyMutationGuard, waitForReviewerVaultAdmission } from "../../../.codex/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs";
 
 describe("reviewer preparation-only authority", () => {
+  it("requires the expected unlocked owner, not an anonymous route beacon", async () => {
+    let predicate!: (expected: string) => boolean;
+    const page = { waitForFunction: vi.fn(async (check, expected, options) => {
+      predicate = check;
+      expect(expected).toBe("synthetic-owner");
+      expect(options.timeout).toBe(100);
+    }) };
+    await waitForReviewerVaultAdmission(page, "synthetic-owner", 100);
+    const target = window as unknown as { __HUSHH_NATIVE_TEST__: { bootstrapState: string; bootstrapUserId: string } };
+    try {
+      delete (target as Partial<typeof target>).__HUSHH_NATIVE_TEST__;
+      expect(predicate("synthetic-owner")).toBe(false);
+      target.__HUSHH_NATIVE_TEST__ = { bootstrapState: "authenticated", bootstrapUserId: "synthetic-owner" };
+      expect(predicate("synthetic-owner")).toBe(false);
+      target.__HUSHH_NATIVE_TEST__ = { bootstrapState: "vault_unlocked", bootstrapUserId: "other-owner" };
+      expect(predicate("synthetic-owner")).toBe(false);
+      target.__HUSHH_NATIVE_TEST__.bootstrapUserId = "synthetic-owner";
+      expect(predicate("synthetic-owner")).toBe(true);
+    } finally {
+      delete (target as Partial<typeof target>).__HUSHH_NATIVE_TEST__;
+    }
+  });
+  it("awaits admission and propagates failure without consulting a route beacon", async () => {
+    let finish!: () => void;
+    const page = { waitForFunction: vi.fn(() => new Promise<void>(resolve => { finish = resolve; })) };
+    let completed = false;
+    const admission = waitForReviewerVaultAdmission(page, "synthetic-owner").then(() => { completed = true; });
+    await Promise.resolve();
+    expect(completed).toBe(false);
+    finish();
+    await admission;
+    expect(completed).toBe(true);
+    const timeout = new Error("Synthetic admission timeout");
+    await expect(waitForReviewerVaultAdmission({ waitForFunction: vi.fn().mockRejectedValue(timeout) }, "synthetic-owner")).rejects.toBe(timeout);
+  });
+  it("rejects absent reviewer configuration before accessing the page", async () => {
+    const page = { waitForFunction: vi.fn() };
+    await expect(waitForReviewerVaultAdmission(page, "")).rejects.toThrow("configured identity");
+    expect(page.waitForFunction).not.toHaveBeenCalled();
+  });
   beforeEach(() => vi.stubEnv("REVIEWER_ALLOW_SHARED_MUTATIONS", "false"));
   afterEach(() => vi.unstubAllEnvs());
   it("awaits guard installation before returning", async () => {

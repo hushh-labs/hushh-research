@@ -21,6 +21,7 @@ describe("reviewer route bootstrap contract", () => {
         expect(source).toContain('const REVIEWER_BOOTSTRAP_ROUTE = "/"');
         expect(source).not.toContain("bodySnippet:");
         expect(source).not.toContain("bootstrapUserId:");
+        expect(source).toContain("await waitForReviewerVaultAdmission(page, smokeUserId, NAVIGATION_TIMEOUT_MS)");
       } else {
         expect(source).toMatch(
           /const REVIEWER_BOOTSTRAP_ROUTE_IDS = \[\s*REVIEWER_BOOTSTRAP_ROUTE,\s*"\/ria\/onboarding",?\s*\]/,

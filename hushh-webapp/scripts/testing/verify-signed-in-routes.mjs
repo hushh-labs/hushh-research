@@ -14,6 +14,7 @@ import {
   parseEnvFile,
   resolveReviewerTestIdentity,
 } from "./reviewer-test-identity.mjs";
+import { waitForReviewerVaultAdmission } from "../../../.codex/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -876,6 +877,7 @@ async function ensureReviewerSession(page) {
 
   process.stdout.write(`→ wait for reviewer route beacon\n`);
   try {
+    await waitForReviewerVaultAdmission(page, smokeUserId, NAVIGATION_TIMEOUT_MS);
     await waitForRouteBeacon(page, REVIEWER_BOOTSTRAP_ROUTE_IDS);
   } catch (error) {
     const diagnostics = await captureRouteDiagnostics(page);

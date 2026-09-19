@@ -49,7 +49,7 @@ import {
 import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
-import { createAgentPkmCaptureGuard } from "@/lib/agent/agent-pkm-capture-runtime";
+import { createAgentPkmCaptureGuard, isAgentPkmProcessingReady } from "@/lib/agent/agent-pkm-capture-runtime";
 
 it("keeps a confirmed old-generation receipt without invalidating the replacement owner context", async () => {
   publishValidatedAuthSessionOwner("owner-a");
@@ -161,6 +161,7 @@ describe("agent PKM memory helpers", () => {
   it("keeps sharing and uncertain cards in review while exposing only private can-save cards", () => {
     const cards: AgentPkmPreviewCard[] = [
       { card_id: "auto", source_text: "", write_mode: "can_save" },
+      { card_id: "incomplete", source_text: "", write_mode: "can_save", preparation_requires_review: true },
       {
         card_id: "shared",
         source_text: "",
@@ -182,6 +183,44 @@ describe("agent PKM memory helpers", () => {
       "shared",
       "review",
     ]);
+  });
+
+  it("rechecks token expiry without requiring a React render", () => {
+    vi.useFakeTimers();
+    const state = { authLoading: false, sessionVerificationRequired: false, isVaultUnlocked: true,
+      vaultOwnerToken: "test-token", tokenExpiresAt: Date.now() + 100 };
+    expect(isAgentPkmProcessingReady(state, "test-token")).toBe(true);
+    expect(isAgentPkmProcessingReady({ ...state, vaultOwnerToken: "replacement" }, "test-token")).toBe(false);
+    vi.advanceTimersByTime(100);
+    expect(isAgentPkmProcessingReady(state, "test-token")).toBe(false);
+    expect(isAgentPkmProcessingReady({ ...state, tokenExpiresAt: null }, "test-token")).toBe(false);
+  });
+
+  it.each(["owner", "product"])("rejects a direct %s automatic write with incomplete coverage but retains explicit manual review", async (mode) => {
+    const card: AgentPkmPreviewCard = {
+      card_id: "incomplete", source_text: "I prefer tea.", write_mode: "can_save",
+      preparation_requires_review: true, target_domain: "preferences",
+      candidate_payload: { drink: "tea" }, structure_decision: { target_domain: "preferences" },
+    };
+    const params = { userId: "user_1", cards: [card], sourceMessage: "I prefer tea. I prefer warm rooms.",
+      vaultKey: "test-key", vaultOwnerToken: "test-token", source: "test" };
+    const automatic = await addToPKM({ ...params, confirmation: mode === "owner" ? {
+      authorizationMode: "owner_auto_save_policy", surface: "chat", source: "test",
+      autoSavePolicyVersion: 1, autoSavePolicyEnabledAt: "2026-09-18T00:00:00Z",
+    } : {
+      authorizationMode: "product_default_auto_save_policy", surface: "chat",
+      source: "agent_chat_product_default_auto_save", autoSavePolicyVersion: 1,
+      productDefaultEffectiveAt: "2026-09-18T00:00:00Z",
+    } });
+    expect(automatic).toMatchObject({ saved: 0, failed: 1 });
+    expect(pkmSavePreparedDomainMock).not.toHaveBeenCalled();
+    expect(pkmSaveMergedDomainMock).not.toHaveBeenCalled();
+    const reviewed = await addToPKM({ ...params, confirmation: {
+      confirmedByUser: true, surface: "web", source: "test",
+    } });
+    expect(reviewed).toMatchObject({ saved: 1, failed: 0 });
+    expect(pkmSavePreparedDomainMock).toHaveBeenCalledTimes(1);
+    expect(card.write_mode).toBe("can_save");
   });
 
   it("loads decrypted session PKM when the vault key is available", async () => {

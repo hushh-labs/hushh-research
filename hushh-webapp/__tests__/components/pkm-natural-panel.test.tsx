@@ -25,21 +25,23 @@ vi.mock("@/lib/agent/agent-pkm-memory", () => ({
 const push = vi.fn();
 const getIdToken = vi.fn().mockResolvedValue("id-token");
 const user = { uid: "reviewer", getIdToken };
+const otherUser = { uid: "other-reviewer", getIdToken };
+const authState = { user, loading: false, sessionVerificationRequired: false };
+const vaultState = {
+  isVaultUnlocked: true, vaultKey: "memory-only-key",
+  vaultOwnerToken: "memory-only-owner-token", tokenExpiresAt: Date.now() + 60_000,
+};
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push }),
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user, loading: false }),
+  useAuth: () => authState,
 }));
 
 vi.mock("@/lib/vault/vault-context", () => ({
-  useVault: () => ({
-    isVaultUnlocked: true,
-    vaultKey: "memory-only-key",
-    vaultOwnerToken: "memory-only-owner-token",
-  }),
+  useVault: () => vaultState,
 }));
 
 const NOW = new Date().toISOString();
@@ -142,6 +144,10 @@ const FULL_BLOB = {
 describe("PkmNaturalPanel — Memory redesign", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    authState.user = user;
+    authState.loading = false;
+    authState.sessionVerificationRequired = false;
+    vaultState.tokenExpiresAt = Date.now() + 60_000;
     publishValidatedAuthSessionOwner("reviewer");
     vi.spyOn(PersonalKnowledgeModelService, "getMetadata").mockResolvedValue(
       baseMetadata() as never,
@@ -558,6 +564,160 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     expect(note).toHaveValue("Second synthetic note");
     expect(screen.queryByRole("button", { name: "Save to Memory" })).toBeNull();
     expect(screen.queryByText("Stale preview")).toBeNull();
+  });
+
+  it.each(["verification", "loading", "expiry"])("rejects an in-flight preview after %s readiness is lost", async (reason) => {
+    let finish!: (value: unknown) => void;
+    previewAgentPkmMemory.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const view = render(<PkmNaturalPanel />);
+    await screen.findByTestId("memory-recently-learned-row");
+    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
+    fireEvent.change(await screen.findByRole("textbox", { name: "Memory note" }), { target: { value: "Synthetic preference" } });
+    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
+    await waitFor(() => expect(finish).toBeTypeOf("function"));
+    const current = previewAgentPkmMemory.mock.calls.at(-1)?.[0].isEffectCurrent;
+    expect(current()).toBe(true);
+    if (reason === "verification") authState.sessionVerificationRequired = true;
+    if (reason === "loading") authState.loading = true;
+    if (reason === "expiry") vaultState.tokenExpiresAt = Date.now() - 1;
+    view.rerender(<PkmNaturalPanel />);
+    expect(current()).toBe(false);
+    await act(async () => finish({ cards: [{ card_id: "stale", source_text: "Stale preview" }] }));
+    authState.loading = false;
+    authState.sessionVerificationRequired = false;
+    view.rerender(<PkmNaturalPanel />);
+    expect(screen.queryByText("Stale preview")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Save to Memory" })).toBeNull();
+    expect(addToPKM).not.toHaveBeenCalled();
+  });
+
+  it.each(["verification", "loading", "expiry"])("stops save dispatch/publication after %s readiness is lost", async (reason) => {
+    let finish!: (value: unknown) => void;
+    addToPKM.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const view = render(<PkmNaturalPanel />);
+    await screen.findByTestId("memory-recently-learned-row");
+    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
+    fireEvent.change(await screen.findByRole("textbox", { name: "Memory note" }), { target: { value: "Synthetic preference" } });
+    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Save to Memory" }));
+    await waitFor(() => expect(finish).toBeTypeOf("function"));
+    const options = addToPKM.mock.calls.at(-1)?.[0];
+    expect(options.mayPublish()).toBe(true);
+    if (reason === "verification") authState.sessionVerificationRequired = true;
+    if (reason === "loading") authState.loading = true;
+    if (reason === "expiry") vaultState.tokenExpiresAt = Date.now() - 1;
+    view.rerender(<PkmNaturalPanel />);
+    await expect(options.beforeEffect()).rejects.toMatchObject({ name: "AbortError" });
+    expect(options.mayPublish()).toBe(false);
+    await act(async () => finish({ attempted: 1, saved: 0, failed: 1, results: [], domains: [] }));
+    expect(clearAgentPkmContext).not.toHaveBeenCalled();
+  });
+
+  it("holds an interrupted save until settlement and retires its cards before another review", async () => {
+    let finish!: (value: unknown) => void;
+    addToPKM.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const view = render(<PkmNaturalPanel />);
+    await screen.findByTestId("memory-recently-learned-row");
+    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
+    const note = await screen.findByRole("textbox", { name: "Memory note" });
+    fireEvent.change(note, { target: { value: "Synthetic preference" } });
+    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Save to Memory" }));
+    await waitFor(() => expect(finish).toBeTypeOf("function"));
+    authState.sessionVerificationRequired = true;
+    view.rerender(<PkmNaturalPanel />);
+    authState.sessionVerificationRequired = false;
+    view.rerender(<PkmNaturalPanel />);
+    expect(note).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Save to Memory" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
+    expect(addToPKM).toHaveBeenCalledTimes(1);
+    expect(previewAgentPkmMemory).toHaveBeenCalledTimes(1);
+    await act(async () => finish({ attempted: 1, saved: 1, failed: 0, domains: ["preferences"],
+      results: [{ cardId: "memory-card-1", success: true }] }));
+    expect(note).not.toBeDisabled();
+    expect(note).toHaveValue("Synthetic preference");
+    expect(screen.getByText(/1 reviewed detail saved. Check Memory/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Save to Memory" })).toBeNull();
+    expect(clearAgentPkmContext).not.toHaveBeenCalled();
+  });
+
+  it("does not let a late owner-A settlement unlock owner-B's pending save", async () => {
+    let finishA!: (value: unknown) => void;
+    let finishB!: (value: unknown) => void;
+    addToPKM
+      .mockImplementationOnce(() => new Promise(resolve => { finishA = resolve; }))
+      .mockImplementationOnce(() => new Promise(resolve => { finishB = resolve; }));
+
+    const view = render(<PkmNaturalPanel />);
+    await screen.findByTestId("memory-recently-learned-row");
+    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
+    const noteA = await screen.findByRole("textbox", { name: "Memory note" });
+    fireEvent.change(noteA, { target: { value: "Owner A synthetic detail" } });
+    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Save to Memory" }));
+    await waitFor(() => expect(finishA).toBeTypeOf("function"));
+
+    authState.user = otherUser;
+    publishValidatedAuthSessionOwner(otherUser.uid);
+    view.rerender(<PkmNaturalPanel />);
+    await screen.findByTestId("memory-recently-learned-row");
+    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
+    const noteB = await screen.findByRole("textbox", { name: "Memory note" });
+    fireEvent.change(noteB, { target: { value: "Owner B synthetic detail" } });
+    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Save to Memory" }));
+    await waitFor(() => expect(finishB).toBeTypeOf("function"));
+
+    await act(async () => finishA({ attempted: 1, saved: 1, failed: 0, domains: ["preferences"], results: [] }));
+    expect(noteB).toBeDisabled();
+    await act(async () => finishB({ attempted: 1, saved: 1, failed: 0, domains: ["preferences"], results: [] }));
+    expect(noteB).not.toBeDisabled();
+  });
+
+  it("reconciles a save acknowledged during verification recovery with a fresh read", async () => {
+    let finish!: (value: unknown) => void;
+    addToPKM.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const view = render(<PkmNaturalPanel />);
+    await screen.findByTestId("memory-recently-learned-row");
+    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
+    const note = await screen.findByRole("textbox", { name: "Memory note" });
+    fireEvent.change(note, { target: { value: "Recovered synthetic detail" } });
+    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Save to Memory" }));
+    await waitFor(() => expect(finish).toBeTypeOf("function"));
+
+    authState.sessionVerificationRequired = true;
+    view.rerender(<PkmNaturalPanel />);
+    await act(async () => finish({ attempted: 1, saved: 1, failed: 0, domains: ["preferences"], results: [] }));
+    const metadataCallsBeforeRecovery = vi.mocked(PersonalKnowledgeModelService.getMetadata).mock.calls.length;
+    authState.sessionVerificationRequired = false;
+    view.rerender(<PkmNaturalPanel />);
+
+    await waitFor(() => expect(
+      vi.mocked(PersonalKnowledgeModelService.getMetadata).mock.calls.slice(metadataCallsBeforeRecovery)
+        .some(([userId, force]) => userId === "reviewer" && force === true),
+    ).toBe(true));
+  });
+
+  it("keeps a pending save locked across a route remount", async () => {
+    let finish!: (value: unknown) => void;
+    addToPKM.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    const first = render(<PkmNaturalPanel />);
+    await screen.findByTestId("memory-recently-learned-row");
+    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
+    const firstNote = await screen.findByRole("textbox", { name: "Memory note" });
+    fireEvent.change(firstNote, { target: { value: "Remount synthetic detail" } });
+    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Save to Memory" }));
+    await waitFor(() => expect(finish).toBeTypeOf("function"));
+
+    first.unmount();
+    render(<PkmNaturalPanel />);
+    await screen.findByTestId("memory-recently-learned-row");
+    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
+    expect(await screen.findByRole("textbox", { name: "Memory note" })).toBeDisabled();
+    await act(async () => finish({ attempted: 1, saved: 1, failed: 0, domains: ["preferences"], results: [] }));
   });
 
   it("still renders the Saved screen when domain-level sharing verification fails", async () => {

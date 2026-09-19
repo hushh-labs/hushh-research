@@ -410,6 +410,13 @@ export async function prepareNaturalLanguagePkm(params: {
     chunkCount: previews.length,
     cardCount: cards.length,
   });
+  // Partial preparation cannot authorize automatic effects. Keep the model's
+  // semantic fields intact and retain cards for explicit owner review/save.
+  // A model-requested confirmation alone does not taint independent cards.
+  const incompletePreparation = sourceCoverage.some((block) =>
+    Boolean(block.preparationIssue) || block.disposition === "failed" ||
+    block.detectedFactCount !== block.accountedFactCount,
+  ) || previews.some((preview) => preview.used_fallback === true || Boolean(preview.error));
   return {
     preview: previews[0] ?? {
       agent_id: "agent_memory_segmentation",
@@ -420,7 +427,9 @@ export async function prepareNaturalLanguagePkm(params: {
       preview_cards: [],
     },
     previews,
-    cards,
+    cards: incompletePreparation
+      ? cards.map((card) => ({ ...card, preparation_requires_review: true }))
+      : cards,
     chunkCount: previews.length,
     ingestionId,
     sourceCoverage,

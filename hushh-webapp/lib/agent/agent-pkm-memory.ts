@@ -53,6 +53,8 @@ export type AgentPkmPreviewCard = {
   confirmation_reason?: string;
   candidate_domain_choices?: AgentPkmDomainChoice[];
   validation_hints?: string[];
+  /** Local preparation coverage, not a model semantic decision or persisted field. */
+  preparation_requires_review?: boolean;
   intent_frame?: AgentPkmIntentFrame;
   merge_decision?: Record<string, unknown>;
   candidate_payload?: Record<string, unknown>;
@@ -212,6 +214,7 @@ export function getPkmAutoSaveCards(
   return cards.filter(
     (card) =>
       !isReservedPkmCard(card) &&
+      card.preparation_requires_review !== true &&
       card.write_mode === "can_save" &&
       card.requires_confirmation !== true &&
       card.intent_frame?.requires_confirmation !== true &&
@@ -423,7 +426,8 @@ export async function addToPKM(params: {
     }
     if (
       automatic &&
-      (card.write_mode !== "can_save" || card.requires_confirmation === true ||
+      (card.preparation_requires_review === true ||
+        card.write_mode !== "can_save" || card.requires_confirmation === true ||
         card.intent_frame?.requires_confirmation === true ||
         (card.sharing_impact?.active_recipient_count || 0) > 0)
     ) {
@@ -565,7 +569,7 @@ export async function addToPKM(params: {
     }
     if (
       automatic &&
-      (card.write_mode !== "can_save" ||
+      (card.preparation_requires_review === true || card.write_mode !== "can_save" ||
         (card.sharing_impact?.active_recipient_count || 0) > 0)
     ) {
       return false;

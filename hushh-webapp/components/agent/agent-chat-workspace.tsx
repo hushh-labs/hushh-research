@@ -15,7 +15,7 @@ import {
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AgentMemoryCaptureStatus } from "@/components/agent/agent-memory-capture-status";
-import { aggregateAgentPkmCaptures, createAgentPkmCaptureGuard, describeAgentPkmCapture, type AgentPkmCaptureStatus } from "@/lib/agent/agent-pkm-capture-runtime";
+import { aggregateAgentPkmCaptures, createAgentPkmCaptureGuard, describeAgentPkmCapture, isAgentPkmProcessingReady, type AgentPkmCaptureStatus } from "@/lib/agent/agent-pkm-capture-runtime";
 import { AgentPersonSelectionContext } from "@/components/agent/agent-structured-experience";
 import {
   Check,
@@ -1607,7 +1607,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // popover mount in the current route topology.
   const isPopover = false;
   const localCrmEnabled = isLocalCrmBuildEnabled();
-  const { user, loading: authLoading, phoneNumber } = useAuth();
+  const { user, loading: authLoading, phoneNumber, sessionVerificationRequired } = useAuth();
   const {
     isVaultUnlocked,
     vaultKey,
@@ -1808,6 +1808,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   pkmCapturePolicyRef.current = pkmAutoSavePolicy;
   const pkmCaptureEnabledRef = useRef(false);
   pkmCaptureEnabledRef.current = pkmPolicyReady && pkmPolicyOwnerId === user?.uid && pkmAutoSavePolicy.enabled && isVaultUnlocked;
+  const pkmCaptureReadinessRef = useRef({ authLoading, sessionVerificationRequired, isVaultUnlocked, vaultOwnerToken, tokenExpiresAt });
+  pkmCaptureReadinessRef.current = { authLoading, sessionVerificationRequired, isVaultUnlocked, vaultOwnerToken, tokenExpiresAt };
   // A specialist (e.g. agent_location) can return a directive that must be
   // explicitly confirmed by the user before it runs. Stored here and rendered
   // as an inline card; never auto-fired for kind:"action".
@@ -1918,7 +1920,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         ? { ...message, memoryCapture: { phase: message.memoryCapture.saved ? "partial" : "canceled", saved: message.memoryCapture.saved } }
         : message,
     ));
-  }, [vaultOwnerToken, pkmAutoSavePolicy, isVaultUnlocked, pkmPolicyReady]);
+  }, [vaultOwnerToken, pkmAutoSavePolicy, isVaultUnlocked, pkmPolicyReady, authLoading, sessionVerificationRequired]);
 
   useEffect(() => {
     if (user?.uid && isVaultUnlocked && vaultKey) {
@@ -3553,7 +3555,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       const controller = new AbortController();
       const guard = createAgentPkmCaptureGuard({
         userId, signal: controller.signal,
-        isEnabled: () => pkmCaptureEnabledRef.current && pkmCapturePolicyRef.current === policy,
+        isEnabled: () => pkmCaptureEnabledRef.current && pkmCapturePolicyRef.current === policy &&
+          isAgentPkmProcessingReady(pkmCaptureReadinessRef.current, token),
       });
       pkmAbortControllersRef.current.add(controller);
       setActivePkmToolCount((count) => count + 1);

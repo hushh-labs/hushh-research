@@ -39,7 +39,7 @@ import {
   type AgentPkmPreviewCard,
 } from "@/lib/agent/agent-pkm-memory";
 import { prepareNaturalLanguagePkm } from "@/lib/pkm/pkm-natural-language-ingestion";
-import { createAgentPkmCaptureGuard } from "@/lib/agent/agent-pkm-capture-runtime";
+import { createAgentPkmCaptureGuard, isAgentPkmProcessingReady } from "@/lib/agent/agent-pkm-capture-runtime";
 import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
 import {
   DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY,
@@ -99,6 +99,13 @@ const EMPTY_DOMAIN_DETAIL: DomainDetailState = {
 /** The Recently learned route lists this many; the home shows one row into it. */
 const RECENT_MEMORIES_LIMIT = 50;
 
+// Capture operations are intentionally process-local. They retain only an
+// owner/operation identity, never source text, keys, or decrypted values. A
+// module-level registry prevents a route remount from dispatching the same
+// reviewed write twice while the first request is still settling.
+const pkmCaptureSaveInFlight = new Map<string, symbol>();
+const pkmCaptureReconciliationNeeded = new Set<string>();
+
 function cardScopePath(card: PkmMemoryCard): string {
   return String(card.pathSegments.find((segment) => typeof segment === "string") || "profile");
 }
@@ -117,8 +124,10 @@ export function PkmNaturalPanel({
   view?: "home" | "recent";
 } = {}) {
   const router = useRouter();
-  const { user, loading: authLoading } = useAuth();
-  const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
+  const { user, loading: authLoading, sessionVerificationRequired } = useAuth();
+  const { isVaultUnlocked, vaultKey, vaultOwnerToken, tokenExpiresAt } = useVault();
+  const captureReadinessRef = useRef({ authLoading, sessionVerificationRequired, isVaultUnlocked, vaultOwnerToken, tokenExpiresAt });
+  captureReadinessRef.current = { authLoading, sessionVerificationRequired, isVaultUnlocked, vaultOwnerToken, tokenExpiresAt };
   const pkmChangeRevision = usePkmDomainChangeRevision(user?.uid);
 
   const [metadata, setMetadata] = useState<PersonalKnowledgeModelMetadata | null>(null);
@@ -189,21 +198,48 @@ export function PkmNaturalPanel({
   const [captureCards, setCaptureCards] = useState<AgentPkmPreviewCard[]>([]);
   const [captureHasUnresolvedSource, setCaptureHasUnresolvedSource] = useState(false);
   const captureRevision = useRef(0);
-  const captureSaveInFlight = useRef(false);
+  const captureOwnerIdRef = useRef<string | null>(user?.uid ?? null);
+  captureOwnerIdRef.current = user?.uid ?? null;
+  const captureAuthReady = !authLoading && !sessionVerificationRequired;
+  useEffect(() => {
+    if (captureAuthReady) return;
+    // Keep the owner's draft, but old work must not resume after verification.
+    captureRevision.current += 1;
+    setCaptureLoading(false);
+    // A dispatched save can still succeed. Retire the old review, but hold its
+    // operation lock until settlement so recovery cannot submit it twice.
+    if (user?.uid && pkmCaptureSaveInFlight.has(user.uid)) setCaptureCards([]);
+  }, [captureAuthReady]);
   const [captureLoading, setCaptureLoading] = useState(false);
-  const [captureSaving, setCaptureSaving] = useState(false);
+  const [captureSaving, setCaptureSaving] = useState(() =>
+    Boolean(user?.uid && pkmCaptureSaveInFlight.has(user.uid)),
+  );
   const [captureMessage, setCaptureMessage] = useState<string | null>(null);
   useEffect(() => {
     captureRevision.current += 1;
-    captureSaveInFlight.current = false;
     setCaptureText("");
     setCaptureCards([]);
     setCaptureHasUnresolvedSource(false);
     setCaptureMessage(null);
     setCaptureLoading(false);
-    setCaptureSaving(false);
+    setCaptureSaving(Boolean(user?.uid && pkmCaptureSaveInFlight.has(user.uid)));
     return () => { captureRevision.current += 1; };
   }, [user?.uid, isVaultUnlocked]);
+
+  // A request can be accepted while verification is temporarily unavailable.
+  // Its result is deliberately not published through the stale guard; once
+  // current authority is restored, force one fresh ciphertext-backed read so
+  // the visible Memory projection catches up without reviving the old result.
+  useEffect(() => {
+    if (!user?.uid || !isVaultUnlocked || !vaultOwnerToken || !isCaptureReady(vaultOwnerToken)) {
+      return;
+    }
+    if (pkmCaptureSaveInFlight.has(user.uid) || !pkmCaptureReconciliationNeeded.has(user.uid)) {
+      return;
+    }
+    pkmCaptureReconciliationNeeded.delete(user.uid);
+    setRefreshNonce((value) => value + 1);
+  }, [authLoading, isVaultUnlocked, sessionVerificationRequired, tokenExpiresAt, user?.uid, vaultOwnerToken]);
   const [sharingManifests, setSharingManifests] = useState<Record<string, DomainManifest | null>>({});
   const [sharingManifestsLoading, setSharingManifestsLoading] = useState(false);
   const [sharingActionKey, setSharingActionKey] = useState<string | null>(null);
@@ -788,13 +824,18 @@ export function PkmNaturalPanel({
     }
   }
 
+  function isCaptureReady(expectedToken: string) {
+    return isAgentPkmProcessingReady(captureReadinessRef.current, expectedToken);
+  }
+
   async function previewMemoryCapture() {
     if (!user || !isVaultUnlocked || !vaultOwnerToken || !captureText.trim() || captureSaving) return;
     const revision = ++captureRevision.current;
     const guard = createAgentPkmCaptureGuard({
       userId: user.uid, signal: new AbortController().signal,
-      isEnabled: () => revision === captureRevision.current,
+      isEnabled: () => revision === captureRevision.current && isCaptureReady(vaultOwnerToken),
     });
+    if (!guard.isCurrent()) return;
     setCaptureCards([]);
     setCaptureLoading(true);
     setCaptureHasUnresolvedSource(false);
@@ -842,7 +883,7 @@ export function PkmNaturalPanel({
           : "Nothing new needs to be saved from that note."
       );
     } catch {
-      if (revision !== captureRevision.current) return;
+      if (!guard.isCurrent()) return;
       setCaptureMessage("That note couldn’t be prepared. Nothing was saved. Please try again.");
     } finally {
       if (revision === captureRevision.current) setCaptureLoading(false);
@@ -850,13 +891,25 @@ export function PkmNaturalPanel({
   }
 
   async function saveMemoryCapture() {
-    if (!user || !isVaultUnlocked || !vaultKey || !vaultOwnerToken || captureCards.length === 0 || captureSaveInFlight.current) return;
-    captureSaveInFlight.current = true;
+    if (!user || !isVaultUnlocked || !vaultKey || !vaultOwnerToken || captureCards.length === 0 || pkmCaptureSaveInFlight.has(user.uid)) return;
+    const operationId = Symbol("memory-save");
+    const operationOwnerId = user.uid;
+    pkmCaptureSaveInFlight.set(operationOwnerId, operationId);
     const revision = ++captureRevision.current;
+    const receiptGuard = createAgentPkmCaptureGuard({
+      userId: user.uid, signal: new AbortController().signal,
+      isEnabled: () => pkmCaptureSaveInFlight.get(operationOwnerId) === operationId,
+    });
     const guard = createAgentPkmCaptureGuard({
       userId: user.uid, signal: new AbortController().signal,
-      isEnabled: () => revision === captureRevision.current,
+      isEnabled: () => revision === captureRevision.current && isCaptureReady(vaultOwnerToken),
     });
+    if (!guard.isCurrent()) {
+      if (pkmCaptureSaveInFlight.get(operationOwnerId) === operationId) {
+        pkmCaptureSaveInFlight.delete(operationOwnerId);
+      }
+      return;
+    }
     setCaptureSaving(true);
     try {
       const operation = addToPKM({
@@ -882,7 +935,18 @@ export function PkmNaturalPanel({
         error: "Memory couldn’t be saved. Your note is still here; please try again.",
       });
       const result = await operation;
-      if (!guard.isCurrent()) return;
+      if (!guard.isCurrent()) {
+        if (receiptGuard.isCurrent() && captureOwnerIdRef.current === operationOwnerId) {
+          if (result.saved > 0) pkmCaptureReconciliationNeeded.add(operationOwnerId);
+          // Counts only; do not republish cards or refresh private information
+          // while verification is unavailable. The draft stays for review.
+          setCaptureCards([]);
+          setCaptureMessage(result.saved > 0
+            ? `${result.saved} reviewed detail${result.saved === 1 ? "" : "s"} saved. Check Memory before preparing this note again.`
+            : "Saving was interrupted. Check Memory before preparing this note again.");
+        }
+        return;
+      }
       clearAgentPkmContext(user.uid);
       setCaptureMessage(
         result.saved > 0
@@ -900,12 +964,18 @@ export function PkmNaturalPanel({
         setRefreshNonce((value) => value + 1);
       }
     } catch {
-      if (revision !== captureRevision.current) return;
+      if (!guard.isCurrent()) {
+        if (receiptGuard.isCurrent() && captureOwnerIdRef.current === operationOwnerId) {
+          setCaptureCards([]);
+          setCaptureMessage("Saving was interrupted. Check Memory before preparing this note again.");
+        }
+        return;
+      }
       setCaptureMessage("Memory couldn’t be saved. Your note is still here; please try again.");
     } finally {
-      if (revision === captureRevision.current) {
-        captureSaveInFlight.current = false;
-        setCaptureSaving(false);
+      if (pkmCaptureSaveInFlight.get(operationOwnerId) === operationId) {
+        pkmCaptureSaveInFlight.delete(operationOwnerId);
+        if (captureOwnerIdRef.current === operationOwnerId) setCaptureSaving(false);
       }
     }
   }
