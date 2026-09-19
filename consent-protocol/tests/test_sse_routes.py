@@ -1,4 +1,4 @@
-from api.routes.sse import _sse_payload_from_event_payload
+from api.routes.sse import _sse_event_id, _sse_payload_from_event_payload
 
 
 def test_sse_payload_includes_enriched_request_fields():
@@ -32,3 +32,15 @@ def test_sse_payload_includes_enriched_request_fields():
     assert payload["expiry_hours"] == 24
     assert payload["approval_timeout_minutes"] == 5
     assert payload["approval_timeout_at"] == 1234569999
+
+
+def test_connection_removed_sse_keeps_its_type_and_delivery_identity():
+    event = {
+        "type": "connection_removed",
+        "message_id": "connection-removed:conn-1:episode-2:user-b",
+        "connection_id": "conn-1",
+        "action": "REMOVED",
+    }
+
+    assert _sse_event_id(event) == event["message_id"]
+    assert _sse_payload_from_event_payload(event) == event

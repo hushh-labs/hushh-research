@@ -81,6 +81,8 @@ import {
 } from "@/lib/navigation/connect-routes";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { subscribeToConnectionGraphChanges } from "@/lib/connections/connection-graph-events";
+import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { Button } from "@/lib/morphy-ux/button";
 import {
   ConnectionsService,
@@ -575,6 +577,10 @@ export default function ConnectPageClient() {
     useState(false);
   const connectionsRequestRef = useRef(0);
   const connectionsFirstPageRequestRef = useRef<number | null>(null);
+  const connectionReconcileInFlightRef = useRef<Promise<void> | null>(null);
+  const connectionReconcileQueuedRef = useRef(false);
+  const lastForegroundReconcileAtRef = useRef(0);
+  const suppressNextLocalGraphEventRef = useRef(false);
   const [outgoingRequestIds, setOutgoingRequestIds] = useState<
     Record<string, string>
   >({});
@@ -700,6 +706,8 @@ export default function ConnectPageClient() {
 
   const connectionAudience: ConnectionAudience =
     tab === "advisors" ? "ria" : "all";
+  const connectionAudienceRef = useRef(connectionAudience);
+  connectionAudienceRef.current = connectionAudience;
 
   const loadConnectionsPage = useCallback(
     async (
@@ -805,6 +813,37 @@ export default function ConnectPageClient() {
     [loadConnectionsPage],
   );
 
+  const reconcileConnectionSurfaces = useCallback(
+    ({ ensureAfterCurrent = false }: { ensureAfterCurrent?: boolean } = {}) => {
+      if (!user) return Promise.resolve();
+      const active = connectionReconcileInFlightRef.current;
+      if (active) {
+        if (ensureAfterCurrent) connectionReconcileQueuedRef.current = true;
+        return active;
+      }
+
+      const run = async () => {
+        do {
+          connectionReconcileQueuedRef.current = false;
+          await Promise.allSettled([
+            refreshConnectionsFirstPage({
+              audience: connectionAudienceRef.current,
+            }),
+            loadOutgoingRequestIds(),
+          ]);
+          setDirectoryRefreshNonce((nonce) => nonce + 1);
+          setCircleRefreshToken((token) => token + 1);
+        } while (connectionReconcileQueuedRef.current);
+      };
+      const task = run().finally(() => {
+        if (connectionReconcileInFlightRef.current === task) {
+          connectionReconcileInFlightRef.current = null;
+        }
+      });
+      connectionReconcileInFlightRef.current = task;
+      return task;
+    }, [loadOutgoingRequestIds, refreshConnectionsFirstPage, user]);
+
   // The same contact sync the One Location agent offers, on the screen whose
   // whole job is finding people. It is one implementation, not a second one:
   // everything about reading an address book, hashing numbers and matching
@@ -815,9 +854,6 @@ export default function ConnectPageClient() {
   // the acquisition source for that journey, and first touch wins inside it,
   // so calling it from here would not merely file a wrong row -- it would
   // consume the slot and leave a later, genuine Location touch unrecorded.
-  const connectionAudienceRef = useRef(connectionAudience);
-  connectionAudienceRef.current = connectionAudience;
-
   const contactSync = useContactSync({
     routeId: "connect",
     // `user ? getIdToken : null`, not `getIdToken`. The option is nullable so
@@ -843,10 +879,10 @@ export default function ConnectPageClient() {
     // the start; a captured value would refresh the People audience into the
     // RIAs group and repaint it with the wrong people.
     onConnectionGraphChanged: async () => {
-      await refreshConnectionsFirstPage({
-        audience: connectionAudienceRef.current,
-      });
-      setDirectoryRefreshNonce((nonce) => nonce + 1);
+      // The contact-sync hook publishes the graph event before invoking this
+      // callback. Join the subscriber's in-flight reconciliation instead of
+      // starting a second identical read.
+      await reconcileConnectionSurfaces();
     },
   });
 
@@ -876,13 +912,7 @@ export default function ConnectPageClient() {
       // requests, not bookkeeping echoes like "fcm_opened" that would
       // otherwise flash the list on every notification read.
       if (!detail.action && !detail.reconcile) return;
-      void refreshConnectionsFirstPage({ audience: connectionAudience });
-      void loadOutgoingRequestIds();
-      // A Circle roster open behind this page shows the same relationships,
-      // one row per member. Without this it kept a blue "Connect" on somebody
-      // who had just asked to connect with the viewer -- and pressing it then
-      // claimed a request was sent and offered a Cancel the API refuses.
-      setCircleRefreshToken((token) => token + 1);
+      void reconcileConnectionSurfaces({ ensureAfterCurrent: true });
     };
     window.addEventListener(CONSENT_STATE_CHANGED_EVENT, handleStateChanged);
     return () => {
@@ -891,7 +921,61 @@ export default function ConnectPageClient() {
         handleStateChanged,
       );
     };
-  }, [connectionAudience, loadOutgoingRequestIds, refreshConnectionsFirstPage]);
+  }, [reconcileConnectionSurfaces]);
+
+  useEffect(() => {
+    const userId = user?.uid;
+    if (!userId) return;
+
+    const unsubscribeGraph = subscribeToConnectionGraphChanges((detail) => {
+      if (detail.userId !== userId) return;
+      if (suppressNextLocalGraphEventRef.current) {
+        suppressNextLocalGraphEventRef.current = false;
+        return;
+      }
+      void reconcileConnectionSurfaces({ ensureAfterCurrent: true });
+    });
+    const refreshWhenActive = (ensureAfterCurrent = false) => {
+      if (document.visibilityState === "hidden") return;
+      if (connectionReconcileInFlightRef.current) {
+        if (ensureAfterCurrent) {
+          void reconcileConnectionSurfaces({ ensureAfterCurrent: true });
+        }
+        return;
+      }
+      const now = Date.now();
+      if (
+        !ensureAfterCurrent &&
+        now - lastForegroundReconcileAtRef.current < 750
+      ) {
+        return;
+      }
+      lastForegroundReconcileAtRef.current = now;
+      void reconcileConnectionSurfaces({ ensureAfterCurrent });
+    };
+    const refreshOnFocus = () => refreshWhenActive();
+    const refreshOnOnline = () => refreshWhenActive(true);
+
+    window.addEventListener("focus", refreshOnFocus);
+    window.addEventListener("online", refreshOnOnline);
+    document.addEventListener("visibilitychange", refreshOnFocus);
+    const removeLifecycleListener =
+      appInteractionCoordinator.subscribeLifecycle(() => {
+        if (
+          appInteractionCoordinator.getLifecycleSnapshot().state === "active"
+        ) {
+          refreshWhenActive(true);
+        }
+      });
+
+    return () => {
+      unsubscribeGraph();
+      window.removeEventListener("focus", refreshOnFocus);
+      window.removeEventListener("online", refreshOnOnline);
+      document.removeEventListener("visibilitychange", refreshOnFocus);
+      removeLifecycleListener();
+    };
+  }, [reconcileConnectionSurfaces, user?.uid]);
 
   // Both browsing and search load the directory in bounded server batches.
   // Scrolling appends the next batch without replacing people already visible.
@@ -1247,6 +1331,7 @@ export default function ConnectPageClient() {
           audience: connectionAudienceRef.current,
           removedConnection: true,
         });
+        suppressNextLocalGraphEventRef.current = true;
         CacheSyncService.onConnectionGraphMutated(user.uid);
         // Let the directory offer "Connect" again for this person.
         setPeople((prev) =>
@@ -2345,6 +2430,7 @@ export default function ConnectPageClient() {
           audience: connectionAudience,
           removedConnection: true,
         });
+        suppressNextLocalGraphEventRef.current = true;
         CacheSyncService.onConnectionGraphMutated(user.uid);
         return {
           status: "succeeded",

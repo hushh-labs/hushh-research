@@ -1546,17 +1546,32 @@ describe("OneLocationAgentPage", () => {
   }, 15000);
 
   it("removes a disconnected person from Share without a page refresh", async () => {
+    const initialRecipients = locationState().recipients;
+    mockListRecipientsPage.mockResolvedValue({
+      items: initialRecipients,
+      page: 1,
+      hasMore: false,
+      totalCount: initialRecipients.length,
+    });
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
 
     const nextState = locationState();
+    const nextRecipients = nextState.recipients.filter(
+      (recipient) => recipient.userId !== "user_d",
+    );
     mockGetState.mockClear();
     mockGetState.mockResolvedValue({
       ...nextState,
-      recipients: nextState.recipients.filter(
-        (recipient) => recipient.userId !== "user_d",
-      ),
+      recipients: nextRecipients,
+    });
+    mockListRecipientsPage.mockClear();
+    mockListRecipientsPage.mockResolvedValue({
+      items: nextRecipients,
+      page: 1,
+      hasMore: false,
+      totalCount: nextRecipients.length,
     });
 
     await act(async () => {
@@ -1564,6 +1579,9 @@ describe("OneLocationAgentPage", () => {
       await Promise.resolve();
     });
     await waitFor(() => expect(mockGetState).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(mockListRecipientsPage.mock.calls.length).toBeGreaterThanOrEqual(2),
+    );
 
     await openSharePersonStep();
     await waitFor(() =>
@@ -1576,18 +1594,117 @@ describe("OneLocationAgentPage", () => {
 
   });
 
+  it("refreshes the full workspace once when foreground signals arrive in a burst", async () => {
+    const visibility = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockReturnValue("visible");
+    try {
+      render(<OneLocationAgentPage />);
+      await skipLocationEntryFlow();
+      await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+      mockGetState.mockClear();
+      mockGetSmsContacts.mockClear();
+      mockGetPermissionState.mockClear();
+
+      await act(async () => {
+        window.dispatchEvent(new Event("focus"));
+        window.dispatchEvent(new Event("focus"));
+        await Promise.resolve();
+      });
+
+      await waitFor(() => expect(mockGetState).toHaveBeenCalledOnce());
+      expect(mockGetSmsContacts).toHaveBeenCalledOnce();
+      // One read belongs to the full workspace snapshot and one to the
+      // dedicated Settings-return permission repair. Repeated focus/online
+      // events must not add a third call.
+      expect(mockGetPermissionState).toHaveBeenCalledTimes(2);
+    } finally {
+      visibility.mockRestore();
+    }
+  });
+
+  it("queues online reconciliation and patches SMS only after workspace state", async () => {
+    const visibility = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockReturnValue("visible");
+    let resolveFirstState!: (value: ReturnType<typeof locationState>) => void;
+    const firstState = new Promise<ReturnType<typeof locationState>>(
+      (resolve) => {
+        resolveFirstState = resolve;
+      },
+    );
+    try {
+      render(<OneLocationAgentPage />);
+      await skipLocationEntryFlow();
+      await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+      mockGetState.mockClear();
+      mockGetSmsContacts.mockClear();
+      mockGetState
+        .mockImplementationOnce(() => firstState)
+        .mockResolvedValue(locationState());
+
+      act(() => window.dispatchEvent(new Event("focus")));
+      await waitFor(() => expect(mockGetState).toHaveBeenCalledOnce());
+      expect(mockGetSmsContacts).not.toHaveBeenCalled();
+
+      act(() => window.dispatchEvent(new Event("online")));
+      resolveFirstState(locationState());
+
+      await waitFor(() => expect(mockGetState).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(mockGetSmsContacts).toHaveBeenCalledTimes(2));
+    } finally {
+      visibility.mockRestore();
+    }
+  });
+
+  it("reconciles the SMS roster when a remote Circle membership changes", async () => {
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    mockGetSmsContacts.mockClear();
+    mockGetSmsContacts.mockResolvedValue(["user_d"]);
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(CONSENT_STATE_CHANGED_EVENT, {
+          detail: {
+            source: "one_location_notification",
+            notificationType: "location_circle_member_removed",
+          },
+        }),
+      );
+    });
+
+    await waitFor(() => expect(mockGetSmsContacts).toHaveBeenCalledOnce());
+  });
+
   it("removes a disconnected person from Ask without a page refresh", async () => {
+    const initialRecipients = locationState().recipients;
+    mockListRecipientsPage.mockResolvedValue({
+      items: initialRecipients,
+      page: 1,
+      hasMore: false,
+      totalCount: initialRecipients.length,
+    });
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
 
     const nextState = locationState();
+    const nextRecipients = nextState.recipients.filter(
+      (recipient) => recipient.userId !== "user_d",
+    );
     mockGetState.mockClear();
     mockGetState.mockResolvedValue({
       ...nextState,
-      recipients: nextState.recipients.filter(
-        (recipient) => recipient.userId !== "user_d",
-      ),
+      recipients: nextRecipients,
+    });
+    mockListRecipientsPage.mockClear();
+    mockListRecipientsPage.mockResolvedValue({
+      items: nextRecipients,
+      page: 1,
+      hasMore: false,
+      totalCount: nextRecipients.length,
     });
 
     await act(async () => {
@@ -1597,11 +1714,13 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockGetState).toHaveBeenCalledTimes(1));
 
     await openAskFlow();
-    expect(
-      screen.queryByRole("button", {
-        name: /Investor D for location request/i,
-      }),
-    ).toBeNull();
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("button", {
+          name: /Investor D for location request/i,
+        }),
+      ).toBeNull(),
+    );
   });
 
   it("hides the Activity menu when every Activity count is zero", async () => {

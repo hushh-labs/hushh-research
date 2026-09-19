@@ -236,4 +236,44 @@ describe("consent SSE stops retrying a permanent refusal", () => {
     });
     expect(mocks.apiFetchStream).toHaveBeenCalledTimes(6);
   });
+
+  it("preserves a connection removal delivered by the SSE fallback", async () => {
+    const frame = [
+      "event: consent_update",
+      "id: connection-removed:conn-1:episode-2:recipient-user",
+      `data: ${JSON.stringify({
+        type: "connection_removed",
+        message_id: "connection-removed:conn-1:episode-2:recipient-user",
+        connection_id: "conn-1",
+        action: "REMOVED",
+      })}`,
+      "",
+      "",
+    ].join("\n");
+    mocks.apiFetchStream.mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(frame));
+        },
+      }),
+    });
+
+    render(
+      <ConsentNotificationProvider>
+        <div>Setup</div>
+      </ConsentNotificationProvider>,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50);
+    });
+
+    expect(mocks.onConnectionGraphMutated).toHaveBeenCalledWith(
+      "recipient-user",
+    );
+    expect(mocks.dispatchConsentStateChanged).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "connection_removed" }),
+    );
+  });
 });
