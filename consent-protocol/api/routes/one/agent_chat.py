@@ -231,6 +231,70 @@ def _bounded_text(value: Any, limit: int) -> str | None:
     return normalized[:limit] or None
 
 
+def _safe_scope_catalog(value: Any, *, scope_count: int) -> dict[str, Any] | None:
+    """Keep only bounded pagination metadata on a restored discovery card.
+
+    The encrypted session descriptor must not become a second scope authority:
+    the current page remains the only place where requestable field metadata is
+    projected. These fields only let the client ask the server for the next
+    page, and the server rechecks the catalog revision and current authority.
+    """
+    catalog = _record(value)
+    if not catalog:
+        return None
+
+    def bounded_integer(raw: Any, *, minimum: int, maximum: int | None = None) -> int | None:
+        if isinstance(raw, bool) or not isinstance(raw, int) or raw < minimum:
+            return None
+        if maximum is not None and raw > maximum:
+            return None
+        return raw
+
+    page = bounded_integer(catalog.get("page"), minimum=1)
+    limit = bounded_integer(catalog.get("limit"), minimum=1, maximum=100)
+    total_count = bounded_integer(catalog.get("totalCount"), minimum=0)
+    revision = _bounded_text(catalog.get("catalogRevision"), 64)
+    has_more = catalog.get("hasMore")
+    next_page = catalog.get("nextPage")
+    if (
+        page is None
+        or limit is None
+        or total_count is None
+        or total_count < scope_count
+        or not revision
+        or not re.fullmatch(r"[a-f0-9]{64}", revision)
+        or not isinstance(has_more, bool)
+    ):
+        return None
+
+    if has_more:
+        if next_page != page + 1:
+            return None
+    elif next_page is not None:
+        return None
+
+    domains: list[dict[str, Any]] = []
+    raw_domains = catalog.get("domains")
+    if isinstance(raw_domains, list):
+        for raw_domain in raw_domains[:128]:
+            domain = _record(raw_domain)
+            name = _bounded_text(domain.get("domain") if domain else None, 80)
+            count = bounded_integer(domain.get("count") if domain else None, minimum=0)
+            if name and count is not None:
+                domains.append({"domain": name, "count": count})
+
+    return {
+        "page": page,
+        "nextPage": next_page if has_more else None,
+        "totalCount": total_count,
+        "limit": limit,
+        "hasMore": has_more,
+        "catalogRevision": revision,
+        "paginationReset": catalog.get("paginationReset") is True,
+        "domains": domains,
+    }
+
+
 def _safe_discovery_descriptor(
     event: Any, selected_parts: list[Any] | None = None
 ) -> dict[str, Any] | None:
@@ -295,6 +359,7 @@ def _safe_discovery_descriptor(
                         else [],
                     }
                 )
+        scope_catalog = _safe_scope_catalog(result.get("scopeCatalog"), scope_count=len(scopes))
         return {
             "activityType": "one.scope_discovery.v1",
             "content": {
@@ -306,7 +371,11 @@ def _safe_discovery_descriptor(
                 },
                 "domainFilter": _bounded_text(result.get("domainFilter"), 80),
                 "requestableScopes": scopes,
-                "catalogIncomplete": isinstance(raw_scopes, list) and len(raw_scopes) > 250,
+                **({"scopeCatalog": scope_catalog} if scope_catalog is not None else {}),
+                "catalogIncomplete": (
+                    (scope_catalog is not None and scope_catalog["hasMore"])
+                    or (isinstance(raw_scopes, list) and len(raw_scopes) > 250)
+                ),
             },
         }
     return None

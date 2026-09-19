@@ -53,6 +53,81 @@ def test_history_descriptor_keeps_discovery_card_metadata_but_not_values() -> No
     assert "must-not-leave-the-server" not in json.dumps(metadata)
 
 
+def test_history_descriptor_retains_safe_catalog_pagination_metadata() -> None:
+    metadata = _safe_agent_history_metadata(
+        _event(
+            {
+                "status": "ok",
+                "person": {
+                    "displayName": "Alex Morgan",
+                    "profilePath": "/people/1234567890abcdef",
+                },
+                "requestableScopes": [
+                    {
+                        "scopeRef": "psr_professional_role",
+                        "label": "Professional role",
+                        "domain": "professional",
+                    }
+                ],
+                "scopeCatalog": {
+                    "page": 2,
+                    "nextPage": 3,
+                    "totalCount": 601,
+                    "limit": 100,
+                    "hasMore": True,
+                    "catalogRevision": "a" * 64,
+                    "paginationReset": False,
+                    "domains": [{"domain": "professional", "count": 601}],
+                    "items": [{"scopeRef": "must-not-be-copied"}],
+                },
+            }
+        )
+    )
+
+    assert metadata is not None
+    content = metadata["structuredExperience"]["content"]
+    assert content["scopeCatalog"] == {
+        "page": 2,
+        "nextPage": 3,
+        "totalCount": 601,
+        "limit": 100,
+        "hasMore": True,
+        "catalogRevision": "a" * 64,
+        "paginationReset": False,
+        "domains": [{"domain": "professional", "count": 601}],
+    }
+    assert content["catalogIncomplete"] is True
+    assert "must-not-be-copied" not in json.dumps(metadata)
+
+
+def test_history_descriptor_discards_invalid_catalog_metadata() -> None:
+    metadata = _safe_agent_history_metadata(
+        _event(
+            {
+                "status": "ok",
+                "person": {
+                    "displayName": "Alex Morgan",
+                    "profilePath": "/people/1234567890abcdef",
+                },
+                "requestableScopes": [],
+                "scopeCatalog": {
+                    "page": 1,
+                    "nextPage": 4,
+                    "totalCount": 4,
+                    "limit": 100,
+                    "hasMore": True,
+                    "catalogRevision": "not-a-revision",
+                },
+            }
+        )
+    )
+
+    assert metadata is not None
+    content = metadata["structuredExperience"]["content"]
+    assert "scopeCatalog" not in content
+    assert content["catalogIncomplete"] is False
+
+
 def test_history_descriptor_rejects_unusable_profile_paths() -> None:
     metadata = _safe_agent_history_metadata(
         _event(
