@@ -91,6 +91,7 @@ import { RiaSurfaceScopeSync } from "@/components/ria/ria-surface-scope-sync";
 import { NativeTestBootstrap } from "@/components/app-ui/native-test-bootstrap";
 import { NativeTestRouteStatus } from "@/components/app-ui/native-test-route-status";
 import { InteractionRuntime } from "@/components/app-ui/interaction-runtime";
+import { RenderPerfProbe } from "@/components/app-ui/render-perf-probe";
 import {
   acknowledgeInternalAppNavigation,
   consumePendingInternalAppNavigation,
@@ -644,6 +645,7 @@ function AppShellFrame({ children }: ProvidersProps) {
                   <NativeTestBootstrap />
                   <NativeTestRouteStatus />
                   <InteractionRuntime />
+                  <RenderPerfProbe />
                   <FoundationPublicAmbient />
                   {!hidesPersistentChrome ? (
                     <AmbientChromeController enabled={ambientChromeEnabled} />
