@@ -494,6 +494,19 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     );
   });
 
+  it("keeps a failed review retryable without asking the owner to relock the vault", async () => {
+    previewAgentPkmMemory.mockRejectedValueOnce(new Error("proposal unavailable"));
+    await openMainScreen();
+    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
+    const note = await screen.findByRole("textbox", { name: "Memory note" });
+    fireEvent.change(note, { target: { value: "Synthetic review note" } });
+    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
+    expect(await screen.findByText("That note couldn’t be prepared. Nothing was saved. Please try again.")).toBeTruthy();
+    expect(note).toHaveValue("Synthetic review note");
+    expect(screen.queryByRole("button", { name: "Save to Memory" })).toBeNull();
+    expect(addToPKM).not.toHaveBeenCalled();
+  });
+
   it("still renders the Saved screen when domain-level sharing verification fails", async () => {
     vi.spyOn(ConsentCenterService, "getCenter").mockRejectedValueOnce(new Error("consent unavailable"));
 

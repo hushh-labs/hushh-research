@@ -525,12 +525,26 @@ async def propose_pkm_memory(
     x_pkm_chunk_index: int | None = Header(default=None, alias="X-PKM-Chunk-Index"),
 ):
     """Product-safe alias over the existing review-before-save proposal pipeline."""
-    return await _generate_pkm_memory_proposals(
+    proposal = await _generate_pkm_memory_proposals(
         request,
         token_data,
         ingestion_id=x_pkm_ingestion_id,
         chunk_index=x_pkm_chunk_index,
     )
+    # An explicit failed-stage signal is not a semantic "nothing to save"
+    # decision. Keep the developer-lab diagnostic contract unchanged, but
+    # product consumers must receive a retryable failure instead of HTTP 200.
+    if not proposal.preview_cards and "preview_generation_failed" in (
+        proposal.validation_hints or []
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "PKM_PROPOSAL_UNAVAILABLE",
+                "message": "That note could not be prepared. Nothing was saved. Please try again.",
+            },
+        )
+    return proposal
 
 
 @router.post("/agent-lab/structure", response_model=PKMAgentLabStructureResponse)

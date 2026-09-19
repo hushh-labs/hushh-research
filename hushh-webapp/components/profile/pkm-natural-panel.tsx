@@ -802,7 +802,7 @@ export function PkmNaturalPanel({
           : "Nothing new needs to be saved from that note."
       );
     } catch {
-      setCaptureMessage("That note couldn’t be prepared. Unlock your vault again and retry.");
+      setCaptureMessage("That note couldn’t be prepared. Nothing was saved. Please try again.");
     } finally {
       setCaptureLoading(false);
     }
