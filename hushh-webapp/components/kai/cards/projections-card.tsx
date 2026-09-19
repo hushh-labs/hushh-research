@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
+import { CHART_ANIMATION_ACTIVE } from "@/components/ui/chart";
 
 // =============================================================================
 // TYPES
@@ -124,7 +125,7 @@ export function ProjectionsCard({ projections, className, isLoading }: Projectio
                       {payload?.[0]?.payload.month}: {formatCurrency(payload?.[0]?.value as number)}
                     </div>
                   )} />
-                  <Bar dataKey="projected_income" radius={[4, 4, 0, 0]}>
+                  <Bar isAnimationActive={CHART_ANIMATION_ACTIVE} dataKey="projected_income" radius={[4, 4, 0, 0]}>
                     {cashFlow.map((entry, i) => (
                       <Cell key={i} fill={entry.projected_income >= stats.avg ? "hsl(var(--primary))" : "hsl(var(--muted))"} />
                     ))}

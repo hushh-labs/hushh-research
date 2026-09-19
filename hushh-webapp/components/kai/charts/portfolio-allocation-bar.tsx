@@ -9,6 +9,7 @@ import {
   ChartTooltip,
   ChartTooltipContent,
   type ChartConfig,
+  CHART_ANIMATION_ACTIVE,
 } from "@/components/ui/chart";
 import { cn } from "@/lib/utils";
 
@@ -122,7 +123,7 @@ export function PortfolioAllocationBar({
             }
           />
           {segments.map((segment) => (
-            <Bar
+            <Bar isAnimationActive={CHART_ANIMATION_ACTIVE}
               key={segment.key}
               dataKey={segment.key}
               stackId="allocation"

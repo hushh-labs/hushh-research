@@ -15,6 +15,7 @@ import {
   ChartTooltip,
   ChartTooltipContent,
   type ChartConfig,
+  CHART_ANIMATION_ACTIVE,
 } from "@/components/ui/chart";
 import { cn } from "@/lib/utils";
 
@@ -257,7 +258,7 @@ export function PortfolioHistoryChart({
               />
             }
           />
-          <Area
+          <Area isAnimationActive={CHART_ANIMATION_ACTIVE}
             dataKey="value"
             type="monotone"
             stroke={chartColor}

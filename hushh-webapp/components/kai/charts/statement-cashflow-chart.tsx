@@ -8,6 +8,7 @@ import {
   ChartTooltip,
   ChartTooltipContent,
   type ChartConfig,
+  CHART_ANIMATION_ACTIVE,
 } from "@/components/ui/chart";
 import {
   ChartSurfaceCard,
@@ -110,7 +111,7 @@ export function StatementCashflowChart({
                 />
               }
             />
-            <Bar dataKey="value" radius={[6, 6, 0, 0]} maxBarSize={26}>
+            <Bar isAnimationActive={CHART_ANIMATION_ACTIVE} dataKey="value" radius={[6, 6, 0, 0]} maxBarSize={26}>
               <LabelList
                 dataKey="value"
                 position="top"

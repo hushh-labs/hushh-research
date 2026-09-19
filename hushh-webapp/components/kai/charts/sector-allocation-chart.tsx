@@ -37,6 +37,7 @@ import {
   ChartTooltip,
   ChartTooltipContent,
   type ChartConfig,
+  CHART_ANIMATION_ACTIVE,
 } from "@/components/ui/chart";
 
 interface Holding {
@@ -182,7 +183,7 @@ const SectorBarChart = memo(function SectorBarChart({
               />
             }
           />
-          <Bar
+          <Bar isAnimationActive={CHART_ANIMATION_ACTIVE}
             dataKey="value"
             radius={[0, 4, 4, 0]}
             animationDuration={550}

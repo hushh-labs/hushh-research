@@ -13,6 +13,7 @@ import {
   ChartTooltip,
   ChartTooltipContent,
   type ChartConfig,
+  CHART_ANIMATION_ACTIVE,
 } from "@/components/ui/chart";
 
 interface ConcentrationDatum {
@@ -116,7 +117,7 @@ export function HoldingsConcentrationChart({
                 />
               }
             />
-            <Bar dataKey="weightPct" radius={[0, 6, 6, 0]} maxBarSize={16}>
+            <Bar isAnimationActive={CHART_ANIMATION_ACTIVE} dataKey="weightPct" radius={[0, 6, 6, 0]} maxBarSize={16}>
               <LabelList
                 dataKey="weightPct"
                 position="right"

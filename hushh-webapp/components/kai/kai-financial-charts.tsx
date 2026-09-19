@@ -22,6 +22,7 @@ import {
   ChartTooltip,
   ChartTooltipContent,
   type ChartConfig,
+  CHART_ANIMATION_ACTIVE,
 } from "@/components/ui/chart";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { TrendingUp, DollarSign } from "@/components/icons";
@@ -117,7 +118,7 @@ export default function KaiFinancialCharts({ quantMetrics, keyMetrics }: KaiFina
                         <XAxis dataKey="year" tickLine={false} axisLine={false} tickMargin={8} fontSize={10} />
                         <YAxis tickLine={false} axisLine={false} tickFormatter={(value) => `$${value}B`} fontSize={10} />
                         <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
-                        <Area
+                        <Area isAnimationActive={CHART_ANIMATION_ACTIVE}
                             dataKey="value"
                             type="monotone"
                             fill="url(#fillRevenue)"
@@ -146,7 +147,7 @@ export default function KaiFinancialCharts({ quantMetrics, keyMetrics }: KaiFina
                          <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.4} />
                          <XAxis dataKey="year" tickLine={false} axisLine={false} tickMargin={8} fontSize={10} />
                          <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
-                         <Bar dataKey="value" fill="var(--chart-2)" radius={[4, 4, 0, 0]} />
+                         <Bar isAnimationActive={CHART_ANIMATION_ACTIVE} dataKey="value" fill="var(--chart-2)" radius={[4, 4, 0, 0]} />
                     </BarChart>
                 </ChartContainer>
             </CardContent>
@@ -173,8 +174,8 @@ export default function KaiFinancialCharts({ quantMetrics, keyMetrics }: KaiFina
                         <YAxis fontSize={10} />
                         <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
                         <Legend />
-                        <Bar dataKey="ocf" name="OCF" fill="var(--chart-3)" radius={[4, 4, 0, 0]} />
-                        <Line type="monotone" dataKey="rnd" name="R&D" stroke="var(--chart-4)" strokeWidth={2} />
+                        <Bar isAnimationActive={CHART_ANIMATION_ACTIVE} dataKey="ocf" name="OCF" fill="var(--chart-3)" radius={[4, 4, 0, 0]} />
+                        <Line isAnimationActive={CHART_ANIMATION_ACTIVE} type="monotone" dataKey="rnd" name="R&D" stroke="var(--chart-4)" strokeWidth={2} />
                      </ComposedChart>
                  </ChartContainer>
              </CardContent>
@@ -191,7 +192,7 @@ export default function KaiFinancialCharts({ quantMetrics, keyMetrics }: KaiFina
                       <RadarChart cx="50%" cy="50%" outerRadius="80%" data={radarData}>
                           <PolarGrid strokeOpacity={0.2} />
                           <PolarAngleAxis dataKey="subject" fontSize={10} />
-                          <Radar
+                          <Radar isAnimationActive={CHART_ANIMATION_ACTIVE}
                               name="Score"
                               dataKey="value"
                               stroke="var(--chart-1)"
