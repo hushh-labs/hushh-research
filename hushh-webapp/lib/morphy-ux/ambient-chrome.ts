@@ -336,12 +336,14 @@ const AMBIENT_SAMPLE_GAP = 6;
 const AMBIENT_SAMPLE_DEPTH = 34;
 const AMBIENT_SAMPLE_COUNT = 5;
 const AMBIENT_MIN_SURFACE_WIDTH = 0.6;
-// Sampling calls elementsFromPoint, computed style, and layout reads. Keep
-// the visual spring at frame rate, but cap expensive surface discovery while
-// a native scroll gesture is active.
-const AMBIENT_SCROLL_SAMPLE_INTERVAL_MS = 96;
-const AMBIENT_SCROLL_SAMPLE_DISTANCE_PX = 24;
+// Sampling calls elementsFromPoint, computed style, and layout reads: forced
+// synchronous layouts if they land inside a scroll frame. The engine never
+// samples while a scroll is live; it samples once, this long after the last
+// scroll event.
 const AMBIENT_SCROLL_IDLE_RESAMPLE_MS = 120;
+// Route content arrives after the shell; prime across a few frames so the
+// first tone decision is not taken from an empty scaffold.
+const AMBIENT_PRIME_FRAMES = 8;
 
 /**
  * Resolve one real surface at a probe point. The long-lived app scaffold is a
@@ -464,30 +466,33 @@ function sampleMask(mask: Element, edge: AmbientChromeEdge): Rgb | null {
   );
 }
 
+let engineRequestSample: (() => void) | null = null;
+
+/**
+ * Asks the mounted engine to re-sample the surfaces under both masks.
+ *
+ * Called by the controller when the route settles. That used to be inferred
+ * from a MutationObserver on the whole document body, which woke the sampler
+ * on every DOM change anywhere (each streamed chat token, each map marker
+ * glide) and ran up to forty elementsFromPoint hit-tests with forced layout
+ * reads in the very next frame.
+ */
+export function requestAmbientChromeSample(): void {
+  engineRequestSample?.();
+}
+
 export function createAmbientChromeEngine(enabled = true): () => void {
   if (!enabled || typeof window === "undefined") return () => {};
   const root = document.documentElement;
   const springs = new Map<AmbientChromeEdge, AmbientColorSpring>();
   let frame = 0;
-  let lastFrame = 0;
-  let lastActivity = 0;
   let scrollRoot: Element | null = null;
-  let lastSampleAt = 0;
-  let lastSampleScrollY = 0;
-  let sampleRequested = true;
-  let lastOnScreen = false;
   let scrollIdleTimer: number | null = null;
 
-  const setRootVariable = (name: string, value: string) => {
-    if (root.style.getPropertyValue(name) !== value) {
-      root.style.setProperty(name, value);
+  const setVariable = (target: HTMLElement, name: string, value: string) => {
+    if (target.style.getPropertyValue(name) !== value) {
+      target.style.setProperty(name, value);
     }
-  };
-  const readScrollY = () => {
-    if (scrollRoot instanceof HTMLElement) {
-      return Math.max(0, scrollRoot.scrollTop || 0);
-    }
-    return Math.max(0, window.scrollY || window.pageYOffset || 0);
   };
 
   const write = (
@@ -497,8 +502,17 @@ export function createAmbientChromeEngine(enabled = true): () => void {
   ) => {
     const vars = AMBIENT_CHROME_VARS[edge];
     const tone = resolveAmbientChromeSurfaceTone(lightness);
-    setRootVariable(vars.background, `rgb(${color.join(", ")})`);
-    setRootVariable(vars.foreground, tone === "dark" ? "#f5f5f7" : "#1d1d1f");
+    // The sampled colour is written on the mask itself, never on <html>. No
+    // stylesheet reads it (both masks paint the theme surface); it is kept
+    // as a diagnostic. A custom property write on <html> invalidates style
+    // for the entire document, once per write.
+    const mask = document.querySelector<HTMLElement>(
+      `[${AMBIENT_CHROME_MASK_ATTR}="${edge}"]`,
+    );
+    if (mask) {
+      setVariable(mask, vars.background, `rgb(${color.join(", ")})`);
+      setVariable(mask, vars.foreground, tone === "dark" ? "#f5f5f7" : "#1d1d1f");
+    }
     if (
       edge === "top" &&
       root.getAttribute(AMBIENT_CHROME_TOP_SURFACE_ATTR) !== tone
@@ -507,11 +521,12 @@ export function createAmbientChromeEngine(enabled = true): () => void {
     }
     root.dataset.ambientChromePrimed = "true";
   };
-  const sampleTargets = (snap = false) => {
+
+  const sample = () => {
+    frame = 0;
     const masks = Array.from(
       document.querySelectorAll(`[${AMBIENT_CHROME_MASK_ATTR}]`),
     );
-    let onScreen = false;
     for (const mask of masks) {
       const edge = mask.getAttribute(
         AMBIENT_CHROME_MASK_ATTR,
@@ -519,65 +534,25 @@ export function createAmbientChromeEngine(enabled = true): () => void {
       if (edge !== "top" && edge !== "bottom") continue;
       const sampled = sampleMask(mask, edge);
       if (!sampled) continue;
-      onScreen = true;
       const spring = springs.get(edge) ?? new AmbientColorSpring();
       springs.set(edge, spring);
-      spring.setTarget(
-        sampled,
-        snap || window.matchMedia("(prefers-reduced-motion: reduce)").matches,
-      );
+      // Snap. The animated colour was never visible (nothing consumes it),
+      // so a per-frame spring only bought style invalidations; the tone
+      // decision the status bar needs is taken at once.
+      spring.setTarget(sampled, true);
+      const color = spring.step(0);
+      if (color) write(edge, color, spring.lightness);
     }
-    return onScreen;
   };
-  const tick = (time: number) => {
-    const scrollY = readScrollY();
-    const shouldSample =
-      sampleRequested ||
-      (!lastSampleAt && !lastOnScreen) ||
-      (time - lastSampleAt >= AMBIENT_SCROLL_SAMPLE_INTERVAL_MS &&
-        Math.abs(scrollY - lastSampleScrollY) >=
-          AMBIENT_SCROLL_SAMPLE_DISTANCE_PX);
-    let sampledThisFrame = false;
-    if (shouldSample) {
-      lastOnScreen = sampleTargets(false);
-      lastSampleAt = time;
-      lastSampleScrollY = scrollY;
-      sampleRequested = false;
-      sampledThisFrame = true;
-    }
-    let moving = false;
-    for (const [edge, spring] of springs) {
-      const wasMoving = !spring.settled;
-      const color = spring.step(lastFrame ? time - lastFrame : 16);
-      const isMoving = !spring.settled;
-      if (color && (sampledThisFrame || wasMoving || isMoving)) {
-        write(edge, color, spring.lightness);
-      }
-      moving ||= isMoving;
-    }
-    lastFrame = time;
-    if (
-      lastOnScreen &&
-      (moving || time - lastActivity < 240 || sampleRequested)
-    ) {
-      frame = window.requestAnimationFrame(tick);
-      return;
-    }
-    frame = 0;
-    lastFrame = 0;
+  const requestSample = () => {
+    if (frame) return;
+    frame = window.requestAnimationFrame(sample);
   };
-  const wakeWithSampling = (requestSample: boolean) => {
-    sampleRequested ||= requestSample;
-    lastActivity = performance.now();
-    if (!frame) frame = window.requestAnimationFrame(tick);
-  };
-  const wake = () => wakeWithSampling(true);
   const wakeFromScroll = () => {
-    wakeWithSampling(false);
     if (scrollIdleTimer !== null) window.clearTimeout(scrollIdleTimer);
     scrollIdleTimer = window.setTimeout(() => {
       scrollIdleTimer = null;
-      wake();
+      requestSample();
     }, AMBIENT_SCROLL_IDLE_RESAMPLE_MS);
   };
   const bindScrollRoot = () => {
@@ -588,49 +563,36 @@ export function createAmbientChromeEngine(enabled = true): () => void {
     scrollRoot?.addEventListener("scroll", wakeFromScroll, { passive: true });
   };
   bindScrollRoot();
-  // Prime across several layout frames. Route content often arrives after the
-  // shell, so snapping these samples prevents the white/default flash that a
-  // spring from a stale first frame would otherwise create.
+
   let primeFrames = 0;
   const prime = () => {
-    sampleTargets(true);
-    lastSampleAt = performance.now();
-    lastSampleScrollY = readScrollY();
-    sampleRequested = false;
-    lastOnScreen = springs.size > 0;
-    for (const [edge, spring] of springs) {
-      const color = spring.step(0);
-      if (color) write(edge, color, spring.lightness);
-    }
-    if (primeFrames++ < 8) window.requestAnimationFrame(prime);
+    sample();
+    if (primeFrames++ < AMBIENT_PRIME_FRAMES) window.requestAnimationFrame(prime);
   };
   prime();
-  wake();
+
   // Capture phase also observes the document scroll path on desktop and any
   // route that swaps its scroll root after the shell first mounts.
   window.addEventListener("scroll", wakeFromScroll, {
     passive: true,
     capture: true,
   });
-  window.addEventListener("resize", wake, { passive: true });
-  const observer = new MutationObserver(() => {
-    bindScrollRoot();
-    wake();
-  });
-  observer.observe(document.body, {
-    attributes: true,
-    attributeFilter: ["class", "style", "data-state"],
-    childList: true,
-    subtree: true,
-  });
-  // next-themes switches the resolved theme on <html>. Watch that class
-  // separately: observing body never sees an ancestor mutation, and watching
-  // root style would loop on the inline tint tokens this engine writes.
+  window.addEventListener("resize", requestSample, { passive: true });
+  // next-themes switches the resolved theme on <html>. That is the one DOM
+  // mutation the tone genuinely depends on; route settles arrive through
+  // requestAmbientChromeSample() from the controller instead of a body-wide
+  // subtree observer.
+  const observer = new MutationObserver(requestSample);
   observer.observe(root, { attributes: true, attributeFilter: ["class"] });
+  engineRequestSample = () => {
+    bindScrollRoot();
+    requestSample();
+  };
   return () => {
+    engineRequestSample = null;
     scrollRoot?.removeEventListener("scroll", wakeFromScroll);
     window.removeEventListener("scroll", wakeFromScroll, { capture: true });
-    window.removeEventListener("resize", wake);
+    window.removeEventListener("resize", requestSample);
     observer.disconnect();
     if (frame) window.cancelAnimationFrame(frame);
     if (scrollIdleTimer !== null) window.clearTimeout(scrollIdleTimer);

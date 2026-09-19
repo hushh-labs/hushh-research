@@ -7,6 +7,7 @@ import {
   AMBIENT_CHROME_TOP_SURFACE_ATTR,
   AmbientColorSpring,
   createAmbientChromeEngine,
+  requestAmbientChromeSample,
   parseCssColor,
   parseCssRgb,
   parseGradientSurface,
@@ -15,10 +16,8 @@ import {
 describe("ambient chrome", () => {
   afterEach(() => {
     document.body.replaceChildren();
-    document.documentElement.style.removeProperty("--ambient-chrome-top-bg");
-    document.documentElement.style.removeProperty("--ambient-chrome-top-fg");
-    document.documentElement.style.removeProperty("--ambient-chrome-bottom-bg");
-    document.documentElement.style.removeProperty("--ambient-chrome-bottom-fg");
+    document.documentElement.removeAttribute(AMBIENT_CHROME_TOP_SURFACE_ATTR);
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -65,6 +64,7 @@ describe("ambient chrome", () => {
       configurable: true,
       value: vi.fn(() => [chrome, overlay, darkSurface]),
     });
+    vi.useFakeTimers();
     const requestAnimationFrame = vi
       .spyOn(window, "requestAnimationFrame")
       .mockReturnValue(0);
@@ -73,21 +73,21 @@ describe("ambient chrome", () => {
     const stop = createAmbientChromeEngine();
 
     expect(
-      document.documentElement.style.getPropertyValue(
-        "--ambient-chrome-top-bg",
-      ),
+      mask.style.getPropertyValue("--ambient-chrome-top-bg"),
     ).toBe("rgb(18, 24, 36)");
     expect(
-      document.documentElement.style.getPropertyValue(
-        "--ambient-chrome-top-fg",
-      ),
+      mask.style.getPropertyValue("--ambient-chrome-top-fg"),
     ).toBe("#f5f5f7");
     expect(
       document.documentElement.getAttribute(AMBIENT_CHROME_TOP_SURFACE_ATTR),
     ).toBe("dark");
     requestAnimationFrame.mockClear();
     scrollRoot.dispatchEvent(new Event("scroll"));
-    expect(requestAnimationFrame).toHaveBeenCalled();
+    // A scroll never samples in its own frame: the sampler does forced
+    // layout reads. It arms an idle timer and samples once after it.
+    expect(requestAnimationFrame).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(200);
+    expect(requestAnimationFrame).toHaveBeenCalledTimes(1);
     stop();
     expect(
       document.documentElement.hasAttribute(AMBIENT_CHROME_TOP_SURFACE_ATTR),
@@ -115,9 +115,7 @@ describe("ambient chrome", () => {
 
     const stop = createAmbientChromeEngine();
     expect(
-      document.documentElement.style.getPropertyValue(
-        "--ambient-chrome-bottom-bg",
-      ),
+      mask.style.getPropertyValue("--ambient-chrome-bottom-bg"),
     ).toMatch(/^rgb\(\d+, \d+, \d+\)$/);
     stop();
   });
@@ -145,16 +143,86 @@ describe("ambient chrome", () => {
 
     const stop = createAmbientChromeEngine();
     expect(
-      document.documentElement.style.getPropertyValue(
-        "--ambient-chrome-bottom-bg",
-      ),
+      mask.style.getPropertyValue("--ambient-chrome-bottom-bg"),
     ).toBe("rgb(80, 90, 100)");
     expect(
-      document.documentElement.style.getPropertyValue(
-        "--ambient-chrome-bottom-fg",
-      ),
+      mask.style.getPropertyValue("--ambient-chrome-bottom-fg"),
     ).toBe("#f5f5f7");
     stop();
+  });
+
+  it("never writes custom properties on <html> and never observes the body subtree", () => {
+    const mask = document.createElement("div");
+    mask.setAttribute(AMBIENT_CHROME_MASK_ATTR, "top");
+    mask.getBoundingClientRect = () =>
+      ({ top: 0, bottom: 80, height: 80, width: 2000 }) as DOMRect;
+    document.body.append(mask);
+    const surface = document.createElement("main");
+    surface.setAttribute(AMBIENT_CHROME_FULL_BLEED_ATTR, "");
+    surface.style.backgroundColor = "rgb(18, 24, 36)";
+    surface.getBoundingClientRect = () =>
+      ({ top: 0, bottom: 800, height: 800, width: 2000 }) as DOMRect;
+    document.body.append(surface);
+    Object.defineProperty(document, "elementsFromPoint", {
+      configurable: true,
+      value: vi.fn(() => [surface]),
+    });
+    vi.spyOn(window, "requestAnimationFrame").mockReturnValue(0);
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
+    const rootSetProperty = vi.spyOn(
+      document.documentElement.style,
+      "setProperty",
+    );
+    const observed: Array<{ target: Node; options?: MutationObserverInit }> = [];
+    const observe = MutationObserver.prototype.observe;
+    vi.spyOn(MutationObserver.prototype, "observe").mockImplementation(
+      function (this: MutationObserver, target: Node, options?: MutationObserverInit) {
+        observed.push({ target, options });
+        return observe.call(this, target, options);
+      },
+    );
+
+    const stop = createAmbientChromeEngine();
+
+    // The sampled colour lands on the mask; a custom-property write on <html>
+    // invalidates style for the whole document.
+    expect(rootSetProperty).not.toHaveBeenCalled();
+    expect(mask.style.getPropertyValue("--ambient-chrome-top-bg")).toBe(
+      "rgb(18, 24, 36)",
+    );
+    // Only the theme class on <html> is observed; a body-wide subtree
+    // observer woke the sampler on every DOM mutation in the app.
+    expect(observed).toHaveLength(1);
+    expect(observed[0].target).toBe(document.documentElement);
+    expect(observed[0].options?.subtree).not.toBe(true);
+    expect(observed[0].options?.attributeFilter).toEqual(["class"]);
+    stop();
+  });
+
+  it("re-samples when the controller reports a route settle", () => {
+    const mask = document.createElement("div");
+    mask.setAttribute(AMBIENT_CHROME_MASK_ATTR, "top");
+    mask.getBoundingClientRect = () =>
+      ({ top: 0, bottom: 80, height: 80, width: 2000 }) as DOMRect;
+    document.body.append(mask);
+    Object.defineProperty(document, "elementsFromPoint", {
+      configurable: true,
+      value: vi.fn(() => [document.body]),
+    });
+    const requestAnimationFrame = vi
+      .spyOn(window, "requestAnimationFrame")
+      .mockReturnValue(0);
+    vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
+
+    const stop = createAmbientChromeEngine();
+    requestAnimationFrame.mockClear();
+    requestAmbientChromeSample();
+    expect(requestAnimationFrame).toHaveBeenCalledTimes(1);
+    stop();
+    requestAnimationFrame.mockClear();
+    // Once stopped, a settle request is a no-op rather than a leak.
+    requestAmbientChromeSample();
+    expect(requestAnimationFrame).not.toHaveBeenCalled();
   });
 
   it("settles a bounded, non-overshooting OKLCH spring", () => {
@@ -211,9 +279,7 @@ describe("ambient chrome", () => {
     const stop = createAmbientChromeEngine();
 
     expect(
-      document.documentElement.style.getPropertyValue(
-        "--ambient-chrome-top-bg",
-      ),
+      mask.style.getPropertyValue("--ambient-chrome-top-bg"),
     ).toBe("rgb(18, 24, 36)");
     expect(elementsFromPoint).toHaveBeenCalledTimes(1);
     stop();
