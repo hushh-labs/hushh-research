@@ -219,6 +219,7 @@ vi.mock("@/lib/share/share-link", async () => {
 
 import ConnectPageClient from "@/app/connect/page-client";
 import { ShareUnavailableError } from "@/lib/share/share-link";
+import { dispatchConnectionGraphChanged } from "@/lib/connections/connection-graph-events";
 import { resolveLocalOnboardingHandler, prepareLocalOnboardingAction } from "@/lib/agent/local-onboarding-actions";
 import {
   parseVoiceCard,
@@ -396,6 +397,47 @@ beforeEach(() => {
       page,
       totalCount: matches.length,
     };
+  });
+});
+
+describe("P0 connection reconciliation", () => {
+  it("refreshes connection, request, and directory projections after a graph event", async () => {
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.listConnectionsPage).toHaveBeenCalled());
+    await waitFor(() => expect(mocks.listRequests).toHaveBeenCalled());
+    mocks.listConnectionsPage.mockClear();
+    mocks.listRequests.mockClear();
+    mocks.searchDirectory.mockClear();
+
+    act(() => dispatchConnectionGraphChanged("me"));
+
+    await waitFor(() => expect(mocks.listConnectionsPage).toHaveBeenCalledOnce());
+    await waitFor(() => expect(mocks.listRequests).toHaveBeenCalledOnce());
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
+  });
+
+  it("reconciles on foreground focus and coalesces a duplicate focus burst", async () => {
+    const visibility = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockReturnValue("visible");
+    try {
+      render(<ConnectPageClient />);
+      await waitFor(() => expect(mocks.listConnectionsPage).toHaveBeenCalled());
+      mocks.listConnectionsPage.mockClear();
+      mocks.listRequests.mockClear();
+
+      act(() => {
+        window.dispatchEvent(new Event("focus"));
+        window.dispatchEvent(new Event("focus"));
+      });
+
+      await waitFor(() =>
+        expect(mocks.listConnectionsPage).toHaveBeenCalledOnce(),
+      );
+      expect(mocks.listRequests).toHaveBeenCalledOnce();
+    } finally {
+      visibility.mockRestore();
+    }
   });
 });
 

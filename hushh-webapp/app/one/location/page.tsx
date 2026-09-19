@@ -379,6 +379,7 @@ import { filterPeopleByQuery } from "@/lib/one-location/people-search";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { subscribeToConnectionGraphChanges } from "@/lib/connections/connection-graph-events";
+import { subscribeToOneLocationStateChanges } from "@/lib/one-location/one-location-state-events";
 import {
   mergeShareAudienceRecipientIds,
   mergeRecipientsByUserId,
@@ -3207,6 +3208,9 @@ export function OneLocationAgentPageContent({
     useState<OneLocationFocusTarget | null>(null);
   const refreshInFlightRef = useRef<Promise<boolean | undefined> | null>(null);
   const connectionGraphRefreshRevisionRef = useRef(0);
+  const oneLocationStateRefreshRevisionRef = useRef(0);
+  const foregroundReconcileInFlightRef = useRef<Promise<void> | null>(null);
+  const lastForegroundReconcileAtRef = useRef(0);
   const [connectionGraphRevision, setConnectionGraphRevision] = useState(0);
   const workspaceBootstrapUserRef = useRef<string | null>(null);
   const peopleSectionRef = useRef<HTMLElement | null>(null);
@@ -3338,7 +3342,12 @@ export function OneLocationAgentPageContent({
       window.clearTimeout(timer);
       recipientPageRequestRef.current += 1;
     };
-  }, [loadRecipientPage, recipientSearch, vaultOwnerToken]);
+  }, [
+    connectionGraphRevision,
+    loadRecipientPage,
+    recipientSearch,
+    vaultOwnerToken,
+  ]);
 
   useEffect(() => {
     if (!vaultOwnerToken) {
@@ -3368,7 +3377,7 @@ export function OneLocationAgentPageContent({
       window.clearTimeout(timer);
       shareRecipientPageRequestRef.current += 1;
     };
-  }, [shareRecipientSearch, vaultOwnerToken]);
+  }, [connectionGraphRevision, shareRecipientSearch, vaultOwnerToken]);
   const autoApprovePreference = useMemo(
     () =>
       state?.autoApprovePreference ?? {
@@ -4375,6 +4384,7 @@ export function OneLocationAgentPageContent({
       OneLocationStateResource.invalidate(owner);
       clearLocationWorkspaceMemory(owner);
       setConnectionGraphRevision((current) => current + 1);
+      void refreshSmsRoster();
 
       void (async () => {
         if (priorRefresh) await priorRefresh.catch(() => undefined);
@@ -4382,7 +4392,32 @@ export function OneLocationAgentPageContent({
         await refresh({ background: true });
       })().catch(() => undefined);
     });
-  }, [auth.userId, refresh]);
+  }, [auth.userId, refresh, refreshSmsRoster]);
+
+  useEffect(() => {
+    const owner = auth.userId;
+    if (!owner) return;
+
+    return subscribeToOneLocationStateChanges((detail) => {
+      if (detail.userId !== owner) return;
+      const revision = ++oneLocationStateRefreshRevisionRef.current;
+      const priorRefresh = refreshInFlightRef.current;
+
+      // Each tab owns a separate in-memory resource, so the broadcast must
+      // fence this tab before it reads. Keep the last presentation visible
+      // while the authoritative replacement is in flight.
+      OneLocationStateResource.invalidate(owner);
+      if (detail.domains.includes("sms_roster")) {
+        void refreshSmsRoster();
+      }
+
+      void (async () => {
+        if (priorRefresh) await priorRefresh.catch(() => undefined);
+        if (oneLocationStateRefreshRevisionRef.current !== revision) return;
+        await refresh({ background: true });
+      })().catch(() => undefined);
+    });
+  }, [auth.userId, refresh, refreshSmsRoster]);
 
   // The countdown hitting zero is the first moment anyone knows the share is
   // over — the backend expires it silently. Drop the local record and pull the
@@ -4732,7 +4767,8 @@ export function OneLocationAgentPageContent({
   }, [auth.userId]);
 
   useEffect(() => {
-    if (!auth.userId || typeof window === "undefined") return;
+    const owner = auth.userId;
+    if (!owner || typeof window === "undefined") return;
     const handleLocationNotification = (event: Event) => {
       const detail =
         (event as CustomEvent<Record<string, unknown>>).detail || {};
@@ -4742,6 +4778,14 @@ export function OneLocationAgentPageContent({
         source !== "one_location_notification" &&
         !notificationType.startsWith("location_")
       ) {
+        return;
+      }
+      if (notificationType.startsWith("location_circle_")) {
+        CacheSyncService.onOneLocationStateMutated(owner, [
+          "workspace",
+          "circles",
+          "sms_roster",
+        ]);
         return;
       }
       void refresh({ background: true });
@@ -8397,13 +8441,12 @@ export function OneLocationAgentPageContent({
   const scheduleNamedCircleStateRefresh = useCallback(() => {
     const activeUserId = auth.userId;
     if (!activeUserId) return;
-    const priorRefresh = refreshInFlightRef.current;
-    OneLocationStateResource.invalidate(activeUserId);
-    void (async () => {
-      if (priorRefresh) await priorRefresh;
-      await refresh({ background: true });
-    })();
-  }, [auth.userId, refresh]);
+    CacheSyncService.onOneLocationStateMutated(activeUserId, [
+      "workspace",
+      "circles",
+      "sms_roster",
+    ]);
+  }, [auth.userId]);
 
   const refreshIncomingCircleMemberInvites = useCallback(async () => {
     const requestId = ++circleMemberInviteRequestRef.current;
@@ -13866,15 +13909,17 @@ export function OneLocationAgentPageContent({
     const refreshIfPending = () => {
       if (!locationOnboardingRetryOnResumeRef.current) return;
       locationOnboardingRetryOnResumeRef.current = false;
-      void refreshLocationPermission();
+      // The shared foreground reconciliation below performs the permission
+      // read. Keep onboarding's one-shot bookkeeping without issuing a
+      // duplicate native/browser permission request.
     };
     // Separately, and for everyone: permission is changed outside the app — iOS
     // Settings, Safari's site settings, the Android sheet — so coming back is
     // exactly when our copy of it is most likely to be stale. Re-reading only
     // behind onboarding's flag left every other surface showing an old verdict
     // until a full reload.
-    const refreshPermissionOnReturn = () => {
-      void refreshLocationPermission().then((next) => {
+    const refreshPermissionOnReturn = async () => {
+      return refreshLocationPermission().then((next) => {
         // Once it is actually granted, an old observed denial is history, so
         // the UI stops claiming "blocked" the moment that stops being true.
         if (next?.state === "granted") {
@@ -13885,29 +13930,58 @@ export function OneLocationAgentPageContent({
     };
     const refreshWhenVisible = () => {
       if (document.visibilityState === "hidden") return;
+      const now = Date.now();
+      if (now - lastForegroundReconcileAtRef.current < 750) return;
+      lastForegroundReconcileAtRef.current = now;
       refreshIfPending();
-      refreshPermissionOnReturn();
-      void refreshSmsRoster();
+      if (foregroundReconcileInFlightRef.current) return;
+
+      const owner = auth.userId;
+      const priorStateRefresh = refreshInFlightRef.current;
+      if (owner) OneLocationStateResource.invalidate(owner);
+      const refreshAuthoritativeState = async () => {
+        if (priorStateRefresh) {
+          await priorStateRefresh.catch(() => undefined);
+          // The preceding request started before this foreground boundary.
+          // Fence it again before the post-resume read so it cannot become
+          // this generation's authoritative snapshot.
+          if (owner) OneLocationStateResource.invalidate(owner);
+        }
+        await refresh({ background: true });
+      };
+      const task = Promise.allSettled([
+        refreshPermissionOnReturn(),
+        refreshSmsRoster(),
+        refreshAuthoritativeState(),
+      ])
+        .then(() => undefined)
+        .finally(() => {
+          if (foregroundReconcileInFlightRef.current === task) {
+            foregroundReconcileInFlightRef.current = null;
+          }
+        });
+      foregroundReconcileInFlightRef.current = task;
     };
 
     window.addEventListener("focus", refreshWhenVisible);
+    window.addEventListener("online", refreshWhenVisible);
     document.addEventListener("visibilitychange", refreshWhenVisible);
     const removeLifecycleListener =
       appInteractionCoordinator.subscribeLifecycle(() => {
         if (
           appInteractionCoordinator.getLifecycleSnapshot().state === "active"
         ) {
-          refreshIfPending();
-          void refreshSmsRoster();
+          refreshWhenVisible();
         }
       });
 
     return () => {
       window.removeEventListener("focus", refreshWhenVisible);
+      window.removeEventListener("online", refreshWhenVisible);
       document.removeEventListener("visibilitychange", refreshWhenVisible);
       removeLifecycleListener();
     };
-  }, [refreshLocationPermission, refreshSmsRoster]);
+  }, [auth.userId, refresh, refreshLocationPermission, refreshSmsRoster]);
 
   const nativeTestConfig: OneLocationNativeTestConfig = {
     routeId:

@@ -461,8 +461,12 @@ function isOneLocationWorkflowNotificationType(
     value === "location_one_network_joined" ||
     value === "location_circle_member_invite" ||
     value === "location_circle_member_invite_accepted" ||
+    value === "location_circle_member_invite_declined" ||
+    value === "location_circle_member_invite_cancelled" ||
     value === "location_circle_code_joined" ||
-    value === "location_circle_member_added"
+    value === "location_circle_member_added" ||
+    value === "location_circle_member_removed" ||
+    value === "location_circle_member_left"
   );
 }
 
@@ -1698,6 +1702,19 @@ export function ConsentNotificationProvider({
         dispatchConsentStateChanged({
           source: "fcm_connection_request_resolved",
           reconcile: true,
+        });
+      } else if (msgType === "connection_removed") {
+        // Disconnect changes every connection-backed projection. This branch
+        // also runs on the actor's other devices because the backend emits a
+        // silent data push to both sides after the transaction commits.
+        if (user?.uid) {
+          CacheSyncService.onConnectionGraphMutated(user.uid);
+        }
+        dispatchConsentStateChanged({
+          source: "fcm_connection_removed",
+          action: "connection_removed",
+          reconcile: true,
+          connectionId: String(data.connection_id || "").trim() || undefined,
         });
       }
     };
