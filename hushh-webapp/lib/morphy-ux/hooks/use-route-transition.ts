@@ -118,7 +118,18 @@ export function beginRouteTransition(
     start: (intent) => {
       activeRouteIntentId = intent.id;
       clearRouteTimers();
-      if (transitionMode === "contextual" || reducedMotion()) {
+      // A target on the current pathname (the active bottom-nav tab tapped
+      // again, a query-only rewrite) is not a route switch: the pathname
+      // effect that owns the enter beat never fires, so a `pending` exit
+      // would hold the shell at opacity 0 until the 9s safety net. The
+      // History-API path already treats same-pathname writes as shallow
+      // (transitionTargetForHistory); this is the same rule for
+      // programmatic navigation.
+      if (
+        transitionMode === "contextual" ||
+        reducedMotion() ||
+        isCurrentPathname(targetHref)
+      ) {
         // clearRouteTimers() above has just removed whatever would have
         // restored a `pending` exit left latched by an interrupted full
         // navigation. A contextual commit is instantaneous, so nothing may
@@ -198,6 +209,16 @@ let originalReplaceState: History["replaceState"] | null = null;
  * they are in-place updates and animating them looks abnormal/janky. Those pass
  * straight through to the original history method.
  */
+/** True when `href` resolves to the pathname already on screen. */
+function isCurrentPathname(href: string): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return new URL(href, window.location.href).pathname === window.location.pathname;
+  } catch {
+    return false;
+  }
+}
+
 function transitionTargetForHistory(
   url: string | URL | null | undefined,
 ): string | null {

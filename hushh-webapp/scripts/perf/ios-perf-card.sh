@@ -10,7 +10,10 @@
 # (default tmp/perf/<timestamp>), PERF_SKIP_BUILD=1 to reuse the last test bundle.
 #
 # Reviewer identity comes from the env resolver (REVIEWER_UID /
-# REVIEWER_VAULT_PASSPHRASE) and is handed to the test runner as process
+# REVIEWER_VAULT_PASSPHRASE). The id is NOT pinned by default: the reviewer
+# each backend mints differs from the env file's id, and a pinned mismatch
+# stalls the bootstrap (identity_mismatch). PERF_PIN_REVIEWER_UID=1 pins it.
+# Credentials are handed to the test runner as process
 # environment only; it is never written to disk, the log is grepped for the
 # passphrase before it is kept, and only the summary is durable.
 set -euo pipefail
@@ -39,6 +42,7 @@ if [[ -n "${IOS_DEVICE_ID:-}" ]]; then
     exit 1
   fi
   CONFIGURATION="${PERF_CONFIGURATION:-Debug}"
+  SIGNING=(-allowProvisioningUpdates)
 else
   SIM="${IOS_SIMULATOR_ID:-$(xcrun simctl list devices booted -j | python3 -c 'import json,sys; d=json.load(sys.stdin); print(next((dev["udid"] for devs in d["devices"].values() for dev in devs if "iPhone" in dev["name"]), ""))')}"
   if [[ -z "$SIM" ]]; then
@@ -47,8 +51,9 @@ else
   fi
   DESTINATION="platform=iOS Simulator,id=$SIM"
   SDK="iphonesimulator"
-  TIER="${HUSSH_PERF_TIER:-${HUSHH_PERF_TIER:-ios-sim}}"
+  TIER="${HUSHH_PERF_TIER:-ios-sim}"
   CONFIGURATION="${PERF_CONFIGURATION:-Debug}"
+  SIGNING=()
 fi
 
 SHA="$(git rev-parse --short HEAD)"
@@ -58,19 +63,19 @@ echo "artifacts: $OUT_DIR (raw log and probe JSON stay here; only the summary is
 cd ios/App
 if [[ "${PERF_SKIP_BUILD:-0}" != "1" ]]; then
   xcodebuild -project App.xcodeproj -scheme App -configuration "$CONFIGURATION" -sdk "$SDK" \
-    -destination "$DESTINATION" -derivedDataPath "$DERIVED" build-for-testing > "$OUT_DIR/build.log" 2>&1 \
+    -destination "$DESTINATION" -derivedDataPath "$DERIVED" "${SIGNING[@]}" build-for-testing > "$OUT_DIR/build.log" 2>&1 \
     || { echo "build-for-testing failed; see $OUT_DIR/build.log" >&2; exit 1; }
 fi
 
 set +e
 env TEST_RUNNER_HUSHH_ENABLE_PERF_BENCHMARK=true \
     TEST_RUNNER_HUSHH_PERF_REPS="$REPS" \
-    TEST_RUNNER_HUSHH_UI_TEST_REVIEWER_UID="${HUSHH_UI_TEST_REVIEWER_UID:-$REVIEWER_UID}" \
+    TEST_RUNNER_HUSHH_UI_TEST_REVIEWER_UID="${PERF_PIN_REVIEWER_UID:+${HUSHH_UI_TEST_REVIEWER_UID:-$REVIEWER_UID}}" \
     TEST_RUNNER_HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE="${HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE:-$REVIEWER_VAULT_PASSPHRASE}" \
-    TEST_RUNNER_REVIEWER_UID="$REVIEWER_UID" \
+    TEST_RUNNER_REVIEWER_UID="${PERF_PIN_REVIEWER_UID:+$REVIEWER_UID}" \
     TEST_RUNNER_REVIEWER_VAULT_PASSPHRASE="$REVIEWER_VAULT_PASSPHRASE" \
   xcodebuild -project App.xcodeproj -scheme App -configuration "$CONFIGURATION" -sdk "$SDK" \
-    -destination "$DESTINATION" -derivedDataPath "$DERIVED" \
+    -destination "$DESTINATION" -derivedDataPath "$DERIVED" "${SIGNING[@]}" \
     -only-testing:AppUITests/AppUITests/testRenderPerformanceCard test-without-building > "$OUT_DIR/test.log" 2>&1
 TEST_STATUS=$?
 set -e

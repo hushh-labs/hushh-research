@@ -42,6 +42,7 @@
     "verify:render-performance": "node ./scripts/architecture/verify-render-performance.mjs",
     "perf:ios:card": "zsh ./scripts/perf/ios-perf-card.sh",
     "perf:summarize": "node ./scripts/perf/summarize-probe-runs.mjs",
+    "perf:video:drops": "zsh ./scripts/perf/video-frame-drops.sh",
     "verify:accent-tokens": "node ./scripts/design/verify-accent-tokens.mjs",
     "verify:docs": "node ./scripts/architecture/verify-docs.mjs",
     "verify:surface-map": "node ./scripts/architecture/generate-surface-map.mjs --check",

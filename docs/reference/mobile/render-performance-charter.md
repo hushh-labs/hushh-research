@@ -116,6 +116,31 @@ pane open and drag-dismiss, holdings drawer open and drag-close, chat stream
 for 30 s, Kai chart flick, Location map pan (native map: hitches only), and
 cold start to the first interactive tab.
 
+### Threads on the same phone
+
+Native Threads is an App Store binary, which Instruments cannot attach to,
+so the comparison uses two symmetric methods on the same phone, same
+gesture, same session:
+
+1. **Threads web in Safari, same sampler.** Enable Web Inspector on the phone
+   (Settings > Safari > Advanced > Web Inspector), sign in to threads.com in
+   Safari, then on the Mac: Safari > Develop > the phone > the threads.com
+   tab > Console. Paste `hushh-webapp/scripts/perf/web-frame-sampler.js`, run
+   `__frameSampler.start("feed-flick")`, do the card step, `__frameSampler.stop()`.
+   It prints the same p95/p99/max/frames-over-50/hitch numbers the in-app
+   probe reports, computed the same way. It records frame intervals only.
+2. **Native Threads and One, screen recording.** Control Center > Screen
+   Recording, ten seconds of the same flick in each app, AirDrop both files
+   to the Mac, then `hushh-webapp/scripts/perf/video-frame-drops.sh <file> <label>`
+   for each. A frame the app failed to deliver is a repeat of the previous one
+   on the recording; the script reports delivered %, repeated frames and the
+   worst stall. Crude, but applied identically to both apps.
+
+The phone's own refresh rate is the bar: an iPhone 16e is a 60 Hz panel, so
+the budget is 16.7 ms there; a Pro model is 120 Hz and needs the
+`CADisableMinimumFrameDurationOnPhone` experiment before the web engine can
+be judged at 8.3 ms.
+
 ### Threads web as the reference
 
 Same simulator, Mobile Safari, the founder signed in, Web Inspector only,

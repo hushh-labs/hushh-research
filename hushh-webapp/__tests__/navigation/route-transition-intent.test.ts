@@ -72,4 +72,21 @@ describe("route transition intent ownership", () => {
     expect(navigate).toHaveBeenCalledTimes(1);
     expect(document.documentElement.dataset.routeTransition).not.toBe("pending");
   });
+
+  it("does not fade out for a target on the current pathname", () => {
+    // Tapping the active bottom-nav tab again used to set `pending`, and
+    // because the pathname never changed nothing fired the enter beat: the
+    // shell sat at opacity 0 until the 9s safety net. Same pathname means
+    // no route switch, so the commit is instantaneous and nothing fades.
+    vi.useFakeTimers();
+    window.history.replaceState(null, "", "/one");
+    const navigate = vi.fn();
+
+    beginRouteTransition("/one", navigate, "tap", "full");
+
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(document.documentElement.dataset.routeTransition).not.toBe("pending");
+    vi.advanceTimersByTime(200);
+    expect(document.documentElement.dataset.routeTransition).not.toBe("pending");
+  });
 });
