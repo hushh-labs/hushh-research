@@ -809,7 +809,22 @@ async def update_account_display_name(
                 "message": "Could not update the display name.",
             },
         ) from None
-    return {"success": True, "user_id": firebase_uid, "identity": identity}
+    identity = dict(identity or {})
+    shadow_sync = str(identity.pop("shadow_sync", "synced") or "synced")
+    display_name = str(identity.get("display_name") or "").strip() or None
+    if shadow_sync == "pending":
+        # The provider committed; the shadow has not caught up. Do not hand the
+        # client a partial row to cache (it would drop phone/email it already
+        # knows); ``identity: null`` makes it re-fetch, and ``display_name``
+        # carries the value the provider now holds.
+        identity = None
+    return {
+        "success": True,
+        "user_id": firebase_uid,
+        "identity": identity or None,
+        "display_name": display_name,
+        "shadow_sync": shadow_sync,
+    }
 
 
 class AvatarUploadRequest(BaseModel):

@@ -1016,7 +1016,7 @@ export default function MarketplacePage() {
       }
       rememberInvestorDeckDecision("shortlisted", investorId);
       rememberInvestorDeckDecision("passed", investorId);
-      toast.success("Investor lead saved. Saved to the database-backed RIA deck shortlist.");
+      toast.success("Investor lead saved. Saved to the database-backed advisor deck shortlist.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not save investor lead");
     }
@@ -1032,7 +1032,7 @@ export default function MarketplacePage() {
       );
       forgetInvestorDeckDecision("shortlisted", lead.id);
       rememberInvestorDeckDecision("passed", lead.id);
-      toast.success("Saved lead removed from the RIA deck.");
+      toast.success("Saved lead removed from the advisor deck.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not remove saved lead");
     }
@@ -1338,7 +1338,7 @@ export default function MarketplacePage() {
                       {match.display_name}
                     </span>
                     <span className="block line-clamp-1 text-xs text-muted-foreground">
-                      {match.kind === "ria" ? "RIA" : "Investor"}
+                      {match.kind === "ria" ? "Advisor" : "Investor"}
                     </span>
                   </span>
                 </button>
@@ -1352,7 +1352,7 @@ export default function MarketplacePage() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                RIA Deck
+                Advisor Deck
               </p>
               <h2 className="mt-1 text-[17px] font-semibold leading-snug tracking-normal text-foreground">
                 Saved investor leads

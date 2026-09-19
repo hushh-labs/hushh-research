@@ -208,7 +208,10 @@ export function PkmNaturalPanel({
     setCaptureLoading(false);
     // A dispatched save can still succeed. Retire the old review, but hold its
     // operation lock until settlement so recovery cannot submit it twice.
-    if (user?.uid && pkmCaptureSaveInFlight.has(user.uid)) setCaptureCards([]);
+    // Read the owner through the ref kept current above: this effect runs on
+    // auth readiness only, never on an owner change, by design.
+    const ownerId = captureOwnerIdRef.current;
+    if (ownerId && pkmCaptureSaveInFlight.has(ownerId)) setCaptureCards([]);
   }, [captureAuthReady]);
   const [captureLoading, setCaptureLoading] = useState(false);
   const [captureSaving, setCaptureSaving] = useState(() =>

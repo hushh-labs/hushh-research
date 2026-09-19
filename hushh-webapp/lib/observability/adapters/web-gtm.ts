@@ -5,6 +5,7 @@ import type {
 } from "@/lib/observability/events";
 import { resolveAnalyticsMeasurementId } from "@/lib/observability/env";
 import { shouldDisableExternalTelemetryForAutomation } from "@/lib/testing/native-test";
+import { getCurrentAnalyticsUserContext } from "@/lib/observability/identity";
 
 declare global {
   interface Window {
@@ -31,10 +32,20 @@ export const webGtmAdapter: ObservabilityAdapter = {
     if (typeof window === "undefined") return;
     if (shouldDisableExternalTelemetryForAutomation()) return;
 
+    const userCtx = getCurrentAnalyticsUserContext();
+    const identityParams = userCtx.userInfo?.email ? {
+      email: userCtx.userInfo.email,
+      user_email: userCtx.userInfo.email,
+      ...(userCtx.userInfo.displayName ? { display_name: userCtx.userInfo.displayName } : {}),
+      ...(userCtx.userInfo.phoneNumber ? { phone_number: userCtx.userInfo.phoneNumber } : {}),
+      ...(userCtx.userId ? { user_id: userCtx.userId } : {}),
+    } : {};
+
     window.dataLayer = window.dataLayer || [];
     const transportPayload = {
       event: eventName,
       event_source: "observability_v2",
+      ...identityParams,
       ...payload,
     };
     window.dataLayer.push(transportPayload);
@@ -48,6 +59,7 @@ export const webGtmAdapter: ObservabilityAdapter = {
       window.gtag("event", eventName, {
         send_to: measurementId,
         event_source: "observability_v2",
+        ...identityParams,
         ...payload,
       });
     }

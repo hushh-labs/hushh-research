@@ -1653,6 +1653,8 @@ def test_reject_feed_failure_rolls_back_the_relationship_transition() -> None:
 
 def test_remove_connection_feed_projection_uses_connection_id() -> None:
     svc = _svc()
+    notifications: list[dict] = []
+    svc._disconnect_notifier = lambda **kwargs: notifications.append(kwargs)
     svc._transaction = nullcontext
     rows = iter(
         [
@@ -1687,6 +1689,53 @@ def test_remove_connection_feed_projection_uses_connection_id() -> None:
         "conn-1:2026-08-26T12:00:00+00:00"
     }
     assert all("counterpart_user_id" not in params for _, params in feed_inserts)
+    assert notifications == [
+        {
+            "recipient_user_id": "user-a",
+            "counterpart_user_id": "user-b",
+            "actor_user_id": "user-a",
+            "connection_id": "conn-1",
+            "revocation_id": "2026-08-26T12:00:00+00:00",
+        },
+        {
+            "recipient_user_id": "user-b",
+            "counterpart_user_id": "user-a",
+            "actor_user_id": "user-a",
+            "connection_id": "conn-1",
+            "revocation_id": "2026-08-26T12:00:00+00:00",
+        },
+    ]
+
+
+def test_connection_removed_notifier_failure_never_rolls_back_disconnect() -> None:
+    svc = _svc()
+    svc._transaction = nullcontext
+    rows = iter(
+        [
+            {
+                "id": "conn-1",
+                "user_a_id": "user-a",
+                "user_b_id": "user-b",
+                "status": "active",
+            },
+            {"id": "conn-1", "revoked_at": "2026-08-26T12:00:00+00:00"},
+            {"id": "conn-1"},
+        ]
+    )
+
+    def execute_one(sql, params=None):
+        if "INSERT INTO feed_events" in sql:
+            return None
+        return next(rows)
+
+    svc._execute_one = execute_one
+    svc._execute_many = lambda _sql, _params=None: []
+    svc._revoke_pair_capabilities = lambda **_kwargs: None
+    svc._end_one_location_circle_memberships = lambda **_kwargs: None
+    svc._display_name_for = lambda user_id: {"user-a": "Alice", "user-b": "Bob"}[user_id]
+    svc._disconnect_notifier = lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("push down"))
+
+    assert svc.remove_connection("user-a", "conn-1") == {"removed": 1}
 
 
 def test_search_directory_reuses_ready_people_and_annotates_relationship():

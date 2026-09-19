@@ -213,6 +213,28 @@ describe("Google Contacts token client", () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
+  it("forces the account chooser only when asked, silently otherwise", async () => {
+    const silent = requestGoogleContactsToken();
+    expect(requestAccessToken).toHaveBeenLastCalledWith(undefined);
+    capturedConfig?.callback({
+      access_token: "silent-token",
+      scope: CONTACTS_SCOPE,
+    });
+    await expect(silent).resolves.toBe("silent-token");
+
+    const choosing = requestGoogleContactsToken(undefined, {
+      forceAccountPicker: true,
+    });
+    expect(requestAccessToken).toHaveBeenLastCalledWith({
+      prompt: "select_account",
+    });
+    capturedConfig?.callback({
+      access_token: "chosen-token",
+      scope: CONTACTS_SCOPE,
+    });
+    await expect(choosing).resolves.toBe("chosen-token");
+  });
+
   it("treats only a closed popup as cancellation", async () => {
     const pending = requestGoogleContactsToken();
     capturedConfig?.error_callback?.({ type: "popup_closed" });

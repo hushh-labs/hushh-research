@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { getCapabilityStatusDisplay } from "@/lib/onboarding/capability-status-display";
+import {
+  getCapabilityStatusDisplay,
+  isCapabilityOnboarded,
+} from "@/lib/onboarding/capability-status-display";
 import type { CapabilityStatus } from "@/lib/services/capability-setup-state-service";
 
 function status(overrides: Partial<CapabilityStatus>): CapabilityStatus {
@@ -39,5 +42,28 @@ describe("getCapabilityStatusDisplay — location", () => {
     expect(
       getCapabilityStatusDisplay(status({ id: "email", state: "not-started" })).label,
     ).toBe("Set up");
+  });
+});
+
+describe("isCapabilityOnboarded", () => {
+  it("is true only when genuinely completed", () => {
+    expect(isCapabilityOnboarded(status({ state: "completed" }))).toBe(true);
+  });
+
+  it("is false for every other tracked state, including skipped/dismissed", () => {
+    for (const state of [
+      "unknown",
+      "blocked",
+      "not-started",
+      "in-progress",
+      "skipped",
+      "needs-attention",
+    ] as const) {
+      expect(isCapabilityOnboarded(status({ state }))).toBe(false);
+    }
+  });
+
+  it("treats an untracked capability (no resolvable status) as onboarded", () => {
+    expect(isCapabilityOnboarded(undefined)).toBe(true);
   });
 });

@@ -926,3 +926,123 @@ async def test_successful_scheduled_sync_keeps_cooldown(
     actor_identity_service._IDENTITY_SYNC_TASKS.clear()
     actor_identity_service._IDENTITY_SYNC_IN_FLIGHT.clear()
     actor_identity_service._IDENTITY_SYNC_COOLDOWN_UNTIL.clear()
+
+
+# -- update_display_name: provider commit vs shadow sync ----------------------
+
+
+def _firebase_update_ok(monkeypatch: pytest.MonkeyPatch) -> list[dict]:
+    """Stub the provider so ``update_user`` succeeds and records the call."""
+    import sys
+    import types
+
+    calls: list[dict] = []
+
+    def fake_update_user(uid, *, display_name=None, app=None, **_):
+        calls.append({"uid": uid, "display_name": display_name})
+
+    monkeypatch.setattr(actor_identity_service, "get_firebase_auth_app", lambda: object())
+    monkeypatch.setitem(
+        sys.modules,
+        "firebase_admin",
+        types.SimpleNamespace(auth=types.SimpleNamespace(update_user=fake_update_user)),
+    )
+    return calls
+
+
+async def test_update_display_name_reports_synced_when_shadow_write_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = ActorIdentityService()
+    uid = "firebase-user-123456789012"
+    calls = _firebase_update_ok(monkeypatch)
+
+    async def fake_sync(user_id, *, force=False):
+        return {"user_id": user_id, "display_name": "Ayesha S", "email": "a@example.com"}
+
+    monkeypatch.setattr(service, "sync_from_firebase", fake_sync)
+
+    result = await service.update_display_name(uid, "  Ayesha   S ")
+
+    assert calls == [{"uid": uid, "display_name": "Ayesha S"}]
+    assert result["display_name"] == "Ayesha S"
+    assert result["email"] == "a@example.com"
+    assert result["shadow_sync"] == "synced"
+
+
+async def test_update_display_name_reports_pending_when_shadow_sync_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Graph observation 2: Firebase accepts the name, then the shadow write
+    fails. The provider now holds the new name; raising here made every caller
+    say "your name wasn't changed" about a committed write."""
+    service = ActorIdentityService()
+    uid = "firebase-user-123456789012"
+    calls = _firebase_update_ok(monkeypatch)
+
+    async def failing_sync(user_id, *, force=False):
+        raise ConnectionError("shadow db unreachable")
+
+    monkeypatch.setattr(service, "sync_from_firebase", failing_sync)
+
+    result = await service.update_display_name(uid, "Ayesha S")
+
+    assert calls == [{"uid": uid, "display_name": "Ayesha S"}]
+    assert result["user_id"] == uid
+    assert result["display_name"] == "Ayesha S"
+    assert result["shadow_sync"] == "pending"
+
+
+async def test_update_display_name_reports_pending_when_fallback_upsert_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = ActorIdentityService()
+    uid = "firebase-user-123456789012"
+    _firebase_update_ok(monkeypatch)
+
+    async def sync_returns_nothing(user_id, *, force=False):
+        return None
+
+    async def failing_upsert(**kwargs):
+        raise RuntimeError("shadow write failed")
+
+    monkeypatch.setattr(service, "sync_from_firebase", sync_returns_nothing)
+    monkeypatch.setattr(service, "upsert_identity", failing_upsert)
+
+    result = await service.update_display_name(uid, "Ayesha S")
+
+    assert result["display_name"] == "Ayesha S"
+    assert result["shadow_sync"] == "pending"
+
+
+async def test_update_display_name_provider_failure_still_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Nothing is committed when the provider itself refuses, so the error
+    must keep propagating -- only the post-commit path is fail-soft."""
+    import sys
+    import types
+
+    service = ActorIdentityService()
+
+    def failing_update_user(uid, *, display_name=None, app=None, **_):
+        raise ConnectionError("firebase unreachable")
+
+    monkeypatch.setattr(actor_identity_service, "get_firebase_auth_app", lambda: object())
+    monkeypatch.setitem(
+        sys.modules,
+        "firebase_admin",
+        types.SimpleNamespace(auth=types.SimpleNamespace(update_user=failing_update_user)),
+    )
+    sync_called = False
+
+    async def fake_sync(user_id, *, force=False):
+        nonlocal sync_called
+        sync_called = True
+        return None
+
+    monkeypatch.setattr(service, "sync_from_firebase", fake_sync)
+
+    with pytest.raises(ConnectionError):
+        await service.update_display_name("firebase-user-123456789012", "Ayesha S")
+    assert sync_called is False

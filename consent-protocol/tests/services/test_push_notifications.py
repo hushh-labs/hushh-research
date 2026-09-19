@@ -9,6 +9,7 @@ from hushh_mcp.services.push_notifications import (
     send_circle_member_invite_declined_push,
     send_circle_member_left_push,
     send_circle_member_removed_push,
+    send_connection_removed_push,
     send_connection_request_cancelled_push,
     send_connection_request_push,
     send_connection_request_resolved_push,
@@ -366,6 +367,85 @@ def test_connection_request_resolved_push_reaches_sse_from_a_sync_handler(monkey
     assert payload["action"] == "DECLINED"
     assert payload["resolver_label"] == "John Smith"
     assert payload["request_id"] == "req-42"
+
+
+def test_connection_removed_push_is_silent_and_scoped_to_the_connection(monkeypatch):
+    captured = _capture_push(monkeypatch)
+
+    send_connection_removed_push(
+        "user-a",
+        "user-b",
+        actor_user_id="user-a",
+        connection_id="conn-42",
+        revocation_id="2026-09-19T10:15:30+00:00",
+    )
+
+    assert captured["user_id"] == "user-a"
+    assert captured["notification_type"] == "connection_removed"
+    assert captured["notification_tag"] == (
+        "connection-removed:conn-42:2026-09-19T10:15:30+00:00:user-a"
+    )
+    assert captured["show_alert"] is False
+    assert captured["data"] == {
+        "message_id": "connection-removed:conn-42:2026-09-19T10:15:30+00:00:user-a",
+        "connection_id": "conn-42",
+        "counterpart_user_id": "user-b",
+        "actor_user_id": "user-a",
+        "revocation_id": "2026-09-19T10:15:30+00:00",
+    }
+
+
+def test_connection_removed_push_reaches_the_sse_reconcile_path(monkeypatch):
+    _capture_push(monkeypatch)
+    scheduled: list = []
+    monkeypatch.setattr(
+        "api.consent_listener.push_to_consent_queue_threadsafe",
+        lambda user_id, data: scheduled.append((user_id, data)) or True,
+    )
+
+    send_connection_removed_push(
+        "user-b",
+        "user-a",
+        actor_user_id="user-a",
+        connection_id="conn-42",
+        revocation_id="2026-09-19T10:15:30+00:00",
+    )
+
+    assert len(scheduled) == 1
+    user_id, payload = scheduled[0]
+    assert user_id == "user-b"
+    assert payload["type"] == "connection_removed"
+    assert payload["action"] == "REMOVED"
+    assert payload["connection_id"] == "conn-42"
+    assert payload["counterpart_user_id"] == "user-a"
+    assert payload["message_id"].endswith(":2026-09-19T10:15:30+00:00:user-b")
+
+
+def test_connection_removed_push_uses_a_new_delivery_id_for_each_revocation(monkeypatch):
+    tags: list[str] = []
+    monkeypatch.setattr(
+        push_module,
+        "send_user_data_push",
+        lambda _user_id, **kwargs: tags.append(kwargs["notification_tag"]) or 1,
+    )
+    monkeypatch.setattr(
+        "api.consent_listener.push_to_consent_queue_threadsafe",
+        lambda _user_id, _data: True,
+    )
+
+    for revocation_id in ("episode-1", "episode-2"):
+        send_connection_removed_push(
+            "user-b",
+            "user-a",
+            actor_user_id="user-a",
+            connection_id="conn-42",
+            revocation_id=revocation_id,
+        )
+
+    assert tags == [
+        "connection-removed:conn-42:episode-1:user-b",
+        "connection-removed:conn-42:episode-2:user-b",
+    ]
 
 
 def test_threadsafe_enqueue_delivers_to_a_waiting_sse_consumer():

@@ -124,6 +124,7 @@ capabilities:
   - { capability_id: location.add_emergency_contact, kind: action, feature_group_id: safety }
   - { capability_id: location.remove_emergency_contact, kind: action, feature_group_id: safety }
   - { capability_id: location.trigger_sos, kind: action, feature_group_id: safety }
+  - { capability_id: location.verify_sos_delivery, kind: action, feature_group_id: safety }
   - { capability_id: location.stop_sos, kind: action, feature_group_id: safety }
   - { capability_id: location.sos_default, kind: action, feature_group_id: safety }
   - { capability_id: location.chat.turn, kind: action, feature_group_id: support }

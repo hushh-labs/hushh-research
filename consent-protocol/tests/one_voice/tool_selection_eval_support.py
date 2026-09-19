@@ -152,11 +152,16 @@ def load_cases(
 
 
 def production_corpus() -> str:
-    """Every production sentence the model sees or that shapes what it sees."""
+    """Every production sentence the model sees or that shapes what it sees.
+
+    Whitespace is collapsed so a sentence wrapped across source lines (the
+    instruction's numbered rules) is compared the way the model reads it.
+    """
     descriptions = "\n".join(str(item.get("description") or "") for item in registry.declarations())
     instruction_source = inspect.getsource(instruction_module)
     manifest = AGENT_MANIFEST_PATH.read_text(encoding="utf-8")
-    return "\n".join((descriptions, instruction_source, manifest)).lower()
+    joined = "\n".join((descriptions, instruction_source, manifest)).lower()
+    return " ".join(joined.split())
 
 
 def mutation_tools() -> frozenset[str]:

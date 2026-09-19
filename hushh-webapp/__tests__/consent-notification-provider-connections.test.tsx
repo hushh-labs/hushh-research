@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => {
     getState: vi.fn(),
     getVaultOwnerToken: vi.fn(),
     onConsentMutated: vi.fn(),
+    onConnectionGraphMutated: vi.fn(),
     dispatchConsentStateChanged: vi.fn(),
     dispatchFeedStateChanged: vi.fn(),
     markPendingConsentOpened: vi.fn(),
@@ -83,6 +84,7 @@ vi.mock("@/lib/services/app-background-task-service", () => ({
 vi.mock("@/lib/cache/cache-sync-service", () => ({
   CacheSyncService: {
     onConsentMutated: mocks.onConsentMutated,
+    onConnectionGraphMutated: mocks.onConnectionGraphMutated,
     onConsentReviewed: vi.fn(),
   },
 }));
@@ -123,6 +125,7 @@ async function renderProvider() {
   await waitFor(() => expect(mocks.initializeFCM).toHaveBeenCalledOnce());
   mocks.toast.mockClear();
   mocks.onConsentMutated.mockClear();
+  mocks.onConnectionGraphMutated.mockClear();
   mocks.dispatchConsentStateChanged.mockClear();
   mocks.dispatchFeedStateChanged.mockClear();
 }
@@ -172,6 +175,17 @@ function dispatchConnectionRequestResolved(data: Record<string, string>) {
         detail,
       }),
     );
+  });
+  return detail;
+}
+
+function dispatchConnectionRemoved(data: Record<string, string>) {
+  const detail: {
+    data: Record<string, string>;
+    accepted?: boolean;
+  } = { data: { type: "connection_removed", ...data } };
+  act(() => {
+    window.dispatchEvent(new CustomEvent("fcm-message", { detail }));
   });
   return detail;
 }
@@ -482,7 +496,9 @@ describe("connection-request Feed-first foreground policy", () => {
 
         expect(mocks.toast).not.toHaveBeenCalled();
         expect(mocks.dispatchFeedStateChanged).toHaveBeenCalledOnce();
-        expect(mocks.onConsentMutated).toHaveBeenCalledWith("recipient-user");
+        expect(mocks.onConnectionGraphMutated).toHaveBeenCalledWith(
+          "recipient-user",
+        );
         expect(mocks.dispatchConsentStateChanged).toHaveBeenCalledWith({
           source: "fcm_connection_request_resolved",
           reconcile: true,
@@ -504,5 +520,57 @@ describe("connection-request Feed-first foreground policy", () => {
       expect(mocks.onConsentMutated).not.toHaveBeenCalled();
       expect(detail.accepted).not.toBe(true);
     });
+  });
+
+  it("reconciles every connection projection after a silent disconnect push", async () => {
+    await renderProvider();
+
+    const detail = dispatchConnectionRemoved({
+      user_id: "recipient-user",
+      connection_id: "conn-42",
+      counterpart_user_id: "other-user",
+      message_id: "connection-removed:conn-42:recipient-user",
+    });
+
+    expect(mocks.toast).not.toHaveBeenCalled();
+    expect(mocks.dispatchFeedStateChanged).toHaveBeenCalledOnce();
+    expect(mocks.onConnectionGraphMutated).toHaveBeenCalledWith(
+      "recipient-user",
+    );
+    expect(mocks.dispatchConsentStateChanged).toHaveBeenCalledWith({
+      source: "fcm_connection_removed",
+      action: "connection_removed",
+      reconcile: true,
+      connectionId: "conn-42",
+    });
+    expect(detail.accepted).toBe(true);
+  });
+
+  it("accepts Circle-removal pushes so mounted Location surfaces can reconcile", async () => {
+    await renderProvider();
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("fcm-message", {
+          detail: {
+            data: {
+              type: "location_circle_member_removed",
+              user_id: "recipient-user",
+              circle_id: "circle-1",
+              circle_name: "Family",
+              notification_tag:
+                "location-circle-member-removed:circle-1:recipient-user",
+            },
+          },
+        }),
+      );
+    });
+
+    expect(mocks.dispatchConsentStateChanged).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "one_location_notification",
+        notificationType: "location_circle_member_removed",
+      }),
+    );
   });
 });

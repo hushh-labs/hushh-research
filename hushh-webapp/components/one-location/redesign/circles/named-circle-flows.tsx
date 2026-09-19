@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { toast } from "sonner";
+import { trackEvent } from "@/lib/observability/client";
 import {
   Check,
   Copy,
@@ -99,6 +100,7 @@ import {
   sortPeopleByName,
 } from "@/lib/one-location/people-search";
 import { sortCircleMembersOwnerFirst } from "@/lib/one-location/circle-member-order";
+import { isForeignSmsSystemCircle } from "@/lib/one-location/system-circles";
 import { BLOCKED_CTA } from "@/components/one-location/redesign/circles/blocked-cta";
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
@@ -200,6 +202,10 @@ function groupCirclesForPeopleTab(
   const groupByKey = new Map(groups.map((group) => [group.key, group]));
 
   for (const circle of circles) {
+    // Someone else's SMS Circle is not usable on the viewer's side (it can
+    // neither authorize shares nor be managed), so the People tab hides it.
+    // The viewer's own SMS Circle stays under "Your circles".
+    if (isForeignSmsSystemCircle(circle)) continue;
     groupByKey.get(circleListGroupKey(circle))?.circles.push(circle);
   }
 
@@ -632,6 +638,13 @@ export function CreateCircleFlow({
     submittingRef.current = true;
     try {
       await onSubmit(trimmedName, kind);
+      try {
+        trackEvent("one_location_circle_created", {
+          route_id: "one_location",
+          result: "success",
+          circle_kind: kind,
+        });
+      } catch {}
     } catch (error) {
       submittingRef.current = false;
       toast.error(
@@ -808,8 +821,11 @@ export function JoinCircleFlow({
     preview: OneLocationCircleInvitePreview;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const inputRef = useRef<HTMLInputElement | null>(null);
-  const previewRef = useRef<HTMLDivElement | null>(null);
+  // Confirm before discarding a reviewed preview: "Use Another Code" is one
+  // accidental tap away from wiping the circle just reviewed.
+  const [discardPreviewConfirmOpen, setDiscardPreviewConfirmOpen] =
+    useState(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);  const previewRef = useRef<HTMLDivElement | null>(null);
   const initialAutoResolvedCodeRef = useRef<string | null>(null);
   const resolveRequestRef = useRef(0);
   const preview = resolved?.preview ?? null;
@@ -865,6 +881,18 @@ export function JoinCircleFlow({
       setError(circleFlowErrorMessage(error, "Could not join this Circle."));
     }
   };
+
+  // The exact flow "Use Another Code" always ran: drop the reviewed preview
+  // and hand focus back to the code field. It only runs after the confirm
+  // dialog below answers Yes.
+  const clearPreviewForAnotherCode = useCallback(() => {
+    resolveRequestRef.current += 1;
+    setCode("");
+    setResolved(null);
+    setError(null);
+    setDiscardPreviewConfirmOpen(false);
+    window.requestAnimationFrame(() => inputRef.current?.focus());
+  }, []);
 
   return (
     <div className="space-y-5" data-testid="one-location-join-circle-flow">
@@ -975,13 +1003,7 @@ export function JoinCircleFlow({
             type="button"
             variant="ghost"
             disabled={busy}
-            onClick={() => {
-              resolveRequestRef.current += 1;
-              setCode("");
-              setResolved(null);
-              setError(null);
-              window.requestAnimationFrame(() => inputRef.current?.focus());
-            }}
+            onClick={() => setDiscardPreviewConfirmOpen(true)}
             className="h-11 w-full rounded-full text-[15px] font-semibold text-[color:var(--app-accent)]"
           >
             Use Another Code
@@ -1001,6 +1023,32 @@ export function JoinCircleFlow({
           {busy ? "Reviewing…" : "Review Circle"}
         </Button>
       )}
+
+      {/* Confirm before discarding a reviewed preview: one accidental tap on
+          "Use Another Code" used to wipe the circle just reviewed with no way
+          back. Yes runs the same clear-and-refocus flow; No keeps the preview.
+          At root level (not inside the preview conditional) so the dialog
+          survives the state change it confirms. */}
+      <AlertDialog
+        open={discardPreviewConfirmOpen}
+        onOpenChange={setDiscardPreviewConfirmOpen}
+      >
+        <AlertDialogContent size="sm">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Use another code?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you don&apos;t want to join this circle and want to
+              check another one? The preview will be cleared.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>No</AlertDialogCancel>
+            <AlertDialogAction onClick={clearPreviewForAnotherCode}>
+              Yes
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
@@ -1274,6 +1322,7 @@ export function CircleDetailFlow({
   onCancelMemberInvite,
   onLeave,
   onDelete,
+  onProceedToSms,
 }: {
   circleId: string;
   currentUserId: string | null;
@@ -1342,6 +1391,8 @@ export function CircleDetailFlow({
   onCancelMemberInvite: (inviteId: string) => Promise<void>;
   onLeave: (circleId: string) => Promise<void>;
   onDelete: (circleId: string) => Promise<void>;
+  /** SMS Circle only: continue once at least one member besides the owner exists. */
+  onProceedToSms?: () => void;
 }) {
   const [loadedCircle, setCircle] = useState<
     OneLocationCircleDetail | OneLocationCircleOverview | null
@@ -1472,6 +1523,7 @@ export function CircleDetailFlow({
   // A re-read the caller asked for. Unlike the effect above it resets nothing:
   // the sheet stays open, the search keeps its text, the selection survives.
   const lastReloadSignalRef = useRef(reloadSignal);
+  const lastEligibleReloadSignalRef = useRef(reloadSignal);
   useEffect(() => {
     if (reloadSignal === lastReloadSignalRef.current) return;
     lastReloadSignalRef.current = reloadSignal;
@@ -1510,6 +1562,9 @@ export function CircleDetailFlow({
     circle?.inviteCodeNeedsOwnerRotation,
   );
   const members = memberRows;
+  const hasOtherMember = members.some(
+    (member) => member.userId !== currentUserId,
+  );
   // One request in flight at a time: the roster re-renders from the reloaded
   // Circle, and two overlapping sends would leave the wrong row spinning.
   const [connectingUserId, setConnectingUserId] = useState<string | null>(null);
@@ -1678,14 +1733,19 @@ export function CircleDetailFlow({
       setPeopleTotalCount(
         pagedResult?.totalCount ?? result.eligibleConnections.length,
       );
-      setSelectedConnections(
-        (current) =>
-          new Map(
-            [...current].slice(
-              0,
-              circleInviteSelectionLimit(result.remainingCapacity),
-            ),
-          ),
+      const eligibleByUserId = new Map(
+        result.eligibleConnections.map((connection) => [
+          connection.userId,
+          connection,
+        ]),
+      );
+      setSelectedConnections((current) =>
+        new Map(
+          [...current]
+            .filter(([userId]) => eligibleByUserId.has(userId))
+            .map(([userId]) => [userId, eligibleByUserId.get(userId)!] as const)
+            .slice(0, circleInviteSelectionLimit(result.remainingCapacity)),
+        ),
       );
     } catch (error) {
       if (requestId !== peopleRequestRef.current) return;
@@ -1707,6 +1767,20 @@ export function CircleDetailFlow({
     setSelectedConnections(new Map());
     void loadEligibleConnections();
   };
+
+  useEffect(() => {
+    if (reloadSignal === lastEligibleReloadSignalRef.current) return;
+    lastEligibleReloadSignalRef.current = reloadSignal;
+    if (!peopleSheetOpen || !circle) return;
+    // A relationship removed in Connect must disappear from an already-open
+    // picker too. Reload in place so search text and the sheet stay put; the
+    // response also trims selections that no longer fit the authoritative
+    // eligible set.
+    void loadEligibleConnections({ page: 1, query: peopleSearch });
+    // This effect is signal-driven. Capturing the current loader is intended;
+    // depending on its render-local identity would refetch on every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [circle?.id, peopleSearch, peopleSheetOpen, reloadSignal]);
 
   useEffect(() => {
     if (!peopleSheetOpen || !onLoadEligibleConnectionsPage || !circle) return;
@@ -1937,6 +2011,17 @@ export function CircleDetailFlow({
               </Button>
             ) : null}
           </div>
+
+          {onProceedToSms && hasOtherMember ? (
+            <Button
+              type="button"
+              onClick={onProceedToSms}
+              className="mx-auto h-12 w-full max-w-[320px] rounded-[14px] text-[15px] font-semibold"
+              data-testid="one-location-proceed-to-sms"
+            >
+              Proceed to SMS
+            </Button>
+          ) : null}
 
           {isOwner && circle.systemKind !== "trusted" ? (
             <Sheet
@@ -2289,7 +2374,8 @@ export function CircleDetailFlow({
                             );
                             const selectionAtCapacity =
                               selectedConnections.size >= selectionLimit;
-                            return (
+
+  return (
                               <SettingsRow
                                 key={connection.userId}
                                 layout="person"

@@ -4228,7 +4228,8 @@
         "location.sos_default",
         "location.stop_share",
         "location.stop_sos",
-        "location.trigger_sos"
+        "location.trigger_sos",
+        "location.verify_sos_delivery"
       ],
       "api_dependencies": [
         {
@@ -7376,6 +7377,71 @@
       }
     },
     {
+      "route": "/one/setup/capabilities",
+      "page_file": "app/one/setup/capabilities/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/onboarding/setup/one-setup-capabilities-screen.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.setup.capabilities",
+          "purpose": "Help the person connect or dismiss any of the optional One capabilities, opened from the dashboard's setup tile.",
+          "screen": "one_setup_capabilities",
+          "entry_cue": "",
+          "proactivity": "ambient",
+          "primary_action_id": null,
+          "happy_path_action_ids": [],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "This screen has no separate completion of its own -- each capability's own setup or dismiss is what changes state.",
+          "next_route": "/one",
+          "return_policy": "navigate",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/setup/capabilities",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Fcapabilities",
+        "expectedMarker": "native-route-setup-capabilities",
+        "expectedRoute": "/one/setup/capabilities",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": null,
+      "voice_action_contract_ids": [],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
+    },
+    {
       "route": "/one/setup/connected-systems",
       "page_file": "app/one/setup/connected-systems/page.tsx",
       "physical_page_exists": true,
@@ -7484,8 +7550,8 @@
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
           "completion_boundary": "Setup records only a strict non-secret runtime preference; a BYOK key is validated and encrypted only after setup through the vault-backed configuration mutation.",
-          "next_route": "/one/setup",
-          "return_policy": "return_to_hub",
+          "next_route": "/",
+          "return_policy": "resolve_root",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
@@ -9575,5 +9641,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "db28a91852d4eeb67d4f147d1a7f189049f834193e96d81e8399fac6c45e469b"
+  "content_sha256": "6c8f2718fdbeb0c070e67267c4397aeea3f4c2add95610031d0b2901d52e6260"
 }

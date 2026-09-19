@@ -148,6 +148,16 @@ describe("LocationPeople", () => {
     expect(row).toHaveTextContent("Family");
     expect(row).not.toHaveTextContent("u2");
 
+    // The People row carries only Ask and Share. Check-In lives on the Now
+    // tab and the nearby flow, so its button must not render here.
+    const actions = screen.getByRole("group", {
+      name: "Actions for Priya Sharma",
+    });
+    expect(actions.querySelectorAll("button")).toHaveLength(2);
+    expect(
+      screen.queryByRole("button", { name: "Check in with Priya Sharma" }),
+    ).toBeNull();
+
     fireEvent.click(
       screen.getByRole("button", {
         name: "Ask Priya Sharma for their location",
@@ -166,15 +176,6 @@ describe("LocationPeople", () => {
     );
     expect(harness.push).toHaveBeenLastCalledWith(
       "/one/location?action=share&person=u2",
-      {
-        scroll: false,
-      },
-    );
-    fireEvent.click(
-      screen.getByRole("button", { name: "Check in with Priya Sharma" }),
-    );
-    expect(harness.push).toHaveBeenLastCalledWith(
-      "/one/location?action=check-in&person=u2",
       {
         scroll: false,
       },

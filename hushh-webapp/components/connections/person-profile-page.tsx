@@ -60,6 +60,7 @@ import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-ac
 import { oneLocationErrorMessage } from "@/lib/one-location/error-message";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { VOICE_CONFIRM_DATA_KEY } from "@/lib/voice/voice-action-card";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 
 type Props = { personRef: string; initialProfile: PublicPersonProfile | null };
 
@@ -347,6 +348,11 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                 resolvedPersonRef,
                 idToken,
               );
+      if (action === "remove") {
+        CacheSyncService.onConnectionGraphMutated(user.uid);
+      } else {
+        CacheSyncService.onConnectionCapabilityMutated(user.uid);
+      }
       setViewerProfileState((current) =>
         current.personRef === resolvedPersonRef && current.viewerUid === user.uid && current.profile
           ? {
@@ -762,18 +768,6 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
           </SectionCard>
         ) : null}
 
-        {viewerUnavailable ? (
-          <SectionCard>
-            <div role="alert" className="space-y-3">
-              <p>We couldn’t check available information or shared access. Please try again.</p>
-              <Button type="button" variant="none" effect="fade"
-                onClick={() => setViewerReloadToken((value) => value + 1)}>
-                Try again
-              </Button>
-            </div>
-          </SectionCard>
-        ) : null}
-
         {viewerProfile ? (
           <>
             <section
@@ -1110,6 +1104,25 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
               )}
             </section>
           </>
+        ) : viewerUnavailable && user ? (
+          <SectionCard className="py-8 text-center">
+            <div role="alert" className="flex flex-col items-center justify-center space-y-2">
+              <p className="text-sm font-semibold text-foreground">
+                We couldn&rsquo;t load your connection with {profile.displayName} right now.
+              </p>
+              <p className="text-xs text-muted-foreground max-w-sm">
+                Your connection status, what you can request, and anything shared with you will appear here once this loads.
+              </p>
+              <Button
+                type="button"
+                variant="none"
+                effect="fade"
+                onClick={() => setViewerReloadToken((token) => token + 1)}
+              >
+                Try again
+              </Button>
+            </div>
+          </SectionCard>
         ) : null}
       </div>
       <Dialog modal open={reviewOpen} onOpenChange={setReviewOpen}>

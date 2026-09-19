@@ -2,7 +2,7 @@
 
 import { ChevronRight, Loader2, UserRound } from "@/components/icons";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import {
   buildKaiTestClientAccess,
@@ -40,6 +40,20 @@ type ClientListItem = RiaClientAccess & {
 };
 
 type ClientsView = "connected" | "nearby";
+
+function RetainedNearbyPane({ active }: { active: boolean }) {
+  const [visited, setVisited] = useState(active);
+  useEffect(() => {
+    if (active) setVisited(true);
+  }, [active]);
+  // First visit opts into discovery. Tab returns retain only this mounted
+  // account's state; no location or prospect records enter device storage.
+  return active || visited ? (
+    <div hidden={!active}>
+      <NearbyAroundYou />
+    </div>
+  ) : null;
+}
 
 function statusBadgeClass(status?: string | null) {
   switch (status) {
@@ -183,7 +197,7 @@ export default function RiaClientsPage() {
   if (riaCapability === "setup") {
     return (
       <RiaPageShell
-        title="RIA"
+        title="Advisor"
         titleRole="agent"
         stackClassName="gap-8"
         nativeTest={{
@@ -203,7 +217,7 @@ export default function RiaClientsPage() {
 
   return (
     <RiaPageShell
-      title="RIA"
+      title="Advisor"
       titleRole="agent"
       stackClassName="gap-8"
       nativeTest={{
@@ -235,9 +249,8 @@ export default function RiaClientsPage() {
               />
             </div>
 
-            {view === "nearby" ? (
-              <NearbyAroundYou />
-            ) : (
+            <RetainedNearbyPane key={user?.uid ?? "guest"} active={view === "nearby"} />
+            {view === "connected" ? (
               <SettingsGroup
                 embedded
                 title={RIA_COPY.clients.section.title}
@@ -333,7 +346,7 @@ export default function RiaClientsPage() {
                   ))
                 )}
               </SettingsGroup>
-            )}
+            ) : null}
       </RiaVerificationGate>
     </RiaPageShell>
   );

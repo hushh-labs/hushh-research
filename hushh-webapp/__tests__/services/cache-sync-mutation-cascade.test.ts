@@ -30,6 +30,8 @@ import {
   readLocationWorkspaceMemory,
   writeLocationWorkspaceMemory,
 } from "@/lib/one-location/location-workspace-memory";
+import { CONNECTION_GRAPH_CHANGED_EVENT } from "@/lib/connections/connection-graph-events";
+import { ONE_LOCATION_STATE_CHANGED_EVENT } from "@/lib/one-location/one-location-state-events";
 
 describe("CacheSyncService mutation cascades", () => {
   const userId = "test-user-123";
@@ -122,6 +124,44 @@ describe("CacheSyncService mutation cascades", () => {
     const invalidatedKeys = spyInvalidate.mock.calls.map((call) => call[0]);
     expect(invalidatedKeys).toContain(CACHE_KEYS.CONNECTIONS_INCOMING(userId));
     expect(readLocationWorkspaceMemory(userId).myLocationPoint).toBeNull();
+  });
+
+  it("onConnectionGraphMutated announces the owner whose live consumers are stale", () => {
+    const details: unknown[] = [];
+    const listener = (event: Event) =>
+      details.push((event as CustomEvent).detail);
+    window.addEventListener(CONNECTION_GRAPH_CHANGED_EVENT, listener);
+
+    CacheSyncService.onConnectionGraphMutated(userId);
+
+    expect(details).toEqual([
+      expect.objectContaining({ userId, changedAt: expect.any(Number) }),
+    ]);
+    window.removeEventListener(CONNECTION_GRAPH_CHANGED_EVENT, listener);
+  });
+
+  it("onOneLocationStateMutated invalidates and broadcasts the affected domains", () => {
+    const invalidateLocation = vi.spyOn(OneLocationStateResource, "invalidate");
+    const details: unknown[] = [];
+    const listener = (event: Event) =>
+      details.push((event as CustomEvent).detail);
+    window.addEventListener(ONE_LOCATION_STATE_CHANGED_EVENT, listener);
+
+    CacheSyncService.onOneLocationStateMutated(userId, [
+      "workspace",
+      "circles",
+      "sms_roster",
+    ]);
+
+    expect(invalidateLocation).toHaveBeenCalledWith(userId);
+    expect(details).toEqual([
+      expect.objectContaining({
+        userId,
+        domains: ["workspace", "circles", "sms_roster"],
+        changedAt: expect.any(Number),
+      }),
+    ]);
+    window.removeEventListener(ONE_LOCATION_STATE_CHANGED_EVENT, listener);
   });
 
   it("owns optimistic Feed read state and preserves rows above the watermark", () => {

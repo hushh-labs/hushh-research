@@ -1281,3 +1281,87 @@ async def test_request_command_clears_unreviewed_prior_note_and_rolls_back_on_re
     assert (await ledger.command_outcome(user_id="owner", command_id="command", step=0))[
         "settlement_status"
     ] == "succeeded"
+
+
+@pytest.mark.asyncio
+async def test_sos_incident_guard_serialises_concurrent_arming_to_one_incident(db, monkeypatch):
+    """Three arming attempts that race must yield one alert, not three.
+
+    Each attempt does what the voice trigger does: take the owner's incident
+    lock, re-read the live SOS lane, and only then create one grant per
+    contact. Without the lock all three read "nothing live" and the per-pair
+    lane replacement would leave a trail of revoked rows (and revoke pushes).
+    """
+    from hushh_mcp.services import one_location_agent_service as agents
+
+    Service = audience_writer_schema(db, monkeypatch)
+    db.execute_raw(
+        "INSERT INTO actor_profiles(user_id) VALUES('third') ON CONFLICT DO NOTHING;"
+        "INSERT INTO one_location_sms_contacts(owner_user_id,contact_user_id) "
+        "VALUES('owner','other'),('owner','third');"
+        "ALTER TABLE actor_profiles ADD COLUMN IF NOT EXISTS public_person_ref TEXT;"
+        "CREATE TABLE IF NOT EXISTS ria_profiles(user_id TEXT, verification_status TEXT);"
+        # Eligibility for the recipients read is a direct connection with a
+        # non-Circle origin, as the real connections graph records it.
+        "INSERT INTO connection_origins(connection_id, origin_kind, origin_key) "
+        "SELECT id, 'direct_request', 'direct_request' FROM connections "
+        "WHERE user_a_id = 'owner' ON CONFLICT DO NOTHING"
+    )
+    service = Service()
+    # The roster-scoped recipients read the voice trigger uses: the real SQL
+    # branch with the IN (...) filter, both contacts with their keys, and a
+    # non-roster id never admitted.
+    rows = service.list_verified_recipients(
+        owner_user_id="owner", limit=100, user_ids=["other", "third", "stranger"]
+    )
+    assert sorted((row["userId"], row["keyId"], row["phoneVerified"]) for row in rows) == [
+        ("other", "key", True),
+        ("third", "key-3", True),
+    ]
+    assert service.list_verified_recipients(owner_user_id="owner", user_ids=[]) == []
+    contacts = tuple(
+        (row["userId"], row["keyId"]) for row in sorted(rows, key=lambda r: r["userId"])
+    )
+
+    def arm_once() -> str:
+        with service.sos_incident_guard(owner_user_id="owner"):
+            live = [
+                grant
+                for grant in service.list_active_owner_grants(owner_user_id="owner")
+                if str(grant.get("shareKind") or "") == "sos" and grant.get("status") == "active"
+            ]
+            if live:
+                return "already_active"
+            for recipient, key in contacts:
+                service.create_grant(
+                    owner_user_id="owner",
+                    recipient_user_id=recipient,
+                    recipient_key_id=key,
+                    duration_hours=8,
+                    duration_mode="timed",
+                    reason="sos_panic",
+                    share_kind="sos",
+                    require_recipient_phone_verified=True,
+                    enforce_connection=False,
+                )
+            return "armed"
+
+    outcomes = await asyncio.gather(*[asyncio.to_thread(arm_once) for _ in range(3)])
+    assert sorted(outcomes) == ["already_active", "already_active", "armed"]
+    rows = db.execute_raw(
+        "SELECT recipient_user_id, status FROM one_location_share_grants ORDER BY recipient_user_id"
+    ).data
+    assert rows == [
+        {"recipient_user_id": "other", "status": "active"},
+        {"recipient_user_id": "third", "status": "active"},
+    ]
+    # A later explicit alert after this one ends is still possible: the lock
+    # serialises, it never becomes a cooldown.
+    for grant in service.list_active_owner_grants(owner_user_id="owner"):
+        service.revoke_grant(owner_user_id="owner", grant_id=str(grant["id"]))
+    assert arm_once() == "armed"
+    assert (
+        len(db.execute_raw("SELECT 1 FROM one_location_share_grants WHERE status = 'active'").data)
+        == 2
+    )
+    assert agents.OneLocationAgentService is Service

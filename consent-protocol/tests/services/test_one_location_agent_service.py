@@ -7313,11 +7313,19 @@ def test_revoking_an_sms_share_names_the_lane_in_its_copy() -> None:
     from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
 
     source = inspect.getsource(OneLocationAgentService.revoke_grant)
+    transition_source = inspect.getsource(OneLocationAgentService._revoke_grant_transition)
 
-    # The lane is read from the grant rather than guessed. Both queries in
-    # revoke_grant select `*`, so share_kind is already on the row.
-    assert 'row.get("share_kind")' in source
-    assert 'revoked_share_kind == "sos"' in source or "revoked_via_sms" in source
+    # The lane is read from the grant rather than guessed -- and read from
+    # where it actually lives. `share_kind` is NOT a column on
+    # `one_location_share_grants`; it is `metadata->>'share_kind'` with the
+    # legacy `reason = 'sos_panic'` fallback. The behavioural tests
+    # `test_stopping_an_sos_share_names_the_sms_lane_in_event_and_push` and
+    # its legacy twin prove the branch is taken, not merely present.
+    assert 'row.get("share_kind")' not in transition_source
+    assert '_loads_json(row.get("metadata"))' in transition_source
+    assert "_is_sos_lane(" in transition_source
+    assert "_classify_share_kind(" in transition_source
+    assert "revoked_via_sms" in source
 
     # The recipient's word is SMS -- an SMS alert is how it reached them.
     assert "SMS location sharing stopped" in source
@@ -8338,3 +8346,99 @@ def test_public_invite_named_url_keeps_bare_token_compatible(name: str, slug: st
     with pytest.raises(OneLocationAgentError) as exc:
         service.resolve_public_invite(public_token=named_token)
     assert exc.value.status_code == 410
+
+
+def test_stopping_an_sos_share_names_the_sms_lane_in_event_and_push() -> None:
+    """Behavioural twin of the source-scan test above.
+
+    `share_kind` is not a column on `one_location_share_grants`; it lives in
+    `metadata->>'share_kind'` (migration 186 and `_SHARE_LANE_MATCH_SQL`). The
+    revoke transition read `row.get("share_kind")`, which is always empty, so
+    every Save My Soul stop was recorded as `share_kind: "standard"` and pushed
+    as "Location access revoked" -- the ordinary wording the scan test proves
+    is *present* but never proved was *taken*.
+    """
+    service = _lane_service()
+    service.add_sms_contact(owner_user_id="user_a", contact_user_id="user_b")
+
+    sos = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=8,
+        share_kind="sos",
+        reason="Come get me",
+        enforce_connection=True,
+    )
+    assert service.grants[sos["id"]]["metadata"]["share_kind"] == "sos"
+
+    service.revoke_grant(owner_user_id="user_a", grant_id=sos["id"])
+
+    revoke_events = [
+        event
+        for event in service.events.values()
+        if event["event_type"] == "location_share_revoked" and event["grant_id"] == sos["id"]
+    ]
+    assert revoke_events, "revoke must record an event"
+    assert revoke_events[-1]["metadata"]["share_kind"] == "sos"
+
+    push = service.notifications[-1]
+    assert push["user_id"] == "user_b"
+    assert push["title"] == "SMS location sharing stopped"
+    assert (push.get("data") or {}).get("share_kind") == "sos"
+
+
+def test_stopping_an_ordinary_share_keeps_the_standard_lane_wording() -> None:
+    """Fixing the SOS lane must not relabel ordinary shares."""
+    service = _lane_service()
+
+    normal = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=4,
+        share_kind="share",
+        enforce_connection=True,
+    )
+
+    service.revoke_grant(owner_user_id="user_a", grant_id=normal["id"])
+
+    revoke_events = [
+        event
+        for event in service.events.values()
+        if event["event_type"] == "location_share_revoked" and event["grant_id"] == normal["id"]
+    ]
+    assert revoke_events[-1]["metadata"]["share_kind"] == "standard"
+
+    push = service.notifications[-1]
+    assert push["user_id"] == "user_b"
+    assert push["title"] == "Location access revoked"
+    assert (push.get("data") or {}).get("share_kind") == "standard"
+
+
+def test_stopping_a_legacy_sos_share_without_stored_kind_still_names_the_sms_lane() -> None:
+    """Rows written before `share_kind` was persisted carry only the
+    `reason = 'sos_panic'` marker. The lane predicate in SQL honours that
+    fallback; the revoke transition must too."""
+    service = _lane_service()
+    service.add_sms_contact(owner_user_id="user_a", contact_user_id="user_b")
+
+    sos = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=8,
+        share_kind="sos",
+        reason="Come get me",
+        enforce_connection=True,
+    )
+    # Simulate a pre-186 row: no stored kind, only the legacy reason marker.
+    metadata = service.grants[sos["id"]]["metadata"]
+    metadata.pop("share_kind", None)
+    metadata["reason"] = "sos_panic"
+
+    service.revoke_grant(owner_user_id="user_a", grant_id=sos["id"])
+
+    push = service.notifications[-1]
+    assert push["title"] == "SMS location sharing stopped"
+    assert (push.get("data") or {}).get("share_kind") == "sos"

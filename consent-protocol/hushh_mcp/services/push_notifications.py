@@ -429,6 +429,82 @@ def send_connection_request_resolved_push(
     )
 
 
+def send_connection_removed_push(
+    recipient_user_id: str,
+    counterpart_user_id: str,
+    *,
+    actor_user_id: str,
+    connection_id: str,
+    revocation_id: str,
+) -> int:
+    """Silently tell one side that a committed connection was removed.
+
+    Both people receive this metadata-only wake-up (including the actor, whose
+    other devices otherwise retain the old graph). The Feed already explains
+    the relationship transition, so this signal deliberately does not create
+    an OS alert; its job is to invalidate every connection-backed projection.
+    """
+
+    recipient_user_id = str(recipient_user_id or "").strip()
+    counterpart_user_id = str(counterpart_user_id or "").strip()
+    actor_user_id = str(actor_user_id or "").strip()
+    connection_id = str(connection_id or "").strip()
+    revocation_id = str(revocation_id or "").strip()
+    if not recipient_user_id or not counterpart_user_id or not connection_id or not revocation_id:
+        return 0
+
+    deep_link = CONNECTION_REQUEST_LIST_LINK
+    message_id = f"connection-removed:{connection_id}:{revocation_id}:{recipient_user_id}"
+    client_data = {
+        "message_id": message_id,
+        "connection_id": connection_id,
+        "counterpart_user_id": counterpart_user_id,
+        "actor_user_id": actor_user_id,
+        "revocation_id": revocation_id,
+    }
+
+    try:
+        import asyncio
+
+        from api.consent_listener import _push_to_consent_queue
+
+        sse_payload = {
+            "type": "connection_removed",
+            "action": "REMOVED",
+            "message_id": message_id,
+            "connection_id": connection_id,
+            "user_id": recipient_user_id,
+            "counterpart_user_id": counterpart_user_id,
+            "actor_user_id": actor_user_id,
+            "revocation_id": revocation_id,
+            "title": "Connection updated",
+            "body": "Your connections changed.",
+            "deep_link": deep_link,
+            "request_url": deep_link,
+        }
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(_push_to_consent_queue(recipient_user_id, sse_payload))
+        except RuntimeError:
+            from api.consent_listener import push_to_consent_queue_threadsafe
+
+            push_to_consent_queue_threadsafe(recipient_user_id, sse_payload)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("push.sse_queue_failed error=%s", exc)
+
+    return send_user_data_push(
+        recipient_user_id,
+        notification_type="connection_removed",
+        title="Connection updated",
+        body="Your connections changed.",
+        deep_link=deep_link,
+        notification_tag=message_id,
+        notification_category="ONE_CONNECTIONS",
+        data=client_data,
+        show_alert=False,
+    )
+
+
 def send_circle_code_joined_push(
     *,
     inviter_user_id: str,
@@ -675,6 +751,7 @@ def send_circle_member_removed_push(
         data={
             "circle_id": circle_id,
             "circle_name": circle,
+            "member_user_id": member_user_id,
         },
     )
 
@@ -704,5 +781,7 @@ def send_circle_member_left_push(
         data={
             "circle_id": circle_id,
             "circle_name": circle,
+            "member_user_id": member_user_id,
+            "network_display_label": label,
         },
     )

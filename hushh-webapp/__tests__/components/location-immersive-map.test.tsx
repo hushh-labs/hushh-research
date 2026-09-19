@@ -496,6 +496,25 @@ beforeEach(() => {
   });
 });
 
+/**
+ * A returning consented owner opening check-in directly.
+ *
+ * Check-in is its own route and no longer shows Your Map's renderer-consent
+ * gate, so its tests simulate the session that reported the bug: consent
+ * already durable on the server. Seeding `getMapState` with the consent
+ * version keeps `rendererReady` true for the whole test, the way the cached
+ * + authoritative reads do for a real returning owner.
+ */
+function seedConsentedRenderer() {
+  serviceHarness.getMapState.mockResolvedValue({
+    markers: [],
+    preferences: {
+      presenceMode: "ghost",
+      rendererConsentVersion: "google-maps-renderer-v1",
+    },
+  });
+}
+
 afterEach(() => {
   forgetOneLocationControlPreference("test-user");
   forgetCachedRendererConsent("test-user");
@@ -886,10 +905,10 @@ describe("LocationImmersiveMap demo experience", () => {
     // Check-in is its own destination now; the legacy `?action=check-in`
     // entry redirects here instead of opening over Your Map.
 
+    // Returning consented owner: check-in opens directly, no Your Map gate.
+    seedConsentedRenderer();
     render(<LocationImmersiveMap surface="check-in" />);
-    fireEvent.click(
-      screen.getByRole("button", { name: "Continue" }),
-    );
+    expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
         "data-map-ready",
@@ -955,8 +974,10 @@ describe("LocationImmersiveMap demo experience", () => {
     experienceHarness.demoMode = false;
     experienceHarness.nearbyAvailable = true;
 
+    // Returning consented owner: check-in opens directly, no Your Map gate.
+    seedConsentedRenderer();
     render(<LocationImmersiveMap surface="check-in" />);
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
         "data-map-ready",
@@ -1001,10 +1022,10 @@ describe("LocationImmersiveMap demo experience", () => {
       removed.push(ids);
     });
 
+    // Returning consented owner: check-in opens directly, no Your Map gate.
+    seedConsentedRenderer();
     render(<LocationImmersiveMap surface="check-in" />);
-    fireEvent.click(
-      screen.getByRole("button", { name: "Continue" }),
-    );
+    expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
         "data-map-ready",
@@ -1012,8 +1033,13 @@ describe("LocationImmersiveMap demo experience", () => {
       );
     });
 
-    // Churn the marker set faster than addMarkers resolves.
+    // Churn the marker set after the first batch has landed, so the churn
+    // below supersedes a live map rather than racing its mount.
     fireEvent.click(screen.getByTestId("publish-nearby-place-focus"));
+    await waitFor(() => {
+      expect(added.length).toBeGreaterThanOrEqual(1);
+    });
+    await new Promise((resolve) => setTimeout(resolve, 100));
     fireEvent.click(screen.getByTestId("clear-nearby-place-focus"));
     fireEvent.click(screen.getByTestId("publish-nearby-place-focus"));
 
@@ -1028,19 +1054,20 @@ describe("LocationImmersiveMap demo experience", () => {
     expect(live.size).toBe(added.at(-1)?.length ?? 0);
   });
 
-  it("pins the check-in place alongside the owner and names both", async () => {
+  it("pins the check-in place while the owner stays an avatar", async () => {
     // The owner's position and the venue they check in to are routinely a
-    // street apart. Showing only one of them left the map unable to say where
-    // a check-in actually was.
+    // street apart. The venue keeps its renderer pin; the owner is drawn as
+    // their avatar in HTML and never as a second renderer pin -- two markers
+    // on one coordinate, one of them generic, was the bug being reported.
     experienceHarness.demoMode = false;
     experienceHarness.nearbyAvailable = true;
     // Check-in is its own destination now; the legacy `?action=check-in`
     // entry redirects here instead of opening over Your Map.
 
+    // Returning consented owner: check-in opens directly, no Your Map gate.
+    seedConsentedRenderer();
     render(<LocationImmersiveMap surface="check-in" />);
-    fireEvent.click(
-      screen.getByRole("button", { name: "Continue" }),
-    );
+    expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
         "data-map-ready",
@@ -1057,8 +1084,7 @@ describe("LocationImmersiveMap demo experience", () => {
         title?: string;
         zIndex?: number;
       }>;
-      // The demo check-in starts before a camera report, so the renderer's
-      // fallback keeps both pins until the avatar layer can project a point.
+      // The place pin reaches the renderer...
       expect(
         drawn.some(
           (marker) =>
@@ -1066,13 +1092,14 @@ describe("LocationImmersiveMap demo experience", () => {
             marker.coordinate.lng === -122.4172,
         ),
       ).toBe(true);
+      // ...while the owner never does: their avatar is HTML above the map.
       expect(
         drawn.some(
           (marker) =>
             marker.coordinate.lat === 37.776 &&
             marker.coordinate.lng === -122.418,
         ),
-      ).toBe(true);
+      ).toBe(false);
       // On web the renderer paints `title` as the pin's glyph, so a title here
       // becomes a caption smeared across the map -- a place name plus its full
       // postal address in the worst case. Titles belong to native info windows.
@@ -1117,10 +1144,10 @@ describe("LocationImmersiveMap demo experience", () => {
       active: true,
     };
 
+    // Returning consented owner: check-in opens directly, no Your Map gate.
+    seedConsentedRenderer();
     render(<LocationImmersiveMap surface="check-in" />);
-    fireEvent.click(
-      screen.getByRole("button", { name: "Continue" }),
-    );
+    expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
         "data-map-ready",
@@ -1194,10 +1221,10 @@ describe("LocationImmersiveMap demo experience", () => {
       },
     );
 
+    // Returning consented owner: check-in opens directly, no Your Map gate.
+    seedConsentedRenderer();
     render(<LocationImmersiveMap surface="check-in" />);
-    fireEvent.click(
-      screen.getByRole("button", { name: "Continue" }),
-    );
+    expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
         "data-map-ready",
@@ -1228,10 +1255,10 @@ describe("LocationImmersiveMap demo experience", () => {
       longitude: 179.999,
     };
 
+    // Returning consented owner: check-in opens directly, no Your Map gate.
+    seedConsentedRenderer();
     render(<LocationImmersiveMap surface="check-in" />);
-    fireEvent.click(
-      screen.getByRole("button", { name: "Continue" }),
-    );
+    expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
         "data-map-ready",
@@ -1269,10 +1296,10 @@ describe("LocationImmersiveMap demo experience", () => {
       )
       .mockResolvedValue(undefined);
 
+    // Returning consented owner: check-in opens directly, no Your Map gate.
+    seedConsentedRenderer();
     render(<LocationImmersiveMap surface="check-in" />);
-    fireEvent.click(
-      screen.getByRole("button", { name: "Continue" }),
-    );
+    expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
         "data-map-ready",
@@ -1352,6 +1379,29 @@ describe("LocationImmersiveMap demo experience", () => {
     expect(screen.queryByTestId("one-location-map-people-tray")).toBeNull();
   });
 
+  it("shows a check-in loader instead of Your Map's gate while the map starts", async () => {
+    // The old screen flashed "Your Map / Continue" here before the flow
+    // appeared. Check-in now opens behind its own loader until the renderer
+    // reports ready, and the Your Map gate never renders on this route.
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    experienceHarness.query = "";
+
+    seedConsentedRenderer();
+    render(<LocationImmersiveMap surface="check-in" />);
+    expect(screen.getByText("Checking you in…")).toBeInTheDocument();
+    expect(
+      screen.getByText("Getting the map and nearby places ready."),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+  });
+
   // The reported bug, in both of its lives: dismissing the sheet on check-in's
   // own route navigated away -- first to the Location hub for everyone, then to
   // whichever screen a `?source=` param claimed had opened the flow. Someone who
@@ -1371,10 +1421,10 @@ describe("LocationImmersiveMap demo experience", () => {
       experienceHarness.nearbyAvailable = true;
       experienceHarness.query = entry.query;
 
+      // Returning consented owner: check-in opens directly, no Your Map gate.
+      seedConsentedRenderer();
       render(<LocationImmersiveMap surface="check-in" />);
-      fireEvent.click(
-        screen.getByRole("button", { name: "Continue" }),
-      );
+      expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
       await waitFor(() => {
         expect(
           screen.getByTestId("nearby-check-in-sheet-mock"),
@@ -1405,10 +1455,10 @@ describe("LocationImmersiveMap demo experience", () => {
     experienceHarness.nearbyAvailable = true;
     experienceHarness.query = "source=map";
 
+    // Returning consented owner: check-in opens directly, no Your Map gate.
+    seedConsentedRenderer();
     const view = render(<LocationImmersiveMap surface="check-in" />);
-    fireEvent.click(
-      screen.getByRole("button", { name: "Continue" }),
-    );
+    expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
     await waitFor(() => {
       expect(screen.getByTestId("nearby-check-in-sheet-mock")).toHaveAttribute(
         "data-open",
@@ -1435,10 +1485,10 @@ describe("LocationImmersiveMap demo experience", () => {
     experienceHarness.nearbyAvailable = true;
     experienceHarness.query = "source=map";
 
+    // Returning consented owner: check-in opens directly, no Your Map gate.
+    seedConsentedRenderer();
     render(<LocationImmersiveMap surface="check-in" />);
-    fireEvent.click(
-      screen.getByRole("button", { name: "Continue" }),
-    );
+    expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
     await waitFor(() => {
       expect(screen.getByTestId("nearby-check-in-sheet-mock")).toHaveAttribute(
         "data-open",
@@ -1486,10 +1536,10 @@ describe("LocationImmersiveMap demo experience", () => {
       ],
     });
 
+    // Returning consented owner: check-in opens directly, no Your Map gate.
+    seedConsentedRenderer();
     render(<LocationImmersiveMap surface="check-in" />);
-    fireEvent.click(
-      screen.getByRole("button", { name: "Continue" }),
-    );
+    expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
 
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
@@ -1951,11 +2001,11 @@ describe("LocationImmersiveMap remount triggers", () => {
     experienceHarness.nearbyAvailable = true;
     experienceHarness.query = "";
 
+    // Returning consented owner: check-in opens directly, no Your Map gate.
+    // Renderer consent still gates the marker refresh alike.
+    seedConsentedRenderer();
     render(<LocationImmersiveMap surface="check-in" />);
-    // Renderer consent gates the sheet and the marker refresh alike.
-    fireEvent.click(
-      screen.getByRole("button", { name: "Continue" }),
-    );
+    expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
         "data-map-ready",
@@ -2023,10 +2073,18 @@ describe("LocationImmersiveMap reported map defects", () => {
   }
 
   async function renderReadyMap(props: { surface?: "map" | "check-in" } = {}) {
+    if (props.surface === "check-in") {
+      // Returning consented owner: check-in opens directly, no Your Map gate.
+      seedConsentedRenderer();
+    }
     render(<LocationImmersiveMap {...props} />);
-    fireEvent.click(
-      screen.getByRole("button", { name: "Continue" }),
-    );
+    if (props.surface === "check-in") {
+      expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
+    } else {
+      fireEvent.click(
+        screen.getByRole("button", { name: "Continue" }),
+      );
+    }
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
         "data-map-ready",
@@ -2711,19 +2769,28 @@ describe("LocationImmersiveMap reported map defects", () => {
         .getByTestId("one-location-map-self-avatar-legend")
         .querySelector("img"),
     ).toHaveAttribute("src", "https://avatars.test/ankit.jpg");
-    await waitFor(() => {
-      expect(mapHarness.map.removeMarkers).toHaveBeenCalledWith([
-        expect.stringMatching(/^m-/),
-      ]);
-    });
+    // The renderer never draws the owner at all -- avatar from the first
+    // frame it can project, nothing before that -- so there is no pin to
+    // add and none to remove when the avatar takes over.
+    const drawnCoords = mapHarness.map.addMarkers.mock.calls.flatMap(
+      (call) =>
+        (call[0] as Array<{
+          coordinate: { lat: number; lng: number };
+        }>) ?? [],
+    );
+    expect(
+      drawnCoords.some(
+        (marker) => Math.abs(marker.coordinate.lat - 25.46) < 0.0001,
+      ),
+    ).toBe(false);
   });
 
-  it("keeps the renderer's own pin when the renderer never reports a camera", async () => {
+  it("draws no renderer pin while the camera has not reported", async () => {
     // A renderer too old to emit onBoundsChanged/onCameraIdle can project
-    // nothing, so the avatar layer has no coordinates to draw at. Losing the
-    // owner's marker entirely would be worse than a plain pin, so the pin
-    // stays. Both listeners are already wrapped in a try/catch at create; this
-    // is the state that leaves behind.
+    // nothing, so the avatar layer has no coordinates to draw at. The map
+    // briefly shows no self marker rather than the wrong one: a generic pin
+    // flashing on first paint was the reported bug, and the avatar (with its
+    // initials fallback) appears the moment a camera report arrives.
     stubPhoneGeometry();
     serviceHarness.captureCurrentPosition.mockResolvedValue({
       latitude: 25.46,
@@ -2734,22 +2801,23 @@ describe("LocationImmersiveMap reported map defects", () => {
     });
 
     await renderReadyMap();
-    await waitFor(() => {
-      expect(mapHarness.map.addMarkers).toHaveBeenCalled();
-    });
 
     // No reportCamera() in this case, on purpose.
     expect(
       screen.queryByTestId("one-location-map-self-avatar"),
     ).not.toBeInTheDocument();
-    const lastAddMarkers = mapHarness.map.addMarkers.mock.calls.at(-1)?.[0] as
-      | Array<{ coordinate: { lat: number; lng: number } }>
-      | undefined;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const drawnCoords = mapHarness.map.addMarkers.mock.calls.flatMap(
+      (call) =>
+        (call[0] as Array<{
+          coordinate: { lat: number; lng: number };
+        }>) ?? [],
+    );
     expect(
-      lastAddMarkers?.some(
+      drawnCoords.some(
         (marker) => Math.abs(marker.coordinate.lat - 25.46) < 0.0001,
       ),
-    ).toBe(true);
+    ).toBe(false);
   });
 
   it("answers a tap on your avatar the way the renderer answered a tap on your pin", async () => {

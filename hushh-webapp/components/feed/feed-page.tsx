@@ -163,7 +163,8 @@ export function FeedPage() {
       // API rejects an accept without those selections rather than guessing.
       if (accept) await ConnectionsService.accept({ idToken, requestId: request.id });
       else await ConnectionsService.reject({ idToken, requestId: request.id });
-      CacheSyncService.onConnectionCapabilityMutated(user.uid);
+      if (accept) CacheSyncService.onConnectionGraphMutated(user.uid);
+      else CacheSyncService.onConnectionCapabilityMutated(user.uid);
       return { status: "succeeded", summary: `${accept ? "Accepted" : "Declined"} ${request.counterpartDisplayName}'s connection request.` };
     } catch {
       return { status: "failed", summary: "The request could not be updated. Review it in your Feed." };

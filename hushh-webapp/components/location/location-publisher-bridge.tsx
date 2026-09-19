@@ -62,12 +62,21 @@ import { isLocationPermissionDeniedError } from "@/lib/one-location/location-rea
 import { haversineMeters } from "@/lib/one-location/marker-interpolation";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import { OneLocationService } from "@/lib/one-location/service";
+import {
+  clearSosIncident,
+  loadSosIncident,
+  saveSosIncident,
+} from "@/lib/one-location/sos-incident";
 import type {
   OneLocationGrant,
   OneLocationState,
   PlainLocationPoint,
 } from "@/lib/one-location/types";
-import type { ToolResultPublic } from "@/lib/one-voice/protocol";
+import {
+  SOS_GRANTS_CREATED,
+  SOS_REPORT_STATUSES,
+  type ToolResultPublic,
+} from "@/lib/one-voice/protocol";
 import {
   useVoiceSessionStore,
   useVoiceToolEffects,
@@ -99,6 +108,42 @@ const GRANT_GONE_REASONS = new Set<string>([
   "LOCATION_GRANT_NOT_ACTIVE",
   "LOCATION_GRANT_NOT_FOUND",
 ]);
+
+/**
+ * A captured fix is only worth encrypting when it is a real coordinate. A NaN,
+ * an Infinity or a value off the globe (a plugin returning zeros cast wrong, a
+ * mocked provider) must never be sealed into an envelope a contact would open
+ * in an emergency; it is reported as no fix instead.
+ */
+export function hasValidCoordinates(
+  point: Pick<PlainLocationPoint, "latitude" | "longitude">,
+): boolean {
+  const { latitude, longitude } = point;
+  return (
+    typeof latitude === "number" &&
+    typeof longitude === "number" &&
+    Number.isFinite(latitude) &&
+    Number.isFinite(longitude) &&
+    latitude >= -90 &&
+    latitude <= 90 &&
+    longitude >= -180 &&
+    longitude <= 180
+  );
+}
+
+function stringList(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value
+        .map((item) => String(item ?? "").trim())
+        .filter((item) => item.length > 0)
+    : [];
+}
+
+function sameIdSet(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false;
+  const set = new Set(a);
+  return b.every((id) => set.has(id));
+}
 
 type PublishStepPayload = {
   grant_ids: string[];
@@ -500,6 +545,71 @@ export function LocationPublisherBridge() {
   );
 
   // ---------------------------------------------------------------------
+  // 3b. Save My Soul from voice, on any route
+  // ---------------------------------------------------------------------
+  /**
+   * The device record of a voice-armed alert. `sos_grants_created` means the
+   * shares exist (and nothing more): the grant ids are persisted, owner-scoped,
+   * so the Location screen's banner and "I'm safe" find them after a reload
+   * even though the card was confirmed on Home. The relay mirrors the arming
+   * as both `pending_action.resolved` and `tool.result`; the second frame is
+   * the same alert and keeps the first record's `startedAt`. A stop clears the
+   * record, or narrows it to the shares the server could not confirm ended.
+   * Never a coordinate, a note or a contact identity: ids and a timestamp.
+   */
+  const reflectSosResult = useCallback(
+    (result: ToolResultPublic | null) => {
+      const owner = uidRef.current;
+      if (!owner || !result) return;
+      const status = String(result.status ?? "");
+      if (status === SOS_GRANTS_CREATED) {
+        const armed = Array.isArray(result.armed)
+          ? result.armed
+              .map((row) =>
+                row && typeof row === "object"
+                  ? String((row as { grant_id?: unknown }).grant_id ?? "").trim()
+                  : "",
+              )
+              .filter(Boolean)
+          : [];
+        const grantIds = stringList(result.grant_ids);
+        const ids = grantIds.length ? grantIds : armed;
+        if (!ids.length) return;
+        const existing = loadSosIncident(owner);
+        if (!existing || !sameIdSet(existing.grantIds, ids)) {
+          saveSosIncident({
+            grantIds: ids,
+            startedAt: new Date().toISOString(),
+            ownerUserId: owner,
+          });
+        }
+        invalidateState();
+        return;
+      }
+      if (SOS_REPORT_STATUSES.has(status)) {
+        invalidateState();
+        return;
+      }
+      if (status === "sos_stopped") {
+        clearSosIncident();
+        invalidateState();
+        return;
+      }
+      if (status === "sos_partially_stopped") {
+        const unresolved = stringList(result.unresolved_grant_ids);
+        const existing = loadSosIncident(owner);
+        if (existing) {
+          if (unresolved.length)
+            saveSosIncident({ ...existing, grantIds: unresolved });
+          else clearSosIncident();
+        }
+        invalidateState();
+      }
+    },
+    [invalidateState],
+  );
+
+  // ---------------------------------------------------------------------
   // 4. Client steps
   // ---------------------------------------------------------------------
   const loadFreshState = useCallback(
@@ -575,6 +685,20 @@ export function LocationPublisherBridge() {
             grant_id: grantId,
             code: denied ? "permission_denied" : "store_failed",
             reason: denied ? "os_denied" : "no_fix",
+          })),
+        });
+        return;
+      }
+
+      if (!hasValidCoordinates(point)) {
+        report("failed", {
+          code: "no_fix",
+          grant_ids: payload.grant_ids,
+          precision: precisionForStep,
+          failures: payload.grant_ids.map((grantId) => ({
+            grant_id: grantId,
+            code: "store_failed",
+            reason: "invalid_coordinates",
           })),
         });
         return;
@@ -781,7 +905,10 @@ export function LocationPublisherBridge() {
   );
 
   useVoiceToolEffects({
-    onToolResult: (tool, result) => applyPostureResult(tool, result),
+    onToolResult: (tool, result) => {
+      applyPostureResult(tool, result);
+      reflectSosResult(result);
+    },
     onPendingResolved: (pendingActionId, status, result) => {
       if (status !== "executed") return;
       const pending = useVoiceSessionStore.getState().state.pendingAction;
@@ -790,6 +917,7 @@ export function LocationPublisherBridge() {
           ? pending.tool
           : null;
       applyPostureResult(tool, result);
+      reflectSosResult(result);
     },
     onDirective: (directiveId, kind, _payload, settle) => {
       if (kind !== REQUEST_OS_PERMISSION_DIRECTIVE) return;

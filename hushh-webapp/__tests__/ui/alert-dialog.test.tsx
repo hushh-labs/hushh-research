@@ -42,6 +42,8 @@ describe("AlertDialog", () => {
 
     expect(alertContent).toHaveClass("z-(--z-dialog)");
     expect(alertOverlay).toHaveClass("z-(--z-dialog-overlay)");
+    // Inline as well, so a caller's className cannot demote it below a sheet.
+    expect((alertContent as HTMLElement).style.zIndex).toBe("var(--z-dialog)");
     expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Delete account" })).toBeTruthy();
   });

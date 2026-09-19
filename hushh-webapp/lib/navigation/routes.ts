@@ -134,6 +134,10 @@ export const ROUTES = {
   PROFILE_GOOGLE_OAUTH_RETURN: "/one/profile/google/oauth/return",
   OAUTH_AUTHORIZE: "/oauth/authorize",
   ONE_SETUP: "/one/setup",
+  /** Opened from the dashboard's "Finish setting up One" tile -- the full
+   * capability list, distinct from ONE_SETUP itself, which stays the
+   * canonical pre-vault landing route for the one mandatory step. */
+  ONE_SETUP_CAPABILITIES: "/one/setup/capabilities",
   ONE_SETUP_FINANCE: "/one/setup/finance",
   ONE_SETUP_FINANCE_IMPORT: "/one/setup/finance/import",
   ONE_SETUP_KAI: "/one/setup/kai",

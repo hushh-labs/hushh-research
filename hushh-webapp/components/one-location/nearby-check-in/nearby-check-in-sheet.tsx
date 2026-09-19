@@ -9,6 +9,7 @@ import {
   type CSSProperties,
 } from "react";
 import {
+  CaretDownIcon,
   Check,
   Compass,
   Loader2,
@@ -21,11 +22,6 @@ import {
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
-import {
-  DURATION_CELL_CLASS,
-  DURATION_CELL_OFF_CLASS,
-  DURATION_CELL_ON_CLASS,
-} from "@/components/one-location/redesign/duration-presets";
 import { StarRatingInput } from "@/components/one-location/nearby-check-in/star-rating-input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -101,17 +97,12 @@ import { cn } from "@/lib/utils";
 const SUCCESS_ROLE = SEMANTIC_ROLE_CLASSES.success;
 
 /**
- * Three lengths, and they have to fit one row.
+ * The three stay lengths, now offered as one dropdown instead of three cells.
  *
- * Reported: "Visible for ke jo times hain inko one row mai dikhao ... looking
- * scattered". They were, and the cause was the shared `DURATION_GRID_CLASS`:
- * two columns on a phone, which lays three cells out as 2 + 1 and leaves a
- * half-empty second row under a heading that reads as a single choice.
- *
- * Abbreviated so the set is consistent rather than to buy width -- "30 min"
- * beside "1 hour" and "2 hours" mixes two registers in one row, and at three
- * across the long forms fit anyway. See CHECK_IN_DURATION_GRID_CLASS for why
- * the grid is local rather than a change to the shared one.
+ * History: they were three cells in one row (after an earlier 2+1 scattered
+ * grid), abbreviated to "30 min" / "1 hour" / "2 hours" for consistency. A
+ * dropdown keeps all three reachable on the narrowest phone with no wrapping
+ * at all, and the labels are unchanged so existing copy still reads.
  */
 const DURATIONS = [
   { value: 30 as const, label: "30 min" },
@@ -119,20 +110,9 @@ const DURATIONS = [
   { value: 120 as const, label: "2 hours" },
 ];
 
-/**
- * Three across on a phone, not the shared ladder's two.
- *
- * `DURATION_GRID_CLASS` is two columns because the ladders that use it carry
- * four cells and land as an even 2x2. This control has three, so the same
- * class strands one on a row of its own. Local rather than a fourth variant in
- * `duration-presets`: the cells themselves stay identical, which is the part
- * that has to agree across the product.
- *
- * At 320px this is ~90px a cell against a widest label of ~64px, so nothing
- * truncates on the narrowest phone the app supports.
- */
-const CHECK_IN_DURATION_GRID_CLASS =
-  "grid grid-cols-3 gap-2 sm:flex sm:flex-wrap";
+function isCheckInDuration(value: number): value is 30 | 60 | 120 {
+  return value === 30 || value === 60 || value === 120;
+}
 
 /**
  * Chip labels only. The `value` on each row is the backend category and is
@@ -287,6 +267,28 @@ function distanceLabel(distanceMeters?: number | null): string {
  */
 function compactDistanceLabel(distanceMeters?: number | null): string {
   return distanceLabel(distanceMeters).replace(" away", "");
+}
+
+/**
+ * Short display name for the post-checkout rating heading.
+ *
+ * The server's `placeLabel` is a full "name + address" string (e.g.
+ * "Red Eagle Army Canteen, FVM7+4H7, Shivkuti Rd, ... 211004, India").
+ * Rendering that whole blob in a semibold heading turns the question into a
+ * 4-5 line bold paragraph that dominates the drawer on both mobile and the
+ * 26rem desktop rail (see the check-in-ended rating screenshot). The heading
+ * keeps only the venue segment before the first comma; the full label stays
+ * visible as a muted supporting line underneath.
+ */
+export function shortRatingPlaceName(
+  label: string | null | undefined,
+): string | null {
+  if (!label) return null;
+  const trimmed = label.trim();
+  if (!trimmed) return null;
+  const firstSegment = trimmed.split(",")[0]?.trim() || trimmed;
+  if (firstSegment.length <= 48) return firstSegment;
+  return `${firstSegment.slice(0, 47).trimEnd()}…`;
 }
 
 function normalizeAutomaticPlaces(
@@ -2330,14 +2332,40 @@ export function NearbyCheckInSheet({
                     className="space-y-3"
                     data-testid="nearby-visit-rating"
                   >
-                    <h2
-                      id={VISIT_RATING_HEADING_ID}
-                      className="text-[15px] font-semibold leading-5"
-                    >
-                      {completedCheckIn.placeLabel
-                        ? `How was ${completedCheckIn.placeLabel}?`
-                        : "How was it?"}
-                    </h2>
+                    <div className="min-w-0">
+                      <h2
+                        id={VISIT_RATING_HEADING_ID}
+                        className="line-clamp-2 break-words text-sm font-semibold leading-5 text-foreground text-pretty sm:text-[15px]"
+                      >
+                        {(() => {
+                          const shortName = shortRatingPlaceName(
+                            completedCheckIn.placeLabel ??
+                              completedCheckIn.rateable?.placeLabel ??
+                              null,
+                          );
+                          return shortName
+                            ? `How was ${shortName}?`
+                            : "How was it?";
+                        })()}
+                      </h2>
+                      {(() => {
+                        const fullLabel =
+                          completedCheckIn.placeLabel?.trim() || null;
+                        const shortName =
+                          shortRatingPlaceName(fullLabel);
+                        if (
+                          !fullLabel ||
+                          !shortName ||
+                          fullLabel === shortName
+                        )
+                          return null;
+                        return (
+                          <p className="mt-1 line-clamp-2 break-words text-xs leading-4 text-muted-foreground">
+                            {fullLabel}
+                          </p>
+                        );
+                      })()}
+                    </div>
 
                     <StarRatingInput
                       labelledBy={VISIT_RATING_HEADING_ID}
@@ -2634,7 +2662,9 @@ export function NearbyCheckInSheet({
                     to say what the list is. */}
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <h2 className="font-semibold">Nearby places</h2>
+                      <h2 className="text-[15px] font-semibold leading-5">
+                        Nearby places
+                      </h2>
                     </div>
                     {capturing ? (
                       <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
@@ -2941,37 +2971,50 @@ export function NearbyCheckInSheet({
                     pair, no leading glyph. One of the two section headings
                     carrying an icon and the other not was the only reason
                     they did not read as a pair. */}
-                  <h2 className="font-semibold">Visible for</h2>
-                  {/* Raw <button>, not the morphy <Button>: at `size="default"`
-                    that component carries min-h-[50px] in a different
-                    tailwind-merge group from h-*, and `.ui-text-button-label`
-                    forces 17px !important — so it cannot be made compact from
-                    the outside. These are the same class strings the share
-                    duration ladder uses for the identical role (44px, 15px),
-                    so the two duration controls in this product can no longer
-                    disagree about how big a duration choice is. */}
-                  <div className={cn("mt-3", CHECK_IN_DURATION_GRID_CLASS)}>
-                    {DURATIONS.map((duration) => (
-                      <button
-                        key={duration.value}
-                        type="button"
-                        aria-pressed={durationMinutes === duration.value}
-                        onClick={() => setDurationMinutes(duration.value)}
-                        className={cn(
-                          DURATION_CELL_CLASS,
-                          durationMinutes === duration.value
-                            ? DURATION_CELL_ON_CLASS
-                            : DURATION_CELL_OFF_CLASS,
-                        )}
-                      >
-                        {duration.label}
-                      </button>
-                    ))}
+                  <h2
+                    className="text-[15px] font-semibold leading-5"
+                    id="nearby-check-in-duration-label"
+                  >
+                    Visible for
+                  </h2>
+                  {/* Keep the duration menu inside the sheet's own interaction
+                    tree. The portaled menu was treated as an outside
+                    interaction by this intentionally non-dismissible sheet on
+                    UAT, so it closed before it could paint. A native select is
+                    reliable on web and in the mobile WebView, keeps the same
+                    three values, and gives each platform its familiar picker. */}
+                  <div className="relative mt-3">
+                    <select
+                      aria-labelledby="nearby-check-in-duration-label"
+                      value={durationMinutes}
+                      onChange={(event) => {
+                        const parsed = Number(event.target.value);
+                        if (isCheckInDuration(parsed)) {
+                          setDurationMinutes(parsed);
+                        }
+                      }}
+                      className="h-11 w-full appearance-none rounded-[var(--app-input-radius)] border border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] px-3 pr-10 text-sm text-foreground shadow-none outline-none transition-[border-color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                    >
+                      {DURATIONS.map((duration) => (
+                        <option
+                          key={duration.value}
+                          value={String(duration.value)}
+                        >
+                          {duration.label}
+                        </option>
+                      ))}
+                    </select>
+                    <CaretDownIcon
+                      aria-hidden="true"
+                      className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+                    />
                   </div>
                 </section>
 
                 <section>
-                  <h2 className="font-semibold">Visibility</h2>
+                  <h2 className="text-[15px] font-semibold leading-5">
+                    Visibility
+                  </h2>
                   <div className="mt-3 rounded-2xl border border-border/60">
                     <label className="flex cursor-pointer items-start gap-3 p-4">
                       <Checkbox

@@ -69,7 +69,7 @@ export default function MarketplaceRiaProfilePageClient() {
     async function load() {
       if (!riaId) {
         setProfile(null);
-        setError("Missing RIA profile identifier.");
+        setError("Missing advisor profile identifier.");
         setLoading(false);
         return;
       }
@@ -90,7 +90,7 @@ export default function MarketplaceRiaProfilePageClient() {
       } catch (loadError) {
         if (!cancelled) {
           setProfile(null);
-          setError(loadError instanceof Error ? loadError.message : "Failed to load RIA profile");
+          setError(loadError instanceof Error ? loadError.message : "Failed to load advisor profile");
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -134,13 +134,13 @@ export default function MarketplaceRiaProfilePageClient() {
   const voiceSurfaceMetadata = useMemo(
     () => ({
       screenId: "marketplace_ria_profile",
-      title: profile?.display_name || "Marketplace RIA Profile",
+      title: profile?.display_name || "Marketplace Advisor Profile",
       purpose: "Public advisor marketplace profile with consent-gated request action.",
       primaryEntity: profile?.display_name || riaId,
       controls: [
         {
           id: "marketplace_ria_profile_route",
-          label: "Marketplace RIA profile",
+          label: "Marketplace advisor profile",
           type: "route",
           actionId: "route.marketplace_ria_profile",
         },

@@ -31,6 +31,29 @@ const IFRAME_RECENTER_METERS = 50;
 
 const AVATAR_MARKER_SIZE_PX = 40;
 
+/** Two-letter initials for the fallback avatar marker. */
+function initialsOfLabel(name: string | null | undefined): string {
+  const parts = (name ?? "")
+    .split(/\s+/)
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (!parts.length) return "";
+  if (parts.length === 1) return (parts[0] ?? "").slice(0, 2).toUpperCase();
+  return (
+    `${parts[0]?.[0] ?? ""}${parts[parts.length - 1]?.[0] ?? ""}`.toUpperCase()
+  );
+}
+
+/** Current accent token; `buildAvatarMarkerIcon` documents why this is read. */
+function readAccentColor(): string {
+  if (typeof document === "undefined") return "currentColor";
+  return (
+    getComputedStyle(document.documentElement)
+      .getPropertyValue("--app-accent")
+      .trim() || "currentColor"
+  );
+}
+
 /** Minimal XML-attribute escaping for a URL embedded inside the marker's SVG. */
 function escapeSvgAttribute(value: string): string {
   return value
@@ -60,10 +83,7 @@ function buildAvatarMarkerIcon(avatarUrl: string): google.maps.Icon {
   // "currentColor" is only a fallback for the unreachable case where the
   // token is somehow undefined -- verify-accent-tokens forbids a literal
   // hex here as the substitute, and globals.css guarantees the real value.
-  const accentColor =
-    getComputedStyle(document.documentElement)
-      .getPropertyValue("--app-accent")
-      .trim() || "currentColor";
+  const accentColor = readAccentColor();
   const svg =
     `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">` +
     `<defs><clipPath id="avatar-clip"><circle cx="${center}" cy="${center}" r="${center - 3}" /></clipPath></defs>` +
@@ -79,6 +99,52 @@ function buildAvatarMarkerIcon(avatarUrl: string): google.maps.Icon {
   };
 }
 
+/**
+ * Avatar-style fallback for the self marker when no photo URL is available
+ * yet (or the account has none): the same 40px circle language as the photo
+ * marker -- accent halo, white keyline, accent face -- with white initials,
+ * or a generic person silhouette when there is no name to take them from.
+ *
+ * This exists so the self marker NEVER falls back to the stock red pin: on
+ * Your Map and Check-in the owner is always a face, even for the first paint
+ * while `useEffectiveAvatarUrl` is still resolving.
+ */
+function buildAvatarFallbackIcon(
+  displayName: string | null | undefined,
+): google.maps.Icon {
+  const size = AVATAR_MARKER_SIZE_PX;
+  const center = size / 2;
+  const accentColor = escapeSvgAttribute(readAccentColor());
+  const initials = escapeSvgAttribute(initialsOfLabel(displayName));
+  const body =
+    initials.length > 0
+      ? `<text x="${center}" y="${center}" text-anchor="middle" dominant-baseline="central" font-family="system-ui, -apple-system, sans-serif" font-size="14" font-weight="700" fill="#ffffff">${initials}</text>`
+      : `<circle cx="${center}" cy="${center - 4}" r="5" fill="#ffffff" />` +
+        `<path d="M ${center - 9} ${center + 11} a 9 9 0 0 1 18 0 Z" fill="#ffffff" />`;
+  const svg =
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">` +
+    `<circle cx="${center}" cy="${center}" r="${center}" fill="${accentColor}" fill-opacity="0.3" />` +
+    `<circle cx="${center}" cy="${center}" r="${center - 1.5}" fill="#ffffff" />` +
+    `<circle cx="${center}" cy="${center}" r="${center - 3}" fill="${accentColor}" />` +
+    body +
+    `</svg>`;
+  return {
+    url: `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`,
+    scaledSize: new google.maps.Size(size, size),
+    anchor: new google.maps.Point(center, center),
+  };
+}
+
+/** The self marker icon: photo circle when possible, initials circle otherwise. Never the stock pin. */
+function resolveSelfMarkerIcon(
+  avatarUrl: string | null | undefined,
+  displayName: string | null | undefined,
+): google.maps.Icon {
+  return avatarUrl
+    ? buildAvatarMarkerIcon(avatarUrl)
+    : buildAvatarFallbackIcon(displayName);
+}
+
 export interface LiveMapProps {
   point: PlainLocationPoint;
   className?: string;
@@ -88,8 +154,14 @@ export interface LiveMapProps {
    * preview camera to the location marker.
    */
   viewportResetKey?: string | number;
-  /** The app's existing avatar URL for this user. Null keeps the default pin. */
+  /**
+   * The app's existing avatar URL for this user. Null no longer keeps the
+   * default pin -- it renders the initials-circle fallback, so the self
+   * marker is always a face and never a generic location pin.
+   */
   avatarUrl?: string | null;
+  /** Used only for the initials fallback. */
+  displayName?: string | null;
 }
 
 export function LiveMap({
@@ -97,6 +169,7 @@ export function LiveMap({
   className,
   viewportResetKey,
   avatarUrl,
+  displayName,
 }: LiveMapProps) {
   const { status } = useGoogleMaps();
   const { resolvedTheme } = useTheme();
@@ -155,7 +228,10 @@ export function LiveMap({
     markerRef.current = new google.maps.Marker({
       map,
       position: target,
-      ...(avatarUrl ? { icon: buildAvatarMarkerIcon(avatarUrl) } : {}),
+      // Always an avatar circle -- photo when the URL is here, initials
+      // otherwise -- so the first paint never flashes the stock pin while the
+      // avatar URL is still resolving.
+      icon: resolveSelfMarkerIcon(avatarUrl, displayName),
     });
     // Captured while the API is known to be present. Cleanup runs during
     // unmount, and reaching for the global there would make teardown depend on
@@ -185,12 +261,14 @@ export function LiveMap({
 
   // `avatarUrl` typically resolves after the marker above is already created
   // (useEffectiveAvatarUrl starts null), so keep the marker's icon in sync
-  // separately rather than folding this into the create-once effect.
+  // separately rather than folding this into the create-once effect. The icon
+  // is always an avatar circle (photo or initials fallback) -- never null, so
+  // the stock pin never appears, not even for one frame.
   useEffect(() => {
     const marker = markerRef.current;
     if (status !== "ready" || !marker) return;
-    marker.setIcon(avatarUrl ? buildAvatarMarkerIcon(avatarUrl) : null);
-  }, [avatarUrl, status, colorScheme]);
+    marker.setIcon(resolveSelfMarkerIcon(avatarUrl, displayName));
+  }, [avatarUrl, displayName, status, colorScheme]);
 
   // Glide the marker to each new point.
   useEffect(() => {

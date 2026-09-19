@@ -393,7 +393,7 @@ describe("One setup hub terminal action contract", () => {
     // step. Bring-your-own-key still continues through the footer, because it
     // has a form left to fill.
     expect(page).toContain('if (choice === "hushh_managed_vertex") {');
-    expect(page).toContain("returnToSetupHub();");
+    expect(page).toContain("void finishSetupAndGoHome();");
   });
 
   it("names the recommended AI option so the default is not worked out by elimination", () => {

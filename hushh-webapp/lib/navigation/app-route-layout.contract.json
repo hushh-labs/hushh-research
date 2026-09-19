@@ -144,6 +144,41 @@
     }
   },
   {
+    "route": "/one/setup/capabilities",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/onboarding/setup/one-setup-capabilities-screen.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.setup.capabilities",
+      "purpose": "Help the person connect or dismiss any of the optional One capabilities, opened from the dashboard's setup tile.",
+      "screen": "one_setup_capabilities",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "This screen has no separate completion of its own -- each capability's own setup or dismiss is what changes state.",
+      "nextRoute": "/one",
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
     "route": "/welcome",
     "mode": "standard",
     "exemptionReason": "Foundation public route owns the unified public knowledge workspace and its route-backed tabs.",
@@ -2202,8 +2237,8 @@
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
       "completionBoundary": "Setup records only a strict non-secret runtime preference; a BYOK key is validated and encrypted only after setup through the vault-backed configuration mutation.",
-      "nextRoute": "/one/setup",
-      "returnPolicy": "return_to_hub",
+      "nextRoute": "/",
+      "returnPolicy": "resolve_root",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },

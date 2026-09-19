@@ -1104,7 +1104,7 @@ describe("RiaOnboardingPage", () => {
 
     await waitFor(() => {
       expect(
-        screen.getByText(/Live RIA verification is unavailable/i),
+        screen.getByText(/Live advisor verification is unavailable/i),
       ).toBeTruthy();
     });
     expect(mocks.toast.error).toHaveBeenCalledWith(

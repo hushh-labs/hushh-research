@@ -1,7 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { type CSSProperties, useEffect, useMemo, useState } from "react";
+import {
+  type CSSProperties,
+  type ReactNode,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
 import {
   CaretRightIcon,
@@ -22,6 +28,7 @@ import {
 } from "@/lib/onboarding/one-capabilities";
 import {
   getCapabilityStatusDisplay,
+  isCapabilityOnboarded,
   type CapabilityStatusTone,
 } from "@/lib/onboarding/capability-status-display";
 import { getCapabilitySetupCopy } from "@/lib/onboarding/capability-setup-copy";
@@ -44,6 +51,13 @@ type OneAgentMode = {
   href: string;
   icon: OneCapabilityIcon;
   statusTone: CapabilityStatusTone;
+  /**
+   * Computed but not currently rendered -- greyscale-until-onboarded icons
+   * were reverted (icons stay full color regardless of setup state) pending
+   * further product direction. Kept so the icon treatment is a one-line
+   * change to bring back, not a rebuild.
+   */
+  isOnboarded: boolean;
   primaryMetric: {
     value: string;
     label: string;
@@ -409,6 +423,7 @@ function buildModes(
         : capability.href,
       icon: capability.icon,
       statusTone: display.tone,
+      isOnboarded: isCapabilityOnboarded(status),
       primaryMetric,
       paletteIndex,
       tone: capability.tone,
@@ -601,7 +616,9 @@ function AgentGridItem({
         icon={mode.icon}
         tone={mode.tone}
         paletteIndex={mode.paletteIndex}
-        isActive={mode.statusTone !== "muted"}
+        // Greyscale-until-onboarded is reverted for now -- see isOnboarded's
+        // own comment. Icons stay full color regardless of setup state.
+        isActive
         size="roster-lg"
         treatment="profile"
         glyphContrast="default"
@@ -642,7 +659,7 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
           icon={mode.icon}
           tone={mode.tone}
           paletteIndex={mode.paletteIndex}
-          isActive={mode.statusTone !== "muted"}
+          isActive
           size="roster"
           treatment="profile"
           glyphContrast="default"
@@ -722,13 +739,19 @@ function AgentRosterViewToggle({
   );
 }
 
+/** Search isn't pulling its weight yet at 9 agents -- off for now, easy to flip back on. */
+const SHOW_AGENT_SEARCH = false;
+
 export function OneAgentRoster({
   capabilityStatusById,
   userId,
+  progressSlot,
 }: {
   capabilityStatusById: Record<string, CapabilityStatus>;
   userId?: string | null;
   displayName?: string | null;
+  /** Rendered below the header/search area, above the agent grid -- the dashboard's setup-progress tile. */
+  progressSlot?: ReactNode;
 }) {
   const cachedMetrics = useCachedAgentMetrics(userId);
   const setupDismissed = Boolean(
@@ -795,28 +818,31 @@ export function OneAgentRoster({
         </PageTitle>
         <AgentRosterViewToggle value={view} onChange={selectView} />
       </div>
-      <label className="relative mb-3.5 block">
-        <SearchIcon
-          className="pointer-events-none absolute left-4 top-1/2 h-[17px] w-[17px] -translate-y-1/2 text-[#8E8E93]"
-          aria-hidden="true"
-        />
-        <input
-          type="search"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search agents"
-          aria-label="Search agents"
-          data-ui-role="input-text"
-          data-testid="one-agents-search"
-          className="h-11 w-full rounded-[14px] border border-[rgba(60,60,67,.12)] bg-white/95 py-[11px] pl-11 pr-12 text-[15px] font-normal leading-5 text-[#1D1D1F] outline-none placeholder:text-[#8E8E93] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent)]/60 dark:border-white/[0.1] dark:bg-[#0A0A0C] dark:text-[#F5F5F7]"
-        />
-        <SearchClearButton
-          visible={query.length > 0}
-          label="Clear agent search"
-          onClear={() => setQuery("")}
-          className="text-[#8E8E93] hover:bg-black/[0.06] hover:text-[#1D1D1F] dark:hover:bg-white/[0.08] dark:hover:text-[#F5F5F7]"
-        />
-      </label>
+      {SHOW_AGENT_SEARCH ? (
+        <label className="relative mb-3.5 block">
+          <SearchIcon
+            className="pointer-events-none absolute left-4 top-1/2 h-[17px] w-[17px] -translate-y-1/2 text-[#8E8E93]"
+            aria-hidden="true"
+          />
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search agents"
+            aria-label="Search agents"
+            data-ui-role="input-text"
+            data-testid="one-agents-search"
+            className="h-11 w-full rounded-[14px] border border-[rgba(60,60,67,.12)] bg-white/95 py-[11px] pl-11 pr-12 text-[15px] font-normal leading-5 text-[#1D1D1F] outline-none placeholder:text-[#8E8E93] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent)]/60 dark:border-white/[0.1] dark:bg-[#0A0A0C] dark:text-[#F5F5F7]"
+          />
+          <SearchClearButton
+            visible={query.length > 0}
+            label="Clear agent search"
+            onClear={() => setQuery("")}
+            className="text-[#8E8E93] hover:bg-black/[0.06] hover:text-[#1D1D1F] dark:hover:bg-white/[0.08] dark:hover:text-[#F5F5F7]"
+          />
+        </label>
+      ) : null}
+      {progressSlot ? <div className="mb-3.5">{progressSlot}</div> : null}
       <div
         key={view}
         data-testid="one-agents-view-content"
