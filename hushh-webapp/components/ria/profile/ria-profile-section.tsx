@@ -760,12 +760,6 @@ export function RiaProfileSection({
   }, []);
 
   const openServicesEdit = useCallback(() => {
-    // Only one of edit / license / delete surface is ever open at a time.
-    // Each one is its own Drawer/Dialog portal, and a mid-close-animation
-    // overlay from another surface can otherwise sit on top of the one the
-    // person is actually trying to reach and swallow their tap.
-    setShowLicense(false);
-    setShowDeleteConfirm(false);
     setDraft(seedRiaDraftFromStatus(status));
     setEditOpen(true);
   }, [status]);
@@ -864,10 +858,6 @@ export function RiaProfileSection({
   );
 
   const openLicenseRefresh = useCallback(() => {
-    // See openServicesEdit above: keep the three detail surfaces mutually
-    // exclusive so a lingering portal from one never blocks another.
-    setEditOpen(false);
-    setShowDeleteConfirm(false);
     setLicenseNumber(getProfileRiaRefreshLicenseNumber(status));
     setLicenseRegulator((status?.regulator || "SEC").trim() || "SEC");
     setLicenseMessage(null);
@@ -1118,11 +1108,6 @@ export function RiaProfileSection({
           title="Delete advisor profile"
           description="Remove profile. One stays."
           onClick={() => {
-            // See openServicesEdit above: keep the three detail surfaces
-            // mutually exclusive so a lingering portal from one never blocks
-            // another.
-            setEditOpen(false);
-            setShowLicense(false);
             setDeleteConfirmText("");
             setShowDeleteConfirm(true);
           }}
