@@ -562,6 +562,7 @@ export function AuthStep({
     growthEntrySurface,
     growthJourney,
     nativeTestConfig.autoReviewerLogin,
+    nativeTestConfig.expectedUserId,
     nativeTestConfig.vaultPassphrase,
     resolveAndNavigate,
     reviewModeConfig.enabled,
