@@ -4368,11 +4368,13 @@ body:has([data-testid="one-location-onboarding"])
   backdrop-filter: blur(6px);
 }
 
-/* Apply GPU promotion to all glass elements automatically */
-[class*="backdrop-blur"] {
-  transform: translate3d(0, 0, 0);
-  will-change: transform;
-}
+/* No blanket layer promotion for glass. A previous rule matched every
+   `[class*="backdrop-blur"]` and pinned it with translate3d + will-change,
+   which held 170 compositor layers (all 27 glass button variants included)
+   for the life of the page on WKWebView. backdrop-filter already creates a
+   stacking context and a containing block, so nothing below needs the
+   transform; a surface that measurably flickers on iOS gets `translateZ(0)`
+   on its own rule, never here. */
 
 /* iOS WKWebView: mirror backdrop-blur-xl for WebKit */
 [class*="backdrop-blur-xl"] {
@@ -4444,7 +4446,6 @@ md-ripple.morphy-md-ripple {
   --ambient-chrome-fade-mask-trace: 0.12;
   -webkit-backdrop-filter: var(--ambient-chrome-backdrop-filter);
   backdrop-filter: var(--ambient-chrome-backdrop-filter);
-  will-change: background-color, backdrop-filter;
 }
 
 html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
