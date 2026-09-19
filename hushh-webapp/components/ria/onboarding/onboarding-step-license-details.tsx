@@ -1,5 +1,8 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import { isNative } from "@/lib/capacitor/platform";
+import styles from "./onboarding-native.module.css";
 import { Pencil, Shield } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
@@ -21,12 +24,14 @@ function InfoRow({
 }) {
   return (
     <SettingsRow
+      className={styles.detailRow}
       stackTrailingOnMobile
       title={<span>{label}</span>}
       trailing={
         <span
           className={cn(
             "block w-full min-w-0 whitespace-normal break-words text-left text-[15px] font-medium leading-6 text-foreground sm:text-right",
+            styles.value,
             numeric && "tabular-nums",
           )}
         >
@@ -52,14 +57,16 @@ function EditableRow({
 }) {
   return (
     <SettingsRow
+      className={styles.detailRow}
       stackTrailingOnMobile
       title={<span>{label}</span>}
       trailing={
         loading ? (
           <EnrichingPlaceholder />
         ) : (
-          <div className="flex w-full min-w-0 items-center gap-2 sm:w-auto">
+          <div className={cn(styles.editable, "flex w-full min-w-0 items-center gap-2 sm:w-auto")}>
             <input
+              aria-label={label}
               type="text"
               value={value}
               onChange={(e) => onChange(e.target.value)}
@@ -105,6 +112,8 @@ export function OnboardingStepLicenseDetails({
   onPinZipChange: (value: string) => void;
   isEnriching: boolean;
 }) {
+  const [native, setNative] = useState(false);
+  useEffect(() => setNative(isNative()), []);
   const certificationLabel =
     certifications.length > 0 ? certifications.join(", ") : "Not returned";
   const regulatorLine =
@@ -113,7 +122,7 @@ export function OnboardingStepLicenseDetails({
       : "Regulator status pending";
 
   return (
-    <div className="space-y-4" data-testid="ria-license-details-grid">
+    <div className={cn(styles.details, "space-y-4")} data-native={native || undefined} data-testid="ria-license-details-grid">
       {/* Regulator shield card (full-width, replaces the old status pill). */}
       <div
         className="flex items-start gap-3 rounded-[var(--app-card-radius-compact)] border border-border bg-background/80 p-4 shadow-sm backdrop-blur-md"
