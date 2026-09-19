@@ -866,6 +866,12 @@ class PKMAgentLabService:
 
     @classmethod
     def _set_cached_structure_preview(cls, cache_key: str, payload: dict[str, Any]) -> None:
+        # A retry must perform fresh work after a provider/schema failure. Keep
+        # successful semantic no-ops cacheable, but never pin a degraded result
+        # to the same draft for the entire preview TTL.
+        if payload.get("used_fallback") or payload.get("error"):
+            _PREVIEW_CACHE.pop(cache_key, None)
+            return
         _PREVIEW_CACHE[cache_key] = (
             time.time() + _PREVIEW_CACHE_TTL_SECONDS,
             deepcopy(payload),
@@ -5448,11 +5454,11 @@ class PKMAgentLabService:
         if not capture_execution_trace:
             cached_preview = self._get_cached_structure_preview(preview_cache_key)
             if cached_preview is not None:
-                logger.info("pkm.agent_lab.preview_cache_hit user_id=%s", user_id)
+                logger.info("pkm.agent_lab.preview_cache_hit")
                 return cached_preview
             inflight_preview = _PREVIEW_INFLIGHT.get(preview_cache_key)
             if inflight_preview is not None:
-                logger.info("pkm.agent_lab.preview_inflight_hit user_id=%s", user_id)
+                logger.info("pkm.agent_lab.preview_inflight_hit")
                 return deepcopy(await inflight_preview)
 
         async def _build_preview() -> dict[str, Any]:
@@ -5594,6 +5600,20 @@ class PKMAgentLabService:
                 performance["agent_execution"] = execution_trace
 
             if primary_preview is None:
+                # An explicit, valid empty segmentation is the model's no-op
+                # decision, not a failed provider call. Malformed output and
+                # rejected nonempty source quotes still fail closed.
+                empty_selection = (
+                    isinstance(segmentation_raw, dict)
+                    and segmentation_raw.get("segments") == []
+                    and type(segmentation_raw.get("contract_version")) is int
+                    and segmentation_raw["contract_version"] == 1
+                    and isinstance(segmentation_raw.get("source_agent"), str)
+                    and bool(segmentation_raw["source_agent"].strip())
+                )
+                empty_hints = [] if empty_selection else ["preview_generation_failed"]
+                if split_recommended:
+                    empty_hints.append("split_recommended")
                 empty_manifest = self._build_manifest_from_payload(
                     user_id=user_id,
                     domain="professional",
@@ -5617,20 +5637,17 @@ class PKMAgentLabService:
                     "model": model_override
                     or _manifest_model_name(self.memory_segmentation_manifest)
                     or GEMINI_MODEL,
-                    "used_fallback": True,
+                    "used_fallback": not empty_selection,
                     "intent_used_fallback": False,
                     "merge_used_fallback": False,
                     "structure_used_fallback": False,
                     "drift_flags": self._drift_flags_from_preview(
-                        validation_hints=[
-                            "preview_generation_failed",
-                            *(["split_recommended"] if split_recommended else []),
-                        ],
-                        fallback_used=True,
+                        validation_hints=empty_hints,
+                        fallback_used=not empty_selection,
                     ),
-                    "error": "; ".join(
-                        self._unique_list(errors or ["memory_segmentation_no_output"])
-                    ),
+                    "error": None
+                    if empty_selection
+                    else "; ".join(self._unique_list(errors or ["memory_segmentation_no_output"])),
                     "routing_decision": "non_financial_or_ephemeral",
                     "intent_frame": {},
                     "merge_decision": {},
@@ -5639,10 +5656,7 @@ class PKMAgentLabService:
                     "write_mode": "do_not_save",
                     "primary_json_path": None,
                     "target_entity_scope": None,
-                    "validation_hints": [
-                        "preview_generation_failed",
-                        *(["split_recommended"] if split_recommended else []),
-                    ],
+                    "validation_hints": empty_hints,
                     "manifest_draft": empty_manifest,
                     "preview_cards": preview_cards,
                     "preview_summary": preview_summary,

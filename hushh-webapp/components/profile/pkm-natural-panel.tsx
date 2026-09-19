@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   SpinnerGapIcon as Loader2,
@@ -186,9 +186,21 @@ export function PkmNaturalPanel({
   const [workspaceTab, setWorkspaceTab] = useState<MemoryWorkspaceTab>("browse");
   const [captureText, setCaptureText] = useState("");
   const [captureCards, setCaptureCards] = useState<AgentPkmPreviewCard[]>([]);
+  const captureRevision = useRef(0);
+  const captureSaveInFlight = useRef(false);
   const [captureLoading, setCaptureLoading] = useState(false);
   const [captureSaving, setCaptureSaving] = useState(false);
   const [captureMessage, setCaptureMessage] = useState<string | null>(null);
+  useEffect(() => {
+    captureRevision.current += 1;
+    captureSaveInFlight.current = false;
+    setCaptureText("");
+    setCaptureCards([]);
+    setCaptureMessage(null);
+    setCaptureLoading(false);
+    setCaptureSaving(false);
+    return () => { captureRevision.current += 1; };
+  }, [user?.uid, isVaultUnlocked]);
   const [sharingManifests, setSharingManifests] = useState<Record<string, DomainManifest | null>>({});
   const [sharingManifestsLoading, setSharingManifestsLoading] = useState(false);
   const [sharingActionKey, setSharingActionKey] = useState<string | null>(null);
@@ -774,7 +786,9 @@ export function PkmNaturalPanel({
   }
 
   async function previewMemoryCapture() {
-    if (!user || !vaultOwnerToken || !captureText.trim()) return;
+    if (!user || !isVaultUnlocked || !vaultOwnerToken || !captureText.trim() || captureSaving) return;
+    const revision = ++captureRevision.current;
+    setCaptureCards([]);
     setCaptureLoading(true);
     setCaptureMessage(null);
     try {
@@ -793,6 +807,7 @@ export function PkmNaturalPanel({
         currentDomains: visibleMetadataDomains.map((domain) => domain.key),
         vaultOwnerToken,
       });
+      if (revision !== captureRevision.current) return;
       setCaptureCards(preview.cards);
       setCaptureMessage(
         localDuplicate?.kind === "possible"
@@ -802,14 +817,17 @@ export function PkmNaturalPanel({
           : "Nothing new needs to be saved from that note."
       );
     } catch {
+      if (revision !== captureRevision.current) return;
       setCaptureMessage("That note couldn’t be prepared. Nothing was saved. Please try again.");
     } finally {
-      setCaptureLoading(false);
+      if (revision === captureRevision.current) setCaptureLoading(false);
     }
   }
 
   async function saveMemoryCapture() {
-    if (!user || !vaultKey || !vaultOwnerToken || captureCards.length === 0) return;
+    if (!user || !isVaultUnlocked || !vaultKey || !vaultOwnerToken || captureCards.length === 0 || captureSaveInFlight.current) return;
+    captureSaveInFlight.current = true;
+    const revision = ++captureRevision.current;
     setCaptureSaving(true);
     try {
       const operation = addToPKM({
@@ -828,10 +846,11 @@ export function PkmNaturalPanel({
       void morphyToast.promise(operation, {
         loading: "Saving reviewed memory…",
         success: "Reviewed memory saved.",
-        error: "Memory couldn’t be saved. Unlock your vault again and retry.",
+        error: "Memory couldn’t be saved. Your note is still here; please try again.",
       });
       const result = await operation;
       clearAgentPkmContext(user.uid);
+      if (revision !== captureRevision.current) return;
       setCaptureMessage(
         result.saved > 0
           ? `${result.saved} reviewed detail${result.saved === 1 ? "" : "s"} saved.`
@@ -843,9 +862,13 @@ export function PkmNaturalPanel({
         setRefreshNonce((value) => value + 1);
       }
     } catch {
-      setCaptureMessage("Memory couldn’t be saved. Unlock your vault again and retry.");
+      if (revision !== captureRevision.current) return;
+      setCaptureMessage("Memory couldn’t be saved. Your note is still here; please try again.");
     } finally {
-      setCaptureSaving(false);
+      if (revision === captureRevision.current) {
+        captureSaveInFlight.current = false;
+        setCaptureSaving(false);
+      }
     }
   }
 
@@ -1275,8 +1298,14 @@ export function PkmNaturalPanel({
               <p className="text-sm font-semibold text-foreground">Teach One something</p>
               <p className="text-sm text-muted-foreground">Tell One something you’d like it to remember.</p>
             </div>
-            <Textarea value={captureText} onChange={(event) => setCaptureText(event.target.value)} placeholder="I prefer morning flights whenever possible." aria-label="Memory note" maxLength={4000} />
-            <Button className="w-full justify-center" type="button" variant="muted" effect="fade" disabled={captureLoading || !captureText.trim()} onClick={() => void previewMemoryCapture()}>
+            <Textarea value={captureText} disabled={captureSaving} onChange={(event) => {
+              captureRevision.current += 1;
+              setCaptureText(event.target.value);
+              setCaptureCards([]);
+              setCaptureMessage(null);
+              setCaptureLoading(false);
+            }} placeholder="I prefer morning flights whenever possible." aria-label="Memory note" maxLength={4000} />
+            <Button className="w-full justify-center" type="button" variant="muted" effect="fade" disabled={captureLoading || captureSaving || !captureText.trim()} onClick={() => void previewMemoryCapture()}>
               {captureLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null}Review memory
             </Button>
             {captureMessage ? <p className="text-sm text-muted-foreground">{captureMessage}</p> : null}
@@ -1285,7 +1314,7 @@ export function PkmNaturalPanel({
                 {captureCards.map((card) => (
                   <SettingsRow
                     key={card.card_id}
-                    title="Proposed saved detail"
+                    title={card.source_text?.trim() || "Proposed saved detail"}
                     description={card.sharing_impact?.active_recipient_count ? "This may update a detail that is currently shared." : "This stays private unless you choose to share it later."}
                   />
                 ))}

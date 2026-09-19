@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within, cleanup } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within, cleanup } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PkmNaturalPanel } from "@/components/profile/pkm-natural-panel";
@@ -505,6 +505,37 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     expect(note).toHaveValue("Synthetic review note");
     expect(screen.queryByRole("button", { name: "Save to Memory" })).toBeNull();
     expect(addToPKM).not.toHaveBeenCalled();
+  });
+
+  it("shows the proposed source detail and invalidates it when the note changes", async () => {
+    previewAgentPkmMemory.mockResolvedValueOnce({ cards: [{
+      card_id: "synthetic-review", source_text: "My test role is Synthetic Reviewer.",
+      write_mode: "confirm_first",
+    }] });
+    await openMainScreen();
+    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
+    const note = await screen.findByRole("textbox", { name: "Memory note" });
+    fireEvent.change(note, { target: { value: "My test role is Synthetic Reviewer." } });
+    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
+    expect(await screen.findByText("My test role is Synthetic Reviewer.", { selector: ":not(textarea)" })).toBeTruthy();
+    fireEvent.change(note, { target: { value: "A different note" } });
+    expect(screen.queryByRole("button", { name: "Save to Memory" })).toBeNull();
+    expect(addToPKM).not.toHaveBeenCalled();
+  });
+
+  it("ignores an old review response after the draft is edited", async () => {
+    let finish!: (value: unknown) => void;
+    previewAgentPkmMemory.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    await openMainScreen();
+    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
+    const note = await screen.findByRole("textbox", { name: "Memory note" });
+    fireEvent.change(note, { target: { value: "First synthetic note" } });
+    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
+    fireEvent.change(note, { target: { value: "Second synthetic note" } });
+    await act(async () => finish({ cards: [{ card_id: "stale", source_text: "Stale preview" }] }));
+    expect(note).toHaveValue("Second synthetic note");
+    expect(screen.queryByRole("button", { name: "Save to Memory" })).toBeNull();
+    expect(screen.queryByText("Stale preview")).toBeNull();
   });
 
   it("still renders the Saved screen when domain-level sharing verification fails", async () => {
