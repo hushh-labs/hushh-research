@@ -334,10 +334,6 @@ Choose exactly one mutation:
 - delete_entity: user asks to remove an active memory and a stable target exists
 - no_op: ephemeral, ambiguous, unsupported, unsafe, or no stable target
 
-Corrections are signaled by: actually, instead, changed my mind, no longer, works better now, now prefer, update that.
-Deletions are signaled by: forget, remove, delete, don't remember this anymore.
-Refinements are signaled by: also, still, usually, when possible, prefer, more often.
-
 Output JSON only. Follow the schema exactly. If unsure, choose confirm_first or no_op."""
 _SENSITIVE_VALUE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
@@ -4930,9 +4926,7 @@ class PKMAgentLabService:
                 "- Home base, residence, and where the user lives are profile_fact, not preference.\n"
                 "- Financial goals like saving for a home or paying off loans are usually plan_or_goal, not financial_event, unless the message is explicitly about portfolio construction, investing behavior, or risk preference.\n"
                 "- If state_summary already shows an active memory in the same broad domain and the new message says still, also, again, continue, or otherwise refines the same theme, prefer mutation_intent extend instead of create.\n"
-                "- Delete / remove / forget phrasing about existing PKM should prefer intent_class deletion with mutation_intent delete, not ephemeral.\n"
                 "- Repeating a durable policy like reminders staying out of PKM should not become a new durable preference unless the user clearly states a lasting meta-preference.\n"
-                "- deletion phrases like forget that / remove that -> delete.\n"
                 "- If multiple broad domains are plausible, set requires_confirmation=true and return 2-4 broad candidate domains.\n"
                 "- If Financial Guard says sanctioned_financial_memory, use intent_class financial_event with financial recommended first.\n"
                 "- If Financial Guard says non_financial_or_ephemeral, do not force financial.\n"

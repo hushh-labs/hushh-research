@@ -2075,6 +2075,28 @@ class TestSensitiveSecretRejection:
         assert preview["candidate_payload"] == {}
 
 
+@pytest.mark.parametrize("strict", [False, True])
+def test_memory_prompts_do_not_reintroduce_keyword_only_mutation_cues(strict):
+    service = PKMAgentLabService()
+    source = "Historical project notes:\nThey said delete the old draft, not my saved memory."
+    common = dict(
+        message=source, current_domains=[], simulated_state=None, strict_small_model=strict
+    )
+    prompts = [
+        service._build_memory_intent_prompt(**common, registry_choices=[], financial_guard={}),
+        service._build_memory_merge_prompt(**common, intent_frame={}),
+        service._build_structure_prompt(
+            **common, registry_choices=[], financial_guard={}, intent_frame={}, merge_decision={}
+        ),
+    ]
+    for prompt in prompts:
+        assert source in prompt
+        assert "Corrections are signaled by:" not in prompt
+        assert "Deletions are signaled by:" not in prompt
+        assert "Refinements are signaled by:" not in prompt
+        assert "deletion phrases like forget that" not in prompt
+
+
 async def test_compact_ontology_preserves_late_and_owner_defined_domains():
     service = PKMAgentLabService()
     choices = await service._load_domain_registry_choices(
