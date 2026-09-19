@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/alert-dialog";
 
 describe("AlertDialog", () => {
-  it("applies z-[801] to alert dialog content and z-[800] to overlay to pop up above sheets and drawers", () => {
+  it("takes the dialog tier from the layer ladder so it pops above sheets and drawers", () => {
     render(
       <AlertDialog open>
         <AlertDialogContent>
@@ -40,16 +40,16 @@ describe("AlertDialog", () => {
       '[data-slot="alert-dialog-overlay"]',
     );
 
-    expect(alertContent).toHaveClass("z-[801]");
-    expect(alertOverlay).toHaveClass("z-[800]");
+    expect(alertContent).toHaveClass("z-(--z-dialog)");
+    expect(alertOverlay).toHaveClass("z-(--z-dialog-overlay)");
     expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Delete account" })).toBeTruthy();
   });
 
-  it("layers above Sheet (z-[712]) when opened from inside a sheet presentation", () => {
+  it("layers above Sheet when opened from inside a sheet presentation", () => {
     render(
       <div>
-        <div data-testid="mock-sheet" className="fixed z-[712]" />
+        <div data-testid="mock-sheet" className="fixed z-(--z-sheet)" />
         <AlertDialog open>
           <AlertDialogContent>
             <AlertDialogHeader>
@@ -74,8 +74,8 @@ describe("AlertDialog", () => {
       '[data-slot="alert-dialog-overlay"]',
     );
 
-    expect(sheet).toHaveClass("z-[712]");
-    expect(alertOverlay).toHaveClass("z-[800]");
-    expect(alertContent).toHaveClass("z-[801]");
+    expect(sheet).toHaveClass("z-(--z-sheet)");
+    expect(alertOverlay).toHaveClass("z-(--z-dialog-overlay)");
+    expect(alertContent).toHaveClass("z-(--z-dialog)");
   });
 });

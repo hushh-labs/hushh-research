@@ -200,6 +200,32 @@ textarea {
 }
 
 :root {
+  /* Layer ladder. Every floating primitive in components/ui takes its z-index
+     from here, so the order below is the only place the ladder is decided:
+
+       chrome (persistent bars, 100..160)
+         < sheet / drawer (711, 712)
+         < dialog / alert dialog (800, 801)
+         < takeover (Location onboarding, 9000..9101)
+         < system (network banner, 9999)
+         < transient (menus, popovers, selects, comboboxes, tooltips)
+
+     Transient surfaces portal to <body> and must float above whichever
+     container opened them. When dialogs were lifted above sheets, the
+     transient tier was left at its shadcn defaults (50..520): every menu
+     opened inside the profile pane rendered behind the pane, which is how
+     the theme menu and the Molten Gold picker became unreachable. The
+     contract test in __tests__/ui/layer-order.contract.test.ts pins both
+     the token values and which primitive consumes which token. */
+  --z-chrome: 118;
+  --z-sheet-overlay: 711;
+  --z-sheet: 712;
+  --z-dialog-overlay: 800;
+  --z-dialog: 801;
+  --z-takeover: 9000;
+  --z-system: 9999;
+  --z-transient-scrim: 10099;
+  --z-transient: 10100;
   /* Centralized app typography variables. Product UI uses Inter only. */
   --font-family-product: "InterVariable", "Inter", system-ui, sans-serif;
   /* Emoji tier, appended to the text stack rather than folded into

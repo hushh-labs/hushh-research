@@ -100,7 +100,7 @@ describe("ContactSyncResultsSheet", () => {
       } else {
         // The app's Sheet primitive has always defaulted to non-modal. Keep
         // normal Connect/Location interactions unchanged by the nested layer.
-        expect(sheet).toHaveClass("z-[712]");
+        expect(sheet).toHaveClass("z-(--z-sheet)");
         expect(overlay).toBeNull();
       }
     },
