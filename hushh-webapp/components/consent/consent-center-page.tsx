@@ -1937,7 +1937,7 @@ export function ConsentCenterPage() {
                 scopeSelection?.requestedScopeHandles,
               selectedOfferedScopeHandles: scopeSelection?.offeredScopeHandles,
             });
-            CacheSyncService.onConnectionCapabilityMutated(user.uid);
+            CacheSyncService.onConnectionGraphMutated(user.uid);
             markConnectionRequestHandled(requestId);
           } catch (error) {
             console.error(

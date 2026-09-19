@@ -1690,7 +1690,10 @@ export function ConsentNotificationProvider({
         // next app open. Same shape as the sibling branch above: invalidate
         // and let Connect/Consent Center pick it up on their own refresh.
         if (user?.uid) {
-          CacheSyncService.onConsentMutated(user.uid);
+          // The resolution may have formed a real connection. Invalidate and
+          // announce the graph, not only Consent Center, so Location recipient
+          // pickers reconcile while they are already open.
+          CacheSyncService.onConnectionGraphMutated(user.uid);
         }
         dispatchConsentStateChanged({
           source: "fcm_connection_request_resolved",

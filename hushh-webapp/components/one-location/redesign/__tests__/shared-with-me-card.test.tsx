@@ -62,6 +62,8 @@ describe("SharedWithMeCard", () => {
     const recenterButton = screen.getByRole("button", {
       name: "Recenter map on Trusted A's location",
     });
+    const mapFrame = screen.getByTestId("shared-location-map-frame");
+    const actions = screen.getByTestId("shared-location-card-actions");
     expect(hideButton.getAttribute("aria-expanded")).toBe("true");
     expect(hideButton).not.toBeDisabled();
     expect(previewRegion?.hidden).toBe(false);
@@ -71,6 +73,20 @@ describe("SharedWithMeCard", () => {
       }),
     ).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Dismiss" })).toBeNull();
+    expect(mapFrame).toHaveClass(
+      "border-[color:var(--app-separator)]",
+      "rounded-[16px]",
+    );
+    expect(mapFrame).not.toHaveClass(
+      "border-[color:var(--app-card-border-strong)]",
+    );
+    expect(recenterButton).toHaveAttribute("title", "Reset map view");
+    expect(actions).toHaveClass("mt-2", "flex-row", "py-1.5");
+    expect(
+      screen.getByRole("link", {
+        name: "Open shared location in Google Maps",
+      }),
+    ).toHaveClass("text-[13px]", "font-medium");
 
     fireEvent.click(recenterButton);
     expect(onRecenter).toHaveBeenCalledTimes(1);

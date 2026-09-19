@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => {
     getState: vi.fn(),
     getVaultOwnerToken: vi.fn(),
     onConsentMutated: vi.fn(),
+    onConnectionGraphMutated: vi.fn(),
     dispatchConsentStateChanged: vi.fn(),
     dispatchFeedStateChanged: vi.fn(),
     markPendingConsentOpened: vi.fn(),
@@ -83,6 +84,7 @@ vi.mock("@/lib/services/app-background-task-service", () => ({
 vi.mock("@/lib/cache/cache-sync-service", () => ({
   CacheSyncService: {
     onConsentMutated: mocks.onConsentMutated,
+    onConnectionGraphMutated: mocks.onConnectionGraphMutated,
     onConsentReviewed: vi.fn(),
   },
 }));
@@ -123,6 +125,7 @@ async function renderProvider() {
   await waitFor(() => expect(mocks.initializeFCM).toHaveBeenCalledOnce());
   mocks.toast.mockClear();
   mocks.onConsentMutated.mockClear();
+  mocks.onConnectionGraphMutated.mockClear();
   mocks.dispatchConsentStateChanged.mockClear();
   mocks.dispatchFeedStateChanged.mockClear();
 }
@@ -482,7 +485,9 @@ describe("connection-request Feed-first foreground policy", () => {
 
         expect(mocks.toast).not.toHaveBeenCalled();
         expect(mocks.dispatchFeedStateChanged).toHaveBeenCalledOnce();
-        expect(mocks.onConsentMutated).toHaveBeenCalledWith("recipient-user");
+        expect(mocks.onConnectionGraphMutated).toHaveBeenCalledWith(
+          "recipient-user",
+        );
         expect(mocks.dispatchConsentStateChanged).toHaveBeenCalledWith({
           source: "fcm_connection_request_resolved",
           reconcile: true,

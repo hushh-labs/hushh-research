@@ -159,6 +159,9 @@ import {
   type ReasonValue,
 } from "./selectors";
 import {
+  PUBLIC_LINK_CREATE_FORM_CLASSNAME,
+  PUBLIC_LINK_DURATION_GROUP_CLASSNAME,
+  PUBLIC_LINK_PRIMARY_CTA_CLASSNAME,
   SHARE_CONFIRM_ACTIONS_CLASSNAME,
   SHARE_CONFIRM_PRIMARY_CTA_CLASSNAME,
   PUBLIC_LINK_CONTROLS_CLASSNAME,
@@ -435,6 +438,8 @@ export type LocationHubViewModel = {
 
   /* data lists */
   recipients: OneLocationRecipient[];
+  /** Bumps when the underlying connection graph changes in any open tab. */
+  connectionGraphRevision: number;
   circles: OneLocationCircleSummary[];
   selectedShareCircleSelections: CircleRecipientSelection[];
   pendingShareCircleIds: string[];
@@ -698,6 +703,8 @@ export type LocationHubViewModel = {
   smsRecipients: OneLocationRecipient[];
   smsContactCandidates: OneLocationRecipient[];
   smsContactUserIds: string[];
+  smsContactsLoading: boolean;
+  onRefreshSmsContacts: () => Promise<string[] | null>;
   sosActive: boolean;
   sosBusy: boolean;
   sosStartedAtLabel: string | null;
@@ -1680,6 +1687,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
           />
         ) : flow === "circle-detail" ? (
           <CircleDetailFlow
+            reloadSignal={vm.connectionGraphRevision}
             circleId={
               selectedCircleId ||
               String(searchParams.get("circleId") || "")
@@ -1721,6 +1729,11 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
             onCancelMemberInvite={vm.onCancelNamedCircleMemberInvite}
             onLeave={vm.onLeaveNamedCircle}
             onDelete={vm.onDeleteNamedCircle}
+            onProceedToSms={
+              editingSosContacts
+                ? () => openFlow("sos", undefined, "replace")
+                : undefined
+            }
           />
         ) : flow === "active-shares" ||
           flow === "shared-with-me" ||
@@ -2390,7 +2403,7 @@ function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
             <span
               aria-hidden
               data-one-location-action-icon=""
-              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)] transition-colors"
+              className="inline-flex h-8 w-8 shrink-0 items-center justify-center text-[color:var(--app-accent)] [&_svg]:h-[25px] [&_svg]:w-[25px] md:h-9 md:w-9 md:[&_svg]:h-7 md:[&_svg]:w-7"
             >
               {item.icon}
             </span>
@@ -2417,20 +2430,20 @@ function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
           data-voice-label={emergencyItem.ariaLabel}
           aria-label={emergencyItem.ariaLabel}
           onClick={emergencyItem.onClick}
-          className="group mt-0 flex min-h-[52px] w-full items-center justify-between gap-3 rounded-[14px] bg-[color:var(--app-destructive-tint)] px-[14px] py-1 text-left shadow-none ring-1 ring-inset ring-[color:var(--app-destructive-border)]/30 transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[color:var(--app-destructive-surface)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-destructive-border)]"
+          className="group mt-0 flex min-h-[68px] w-full items-center justify-between gap-3.5 rounded-[14px] bg-[color:var(--app-primary-surface)] px-4 py-2.5 text-left shadow-none ring-1 ring-inset ring-[color:var(--app-separator)] transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[color:var(--app-destructive-tint)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-destructive-border)]"
         >
           <span className="flex min-w-0 items-center gap-2.5">
             <span
               aria-hidden
               data-one-location-action-icon=""
-            className="inline-flex h-[30px] w-[30px] shrink-0 items-center justify-center rounded-full bg-[color:var(--app-destructive)] text-[color:var(--app-destructive-fg)] transition-transform group-active:scale-95"
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-destructive-tint)] text-[color:var(--app-destructive)] transition-transform group-active:scale-95"
             >
               {emergencyItem.icon}
             </span>
             <span className="min-w-0">
               <RowLabel
                 as="span"
-                className="block min-w-0 !text-[17px] !font-semibold !leading-[22px]"
+                className="block min-w-0 !text-[16px] !font-semibold !leading-5"
               >
                 {emergencyItem.title}
               </RowLabel>
@@ -2444,7 +2457,7 @@ function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
           </span>
           <ChevronRight
             aria-hidden="true"
-            className="h-5 w-5 shrink-0 text-[color:var(--app-destructive)]/45"
+            className="h-5 w-5 shrink-0 text-[color:var(--app-tertiary-label)]"
           />
         </button>
       ) : null}
@@ -3314,7 +3327,8 @@ function LocationSettingsFlow({
             trailingInteractive
             onClick={openScopeSheet}
             chevron
-            className="[--settings-row-px:16px] [--settings-row-py:14px]"
+            density="compact"
+            className="[--settings-row-px:16px] [--settings-row-py:10px]"
             testId="one-location-auto-approve-row"
           />
         </SettingsGroup>
@@ -3334,7 +3348,7 @@ function LocationSettingsFlow({
             onClick={onManageSmsContacts}
             chevron
             density="compact"
-            className="[--settings-row-px:16px]"
+            className="[--settings-row-px:16px] [--settings-row-py:10px]"
             testId="one-location-sms-contacts-entry"
           />
         </SettingsGroup>
@@ -3501,6 +3515,7 @@ function AutoApproveScopeOption({
         ) : null}
       </span>
       <span
+        data-auto-approve-scope-indicator=""
         className={cn(
           "flex h-6 w-6 shrink-0 items-center justify-center border transition-colors",
           multi ? "rounded-[7px]" : "rounded-full",
@@ -3509,7 +3524,7 @@ function AutoApproveScopeOption({
             : "border-[color:var(--app-separator)] bg-transparent text-transparent",
         )}
       >
-        <Check className="h-4 w-4" />
+        <Check className="h-4 w-4" weight="bold" />
       </span>
     </button>
   );
@@ -4896,7 +4911,7 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
               title="Create a temporary link"
               description="Anyone with this link can see your location until it expires."
             />
-            <div className="space-y-4 px-4 pb-4 pt-2">
+            <div className={PUBLIC_LINK_CREATE_FORM_CLASSNAME}>
               <DurationSelector
                 value={vm.publicLinkDurationHours}
                 onChange={vm.setPublicLinkDurationHours}
@@ -4904,14 +4919,14 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
                 label="Duration"
                 presentation="buttons"
                 equalWidthButtons
-                maxWidthClassName={null}
+                maxWidthClassName={PUBLIC_LINK_DURATION_GROUP_CLASSNAME}
                 activeClassName="border-[color:var(--app-accent-tint)] bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)]"
               />
               <Button
                 onClick={vm.onCreatePublicInvite}
                 isLoading={vm.busy === "publicInvite"}
                 data-voice-control-id="one-location-action-temp-link"
-                className="h-[52px] w-full min-w-0 rounded-full px-5 text-[17px] font-semibold leading-[22px]"
+                className={PUBLIC_LINK_PRIMARY_CTA_CLASSNAME}
               >
                 {vm.busy === "publicInvite"
                   ? "Creating link…"
@@ -4958,11 +4973,13 @@ function SosFlow({
   onEditContacts: () => void;
 }) {
   const onResolveSosLocation = vm.onResolveSosLocation;
+  const onRefreshSmsContacts = vm.onRefreshSmsContacts;
   const [lookupStartedForMount, setLookupStartedForMount] = useState(false);
   useEffect(() => {
     onResolveSosLocation();
+    void onRefreshSmsContacts();
     setLookupStartedForMount(true);
-  }, [onResolveSosLocation]);
+  }, [onRefreshSmsContacts, onResolveSosLocation]);
 
   return (
     <>
@@ -4986,6 +5003,7 @@ function SosFlow({
       ) : null}
       <SosPanel
         recipients={vm.smsRecipients}
+        recipientsLoading={vm.smsContactsLoading}
         active={vm.sosActive}
         busy={vm.sosBusy}
         onTrigger={vm.onTriggerSos}

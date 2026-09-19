@@ -93,6 +93,53 @@ describe("named Circle flows", () => {
     vi.clearAllMocks();
   });
 
+  it("offers Proceed to SMS only when the SMS Circle has another member", async () => {
+    const onProceedToSms = vi.fn();
+    const ownerOnly = circle("sms-circle", "SMS Circle");
+    const { rerender } = render(
+      <CircleDetailFlow
+        circleId="sms-circle"
+        {...detailProps(async () => ownerOnly)}
+        onProceedToSms={onProceedToSms}
+      />,
+    );
+
+    await screen.findByText("SMS Circle");
+    expect(
+      screen.queryByRole("button", { name: "Proceed to SMS" }),
+    ).toBeNull();
+
+    const withContact = {
+      ...ownerOnly,
+      memberCount: 2,
+      members: [
+        ...ownerOnly.members,
+        {
+          userId: "contact-user",
+          displayName: "Jhumma Kumari",
+          role: "member" as const,
+          phoneVerified: true,
+          secureLocationReady: true,
+        },
+      ],
+    };
+    rerender(
+      <CircleDetailFlow
+        key="sms-circle-with-contact"
+        circleId="sms-circle"
+        {...detailProps(async () => withContact)}
+        onProceedToSms={onProceedToSms}
+      />,
+    );
+
+    const proceed = await screen.findByRole("button", {
+      name: "Proceed to SMS",
+    });
+    expect(proceed).toHaveClass("max-w-[320px]", "mx-auto");
+    fireEvent.click(proceed);
+    expect(onProceedToSms).toHaveBeenCalledTimes(1);
+  });
+
   it("renders viewer-relative contact provenance in a Circle roster", async () => {
     const onLoad = vi.fn(async () => ({
       ...circle("circle-1", "Family"),
@@ -2330,6 +2377,55 @@ describe("a caller-requested re-read keeps the screen where it was", () => {
 
     await new Promise((resolve) => setTimeout(resolve, 40));
     expect(onLoad).toHaveBeenCalledTimes(1);
+  });
+
+  it("reconciles an open Add people picker and drops a removed connection", async () => {
+    const onLoad = vi.fn(async () => circle("circle-1", "K Family"));
+    const onLoadEligibleConnections = vi
+      .fn()
+      .mockResolvedValueOnce({
+        eligibleConnections: [
+          {
+            connectionId: "connection-asha",
+            userId: "asha-user",
+            displayName: "Asha Meena",
+          },
+        ],
+        pendingInvites: [],
+        remainingCapacity: 4,
+      })
+      .mockResolvedValueOnce({
+        eligibleConnections: [],
+        pendingInvites: [],
+        remainingCapacity: 4,
+      });
+    const props = {
+      ...detailProps(onLoad),
+      onLoadEligibleConnections,
+    };
+    const view = render(
+      <CircleDetailFlow circleId="circle-1" {...props} reloadSignal={0} />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Add people" }));
+    const asha = await screen.findByRole("button", { name: /Asha Meena/i });
+    fireEvent.click(asha);
+    expect(screen.getByRole("button", { name: "Add 1 person" })).toBeEnabled();
+
+    view.rerender(
+      <CircleDetailFlow circleId="circle-1" {...props} reloadSignal={1} />,
+    );
+
+    await waitFor(() =>
+      expect(onLoadEligibleConnections).toHaveBeenCalledTimes(2),
+    );
+    expect(screen.queryByText("Asha Meena")).toBeNull();
+    expect(
+      within(screen.getByRole("dialog", { name: "Add people" })).getByRole(
+        "button",
+        { name: "Add people" },
+      ),
+    ).toBeDisabled();
   });
 });
 

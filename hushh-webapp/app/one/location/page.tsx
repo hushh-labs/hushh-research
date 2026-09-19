@@ -378,6 +378,7 @@ import type {
 import { filterPeopleByQuery } from "@/lib/one-location/people-search";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { subscribeToConnectionGraphChanges } from "@/lib/connections/connection-graph-events";
 import {
   mergeShareAudienceRecipientIds,
   mergeRecipientsByUserId,
@@ -1756,12 +1757,14 @@ function LocalMapPreview({
     >
       <div
         className={cn(
-          "relative h-48 max-w-full overflow-hidden bg-[color:var(--app-secondary-fill)] sm:h-56",
+          "relative max-w-full overflow-hidden bg-[color:var(--app-secondary-fill)]",
           // Nested in SharedWithMeCard the preview draws no card of its own, so
           // The clipping parent owns the neutral outline. Keeping the nested
           // map borderless avoids the loud double-frame that previously made
           // the map look detached from its own metadata.
-          nested && "rounded-t-[18px] rounded-b-none",
+          nested
+            ? "h-40 rounded-t-[16px] rounded-b-none sm:h-44"
+            : "h-48 sm:h-56",
         )}
       >
         <LiveMap
@@ -1795,7 +1798,7 @@ function LocalMapPreview({
         </div>
       </div>
 
-      <div className="space-y-3 p-3.5 sm:p-4">
+      <div className={cn("space-y-3 p-3.5 sm:p-4", nested && "space-y-2 p-3")}>
         <div className="min-w-0">
           <p className="break-words text-[13px] font-medium leading-5 text-[color:var(--app-secondary-label)] [overflow-wrap:anywhere]">
             Updated {captured}
@@ -3203,6 +3206,8 @@ export function OneLocationAgentPageContent({
   const [focusedSection, setFocusedSection] =
     useState<OneLocationFocusTarget | null>(null);
   const refreshInFlightRef = useRef<Promise<boolean | undefined> | null>(null);
+  const connectionGraphRefreshRevisionRef = useRef(0);
+  const [connectionGraphRevision, setConnectionGraphRevision] = useState(0);
   const workspaceBootstrapUserRef = useRef<string | null>(null);
   const peopleSectionRef = useRef<HTMLElement | null>(null);
   const approvalsSectionRef = useRef<HTMLElement | null>(null);
@@ -3820,6 +3825,7 @@ export function OneLocationAgentPageContent({
   const [smsSystemCircleMemberIds, setSmsSystemCircleMemberIds] = useState<
     string[] | null
   >(null);
+  const [smsRosterLoading, setSmsRosterLoading] = useState(true);
 
   /**
    * Circle first, legacy list as the fallback.
@@ -3844,8 +3850,12 @@ export function OneLocationAgentPageContent({
   // so a re-run costs one request and changes nothing.
   useEffect(() => {
     setSmsSystemCircleMemberIds(null);
+    setSmsRosterLoading(true);
     const rosterRevision = ++smsRosterRevision.current;
-    if (!auth.userId || !vaultOwnerToken) return;
+    if (!auth.userId || !vaultOwnerToken) {
+      setSmsRosterLoading(false);
+      return;
+    }
     let cancelled = false;
     // Wrapped so a synchronous throw becomes a rejection the catch below can
     // absorb. Provisioning is an enhancement to where SOS reads its recipients
@@ -3859,15 +3869,77 @@ export function OneLocationAgentPageContent({
             .map((member) => member.userId)
             .filter((userId) => userId && userId !== auth.userId),
         );
+        setSmsRosterLoading(false);
       })
       .catch(() => {
         // Leave it null: SOS keeps reading the legacy list rather than
         // resolving to nobody because provisioning failed.
+        if (!cancelled && rosterRevision === smsRosterRevision.current) {
+          setSmsRosterLoading(false);
+        }
       });
     return () => {
       cancelled = true;
     };
   }, [auth.userId, vaultOwnerToken]);
+
+  /**
+   * Reconcile the emergency roster from its authoritative endpoint.
+   *
+   * Circle Detail mutates the SMS Circle through the generic Circle-membership
+   * route, while the SOS screen historically read a separate mount-time
+   * snapshot. Returning from Add people could therefore keep rendering the
+   * empty state until a full remount. This shared synchronizer closes that
+   * split: direct SMS edits, generic Circle edits, SOS entry and app resume all
+   * publish the same roster into component state and the presentation cache.
+   */
+  const refreshSmsRoster = useCallback(
+    async (options?: { showLoading?: boolean }): Promise<string[] | null> => {
+      const owner = auth.userId;
+      const token = vaultOwnerToken;
+      if (!owner || !token) {
+        setSmsRosterLoading(false);
+        return null;
+      }
+      const rosterRevision = ++smsRosterRevision.current;
+      if (options?.showLoading) setSmsRosterLoading(true);
+      try {
+        const roster = await OneLocationService.getSmsContacts(token);
+        if (
+          sosOwnerRef.current !== owner ||
+          rosterRevision !== smsRosterRevision.current
+        ) {
+          return null;
+        }
+        const normalized = Array.from(
+          new Set(
+            roster
+              .map((userId) => String(userId || "").trim())
+              .filter((userId) => userId && userId !== owner),
+          ),
+        );
+        setSmsSystemCircleMemberIds(normalized);
+        OneLocationStateResource.replaceSmsContactUserIds(owner, normalized);
+        setSmsRosterLoading(false);
+        return normalized;
+      } catch {
+        if (
+          sosOwnerRef.current === owner &&
+          rosterRevision === smsRosterRevision.current
+        ) {
+          // Keep the last confirmed/legacy roster usable. A failed background
+          // reconciliation is not evidence that the Circle became empty.
+          setSmsRosterLoading(false);
+        }
+        return null;
+      }
+    },
+    [auth.userId, vaultOwnerToken],
+  );
+  const refreshSmsRosterForSos = useCallback(
+    () => refreshSmsRoster({ showLoading: smsContactUserIds.length === 0 }),
+    [refreshSmsRoster, smsContactUserIds.length],
+  );
 
   // Ref kept in sync with the latest sosIncident value so the reconcile effect
   // can read it without adding it as a dependency (preventing infinite loops).
@@ -4287,6 +4359,30 @@ export function OneLocationAgentPageContent({
       vaultOwnerToken,
     ],
   );
+
+  useEffect(() => {
+    const owner = auth.userId;
+    if (!owner) return;
+
+    return subscribeToConnectionGraphChanges((detail) => {
+      if (detail.userId !== owner) return;
+      const revision = ++connectionGraphRefreshRevisionRef.current;
+      const priorRefresh = refreshInFlightRef.current;
+
+      // A BroadcastChannel message comes from another tab, whose in-memory
+      // cache is separate. Fence this tab too before reading so a request that
+      // began before the removal/acceptance cannot restore the old person.
+      OneLocationStateResource.invalidate(owner);
+      clearLocationWorkspaceMemory(owner);
+      setConnectionGraphRevision((current) => current + 1);
+
+      void (async () => {
+        if (priorRefresh) await priorRefresh.catch(() => undefined);
+        if (connectionGraphRefreshRevisionRef.current !== revision) return;
+        await refresh({ background: true });
+      })().catch(() => undefined);
+    });
+  }, [auth.userId, refresh]);
 
   // The countdown hitting zero is the first moment anyone knows the share is
   // over — the backend expires it silently. Drop the local record and pull the
@@ -5791,6 +5887,7 @@ export function OneLocationAgentPageContent({
         if (!smsContactUserIds.includes(recipientUserId)) throw new Error("The emergency contact was not added.");
         if (sosOwnerRef.current !== auth.userId) return false;
         setSmsSystemCircleMemberIds(smsContactUserIds);
+        setSmsRosterLoading(false);
         if (
           !OneLocationStateResource.replaceSmsContactUserIds(
             auth.userId,
@@ -5882,6 +5979,7 @@ export function OneLocationAgentPageContent({
         const roster = await OneLocationService.getSmsContacts(vaultOwnerToken);
         if (sosOwnerRef.current !== owner) return;
         setSmsSystemCircleMemberIds(roster);
+        setSmsRosterLoading(false);
         OneLocationStateResource.replaceSmsContactUserIds(owner, roster);
         await refresh({ background: true });
         if (sosOwnerRef.current !== owner) return;
@@ -5937,6 +6035,7 @@ export function OneLocationAgentPageContent({
         if (smsContactUserIds.includes(recipientUserId)) throw new Error("The emergency contact is still on your SOS list.");
         if (sosOwnerRef.current !== auth.userId) return false;
         setSmsSystemCircleMemberIds(smsContactUserIds);
+        setSmsRosterLoading(false);
         if (
           !OneLocationStateResource.replaceSmsContactUserIds(
             auth.userId,
@@ -8964,6 +9063,7 @@ export function OneLocationAgentPageContent({
           countBucket: "1",
         });
         scheduleNamedCircleStateRefresh();
+        await refreshSmsRoster();
         toast.success("Member removed.");
       } catch (error) {
         throw new Error(
@@ -8973,7 +9073,7 @@ export function OneLocationAgentPageContent({
         setBusy(null);
       }
     },
-    [scheduleNamedCircleStateRefresh, vaultOwnerToken],
+    [refreshSmsRoster, scheduleNamedCircleStateRefresh, vaultOwnerToken],
   );
 
   const handleLoadNamedCircleEligibleConnections = useCallback(
@@ -9043,6 +9143,8 @@ export function OneLocationAgentPageContent({
           targetType: "circle",
           countBucket: oneLocationCountBucket(inviteeUserIds.length),
         });
+        scheduleNamedCircleStateRefresh();
+        await refreshSmsRoster();
       } catch (error) {
         throw new Error(
           oneLocationErrorMessage(error, "Could not add them to the Circle."),
@@ -9051,7 +9153,7 @@ export function OneLocationAgentPageContent({
         setBusy(null);
       }
     },
-    [vaultOwnerToken],
+    [refreshSmsRoster, scheduleNamedCircleStateRefresh, vaultOwnerToken],
   );
 
   const handleAcceptNamedCircleMemberInvite = useCallback(
@@ -13785,6 +13887,7 @@ export function OneLocationAgentPageContent({
       if (document.visibilityState === "hidden") return;
       refreshIfPending();
       refreshPermissionOnReturn();
+      void refreshSmsRoster();
     };
 
     window.addEventListener("focus", refreshWhenVisible);
@@ -13795,6 +13898,7 @@ export function OneLocationAgentPageContent({
           appInteractionCoordinator.getLifecycleSnapshot().state === "active"
         ) {
           refreshIfPending();
+          void refreshSmsRoster();
         }
       });
 
@@ -13803,7 +13907,7 @@ export function OneLocationAgentPageContent({
       document.removeEventListener("visibilitychange", refreshWhenVisible);
       removeLifecycleListener();
     };
-  }, [refreshLocationPermission]);
+  }, [refreshLocationPermission, refreshSmsRoster]);
 
   const nativeTestConfig: OneLocationNativeTestConfig = {
     routeId:
@@ -14030,6 +14134,7 @@ export function OneLocationAgentPageContent({
     myLocationPoint,
     myLocationError,
     recipients: shareRecipientPool,
+    connectionGraphRevision,
     circles: namedCircles,
     selectedShareCircleSelections,
     pendingShareCircleIds,
@@ -14220,6 +14325,8 @@ export function OneLocationAgentPageContent({
     smsRecipients: smsActionRecipients,
     smsContactCandidates: sosActionRecipients,
     smsContactUserIds,
+    smsContactsLoading: smsRosterLoading,
+    onRefreshSmsContacts: refreshSmsRosterForSos,
     sosActive,
     sosBusy: busy === "sos",
     sosStartedAtLabel: sosIncident

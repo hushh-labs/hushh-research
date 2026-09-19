@@ -14,7 +14,8 @@ import {
 import {
   DURATION_EQUAL_BUTTON_CLASSNAME,
   DURATION_EQUAL_BUTTONS_GROUP_CLASSNAME,
-  PUBLIC_LINK_CONTROLS_CLASSNAME,
+  PUBLIC_LINK_CREATE_FORM_CLASSNAME,
+  PUBLIC_LINK_DURATION_GROUP_CLASSNAME,
   PUBLIC_LINK_PRIMARY_CTA_CLASSNAME,
   SHARE_CONFIRM_ACTIONS_CLASSNAME,
   SHARE_CONFIRM_PRIMARY_CTA_CLASSNAME,
@@ -80,7 +81,8 @@ async function buildFixture(): Promise<string> {
     "p-4 p-5 mx-auto w-full max-w-[560px] flex items-center gap-3 h-11 w-11 " +
     "min-w-0 flex-1 whitespace-nowrap text-[28px] font-semibold inline-flex justify-center h-8 w-[51px] rounded-full";
   const classes = [
-    PUBLIC_LINK_CONTROLS_CLASSNAME,
+    PUBLIC_LINK_CREATE_FORM_CLASSNAME,
+    PUBLIC_LINK_DURATION_GROUP_CLASSNAME,
     PUBLIC_LINK_PRIMARY_CTA_CLASSNAME,
     SHARE_CONFIRM_ACTIONS_CLASSNAME,
     SHARE_CONFIRM_PRIMARY_CTA_CLASSNAME,
@@ -137,8 +139,8 @@ async function buildFixture(): Promise<string> {
 <style>${productFontStyle()}</style></head><body style="margin:0">
 <main class="p-4">
   <section data-public-card class="mx-auto w-full max-w-[560px] p-4">
-    <div data-public-controls class="${PUBLIC_LINK_CONTROLS_CLASSNAME}">
-      <div class="space-y-2.5">
+    <div data-public-controls class="${PUBLIC_LINK_CREATE_FORM_CLASSNAME}">
+      <div data-public-duration class="${PUBLIC_LINK_DURATION_GROUP_CLASSNAME} space-y-2.5">
         <p>Duration</p>
         <div data-public-options class="${DURATION_EQUAL_BUTTONS_GROUP_CLASSNAME}">
           <button data-public-option class="${EQUAL_OPTION_CLASSNAME}">15 min</button>
@@ -182,6 +184,7 @@ test.describe("One Location compact CTA layout", () => {
           ).paddingLeft,
         );
         const publicControls = box("[data-public-controls]");
+        const publicDuration = box("[data-public-duration]");
         const publicOptions = Array.from(
           document.querySelectorAll<HTMLElement>("[data-public-option]"),
         ).map((node) => node.getBoundingClientRect());
@@ -226,6 +229,12 @@ test.describe("One Location compact CTA layout", () => {
           publicCard: publicCard.toJSON(),
           publicCardPaddingLeft,
           publicControls: publicControls.toJSON(),
+          publicControlsPaddingLeft: parseFloat(
+            getComputedStyle(
+              document.querySelector<HTMLElement>("[data-public-controls]")!,
+            ).paddingLeft,
+          ),
+          publicDuration: publicDuration.toJSON(),
           publicOptions: publicOptions.map((value) => value.toJSON()),
           publicCta: publicCta.toJSON(),
           shareCard: shareCard.toJSON(),
@@ -247,18 +256,27 @@ test.describe("One Location compact CTA layout", () => {
 
       expect(result.overflow).toBeLessThanOrEqual(1);
 
-      if (width < 640) {
-        expect(result.publicControls.width).toBeCloseTo(
-          result.publicCard.width - result.publicCardPaddingLeft * 2,
-          0,
-        );
-      } else {
-        expect(result.publicControls.width).toBeCloseTo(280, 0);
-      }
+      expect(result.publicControls.width).toBeCloseTo(
+        result.publicCard.width - result.publicCardPaddingLeft * 2,
+        0,
+      );
       expect(
         Math.abs(
           result.publicControls.left -
             (result.publicCard.left + result.publicCardPaddingLeft),
+        ),
+      ).toBeLessThanOrEqual(1);
+      expect(result.publicDuration.width).toBeCloseTo(
+        Math.min(
+          420,
+          result.publicControls.width - result.publicControlsPaddingLeft * 2,
+        ),
+        0,
+      );
+      expect(
+        Math.abs(
+          result.publicDuration.left + result.publicDuration.width / 2 -
+            (result.publicControls.left + result.publicControls.width / 2),
         ),
       ).toBeLessThanOrEqual(1);
       expect(result.publicOptions).toHaveLength(3);
@@ -269,7 +287,13 @@ test.describe("One Location compact CTA layout", () => {
         ).toBeLessThanOrEqual(1);
       }
       expect(result.publicCta.width).toBeGreaterThanOrEqual(144);
-      expect(result.publicCta.width).toBeLessThan(result.publicControls.width);
+      expect(result.publicCta.width).toBeLessThan(result.publicDuration.width);
+      expect(
+        Math.abs(
+          result.publicCta.left + result.publicCta.width / 2 -
+            (result.publicControls.left + result.publicControls.width / 2),
+        ),
+      ).toBeLessThanOrEqual(1);
 
       expect(result.shareOptions.width).toBeCloseTo(
         width < 640

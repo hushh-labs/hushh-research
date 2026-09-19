@@ -11,7 +11,7 @@ import {
 } from "react";
 import { useTheme } from "next-themes";
 import { GoogleMap } from "@capacitor/google-maps";
-import { Check, Crosshair, Loader2, MapPin, X } from "@/components/icons";
+import { Crosshair, Loader2, MapPin, X } from "@/components/icons";
 
 import {
   useGoogleMaps,
@@ -21,7 +21,12 @@ import {
   DARK_MAP_STYLES,
   getNativeMapsApiKey,
 } from "@/lib/one-location/maps-config";
-import { PICKER_MAP_HEIGHT_CLASSNAME } from "@/components/one-location/onboarding/save-location-sheet-layout";
+import {
+  PICKER_ACTIONS_CLASSNAME,
+  PICKER_MAP_HEIGHT_CLASSNAME,
+  PICKER_PRIMARY_ACTION_CLASSNAME,
+  PICKER_SECONDARY_ACTION_CLASSNAME,
+} from "@/components/one-location/onboarding/save-location-sheet-layout";
 import { getPlatform, isNative } from "@/lib/capacitor/platform";
 import {
   claimNativeMap,
@@ -829,7 +834,10 @@ export function LocationPickerMap({
       ) : null}
 
       {!embedded ? (
-        <div className="flex flex-col gap-2.5 bg-background pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+        <div
+          data-testid="location-picker-actions"
+          className={PICKER_ACTIONS_CLASSNAME}
+        >
           <button
             type="button"
             onClick={() => void handleConfirm()}
@@ -838,7 +846,7 @@ export function LocationPickerMap({
               unavailable ? mapUnavailableDescriptionId : undefined
             }
             className={cn(
-              "press-scale flex h-[52px] w-full items-center justify-center gap-2 rounded-full text-[16px] font-bold transition-colors disabled:cursor-not-allowed",
+              PICKER_PRIMARY_ACTION_CLASSNAME,
               // Blue means "this will take you forward". While the pin is still
               // settling or its address is still resolving it cannot, so it does
               // not get to look like it can -- a dimmed blue button still reads
@@ -848,13 +856,12 @@ export function LocationPickerMap({
                 : "bg-[#e6e9ef] text-[#98a1ae] dark:bg-white/[0.08] dark:text-[#6d7787]",
             )}
           >
-            <Check className="h-5 w-5" strokeWidth={2.6} aria-hidden />
             {unavailable ? "Use captured point" : confirmLabel}
           </button>
           <button
             type="button"
             onClick={onCancel}
-            className="h-11 w-full rounded-full text-[15px] font-semibold text-[#6b7280] transition-colors hover:text-[#374151] dark:text-[#9aa6b6] dark:hover:text-[#c4cdda]"
+            className={PICKER_SECONDARY_ACTION_CLASSNAME}
           >
             {cancelLabel}
           </button>
