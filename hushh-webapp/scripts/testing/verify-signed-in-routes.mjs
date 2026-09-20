@@ -540,8 +540,9 @@ const REDIRECT_EXPECTATIONS = {
   },
   "/kai/dashboard": {
     path: "/kai/dashboard",
-    expectedPathname: "/one/kai/portfolio",
-    allowedRouteIds: ["/one/kai/portfolio"],
+    expectedPathname: "/one/kai",
+    expectedQueryIncludes: ["tab=portfolio"],
+    allowedRouteIds: ["/one/kai"],
   },
   "/kai/dashboard/analysis": {
     path: "/kai/dashboard/analysis",
