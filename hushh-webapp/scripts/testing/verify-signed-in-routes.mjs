@@ -193,6 +193,16 @@ function isExpectedLocalOptionalResponseFailure(value) {
   ) {
     return true;
   }
+  // Wallet Profile is intentionally disabled in this local backend unless its
+  // owning feature flag is enabled. The owner client converts the contract's
+  // 404 into an explicit unavailable state; keep this exact local exception so
+  // the route sweep does not require enabling an unrelated feature.
+  if (
+    value.includes("404 GET ") &&
+    value.includes("/api/one/wallet-card")
+  ) {
+    return true;
+  }
   if (
     localConsentSseDisabled &&
     value.includes("410 GET ") &&
