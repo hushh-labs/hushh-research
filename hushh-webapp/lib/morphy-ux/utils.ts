@@ -45,7 +45,7 @@ export const getVariantStyles = (
   switch (variant) {
     case "gradient":
       if (effect === "fill") {
-        return `bg-gradient-to-r from-[var(--morphy-primary-start)] to-[var(--morphy-primary-end)] text-white shadow-[0_18px_60px_var(--morphy-cta-shadow)] hover:brightness-105 transition-shadow transition-colors duration-100`;
+        return `morphy-liquid bg-gradient-to-r from-[var(--morphy-primary-start)] to-[var(--morphy-primary-end)] text-white hover:brightness-105 transition-colors duration-100`;
       } else if (effect === "fade") {
         return "bg-gradient-to-r from-[var(--morphy-primary-start)]/12 to-[var(--morphy-primary-end)]/12 border border-[var(--morphy-primary-start)]/24 text-[var(--morphy-primary-start)] hover:from-[var(--morphy-primary-start)] hover:to-[var(--morphy-primary-end)] hover:text-white transition-colors duration-100";
       } else {
@@ -53,14 +53,15 @@ export const getVariantStyles = (
         return "bg-white/50 dark:bg-black/50 shadow-sm border border-white/20 dark:border-white/10 backdrop-blur-md hover:bg-white/60 dark:hover:bg-black/60 transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-100";
       }
 
-    // Apple grammar: button-primary is a SOLID Action Blue fill, never a
-    // gradient or a glow-shadow ("no decorative gradients", "no shadows on
-    // buttons" — the doc's non-negotiables). "blue" and "blue-gradient" are
-    // kept as distinct callsite names for compatibility but render identically.
+    // button-primary is the solid Action Blue fill wearing the Liquid Glass
+    // material (founder decision, 2026-09-20): the material is the one
+    // sanctioned surface treatment; arbitrary decorative gradients on chrome
+    // stay out. "blue" and "blue-gradient" are kept as distinct callsite
+    // names for compatibility but render identically.
     case "blue":
     case "blue-gradient":
       if (effect === "fill") {
-        return "bg-[var(--app-accent)] text-[var(--app-accent-fg)] hover:bg-[var(--app-accent-hover)] transition-colors duration-100";
+        return "morphy-liquid bg-[var(--app-accent)] text-[var(--app-accent-fg)] hover:bg-[var(--app-accent-hover)] transition-colors duration-100";
       } else if (effect === "fade") {
         // button-secondary-pill: transparent fill, accent border + text ("ghost pill").
         return "bg-transparent border border-[var(--app-accent)] text-[var(--app-accent)] hover:bg-[var(--app-accent-tint)] transition-colors duration-100";

@@ -5210,6 +5210,90 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 }
 
 /* Standard interaction transitions for buttons, cards, links */
+/* ==========================================================================
+ * Liquid Glass material (founder decision, 2026-09-20).
+ *
+ * The first screen's "Create your One" pill carried a Figma-exported bitmap
+ * of the material; every filled interactive surface now gets the same look
+ * from CSS so it follows size, shape, accent and theme: a one-pixel specular
+ * rim on the top edge, a gloss band over the top third, a faint lower rim,
+ * depth toward the bottom, and a soft halo in the fill's own colour.
+ *
+ * Composition rule: the material sets background-image, box-shadow and the
+ * halo only. background-color stays with the variant (accent, destructive,
+ * neutral) and its hover/pressed partner, so it composes with every existing
+ * fill. Set --liquid-base to the fill colour when it is not the accent.
+ *
+ * Cost rule (render-performance charter): static gradients and inset
+ * shadows paint once with the element; no backdrop-filter, no animation,
+ * no will-change, no per-frame work. A contract test holds this.
+ * ========================================================================== */
+:root {
+  --liquid-gloss: rgba(255, 255, 255, 0.32);
+  --liquid-gloss-mid: rgba(255, 255, 255, 0.1);
+  --liquid-rim: rgba(255, 255, 255, 0.55);
+  --liquid-rim-low: rgba(255, 255, 255, 0.14);
+  --liquid-edge: rgba(255, 255, 255, 0.16);
+  --liquid-depth: rgba(0, 0, 0, 0.12);
+  --liquid-halo-alpha: 42%;
+  /* Neutral (secondary / outline) surfaces: the same rim and gloss, quieter. */
+  --liquid-neutral-gloss: rgba(255, 255, 255, 0.5);
+  --liquid-neutral-rim: rgba(255, 255, 255, 0.85);
+  --liquid-neutral-depth: rgba(0, 0, 0, 0.04);
+}
+
+.dark {
+  --liquid-gloss: rgba(255, 255, 255, 0.22);
+  --liquid-gloss-mid: rgba(255, 255, 255, 0.07);
+  --liquid-rim: rgba(255, 255, 255, 0.4);
+  --liquid-rim-low: rgba(255, 255, 255, 0.1);
+  --liquid-edge: rgba(255, 255, 255, 0.12);
+  --liquid-depth: rgba(0, 0, 0, 0.22);
+  --liquid-halo-alpha: 34%;
+  --liquid-neutral-gloss: rgba(255, 255, 255, 0.09);
+  --liquid-neutral-rim: rgba(255, 255, 255, 0.16);
+  --liquid-neutral-depth: rgba(0, 0, 0, 0.18);
+}
+
+@layer utilities {
+  .morphy-liquid {
+    background-image:
+      linear-gradient(
+        180deg,
+        var(--liquid-gloss) 0%,
+        var(--liquid-gloss-mid) 42%,
+        transparent 58%
+      ),
+      linear-gradient(0deg, var(--liquid-depth) 0%, transparent 44%);
+    box-shadow:
+      inset 0 1px 0 var(--liquid-rim),
+      inset 0 -1px 0 var(--liquid-rim-low),
+      inset 0 0 0 0.5px var(--liquid-edge),
+      0 10px 24px -14px
+        color-mix(in srgb, var(--liquid-base, var(--app-accent)) var(--liquid-halo-alpha), transparent);
+  }
+  .morphy-liquid:active:not(:disabled) {
+    /* Pressed: the gloss dims with the fill's hover partner; no new layer. */
+    box-shadow:
+      inset 0 1px 0 var(--liquid-rim-low),
+      inset 0 -1px 0 var(--liquid-rim-low),
+      inset 0 0 0 0.5px var(--liquid-edge),
+      0 6px 16px -12px
+        color-mix(in srgb, var(--liquid-base, var(--app-accent)) var(--liquid-halo-alpha), transparent);
+  }
+  .morphy-liquid-neutral {
+    background-image: linear-gradient(
+      180deg,
+      var(--liquid-neutral-gloss) 0%,
+      transparent 52%
+    );
+    box-shadow:
+      inset 0 1px 0 var(--liquid-neutral-rim),
+      inset 0 0 0 0.5px var(--liquid-edge),
+      inset 0 -1px 0 var(--liquid-neutral-depth);
+  }
+}
+
 @layer utilities {
   /* System-wide press physics: uniform scale shrink on active, layered over
      the md-ripple. Apply to buttons, chips, segmented tabs, and any control

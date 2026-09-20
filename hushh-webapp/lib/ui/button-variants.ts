@@ -5,21 +5,23 @@ export const buttonVariants = cva(
   {
     variants: {
       variant: {
-        // Flat iOS alert/action-sheet fill for the primary action, not the
-        // Liquid Glass material. destructive keeps its own solid red fill --
-        // a neutral-fill "red text only" treatment would make it visually
-        // indistinguishable from a plain neutral action by background alone
-        // (see e2e/one-location-check-in-panel.layout.spec.ts, which asserts
-        // exactly that a non-destructive action never shares destructive's
-        // background).
+        // Filled actions carry the Liquid Glass material (founder decision,
+        // 2026-09-20; app/globals.css `.morphy-liquid`): the fill colour stays
+        // with the variant and its hover partner, the material adds the rim,
+        // gloss, depth and halo in that colour. destructive keeps its own
+        // solid red fill -- a neutral-fill "red text only" treatment would
+        // make it visually indistinguishable from a plain neutral action by
+        // background alone (see e2e/one-location-check-in-panel.layout.spec.ts,
+        // which asserts exactly that a non-destructive action never shares
+        // destructive's background).
         default:
-          "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]",
+          "morphy-liquid bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]",
         destructive:
-          "bg-[color:var(--app-destructive)] text-white hover:[background-color:color-mix(in_srgb,var(--app-destructive)_88%,black_12%)] focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40",
+          "morphy-liquid [--liquid-base:var(--app-destructive)] bg-[color:var(--app-destructive)] text-white hover:[background-color:color-mix(in_srgb,var(--app-destructive)_88%,black_12%)] focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40",
         outline:
-          "border border-[color:var(--app-separator)] bg-[color:var(--app-neutral-fill)] text-foreground shadow-none hover:bg-[color:var(--app-neutral-fill-strong)] dark:border-[color:var(--app-separator)]",
+          "morphy-liquid-neutral border border-[color:var(--app-separator)] bg-[color:var(--app-neutral-fill)] text-foreground hover:bg-[color:var(--app-neutral-fill-strong)] dark:border-[color:var(--app-separator)]",
         secondary:
-          "bg-[color:var(--app-neutral-fill)] text-foreground hover:bg-[color:var(--app-neutral-fill-strong)]",
+          "morphy-liquid-neutral bg-[color:var(--app-neutral-fill)] text-foreground hover:bg-[color:var(--app-neutral-fill-strong)]",
         ghost:
           "text-[color:var(--app-accent)] hover:bg-[color:var(--app-accent-tint)]",
         link: "min-h-0 rounded-none text-[color:var(--app-accent)] underline-offset-4 hover:underline",

@@ -14,8 +14,10 @@
    a subtree observer; never sets `will-change` outside the gesture that needs
    it; never drives a React state update from an audio, scroll or streaming
    frame; passes `CHART_ANIMATION_ACTIVE` to every chart series and
-   `CHART_TOOLTIP_TRIGGER` to every chart tooltip; and takes any
-   z-index from the `--z-*` ladder. `npm run verify:render-performance` fails
+   `CHART_TOOLTIP_TRIGGER` to every chart tooltip; takes any
+   z-index from the `--z-*` ladder; and gives a filled interactive surface
+   the Liquid Glass material through the `Button`/Morphy primitives (or
+   `morphy-liquid` directly), never a bitmap or a one-off gradient. `npm run verify:render-performance` fails
    a violation, and the allowlist beside it only shrinks. The reasoning and the
    measuring tools are in `docs/reference/mobile/render-performance-charter.md`;
    a change to the shell scroll engines, sheets, streaming or the chrome masks
