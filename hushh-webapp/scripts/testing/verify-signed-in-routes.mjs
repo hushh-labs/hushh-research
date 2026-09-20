@@ -377,8 +377,8 @@ const REDIRECT_EXPECTATIONS = {
   },
   "/gmail": {
     path: "/gmail",
-    expectedPathname: "/one",
-    allowedRouteIds: ["/one"],
+    expectedPathname: "/one/gmail",
+    allowedRouteIds: ["/one/gmail"],
   },
   "/pkm": {
     path: "/pkm",
