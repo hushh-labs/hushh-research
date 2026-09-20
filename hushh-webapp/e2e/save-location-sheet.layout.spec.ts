@@ -93,7 +93,7 @@ async function buildFixture({
     ? `${sheetPositioning} ${SHEET_TAKEOVER_SURFACE_CLASSNAME} ${SHEET_TAKEOVER_DETAILS_TOP_CLASSNAME}`
     : `${sheetPositioning} ${SHEET_SURFACE_CLASSNAME}`;
   const row = "flex items-center gap-2";
-  const button = "relative flex h-9 w-9 shrink-0 items-center justify-center";
+  const button = "relative flex h-10 w-10 shrink-0 items-center justify-center";
   const title =
     "min-w-0 flex-1 truncate text-center text-[17px] font-semibold leading-[22px]";
   const field = "h-12 w-full rounded-[14px] border";

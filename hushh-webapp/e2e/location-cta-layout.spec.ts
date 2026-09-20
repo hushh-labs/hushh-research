@@ -12,8 +12,6 @@ import {
   DURATION_CELL_ON_CLASS,
 } from "../components/one-location/redesign/duration-presets";
 import {
-  DURATION_EQUAL_BUTTON_CLASSNAME,
-  DURATION_EQUAL_BUTTONS_GROUP_CLASSNAME,
   PUBLIC_LINK_CREATE_FORM_CLASSNAME,
   PUBLIC_LINK_DURATION_GROUP_CLASSNAME,
   PUBLIC_LINK_PRIMARY_CTA_CLASSNAME,
@@ -34,11 +32,6 @@ const STATUS_LABELS = [
   "Location blocked",
 ] as const;
 
-const EQUAL_OPTION_CLASSNAME = cn(
-  "h-9 rounded-full border px-4 transition-colors touch-manipulation",
-  DURATION_EQUAL_BUTTON_CLASSNAME,
-  DURATION_CELL_OFF_CLASS,
-);
 const COMPACT_CELL_ON_CLASSNAME = cn(
   DURATION_CELL_CLASS,
   DURATION_COMPACT_CELL_CLASS,
@@ -86,8 +79,7 @@ async function buildFixture(): Promise<string> {
     PUBLIC_LINK_PRIMARY_CTA_CLASSNAME,
     SHARE_CONFIRM_ACTIONS_CLASSNAME,
     SHARE_CONFIRM_PRIMARY_CTA_CLASSNAME,
-    DURATION_EQUAL_BUTTONS_GROUP_CLASSNAME,
-    EQUAL_OPTION_CLASSNAME,
+    "h-11 w-full rounded-[14px] border px-3",
     DURATION_COMPACT_GRID_CLASS,
     COMPACT_CELL_ON_CLASSNAME,
     COMPACT_CELL_OFF_CLASSNAME,
@@ -142,11 +134,7 @@ async function buildFixture(): Promise<string> {
     <div data-public-controls class="${PUBLIC_LINK_CREATE_FORM_CLASSNAME}">
       <div data-public-duration class="${PUBLIC_LINK_DURATION_GROUP_CLASSNAME} space-y-2.5">
         <p>Duration</p>
-        <div data-public-options class="${DURATION_EQUAL_BUTTONS_GROUP_CLASSNAME}">
-          <button data-public-option class="${EQUAL_OPTION_CLASSNAME}">15 min</button>
-          <button data-public-option class="${EQUAL_OPTION_CLASSNAME}">1 hour</button>
-          <button data-public-option class="${EQUAL_OPTION_CLASSNAME}">2 hours</button>
-        </div>
+        <button data-public-select class="h-11 w-full rounded-[14px] border px-3">1 hour</button>
       </div>
       <button data-public-cta class="${PUBLIC_LINK_PRIMARY_CTA_CLASSNAME} inline-flex items-center justify-center">Create link</button>
     </div>
@@ -185,9 +173,7 @@ test.describe("One Location compact CTA layout", () => {
         );
         const publicControls = box("[data-public-controls]");
         const publicDuration = box("[data-public-duration]");
-        const publicOptions = Array.from(
-          document.querySelectorAll<HTMLElement>("[data-public-option]"),
-        ).map((node) => node.getBoundingClientRect());
+        const publicSelect = box("[data-public-select]");
         const publicCta = box("[data-public-cta]");
         const shareCard = box("[data-share-card]");
         const shareOptions = box("[data-share-options]");
@@ -235,7 +221,7 @@ test.describe("One Location compact CTA layout", () => {
             ).paddingLeft,
           ),
           publicDuration: publicDuration.toJSON(),
-          publicOptions: publicOptions.map((value) => value.toJSON()),
+          publicSelect: publicSelect.toJSON(),
           publicCta: publicCta.toJSON(),
           shareCard: shareCard.toJSON(),
           shareCardPaddingRight: parseFloat(
@@ -257,7 +243,10 @@ test.describe("One Location compact CTA layout", () => {
       expect(result.overflow).toBeLessThanOrEqual(1);
 
       expect(result.publicControls.width).toBeCloseTo(
-        result.publicCard.width - result.publicCardPaddingLeft * 2,
+        Math.min(
+          320,
+          result.publicCard.width - result.publicCardPaddingLeft * 2,
+        ),
         0,
       );
       expect(
@@ -268,30 +257,28 @@ test.describe("One Location compact CTA layout", () => {
       ).toBeLessThanOrEqual(1);
       expect(result.publicDuration.width).toBeCloseTo(
         Math.min(
-          420,
+          260,
           result.publicControls.width - result.publicControlsPaddingLeft * 2,
         ),
         0,
       );
       expect(
         Math.abs(
-          result.publicDuration.left + result.publicDuration.width / 2 -
-            (result.publicControls.left + result.publicControls.width / 2),
+          result.publicDuration.left -
+            (result.publicControls.left + result.publicControlsPaddingLeft),
         ),
       ).toBeLessThanOrEqual(1);
-      expect(result.publicOptions).toHaveLength(3);
-      for (const option of result.publicOptions) {
-        expect(option.height).toBeGreaterThanOrEqual(44);
-        expect(
-          Math.abs(option.width - result.publicOptions[0].width),
-        ).toBeLessThanOrEqual(1);
-      }
+      expect(result.publicSelect.height).toBeGreaterThanOrEqual(44);
+      expect(result.publicSelect.width).toBeCloseTo(
+        result.publicDuration.width,
+        0,
+      );
       expect(result.publicCta.width).toBeGreaterThanOrEqual(144);
       expect(result.publicCta.width).toBeLessThan(result.publicDuration.width);
       expect(
         Math.abs(
-          result.publicCta.left + result.publicCta.width / 2 -
-            (result.publicControls.left + result.publicControls.width / 2),
+          result.publicCta.left -
+            (result.publicControls.left + result.publicControlsPaddingLeft),
         ),
       ).toBeLessThanOrEqual(1);
 

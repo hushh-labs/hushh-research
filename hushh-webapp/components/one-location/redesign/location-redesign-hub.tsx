@@ -4937,10 +4937,8 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
                 onChange={vm.setPublicLinkDurationHours}
                 options={PUBLIC_LINK_DURATION_OPTIONS.map((option) => option)}
                 label="Duration"
-                presentation="buttons"
-                equalWidthButtons
+                presentation="select"
                 maxWidthClassName={PUBLIC_LINK_DURATION_GROUP_CLASSNAME}
-                activeClassName="border-[color:var(--app-accent-tint)] bg-[color:var(--app-accent-tint)] text-[color:var(--app-accent)]"
               />
               <Button
                 onClick={vm.onCreatePublicInvite}
@@ -5209,7 +5207,7 @@ function ShareFlow({
         }
         title={
           <span className="flex min-w-0 items-start gap-1.5">
-            <span className="min-w-0 flex-1 truncate">{label}</span>
+            <span className="min-w-0 truncate">{label}</span>
             {r.connectedFromContacts ? (
               <ContactSourceBadge className="mt-px shrink-0" />
             ) : null}
@@ -5884,21 +5882,20 @@ function shareEndsAtLabel(durationHours: string, nowMs: number): string {
  * aria-pressed for anything that cannot see either.
  */
 function SelectionDot({ selected }: { selected: boolean }) {
-  const role = roleClasses(selected ? "action" : "neutral");
   return (
     <span
       aria-hidden
       className={cn(
-        "flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full border-2 transition-colors",
+        "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border transition-colors",
         selected
-          ? cn(role.border, "bg-[color:var(--app-accent)]")
-          : "border-border/70",
+          ? "border-transparent bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
+          : "border-[color:var(--app-separator)] bg-transparent",
       )}
     >
       {selected ? (
         <Check
-          className="h-3 w-3 text-[color:var(--app-accent-fg)]"
-          strokeWidth={3}
+          className="h-3.5 w-3.5"
+          weight="bold"
         />
       ) : null}
     </span>

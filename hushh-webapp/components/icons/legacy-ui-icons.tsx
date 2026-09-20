@@ -79,7 +79,9 @@ export const CalendarDays = createCanonicalIcon(Phosphor.Calendar);
 export const CalendarPlus = createCanonicalIcon(Phosphor.CalendarPlus);
 export const ChartColumnIncreasing = createCanonicalIcon(Phosphor.ChartLineUp);
 export const ChartNoAxesCombined = createCanonicalIcon(Phosphor.ChartLine);
-export const Check = createCanonicalIcon(Phosphor.Check);
+// A check is a small utility glyph. Duotone paints a second shape behind it,
+// which reads as a square inside selected circles and CTA buttons.
+export const Check = createCanonicalIcon(Phosphor.Check, "regular");
 export const CheckCircle = createCanonicalIcon(Phosphor.CheckCircle);
 export const CheckCircle2 = createCanonicalIcon(Phosphor.CheckCircle);
 export const ChevronDown = createCanonicalIcon(Phosphor.CaretDown, "regular");

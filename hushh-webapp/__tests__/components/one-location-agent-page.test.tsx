@@ -5559,7 +5559,12 @@ describe("OneLocationAgentPage", () => {
     const createLinkButton = await screen.findByRole("button", {
       name: /Create link/i,
     });
-    expect(createLinkButton).toHaveClass("mx-auto", "w-fit", "min-w-[9rem]");
+    expect(createLinkButton).toHaveClass(
+      "self-start",
+      "w-fit",
+      "min-w-[9rem]",
+    );
+    expect(createLinkButton.className).not.toContain("mx-auto");
     expect(createLinkButton.className).not.toContain("w-full");
     expect(screen.getByText("Temporary link")).toBeTruthy();
     expect(
@@ -5568,12 +5573,13 @@ describe("OneLocationAgentPage", () => {
       ),
     ).toBeTruthy();
     expect(screen.getByText("Duration")).toBeTruthy();
-    expect(screen.getByRole("radio", { name: "15 min" })).toBeTruthy();
-    expect(screen.getByRole("radio", { name: "1 hour" })).toBeTruthy();
-    expect(screen.getByRole("radio", { name: "2 hours" })).toBeTruthy();
-    expect(
-      screen.getByRole("radiogroup", { name: "Duration" }).parentElement,
-    ).toHaveClass("mx-auto", "w-full", "max-w-[420px]");
+    const durationSelect = screen.getByRole("combobox", { name: "Duration" });
+    expect(durationSelect).toBeTruthy();
+    expect(durationSelect.parentElement).toHaveClass(
+      "w-full",
+      "max-w-[260px]",
+    );
+    expect(durationSelect.parentElement?.className).not.toContain("mx-auto");
     expect(screen.queryByText("Active links")).toBeNull();
     expect(screen.queryByText("Link stays live for")).toBeNull();
     // The paragraph that used to sit under the heading is gone.

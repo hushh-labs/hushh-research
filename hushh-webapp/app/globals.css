@@ -6490,6 +6490,16 @@ body[data-persona-surface="ria"] {
   white-space: nowrap !important;
 }
 
+/* Connect's directory headings and contact-sync action are peers even though
+   they use different primitives. Keep one control voice on every viewport. */
+.connect-section-control-label {
+  font-family: var(--font-app-body) !important;
+  font-size: var(--type-row-label-compact-size) !important;
+  font-weight: 600 !important;
+  letter-spacing: normal !important;
+  line-height: var(--type-row-label-compact-line) !important;
+}
+
 :is(.ui-text-eyebrow) {
   color: var(--app-section-label) !important;
   font-family: var(--font-app-body) !important;

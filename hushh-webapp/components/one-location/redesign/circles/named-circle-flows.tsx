@@ -2121,11 +2121,12 @@ export function CircleDetailFlow({
                   ) : null}
                   <FlowActionGroup
                     stacked
+                    className="mx-auto max-w-[260px]"
                     secondary={
                       <Button
                         type="button"
                         variant="ghost"
-                        size="standard"
+                        size="compact"
                         onClick={() => {
                           setRenameSheetOpen(false);
                           setCircleName(circle.name);
@@ -2137,7 +2138,7 @@ export function CircleDetailFlow({
                     primary={
                       <Button
                         type="button"
-                        size="prominent"
+                        size="standard"
                         disabled={!canSaveCircleName}
                         isLoading={savingName}
                         onClick={() =>
@@ -2145,7 +2146,10 @@ export function CircleDetailFlow({
                             if (saved) setRenameSheetOpen(false);
                           })
                         }
-                        className={BLOCKED_CTA}
+                        className={cn(
+                          BLOCKED_CTA,
+                          "h-11 min-h-11 rounded-[14px]",
+                        )}
                         data-testid="one-location-circle-name-save"
                       >
                         Save
@@ -2478,11 +2482,14 @@ export function CircleDetailFlow({
                                       "flex h-6 w-6 items-center justify-center rounded-full border",
                                       selected
                                         ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
-                                        : "border-border bg-background",
+                                        : "border-border bg-transparent",
                                     )}
                                   >
                                     {selected ? (
-                                      <Check className="h-4 w-4" />
+                                      <Check
+                                        className="h-4 w-4"
+                                        weight="bold"
+                                      />
                                     ) : null}
                                   </span>
                                 }

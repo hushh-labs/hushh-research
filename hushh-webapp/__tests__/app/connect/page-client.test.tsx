@@ -477,10 +477,20 @@ describe("Connect — People", () => {
     const selector = screen.getByRole("button", {
       name: "Current directory: People",
     });
+    const connectionsToggle = screen.getByRole("button", {
+      name: "My connections (0)",
+    });
+    const syncContacts = screen.getByRole("button", {
+      name: "Sync contacts",
+    });
+    expect(connectionsToggle).toHaveClass("connect-section-control-label");
     expect(
-      screen
-        .getByRole("button", { name: "My connections (0)" })
-        .compareDocumentPosition(selector) & Node.DOCUMENT_POSITION_FOLLOWING,
+      selector.querySelector(".connect-section-control-label"),
+    ).toBeTruthy();
+    expect(syncContacts).toHaveClass("connect-section-control-label");
+    expect(
+      connectionsToggle.compareDocumentPosition(selector) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(
       within(screen.getByTestId("connect-sticky-header")).queryByRole(

@@ -83,7 +83,7 @@ import {
 const touchTargetClassName =
   "after:absolute after:left-1/2 after:top-1/2 after:h-11 after:w-11 after:-translate-x-1/2 after:-translate-y-1/2 after:content-['']";
 
-const iconButtonClassName = `press-scale absolute flex h-9 w-9 items-center justify-center rounded-full bg-[color:var(--app-neutral-fill-strong)] text-[color:var(--app-secondary-label)] transition-colors hover:bg-[color:var(--app-neutral-fill-strong)]/80 disabled:opacity-45 ${touchTargetClassName}`;
+const iconButtonClassName = `press-scale absolute flex h-10 w-10 items-center justify-center rounded-full bg-transparent text-[color:var(--app-secondary-label)] transition-colors hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-label)] disabled:opacity-45 ${touchTargetClassName}`;
 
 /**
  * The same control, laid out instead of absolutely positioned. Written as its
@@ -92,7 +92,7 @@ const iconButtonClassName = `press-scale absolute flex h-9 w-9 items-center just
  * key and `relative` is the only one -- which is exactly the trap documented
  * on `touchTargetClassName`.
  */
-const inlineIconButtonClassName = `press-scale relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-neutral-fill-strong)] text-[color:var(--app-secondary-label)] transition-colors hover:bg-[color:var(--app-neutral-fill-strong)]/80 disabled:opacity-45 ${touchTargetClassName}`;
+const inlineIconButtonClassName = `press-scale relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-transparent text-[color:var(--app-secondary-label)] transition-colors hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-label)] disabled:opacity-45 ${touchTargetClassName}`;
 
 const controlLabelClassName =
   "mb-1.5 block text-[13px] font-semibold leading-[18px] text-muted-foreground";
@@ -1721,7 +1721,7 @@ export function SaveLocationModal({
           <div
             className={cn(
               SHEET_FOOTER_CLASSNAME,
-              "bg-background pb-[max(1.5rem,env(safe-area-inset-bottom))]",
+              "pb-[max(1.5rem,env(safe-area-inset-bottom))]",
             )}
           >
             {/* A disabled primary button with no explanation is the whole of
@@ -1983,7 +1983,7 @@ export function SaveLocationModal({
             </div>
           ) : null}
 
-          <div className="mt-1 flex flex-col gap-2.5 bg-background pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+          <div className="mt-1 flex flex-col gap-2.5 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
             <button
               type="button"
               onClick={onSkip}

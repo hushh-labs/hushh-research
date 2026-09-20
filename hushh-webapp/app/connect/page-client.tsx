@@ -295,6 +295,8 @@ const CONNECT_ROW_ACTION_CLASSNAME =
   "ui-text-compact-button-label relative h-8 min-h-8 rounded-2xl px-2.5 before:absolute before:-inset-y-1.5 before:inset-x-0 before:content-['']";
 const CONNECT_INLINE_BUTTON_CLASSNAME =
   "ui-text-compact-button-label relative h-8 min-h-8 rounded-2xl px-3 before:absolute before:-inset-y-1.5 before:inset-x-0 before:content-['']";
+const CONNECT_SECTION_CONTROL_LABEL_CLASSNAME =
+  "connect-section-control-label";
 const CONNECT_REFRESH_BUTTON_CLASSNAME =
   "h-11 min-h-11 w-11 min-w-11 rounded-full p-0 text-muted-foreground hover:text-foreground disabled:opacity-70";
 
@@ -2679,7 +2681,10 @@ export default function ConnectPageClient() {
               aria-label={`Current directory: ${CONNECT_TAB_LABEL[tab]}`}
               className="inline-flex min-h-11 max-w-full items-center gap-1.5 rounded-full text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
             >
-              <SectionLabel as="span" compact>
+              <SectionLabel
+                as="span"
+                className={CONNECT_SECTION_CONTROL_LABEL_CLASSNAME}
+              >
                 {CONNECT_TAB_LABEL[tab]}
               </SectionLabel>
               <ChevronDown
@@ -2711,7 +2716,10 @@ export default function ConnectPageClient() {
             className="inline-flex min-h-11 max-w-full items-center gap-1.5 rounded-full text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
             onClick={() => setDirectoryMenuOpen((current) => !current)}
           >
-            <SectionLabel as="span" compact>
+            <SectionLabel
+              as="span"
+              className={CONNECT_SECTION_CONTROL_LABEL_CLASSNAME}
+            >
               {CONNECT_TAB_LABEL[tab]}
             </SectionLabel>
             <ChevronDown
@@ -2843,7 +2851,10 @@ export default function ConnectPageClient() {
                                   )
                                 }
                                 data-testid="connect-my-connections-toggle"
-                                className="group max-w-full rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-secondary-fill)] px-3 text-[color:var(--app-label)] shadow-none hover:bg-[color:var(--app-tertiary-fill)] focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2"
+                                className={cn(
+                                  CONNECT_SECTION_CONTROL_LABEL_CLASSNAME,
+                                  "group max-w-full rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-secondary-fill)] px-3 text-[color:var(--app-label)] shadow-none hover:bg-[color:var(--app-tertiary-fill)] focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2",
+                                )}
                               >
                                 <span
                                   className={CONNECT_WRAPPING_TEXT_CLASSNAME}
@@ -3104,7 +3115,10 @@ export default function ConnectPageClient() {
                                     title="Sync contacts"
                                     disabled={contactSync.syncing}
                                     onClick={() => void contactSync.sync()}
-                                    className={CONNECT_INLINE_BUTTON_CLASSNAME}
+                                    className={cn(
+                                      CONNECT_INLINE_BUTTON_CLASSNAME,
+                                      CONNECT_SECTION_CONTROL_LABEL_CLASSNAME,
+                                    )}
                                   >
                                     <BookUser
                                       aria-hidden="true"
