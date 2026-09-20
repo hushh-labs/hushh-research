@@ -748,8 +748,30 @@ function startDevServerIfNeeded() {
   };
 }
 
+function isPaneBackedProfileCompatibilityRoute(route) {
+  return (
+    (route === "/one/profile" || route.startsWith("/one/profile/")) &&
+    !route.includes("/oauth/return") &&
+    !PROFILE_DIRECT_ENTRY_ROUTES.has(route)
+  );
+}
+
 function routeSpec(route) {
+  const paneBackedProfileCompatibility = isPaneBackedProfileCompatibilityRoute(
+    route.route,
+  );
   if (route.mode === "redirect") {
+    if (paneBackedProfileCompatibility) {
+      return {
+        kind: "redirect",
+        route: route.route,
+        path: route.route,
+        expectedPathname: "/one",
+        allowedPathnames: ["/one"],
+        allowedRouteIds: ["/one"],
+        expectedQueryIncludes: [],
+      };
+    }
     const expectation = REDIRECT_EXPECTATIONS[route.route];
     if (!expectation) {
       throw new Error(`Missing redirect expectation for ${route.route}`);
@@ -771,10 +793,6 @@ function routeSpec(route) {
 
   const fixture = DYNAMIC_ROUTE_FIXTURES[route.route];
   const override = ROUTE_OVERRIDES[route.route];
-  const paneBackedProfileCompatibility =
-    route.route.startsWith("/one/profile/") &&
-    !route.route.includes("/oauth/return") &&
-    !PROFILE_DIRECT_ENTRY_ROUTES.has(route.route);
   const allowedPathnames = override?.allowedPathnames || [
     ...(paneBackedProfileCompatibility
       ? ["/one"]
