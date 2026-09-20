@@ -23,9 +23,10 @@ describe("OneLocationMapPreferencesResource", () => {
   it("single-flights concurrent reads per account", async () => {
     let resolve!: (value: OneLocationMapPreferences) => void;
     const loader = vi.fn(
-      () => new Promise<OneLocationMapPreferences>((done) => {
-        resolve = done;
-      }),
+      () =>
+        new Promise<OneLocationMapPreferences>((done) => {
+          resolve = done;
+        }),
     );
     const first = OneLocationMapPreferencesResource.load("owner-a", loader);
     const second = OneLocationMapPreferencesResource.load("owner-a", loader);
@@ -42,9 +43,10 @@ describe("OneLocationMapPreferencesResource", () => {
     let resolve!: (value: OneLocationMapPreferences) => void;
     const stale = OneLocationMapPreferencesResource.load(
       "owner-a",
-      () => new Promise<OneLocationMapPreferences>((done) => {
-        resolve = done;
-      }),
+      () =>
+        new Promise<OneLocationMapPreferences>((done) => {
+          resolve = done;
+        }),
     );
     OneLocationMapPreferencesResource.commit("owner-a", VISIBLE);
     resolve(GHOST);
@@ -56,6 +58,22 @@ describe("OneLocationMapPreferencesResource", () => {
 
   it("keeps account snapshots isolated", () => {
     OneLocationMapPreferencesResource.commit("owner-a", VISIBLE);
-    expect(OneLocationMapPreferencesResource.readPresentation("owner-b")).toBeNull();
+    expect(
+      OneLocationMapPreferencesResource.readPresentation("owner-b"),
+    ).toBeNull();
+  });
+
+  it("purges every account snapshot at an unknown-user auth boundary", () => {
+    OneLocationMapPreferencesResource.write("owner-a", VISIBLE);
+    OneLocationMapPreferencesResource.write("owner-b", GHOST);
+
+    OneLocationMapPreferencesResource.discardAll();
+
+    expect(
+      OneLocationMapPreferencesResource.readPresentation("owner-a"),
+    ).toBeNull();
+    expect(
+      OneLocationMapPreferencesResource.readPresentation("owner-b"),
+    ).toBeNull();
   });
 });

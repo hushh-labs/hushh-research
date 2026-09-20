@@ -29,6 +29,7 @@ import type { FeedListResponse } from "@/lib/services/feed-service";
 import { dispatchConnectionGraphChanged } from "@/lib/connections/connection-graph-events";
 import {
   dispatchOneLocationStateChanged,
+  type OneLocationStateChangedDetail,
   type OneLocationStateDomain,
 } from "@/lib/one-location/one-location-state-events";
 
@@ -602,6 +603,7 @@ export class CacheSyncService {
     // This invalidates any in-flight Location load before it can republish a
     // server snapshot after the vault security boundary changes.
     OneLocationStateResource.discard(userId);
+    OneLocationMapPreferencesResource.discard(userId);
     clearLocationWorkspaceMemory(userId);
     clearOneLocationControlRuntime(userId);
     if (typeof options?.hasVault === "boolean") {
@@ -782,6 +784,25 @@ export class CacheSyncService {
     dispatchOneLocationStateChanged(userId, domains, context);
   }
 
+  /** Apply a peer-tab state doorbell without rebroadcasting it. */
+  static onRemoteOneLocationStateChanged(
+    detail: OneLocationStateChangedDetail,
+  ): void {
+    if (detail.domains.some((domain) => domain !== "map_preferences")) {
+      OneLocationStateResource.invalidate(detail.userId);
+    }
+    if (detail.domains.includes("map_preferences")) {
+      if (detail.eventId) {
+        OneLocationMapPreferencesResource.invalidateFromEvent(
+          detail.userId,
+          detail.eventId,
+        );
+      } else {
+        OneLocationMapPreferencesResource.invalidate(detail.userId);
+      }
+    }
+  }
+
   /**
    * Clear the persistent RIA tiers (IndexedDB device cache + native Preferences
    * hint) alongside the in-memory invalidations. Required now that the RIA
@@ -898,6 +919,7 @@ export class CacheSyncService {
     const cache = CacheService.getInstance();
     if (userId) {
       OneLocationStateResource.discard(userId);
+      OneLocationMapPreferencesResource.discard(userId);
       clearLocationWorkspaceMemory(userId);
       clearOneLocationControlRuntime(userId);
       cache.invalidateUser(userId);
@@ -909,6 +931,7 @@ export class CacheSyncService {
       return;
     }
     OneLocationStateResource.discardAll();
+    OneLocationMapPreferencesResource.discardAll();
     clearAllLocationWorkspaceMemory();
     clearAllOneLocationControlRuntime();
     cache.clear();

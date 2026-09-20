@@ -4,12 +4,13 @@ export const ONE_LOCATION_STATE_CHANGED_EVENT =
   "hushh:one-location-state-changed";
 
 const ONE_LOCATION_STATE_CHANNEL = "hushh-one-location-state-v1";
+const ONE_LOCATION_STATE_SOURCE_ID =
+  typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `tab-${Date.now()}-${Math.random()}`;
 
 export type OneLocationStateDomain =
-  | "workspace"
-  | "circles"
-  | "sms_roster"
-  | "map_preferences";
+  "workspace" | "circles" | "sms_roster" | "map_preferences";
 
 export type OneLocationStateChangedDetail = {
   userId: string;
@@ -60,6 +61,17 @@ function normalizeDetail(
     ...(memberUserId ? { memberUserId } : null),
     ...(eventId ? { eventId } : null),
   };
+}
+
+function normalizeWireDetail(
+  value: unknown,
+): OneLocationStateChangedDetail | null {
+  if (value && typeof value === "object" && "detail" in value) {
+    return normalizeDetail(
+      (value as { detail?: Partial<OneLocationStateChangedDetail> }).detail,
+    );
+  }
+  return normalizeDetail(value as Partial<OneLocationStateChangedDetail>);
 }
 
 export function circleStateChangeClosesDetail(
@@ -115,7 +127,7 @@ export function dispatchOneLocationStateChanged(
 
   if (typeof BroadcastChannel === "undefined") return;
   const channel = new BroadcastChannel(ONE_LOCATION_STATE_CHANNEL);
-  channel.postMessage(detail);
+  channel.postMessage({ sourceId: ONE_LOCATION_STATE_SOURCE_ID, detail });
   channel.close();
 }
 
@@ -157,9 +169,7 @@ export function subscribeToOneLocationStateChanges(
       ? null
       : new BroadcastChannel(ONE_LOCATION_STATE_CHANNEL);
   const onChannelMessage = (event: MessageEvent<unknown>) => {
-    const detail = normalizeDetail(
-      event.data as Partial<OneLocationStateChangedDetail>,
-    );
+    const detail = normalizeWireDetail(event.data);
     if (detail) deliver(detail);
   };
   channel?.addEventListener("message", onChannelMessage);
@@ -168,5 +178,36 @@ export function subscribeToOneLocationStateChanges(
     window.removeEventListener(ONE_LOCATION_STATE_CHANGED_EVENT, onWindowEvent);
     channel?.removeEventListener("message", onChannelMessage);
     channel?.close();
+  };
+}
+
+/** Subscribe only to validated state events emitted by another browser tab. */
+export function subscribeToRemoteOneLocationStateChanges(
+  listener: (detail: OneLocationStateChangedDetail) => void,
+): () => void {
+  if (
+    typeof window === "undefined" ||
+    typeof BroadcastChannel === "undefined"
+  ) {
+    return () => undefined;
+  }
+  const channel = new BroadcastChannel(ONE_LOCATION_STATE_CHANNEL);
+  const onChannelMessage = (event: MessageEvent<unknown>) => {
+    if (
+      event.data &&
+      typeof event.data === "object" &&
+      "sourceId" in event.data &&
+      (event.data as { sourceId?: unknown }).sourceId ===
+        ONE_LOCATION_STATE_SOURCE_ID
+    ) {
+      return;
+    }
+    const detail = normalizeWireDetail(event.data);
+    if (detail) listener(detail);
+  };
+  channel.addEventListener("message", onChannelMessage);
+  return () => {
+    channel.removeEventListener("message", onChannelMessage);
+    channel.close();
   };
 }

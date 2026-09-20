@@ -181,6 +181,29 @@ describe("CacheSyncService mutation cascades", () => {
     );
   });
 
+  it("invalidates map preferences from a peer event without rebroadcasting", () => {
+    const invalidateMapPreferences = vi.spyOn(
+      OneLocationMapPreferencesResource,
+      "invalidateFromEvent",
+    );
+    const listener = vi.fn();
+    window.addEventListener(ONE_LOCATION_STATE_CHANGED_EVENT, listener);
+
+    CacheSyncService.onRemoteOneLocationStateChanged({
+      userId,
+      domains: ["map_preferences"],
+      changedAt: 123,
+      eventId: "map-preferences:remote-1",
+    });
+
+    expect(invalidateMapPreferences).toHaveBeenCalledWith(
+      userId,
+      "map-preferences:remote-1",
+    );
+    expect(listener).not.toHaveBeenCalled();
+    window.removeEventListener(ONE_LOCATION_STATE_CHANGED_EVENT, listener);
+  });
+
   it("owns optimistic Feed read state and preserves rows above the watermark", () => {
     cache.set(
       CACHE_KEYS.FEED_LIST(userId),
@@ -257,10 +280,18 @@ describe("CacheSyncService mutation cascades", () => {
 
   // ---------- 4. onAuthSignedOut(userId) ----------
   it("onAuthSignedOut with userId delegates to cache.invalidateUser", () => {
+    OneLocationMapPreferencesResource.write(userId, {
+      presenceMode: "foreground_private",
+      rendererConsentVersion: null,
+      updatedAt: null,
+    });
     CacheSyncService.onAuthSignedOut(userId);
 
     expect(spyInvalidateUser).toHaveBeenCalledWith(userId);
     expect(spyClear).not.toHaveBeenCalled();
+    expect(
+      OneLocationMapPreferencesResource.readPresentation(userId),
+    ).toBeNull();
   });
 
   // ---------- 5. onAuthSignedOut() (no userId) ----------
@@ -280,6 +311,11 @@ describe("CacheSyncService mutation cascades", () => {
 
   // ---------- 7. onVaultStateChanged with hasVault: true ----------
   it("onVaultStateChanged(hasVault: true) sets VAULT_CHECK to SESSION TTL and invalidates VAULT_STATUS", () => {
+    OneLocationMapPreferencesResource.write(userId, {
+      presenceMode: "ghost",
+      rendererConsentVersion: null,
+      updatedAt: null,
+    });
     CacheSyncService.onVaultStateChanged(userId, { hasVault: true });
 
     expect(spySet).toHaveBeenCalledWith(
@@ -289,6 +325,9 @@ describe("CacheSyncService mutation cascades", () => {
     );
     const invalidatedKeys = spyInvalidate.mock.calls.map((c) => c[0]);
     expect(invalidatedKeys).toContain(CACHE_KEYS.VAULT_STATUS(userId));
+    expect(
+      OneLocationMapPreferencesResource.readPresentation(userId),
+    ).toBeNull();
   });
 
   // ---------- 8. onVaultStateChanged with hasVault: false ----------

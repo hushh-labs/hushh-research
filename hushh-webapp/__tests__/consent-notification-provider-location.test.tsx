@@ -31,6 +31,7 @@ const mocks = vi.hoisted(() => {
     onPkmDomainStored: vi.fn(),
     onPkmDomainCleared: vi.fn(),
     onRemotePkmDomainChanged: vi.fn(),
+    onRemoteOneLocationStateChanged: vi.fn(),
     remotePkmListener: null as
       | ((detail: {
           userId: string;
@@ -38,6 +39,16 @@ const mocks = vi.hoisted(() => {
           dataVersion: number | null;
           updatedAt: string | null;
           operation: "stored" | "cleared" | "restored";
+        }) => void)
+      | null,
+    remoteLocationStateListener: null as
+      | ((detail: {
+          userId: string;
+          domains: Array<
+            "workspace" | "circles" | "sms_roster" | "map_preferences"
+          >;
+          changedAt: number;
+          eventId?: string;
         }) => void)
       | null,
   };
@@ -108,6 +119,7 @@ vi.mock("@/lib/cache/cache-sync-service", () => ({
     onPkmDomainStored: mocks.onPkmDomainStored,
     onPkmDomainCleared: mocks.onPkmDomainCleared,
     onRemotePkmDomainChanged: mocks.onRemotePkmDomainChanged,
+    onRemoteOneLocationStateChanged: mocks.onRemoteOneLocationStateChanged,
   },
 }));
 
@@ -116,6 +128,15 @@ vi.mock("@/lib/pkm/pkm-domain-change-events", () => ({
     mocks.remotePkmListener = listener;
     return () => {
       mocks.remotePkmListener = null;
+    };
+  }),
+}));
+
+vi.mock("@/lib/one-location/one-location-state-events", () => ({
+  subscribeToRemoteOneLocationStateChanges: vi.fn((listener) => {
+    mocks.remoteLocationStateListener = listener;
+    return () => {
+      mocks.remoteLocationStateListener = null;
     };
   }),
 }));
@@ -165,6 +186,7 @@ async function renderReady(children?: ReactNode) {
   mocks.onPkmDomainStored.mockClear();
   mocks.onPkmDomainCleared.mockClear();
   mocks.onRemotePkmDomainChanged.mockClear();
+  mocks.onRemoteOneLocationStateChanged.mockClear();
 }
 
 function dispatchLocation(
@@ -352,6 +374,20 @@ describe("global One Location Feed-first notification policy", () => {
     act(() => mocks.remotePkmListener?.(detail));
 
     expect(mocks.onRemotePkmDomainChanged).toHaveBeenCalledWith(detail);
+  });
+
+  it("globally invalidates map preferences when a peer tab broadcasts a change", async () => {
+    await renderReady();
+    const detail = {
+      userId: "recipient-user",
+      domains: ["map_preferences" as const],
+      changedAt: 123,
+      eventId: "map-preferences:remote-1",
+    };
+
+    act(() => mocks.remoteLocationStateListener?.(detail));
+
+    expect(mocks.onRemoteOneLocationStateChanged).toHaveBeenCalledWith(detail);
   });
 
   it("records repeated duration changes for the same grant without a replay identity", async () => {

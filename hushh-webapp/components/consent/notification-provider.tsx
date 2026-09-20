@@ -53,6 +53,7 @@ import {
 } from "@/lib/consent/consent-events";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { subscribeToRemotePkmDomainChanges } from "@/lib/pkm/pkm-domain-change-events";
+import { subscribeToRemoteOneLocationStateChanges } from "@/lib/one-location/one-location-state-events";
 import { resolveConsentRequesterLabel } from "@/lib/consent/consent-display";
 import { parseSSEBlocks } from "@/lib/streaming/sse-parser";
 import {
@@ -689,6 +690,15 @@ export function ConsentNotificationProvider({
     return subscribeToRemotePkmDomainChanges((detail) => {
       if (detail.userId !== userId) return;
       CacheSyncService.onRemotePkmDomainChanged(detail);
+    });
+  }, [user?.uid]);
+
+  useEffect(() => {
+    const userId = user?.uid;
+    if (!userId) return;
+    return subscribeToRemoteOneLocationStateChanges((detail) => {
+      if (detail.userId !== userId) return;
+      CacheSyncService.onRemoteOneLocationStateChanged(detail);
     });
   }, [user?.uid]);
 

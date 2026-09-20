@@ -68,4 +68,14 @@ export const OneLocationMapPreferencesResource = {
     this.invalidate(userId);
     presentationByUser.delete(userId);
   },
+
+  discardAll(): void {
+    for (const userId of new Set([
+      ...revisionByUser.keys(),
+      ...presentationByUser.keys(),
+      ...inFlightByUser.keys(),
+    ])) {
+      this.discard(userId);
+    }
+  },
 };

@@ -4,6 +4,7 @@ import {
   circleStateChangeClosesDetail,
   dispatchOneLocationStateChanged,
   subscribeToOneLocationStateChanges,
+  subscribeToRemoteOneLocationStateChanges,
 } from "@/lib/one-location/one-location-state-events";
 
 class FakeBroadcastChannel {
@@ -98,6 +99,36 @@ describe("One Location state events", () => {
     otherTab.close();
   });
 
+  it("delivers only peer-tab events to the global invalidation subscriber", () => {
+    const received: unknown[] = [];
+    const unsubscribe = subscribeToRemoteOneLocationStateChanges((detail) =>
+      received.push(detail),
+    );
+
+    dispatchOneLocationStateChanged("user-a", ["map_preferences"], {
+      eventId: "local-event",
+    });
+    expect(received).toEqual([]);
+
+    const otherTab = new FakeBroadcastChannel("hushh-one-location-state-v1");
+    otherTab.postMessage({
+      userId: "user-a",
+      domains: ["map_preferences"],
+      changedAt: 124,
+      eventId: "remote-event",
+    });
+    expect(received).toEqual([
+      {
+        userId: "user-a",
+        domains: ["map_preferences"],
+        changedAt: 124,
+        eventId: "remote-event",
+      },
+    ]);
+    unsubscribe();
+    otherTab.close();
+  });
+
   it("preserves supporting-resource domains without accepting unknown values", () => {
     const received: unknown[] = [];
     const unsubscribe = subscribeToOneLocationStateChanges((detail) =>
@@ -128,16 +159,12 @@ describe("One Location state events", () => {
       received.push(detail),
     );
 
-    dispatchOneLocationStateChanged(
-      "user-a",
-      ["workspace", "circles"],
-      {
-        notificationType: "location_circle_deleted",
-        circleId: "circle-1",
-        memberUserId: "user-a",
-        eventId: "delete-transition-1",
-      },
-    );
+    dispatchOneLocationStateChanged("user-a", ["workspace", "circles"], {
+      notificationType: "location_circle_deleted",
+      circleId: "circle-1",
+      memberUserId: "user-a",
+      eventId: "delete-transition-1",
+    });
 
     expect(received).toEqual([
       expect.objectContaining({
