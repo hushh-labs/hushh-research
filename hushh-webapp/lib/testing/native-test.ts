@@ -7,6 +7,7 @@ declare global {
     __HUSHH_NATIVE_TEST__?: {
       enabled?: boolean;
       autoReviewerLogin?: boolean;
+      reviewerAuthMode?: "local_credentials" | "custom_token";
       reviewerMutationPolicy?: "read_only" | "preparation_only" | "mutation_authorized";
       vaultPassphrase?: string;
       expectedUserId?: string;

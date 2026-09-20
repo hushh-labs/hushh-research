@@ -178,14 +178,18 @@ export async function createReviewerSessionHarness({
       : allowMemoryPreparation
         ? "preparation_only"
         : "read_only";
+    const reviewerAuthMode = process.env.REVIEWER_AUTH_MODE === "custom_token"
+      ? "custom_token"
+      : "local_credentials";
     await page.addInitScript(
-      ({ expectedUserId, vaultPassphrase, reviewerMutationPolicy }) => {
+      ({ expectedUserId, vaultPassphrase, reviewerMutationPolicy, reviewerAuthMode }) => {
         window.__HUSHH_NATIVE_TEST__ = {
           ...(window.__HUSHH_NATIVE_TEST__ || {}),
           enabled: true,
           autoReviewerLogin: true,
           expectedUserId,
           reviewerMutationPolicy,
+          reviewerAuthMode,
           ...(vaultPassphrase ? { vaultPassphrase } : {}),
         };
       },
@@ -193,6 +197,7 @@ export async function createReviewerSessionHarness({
         expectedUserId: reviewerUid,
         vaultPassphrase: includePassphrase ? reviewerPassphrase : "",
         reviewerMutationPolicy,
+        reviewerAuthMode,
       }
     );
   }
@@ -373,9 +378,15 @@ export async function createReviewerSessionHarness({
       }
     }
 
-    throw new Error(`Reviewer session bootstrap failed after ${maxAttempts} attempts.`, {
+    const causeMessage = lastError?.cause instanceof Error
+      ? lastError.cause.message.replace(/\s+/g, " ").slice(0, 200)
+      : "";
+    throw new Error(
+      `Reviewer session bootstrap failed after ${maxAttempts} attempts.${causeMessage ? ` cause=${causeMessage}` : ""}`,
+      {
       cause: lastError,
-    });
+      },
+    );
   }
 
   async function assertVisibleVaultChallenge(browser, redirect) {

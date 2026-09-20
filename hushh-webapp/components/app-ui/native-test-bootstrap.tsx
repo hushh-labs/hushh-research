@@ -170,7 +170,9 @@ export function NativeTestBootstrap() {
         if (Capacitor.isNativePlatform()) {
           await AuthService.signOut().catch(() => undefined);
         }
-        const localReviewerCredentials = Capacitor.isNativePlatform()
+        const useCustomReviewerToken =
+          window.__HUSHH_NATIVE_TEST__?.reviewerAuthMode === "custom_token";
+        const localReviewerCredentials = Capacitor.isNativePlatform() || useCustomReviewerToken
           ? null
           : resolveLocalReviewerCredentials(
               typeof window !== "undefined" ? window.location.hostname : null
