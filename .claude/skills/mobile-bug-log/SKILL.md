@@ -354,6 +354,13 @@ Three small mobile UX/nav fixes (commit `909ea793d`):
 - **Regression prevention:** the app launching at all on an iOS 27 SDK build is the test; `verify:capacitor:static` passes. Any CI or release runner that moves to Xcode 27 needs this commit first.
 - **GOTCHA:** read the crash from the xcresult, not the test log: `xcrun xcresulttool export attachments --path <bundle>.xcresult --output-path <dir>` drops the `.ips`; its `faultingThread` frames name the UIKit evaluator. Under the scene lifecycle, `applicationWillResignActive` / `applicationDidBecomeActive` / `application(_:open:)` on the AppDelegate are no longer called; anything living there silently stops (the privacy shield would have).
 
+### B35 — The native export shipped a stale stylesheet: JavaScript referenced rules the CSS did not contain, for three device runs
+- **Symptom:** the Liquid Glass material and the scroll-chrome consumer rule were in `app/globals.css` and in the dev server, and the JS chunks in the phone bundle carried the class names, but the export's CSS file had the same content hash as before those changes: `morphy-liquid`, `--liquid-gloss` and `[data-top-chrome-collapse-consumer]` were absent. Rules from two days earlier were present. On the phone the material was invisible and the top mask lagged the bar collapse by the settle write.
+- **Root cause:** the webpack persistent cache at `.next/cache/webpack/client-production` (shared by the web build and the `NEXT_DIST_DIR` native export) served the old CSS asset for the Tailwind entry after `globals.css` changed. Running `@tailwindcss/postcss` on the file directly produced the rules, so the pipeline was right and the cache was not.
+- **Fix:** `rm -rf .next/cache/webpack` and rebuild (new CSS hash, rules present). `scripts/native/verify-native-css-fresh.mjs` renders `globals.css` through the same pipeline and checks every selector reached the export; `npm run cap:sync:ios` runs it first and `scripts/perf/ios-perf-card.sh` runs it before measuring.
+- **Regression prevention:** the sync and the card refuse a stale export with the fix printed.
+- **GOTCHA:** a bundle can be "fresh" (new JS hashes, fresh `index.html`, the stale-`out/` guard green) and still carry old CSS. Before trusting a device result for a CSS change, grep the export's CSS for a selector the change introduced. `cap:sync:android` still resolves `webDir` without the native env (it points at `out/`, which no longer exists); the Android lane must build with `NEXT_DIST_DIR` set or sync from `.next-native-uat`.
+
 ---
 
 ## 🧪 QA test phone numbers (UAT, fixed OTP `000000`)

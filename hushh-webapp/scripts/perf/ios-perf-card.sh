@@ -98,6 +98,9 @@ if ! cmp -s "$NATIVE_EXPORT/index.html" ios/App/App/public/index.html; then
   echo "ios/App/App/public is not the current native export ($NATIVE_EXPORT); run: npm run cap:sync:ios" >&2
   exit 1
 fi
+# The webpack cache once served a stale stylesheet for a fresh bundle; the
+# export must carry every rule globals.css produces before it is measured.
+node scripts/native/verify-native-css-fresh.mjs --export "$NATIVE_EXPORT" || exit 1
 echo "perf card: $DESTINATION, configuration $CONFIGURATION, tier $TIER, reps $REPS, sha $SHA"
 echo "artifacts: $OUT_DIR (raw log and probe JSON stay here; only the summary is committed)"
 
