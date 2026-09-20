@@ -45,7 +45,11 @@ export const getVariantStyles = (
   switch (variant) {
     case "gradient":
       if (effect === "fill") {
-        return `morphy-liquid bg-gradient-to-r from-[var(--morphy-primary-start)] to-[var(--morphy-primary-end)] text-white hover:brightness-105 transition-colors duration-100`;
+        // The Liquid Glass material owns background-image, so a gradient
+        // utility on the same element is overridden (same cascade layer,
+        // later rule) and the button would paint gloss over nothing. The
+        // gradient's start colour is the fill; the material adds the depth.
+        return `morphy-liquid [--liquid-base:var(--morphy-primary-start)] bg-[var(--morphy-primary-start)] text-white hover:brightness-105 transition-colors duration-100`;
       } else if (effect === "fade") {
         return "bg-gradient-to-r from-[var(--morphy-primary-start)]/12 to-[var(--morphy-primary-end)]/12 border border-[var(--morphy-primary-start)]/24 text-[var(--morphy-primary-start)] hover:from-[var(--morphy-primary-start)] hover:to-[var(--morphy-primary-end)] hover:text-white transition-colors duration-100";
       } else {

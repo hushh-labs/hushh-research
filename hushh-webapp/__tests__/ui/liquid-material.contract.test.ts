@@ -41,6 +41,26 @@ describe("liquid glass material", () => {
     expect(block(css, ".morphy-liquid {")).not.toMatch(/background-color|background:/);
   });
 
+  it("never shares an element with a gradient utility (the material owns background-image)", () => {
+    // Both live in the utilities layer and the material is declared later,
+    // so a `bg-gradient-*` / `bg-linear-*` fill on the same element would be
+    // replaced by the gloss and the button would paint over nothing.
+    const scan = (dir: string): string[] =>
+      fs.readdirSync(path.join(webRoot, dir), { withFileTypes: true }).flatMap((entry) => {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) return entry.name === "__tests__" ? [] : scan(full);
+        return /\.(tsx?|jsx?)$/.test(entry.name) ? [full] : [];
+      });
+    const offenders: string[] = [];
+    for (const file of [...scan("components"), ...scan("lib"), ...scan("app")]) {
+      const source = read(file);
+      for (const match of source.matchAll(/["'`][^"'`]*morphy-liquid[^"'`]*["'`]/g)) {
+        if (/bg-(gradient|linear|radial|conic)-/.test(match[0])) offenders.push(`${file}: ${match[0].slice(0, 80)}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
   it("is worn by the filled button primitives and the first-screen CTA", () => {
     const variants = read("lib/ui/button-variants.ts");
     expect(variants).toMatch(/default:\s*\n?\s*"morphy-liquid /);
