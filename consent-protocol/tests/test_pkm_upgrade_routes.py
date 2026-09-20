@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 
 import pytest
@@ -7,6 +8,35 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.routes import pkm, pkm_routes_shared
+
+
+@pytest.mark.asyncio
+async def test_location_sync_push_does_not_block_committed_mutation_response(monkeypatch):
+    push_started = asyncio.Event()
+    release_push = asyncio.Event()
+
+    async def _blocked_threadpool(*_args, **_kwargs):
+        push_started.set()
+        await release_push.wait()
+
+    monkeypatch.setattr(pkm_routes_shared, "run_in_threadpool", _blocked_threadpool)
+    monkeypatch.setattr(
+        "api.consent_listener.publish_user_state_event_threadsafe",
+        lambda *_args, **_kwargs: True,
+    )
+
+    await asyncio.wait_for(
+        pkm_routes_shared._notify_location_pkm_changed("user_123"),
+        timeout=0.1,
+    )
+    assert push_started.is_set()
+    assert pkm_routes_shared._LOCATION_SYNC_PUSH_TASKS
+
+    release_push.set()
+    await asyncio.gather(
+        *tuple(pkm_routes_shared._LOCATION_SYNC_PUSH_TASKS),
+        return_exceptions=True,
+    )
 
 
 def _confirmed_mutation_plan_payload(

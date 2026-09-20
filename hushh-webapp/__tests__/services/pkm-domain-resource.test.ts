@@ -256,6 +256,57 @@ describe("PkmDomainResourceService", () => {
     );
   });
 
+  it("rejects a secure snapshot read that finishes after a domain clear", async () => {
+    let resolveRead!: (value: unknown) => void;
+    secureReadMock.mockImplementationOnce(
+      () => new Promise((resolve) => {
+        resolveRead = resolve;
+      }),
+    );
+    secureInvalidateMock.mockResolvedValue(undefined);
+    loadDomainDataWithBlobMock.mockResolvedValueOnce({
+      data: { savedLocations: [] },
+      blob: { dataVersion: 3, updatedAt: "2026-09-20T00:00:02.000Z" },
+    });
+
+    const request = PkmDomainResourceService.getStaleFirst({
+      userId: "read-race-owner",
+      domain: "location",
+      vaultKey: "vault-key",
+      vaultOwnerToken: "vault-owner",
+      backgroundRefresh: false,
+    });
+    await vi.waitFor(() => expect(secureReadMock).toHaveBeenCalledOnce());
+    PkmDomainResourceService.invalidateDomain("read-race-owner", "location", {
+      includeBackingCaches: true,
+    });
+    resolveRead({
+      key: {
+        userId: "read-race-owner",
+        domain: "location",
+        segmentIds: [],
+        contentRevision: 2,
+      },
+      data: { savedLocations: [{ id: "deleted-place" }] },
+      manifestRevision: null,
+      updatedAt: "2026-09-20T00:00:01.000Z",
+      audit: {
+        cacheTier: "device",
+        source: "secure_cache",
+        refreshedAt: "2026-09-20T00:00:01.000Z",
+      },
+    });
+
+    await expect(request).resolves.toEqual(
+      expect.objectContaining({ data: { savedLocations: [] } }),
+    );
+    expect(loadDomainDataWithBlobMock).toHaveBeenCalledOnce();
+    expect(secureInvalidateMock).toHaveBeenCalledWith(
+      "read-race-owner",
+      "pkm_domain:location:",
+    );
+  });
+
   it("returns successful domains when another domain refresh fails", async () => {
     loadDomainDataWithBlobMock.mockImplementation(async ({ domain }) => {
       if (domain === "preferences") throw new Error("temporary unavailable");

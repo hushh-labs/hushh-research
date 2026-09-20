@@ -202,6 +202,8 @@ export type LocationWorkspace = {
   state: OneLocationState | null;
   status: LocationWorkspaceStatus;
   error: string | null;
+  /** Commit an acknowledged mutation immediately and fence older reads. */
+  commitState: (next: OneLocationState) => string | null;
   /** Refetch; `invalidate` fences off any in-flight pre-mutation load first. */
   refresh: (options?: { invalidate?: boolean }) => Promise<void>;
 };
@@ -223,6 +225,7 @@ export function useLocationWorkspaceState(): LocationWorkspace {
   const [error, setError] = useState<string | null>(null);
   const mountedRef = useRef(true);
   const refreshRevisionRef = useRef(0);
+  const localCommitEventIdsRef = useRef(new Set<string>());
   const foregroundTaskRef = useRef<Promise<void> | null>(null);
   const foregroundQueuedRef = useRef(false);
 
@@ -260,6 +263,24 @@ export function useLocationWorkspaceState(): LocationWorkspace {
     [userId, vaultOwnerToken],
   );
 
+  const commitState = useCallback(
+    (next: OneLocationState) => {
+      if (!userId || !mountedRef.current) return null;
+      const eventId = `location_workspace:${Date.now()}:${Math.random()
+        .toString(36)
+        .slice(2)}`;
+      localCommitEventIdsRef.current.add(eventId);
+      ++refreshRevisionRef.current;
+      OneLocationStateResource.invalidate(userId);
+      OneLocationStateResource.write(userId, next);
+      setState(next);
+      setError(null);
+      setStatus("ready");
+      return eventId;
+    },
+    [userId],
+  );
+
   useEffect(() => {
     if (!userId || !vaultOwnerToken) return;
     const snapshot = OneLocationStateResource.readPresentation(userId);
@@ -278,6 +299,12 @@ export function useLocationWorkspaceState(): LocationWorkspace {
     if (!userId || !vaultOwnerToken) return;
     return subscribeToOneLocationStateChanges((detail) => {
       if (detail.userId !== userId || !detail.domains.includes("workspace")) {
+        return;
+      }
+      if (
+        detail.eventId &&
+        localCommitEventIdsRef.current.delete(detail.eventId)
+      ) {
         return;
       }
       void refresh({ invalidate: true });
@@ -323,8 +350,8 @@ export function useLocationWorkspaceState(): LocationWorkspace {
   }, [refresh, userId, vaultOwnerToken]);
 
   return useMemo(
-    () => ({ userId, vaultOwnerToken, state, status, error, refresh }),
-    [error, refresh, state, status, userId, vaultOwnerToken],
+    () => ({ userId, vaultOwnerToken, state, status, error, commitState, refresh }),
+    [commitState, error, refresh, state, status, userId, vaultOwnerToken],
   );
 }
 

@@ -176,6 +176,10 @@ describe("LocationSettings", () => {
   });
 
   it("turns auto-approve on for all contacts through auto-approve-preference", async () => {
+    harness.getState
+      .mockReset()
+      .mockResolvedValueOnce(STATE)
+      .mockRejectedValueOnce(new Error("reconcile unavailable"));
     render(<LocationSettings />);
     const toggle = await screen.findByTestId(
       "location-settings-auto-approve-switch",
@@ -189,9 +193,18 @@ describe("LocationSettings", () => {
         scope: { kind: "all_contacts" },
       }),
     );
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("location-settings-auto-approve-switch"),
+      ).toHaveAttribute("aria-checked", "true"),
+    );
   });
 
   it("saves nearby defaults through nearby-check-in-preferences", async () => {
+    harness.getState
+      .mockReset()
+      .mockResolvedValueOnce(STATE)
+      .mockRejectedValueOnce(new Error("reconcile unavailable"));
     render(<LocationSettings />);
     const visible = await screen.findByTestId(
       "location-settings-nearby-visible-switch",
@@ -205,6 +218,7 @@ describe("LocationSettings", () => {
         allowConnectionRequests: true,
       }),
     );
+    await waitFor(() => expect(visible).toHaveAttribute("aria-checked", "true"));
   });
 
   it("opens the Turn off confirmation before turning sharing off", async () => {

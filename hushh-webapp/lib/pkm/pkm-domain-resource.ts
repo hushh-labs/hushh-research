@@ -185,11 +185,19 @@ export class PkmDomainResourceService {
       return null;
     }
     const resourceKey = toDeviceResourceKey(params);
+    const revision = domainRevision(params.userId, params.domain);
     const snapshot = await SecureResourceCacheService.read<PkmDomainResourceSnapshot>({
       userId: params.userId,
       resourceKey,
       vaultKey: params.vaultKey,
     });
+    if (domainRevision(params.userId, params.domain) !== revision) {
+      await SecureResourceCacheService.invalidateResourcePrefix(
+        params.userId,
+        `pkm_domain:${params.domain}:`,
+      ).catch(() => undefined);
+      return null;
+    }
     if (!snapshot) {
       logRequest("cache_miss", {
         tier: "device",

@@ -41,7 +41,6 @@ import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
 import { TaskFlowHeader } from "@/lib/morphy-ux/ui/surface-primitives";
 import { ROUTES } from "@/lib/navigation/routes";
-import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import { useOneLocationMapPreferences } from "@/lib/one-location/use-one-location-map-preferences";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { OneLocationService } from "@/lib/one-location/service";
@@ -185,15 +184,20 @@ export function LocationSettings() {
             scope: enabled ? (scope ?? { kind: "all_contacts" }) : null,
           },
         );
-        OneLocationStateResource.mergeAutoApprovePreference(
-          workspace.userId,
-          preference,
-          workspace.state ?? undefined,
-        );
+        let eventId: string | null = null;
+        if (workspace.state) {
+          eventId = workspace.commitState({
+            ...workspace.state,
+            autoApprovePreference: preference,
+          });
+        }
         CacheSyncService.onOneLocationStateMutated(
           workspace.userId,
           ["workspace"],
-          { notificationType: "location_settings_changed" },
+          {
+            notificationType: "location_settings_changed",
+            ...(eventId ? { eventId } : null),
+          },
         );
         morphyToast.success(
           enabled ? "Automatic approval is on." : "Automatic approval is off.",
@@ -229,20 +233,20 @@ export function LocationSettings() {
               nearby?.allowConnectionRequests ??
               false,
           });
-        const current = OneLocationStateResource.readPresentation(
-          workspace.userId,
-        );
-        if (current) {
-          OneLocationStateResource.invalidate(workspace.userId);
-          OneLocationStateResource.write(workspace.userId, {
-            ...current,
+        let eventId: string | null = null;
+        if (workspace.state) {
+          eventId = workspace.commitState({
+            ...workspace.state,
             nearbyCheckInPreferences: preferences,
           });
         }
         CacheSyncService.onOneLocationStateMutated(
           workspace.userId,
           ["workspace"],
-          { notificationType: "location_settings_changed" },
+          {
+            notificationType: "location_settings_changed",
+            ...(eventId ? { eventId } : null),
+          },
         );
       } catch (error) {
         morphyToast.error(

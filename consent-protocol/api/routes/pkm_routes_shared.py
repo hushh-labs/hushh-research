@@ -52,6 +52,7 @@ _COMPACT_SCOPE_SOURCE_KINDS = {"pkm_index", "pkm_manifests.top_level_scope_paths
 _INTERNAL_ONLY_PKM_DOMAINS = {"kyc_connector", "kyc_workflow"}
 
 _MAX_SEGMENT_IDS = 50
+_LOCATION_SYNC_PUSH_TASKS: set[asyncio.Task[None]] = set()
 
 
 def _validated_segment_ids(
@@ -112,21 +113,29 @@ async def _notify_location_pkm_changed(
         )
     except Exception as exc:  # noqa: BLE001 - realtime is best-effort
         logger.warning("[PKM] location sync SSE skipped: %s", exc)
-    try:
-        await run_in_threadpool(
-            send_user_data_push,
-            user_id,
-            notification_type="location_pkm_changed",
-            title="Saved locations updated",
-            body="Your saved locations changed on another session.",
-            deep_link="/one/location?action=settings",
-            notification_tag=message_id,
-            notification_category="ONE_LOCATION",
-            data=sync_data,
-            show_alert=False,
-        )
-    except Exception as exc:  # noqa: BLE001 - committed PKM writes must still succeed
-        logger.warning("[PKM] location sync push skipped: %s", exc)
+
+    async def _deliver_push() -> None:
+        try:
+            await run_in_threadpool(
+                send_user_data_push,
+                user_id,
+                notification_type="location_pkm_changed",
+                title="Saved locations updated",
+                body="Your saved locations changed on another session.",
+                deep_link="/one/location?action=settings",
+                notification_tag=message_id,
+                notification_category="ONE_LOCATION",
+                data=sync_data,
+                show_alert=False,
+            )
+        except Exception as exc:  # noqa: BLE001 - committed writes must still succeed
+            logger.warning("[PKM] location sync push skipped: %s", exc)
+
+    task = asyncio.create_task(_deliver_push())
+    _LOCATION_SYNC_PUSH_TASKS.add(task)
+    task.add_done_callback(_LOCATION_SYNC_PUSH_TASKS.discard)
+    # Let the delivery task enter the shared thread pool without waiting on FCM.
+    await asyncio.sleep(0)
 
 
 def _json_object_or_default(value, default: Optional[dict] = None) -> dict:
