@@ -119,6 +119,16 @@ describe("AgentTurnStreamPanel", () => {
     expect(screen.queryByText("Preparing response")).not.toBeInTheDocument();
   });
 
+  it("uses the originating call for a parked directive so one tool stays one activity", () => {
+    const event = agentToolEventToVisibleStreamEvent(
+      "waiting",
+      makeToolEvent({ callId: "call-42:directive", directiveId: "call-42" }),
+      1_700_000,
+    );
+
+    expect(event.id).toBe("call-42");
+  });
+
   it("renders a streaming response with the cursor affordance", () => {
     render(
       <AgentTurnStreamPanel

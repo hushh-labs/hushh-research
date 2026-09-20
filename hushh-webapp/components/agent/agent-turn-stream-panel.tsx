@@ -95,6 +95,22 @@ function normalizeToolLabel(toolEvent: AgentChatToolEvent): string {
   return cleanVisibleText(toolEvent.label, "Action");
 }
 
+/**
+ * A parked browser directive is a continuation of the server tool call that
+ * produced it. The transport gives that continuation a synthetic call id, but
+ * also carries the originating directive id. Use the origin as the visible
+ * activity identity so one invocation evolves from start → waiting → result
+ * instead of rendering a second progress row.
+ */
+function visibleToolEventId(toolEvent: AgentChatToolEvent, nowMs: number): string {
+  const originId = cleanVisibleText(toolEvent.directiveId, "");
+  if (originId) return originId;
+  return cleanVisibleText(
+    toolEvent.callId,
+    `${normalizeToolLabel(toolEvent)}-${nowMs}`,
+  );
+}
+
 function normalizeSpecialistSources(sources: AgentSource[]): AppStreamProgressItem[] {
   const seen = new Set<string>();
   const visible: AppStreamProgressItem[] = [];
@@ -142,7 +158,7 @@ export function agentToolEventToVisibleStreamEvent(
           ? "That step needs attention."
           : "Step complete.";
   return {
-    id: toolEvent.callId || `${normalizeToolLabel(toolEvent)}-${phase}-${nowMs}`,
+    id: visibleToolEventId(toolEvent, nowMs),
     label: normalizeToolLabel(toolEvent),
     message: cleanVisibleText(toolEvent.message, fallback),
     status,
