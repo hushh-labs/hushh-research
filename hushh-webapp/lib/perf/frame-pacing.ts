@@ -37,7 +37,16 @@ export type GestureKind =
   | "scroll"
   | "tap";
 
-type WindowKind = GestureKind | `${GestureKind}→route` | "scroll:programmatic";
+type WindowKind = GestureKind | `${GestureKind}→route` | "scroll:programmatic" | "stream";
+
+/**
+ * A streaming reply produces no input, so no pointer or scroll window covers
+ * it; the assistant bubble marks itself while text arrives and the probe
+ * keeps a window open for as long as the marker is present (polled every
+ * STREAM_POLL_FRAMES frames: one querySelector, no observer in the lane).
+ */
+const STREAM_MARKER = '[data-agent-streaming="true"]';
+const STREAM_POLL_FRAMES = 10;
 
 /**
  * Where a pointer lands decides what the window is called. Order matters: a
@@ -201,6 +210,7 @@ export function startFramePacingProbe(options: { hud: boolean }): FramePacingPro
   let current: ProbeWindow | null = null;
   let nextWindowId = 1;
   let lastFrameAt = 0;
+  let frameIndex = 0;
   let lastScrollAt = 0;
   let pointerUpAt: number | null = null;
   let routeChangedAt: number | null = null;
@@ -267,6 +277,12 @@ export function startFramePacingProbe(options: { hud: boolean }): FramePacingPro
           updateStatus();
         }
       }
+    }
+    frameIndex += 1;
+    if (frameIndex % STREAM_POLL_FRAMES === 0) {
+      const streaming = document.querySelector(STREAM_MARKER) !== null;
+      if (streaming && !current) openWindow("stream", now);
+      else if (!streaming && current?.kind === "stream") closeWindow(now);
     }
     if (lastFrameAt) {
       const delta = now - lastFrameAt;

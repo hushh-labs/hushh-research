@@ -1483,6 +1483,7 @@ function AgentBubble({
       >
         <div
           aria-live={!isUser && isStreaming ? "polite" : undefined}
+          data-agent-streaming={!isUser && isStreaming ? "true" : undefined}
           className={cn(
             "text-sm leading-6",
             isUser
