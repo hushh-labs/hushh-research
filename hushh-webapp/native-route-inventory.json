@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-09-02",
-  "total_routes": 122,
-  "native_required_routes": 104,
+  "generated_at": "2026-09-20",
+  "total_routes": 123,
+  "native_required_routes": 105,
   "excluded_routes": 18,
   "routes": [
     {
@@ -1102,6 +1102,18 @@
       "route": "/one/setup/calendar",
       "classification": "excluded-web-only",
       "reason": "GAP, not a permanent exclusion. This is the Calendar agent's setup step and inherits the same gap as /one/calendar. Revisit alongside it."
+    },
+    {
+      "route": "/one/setup/capabilities",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Fcapabilities",
+      "expectedMarker": "native-route-setup-capabilities",
+      "expectedRoute": "/one/setup/capabilities",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded"
+      ]
     },
     {
       "route": "/one/setup/connected-systems",
