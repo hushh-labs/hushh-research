@@ -1722,7 +1722,7 @@ class OneLocationAgentService:
         push/SSE transport.
         """
         message_id = f"location_settings_changed:{uuid.uuid4()}"
-        data = {
+        data: dict[str, str | None] = {
             "setting": setting,
             "sync_only": "true",
             "message_id": message_id,
