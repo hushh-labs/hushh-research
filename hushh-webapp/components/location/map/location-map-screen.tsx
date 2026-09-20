@@ -55,10 +55,11 @@ import {
 } from "@/lib/one-location/location-workspace-memory";
 import {
   GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
-  readCachedRendererConsentAccepted,
   writeCachedRendererConsentAccepted,
 } from "@/lib/one-location/map-renderer-consent";
 import { OneLocationService } from "@/lib/one-location/service";
+import { subscribeToOneLocationStateChanges } from "@/lib/one-location/one-location-state-events";
+import { publishOneLocationMapPreferences } from "@/lib/one-location/use-one-location-map-preferences";
 import type {
   OneLocationGrant,
   OneLocationMapPreferences,
@@ -131,9 +132,10 @@ export function LocationMapScreen() {
   const device = useCurrentLocation({ auto: false, userId });
   const [preferences, setPreferences] =
     useState<OneLocationMapPreferences | null>(null);
-  const [consentAccepted, setConsentAccepted] = useState<boolean>(() =>
-    readCachedRendererConsentAccepted(userId),
-  );
+  // The local mirror is only a warm UI hint elsewhere. Rendering/decryption
+  // remains fail-closed until the authenticated server preference confirms
+  // the current consent version for this account.
+  const [consentAccepted, setConsentAccepted] = useState(false);
   const [consentBusy, setConsentBusy] = useState(false);
   const [presenceBusy, setPresenceBusy] = useState(false);
   const [markers, setMarkers] = useState<DecodedMarker[]>([]);
@@ -148,6 +150,7 @@ export function LocationMapScreen() {
   const mountedRef = useRef(true);
   const undecryptableRef = useRef(new Set<string>());
   const consentRef = useRef(consentAccepted);
+  const loadRevisionRef = useRef(0);
   consentRef.current = consentAccepted;
 
   useEffect(() => {
@@ -186,20 +189,18 @@ export function LocationMapScreen() {
 
   const load = useCallback(async () => {
     if (!userId || !vaultOwnerToken) return;
+    const revision = ++loadRevisionRef.current;
     setStatus((current) => (current === "ready" ? "ready" : "loading"));
     try {
       const mapState = await OneLocationService.getMapState(vaultOwnerToken);
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || loadRevisionRef.current !== revision) return;
       setPreferences(mapState.preferences);
       setFreshnessSeconds(
         Math.max(30, Number(mapState.freshnessSeconds) || 120),
       );
-      const consentOk =
-        rendererConsentCurrent(mapState.preferences) || consentRef.current;
-      if (rendererConsentCurrent(mapState.preferences)) {
-        setConsentAccepted(true);
-        writeCachedRendererConsentAccepted(userId, true);
-      }
+      const consentOk = rendererConsentCurrent(mapState.preferences);
+      setConsentAccepted(consentOk);
+      writeCachedRendererConsentAccepted(userId, consentOk);
       const sealed = mapState.markers ?? [];
       setSealedCount(sealed.length);
       if (!consentOk) {
@@ -227,7 +228,7 @@ export function LocationMapScreen() {
           undecryptableRef.current.add(envelopeId);
         }
       }
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || loadRevisionRef.current !== revision) return;
       setMarkers(decoded);
       const memory = readLocationWorkspaceMemory(userId);
       writeLocationWorkspaceMemory(userId, {
@@ -239,7 +240,7 @@ export function LocationMapScreen() {
       setError(null);
       setStatus("ready");
     } catch (caught) {
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || loadRevisionRef.current !== revision) return;
       setError(
         caught instanceof Error && caught.message
           ? caught.message
@@ -252,6 +253,18 @@ export function LocationMapScreen() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!userId) return;
+    return subscribeToOneLocationStateChanges((detail) => {
+      if (
+        detail.userId === userId &&
+        detail.domains.includes("map_preferences")
+      ) {
+        void load();
+      }
+    });
+  }, [load, userId]);
 
   useEffect(() => {
     if (status !== "ready") return;
@@ -283,18 +296,19 @@ export function LocationMapScreen() {
   const acceptRendererConsent = useCallback(async () => {
     if (!vaultOwnerToken || !userId || consentBusy) return;
     setConsentBusy(true);
+    loadRevisionRef.current += 1;
     try {
       const next = await OneLocationService.updateMapPreferences({
         vaultOwnerToken,
         rendererConsentVersion: GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
       });
       if (!mountedRef.current) return;
+      publishOneLocationMapPreferences(userId, next);
       setPreferences(next);
       const accepted = rendererConsentCurrent(next);
       consentRef.current = accepted;
       setConsentAccepted(accepted);
       writeCachedRendererConsentAccepted(userId, accepted);
-      if (accepted) await load();
     } catch (caught) {
       morphyToast.error(
         caught instanceof Error && caught.message
@@ -304,19 +318,21 @@ export function LocationMapScreen() {
     } finally {
       if (mountedRef.current) setConsentBusy(false);
     }
-  }, [consentBusy, load, userId, vaultOwnerToken]);
+  }, [consentBusy, userId, vaultOwnerToken]);
 
   const togglePresence = useCallback(async () => {
     if (!vaultOwnerToken || !preferences || presenceBusy) return;
     const nextMode: OneLocationMapPreferences["presenceMode"] =
       preferences.presenceMode === "ghost" ? "foreground_private" : "ghost";
     setPresenceBusy(true);
+    loadRevisionRef.current += 1;
     try {
       const next = await OneLocationService.updateMapPreferences({
         vaultOwnerToken,
         presenceMode: nextMode,
       });
       if (!mountedRef.current) return;
+      if (userId) publishOneLocationMapPreferences(userId, next);
       setPreferences(next);
       morphyToast.success(
         next.presenceMode === "ghost"
@@ -332,7 +348,7 @@ export function LocationMapScreen() {
     } finally {
       if (mountedRef.current) setPresenceBusy(false);
     }
-  }, [preferences, presenceBusy, vaultOwnerToken]);
+  }, [preferences, presenceBusy, userId, vaultOwnerToken]);
 
   const locateMe = useCallback(async () => {
     if (locating) return;
@@ -383,7 +399,7 @@ export function LocationMapScreen() {
   }, [router]);
 
   const staleMs = freshnessSeconds * 1000;
-  const consentReady = consentAccepted || rendererConsentCurrent(preferences);
+  const consentReady = consentAccepted && rendererConsentCurrent(preferences);
 
   return (
     <main

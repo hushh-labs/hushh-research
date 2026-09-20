@@ -12,7 +12,9 @@ import asyncio
 import json
 import logging
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+from functools import partial
 from typing import Annotated, Any, List, Literal, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, Response, status
@@ -33,6 +35,7 @@ from hushh_mcp.services.pkm_mutation_contracts import (
     validate_mutation_plan_for_write,
 )
 from hushh_mcp.services.pkm_upgrade_service import get_pkm_upgrade_service
+from hushh_mcp.services.push_notifications import send_user_data_push
 from hushh_mcp.services.trusted_device_service import TrustedDeviceService
 from hushh_mcp.services.wallet_card_validation import validate_wallet_card_envelope
 
@@ -51,6 +54,12 @@ _COMPACT_SCOPE_SOURCE_KINDS = {"pkm_index", "pkm_manifests.top_level_scope_paths
 _INTERNAL_ONLY_PKM_DOMAINS = {"kyc_connector", "kyc_workflow"}
 
 _MAX_SEGMENT_IDS = 50
+_LOCATION_SYNC_PUSH_MAX_PENDING = 64
+_LOCATION_SYNC_PUSH_EXECUTOR = ThreadPoolExecutor(
+    max_workers=2,
+    thread_name_prefix="location-sync-push",
+)
+_LOCATION_SYNC_PUSH_TASKS: set[asyncio.Task[None]] = set()
 
 
 def _validated_segment_ids(
@@ -75,6 +84,71 @@ def _isoformat_or_none(value):
     if isinstance(value, datetime):
         return value.isoformat()
     return str(value)
+
+
+async def _notify_location_pkm_changed(
+    user_id: str,
+    *,
+    operation: Literal["stored", "cleared"] = "stored",
+    data_version: object = None,
+    updated_at: object = None,
+) -> None:
+    """Publish a metadata-only owner doorbell after a committed location mutation."""
+    message_id = f"location_pkm_changed:{uuid.uuid4()}"
+    sync_data = {
+        "domain": "location",
+        "operation": operation,
+        "data_version": str(data_version or ""),
+        "updated_at": _isoformat_or_none(updated_at) or "",
+        "sync_only": "true",
+        "message_id": message_id,
+    }
+    try:
+        from api.consent_listener import publish_user_state_event_threadsafe
+
+        publish_user_state_event_threadsafe(
+            user_id,
+            {
+                "type": "location_pkm_changed",
+                "user_id": user_id,
+                "request_url": "/one/location?action=settings",
+                "deep_link": "/one/location?action=settings",
+                "notification_tag": message_id,
+                "notification_category": "ONE_LOCATION",
+                **sync_data,
+            },
+        )
+    except Exception as exc:  # noqa: BLE001 - realtime is best-effort
+        logger.warning("[PKM] location sync SSE skipped: %s", exc)
+
+    async def _deliver_push() -> None:
+        try:
+            await asyncio.get_running_loop().run_in_executor(
+                _LOCATION_SYNC_PUSH_EXECUTOR,
+                partial(
+                    send_user_data_push,
+                    user_id,
+                    notification_type="location_pkm_changed",
+                    title="Saved locations updated",
+                    body="Your saved locations changed on another session.",
+                    deep_link="/one/location?action=settings",
+                    notification_tag=message_id,
+                    notification_category="ONE_LOCATION",
+                    data=sync_data,
+                    show_alert=False,
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001 - committed writes must still succeed
+            logger.warning("[PKM] location sync push skipped: %s", exc)
+
+    if len(_LOCATION_SYNC_PUSH_TASKS) >= _LOCATION_SYNC_PUSH_MAX_PENDING:
+        logger.warning("[PKM] location sync push skipped: delivery backlog is full")
+        return
+    task = asyncio.create_task(_deliver_push())
+    _LOCATION_SYNC_PUSH_TASKS.add(task)
+    task.add_done_callback(_LOCATION_SYNC_PUSH_TASKS.discard)
+    # Let the delivery task enter its dedicated bounded executor without waiting on FCM.
+    await asyncio.sleep(0)
 
 
 def _json_object_or_default(value, default: Optional[dict] = None) -> dict:
@@ -827,6 +901,13 @@ async def store_domain(
             },
         )
 
+    if canonical_domain == "location":
+        await _notify_location_pkm_changed(
+            request.user_id,
+            data_version=store_result.get("data_version"),
+            updated_at=store_result.get("updated_at"),
+        )
+
     return StoreDomainResponse(
         success=True,
         message=f"Successfully stored {canonical_domain} domain data",
@@ -1340,6 +1421,9 @@ async def delete_domain_data(
             detail=f"Failed to delete {domain} domain data",
         )
 
+    if canonical_top_level_domain(domain) == "location":
+        await _notify_location_pkm_changed(user_id, operation="cleared")
+
     return DeleteDomainResponse(
         success=True,
         message=f"Successfully deleted {domain} domain data",
@@ -1434,6 +1518,13 @@ async def delete_domain_data_confirmed(
                 "code": result.get("code") or "PKM_DELETE_DOMAIN_FAILED",
                 "message": "Failed to delete encrypted PKM domain data.",
             },
+        )
+    if canonical_domain == "location" and result.get("deleted"):
+        await _notify_location_pkm_changed(
+            request.user_id,
+            operation="cleared",
+            data_version=result.get("data_version"),
+            updated_at=result.get("updated_at"),
         )
     return DeleteDomainResponse(
         success=True,

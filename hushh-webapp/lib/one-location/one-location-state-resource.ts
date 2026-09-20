@@ -1,4 +1,5 @@
 import type {
+  OneLocationAutoApprovePreference,
   OneLocationAccessRequest,
   OneLocationGrant,
   OneLocationState,
@@ -59,6 +60,26 @@ export const OneLocationStateResource = {
   write(userId: string, state: OneLocationState): void {
     presentationByUser.set(userId, state);
     CacheService.getInstance().set(this.key(userId), state, CACHE_TTL.SHORT);
+  },
+
+  /**
+   * Commit the authoritative auto-approve PATCH result before any background
+   * reconciliation. Invalidating first rejects a state request that began
+   * before this privacy-sensitive preference changed.
+   */
+  mergeAutoApprovePreference(
+    userId: string,
+    preference: OneLocationAutoApprovePreference,
+    fallbackState?: OneLocationState,
+  ): boolean {
+    const current = this.readPresentation(userId) ?? fallbackState;
+    if (!current) return false;
+    this.invalidate(userId);
+    this.write(userId, {
+      ...current,
+      autoApprovePreference: preference,
+    });
+    return true;
   },
 
   replaceSmsContactUserIds(userId: string, userIds: string[]): boolean {

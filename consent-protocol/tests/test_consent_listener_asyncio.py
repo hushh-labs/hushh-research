@@ -157,7 +157,18 @@ class TestNotifyCallbackTaskManagement:
 
 
 class TestCrossProcessUserStateNotifications:
-    def test_postgres_callback_delivers_to_every_stream_owned_by_this_worker(self):
+    @pytest.mark.parametrize(
+        "event_type",
+        [
+            "location_circle_renamed",
+            "location_settings_changed",
+            "location_pkm_changed",
+        ],
+    )
+    def test_postgres_callback_delivers_to_every_stream_owned_by_this_worker(
+        self,
+        event_type,
+    ):
         async def _run():
             from api import consent_listener
 
@@ -165,9 +176,9 @@ class TestCrossProcessUserStateNotifications:
             first_queue = await consent_listener.subscribe_consent_queue("member-1")
             second_queue = await consent_listener.subscribe_consent_queue("member-1")
             payload = {
-                "type": "location_circle_renamed",
+                "type": event_type,
                 "user_id": "member-1",
-                "message_id": "location_circle_renamed:event-1",
+                "message_id": f"{event_type}:event-1",
                 "circle_id": "circle-1",
             }
 
