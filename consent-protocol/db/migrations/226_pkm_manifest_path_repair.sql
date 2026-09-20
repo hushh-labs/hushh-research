@@ -127,6 +127,11 @@ BEGIN
     );
   END IF;
 
+  -- The repair changes manifest metadata only. Carry the verified blob
+  -- revision into every repaired projection and response so a successful
+  -- repair never reports a NULL content/data revision.
+  v_current_content_revision := v_max_content_revision;
+
   -- Only the manifest revision changes on blobs. Ciphertext, IV, tag,
   -- algorithm, segment IDs, size and content_revision remain untouched.
   UPDATE pkm_blobs
