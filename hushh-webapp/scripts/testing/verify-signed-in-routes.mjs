@@ -317,6 +317,11 @@ const ROUTE_OVERRIDES = {
     allowedPathnames: ["/one/setup", "/"],
     allowedRouteIds: ["/one/setup", "/"],
   },
+  "/one/setup/location": {
+    path: "/one/setup/location",
+    allowedPathnames: ["/one/location"],
+    allowedRouteIds: ["/one/location"],
+  },
   // Public workspace entries remain reachable anonymously, but an
   // authenticated reviewer is admitted to canonical Chat at `/`.
   "/welcome": {
