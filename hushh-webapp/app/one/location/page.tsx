@@ -5230,6 +5230,7 @@ export function OneLocationAgentPageContent({
           current.filter((id) => !sent.has(id)),
         );
       }
+      setDurationHours("1");
       setRequestMessage("");
     },
     [],
@@ -14474,6 +14475,7 @@ export function OneLocationAgentPageContent({
     setRequestMessage,
     setShareReviewOpen,
     resetShareComposer,
+    resetRequestComposer,
     startShareComposer,
     setSelectedRequestOwnerIds,
     toggleShareRecipient: (id) => toggleShareRecipient(id, "section_list"),

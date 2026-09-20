@@ -2211,6 +2211,9 @@ describe("Connect — the phone-width geometry QA reported", () => {
     const remove = await screen.findByRole("button", {
       name: "Remove connection with Abdul Rashid",
     });
+    expect(remove.className).toContain("h-11");
+    expect(remove.className).toContain("min-h-11");
+    expect(remove.className).not.toContain("before:-inset-y-1.5");
     const trailing = remove.closest("div");
     expect(trailing).toBeTruthy();
 
@@ -2308,6 +2311,8 @@ describe("Connect — the phone-width geometry QA reported", () => {
       name: "Cancel your request to Smirthika Dharmalingam",
     });
     expect(cancel.textContent).toBe("Cancel");
+    expect(cancel.className).toContain("h-11");
+    expect(cancel.className).toContain("min-h-11");
     expect(screen.queryByText("Cancel request")).toBeNull();
 
     // WCAG 2.5.3: the accessible name has to contain the visible label, or

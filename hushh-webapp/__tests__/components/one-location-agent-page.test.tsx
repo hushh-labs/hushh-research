@@ -3946,7 +3946,7 @@ describe("OneLocationAgentPage", () => {
     // Reproduce the original regression: the Ask screen restored this stale
     // draft after the People action selected Investor D, silently replacing
     // the person the user had just acted on.
-    window.localStorage.setItem(
+    window.sessionStorage.setItem(
       "hushh:one-location:ask-draft",
       JSON.stringify({
         search: "Trusted",
@@ -3991,6 +3991,14 @@ describe("OneLocationAgentPage", () => {
     });
     expect(within(selectedPeople).getByText("Investor D")).toBeTruthy();
     expect(within(selectedPeople).queryByText("Trusted B")).toBeNull();
+    expect(screen.getByRole("button", { name: "1 hour" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(
+      screen.getByRole("radio", { name: "Safety check-in" }),
+    ).toHaveAttribute("aria-checked", "true");
+    expect(screen.queryByDisplayValue("Old draft")).toBeNull();
     expect(screen.getByRole("button", { name: "Send request" })).toBeEnabled();
   });
 

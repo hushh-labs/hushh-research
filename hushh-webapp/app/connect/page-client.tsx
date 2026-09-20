@@ -292,9 +292,9 @@ async function mapWithConcurrency<T, R>(
 /** Fetch one small batch at a time as browsing or search reaches the list end. */
 const DEFAULT_PAGE_SIZE = 20;
 const CONNECT_ROW_ACTION_CLASSNAME =
-  "ui-text-compact-button-label relative h-8 min-h-8 rounded-2xl px-2.5 before:absolute before:-inset-y-1.5 before:inset-x-0 before:content-['']";
+  "ui-text-compact-button-label h-11 min-h-11 rounded-2xl px-2.5";
 const CONNECT_INLINE_BUTTON_CLASSNAME =
-  "ui-text-compact-button-label relative h-8 min-h-8 rounded-2xl px-3 before:absolute before:-inset-y-1.5 before:inset-x-0 before:content-['']";
+  "ui-text-compact-button-label h-11 min-h-11 rounded-2xl px-3";
 const CONNECT_SECTION_CONTROL_LABEL_CLASSNAME =
   "connect-section-control-label";
 const CONNECT_REFRESH_BUTTON_CLASSNAME =

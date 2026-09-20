@@ -510,6 +510,7 @@ export type LocationHubViewModel = {
   setRequestMessage: (v: string) => void;
   setShareReviewOpen: (v: boolean) => void;
   resetShareComposer: () => void;
+  resetRequestComposer: () => void;
   startShareComposer: (initialRecipientId?: string) => void;
   setSelectedRequestOwnerIds: (ids: string[]) => void;
 
@@ -1405,8 +1406,10 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         // direct Share action. Do not let a stale autosaved Ask draft replace
         // that person when the flow mounts.
         clearStoredAskFlowDraft();
+        vm.resetRequestComposer();
         vm.setRecipientSearch("");
         vm.setSelectedRequestOwnerIds([recipientId]);
+        setReason("Safety check-in");
         setAskInitialStep("details");
       } else {
         setAskInitialStep("person");

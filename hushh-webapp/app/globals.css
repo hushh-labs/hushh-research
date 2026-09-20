@@ -6507,7 +6507,6 @@ body[data-persona-surface="ria"] {
   font-weight: var(--type-button-label-weight) !important;
   letter-spacing: normal !important;
   line-height: var(--type-button-label-line) !important;
-  opacity: 1 !important;
   white-space: nowrap !important;
 }
 
@@ -6517,7 +6516,6 @@ body[data-persona-surface="ria"] {
   font-weight: var(--type-compact-button-label-weight) !important;
   letter-spacing: normal !important;
   line-height: var(--type-compact-button-label-line) !important;
-  opacity: 1 !important;
   white-space: nowrap !important;
 }
 
