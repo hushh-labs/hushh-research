@@ -6,6 +6,7 @@ import { useVault } from "@/lib/vault/vault-context";
 import { REQUEST_DURATION_OPTIONS } from "@/lib/agent/action-directive-summary";
 import { PersonProfileService } from "@/lib/services/person-profile-service";
 import { OneKycClientZkService } from "@/lib/services/one-kyc-client-zk-service";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 
 export type PersonInformationDraft = {
   scopeRefs: string[];
@@ -78,6 +79,11 @@ export function usePersonInformationRequest(personRef: string) {
               connectorKeyId: connector.connector_key_id, idempotencyKey, vaultOwnerToken,
               signal: controller.signal,
             });
+            // The request mutation is authoritative even if this component
+            // becomes stale before its acknowledgement is painted. Invalidate
+            // the owner-scoped consent projections from the mutation boundary
+            // so Chat, Profile, and Consent Center cannot reuse old state.
+            CacheSyncService.onConsentMutated(user.uid);
             resolve();
           } catch (reason) { reject(reason); }
           finally { controller.signal.removeEventListener("abort", aborted); }

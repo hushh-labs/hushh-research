@@ -48,6 +48,7 @@ import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-ac
 import { useConsentActions } from "@/lib/consent/use-consent-actions";
 import { OneKycClientZkService } from "@/lib/services/one-kyc-client-zk-service";
 import { PersonProfileService } from "@/lib/services/person-profile-service";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 
 /** Seconds, from the hours the proposal carried. */
 function durationSeconds(hours: unknown): number {
@@ -123,6 +124,7 @@ export function GlobalConsentActionHandlers() {
           idempotencyKey,
           vaultOwnerToken,
         });
+        CacheSyncService.onConsentMutated(user.uid);
       } catch (reason) {
         const message =
           reason instanceof Error && reason.message
@@ -231,11 +233,16 @@ export function GlobalConsentActionHandlers() {
           summary: "I could not tell which request that was. Ask me what you've sent.",
         };
       }
+      if (!user) {
+        return { status: "failed" as const, summary: "Sign in first." };
+      }
+      const viewerUid = user.uid;
       if (!vaultOwnerToken) {
         return { status: "failed" as const, summary: "Unlock your private agent first." };
       }
       try {
         await PersonProfileService.cancelInformationRequest({ bundleId, vaultOwnerToken });
+        CacheSyncService.onConsentMutated(viewerUid);
       } catch (reason) {
         return {
           status: "failed" as const,

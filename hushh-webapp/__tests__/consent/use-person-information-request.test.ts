@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
   uid: "reviewer-a", unlocked: true,
-  connector: vi.fn(), create: vi.fn(),
+  connector: vi.fn(), create: vi.fn(), consentMutation: vi.fn(),
 }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: { uid: state.uid } }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({
@@ -11,6 +11,9 @@ vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({
 }) }));
 vi.mock("@/lib/services/one-kyc-client-zk-service", () => ({ OneKycClientZkService: { ensureConnector: state.connector } }));
 vi.mock("@/lib/services/person-profile-service", () => ({ PersonProfileService: { createInformationRequest: state.create } }));
+vi.mock("@/lib/cache/cache-sync-service", () => ({
+  CacheSyncService: { onConsentMutated: state.consentMutation },
+}));
 
 import { usePersonInformationRequest } from "@/lib/consent/use-person-information-request";
 
@@ -26,6 +29,7 @@ describe("shared explicit information request submission", () => {
     vi.clearAllMocks(); state.uid = "reviewer-a"; state.unlocked = true;
     state.connector.mockResolvedValue({ connector_key_id: "connector-a" });
     state.create.mockResolvedValue({ bundleId: "synthetic-bundle" });
+    state.consentMutation.mockReset();
   });
   afterEach(() => { cleanup(); vi.useRealTimers(); });
 
@@ -49,6 +53,7 @@ describe("shared explicit information request submission", () => {
     await act(async () => { prepared.resolve({ connector_key_id: "connector-a" }); expect(await first).toBe(true); });
     expect(state.create).toHaveBeenCalledTimes(1);
     expect(state.create).toHaveBeenCalledWith(expect.objectContaining({ personRef: "person-b", scopeRefs: ["opaque-1", "opaque-2"], connectorKeyId: "connector-a" }));
+    expect(state.consentMutation).toHaveBeenCalledWith("reviewer-a");
   });
 
   it("reuses the same key after a lost acknowledgement, but rotates it for an edited draft", async () => {

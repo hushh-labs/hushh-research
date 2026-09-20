@@ -26,6 +26,26 @@ class _Consent:
     async def get_active_tokens(self, *_args, **_kwargs):
         return []
 
+    async def get_active_token_export_revisions(self, _tokens):
+        return {}
+
+
+class _ConsentWithGrant(_Consent):
+    async def get_active_tokens(self, *_args, **_kwargs):
+        return [
+            {
+                "token_id": "token-1",
+                "scope": "attr.professional.job",
+                "request_id": "request-1",
+                "issued_at": 1,
+                "expires_at": None,
+            }
+        ]
+
+    async def get_active_token_export_revisions(self, tokens):
+        assert tokens == ["token-1"]
+        return {"token-1": 7}
+
 
 @pytest.mark.asyncio
 async def test_profile_catalog_pages_all_fields_and_resets_when_authority_changes(monkeypatch):
@@ -132,6 +152,35 @@ async def test_viewer_profile_exposes_opaque_scope_metadata_without_raw_scope() 
     assert payload["requestableScopes"][0]["scopeRef"].startswith("psr_")
     assert "scope" not in payload["requestableScopes"][0]
     assert payload["relationship"]["status"] == "none"
+
+
+@pytest.mark.asyncio
+async def test_viewer_profile_exposes_export_revision_as_metadata_for_grants() -> None:
+    rows = iter(
+        [
+            [
+                {
+                    "user_id": "subject",
+                    "public_person_ref": "11111111-1111-4111-8111-111111111111",
+                    "display_name": "A Person",
+                    "photo_url": None,
+                    "is_verified_ria": False,
+                }
+            ],
+            [{"public_person_ref": "22222222-2222-4222-8222-222222222222"}],
+            [],
+            [],
+            [],
+        ]
+    )
+    db = SimpleNamespace(execute_raw=lambda *_args, **_kwargs: SimpleNamespace(data=next(rows)))
+    service = PersonProfileService(connections=_Connections(), consent_db=_ConsentWithGrant())
+    with patch("hushh_mcp.services.person_profile_service.get_db", lambda: db):
+        payload = await service.get_viewer_profile(
+            viewer_user_id="viewer",
+            public_person_ref="11111111-1111-4111-8111-111111111111",
+        )
+    assert payload["grants"][0]["exportRevision"] == 7
 
 
 class _ConsentWithHistory(_Consent):

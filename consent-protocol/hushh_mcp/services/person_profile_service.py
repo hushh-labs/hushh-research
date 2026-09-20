@@ -269,8 +269,12 @@ class PersonProfileService:
                 subject_user_id,
                 agent_id=requester_principal(viewer_ref),
             )
+            export_revisions = await self._consent_db.get_active_token_export_revisions(
+                [str(grant.get("token_id") or "") for grant in active]
+            )
             for grant in active:
                 scope_projection = scope_by_name.get(str(grant.get("scope") or ""))
+                token_id = str(grant.get("token_id") or "")
                 grants.append(
                     {
                         "scopeRef": (scope_projection or {}).get("scopeRef"),
@@ -280,7 +284,8 @@ class PersonProfileService:
                         "issuedAt": grant.get("issued_at"),
                         "expiresAt": grant.get("expires_at"),
                         "status": "granted",
-                        "encryptedExportAvailable": bool(grant.get("token_id")),
+                        "encryptedExportAvailable": bool(token_id),
+                        "exportRevision": export_revisions.get(token_id),
                     }
                 )
 

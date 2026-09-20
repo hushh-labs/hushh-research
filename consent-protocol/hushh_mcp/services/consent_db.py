@@ -878,6 +878,47 @@ class ConsentDBService:
 
         return results
 
+    async def get_active_token_export_revisions(
+        self,
+        consent_tokens: List[str],
+    ) -> Dict[str, int]:
+        """Return current encrypted-export revisions for active consent tokens.
+
+        This is metadata-only and intentionally batched.  Callers use it to
+        decide whether an in-memory decrypted view can be reused; it never
+        returns ciphertext or any decrypted information.
+        """
+        tokens = [str(token).strip() for token in consent_tokens if str(token).strip()]
+        if not tokens:
+            return {}
+        try:
+            query = (
+                self._get_db()
+                .table("consent_exports")
+                .select("consent_token, export_revision")
+                .in_("consent_token", tokens)
+                .gt("expires_at", datetime.now(timezone.utc).isoformat())
+            )
+            response = await asyncio.to_thread(query.execute)
+        except Exception as exc:
+            logger.warning(
+                "Failed to read consent export revisions error_type=%s",
+                type(exc).__name__,
+            )
+            return {}
+
+        revisions: Dict[str, int] = {}
+        for row in response.data or []:
+            token = str(row.get("consent_token") or "").strip()
+            if not token:
+                continue
+            try:
+                revision = int(row.get("export_revision") or 1)
+            except (TypeError, ValueError):
+                revision = 1
+            revisions[token] = max(1, revision)
+        return revisions
+
     async def fetch_expired_consents(self):
         """Return only currently-effective expired external grants.
 

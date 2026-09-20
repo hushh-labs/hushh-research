@@ -127,6 +127,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
   }, [resolvedPersonRef, user?.uid, isVaultUnlocked]);
   const [relationshipBusy, setRelationshipBusy] = useState(false);
   const [decryptedByRequest, setDecryptedByRequest] = useState<Record<string, Record<string, unknown>>>({});
+  const [decryptedRevisionByRequest, setDecryptedRevisionByRequest] = useState<Record<string, number | null>>({});
   const [decryptingRequestId, setDecryptingRequestId] = useState<string | null>(null);
   const [cancellingBundleId, setCancellingBundleId] = useState<string | null>(null);
   const [sharedSearchQuery, setSharedSearchQuery] = useState("");
@@ -215,12 +216,14 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     setDurationHours(DEFAULT_REQUEST_DURATION_HOURS);
     setBundleDetails({});
     setDecryptedByRequest({});
+    setDecryptedRevisionByRequest({});
     setDecryptingRequestId(null);
   }, [resolvedPersonRef, user?.uid]);
 
   useEffect(() => {
     if (isVaultUnlocked) return;
     setDecryptedByRequest({});
+    setDecryptedRevisionByRequest({});
     setDecryptingRequestId(null);
   }, [isVaultUnlocked]);
 
@@ -384,7 +387,12 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
         toast.error("Unlock your vault to view this grant.");
         return;
       }
-      if (decryptedByRequest[requestId]) return;
+      const grant = viewerProfile.grants.find((item) => item.requestId === requestId);
+      const expectedRevision = grant?.exportRevision;
+      if (
+        decryptedByRequest[requestId]
+        && (expectedRevision == null || decryptedRevisionByRequest[requestId] === expectedRevision)
+      ) return;
       const history = viewerProfile.requestHistory.find((item) => item.requestId === requestId);
       if (!history) {
         toast.error("This shared information is not available right now.");
@@ -404,12 +412,22 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
         });
         const exact = exports.find((item) => item.requestId === requestId);
         if (!exact) throw new Error("This shared information is not available right now.");
+        const packageRevision = typeof exact.encryptedExport.export_revision === "number"
+          ? exact.encryptedExport.export_revision
+          : null;
+        if (expectedRevision != null && packageRevision != null && expectedRevision !== packageRevision) {
+          throw new Error("This shared information changed. Please check again.");
+        }
         const payload = await OneKycClientZkService.decryptScopedExport({
           exportPackage: exact.encryptedExport,
           connector,
         });
         if (generation !== requestGeneration.current) return;
         setDecryptedByRequest((current) => ({ ...current, [requestId]: payload }));
+        setDecryptedRevisionByRequest((current) => ({
+          ...current,
+          [requestId]: packageRevision ?? expectedRevision ?? null,
+        }));
       } catch (reason) {
         if (generation === requestGeneration.current) {
           toast.error(oneLocationErrorMessage(reason, "This shared information could not be opened."));
@@ -420,6 +438,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     },
     [
       decryptedByRequest,
+      decryptedRevisionByRequest,
       isVaultUnlocked,
       user,
       vaultKey,
@@ -497,6 +516,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     filteredGrants,
     user,
     decryptedByRequest,
+    decryptedRevisionByRequest,
     decryptingRequestId,
     revealGrant,
   ]);
@@ -509,6 +529,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     setCancellingBundleId(bundleId);
     try {
       await PersonProfileService.cancelInformationRequest({ bundleId, vaultOwnerToken });
+      CacheSyncService.onConsentMutated(user.uid);
       const idToken = await user.getIdToken();
       setViewerProfileState({
         personRef: resolvedPersonRef,

@@ -34,6 +34,8 @@ export type PersonGrant = {
   expiresAt: number | null;
   status: "granted";
   encryptedExportAvailable: boolean;
+  /** Current encrypted export revision; never contains export contents. */
+  exportRevision?: number | null;
 };
 
 export type ViewerPersonProfile = PublicPersonProfile & {
