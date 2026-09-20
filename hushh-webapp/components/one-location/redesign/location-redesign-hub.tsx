@@ -1276,6 +1276,9 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   }, [pathname, router, searchParams]);
 
   const [shareStep, setShareStep] = useState<"person" | "details">("person");
+  const [askInitialStep, setAskInitialStep] = useState<"person" | "details">(
+    "person",
+  );
   const [reason, setReason] = useState<ReasonValue | null>("Safety check-in");
   const activeFlowRef = useRef<FlowKind>("none");
   const resetShareComposer = vm.resetShareComposer;
@@ -1398,7 +1401,15 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     (initialRecipientId?: string) => {
       const recipientId = initialRecipientId?.trim();
       if (recipientId) {
+        // A named person action is an explicit new intent, just like the
+        // direct Share action. Do not let a stale autosaved Ask draft replace
+        // that person when the flow mounts.
+        clearStoredAskFlowDraft();
+        vm.setRecipientSearch("");
         vm.setSelectedRequestOwnerIds([recipientId]);
+        setAskInitialStep("details");
+      } else {
+        setAskInitialStep("person");
       }
       openFlow("ask");
     },
@@ -1416,6 +1427,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
       activeFlowRef.current = "none";
       pendingFlowRef.current = "none";
       setShareStep("person");
+      setAskInitialStep("person");
       vm.setShareReviewOpen(false);
       if (nextTab) {
         setTabState(nextTab);
@@ -1622,6 +1634,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         ) : flow === "ask" ? (
           <AskFlow
             vm={vm}
+            initialStep={askInitialStep}
             reason={reason}
             setReason={setReason}
             onClose={closeFlow}
@@ -2117,6 +2130,7 @@ function NowHub({
         />
       ) : null}
       <Dialog
+        modal
         open={Boolean(vm.liveShare && vm.liveShareDurationEditing)}
         onOpenChange={(open) => {
           if (!open) vm.onEditLiveShareDurationCancel();
@@ -3363,7 +3377,7 @@ function LocationSettingsFlow({
         <SavedLocationsSection />
       </div>
 
-      <Dialog open={scopeSheetOpen} onOpenChange={setScopeSheetOpen}>
+      <Dialog modal open={scopeSheetOpen} onOpenChange={setScopeSheetOpen}>
         <DialogContent
           className="max-w-[min(420px,calc(100vw-32px))] gap-5 rounded-[24px] p-5 sm:p-6"
           showCloseButton={false}
@@ -4065,6 +4079,7 @@ function CircleInvitationsDialog({
 
   return (
     <Dialog
+      modal
       open={open}
       onOpenChange={(next) => {
         onOpenChange(next);
@@ -4261,7 +4276,7 @@ function PersonActionsDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog modal open={open} onOpenChange={onOpenChange}>
       <DialogContent
         aria-label={`Location actions for ${name}`}
         className="max-w-[420px] rounded-[24px] p-0"
@@ -6031,17 +6046,19 @@ function RequestRecipientListRow({
 
 function AskFlow({
   vm,
+  initialStep,
   reason,
   setReason,
   onClose,
 }: {
   vm: LocationHubViewModel;
+  initialStep: "person" | "details";
   reason: ReasonValue | null;
   setReason: (r: ReasonValue) => void;
   onClose: (nextTab?: LocationHubTab) => void;
 }) {
   const filtered = vm.visibleRecipients;
-  const [step, setStep] = useState<"person" | "details">("person");
+  const [step, setStep] = useState<"person" | "details">(initialStep);
   /**
    * The field is local; the FILTER is debounced.
    *

@@ -367,7 +367,7 @@ async function openSetup(page: Page, width: number) {
 }
 
 const hierarchyBody = `
-<aside data-type-panel class="flex flex-col gap-4 p-5">
+<aside data-type-panel class="app-page-shell flex flex-col gap-4 p-5">
   <h1 data-drawer-title data-slot="sheet-title" class="${CHECK_IN_DRAWER_TITLE_CLASSNAME}">Check in nearby</h1>
   <section>
     <h2 data-section-title class="${CHECK_IN_SECTION_TITLE_CLASSNAME}">Nearby places</h2>

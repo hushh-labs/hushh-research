@@ -52,6 +52,8 @@ import {
   CHECK_IN_PLACE_ROW_ON_CLASSNAME,
   CHECK_IN_SECTION_TITLE_CLASSNAME,
   CHECK_IN_SUBSECTION_TITLE_CLASSNAME,
+  CHECK_IN_VISIBILITY_CHECKBOX_CLASSNAME,
+  CHECK_IN_VISIBILITY_SWITCH_CLASSNAME,
   CHECK_OUT_BUTTON_VARIANT,
 } from "@/components/one-location/nearby-check-in/check-in-panel-layout";
 
@@ -3242,7 +3244,7 @@ export function NearbyCheckInSheet({
                   <div className="mt-3 rounded-2xl border border-border/60">
                     <label className="flex cursor-pointer items-start gap-3 p-4">
                       <Checkbox
-                        className="mt-0.5"
+                        className={CHECK_IN_VISIBILITY_CHECKBOX_CLASSNAME}
                         checked={consentAccepted}
                         onCheckedChange={(checked) =>
                           setConsentAccepted(checked === true)
@@ -3278,6 +3280,7 @@ export function NearbyCheckInSheet({
                         </span>
                       </span>
                       <Switch
+                        className={CHECK_IN_VISIBILITY_SWITCH_CLASSNAME}
                         checked={allowConnectionRequests}
                         onCheckedChange={setAllowConnectionRequests}
                         aria-label="Allow nearby connection requests"

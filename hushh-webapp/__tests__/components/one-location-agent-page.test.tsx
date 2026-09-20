@@ -3942,6 +3942,58 @@ describe("OneLocationAgentPage", () => {
     expect(mockStoreEnvelope).not.toHaveBeenCalled();
   });
 
+  it("opens a named People action directly in Ask details with that person selected", async () => {
+    // Reproduce the original regression: the Ask screen restored this stale
+    // draft after the People action selected Investor D, silently replacing
+    // the person the user had just acted on.
+    window.localStorage.setItem(
+      "hushh:one-location:ask-draft",
+      JSON.stringify({
+        search: "Trusted",
+        selectedOwnerIds: ["user_b"],
+        durationHours: "2",
+        requestMessage: "Old draft",
+        reason: "Other",
+      }),
+    );
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: "People" }));
+    fireEvent.change(await screen.findByPlaceholderText(/Search people/i), {
+      target: { value: "Investor" },
+    });
+    await openPeoplePersonActions("Investor D");
+
+    const actionsDialog = screen.getByRole("dialog", {
+      name: "Investor D",
+    });
+    expect(document.body).toHaveStyle({ pointerEvents: "none" });
+    expect(actionsDialog).toHaveStyle({ pointerEvents: "auto" });
+    expect(document.querySelector('[data-slot="dialog-overlay"]')).toHaveClass(
+      "backdrop-blur-[12px]",
+    );
+
+    fireEvent.click(
+      within(actionsDialog).getByRole("button", { name: "Ask for location" }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Who, then how long?" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("heading", { name: "Ask for location" }),
+    ).toBeNull();
+    const selectedPeople = screen.getByRole("list", {
+      name: "People you are asking for location",
+    });
+    expect(within(selectedPeople).getByText("Investor D")).toBeTruthy();
+    expect(within(selectedPeople).queryByText("Trusted B")).toBeNull();
+    expect(screen.getByRole("button", { name: "Send request" })).toBeEnabled();
+  });
+
   it("resets every abandoned share field and ignores a late review preflight", async () => {
     const { rerender } = render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();

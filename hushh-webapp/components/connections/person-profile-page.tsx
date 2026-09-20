@@ -1073,7 +1073,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
           </SectionCard>
         ) : null}
       </div>
-      <Dialog open={reviewOpen} onOpenChange={setReviewOpen}>
+      <Dialog modal open={reviewOpen} onOpenChange={setReviewOpen}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Request information from {profile.displayName}</DialogTitle>

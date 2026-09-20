@@ -65,6 +65,14 @@ export const CHECK_IN_SUBSECTION_TITLE_CLASSNAME =
 export const CHECK_IN_CATEGORY_CHIP_CLASSNAME =
   "shrink-0 rounded-full text-[14px] font-semibold leading-[18px] sm:text-[15px] sm:leading-5";
 
+/** Visibility controls use Location blue, not the global neutral checkbox or
+ * success-green switch. These are preferences, not success confirmations. */
+export const CHECK_IN_VISIBILITY_CHECKBOX_CLASSNAME =
+  "mt-0.5 data-[state=checked]:!border-[color:var(--app-accent)] data-[state=checked]:!bg-[color:var(--app-accent)] data-[state=checked]:!text-[color:var(--app-accent-fg)]";
+
+export const CHECK_IN_VISIBILITY_SWITCH_CLASSNAME =
+  "data-[state=checked]:!bg-[color:var(--app-accent)]";
+
 /**
  * The category chip scroller.
  *

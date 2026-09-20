@@ -114,6 +114,8 @@ import {
   CHECK_IN_DRAWER_TITLE_CLASSNAME,
   CHECK_IN_SECTION_TITLE_CLASSNAME,
   CHECK_IN_SUBSECTION_TITLE_CLASSNAME,
+  CHECK_IN_VISIBILITY_CHECKBOX_CLASSNAME,
+  CHECK_IN_VISIBILITY_SWITCH_CLASSNAME,
 } from "@/components/one-location/nearby-check-in/check-in-panel-layout";
 
 const point = {
@@ -386,6 +388,14 @@ describe("NearbyCheckInSheet", () => {
     expect(screen.getByText("Allow connection requests")).toHaveClass(
       CHECK_IN_SUBSECTION_TITLE_CLASSNAME,
     );
+    expect(
+      screen.getByRole("checkbox", { name: /Show my name here/ }),
+    ).toHaveClass(...CHECK_IN_VISIBILITY_CHECKBOX_CLASSNAME.split(" "));
+    expect(
+      screen.getByRole("switch", {
+        name: "Allow nearby connection requests",
+      }),
+    ).toHaveClass(...CHECK_IN_VISIBILITY_SWITCH_CLASSNAME.split(" "));
 
     // Category filters are available immediately with their concise labels.
     expect(screen.getByRole("button", { name: "Food" })).toHaveClass(

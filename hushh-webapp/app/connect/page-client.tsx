@@ -3619,6 +3619,7 @@ export default function ConnectPageClient() {
         )}
 
         <Dialog
+          modal
           open={
             batchConnectDraft !== null &&
             batchConnectDraft.ownerId === user?.uid

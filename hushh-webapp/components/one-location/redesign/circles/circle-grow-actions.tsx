@@ -265,6 +265,7 @@ export function CircleInvitePeopleSheet({
 
   return (
     <Sheet
+      modal
       open={open}
       onOpenChange={(next) => {
         onOpenChange(next);

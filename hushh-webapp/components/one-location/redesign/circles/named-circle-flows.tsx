@@ -2075,6 +2075,7 @@ export function CircleDetailFlow({
 
           {isOwner && circle.systemKind !== "trusted" ? (
             <Sheet
+              modal
               open={renameSheetOpen}
               onOpenChange={(open) => {
                 setRenameSheetOpen(open);
@@ -2199,6 +2200,7 @@ export function CircleDetailFlow({
 
           {canViewInviteCode ? (
             <Sheet
+              modal
               open={inviteCodeSheetOpen}
               onOpenChange={(open) => {
                 setInviteCodeSheetOpen(open);
@@ -2360,6 +2362,7 @@ export function CircleDetailFlow({
           ) : null}
 
           <Sheet
+            modal
             open={peopleSheetOpen}
             onOpenChange={(open) => {
               if (open && !canInviteMembers) return;
