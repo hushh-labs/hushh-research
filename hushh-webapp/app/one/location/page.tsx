@@ -5834,7 +5834,7 @@ export function OneLocationAgentPageContent({
         const mailNote =
           (mail.emailed > 0 ? ` Emailed ${mail.emailed}.` : "") +
           (mail.withoutEmail.length > 0
-            ? ` No email on file for ${formatNameList(mail.withoutEmail)}.`
+            ? ` No mail on file for ${formatNameList(mail.withoutEmail)}.`
             : "");
 
         // Emitted after the email fallback so it reports the alert's real

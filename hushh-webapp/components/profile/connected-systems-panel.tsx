@@ -312,7 +312,7 @@ function VerifiedProfileSummary({
 }) {
   const entries = [
     { label: "Name", value: cleanFieldValue(profile?.displayName) },
-    { label: "Email", value: cleanFieldValue(profile?.email) },
+    { label: "Mail", value: cleanFieldValue(profile?.email) },
     { label: "Phone", value: cleanFieldValue(profile?.phone) },
   ].filter((entry) => entry.value);
 

@@ -29,7 +29,7 @@ export function emailHelperConsentSummary(metadata: MetadataLike): string {
         .filter(Boolean)
     : [];
   if (fields.length === 1) {
-    return `Email Helper needs approval to use your ${fields[0]}.`;
+    return `Mail Helper needs approval to use your ${fields[0]}.`;
   }
-  return "Email Helper needs approval before it can draft this reply.";
+  return "Mail Helper needs approval before it can draft this reply.";
 }

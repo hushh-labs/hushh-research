@@ -205,11 +205,11 @@ describe("sanitizeGmailUserMessage", () => {
         "DB operation failed [<raw_sql>.execute_raw]: (psycopg2.OperationalError) server closed the connection unexpectedly",
         {
           fallback:
-            "Something went wrong while syncing your emails. Please try again in a moment.",
+            "Something went wrong while syncing your mail messages. Please try again in a moment.",
         },
       ),
     ).toBe(
-      "Something went wrong while syncing your emails. Please try again in a moment.",
+      "Something went wrong while syncing your mail messages. Please try again in a moment.",
     );
   });
 
@@ -217,10 +217,10 @@ describe("sanitizeGmailUserMessage", () => {
     expect(
       sanitizeGmailUserMessage("fetch failed: connection refused", {
         fallback:
-          "Something went wrong while syncing your emails. Please try again in a moment.",
+          "Something went wrong while syncing your mail messages. Please try again in a moment.",
       }),
     ).toBe(
-      "Something went wrong while syncing your emails. Please try again in a moment.",
+      "Something went wrong while syncing your mail messages. Please try again in a moment.",
     );
   });
 });
@@ -243,7 +243,7 @@ describe("resolveGmailStatusSummary", () => {
 
   it("uses only available scan counts when explaining receipt progress", () => {
     expect(describeGmailReceiptScanProgress({ scanned: 12, matched: 3 })).toBe(
-      "12 emails checked. 3 receipts matched so far. Receipt-based purchase interactions help One understand the brands you care about.",
+      "12 mail messages checked. 3 receipts matched so far. Receipt-based purchase interactions help One understand the brands you care about.",
     );
   });
 

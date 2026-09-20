@@ -258,7 +258,7 @@ class HushhAuthPlugin : Plugin() {
             return
         }
         if (pendingGmailConnectCall != null) {
-            call.reject("Gmail connection is already in progress")
+            call.reject("Mail connection is already in progress")
             return
         }
 
@@ -290,16 +290,16 @@ class HushhAuthPlugin : Plugin() {
                 .getResult(ApiException::class.java)
             val serverAuthCode = account.serverAuthCode
             if (serverAuthCode.isNullOrBlank()) {
-                call.reject("Google did not return a Gmail authorization code")
+                call.reject("Google did not return a Mail authorization code")
             } else {
                 call.resolve(JSObject().put("serverAuthCode", serverAuthCode))
             }
         } catch (error: ApiException) {
             Log.e(TAG, "❌ [HushhAuth] Gmail connection failed: ${error.statusCode} - ${error.message}")
             if (error.statusCode == 12501) {
-                call.reject("Gmail connection was cancelled", "USER_CANCELLED")
+                call.reject("Mail connection was cancelled", "USER_CANCELLED")
             } else {
-                call.reject("Gmail sign-in failed: ${error.message}")
+                call.reject("Mail sign-in failed: ${error.message}")
             }
         } finally {
             pendingGmailConnectCall = null

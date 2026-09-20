@@ -769,9 +769,9 @@ export function SaveMySoul() {
           <p className={MUTED_TEXT}>
             {tapDelivery.emailed > 0
               ? `Emailed ${tapDelivery.emailed}.`
-              : "No email went out."}
+              : "No mail went out."}
             {tapDelivery.withoutEmail.length
-              ? ` No email on file for ${formatNames(tapDelivery.withoutEmail)}.`
+              ? ` No mail on file for ${formatNames(tapDelivery.withoutEmail)}.`
               : ""}
             {tapDelivery.skippedNotReady.length
               ? ` Skipped ${formatNames(tapDelivery.skippedNotReady)} — not ready.`

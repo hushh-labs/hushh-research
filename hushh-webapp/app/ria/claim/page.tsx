@@ -885,7 +885,7 @@ export default function RiaClaimPage() {
                   data-testid="ria-claim-dossier-line"
                 >
                   Your dossier is on its way to{" "}
-                  {completeResult.dossier.email_masked || "your email"}
+                  {completeResult.dossier.email_masked || "your mail"}
                 </p>
               ) : null}
               {completeResult.facts ? (

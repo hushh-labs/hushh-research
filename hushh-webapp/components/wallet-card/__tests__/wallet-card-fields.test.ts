@@ -218,6 +218,6 @@ describe("wallet card payload projection", () => {
       email: "ada@example.com",
     });
 
-    expect(shared).toEqual(["Name", "Photo", "Headline", "Email"]);
+    expect(shared).toEqual(["Name", "Photo", "Headline", "Mail"]);
   });
 });

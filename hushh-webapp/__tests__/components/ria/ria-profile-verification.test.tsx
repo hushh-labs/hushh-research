@@ -244,7 +244,7 @@ describe("RiaProfileSection verification chip + email nudge", () => {
       screen.getByTestId("ria-profile-verification-chip").textContent,
     ).toContain("Not verified");
     expect(screen.getByTestId("ria-email-verify-card")).toBeTruthy();
-    expect(screen.getByText("Verify with your work email")).toBeTruthy();
+    expect(screen.getByText("Verify with your work mail")).toBeTruthy();
   });
 
   it("mounts the location map inside the Location group", () => {
