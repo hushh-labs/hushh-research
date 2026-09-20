@@ -27,6 +27,7 @@ import {
 import { INTERNAL_APP_NAVIGATION_REQUEST_EVENT } from "@/lib/utils/browser-navigation";
 import { ContactInvitationSessionProvider } from "@/components/connections/contact-invitation-session-provider";
 import { dispatchConnectionGraphChanged } from "@/lib/connections/connection-graph-events";
+import { ApiError } from "@/lib/services/api-client";
 
 function openDropdownMenu(trigger: HTMLElement) {
   fireEvent.keyDown(trigger, { key: "Enter", code: "Enter" });
@@ -68,6 +69,7 @@ const {
   mockWithdrawRequest,
   mockUpdateAutoApprovePreference,
   mockCreatePublicInvite,
+  mockRefreshPublicInviteLocation,
   mockRevokePublicInvite,
   mockCreateCircleInvite,
   mockEnsureSmsSystemCircle,
@@ -135,6 +137,7 @@ const {
   mockWithdrawRequest: vi.fn(),
   mockUpdateAutoApprovePreference: vi.fn(),
   mockCreatePublicInvite: vi.fn(),
+  mockRefreshPublicInviteLocation: vi.fn(),
   mockRevokePublicInvite: vi.fn(),
   mockCreateCircleInvite: vi.fn(),
   mockEnsureSmsSystemCircle: vi.fn(),
@@ -433,6 +436,7 @@ vi.mock("@/lib/one-location/service", () => ({
     denyRequest: vi.fn(),
     referRecipient: vi.fn(),
     createPublicInvite: mockCreatePublicInvite,
+    refreshPublicInviteLocation: mockRefreshPublicInviteLocation,
     createCircleInvite: mockCreateCircleInvite,
     revokePublicInvite: mockRevokePublicInvite,
     revokeCircleInvite: vi.fn(),
@@ -1329,6 +1333,7 @@ describe("OneLocationAgentPage", () => {
     mockCreatePublicInvite.mockResolvedValue({
       publicUrl: "/one/location/view/invite_1",
     });
+    mockRefreshPublicInviteLocation.mockResolvedValue({});
     mockEnsureSmsSystemCircle.mockResolvedValue({ members: [] });
     mockGetSmsContacts.mockResolvedValue([]);
     mockCreateNamedCircleMemberInvites.mockResolvedValue([]);
@@ -1422,18 +1427,26 @@ describe("OneLocationAgentPage", () => {
         createdAt: "2026-05-20T07:00:00.000Z",
       },
     ]);
-    // Most tests exercise the bounded local state fallback. Paging-specific
-    // tests override this with a server page; a successful static page here
-    // would overwrite each test's custom state with unrelated fixture rows.
-    mockListRecipientsPage.mockRejectedValue(
-      new Error("recipient page unavailable in this fixture"),
-    );
+    // Submission now revalidates against the complete authoritative audience.
+    // Paging-specific tests override this response when they need multiple
+    // pages or a remote graph change.
+    mockListRecipientsPage.mockImplementation(async ({ limit }) => {
+      if (limit !== 100) {
+        throw new Error("recipient page unavailable in this fixture");
+      }
+      return {
+        items: locationState().recipients,
+        page: 1,
+        hasMore: false,
+        totalCount: locationState().recipients.length,
+      };
+    });
     mockSendConnectionRequest.mockResolvedValue(undefined);
   });
 
   it("resolves and shares with a spoken recipient beyond the initial recipient page", async () => {
-    mockListRecipientsPage.mockImplementation(async ({ query }) => ({
-      items: query
+    mockListRecipientsPage.mockImplementation(async ({ query, limit }) => ({
+      items: query || limit === 100
         ? [
             {
               userId: "user_beyond_50",
@@ -1461,7 +1474,7 @@ describe("OneLocationAgentPage", () => {
         : [],
       page: 1,
       hasMore: false,
-      totalCount: query ? 1 : 0,
+      totalCount: query || limit === 100 ? 1 : 0,
     }));
 
     render(<OneLocationAgentPage />);
@@ -1593,6 +1606,68 @@ describe("OneLocationAgentPage", () => {
       ).toBeNull(),
     );
 
+  });
+
+  it("does not let an older recipient reload restore a remotely removed person", async () => {
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+
+    const latestState = locationState();
+    const latestRecipients = latestState.recipients.filter(
+      (recipient) => recipient.userId !== "user_d",
+    );
+    let resolveOlderAuthority!: (value: {
+      items: typeof latestState.recipients;
+      page: number;
+      hasMore: boolean;
+      totalCount: number;
+    }) => void;
+    const olderAuthority = new Promise<{
+      items: typeof latestState.recipients;
+      page: number;
+      hasMore: boolean;
+      totalCount: number;
+    }>((resolve) => {
+      resolveOlderAuthority = resolve;
+    });
+    let authorityReads = 0;
+    mockGetState.mockResolvedValue({
+      ...latestState,
+      recipients: latestRecipients,
+    });
+    mockListRecipientsPage.mockImplementation(async ({ limit }) => {
+      if (limit === 100) {
+        authorityReads += 1;
+        if (authorityReads === 1) return olderAuthority;
+      }
+      return {
+        items: latestRecipients,
+        page: 1,
+        hasMore: false,
+        totalCount: latestRecipients.length,
+      };
+    });
+
+    act(() => dispatchConnectionGraphChanged("user_a"));
+    await waitFor(() => expect(authorityReads).toBe(1));
+    act(() => dispatchConnectionGraphChanged("user_a"));
+    await waitFor(() => expect(authorityReads).toBe(2));
+
+    resolveOlderAuthority({
+      items: latestState.recipients,
+      page: 1,
+      hasMore: false,
+      totalCount: latestState.recipients.length,
+    });
+    await act(async () => Promise.resolve());
+
+    await openSharePersonStep();
+    expect(
+      screen.queryByRole("button", {
+        name: /Investor D for private sharing/i,
+      }),
+    ).toBeNull();
   });
 
   it("refreshes the full workspace once when foreground signals arrive in a burst", async () => {
@@ -3452,9 +3527,15 @@ describe("OneLocationAgentPage", () => {
       publicKeyJwk: recipient.publicKeyJwk,
     });
 
+    const authoritativeRecipients = [
+      circleMemberOne,
+      circleMemberTwo,
+      outsiderOne,
+      outsiderTwo,
+    ];
     mockGetState.mockResolvedValue({
       ...locationState(),
-      recipients: [circleMemberOne, circleMemberTwo, outsiderOne, outsiderTwo],
+      recipients: authoritativeRecipients,
       circles: [familySummary, friendsSummary],
       ownerGrants: [],
     });
@@ -3466,6 +3547,29 @@ describe("OneLocationAgentPage", () => {
       ...friendsSummary,
       members: [owner, member(circleMemberTwo), member(outsiderOne)],
     };
+    mockListRecipientsPage.mockImplementation(async ({ limit }) => {
+      if (limit !== 100) {
+        throw new Error("recipient page unavailable in this fixture");
+      }
+      return {
+        items: authoritativeRecipients,
+        page: 1,
+        hasMore: false,
+        totalCount: authoritativeRecipients.length,
+      };
+    });
+    mockListCircleMembersPage.mockImplementation(async ({ circleId }) => {
+      const items =
+        circleId === familySummary.id
+          ? familyDetail.members
+          : friendsDetail.members;
+      return {
+        items,
+        page: 1,
+        hasMore: false,
+        totalCount: items.length,
+      };
+    });
     let resolveFirstFriendsRequest:
       | ((value: typeof friendsDetail) => void)
       | null = null;
@@ -4046,6 +4150,24 @@ describe("OneLocationAgentPage", () => {
       page: 1,
       hasMore: false,
       totalCount: circle.members.length,
+    });
+    const abdulRecipient = {
+      ...locationState().recipients[0]!,
+      userId: "user_abdul",
+      displayName: "Abdul Rashid",
+      keyId: "key_abdul",
+      publicKeyJwk: { kty: "EC", crv: "P-256", x: "xa", y: "ya" },
+    };
+    mockListRecipientsPage.mockImplementation(async ({ limit }) => {
+      if (limit !== 100) {
+        throw new Error("recipient page unavailable in this fixture");
+      }
+      return {
+        items: [abdulRecipient],
+        page: 1,
+        hasMore: false,
+        totalCount: 1,
+      };
     });
     const { rerender } = render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
@@ -9153,6 +9275,53 @@ describe("OneLocationAgentPage", () => {
     expect(String(mockCopyToClipboard.mock.calls[0][0])).toContain(
       "derived-token-abc",
     );
+  });
+
+  it.each([404, 410])("self-heals a stale public-link heartbeat after HTTP %s", async (status) => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      publicInvites: [activePublicInvite()],
+    });
+    mockRefreshPublicInviteLocation.mockImplementation(async () => {
+      mockGetState.mockResolvedValue({ ...locationState(), publicInvites: [] });
+      throw new ApiError("Link is no longer active", status);
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockRefreshPublicInviteLocation).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole("button", { name: "Links" }));
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: /Copy link/i })).toBeNull(),
+    );
+
+    await act(async () => { vi.advanceTimersByTime(60_000); });
+    expect(mockRefreshPublicInviteLocation).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: /^Create link$/i })).toBeTruthy();
+  });
+
+  it("keeps a valid public link and retries a transient heartbeat failure", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      publicInvites: [activePublicInvite()],
+    });
+    mockRefreshPublicInviteLocation.mockRejectedValue(
+      new ApiError("Temporary outage", 503),
+    );
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockRefreshPublicInviteLocation).toHaveBeenCalledOnce());
+    fireEvent.click(screen.getByRole("button", { name: "Links" }));
+    expect(await screen.findByText("Temporary link")).toBeTruthy();
+
+    await act(async () => { vi.advanceTimersByTime(25_000); });
+    await waitFor(() =>
+      expect(mockRefreshPublicInviteLocation.mock.calls.length).toBeGreaterThan(1),
+    );
+    expect(screen.getByRole("button", { name: /Copy link/i })).toBeTruthy();
   });
 
   it("does not say copied when clipboard denies the public link", async () => {

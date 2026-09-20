@@ -829,15 +829,21 @@ export function ConsentNotificationProvider({
       const msgType = data.type;
       if (!isOneLocationWorkflowNotificationType(msgType)) return;
 
-      if (msgType.startsWith("location_circle_")) {
-        // The provider is mounted above both Connect and One Location, so it
-        // is the one inbound owner that exists regardless of which route is
-        // open. Publishing here prevents route-specific listeners from
-        // disagreeing and gives the existing BroadcastChannel the same event
-        // on web, iOS and Android.
+      const isCircleWorkflow = msgType.startsWith("location_circle_");
+      let stateMutationPublished = false;
+      const publishStateMutation = () => {
+        if (stateMutationPublished || options.source !== "live") return;
+        stateMutationPublished = true;
+        // A live workflow notification is also a state transition. Publish it
+        // through the shared Location channel so the current tab, sibling tabs
+        // and native shells all repair from the same authoritative state.
+        // Reconciliation payloads are intentionally excluded because their
+        // state is already in the shared resource.
         CacheSyncService.onOneLocationStateMutated(
           user.uid,
-          ["workspace", "circles", "sms_roster"],
+          isCircleWorkflow
+            ? ["workspace", "circles", "sms_roster"]
+            : ["workspace"],
           {
             notificationType: msgType,
             circleId: String(data.circle_id || "").trim() || undefined,
@@ -847,6 +853,18 @@ export function ConsentNotificationProvider({
             eventId: String(data.message_id || "").trim() || undefined,
           },
         );
+      };
+
+      if (isCircleWorkflow) {
+        // The provider is mounted above both Connect and One Location, so it
+        // is the one inbound owner that exists regardless of which route is
+        // open. Publishing here prevents route-specific listeners from
+        // disagreeing and gives the existing BroadcastChannel the same event
+        // on web, iOS and Android.
+        // Circle events do not have a request row to patch locally, so they can
+        // publish immediately. The shared state event owns same-tab and
+        // cross-tab repair even when this is a sync-only owner notification.
+        publishStateMutation();
         // Owner-originated rename/delete events are still delivered to keep
         // the owner's other sessions current, but they must not create a
         // self-notification or duplicate Feed item.
@@ -854,6 +872,7 @@ export function ConsentNotificationProvider({
       }
 
       if (msgType === "location_share_created") {
+        publishStateMutation();
         showOneLocationShareNotification(data, options);
         return;
       }
@@ -874,6 +893,7 @@ export function ConsentNotificationProvider({
         msgType === "location_share_expired"
       ) {
         if (grantId && isOneLocationGrantUnwatched(user.uid, grantId)) {
+          publishStateMutation();
           return;
         }
         if (grantId) {
@@ -911,6 +931,11 @@ export function ConsentNotificationProvider({
           ...(grantId ? { approvedGrantId: grantId } : null),
         });
       }
+      // Patch a pushed request outcome before starting the authoritative read.
+      // Otherwise the patch invalidates the generation that the broadcast just
+      // started, and an approval can show its request status while omitting the
+      // newly-created grant until the next focus/reconnect event.
+      publishStateMutation();
 
       const generatedCopy = locationWorkflowNotificationCopy({
         type: msgType,

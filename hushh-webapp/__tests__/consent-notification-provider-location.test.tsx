@@ -267,6 +267,28 @@ describe("global One Location Feed-first notification policy", () => {
     expect(mocks.dispatchFeedStateChanged).toHaveBeenCalledTimes(2);
   });
 
+  it("publishes ordinary live Location metadata to the shared workspace channel", async () => {
+    await renderReady();
+
+    dispatchLocation({
+      type: "location_access_request_withdrawn",
+      message_id: "request-withdrawn:event-1",
+      request_id: "request-withdrawn-1",
+      owner_display_label: "Alex",
+    });
+
+    expect(mocks.onOneLocationStateMutated).toHaveBeenCalledOnce();
+    expect(mocks.onOneLocationStateMutated).toHaveBeenCalledWith(
+      "recipient-user",
+      ["workspace"],
+      {
+        notificationType: "location_access_request_withdrawn",
+        circleId: undefined,
+        eventId: "request-withdrawn:event-1",
+      },
+    );
+  });
+
   it("queues native location delivery during auth hydration and drains it for the addressed account", async () => {
     mocks.auth.user = null;
     mocks.platform.native = true;
@@ -616,6 +638,41 @@ describe("global One Location Feed-first notification policy", () => {
       ).toMatchObject({ id: "request-outcome-1", status });
     },
   );
+
+  it("patches an approval before broadcasting its authoritative refresh", async () => {
+    await renderReady();
+    OneLocationStateResource.write("recipient-user", {
+      ...EMPTY_LOCATION_STATE,
+      requests: [
+        {
+          id: "request-approval-order-1",
+          ownerUserId: "owner-user",
+          requesterUserId: "recipient-user",
+          status: "pending",
+        },
+      ],
+    } as unknown as OneLocationState);
+    mocks.onOneLocationStateMutated.mockImplementationOnce(() => {
+      expect(
+        OneLocationStateResource.peek("recipient-user")?.data.requests[0],
+      ).toMatchObject({
+        id: "request-approval-order-1",
+        status: "approved",
+        approvedGrantId: "grant-approval-order-1",
+      });
+    });
+
+    dispatchLocation({
+      type: "location_access_approved",
+      request_id: "request-approval-order-1",
+      grant_id: "grant-approval-order-1",
+      owner_display_label: "Alex",
+      notification_title: "Location approved",
+      notification_body: "Alex approved your request.",
+    });
+
+    expect(mocks.onOneLocationStateMutated).toHaveBeenCalledOnce();
+  });
 
   it("leaves cached state untouched when it has no row for the pushed request", async () => {
     await renderReady();

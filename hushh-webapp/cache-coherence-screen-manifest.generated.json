@@ -4876,7 +4876,7 @@
         "route_refresh_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/one/setup/capabilities",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fsetup%2Fcapabilities",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -4892,9 +4892,7 @@
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": [
-        "review native route beacon coverage"
-      ]
+      "findings": []
     },
     {
       "route": "/one/setup/connected-systems",
@@ -6370,5 +6368,5 @@
       ]
     }
   ],
-  "content_sha256": "4e1c6d1af7b45d4d10c41a3cc9ad68f656314334c796dcd938f7500f5e771987"
+  "content_sha256": "b2b96b514646d6af2fde8e69099743958cc573c70e34a6729528e49f338adda0"
 }

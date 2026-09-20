@@ -2287,6 +2287,7 @@ def request_location_access(
                 requester_user_id=_user_id(token_data),
                 owner_user_id=payload.owner_user_id,
                 message=payload.message,
+                enforce_peer_eligibility=True,
                 requested_duration_hours=payload.requested_duration_hours,
                 requested_duration_mode=payload.requested_duration_mode,
                 extends_grant_id=payload.extends_grant_id,

@@ -5645,6 +5645,50 @@ class OneLocationAgentService:
             )
         return cleaned_circle_id
 
+    def _lock_active_normal_grant_authority(
+        self,
+        conn: Any,
+        *,
+        grant_id: str | None,
+        owner_user_id: str,
+        recipient_user_id: str,
+    ) -> bool:
+        """Lock the live non-SOS grant that authorizes an extension ask."""
+        cleaned_grant_id = str(grant_id or "").strip()
+        if not cleaned_grant_id:
+            return False
+        row = (
+            conn.execute(
+                text(
+                    """
+                    SELECT id
+                    FROM one_location_share_grants
+                    WHERE id = CAST(:grant_id AS UUID)
+                      AND owner_user_id = :owner_user_id
+                      AND recipient_user_id = :recipient_user_id
+                      AND status = 'active'
+                      AND (expires_at IS NULL OR expires_at > NOW())
+                    """  # nosec B608 - the appended lane predicate is a
+                    # module-level constant of static SQL and every value,
+                    # including the lane flag, remains a bound parameter.
+                    + _share_lane_match_sql()
+                    + """
+                    LIMIT 1
+                    FOR SHARE
+                    """
+                ),
+                {
+                    "grant_id": cleaned_grant_id,
+                    "owner_user_id": owner_user_id,
+                    "recipient_user_id": recipient_user_id,
+                    "is_sos_lane": False,
+                },
+            )
+            .mappings()
+            .first()
+        )
+        return row is not None
+
     def _create_enforced_grant_row(
         self,
         *,
@@ -9747,6 +9791,7 @@ class OneLocationAgentService:
         referred_by_user_id: str | None = None,
         notify_owner: bool = True,
         require_requester_key_material: bool = False,
+        enforce_peer_eligibility: bool = False,
         requested_duration_hours: float | None = None,
         requested_duration_mode: str | None = None,
         extends_grant_id: str | None = None,
@@ -9894,6 +9939,11 @@ class OneLocationAgentService:
                 },
             )
             if operation_id:
+                # A committed operation is a receipt, not a new authorization
+                # attempt. Return an exact replay before consulting current
+                # relationship state: the original response may have been lost
+                # and the peers may have disconnected after the write already
+                # succeeded. Changed inputs still fail closed by fingerprint.
                 prior = self._execute_one(
                     """SELECT *, metadata->'command_operations'->>:operation AS command_fingerprint
                     FROM one_location_access_requests WHERE owner_user_id=:owner AND requester_user_id=:requester
@@ -9914,6 +9964,48 @@ class OneLocationAgentService:
                     if command and not command_prior:
                         command.save(str(prior["id"]))
                     return self._request_payload(prior) or {}
+            if enforce_peer_eligibility:
+                # Direct authenticated Ask flows have the same relationship
+                # boundary as a private share. Lock that relationship inside
+                # this event-bound transaction so connection/Circle removal
+                # either wins first (and this request fails) or waits and then
+                # observes/cancels the committed workflow. Public-link and
+                # referral requests deliberately leave this flag false: their
+                # live invite/grant is the authority instead of a connection.
+                if connection is not None:
+                    try:
+                        self._lock_circle_share_eligibility(
+                            connection,
+                            owner_user_id=owner_user_id,
+                            recipient_user_id=requester_user_id,
+                            requested_circle_id=None,
+                        )
+                    except OneLocationAgentError as error:
+                        if (
+                            error.code != "LOCATION_RECIPIENT_NOT_CONNECTED"
+                            or not self._lock_active_normal_grant_authority(
+                                connection,
+                                grant_id=extends_grant_value,
+                                owner_user_id=owner_user_id,
+                                recipient_user_id=requester_user_id,
+                            )
+                        ):
+                            raise
+                elif not (
+                    self._is_location_peer_eligible(
+                        owner_user_id=owner_user_id,
+                        other_user_id=requester_user_id,
+                    )
+                    or is_extension
+                ):
+                    # In-memory test doubles do not expose the production
+                    # transaction connection; preserve the same fail-closed
+                    # contract through the canonical eligibility predicate.
+                    raise OneLocationAgentError(
+                        "LOCATION_RECIPIENT_NOT_CONNECTED",
+                        LOCATION_PEER_NOT_ELIGIBLE_MESSAGE,
+                        status_code=403,
+                    )
             if command_prior:
                 raise OneLocationAgentError(
                     "LOCATION_OPERATION_CONFLICT",
