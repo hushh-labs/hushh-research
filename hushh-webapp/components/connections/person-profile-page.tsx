@@ -61,6 +61,7 @@ import { oneLocationErrorMessage } from "@/lib/one-location/error-message";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { VOICE_CONFIRM_DATA_KEY } from "@/lib/voice/voice-action-card";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 
 type Props = { personRef: string; initialProfile: PublicPersonProfile | null };
 
@@ -549,6 +550,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
   }, [allGrants, sharedActiveDomain, sharedSearchQuery, decryptedByRequest]);
 
   useEffect(() => {
+    if (shouldSkipReviewerBackgroundWritesForAutomation()) return;
     if (!isVaultUnlocked || !vaultKey || !vaultOwnerToken || !allGrants.length || !user) return;
     if (decryptingRequestId) return;
     // Prioritize visible / filtered grants first (on-demand viewport scaling)
