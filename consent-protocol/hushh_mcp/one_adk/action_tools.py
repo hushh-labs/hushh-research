@@ -1998,7 +1998,10 @@ async def discover_person_information(
         }
 
 
-async def list_information_shared_with_me(tool_context: ToolContext) -> dict[str, Any]:
+async def list_information_shared_with_me(
+    tool_context: ToolContext,
+    person: str = "",
+) -> dict[str, Any]:
     """List information that connections have shared with this person through active consent grants.
 
     Returns who has shared information with you, the specific fields/labels granted,
@@ -2011,14 +2014,36 @@ async def list_information_shared_with_me(tool_context: ToolContext) -> dict[str
         raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
 
     try:
-        shares = await InformationRequestService().list_granted_shares(requester_user_id=user_id)
+        selected_person_ref: str | None = None
+        selected_person_name: str | None = None
+        if str(person or "").strip() or tool_context.state.get(_STATE_SELECTED_INFORMATION_PERSON):
+            selected_person_ref, selected_person_name = await asyncio.to_thread(
+                _resolve_person_for_information,
+                ConnectionsService(),
+                user_id,
+                str(person or ""),
+                tool_context,
+            )
+        shares = await InformationRequestService().list_granted_shares(
+            requester_user_id=user_id,
+            person_ref=selected_person_ref,
+        )
         return {
             "status": "ok",
+            **(
+                {"person": {"displayName": selected_person_name, "personRef": selected_person_ref}}
+                if selected_person_ref and selected_person_name
+                else {}
+            ),
             "shares": shares,
             "count": len(shares),
             "nextStep": (
-                "Tell the person what information their connections have granted. "
-                "Values stay end-to-end encrypted; point them to the profilePath link "
+                (
+                    f"Tell the person what {selected_person_name} has granted. "
+                    if selected_person_name
+                    else "Tell the person what their connections have granted. "
+                )
+                + "Values stay end-to-end encrypted; point them to the profilePath link "
                 "where their browser automatically decrypts and displays the records using their vault key."
                 if shares
                 else "No connections have shared information with you yet."

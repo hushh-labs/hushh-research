@@ -348,11 +348,19 @@ class InformationRequestService:
         ]
 
     async def list_granted_shares(
-        self, *, requester_user_id: str, limit: int = 50
+        self,
+        *,
+        requester_user_id: str,
+        person_ref: str | None = None,
+        limit: int = 50,
     ) -> list[dict[str, Any]]:
         """Active information shares granted to this user by connections."""
+        normalized_person_ref = str(person_ref or "").strip()
+        person_filter = (
+            "AND profile.public_person_ref = :person_ref" if normalized_person_ref else ""
+        )
         rows = await self._rows(
-            """SELECT bundle.bundle_id, bundle.purpose, bundle.created_at,
+            f"""SELECT bundle.bundle_id, bundle.purpose, bundle.created_at,
                       bundle.subject_user_id,
                       profile.public_person_ref, identity.display_name,
                       item.request_id, item.scope_ref, item.scope, item.label, item.sensitivity
@@ -362,9 +370,14 @@ class InformationRequestService:
                JOIN one_information_request_items item ON item.bundle_id = bundle.bundle_id
                WHERE bundle.requester_user_id = :requester
                  AND bundle.cancelled_at IS NULL
+                 {person_filter}
                ORDER BY bundle.created_at DESC, item.created_at
                LIMIT :limit""",
-            {"requester": requester_user_id, "limit": max(1, min(int(limit or 50), 100))},
+            {
+                "requester": requester_user_id,
+                "limit": max(1, min(int(limit or 50), 100)),
+                **({"person_ref": normalized_person_ref} if normalized_person_ref else {}),
+            },
         )
         now_ms = int(time.time() * 1000)
         granted: list[dict[str, Any]] = []

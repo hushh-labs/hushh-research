@@ -594,7 +594,9 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "discover_person_information. Report what has been granted, including the label, "
     "domain, and grantor. Mention that values stay end-to-end encrypted and provide the "
     "profilePath link where their browser auto-decrypts and displays the rich cards using "
-    "their private vault key.\n\n"
+    "their private vault key. If the conversation has already selected a named person, "
+    "keep that person for a follow-up such as 'list the fields'; do not call the unfiltered "
+    "all-connections view or substitute another grantor.\n\n"
     # Reading the person's own PKM data. One general read tool, not one per
     # domain -- every domain listed here is read the same way (the
     # discovery-only summary index, never decrypted holdings), so a new

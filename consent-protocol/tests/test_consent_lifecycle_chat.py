@@ -45,6 +45,7 @@ from hushh_mcp.one_adk.action_tools import (
     _execute_backend_direct_mutation,
     _resolved_directive_slots,
     list_active_grants,
+    list_information_shared_with_me,
     list_my_outgoing_information_requests,
     list_pending_information_requests,
     propose_information_request,
@@ -666,6 +667,26 @@ class TestPropose:
             "Sarah",
             context,
         ) == (PERSON_REF, "Sarah Chen")
+
+    @pytest.mark.asyncio
+    async def test_shared_information_followup_stays_bound_to_selected_person(self):
+        context = _ctx(_state())
+        action_tools._remember_information_person(
+            context, "user_1", PERSON_REF, "Sarah Chen", "Sarah"
+        )
+        with (
+            _auth(),
+            patch.object(
+                InformationRequestService,
+                "list_granted_shares",
+                new=AsyncMock(
+                    return_value=[{"person": "Sarah Chen", "label": "Employment status"}]
+                ),
+            ) as list_shares,
+        ):
+            result = await list_information_shared_with_me(context)
+        assert result["person"] == {"displayName": "Sarah Chen", "personRef": PERSON_REF}
+        list_shares.assert_awaited_once_with(requester_user_id="user_1", person_ref=PERSON_REF)
 
     @pytest.mark.asyncio
     async def test_short_purpose_and_bad_duration_are_asked_back(self):
