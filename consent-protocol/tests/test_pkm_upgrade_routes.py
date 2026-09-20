@@ -13,14 +13,18 @@ from api.routes import pkm, pkm_routes_shared
 
 @pytest.mark.asyncio
 async def test_location_sync_push_does_not_block_committed_mutation_response(monkeypatch):
-    push_started = asyncio.Event()
-    release_push = asyncio.Event()
+    push_started = threading.Event()
+    release_push = threading.Event()
 
-    async def _blocked_threadpool(*_args, **_kwargs):
+    def _blocked_push(*_args, **_kwargs):
         push_started.set()
-        await release_push.wait()
+        release_push.wait(timeout=2)
 
-    monkeypatch.setattr(pkm_routes_shared, "run_in_threadpool", _blocked_threadpool)
+    async def _shared_pool_must_not_run(*_args, **_kwargs):
+        raise AssertionError("Location pushes must not use FastAPI's shared thread pool")
+
+    monkeypatch.setattr(pkm_routes_shared, "run_in_threadpool", _shared_pool_must_not_run)
+    monkeypatch.setattr(pkm_routes_shared, "send_user_data_push", _blocked_push)
     monkeypatch.setattr(
         "api.consent_listener.publish_user_state_event_threadsafe",
         lambda *_args, **_kwargs: True,
@@ -30,7 +34,7 @@ async def test_location_sync_push_does_not_block_committed_mutation_response(mon
         pkm_routes_shared._notify_location_pkm_changed("user_123"),
         timeout=0.1,
     )
-    assert push_started.is_set()
+    assert push_started.wait(timeout=1)
     assert pkm_routes_shared._LOCATION_SYNC_PUSH_TASKS
 
     release_push.set()
@@ -38,6 +42,38 @@ async def test_location_sync_push_does_not_block_committed_mutation_response(mon
         *tuple(pkm_routes_shared._LOCATION_SYNC_PUSH_TASKS),
         return_exceptions=True,
     )
+
+
+@pytest.mark.asyncio
+async def test_location_sync_push_backlog_is_bounded(monkeypatch):
+    release_fillers = asyncio.Event()
+    monkeypatch.setattr(pkm_routes_shared, "_LOCATION_SYNC_PUSH_MAX_PENDING", 1)
+
+    async def _pending_delivery():
+        await release_fillers.wait()
+
+    fillers = {asyncio.create_task(_pending_delivery())}
+    pkm_routes_shared._LOCATION_SYNC_PUSH_TASKS.update(fillers)
+    pushes: list[str] = []
+    monkeypatch.setattr(
+        pkm_routes_shared,
+        "send_user_data_push",
+        lambda *_args, **_kwargs: pushes.append("push"),
+    )
+    monkeypatch.setattr(
+        "api.consent_listener.publish_user_state_event_threadsafe",
+        lambda *_args, **_kwargs: True,
+    )
+
+    try:
+        await pkm_routes_shared._notify_location_pkm_changed("user_123")
+        await asyncio.sleep(0)
+        assert pushes == []
+        assert pkm_routes_shared._LOCATION_SYNC_PUSH_TASKS == fillers
+    finally:
+        release_fillers.set()
+        await asyncio.gather(*fillers, return_exceptions=True)
+        pkm_routes_shared._LOCATION_SYNC_PUSH_TASKS.difference_update(fillers)
 
 
 def _confirmed_mutation_plan_payload(

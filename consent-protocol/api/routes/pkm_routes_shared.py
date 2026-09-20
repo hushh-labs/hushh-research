@@ -12,7 +12,9 @@ import asyncio
 import json
 import logging
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+from functools import partial
 from typing import Annotated, Any, List, Literal, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, Response, status
@@ -52,6 +54,11 @@ _COMPACT_SCOPE_SOURCE_KINDS = {"pkm_index", "pkm_manifests.top_level_scope_paths
 _INTERNAL_ONLY_PKM_DOMAINS = {"kyc_connector", "kyc_workflow"}
 
 _MAX_SEGMENT_IDS = 50
+_LOCATION_SYNC_PUSH_MAX_PENDING = 64
+_LOCATION_SYNC_PUSH_EXECUTOR = ThreadPoolExecutor(
+    max_workers=2,
+    thread_name_prefix="location-sync-push",
+)
 _LOCATION_SYNC_PUSH_TASKS: set[asyncio.Task[None]] = set()
 
 
@@ -116,25 +123,31 @@ async def _notify_location_pkm_changed(
 
     async def _deliver_push() -> None:
         try:
-            await run_in_threadpool(
-                send_user_data_push,
-                user_id,
-                notification_type="location_pkm_changed",
-                title="Saved locations updated",
-                body="Your saved locations changed on another session.",
-                deep_link="/one/location?action=settings",
-                notification_tag=message_id,
-                notification_category="ONE_LOCATION",
-                data=sync_data,
-                show_alert=False,
+            await asyncio.get_running_loop().run_in_executor(
+                _LOCATION_SYNC_PUSH_EXECUTOR,
+                partial(
+                    send_user_data_push,
+                    user_id,
+                    notification_type="location_pkm_changed",
+                    title="Saved locations updated",
+                    body="Your saved locations changed on another session.",
+                    deep_link="/one/location?action=settings",
+                    notification_tag=message_id,
+                    notification_category="ONE_LOCATION",
+                    data=sync_data,
+                    show_alert=False,
+                ),
             )
         except Exception as exc:  # noqa: BLE001 - committed writes must still succeed
             logger.warning("[PKM] location sync push skipped: %s", exc)
 
+    if len(_LOCATION_SYNC_PUSH_TASKS) >= _LOCATION_SYNC_PUSH_MAX_PENDING:
+        logger.warning("[PKM] location sync push skipped: delivery backlog is full")
+        return
     task = asyncio.create_task(_deliver_push())
     _LOCATION_SYNC_PUSH_TASKS.add(task)
     task.add_done_callback(_LOCATION_SYNC_PUSH_TASKS.discard)
-    # Let the delivery task enter the shared thread pool without waiting on FCM.
+    # Let the delivery task enter its dedicated bounded executor without waiting on FCM.
     await asyncio.sleep(0)
 
 
