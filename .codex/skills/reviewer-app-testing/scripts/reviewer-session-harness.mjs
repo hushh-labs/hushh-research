@@ -213,7 +213,13 @@ export async function createReviewerSessionHarness({
       const authorization = request.headers().authorization || "";
       if (!authorization.startsWith("Bearer ")) return;
       if (pathname.startsWith("/api/pkm/")) ownerToken = authorization.slice(7);
-      if (pathname.startsWith("/api/one/connections")) {
+      // Viewer-relative people/profile reads use the Firebase identity token
+      // too, and may be the first identity-authenticated request in a
+      // read-only rehearsal. Keep the vault-owner token scoped to PKM routes.
+      if (
+        pathname.startsWith("/api/one/connections") ||
+        pathname.startsWith("/api/one/people/")
+      ) {
         identityToken = authorization.slice(7);
       }
     });
