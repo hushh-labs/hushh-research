@@ -307,6 +307,49 @@ describe("PkmDomainResourceService", () => {
     );
   });
 
+  it("waits for device eviction before reading after a domain clear", async () => {
+    let resolveEviction!: () => void;
+    let evictionComplete = false;
+    secureInvalidateMock.mockImplementationOnce(
+      () => new Promise<void>((resolve) => {
+        resolveEviction = () => {
+          evictionComplete = true;
+          resolve();
+        };
+      }),
+    );
+    secureReadMock.mockImplementationOnce(async () => {
+      expect(evictionComplete).toBe(true);
+      return null;
+    });
+    loadDomainDataWithBlobMock.mockResolvedValueOnce({
+      data: { savedLocations: [] },
+      blob: { dataVersion: 4, updatedAt: "2026-09-20T00:00:03.000Z" },
+    });
+
+    PkmDomainResourceService.invalidateDomain("eviction-owner", "location", {
+      includeDevice: true,
+      includeBackingCaches: true,
+    });
+    const request = PkmDomainResourceService.getStaleFirst({
+      userId: "eviction-owner",
+      domain: "location",
+      vaultKey: "vault-key",
+      vaultOwnerToken: "vault-owner",
+      backgroundRefresh: false,
+    });
+    await vi.waitFor(() => expect(secureInvalidateMock).toHaveBeenCalledOnce());
+    expect(secureReadMock).not.toHaveBeenCalled();
+
+    resolveEviction();
+
+    await expect(request).resolves.toEqual(
+      expect.objectContaining({ data: { savedLocations: [] } }),
+    );
+    expect(secureReadMock).toHaveBeenCalledOnce();
+    expect(loadDomainDataWithBlobMock).toHaveBeenCalledOnce();
+  });
+
   it("returns successful domains when another domain refresh fails", async () => {
     loadDomainDataWithBlobMock.mockImplementation(async ({ domain }) => {
       if (domain === "preferences") throw new Error("temporary unavailable");

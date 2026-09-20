@@ -14,6 +14,8 @@ import { SecureResourceCacheService } from "@/lib/services/secure-resource-cache
 const DEVICE_TTL_MS = 24 * 60 * 60 * 1000;
 const inflightRefreshes = new Map<string, Promise<PkmDomainResourceSnapshot | null>>();
 const domainRevisions = new Map<string, number>();
+const deviceEvictions = new Map<string, Promise<void>>();
+const blockedDeviceRevisionByDomain = new Map<string, number>();
 
 function domainRevisionKey(userId: string, domain: string): string {
   return `${userId}:${domain}`;
@@ -184,8 +186,18 @@ export class PkmDomainResourceService {
     if (!params.vaultKey) {
       return null;
     }
+    const revisionKey = domainRevisionKey(params.userId, params.domain);
+    let pendingEviction = deviceEvictions.get(revisionKey);
+    while (pendingEviction) {
+      await pendingEviction;
+      pendingEviction = deviceEvictions.get(revisionKey);
+    }
+    const currentRevision = domainRevision(params.userId, params.domain);
+    if (blockedDeviceRevisionByDomain.get(revisionKey) === currentRevision) {
+      return null;
+    }
     const resourceKey = toDeviceResourceKey(params);
-    const revision = domainRevision(params.userId, params.domain);
+    const revision = currentRevision;
     const snapshot = await SecureResourceCacheService.read<PkmDomainResourceSnapshot>({
       userId: params.userId,
       resourceKey,
@@ -474,6 +486,15 @@ export class PkmDomainResourceService {
             ttlMs: DEVICE_TTL_MS,
             vaultKey: params.vaultKey!,
           });
+          if (
+            blockedDeviceRevisionByDomain.get(
+              domainRevisionKey(params.userId, params.domain),
+            ) === startRevision
+          ) {
+            blockedDeviceRevisionByDomain.delete(
+              domainRevisionKey(params.userId, params.domain),
+            );
+          }
           if (domainRevision(params.userId, params.domain) !== startRevision) {
             // A mutation landed while the stale snapshot was being persisted.
             // Remove that just-written device fallback before joining a fresh
@@ -526,7 +547,33 @@ export class PkmDomainResourceService {
       cache.invalidate(CACHE_KEYS.PKM_DECRYPTED_BLOB(userId));
     }
     if (options?.includeDevice) {
-      void SecureResourceCacheService.invalidateResourcePrefix(userId, `pkm_domain:${domain}:`);
+      const deviceRevision = domainRevision(userId, domain);
+      blockedDeviceRevisionByDomain.set(revisionKey, deviceRevision);
+      const previous = deviceEvictions.get(revisionKey);
+      const eviction = (previous ?? Promise.resolve())
+        .catch(() => undefined)
+        .then(() =>
+          SecureResourceCacheService.invalidateResourcePrefix(
+            userId,
+            `pkm_domain:${domain}:`,
+          ),
+        )
+        .then(() => {
+          if (
+            domainRevision(userId, domain) === deviceRevision &&
+            blockedDeviceRevisionByDomain.get(revisionKey) === deviceRevision
+          ) {
+            blockedDeviceRevisionByDomain.delete(revisionKey);
+          }
+        })
+        .catch(() => undefined);
+      let tracked!: Promise<void>;
+      tracked = eviction.finally(() => {
+        if (deviceEvictions.get(revisionKey) === tracked) {
+          deviceEvictions.delete(revisionKey);
+        }
+      });
+      deviceEvictions.set(revisionKey, tracked);
     }
   }
 }
