@@ -1722,13 +1722,27 @@ async def get_metadata(
     upgrade_service = get_pkm_upgrade_service()
 
     try:
-        # These reads are independent and each may touch the UAT data plane.
-        # Start them together so Memory readiness is bounded by the slowest
-        # authority read instead of their sum.
-        metadata, resolved_index, upgrade_status_payload = await asyncio.gather(
-            pkm_service.get_user_metadata(user_id),
-            pkm_service.resolve_metadata_index(user_id, schedule_self_heal=False),
-            upgrade_service.build_status(user_id),
+        # Resolve the discovery index once. Metadata shaping also needs this
+        # index; passing it through avoids duplicate index/manifest reads under
+        # the same request while preserving the standalone service contract.
+        resolved_index = await pkm_service.resolve_metadata_index(
+            user_id,
+            schedule_self_heal=False,
+        )
+        domain_manifests = await pkm_service.get_domain_manifests(
+            user_id,
+            resolved_index.available_domains if resolved_index else [],
+        )
+        metadata, upgrade_status_payload = await asyncio.gather(
+            pkm_service.get_user_metadata(
+                user_id,
+                resolved_index=resolved_index,
+            ),
+            upgrade_service.build_status(
+                user_id,
+                resolved_index=resolved_index,
+                domain_manifests=domain_manifests,
+            ),
         )
         upgrade_status_payload = await _maybe_reconcile_upgrade_status(
             upgrade_service, user_id, upgrade_status_payload

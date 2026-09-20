@@ -57,6 +57,7 @@ _PKM_MUTATION_COMMIT_NAMESPACE = uuid.uuid5(
     uuid.NAMESPACE_URL,
     "https://hushh.ai/contracts/pkm/domain-mutation/v1",
 )
+_UNRESOLVED_METADATA_INDEX = object()
 
 
 class AttributeSource(str, Enum):
@@ -2052,6 +2053,97 @@ class PersonalKnowledgeModelService:
             )
             return None
 
+    async def get_domain_manifests(
+        self,
+        user_id: str,
+        domains: list[str],
+    ) -> dict[str, dict]:
+        """Return several domain manifests using one read per manifest table.
+
+        Upgrade-status rendering needs the same manifest, path, and scope
+        registry data as ``get_domain_manifest`` for every available domain.
+        Reading each domain independently turns a metadata request into an
+        avoidable 3*N query fan-out. This batch seam keeps the authority and
+        normalization rules identical while bounding the request to three
+        owner-scoped reads.
+        """
+        canonical_domains = sorted(
+            {
+                normalized
+                for domain in domains
+                if (normalized := self._canonicalize_domain_key(domain))
+            }
+        )
+        if not canonical_domains:
+            return {}
+
+        try:
+            manifest_query = (
+                self.db.table("pkm_manifests")
+                .select("*")
+                .eq("user_id", user_id)
+                .in_("domain", canonical_domains)
+            )
+            path_query = (
+                self.db.table("pkm_manifest_paths")
+                .select("*")
+                .eq("user_id", user_id)
+                .in_("domain", canonical_domains)
+                .order("domain")
+                .order("json_path")
+            )
+            scope_query = (
+                self.db.table("pkm_scope_registry")
+                .select("*")
+                .eq("user_id", user_id)
+                .in_("domain", canonical_domains)
+                .order("domain")
+                .order("scope_handle")
+            )
+            manifest_result, path_result, scope_result = await asyncio.gather(
+                self._execute_query(manifest_query),
+                self._execute_query(path_query),
+                self._execute_query(scope_query),
+            )
+            manifests = {
+                str(row.get("domain")): dict(row)
+                for row in (manifest_result.data or [])
+                if isinstance(row, dict) and str(row.get("domain") or "").strip()
+            }
+            paths_by_domain: dict[str, list[dict]] = {}
+            for row in path_result.data or []:
+                if not isinstance(row, dict):
+                    continue
+                domain = self._canonicalize_domain_key(row.get("domain"))
+                if domain:
+                    paths_by_domain.setdefault(domain, []).append(dict(row))
+            scopes_by_domain: dict[str, list[dict]] = {}
+            for row in scope_result.data or []:
+                if not isinstance(row, dict):
+                    continue
+                domain = self._canonicalize_domain_key(row.get("domain"))
+                if domain:
+                    scopes_by_domain.setdefault(domain, []).append(dict(row))
+
+            for domain, manifest in manifests.items():
+                canonical_domain = self._canonicalize_domain_key(domain)
+                if not canonical_domain:
+                    continue
+                manifest["paths"] = paths_by_domain.get(canonical_domain, [])
+                manifest["scope_registry"] = self._normalize_scope_registry_rows(
+                    domain=canonical_domain,
+                    scope_rows=scopes_by_domain.get(canonical_domain, []),
+                    expected_manifest_version=self._to_non_negative_int(
+                        manifest.get("manifest_version")
+                    ),
+                )
+            return {
+                domain: manifests[domain] for domain in canonical_domains if domain in manifests
+            }
+        except Exception as exc:
+            logger.error("Error getting domain manifests for user=%s: %s", user_id, exc)
+            return {}
+
     async def record_mutation_event(
         self,
         *,
@@ -3562,14 +3654,27 @@ class PersonalKnowledgeModelService:
 
     # ==================== METADATA OPERATIONS ====================
 
-    async def get_user_metadata(self, user_id: str) -> UserPersonalKnowledgeModelMetadata:
+    async def get_user_metadata(
+        self,
+        user_id: str,
+        *,
+        resolved_index: Optional[PersonalKnowledgeModelIndex] | object = _UNRESOLVED_METADATA_INDEX,
+    ) -> UserPersonalKnowledgeModelMetadata:
         """
         Get complete metadata about user's PKM for UI.
 
         This is the primary method for frontend to fetch user profile data.
+
+        ``resolved_index`` is an internal request-coordination seam. Callers that
+        already resolved the discovery index can pass it through to avoid a
+        second index/manifest read while shaping the response. The default
+        preserves the standalone service contract.
         """
         try:
-            index = await self.resolve_metadata_index(user_id)
+            if resolved_index is _UNRESOLVED_METADATA_INDEX:
+                index = await self.resolve_metadata_index(user_id)
+            else:
+                index = resolved_index
             if index is None:
                 return UserPersonalKnowledgeModelMetadata(user_id=user_id)
             scope_entries_getter = getattr(
