@@ -171,6 +171,32 @@ frames, p95 17 ms, worst 98, 3 frames over 50 ms, 12.9 ms/s). be5899207
 adds a `stream` window that stays open while the assistant bubble carries
 `data-agent-streaming`; the next lane run reads the whole reply.
 
+Run AB (later the same morning, 8d768b405: Liquid Glass on the circular
+controls; the material is static by contract) against run Z:
+
+| Gesture | Z | AB | Read |
+|---|---|---|---|
+| feed-flick, p95 / worst / hitch ms/s | 20 / 46 / 36.3 | 19.5 / 51 / 36.0 | flat |
+| bottom-nav-switch, p99 / worst / hitch ms/s | 37 / 48 / 37.9 | 38 / 55 / 47.6 | top of this gesture's band on identical code (31.9 to 46.8); p99 +1 |
+| profile-pane, hitch ms/s | 22.0 | 18.4 | flat |
+| top-shell-pager-swipe, hitch ms/s | 29.5 | 26.1 | flat |
+| kai-chart-flick, hitch ms/s | 33.2 | 71.9 | two-mode window mix: per window either ~30 (p95 20) or ~70 (p95 22, p99 41 to 47, no frame over 50); Z drew 4 of 9 low, AB 1 of 9; no chart code changed |
+| location-map-pan, hitch ms/s | 19.9 | 18.7 | flat |
+
+The material carries no cost the probe can see; every p95 is within 1 ms.
+
+Chat on the phone does not stream. Every native API call goes through
+`CapacitorHttp.request` (`lib/services/api-service.ts`), which returns the
+body whole, so One's reply lands in one paint when the backend finishes
+(web streams token by token and animates the reveal). That is why the
+`stream` window never opens on native, and why the chat rows in Z and AB
+(p99 62 to 70 ms, worst 84 to 86 ms, 1 to 2 frames over 50 ms in two 1 s
+auto-scroll windows) measure one thing: painting the entire reply in a
+single frame. Streaming on native (the WebView's own `fetch` for the SSE
+route, which needs the backend to allow the `capacitor://localhost`
+origin) is a Phase 3 item; until then the reveal could be animated on
+native the way it is on web, which spreads that paint across frames.
+
 ## Reading it
 
 - **Kai chart flick** is the surface furthest from the bar: p95 43 ms, 13

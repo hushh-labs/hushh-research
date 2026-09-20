@@ -136,6 +136,13 @@ where the composer mounts), sends a fixed prompt and holds a 30 s window
 named `chat-stream-30s`.
 The Release build sets `ENABLE_TESTABILITY=YES` because the scheme's
 unit-test target does `@testable import App`; it keeps `-O`.
+The unlock step closes the system passkey sheet that iOS shows at every
+cold launch on a phone without a passkey, retypes after a mismatch, and
+the card deletes the run's `.xcresult` bundles as soon as the test exits
+(XCTest records typed strings in them). On the phone, chat does not
+stream (`CapacitorHttp` returns the body whole), so the `chat-stream-30s`
+gesture measures one paint of the whole reply plus its auto-scroll, not a
+stream; bug log B39.
 
 ### Android
 
