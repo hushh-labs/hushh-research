@@ -64,6 +64,11 @@ describe("verify-render-performance", () => {
       "components/h2.tsx",
       'import { Line, Tooltip } from "recharts";\nexport const H = () => <Tooltip cursor={false} />;\n',
     ],
+    [
+      "backdrop-filter-on-list-row",
+      "components/h3.tsx",
+      'export const Rows = ({ rows }) => rows.map((row) => (\n  <li key={row.id} className="rounded-xl backdrop-blur-[16px]">{row.label}</li>\n));\n',
+    ],
     ["continuous-float-store-in-react", "components/i.tsx", "const p = useSyncExternalStore(subscribeProgress, getProgress);\n"],
     ["perf-probe-static-import", "components/j.tsx", 'import { startFramePacingProbe } from "@/lib/perf/frame-pacing";\n'],
     ["layer-order-literal", "components/ui/k.tsx", 'const c = "fixed z-[712]";\n'],

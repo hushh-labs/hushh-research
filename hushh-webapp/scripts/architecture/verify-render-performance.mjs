@@ -188,6 +188,37 @@ const RULES = [
     },
   },
   {
+    id: "backdrop-filter-on-list-row",
+    files: /\.(tsx|jsx)$/,
+    reason: "A backdrop blur on a list row moves under every scroll frame; the engine re-reads and re-blurs what is behind it per row per frame. Blur belongs on fixed chrome; rows take a solid surface (plus morphy-liquid-neutral for the rim).",
+    find: (lines, source) => {
+      // A keyed JSX element is a list row. Flag a backdrop-blur class inside
+      // the opening tag of an element that carries key={...}.
+      const out = [];
+      const tagOpen = /<[A-Za-z][\w.]*(?=[\s\n>])/g;
+      for (const match of source.matchAll(tagOpen)) {
+        const start = match.index;
+        // The opening tag ends at the first ">" that is not inside braces.
+        let depth = 0;
+        let end = -1;
+        for (let i = start; i < source.length; i += 1) {
+          const ch = source[i];
+          if (ch === "{") depth += 1;
+          else if (ch === "}") depth -= 1;
+          else if (ch === ">" && depth === 0) { end = i; break; }
+        }
+        if (end === -1) continue;
+        const tag = source.slice(start, end);
+        if (!/\bkey=/.test(tag)) continue;
+        const hit = tag.search(/backdrop-blur(?!-none)/);
+        if (hit === -1) continue;
+        const line = source.slice(0, start + hit).split("\n").length - 1;
+        if (!isCommentLine(lines[line] ?? "")) out.push(line);
+      }
+      return out;
+    },
+  },
+  {
     id: "continuous-float-store-in-react",
     files: /\.tsx$/,
     reason: "A component subscribed to a per-frame float (progress/position/offset) re-renders every scroll frame; consume the CSS variable instead.",

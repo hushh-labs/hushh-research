@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CHART_RESIZE_DEBOUNCE_MS } from "@/components/ui/chart";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
   Activity,
@@ -554,7 +555,7 @@ function IndexSparkline({
 
   return (
     <div className="mt-2 w-full" style={{ height }} aria-hidden="true">
-      <ResponsiveContainer width="100%" height="100%">
+      <ResponsiveContainer width="100%" height="100%" debounce={CHART_RESIZE_DEBOUNCE_MS}>
         <RechartsLineChart
           data={chartData}
           margin={{ top: 1, right: 1, left: 1, bottom: 1 }}
@@ -792,7 +793,7 @@ function SectorRotationChart({ rows }: { rows: KaiHomeSectorItem[] }) {
       className="w-full"
       style={{ height: Math.max(180, chartRows.length * 34) }}
     >
-      <ResponsiveContainer width="100%" height="100%">
+      <ResponsiveContainer width="100%" height="100%" debounce={CHART_RESIZE_DEBOUNCE_MS}>
         <BarChart
           data={chartRows}
           layout="vertical"

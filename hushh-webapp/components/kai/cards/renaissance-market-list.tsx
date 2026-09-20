@@ -686,7 +686,11 @@ export function RiaPicksList({
                   className={cn(
                     "group relative isolate flex w-full gap-3 text-left transition-colors",
                     isMobile
-                      ? "items-start overflow-hidden rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] px-3 py-3 shadow-[var(--shadow-xs)] backdrop-blur-[16px] hover:bg-[color:var(--app-card-surface-default-solid)] active:bg-[color:var(--app-card-surface-default-solid)]"
+                      // Solid rows: a backdrop blur on eight rows moving under a
+                      // flick was the Finance page's frame cost (founder decision,
+                      // 2026-09-20: blur stays on fixed chrome only). The Liquid
+                      // Glass neutral rim keeps the elevated read.
+                      ? "morphy-liquid-neutral items-start overflow-hidden rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-3 py-3 hover:bg-[color:var(--app-card-surface-compact)] active:bg-[color:var(--app-card-surface-compact)]"
                       : "items-center overflow-hidden border-t border-white/45 px-4 py-3 hover:bg-white/24 active:bg-white/34 first:border-t-0 dark:border-white/10 dark:hover:bg-white/6 dark:active:bg-white/8",
                   )}
                 >

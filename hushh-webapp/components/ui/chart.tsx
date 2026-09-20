@@ -30,7 +30,7 @@ export const CHART_TOOLTIP_TRIGGER: "click" | "hover" = isNative() ? "click" : "
  * tick, including keyboard and visual-viewport resizes and every frame of a
  * pane swipe. Coalesce those into one render per 100ms.
  */
-const CHART_RESIZE_DEBOUNCE_MS = 100
+export const CHART_RESIZE_DEBOUNCE_MS = 100
 
 // Format: { THEME_NAME: CSS_SELECTOR }
 const THEMES = { light: "", dark: ".dark" } as const

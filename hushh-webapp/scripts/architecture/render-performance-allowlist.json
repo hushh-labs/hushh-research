@@ -1,6 +1,9 @@
 {
   "schema_version": 1,
   "rules": {
+    "backdrop-filter-on-list-row": {
+      "components/one-location/map-name-labels.tsx": 1
+    },
     "root-custom-property-write": {
       "components/app-ui/app-bottom-shell.tsx": 6,
       "components/app-ui/app-edge-back-gesture.tsx": 2,

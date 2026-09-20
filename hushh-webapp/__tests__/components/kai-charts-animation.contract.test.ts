@@ -71,6 +71,19 @@ describe("kai charts animation contract", () => {
     }
   });
 
+  it.each(rechartsFiles)("%s debounces every raw ResponsiveContainer", (file) => {
+    // ResponsiveContainer re-renders its chart on every ResizeObserver tick,
+    // including each frame of a pane swipe; the Market pane's sparklines and
+    // sector chart bypass ChartContainer, so they must carry the debounce.
+    const source = read(file);
+    for (const match of source.matchAll(/<ResponsiveContainer(?=[\s\n>])/g)) {
+      const end = source.indexOf(">", match.index! + match[0].length);
+      const tag = source.slice(match.index!, end);
+      if (file === "components/ui/chart.tsx") continue;
+      expect(tag, `${file} at offset ${match.index}`).toContain("debounce=");
+    }
+  });
+
   it("debounces the shared ResponsiveContainer", () => {
     const chart = read("components/ui/chart.tsx");
     expect(chart).toContain("export const CHART_ANIMATION_ACTIVE");
