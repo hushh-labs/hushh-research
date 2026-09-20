@@ -605,12 +605,16 @@ const REDIRECT_EXPECTATIONS = {
   },
 };
 
-// Puppy One is intentionally excluded from native coverage: it reaches a
-// loopback agent on the owner's computer, and the page documents that it has
-// no native-test marker. Keep browser route coverage by checking its authored
-// page heading instead of inventing a native beacon.
-const WEB_ONLY_ROUTE_HEALTH_EXPECTATIONS = {
-  "/one/puppy": "Puppy One",
+// Some browser-only or explicitly staged surfaces do not mount a native route
+// beacon at their first stable state. Keep their browser coverage honest by
+// checking the authored semantic surface instead of inventing a beacon:
+// - Puppy One is intentionally web-only and reaches an owner's loopback agent.
+// - Gmail setup deliberately pauses on its authored cinematic intro until the
+//   user chooses Continue; mounting the connector beacon before that action
+//   would make the verifier simulate a user mutation.
+const ROUTE_HEALTH_EXPECTATIONS = {
+  "/one/puppy": { heading: "Puppy One" },
+  "/one/setup/gmail": { heading: "Your mail, made useful." },
 };
 
 async function installNativeTestBridge(page) {
@@ -1803,10 +1807,13 @@ async function verifyRoute(page, viewport, spec) {
       throw new Error(`${spec.route} relocked the vault unexpectedly`);
     }
 
-    const webOnlyRouteHeading = WEB_ONLY_ROUTE_HEALTH_EXPECTATIONS[spec.route];
-    if (webOnlyRouteHeading) {
+    const routeHealthExpectation = ROUTE_HEALTH_EXPECTATIONS[spec.route];
+    if (routeHealthExpectation?.heading) {
       await page
-        .getByRole("heading", { name: webOnlyRouteHeading, exact: true })
+        .getByRole("heading", {
+          name: routeHealthExpectation.heading,
+          exact: true,
+        })
         .waitFor({ state: "visible", timeout: NAVIGATION_TIMEOUT_MS });
     } else {
       try {
