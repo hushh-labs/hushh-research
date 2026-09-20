@@ -17,7 +17,13 @@
    `CHART_TOOLTIP_TRIGGER` to every chart tooltip; takes any
    z-index from the `--z-*` ladder; and gives a filled interactive surface
    the Liquid Glass material through the `Button`/Morphy primitives (or
-   `morphy-liquid` directly), never a bitmap or a one-off gradient. `npm run verify:render-performance` fails
+   `morphy-liquid` directly), never a bitmap or a one-off gradient; a
+   circular shell control goes through `ShellActionSurface` (its `material`
+   variant) and a filled icon circle carries `morphy-liquid-neutral`; a
+   list row that moves under a flick never carries `backdrop-blur`
+   (the `backdrop-filter-on-list-row` rule), blur stays on fixed chrome;
+   every raw `ResponsiveContainer` passes `debounce={CHART_RESIZE_DEBOUNCE_MS}`.
+   `npm run verify:render-performance` fails
    a violation, and the allowlist beside it only shrinks. The reasoning and the
    measuring tools are in `docs/reference/mobile/render-performance-charter.md`;
    a change to the shell scroll engines, sheets, streaming or the chrome masks

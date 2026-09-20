@@ -723,7 +723,7 @@ export function SharedWithMeCard({
           {isPreviewExpanded && onRecenter ? (
             <ShellActionSurface
               variant="icon"
-              className="absolute right-2.5 top-2.5 z-10 h-11 w-11 border border-[color:var(--app-separator)] bg-[color:var(--app-card-surface-default-solid)]/92 text-[color:var(--app-accent)] shadow-[var(--app-card-shadow-standard)] backdrop-blur"
+              className="absolute right-2.5 top-2.5 z-10 h-11 w-11 border border-[color:var(--app-separator)] bg-[color:var(--app-card-surface-default-solid)]/92 text-[color:var(--app-accent)] [--liquid-neutral-drop:var(--app-card-shadow-standard)] backdrop-blur"
               aria-label={`Recenter map on ${name}'s location`}
               aria-controls={previewRegionId}
               title="Reset map view"

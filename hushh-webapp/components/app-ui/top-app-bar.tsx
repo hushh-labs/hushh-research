@@ -1273,6 +1273,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
 
                         <ShellActionSurface
                           variant="icon"
+                          material="none"
                           aria-label="Open Profile"
                           onClick={() => requestProfilePaneOpen("tap")}
                           className="!h-8 !w-8 !border-transparent !bg-[color:var(--app-accent)] p-0 !text-[color:var(--app-accent-fg)] !shadow-none hover:!bg-[color:var(--app-accent-hover)]"

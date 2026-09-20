@@ -274,7 +274,7 @@ export function SharingStatusCard({
             <button
               type="button"
               onClick={onTapShare}
-              className="mt-[18px] inline-flex items-center gap-[9px] rounded-full bg-[color:var(--app-accent)] px-5 py-3 text-[color:var(--app-accent-fg)] shadow-[0_4px_14px_rgba(0,122,255,0.32)] dark:shadow-none"
+              className="mt-[18px] inline-flex items-center gap-[9px] morphy-liquid rounded-full bg-[color:var(--app-accent)] px-5 py-3 text-[color:var(--app-accent-fg)]"
             >
               <Navigation className="h-4 w-4" />
               <span className="text-base font-semibold">Tap to share</span>
