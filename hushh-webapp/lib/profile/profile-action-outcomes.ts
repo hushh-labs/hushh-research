@@ -125,7 +125,7 @@ export function supportOutcomeToVoice(
         summary: "Tell me a bit more about the problem and I will send it to support.",
       };
     case "invalid_reply_email":
-      return { status: "blocked", summary: "The reply email on the form isn't valid yet." };
+      return { status: "blocked", summary: "The reply mail on the form isn't valid yet." };
     case "offline":
       return { status: "blocked", summary: "You're offline. I'll send it once you reconnect." };
     case "busy":

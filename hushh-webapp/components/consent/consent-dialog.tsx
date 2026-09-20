@@ -13,6 +13,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { mailDisplayLabel } from "@/lib/copy/mail-terminology";
 import {
   Dialog,
   DialogContent,
@@ -82,7 +83,7 @@ function resolveScopeDisplay(request: ConsentRequest): {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 
   return {
-    title: humanized || request.scope,
+    title: mailDisplayLabel(humanized) || request.scope,
     description: request.scopeDescription,
     colorHex: null,
   };

@@ -42,7 +42,7 @@ export function invitationComposeUrl(
     return `sms:${destination.value}`;
   }
   const email = normalizeInviteEmail(destination.value);
-  if (!email) throw new Error("Choose a valid email address.");
+  if (!email) throw new Error("Choose a valid mail address.");
   return `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(share.title)}&body=${encodeURIComponent(invitationBody(share))}`;
 }
 

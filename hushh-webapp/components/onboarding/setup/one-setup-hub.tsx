@@ -140,7 +140,7 @@ export function OneSetupHub() {
     screenId: "one_setup_hub",
     title: "Set up One",
     purpose:
-      "This is your setup home. Choose your AI and set a lock. You can connect Gmail, Calendar, and other capabilities any time from their own screens.",
+      "This is your setup home. Choose your AI and set a lock. You can connect Mail, Calendar, and other capabilities any time from their own screens.",
     actions:
       hubStateLoading || dismissing || !runtimeChoiceComplete
         ? []

@@ -1054,10 +1054,10 @@ function ConsentEntryDetail({
       : null;
   const relatedWorkspace = emailHelperHref
     ? {
-        title: "Email reply",
-        description: "Review the request and draft a reply in Email.",
+        title: "Mail reply",
+        description: "Review the request and draft a reply in Mail.",
         href: emailHelperHref,
-        label: "Open Email",
+        label: "Open Mail",
         external: false,
       }
     : locationHref

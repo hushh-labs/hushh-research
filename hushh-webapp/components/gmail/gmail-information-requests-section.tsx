@@ -119,7 +119,7 @@ function WorkflowCard({
           ) : null}
           {workflow.attachment_review_required ? (
             <p className="text-xs text-amber-700 dark:text-amber-300">
-              This email has attachments. Review them in Gmail; attachments are
+              This mail has attachments. Review them in Mail; attachments are
               not read automatically.
             </p>
           ) : null}
@@ -160,7 +160,7 @@ function WorkflowCard({
                 openExternalUrl(gmailThreadUrl(workflow.gmail_thread_id!))
               }
             >
-              Open email
+              Open mail
             </Button>
           ) : null}
           <Button
@@ -212,7 +212,7 @@ function WorkflowCard({
                 {draft.preview.subject}
               </p>
               <p className="pt-1">
-                This reply stays in the original Gmail thread.
+                This reply stays in the original Mail thread.
               </p>
             </div>
           ) : null}
@@ -351,7 +351,7 @@ function ActivityCard({
             openExternalUrl(gmailThreadUrl(workflow.gmail_thread_id!))
           }
         >
-          Open Gmail
+          Open Mail
         </Button>
       ) : null}
     </div>
@@ -754,7 +754,7 @@ export default function GmailInformationRequestsSection({
         }));
       } catch {
         setError(
-          "We could not prepare this reply for sending. Review the original email and try again.",
+          "We could not prepare this reply for sending. Review the original mail and try again.",
         );
       } finally {
         setBusyWorkflowId(null);
@@ -807,7 +807,7 @@ export default function GmailInformationRequestsSection({
           ]);
         } else {
           setError(
-            "Gmail did not confirm delivery. Check Sent Mail before trying again.",
+            "Mail did not confirm delivery. Check Sent Mail before trying again.",
           );
         }
       } catch {
@@ -890,14 +890,14 @@ export default function GmailInformationRequestsSection({
             <Mail className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
             <p>
               We scan new Inbox messages, whether read or unread. Scan inbox
-              checks your last 30 Inbox emails. Their content is classified
+              checks your last 30 Inbox mail messages. Their content is classified
               transiently; only request metadata is retained.
             </p>
           </div>
         </div>
       ) : (
         <div className="rounded-xl border border-border/60 bg-background/60 p-3 text-xs text-muted-foreground">
-          Start monitoring to scan your last 30 Inbox emails, then keep KYC
+          Start monitoring to scan your last 30 Inbox mail messages, then keep KYC
           requests up to date as new mail arrives. Monitoring never grants
           sharing or send permission.
         </div>
@@ -910,7 +910,7 @@ export default function GmailInformationRequestsSection({
       ) : null}
       {enabled && scanningInbox ? (
         <p aria-live="polite" className="text-xs text-muted-foreground">
-          Scanning up to 30 Inbox emails…
+          Scanning up to 30 Inbox mail messages…
         </p>
       ) : null}
       {enabled && scanSummary ? (
@@ -919,7 +919,7 @@ export default function GmailInformationRequestsSection({
           className="grid grid-cols-3 gap-2 rounded-xl border border-border/60 bg-background/60 p-3"
         >
           <div>
-            <p className="text-xs text-muted-foreground">Emails checked</p>
+            <p className="text-xs text-muted-foreground">Mail messages checked</p>
             <p className="mt-1 text-sm font-semibold text-foreground">
               {scanSummary.scanned_count +
                 scanSummary.unchanged_count +
@@ -940,7 +940,7 @@ export default function GmailInformationRequestsSection({
           </div>
           {scanSummary.failed_count > 0 ? (
             <p className="col-span-3 text-xs text-amber-700 dark:text-amber-300">
-              {scanSummary.failed_count} email
+              {scanSummary.failed_count} mail message
               {scanSummary.failed_count === 1 ? "" : "s"} could not be
               classified. Scan again to retry.
             </p>
@@ -1001,7 +1001,7 @@ export default function GmailInformationRequestsSection({
       {enabled && !vaultOwnerToken ? (
         <div className="flex flex-col gap-2 rounded-xl border border-border/60 bg-background/60 p-3 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
           <p>
-            Unlock your private vault to view KYC requests, check Gmail, or
+            Unlock your private vault to view KYC requests, check Mail, or
             prepare a draft.
           </p>
           <Button
@@ -1091,7 +1091,7 @@ export default function GmailInformationRequestsSection({
         </p>
       ) : enabled && listView === "activity" && activityLoaded ? (
         <p className="text-xs text-muted-foreground">
-          No KYC activity yet. Sent messages remain available in Gmail.
+          No KYC activity yet. Sent messages remain available in Mail.
         </p>
       ) : null}
 
@@ -1136,8 +1136,8 @@ export default function GmailInformationRequestsSection({
           <AlertDialogHeader>
             <AlertDialogTitle>Start KYC monitoring?</AlertDialogTitle>
             <AlertDialogDescription>
-              We’ll scan your last 30 Inbox emails, including emails you have
-              already opened, to identify KYC requests. Email content is not
+              We’ll scan your last 30 Inbox mail messages, including mail messages you have
+              already opened, to identify KYC requests. Mail content is not
               retained, and monitoring never shares or sends anything.
             </AlertDialogDescription>
           </AlertDialogHeader>
@@ -1164,8 +1164,8 @@ export default function GmailInformationRequestsSection({
             <AlertDialogTitle>Turn off monitoring?</AlertDialogTitle>
             <AlertDialogDescription>
               This stops future checks and permanently deletes KYC-request
-              activity and monitoring metadata. Your Gmail emails are not
-              deleted. Turning it on again scans your last 30 Inbox emails
+              activity and monitoring metadata. Your Mail messages are not
+              deleted. Turning it on again scans your last 30 Inbox mail messages
               before monitoring new mail.
             </AlertDialogDescription>
           </AlertDialogHeader>

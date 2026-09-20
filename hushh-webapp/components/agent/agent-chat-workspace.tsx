@@ -2556,7 +2556,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           );
           updateMessage(assistantMessageId, (message) => ({
             ...message,
-            text: `I couldn’t find ${(unavailableLabels.length > 0 ? unavailableLabels : request.requested_field_labels).join(", ")} in your private memory. Reply here with only the details you want to share, and I’ll save them privately before preparing the Gmail reply.`,
+            text: `I couldn’t find ${(unavailableLabels.length > 0 ? unavailableLabels : request.requested_field_labels).join(", ")} in your private memory. Reply here with only the details you want to share, and I’ll save them privately before preparing the Mail reply.`,
             status: "done",
           }));
           return;
@@ -2565,7 +2565,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         setGmailKycMissingLabels([]);
         const requestSummary = gmailKycRequestSummary(workflow);
         setEmailDraftInstruction(
-          `Replying to the selected Gmail request. Requested: ${requestSummary}.`,
+          `Replying to the selected Mail request. Requested: ${requestSummary}.`,
         );
         setEmailDraftInitialValue({
           to: "",
@@ -2580,7 +2580,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         setEmailDraftOpen(true);
         updateMessage(assistantMessageId, (message) => ({
           ...message,
-          text: "I found the matching private details. Your editable reply to the selected Gmail request is ready below.",
+          text: "I found the matching private details. Your editable reply to the selected Mail request is ready below.",
           status: "done",
         }));
       } catch {
@@ -2588,7 +2588,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         setGmailKycEmailDraftWorkflowId(null);
         updateMessage(assistantMessageId, (message) => ({
           ...message,
-          text: "I couldn’t prepare the Gmail reply right now. Please try again.",
+          text: "I couldn’t prepare the Mail reply right now. Please try again.",
           status: "error",
         }));
       } finally {
@@ -2621,7 +2621,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     appendMessage({
       id: assistantMessageId,
       role: "assistant",
-      text: `Saving those details privately and preparing a reply to the selected Gmail request for ${gmailKycRequestSummary(request)}…`,
+      text: `Saving those details privately and preparing a reply to the selected Mail request for ${gmailKycRequestSummary(request)}…`,
       timestamp,
       status: "streaming",
       ephemeral: true,
@@ -2640,7 +2640,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       }
       updateMessage(assistantMessageId, (message) => ({
         ...message,
-        text: "Finding the matching private details and preparing the reply in the original Gmail thread…",
+        text: "Finding the matching private details and preparing the reply in the original Mail thread…",
         status: "streaming",
       }));
       await prepareGmailKycReply(request, assistantMessageId, {
@@ -2813,7 +2813,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         {
           id: handoffMessageId,
           role: "assistant",
-          text: `I’m replying in the selected Gmail thread. This request asks for: ${requestedFields}. I’ll use only matching private details, and you can review the response before it sends.`,
+          text: `I’m replying in the selected Mail thread. This request asks for: ${requestedFields}. I’ll use only matching private details, and you can review the response before it sends.`,
           timestamp,
           status: "done",
           ephemeral: true,
@@ -5757,12 +5757,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 <AgentConnectAccessCard
                   title="Read your inbox"
                   bullets={[
-                    "Reads your email for what needs a reply",
+                    "Reads your mail for what needs a reply",
                     "Surfaces meetings from your invites",
                     "Never shares or sells your data",
                     "Never acts without your yes",
                   ]}
-                  ctaLabel="Connect Gmail & continue"
+                  ctaLabel="Connect Mail & continue"
                   busy={gmailConnectBusy}
                   onConnect={() => void handleConnectGmail()}
                   onDismiss={() => setGmailConnectCardDismissed(true)}
@@ -6845,7 +6845,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         }
                         placeholder={
                           isGmailKycSaving && gmailKycReplyRequest
-                            ? "Preparing your reply to the selected Gmail request…"
+                            ? "Preparing your reply to the selected Mail request…"
                             : gmailKycMissingLabels.length > 0
                             ? `Reply with: ${gmailKycMissingLabels.join(", ")}`
                             : "Write a longer message..."
@@ -6911,7 +6911,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           }
                           placeholder={
                             isGmailKycSaving && gmailKycReplyRequest
-                              ? "Preparing your reply to the selected Gmail request…"
+                              ? "Preparing your reply to the selected Mail request…"
                               : gmailKycMissingLabels.length > 0
                               ? `Reply with: ${gmailKycMissingLabels.join(", ")}`
                               : "Message One..."
