@@ -197,6 +197,19 @@ route, which needs the backend to allow the `capacitor://localhost`
 origin) is a Phase 3 item; until then the reveal could be animated on
 native the way it is on web, which spreads that paint across frames.
 
+Threads on this phone, beyond the flick (founder ask, 2026-09-20; XCUITest,
+three iterations each, `testThirdParty{BottomNav,PagerSwipe,OpenDismiss}BenchmarkThreads`):
+the home pager drag reads 0 / 0 / 49.7 ms/s hitch while dragging (one 16.7 ms
+hitch in one of three rounds) and 0 ms/s while decelerating at 56 to 57 fps,
+so Threads' pager is not perfectly clean either. Tab switches in a UIKit tab
+bar are not animated, so Apple provides no hitch signpost for them; the test
+records the round's clock and CPU only (15.9 s per round of eight taps, most
+of it XCUITest's own tap latency). A post open/close on Threads is not a
+UINavigationController transition, so `navigationTransitionMetric` recorded
+nothing. For those two gestures the symmetric instrument on iOS remains the
+screen-recording method in the charter; on Android HWUI covers all four
+(see the Android baseline).
+
 ## Reading it
 
 - **Kai chart flick** is the surface furthest from the bar: p95 43 ms, 13

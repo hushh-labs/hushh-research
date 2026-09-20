@@ -1457,6 +1457,107 @@ final class AppUITests: XCTestCase {
         app.terminate()
     }
 
+    // The same non-scroll gestures our card measures on its own shell, on the
+    // reference app, so the comparison is not only a feed flick (founder ask,
+    // 2026-09-20). Each gets its own method because XCTest keeps one metric
+    // set per method. Tab switches in a UIKit tab bar are not animated, so
+    // there is no hitch signpost for them: the clock metric records how long
+    // the round of switches takes and the CPU metric what it cost. The pager
+    // is a paging UIScrollView (dragging + deceleration signposts) and a post
+    // open/close is a navigation push/pop (navigation transition signpost).
+    func testThirdPartyBottomNavBenchmarkThreads() throws {
+        try thirdPartyGestureBenchmark(name: "threads", bundleId: "com.burbn.barcelona", gesture: "bottom-nav-switch")
+    }
+
+    func testThirdPartyPagerSwipeBenchmarkThreads() throws {
+        try thirdPartyGestureBenchmark(name: "threads", bundleId: "com.burbn.barcelona", gesture: "top-shell-pager-swipe")
+    }
+
+    func testThirdPartyOpenDismissBenchmarkThreads() throws {
+        try thirdPartyGestureBenchmark(name: "threads", bundleId: "com.burbn.barcelona", gesture: "open-dismiss")
+    }
+
+    private func thirdPartyGestureBenchmark(name: String, bundleId: String, gesture: String) throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["HUSHH_ENABLE_THIRD_PARTY_SCROLL_BENCHMARK"] == "true" else {
+            throw XCTSkip("Third-party benchmarks run only with HUSHH_ENABLE_THIRD_PARTY_SCROLL_BENCHMARK=true.")
+        }
+        let app = XCUIApplication(bundleIdentifier: bundleId)
+        app.launch()
+        guard app.wait(for: .runningForeground, timeout: 30) else {
+            NSLog("PERF_SKIPPED name=\(name)-\(gesture) reason=did_not_launch")
+            throw XCTSkip("\(name) is not installed or did not launch.")
+        }
+        perfSettle(5)
+        NSLog("PERF_APP_READY app=\(name)")
+        let options = XCTMeasureOptions()
+        options.iterationCount = 3
+        let start = perfEpochMs()
+        switch gesture {
+        case "bottom-nav-switch":
+            let tabs = thirdPartyBottomTabs(app)
+            guard tabs.count >= 2 else {
+                NSLog("PERF_SKIPPED name=\(name)-\(gesture) reason=tab_bar_not_found tabs=\(tabs.count)")
+                app.terminate()
+                throw XCTSkip("no tab bar found in \(name)")
+            }
+            NSLog("PERF_NAV app=\(name) tabs=\(tabs.map { $0.label }.joined(separator: ","))")
+            let home = tabs[0]
+            let others = Array(tabs.dropFirst().prefix(4))
+            measure(metrics: [XCTClockMetric(), XCTCPUMetric(application: app)], options: options) {
+                for tab in others {
+                    tab.tap()
+                    perfSettle(0.7)
+                    home.tap()
+                    perfSettle(0.7)
+                }
+            }
+            home.tap()
+        case "top-shell-pager-swipe":
+            measure(metrics: [XCTOSSignpostMetric.scrollDraggingMetric, XCTOSSignpostMetric.scrollDecelerationMetric, XCTCPUMetric(application: app)], options: options) {
+                perfHorizontalSwipe(app, fromX: 0.85, toX: 0.15, y: 0.4)
+                perfSettle(0.9)
+                perfHorizontalSwipe(app, fromX: 0.15, toX: 0.85, y: 0.4)
+                perfSettle(0.9)
+            }
+        default:
+            measure(metrics: [XCTOSSignpostMetric.navigationTransitionMetric, XCTCPUMetric(application: app)], options: options) {
+                for _ in 0..<3 {
+                    app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)).tap()
+                    perfSettle(1.2)
+                    // The leading-edge back swipe is the dismiss every iOS app shares.
+                    perfHorizontalSwipe(app, fromX: 0.02, toX: 0.9, y: 0.5)
+                    perfSettle(0.9)
+                }
+            }
+        }
+        NSLog("PERF_GESTURE name=\(name)-\(gesture) rep=0 start_epoch_ms=\(start) end_epoch_ms=\(perfEpochMs())")
+        app.terminate()
+    }
+
+    /// The reference app's bottom bar: a UIKit tab bar when it has one, else
+    /// the hittable buttons in the bottom 12% of the screen, left to right,
+    /// without the compose/create control (it opens an editor).
+    private func thirdPartyBottomTabs(_ app: XCUIApplication) -> [XCUIElement] {
+        let screen = app.frame
+        let bottomBand = screen.height * 0.88
+        let skip = NSPredicate(format: "NOT (label CONTAINS[c] 'create' OR label CONTAINS[c] 'compose' OR label CONTAINS[c] 'new thread' OR label CONTAINS[c] 'new post' OR label CONTAINS[c] 'write')")
+        var candidates = app.tabBars.buttons.matching(skip).allElementsBoundByIndex
+        if candidates.count < 2 {
+            candidates = app.buttons.matching(skip).allElementsBoundByIndex.filter { element in
+                let frame = element.frame
+                return frame.minY >= bottomBand && frame.height < screen.height * 0.12 && element.isHittable
+            }
+        }
+        return candidates.sorted { $0.frame.minX < $1.frame.minX }
+    }
+
+    private func perfHorizontalSwipe(_ app: XCUIApplication, fromX: CGFloat, toX: CGFloat, y: CGFloat) {
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: fromX, dy: y))
+        let end = app.coordinate(withNormalizedOffset: CGVector(dx: toX, dy: y))
+        start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .fast, thenHoldForDuration: 0.0)
+    }
+
     private func perfEpochMs() -> Int64 {
         Int64((Date().timeIntervalSince1970 * 1000).rounded())
     }

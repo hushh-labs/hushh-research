@@ -13,8 +13,9 @@
  * Invoked by scripts/perf/android-perf-card.sh; reads its inputs from the
  * environment only:
  *   ANDROID_SERIAL, ADB, PERF_OUT_DIR, HUSHH_PERF_REPS, PERF_SECTION
- *   (feed|kai|location|all), REVIEWER_VAULT_PASSPHRASE, REVIEWER_UID,
- *   PERF_THIRD_PARTY=1 (also flick Threads and X, gfxinfo only).
+ *   (feed|kai|location|all|reference), REVIEWER_VAULT_PASSPHRASE, REVIEWER_UID,
+ *   PERF_THIRD_PARTY=1 (also drive Threads and X: feed flick, bottom-bar
+ *   tab switches, top-tab pager swipe, open/dismiss; gfxinfo only).
  *
  * The passphrase is handed to the app the way the native audit does it: as
  * an intent extra on a command line built here, single-quoted for the
@@ -153,6 +154,7 @@ function dumpNodes() {
         desc: attr("content-desc"),
         hint: attr("hint"),
         cls: attr("class"),
+        clickable: attr("clickable") === "true",
         bounds: b ? b.slice(1, 5).map(Number) : [0, 0, 0, 0],
       };
     });
@@ -422,19 +424,67 @@ function runLocationSection() {
 }
 
 /** Threads and X on the same phone, same flick, HWUI numbers only. */
-function runThirdParty(name, pkg) {
-  const installed = tryShell(`pm list packages ${pkg}`).includes(`package:${pkg}`);
-  if (!installed) {
-    log(`PERF_SKIPPED name=${name}-feed-flick reason=not_installed`);
-    return;
-  }
+/** Cold launch of a reference app at its home tab; false when it is not in front. */
+function launchReference(name, pkg) {
   wake();
   tryShell(`am force-stop ${pkg}`);
   sleep(800);
   tryShell(`monkey -p ${pkg} -c android.intent.category.LAUNCHER 1`);
   sleep(6_000);
   const focus = tryShell('dumpsys window | grep -E "mCurrentFocus"');
-  if (!focus.includes(pkg)) {
+  return focus.includes(pkg);
+}
+
+/**
+ * The reference app's bottom tab bar from the accessibility tree: the row of
+ * clickable nodes in the bottom 12% of the screen that spans the width (a
+ * compose bar or an attachment strip sits in the same band but never reaches
+ * both edges). Labels are often absent, so position is the contract.
+ */
+function referenceTabRow(nodes) {
+  // Threads marks its tab icons with a description and no clickable flag;
+  // X marks them clickable with no description. Either counts.
+  const band = nodes.filter(
+    (n) =>
+      (n.clickable || n.desc || n.text) &&
+      n.bounds[1] >= Y(0.86) &&
+      n.bounds[3] - n.bounds[1] < Y(0.12) &&
+      n.bounds[2] - n.bounds[0] < X(0.4),
+  );
+  const rows = new Map();
+  for (const n of band) {
+    const key = Math.round((n.bounds[1] + n.bounds[3]) / 2 / 40);
+    rows.set(key, [...(rows.get(key) ?? []), n]);
+  }
+  const spanning = [...rows.values()]
+    .map((row) => row.sort((a, b) => a.bounds[0] - b.bounds[0]))
+    .filter((row) => row.length >= 3 && row[0].bounds[0] <= X(0.2) && row[row.length - 1].bounds[2] >= X(0.8));
+  if (!spanning.length) return [];
+  const row = spanning
+    .sort((a, b) => b.length - a.length)[0]
+    .filter((n) => !/create|compose|new thread|new post|write|gallery|gif|attach|camera/i.test(`${n.desc} ${n.text}`));
+  // X lists each tab twice (the icon and its container at the same x);
+  // keep one per position, the labelled one when there is a choice.
+  const merged = [];
+  for (const n of row) {
+    const last = merged[merged.length - 1];
+    const cx = (n.bounds[0] + n.bounds[2]) / 2;
+    if (last && Math.abs((last.bounds[0] + last.bounds[2]) / 2 - cx) < X(0.06)) {
+      if (!(last.desc || last.text) && (n.desc || n.text)) merged[merged.length - 1] = n;
+      continue;
+    }
+    merged.push(n);
+  }
+  return merged;
+}
+
+function runThirdParty(name, pkg) {
+  const installed = tryShell(`pm list packages ${pkg}`).includes(`package:${pkg}`);
+  if (!installed) {
+    log(`PERF_SKIPPED name=${name}-feed-flick reason=not_installed`);
+    return;
+  }
+  if (!launchReference(name, pkg)) {
     log(`PERF_SKIPPED name=${name}-feed-flick reason=did_not_launch`);
     return;
   }
@@ -455,6 +505,78 @@ function runThirdParty(name, pkg) {
     });
   }
   gfxCapture(`${name}-feed-flick`, pkg);
+
+  // The same gestures our card measures on its own shell, so the comparison
+  // is not only a scroll: bottom-bar tab switches, the home pager's top-tab
+  // swipe, and open/dismiss of a post. The tab bar is read from the
+  // accessibility tree (clickable nodes in the bottom 12% of the screen);
+  // a compose/create tab is skipped because it opens an editor.
+  // Every group starts from a cold launch at the home tab, so a tap that
+  // landed somewhere unexpected in one group cannot bend the next.
+  if (!launchReference(name, pkg)) {
+    log(`PERF_SKIPPED name=${name}-bottom-nav-switch reason=did_not_relaunch`);
+    return;
+  }
+  const tabs = referenceTabRow(dumpNodes());
+  const home = tabs[0] ?? null;
+  const others = tabs.slice(1, 5);
+  if (home && others.length) {
+    log(`PERF_NAV app=${name} tabs=${tabs.map((n) => JSON.stringify(n.desc || n.text || `x${Math.round((n.bounds[0] + n.bounds[2]) / 2)}`)).join(",")}`);
+    gfxReset(pkg);
+    for (let rep = 0; rep < reps; rep += 1) {
+      gesture(`${name}-bottom-nav-switch`, rep, () => {
+        for (const tab of others) {
+          tapAt(...center(tab));
+          sleep(700);
+          tapAt(...center(home));
+          sleep(700);
+        }
+      });
+    }
+    gfxCapture(`${name}-bottom-nav-switch`, pkg);
+    tapAt(...center(home));
+    sleep(800);
+  } else {
+    log(`PERF_SKIPPED name=${name}-bottom-nav-switch reason=tab_bar_not_found tabs=${tabs.length}`);
+  }
+
+  if (!launchReference(name, pkg)) {
+    log(`PERF_SKIPPED name=${name}-top-shell-pager-swipe reason=did_not_relaunch`);
+    return;
+  }
+  gfxReset(pkg);
+  for (let rep = 0; rep < reps; rep += 1) {
+    gesture(`${name}-top-shell-pager-swipe`, rep, () => {
+      // A drag, not a fling: the home pager pages on release, the way our
+      // card's pager swipe does.
+      drag(0.9, 0.35, 0.1, 0.35, 450);
+      sleep(1_000);
+      drag(0.1, 0.35, 0.9, 0.35, 450);
+      sleep(1_000);
+    });
+  }
+  gfxCapture(`${name}-top-shell-pager-swipe`, pkg);
+
+  if (!launchReference(name, pkg)) {
+    log(`PERF_SKIPPED name=${name}-open-dismiss reason=did_not_relaunch`);
+    return;
+  }
+  gfxReset(pkg);
+  for (let rep = 0; rep < reps; rep += 1) {
+    gesture(`${name}-open-dismiss`, rep, () => {
+      for (let i = 0; i < 3; i += 1) {
+        tapAt(X(0.5), Y(0.45));
+        sleep(1_200);
+        tryShell("input keyevent KEYCODE_BACK");
+        sleep(900);
+      }
+    });
+  }
+  gfxCapture(`${name}-open-dismiss`, pkg);
+  // A back press too many would leave the app; make sure we are still in it.
+  const focusAfter = tryShell('dumpsys window | grep -E "mCurrentFocus"');
+  if (!focusAfter.includes(pkg)) log(`PERF_NOTE app=${name} detail=left the app during open-dismiss`);
+
   tryShell("input keyevent KEYCODE_HOME");
   sleep(1_000);
   tryShell(`am force-stop ${pkg}`);
@@ -463,7 +585,8 @@ function runThirdParty(name, pkg) {
 function pullProbeExports() {
   let names = [];
   try {
-    names = sh(["exec-out", "run-as", bundleId, "ls", "files/hushh-perf"]).split(/\r?\n/).map((s) => s.trim()).filter((s) => s.endsWith(".json"));
+    // toybox ls prints columns even to a pipe on some builds: split on any whitespace.
+    names = sh(["exec-out", "run-as", bundleId, "ls", "files/hushh-perf"]).split(/\s+/).map((s) => s.trim()).filter((s) => s.endsWith(".json"));
   } catch {
     names = [];
   }
@@ -499,8 +622,9 @@ if (section === "dump") runDumpSection();
 if (section === "all" || section === "feed") runFeedSection();
 if (section === "all" || section === "kai") runKaiSection();
 if (section === "all" || section === "location") runLocationSection();
-pullProbeExports();
-if (thirdParty) {
+if (section !== "reference") pullProbeExports();
+// PERF_SECTION=reference drives only the reference apps (HWUI only).
+if (thirdParty || section === "reference") {
   runThirdParty("threads", "com.instagram.barcelona");
   runThirdParty("x", "com.twitter.android");
 }

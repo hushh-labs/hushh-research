@@ -45,81 +45,105 @@ reading the tables below:
 
 ## Gesture card (Debug, test bridge on, attribution only)
 
-Captured 2026-09-20 at 8cec9a006, one rep per gesture, feed launch only
-(the full three-launch, three-rep run was interrupted by the phone's secure
-lock engaging mid-run; the card now keeps the screen on and refuses a locked
-phone, see *Status*). rAF 91.4 Hz at boot (nominal 90, budget 11.1 ms;
-steady state 120 Hz, see above); engine Linux Chrome/152.
+Captured 2026-09-20 18:22 UTC at c5f250861, three reps per gesture, all
+three launches (feed, Finance, Location) plus the chat section. rAF 81.4 Hz
+at boot (nominal 90, budget 11.1 ms; steady state 120 Hz, see above); engine
+Linux Chrome/152. An earlier partial run (8cec9a006, feed launch only, one
+rep) read the same shape: feed flick p95 8, tab switch 75 ms/s, pane 61 ms/s.
 
 | Gesture | Windows | Frames | p95 ms (median) | p99 ms (median) | Worst ms | Frames > 50 ms | Hitch ms/s (median) | Verdict |
 |---|---|---|---|---|---|---|---|---|
-| feed-flick | 10 | 808 | 8 | 8 | 83.2 | 1 | 0 | critical (one 83 ms frame on the first flick) |
-| bottom-nav-switch | 3 | 425 | 9 | 33 | 58.2 | 1 | 75 | critical |
-| profile-pane-open-dismiss | 2 | 315 | 8 | 41 | 50 | 0 | 61.2 | critical |
-| chat-stream-30s | 0 | 0 | - | - | - | - | - | not measured (composer selector fixed after this run) |
-| top-shell-pager-swipe | | | | | | | | pending the full run |
-| kai-chart-flick | | | | | | | | pending the full run |
-| location-map-pan | | | | | | | | pending the full run |
+| feed-flick | 30 | 2465 | 8 | 24 | 50 | 0 | 23.9 | critical |
+| bottom-nav-switch | 9 | 1294 | 8 | 33 | 58.5 | 2 | 83.9 | critical |
+| profile-pane-open-dismiss | 8 | 1131 | 8 | 25 | 98.6 | 3 | 34.5 | critical |
+| chat-stream-30s | 1 | 68 | 43 | 127 | 166.4 | 2 | 365.7 | critical (one paint of the whole reply; chat does not stream on native, bug log B39) |
+| top-shell-pager-swipe | 6 | 977 | 8 | 16 | 50 | 0 | 19.8 | critical |
+| kai-chart-flick | 9 | 828 | 8 | 11 | 49.9 | 0 | 23.5 | critical |
+| location-map-pan | 11 | 2238 | 8 | 8 | 41.7 | 0 | 2.2 | good |
 
 HWUI, same gestures (`dumpsys gfxinfo com.hussh.app reset` before, `framestats`
 after; the whole app window, not just the WebView):
 
 | Gesture | Frames | Janky % | p50 ms | p90 ms | p95 ms | p99 ms | Frames >= 50 ms | Missed vsync | Slow UI thread |
 |---|---|---|---|---|---|---|---|---|---|
-| feed-flick | 445 | 3.82 | 10 | 17 | 18 | 20 | 0 | 1 | 0 |
-| bottom-nav-switch | 210 | 3.81 | 12 | 16 | 21 | 36 | 0 | 1 | 1 |
-| profile-pane-open-dismiss | 76 | 9.21 | 11 | 17 | 20 | 42 | 0 | 0 | 1 |
+| feed-flick | 1001 | 3.2 | 12 | 15 | 18 | 25 | 1 | 1 | 4 |
+| bottom-nav-switch | 650 | 3.08 | 12 | 18 | 21 | 44 | 1 | 0 | 2 |
+| profile-pane-open-dismiss | 261 | 4.98 | 12 | 23 | 26 | 42 | 1 | 0 | 5 |
+| chat-stream-30s | 54 | 29.63 | 17 | 20 | 22 | 81 | 2 | 0 | 4 |
+| top-shell-pager-swipe | 922 | 4.99 | 12 | 17 | 18 | 24 | 0 | 0 | 0 |
+| kai-chart-flick | 164 | 3.05 | 10 | 12 | 14 | 44 | 1 | 1 | 1 |
+| location-map-pan | 1648 | 0.06 | 9 | 9 | 9 | 11 | 0 | 0 | 1 |
 
 Idle (no gesture in flight), by route, same lane:
 
 | Route | Frames | p95 ms | Worst ms | Frames > 50 ms |
 |---|---|---|---|---|
-| idle:/one/feed/ | 1922 | 8 | 108.2 | 5 |
-| idle:/one/ | 373 | 8 | 25 | 0 |
-| idle:/one/connect/ | 324 | 8 | 49.9 | 0 |
-| idle:/ | 2007 | 8 | 33.4 | 0 |
+| idle:/one/feed/ | 2345 | 8 | 183.2 | 2 |
+| idle:/one/ | 1495 | 8 | 41.7 | 0 |
+| idle:/one/connect/ | 388 | 8 | 58.3 | 3 |
+| idle:/ | 3595 | 16 | 150 | 4 |
+| idle:/one/kai/ | 2486 | 8 | 191.4 | 5 |
+| idle:/one/location/ | 2203 | 8 | 183.1 | 3 |
 
 ## Reading it
 
-- **The feed flick is on budget at 120 Hz.** p95 8 ms, p99 8 ms across ten
-  windows; the one frame over 50 ms (83 ms) is the first flick's first
-  window, the same first-scroll cost the iOS reading attributes to row
-  mount. HWUI agrees: 3.8 % janky, p99 20 ms, nothing at or over 50 ms.
-  Against the charter's Android bar (janky < 5 %) this passes.
-- **Tab switches and the pane are where the hitch is.** p99 33 to 41 ms and
-  60 to 75 ms/s of hitch: many late frames during the route transition
-  rather than one stall, the same shape as iOS. HWUI's p99 36 to 42 ms on
-  those groups says the app window, not only the WebView, misses vsyncs
-  there (one missed vsync, one slow UI thread frame each).
-- **At rest** the feed route dropped five frames over 50 ms in sixteen
-  seconds (worst 108 ms) while the other routes stayed clean; timers and
-  polls, worth one `chrome://inspect` session on `/one/feed`.
+- **Every flick and pan is on budget at 120 Hz.** Feed, Finance chart,
+  pager and map all read p95 8 ms (the 8.3 ms cadence) with no frame over
+  50 ms; the map pan is the first gesture on either phone to read "good"
+  (2.2 ms/s). The Finance flick that cost 215 ms/s on the iPhone at the
+  start of the program costs 23.5 ms/s here after the solid rows.
+- **Tab switches and the pane are where the hitch is,** the same shape as
+  iOS: p99 33 ms and 84 ms/s on the switch (two frames over 50 ms in nine
+  windows), p99 25 and a 99 ms worst frame on the pane. HWUI puts both
+  groups at 3 to 5 % janky with p99 42 to 44 ms, so the app window misses
+  vsyncs there, not only the WebView's JavaScript.
+- **Chat is one paint.** 68 frames in the window, worst 166 ms: the whole
+  reply lands in a single frame because native does not stream (B39).
+  HWUI: 30 % of 54 frames janky.
+- **At rest** every route drops two to five frames over 50 ms in twenty
+  seconds (worst 150 to 191 ms); timers and polls, worth one
+  `chrome://inspect` session on `/one/feed` and `/one/kai`.
 - **The 120 Hz panel is real for the WebView.** The probe's budget should
   follow it (see *The refresh-rate question first*).
 
 ## Threads and X on the same phone
 
-`PERF_THIRD_PARTY=1` flicks Threads (`com.instagram.barcelona`) and X
-(`com.twitter.android`) with the same five-down, five-up swipes and records
-`dumpsys gfxinfo` for each. Both are installed on this phone; the comparison
-run is part of the full card and is recorded here when it lands. Read it as
-native lists (RecyclerView) against a DOM scroller, same phone, same flick,
-same HWUI unit.
+`PERF_THIRD_PARTY=1` (or `PERF_SECTION=reference` for the reference apps
+alone) drives Threads (`com.instagram.barcelona`) and X
+(`com.twitter.android`) through the same four gestures our card measures:
+the feed flick, bottom-bar tab switches (the tab row is read from the
+accessibility tree and the compose control skipped), the home pager's
+top-tab drag, and open/dismiss of a post (tap a post, system back), each
+group from a cold launch, HWUI only (there is no probe inside them).
+Captured 2026-09-20, three reps:
+
+| Gesture (HWUI) | One (Debug, bridge on) | Threads | X |
+|---|---|---|---|
+| feed flick: janky % / p99 ms / frames >= 50 ms | 3.2 / 25 / 1 | 3.6 / 29 / 0 | 6.8 / 21 / 0 |
+| bottom-bar tab switch | 3.1 / 44 / 1 | 13.1 / 101 / 29 | 7.5 / 53 / 19 |
+| open/dismiss (our profile pane; their post) | 5.0 / 42 / 1 | 5.5 / 77 / 27 | 5.6 / 65 / 18 |
+| top-tab pager drag | 5.0 / 24 / 0 | no pager (the home tabs are a tap pill; 46 frames) | did not page (5 frames) |
+
+Read it as native lists and native tabs against a WebView, same phone, same
+gestures, same HWUI unit. On this phone the shell's tab switches and pane
+miss fewer vsyncs than either reference app's; the reference apps load a
+cold tab on each switch (Threads 29 frames at or over 50 ms across three
+rounds) where our tabs are already mounted. The probe adds what HWUI
+cannot see inside our WebView (the 58 ms JavaScript frame on the switch,
+the 99 ms one on the pane), which is where our remaining work is.
 
 ## Status
 
 - The card, the driver, the gfxinfo parser and the summary merge ran end to
-  end on the phone for the feed launch (this page's numbers).
-- The full three-launch run was interrupted when the phone's secure lock
-  engaged (two-minute screen timeout, PIN keyguard): the feed launch timed
-  out against the lock screen and the Finance and Location groups recorded
-  zero HWUI frames. The card now sets `svc power stayon true` for the run,
-  restores the setting, and fails fast with `PERF_BLOCKED reason=keyguard`
-  on a locked phone. Re-run once the phone is unlocked:
+  end on the phone: three launches, chat, all reps, both reference apps.
+- The phone's secure lock (two-minute screen timeout, PIN keyguard) engaged
+  during the first full attempt; the card now sets `svc power stayon true`
+  for the run, restores the setting, and fails fast with
+  `PERF_BLOCKED reason=keyguard` on a locked phone. Re-run:
   `PERF_SKIP_BUILD=1 PERF_THIRD_PARTY=1 ANDROID_SERIAL=<serial> npm run perf:android:card`.
 - The truth lane (`AttachedRenderPerfTest`, UIAutomator 2.3.0) compiles for
-  both the debug and the `perf` build types; its first phone run is pending
-  the same unlock. Until it has run, nothing on this page certifies.
+  both the debug and the `perf` build types; its first phone run is next.
+  Until it has run, nothing on this page certifies.
 
 ## What this reading cost to obtain
 

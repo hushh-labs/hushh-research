@@ -219,6 +219,15 @@ deceleration in Apple's own hitch unit (`testThirdPartyFeedScrollBenchmarkThread
 opt-in with `HUSHH_ENABLE_THIRD_PARTY_SCROLL_BENCHMARK=true`; read the result
 with `hushh-webapp/scripts/perf/summarize-xcresult-metrics.mjs`). X aborts
 itself under any XCUITest-driven session and cannot be measured this way.
+Beyond the flick, `testThirdPartyPagerSwipeBenchmarkThreads` scores the
+home pager drag (dragging and deceleration signposts),
+`testThirdPartyBottomNavBenchmarkThreads` records the clock and CPU of a
+round of tab switches (a UIKit tab bar does not animate, so Apple has no
+hitch signpost for it) and `testThirdPartyOpenDismissBenchmarkThreads`
+records `navigationTransitionMetric`, which only fires for a
+UINavigationController push/pop (Threads' post open is not one). On Android
+the same four gestures are driven on Threads and X with HWUI counted per
+group (`PERF_SECTION=reference`); see the Android baseline.
 One's feed scrolls a DOM element that instrument cannot see, so One's number
 is the probe's frame-interval hitch on the identical flick. Two further
 symmetric methods, same phone, same gesture, same session:
