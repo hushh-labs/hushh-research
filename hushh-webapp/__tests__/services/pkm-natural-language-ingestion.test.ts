@@ -404,6 +404,34 @@ describe("ingestNaturalLanguagePkm", () => {
       },
     ]);
   });
+
+  it("bounds a stalled preparation and marks every unfinished source block for review", async () => {
+    mocks.preview.mockImplementation(({ signal }: { signal?: AbortSignal }) => new Promise((resolve, reject) => {
+      const timer = setTimeout(() => resolve({
+        cards: [{ card_id: "late", source_text: "Late detail.", write_mode: "can_save" }],
+        preview_summary: { total_segments_detected: 1 },
+      }), 250);
+      signal?.addEventListener("abort", () => {
+        clearTimeout(timer);
+        reject(new DOMException("Preparation timed out", "TimeoutError"));
+      }, { once: true });
+    }));
+
+    const prepared = await prepareNaturalLanguagePkm({
+      userId: "user_1",
+      message: Array.from({ length: 7 }, (_, index) => `${index + 1}. Section ${index + 1}\nA durable synthetic detail.`).join("\n\n"),
+      currentDomains: [],
+      vaultOwnerToken: "owner-token",
+      source: "agent_chat_profile_import",
+      allowEmpty: true,
+      preparationBudgetMs: 50,
+    });
+
+    expect(prepared.cards).toHaveLength(0);
+    expect(prepared.sourceCoverage.length).toBeGreaterThan(0);
+    expect(prepared.sourceCoverage.every((block) => block.preparationIssue === "preparation_timeout")).toBe(true);
+    expect(mocks.preview).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe("prepareNaturalLanguagePkm large-paste behavior", () => {

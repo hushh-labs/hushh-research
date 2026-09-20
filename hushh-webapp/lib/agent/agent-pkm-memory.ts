@@ -267,10 +267,12 @@ export async function previewAgentPkmMemory(params: {
   ingestionId?: string;
   chunkIndex?: number;
   memoryProfile?: "general" | "kyc_identity_v1";
+  signal?: AbortSignal;
   isEffectCurrent?: () => boolean;
 }): Promise<AgentPkmPreviewResponse & { cards: AgentPkmPreviewCard[] }> {
   const response = await ApiService.apiFetch("/api/pkm/memory/proposals", {
     method: "POST",
+    signal: params.signal,
     isEffectCurrent: params.isEffectCurrent,
     headers: {
       "Content-Type": "application/json",

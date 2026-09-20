@@ -871,14 +871,14 @@ export function PkmNaturalPanel({
       });
       if (!guard.isCurrent()) return;
       setCaptureCards(prepared.cards);
-      const needsAttention = prepared.sourceCoverage.some((block) =>
-        block.disposition === "review_required" || block.disposition === "failed");
-      setCaptureHasUnresolvedSource(prepared.sourceCoverage.some((block) =>
+      const hasUnresolvedSource = prepared.sourceCoverage.some((block) =>
         Boolean(block.preparationIssue) || block.disposition === "failed" ||
-        block.detectedFactCount !== block.accountedFactCount));
+        block.detectedFactCount !== block.accountedFactCount) ||
+        prepared.cards.some((card) => card.preparation_requires_review === true);
+      setCaptureHasUnresolvedSource(hasUnresolvedSource);
       setCaptureMessage(
-        needsAttention
-          ? "Some sections need another review. Only the proposed details shown below can be saved."
+        hasUnresolvedSource
+          ? "Some sections need another review before anything can be saved. Try again to finish preparing this note."
           : localDuplicate?.kind === "possible"
           ? "A related saved detail may already exist. Review this suggestion before saving."
           : prepared.cards.length
@@ -894,7 +894,7 @@ export function PkmNaturalPanel({
   }
 
   async function saveMemoryCapture() {
-    if (!user || !isVaultUnlocked || !vaultKey || !vaultOwnerToken || captureCards.length === 0 || pkmCaptureSaveInFlight.has(user.uid)) return;
+    if (!user || !isVaultUnlocked || !vaultKey || !vaultOwnerToken || captureCards.length === 0 || captureHasUnresolvedSource || pkmCaptureSaveInFlight.has(user.uid)) return;
     const operationId = Symbol("memory-save");
     const operationOwnerId = user.uid;
     pkmCaptureSaveInFlight.set(operationOwnerId, operationId);
@@ -1441,7 +1441,7 @@ export function PkmNaturalPanel({
                 {getIgnoredPkmCards(captureCards).length > 0 ? <SettingsRow title="Some of this note will not be saved" description="Only appropriate details can be added to Memory." /> : null}
               </SettingsGroup>
             ) : null}
-            {captureCards.length > 0 ? <Button className="w-full justify-center" type="button" effect="fade" disabled={captureSaving} onClick={() => void saveMemoryCapture()}>{captureSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null}Save to Memory</Button> : null}
+            {captureCards.length > 0 ? <Button className="w-full justify-center" type="button" effect="fade" disabled={captureSaving || captureHasUnresolvedSource} onClick={() => void saveMemoryCapture()}>{captureSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null}Save to Memory</Button> : null}
           </SurfaceInset>
 
           <SettingsGroup separatorInset testId="memory-auto-save-group">

@@ -524,14 +524,9 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     fireEvent.change(note, { target: { value: source } });
     fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
     expect(await screen.findByText(/Some sections need another review/)).toBeTruthy();
-    addToPKM.mockImplementationOnce(async ({ cards }) => ({
-      attempted: cards.length, saved: cards.length, failed: 0, domains: ["preferences"],
-      results: cards.map((card: { card_id: string }) => ({ cardId: card.card_id, success: true })),
-    }));
-    fireEvent.click(await screen.findByRole("button", { name: "Save to Memory" }));
-    expect(await screen.findByText(/Some details still need attention; your note is kept below/)).toBeTruthy();
+    expect(await screen.findByRole("button", { name: "Save to Memory" })).toBeDisabled();
+    expect(addToPKM).not.toHaveBeenCalled();
     expect(note).toHaveValue(source);
-    expect(screen.queryByRole("button", { name: "Save to Memory" })).toBeNull();
   });
 
   it("shows the proposed source detail and invalidates it when the note changes", async () => {
