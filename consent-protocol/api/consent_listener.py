@@ -29,19 +29,31 @@ from hushh_mcp.services.consent_request_links import (
 
 logger = logging.getLogger(__name__)
 
+# Metadata-only application state changes use the same long-lived Postgres
+# listener connection as consent events, but a separate channel keeps the
+# dispatch contracts independent. PostgreSQL broadcasts NOTIFY to every
+# listening backend worker/instance, so whichever process owns a user's SSE
+# connection can wake it without an instance-to-instance transport.
+USER_STATE_CHANNEL = "one_user_state_changed"
+# PostgreSQL caps NOTIFY payloads below 8 KiB. Leave headroom for encoding and
+# version differences rather than publishing at the protocol boundary.
+_USER_STATE_NOTIFY_MAX_BYTES = 7_500
+
 # Interval for timeout job (seconds)
 TIMEOUT_JOB_INTERVAL = 120
 NOTIFICATION_JOB_INTERVAL = 60
 JOB_DB_RECOVERY_DELAY_SECONDS = 15
+LISTENER_HEALTHCHECK_INTERVAL_SECONDS = 30
 FINAL_REMINDER_LEAD_MS = 30 * 60 * 1000
 MIN_FINAL_REMINDER_WINDOW_MS = 2 * 60 * 60 * 1000
 
-# Per-user queues for SSE generators (no polling). Key = user_id.
-# Each queue is bounded so a stalled or slow SSE consumer cannot accumulate an
-# unbounded backlog of notifications and exhaust memory. When a queue is full,
-# the oldest pending event is dropped to make room for the newest.
+# Per-user subscriber queues for SSE generators (no polling). Key = user_id.
+# Every live stream owns a distinct bounded queue so two tabs/devices on the
+# same backend worker both receive every transition instead of competing on one
+# queue. A stalled consumer drops only its own oldest event and cannot delay or
+# starve the other streams for the account.
 _CONSENT_NOTIFY_QUEUE_MAXSIZE = 100
-_consent_notify_queues: Dict[str, asyncio.Queue] = {}
+_consent_notify_queues: Dict[str, set[asyncio.Queue]] = {}
 _consent_notify_queues_lock = asyncio.Lock()
 # The loop the SSE queues live on. Captured when a consumer connects, so a
 # producer running on a FastAPI threadpool worker can still reach them.
@@ -121,9 +133,9 @@ def _is_database_unavailable_error(exc: Exception) -> bool:
 
 async def _push_to_consent_queue(user_id: str, data: Dict[str, Any]) -> None:
     async with _consent_notify_queues_lock:
-        q = _consent_notify_queues.get(user_id)
-        if q is None:
-            return
+        queues = list(_consent_notify_queues.get(user_id, set()))
+
+    for q in queues:
         try:
             q.put_nowait(data)
         except asyncio.QueueFull:
@@ -138,7 +150,87 @@ async def _push_to_consent_queue(user_id: str, data: Dict[str, Any]) -> None:
                 q.put_nowait(data)
             except asyncio.QueueFull:
                 pass
-            logger.warning("consent notify queue full; dropped oldest event to bound memory")
+            logger.warning(
+                "consent notify queue full; dropped oldest event to bound memory user_id=%s",
+                user_id,
+            )
+
+
+async def _publish_user_state_event(user_id: str, data: Dict[str, Any]) -> bool:
+    """Broadcast a metadata-only state doorbell to every backend process.
+
+    The caller already owns the FCM delivery. This channel exists only to make
+    the authenticated SSE fallback worker-independent; listeners enqueue the
+    exact same transition id so the client can deduplicate FCM + SSE safely.
+    If the database publish fails, deliver to a same-process stream as a
+    best-effort fallback instead of making notification delivery load-bearing.
+    """
+
+    normalized_user_id = str(user_id or "").strip()
+    payload = {**data, "user_id": normalized_user_id}
+    event_type = str(payload.get("type") or "").strip()
+    if not normalized_user_id or not event_type.startswith("location_circle_"):
+        return False
+
+    serialized = json.dumps(payload, separators=(",", ":"), default=str)
+    payload_size = len(serialized.encode("utf-8"))
+    if payload_size > _USER_STATE_NOTIFY_MAX_BYTES:
+        logger.warning(
+            "user_state.notify_payload_too_large type=%s bytes=%s limit=%s",
+            event_type,
+            payload_size,
+            _USER_STATE_NOTIFY_MAX_BYTES,
+        )
+        await _push_to_consent_queue(normalized_user_id, payload)
+        return False
+
+    conn = None
+    pool = None
+    try:
+        from db.connection import get_pool
+
+        pool = await get_pool()
+        conn = await pool.acquire()
+        await conn.execute(
+            "SELECT pg_notify($1, $2)",
+            USER_STATE_CHANNEL,
+            serialized,
+        )
+        return True
+    except Exception as exc:  # noqa: BLE001 - realtime delivery is best-effort
+        logger.warning("user_state.notify_publish_failed type=%s error=%s", event_type, exc)
+        await _push_to_consent_queue(normalized_user_id, payload)
+        return False
+    finally:
+        if conn is not None and pool is not None:
+            with contextlib.suppress(Exception):
+                await pool.release(conn)
+
+
+def publish_user_state_event_threadsafe(user_id: str, data: Dict[str, Any]) -> bool:
+    """Schedule a cross-process state doorbell from sync request/worker code."""
+
+    loop = _serving_loop
+    if loop is None or loop.is_closed():
+        return False
+    try:
+        future = asyncio.run_coroutine_threadsafe(
+            _publish_user_state_event(user_id, dict(data)),
+            loop,
+        )
+
+        def _log_failure(done) -> None:
+            with contextlib.suppress(asyncio.CancelledError):
+                try:
+                    done.result()
+                except Exception as exc:  # noqa: BLE001 - delivery is best-effort
+                    logger.warning("user_state.notify_task_failed error=%s", exc)
+
+        future.add_done_callback(_log_failure)
+        return True
+    except Exception as exc:  # noqa: BLE001 - delivery is best-effort, never fatal
+        logger.warning("user_state.notify_schedule_failed error=%s", exc)
+        return False
 
 
 async def _push_to_developer_consent_queues(data: Dict[str, Any]) -> None:
@@ -165,18 +257,32 @@ async def _push_to_developer_consent_queues(data: Dict[str, Any]) -> None:
             logger.warning("developer consent SSE queue full; dropped oldest event")
 
 
-def get_consent_queue(user_id: str) -> asyncio.Queue:
-    """Get or create the asyncio queue for this user (used by SSE generator)."""
+async def subscribe_consent_queue(user_id: str) -> asyncio.Queue:
+    """Register one bounded queue for one active authenticated SSE stream."""
+
     _remember_serving_loop()
-    if user_id not in _consent_notify_queues:
-        _consent_notify_queues[user_id] = asyncio.Queue(maxsize=_CONSENT_NOTIFY_QUEUE_MAXSIZE)
-    return _consent_notify_queues[user_id]
+    queue: asyncio.Queue = asyncio.Queue(maxsize=_CONSENT_NOTIFY_QUEUE_MAXSIZE)
+    async with _consent_notify_queues_lock:
+        _consent_notify_queues.setdefault(user_id, set()).add(queue)
+    return queue
+
+
+async def unsubscribe_consent_queue(user_id: str, queue: asyncio.Queue) -> None:
+    """Remove one SSE stream queue and release its account registry entry."""
+
+    async with _consent_notify_queues_lock:
+        queues = _consent_notify_queues.get(user_id)
+        if queues is None:
+            return
+        queues.discard(queue)
+        if not queues:
+            _consent_notify_queues.pop(user_id, None)
 
 
 def _remember_serving_loop() -> None:
     """Record the loop the SSE queues live on, so worker threads can reach them.
 
-    Called from ``get_consent_queue``, which only ever runs inside the SSE
+    Called from ``subscribe_consent_queue``, which only ever runs inside the SSE
     endpoint -- i.e. on the serving loop itself.
     """
     global _serving_loop
@@ -246,7 +352,8 @@ def get_consent_listener_status() -> dict:
     """Return status for GET /debug/consent-listener (listener_active, queue_count, notify_received_count)."""
     return {
         "listener_active": _listener_active,
-        "queue_count": len(_consent_notify_queues),
+        "queue_count": sum(len(queues) for queues in _consent_notify_queues.values()),
+        "queue_user_count": len(_consent_notify_queues),
         "developer_queue_count": sum(
             len(queues) for queues in _developer_consent_subscribers.values()
         ),
@@ -270,6 +377,35 @@ def _notify_callback(connection, pid, channel, payload: str):
             loop.call_soon_threadsafe(_schedule)
     except Exception as e:
         logger.exception("Consent notify callback error: %s", e)
+
+
+def _user_state_notify_callback(connection, pid, channel, payload: str) -> None:
+    """Route a Postgres-broadcast Circle transition to this worker's SSE queue."""
+
+    _ = connection
+    _ = pid
+    _ = channel
+    try:
+        data = json.loads(payload or "{}")
+        user_id = str(data.get("user_id") or "").strip()
+        event_type = str(data.get("type") or "").strip()
+        if not user_id or not event_type.startswith("location_circle_"):
+            return
+
+        loop = _serving_loop
+        if loop is None or loop.is_closed():
+            return
+
+        def _schedule() -> None:
+            task = asyncio.create_task(_push_to_consent_queue(user_id, data))
+            _background_notify_tasks.add(task)
+            task.add_done_callback(_background_notify_tasks.discard)
+
+        loop.call_soon_threadsafe(_schedule)
+    except json.JSONDecodeError:
+        logger.warning("user_state.notify_invalid_json")
+    except Exception as exc:  # noqa: BLE001 - listener callbacks must never raise
+        logger.warning("user_state.notify_dispatch_failed error=%s", exc)
 
 
 async def _handle_notify(payload_str: str):
@@ -766,46 +902,68 @@ async def run_consent_listener():
     Uses a dedicated asyncpg connection (db.connection.get_pool()).
     Also starts the optional timeout job (TIMEOUT events for expired requests).
     """
+    global _listener_active, _serving_loop
+
+    # The serving loop exists even before the first SSE client connects. Sync
+    # mutation workers can therefore schedule a PostgreSQL broadcast during the
+    # small startup window before subscribe_consent_queue() first observes it.
+    _serving_loop = asyncio.get_running_loop()
+
     # Start timeout + reminder jobs in background.
     timeout_task = asyncio.create_task(_timeout_job_loop())
     notification_task = asyncio.create_task(_notification_job_loop())
     try:
         from db.connection import get_pool
 
-        pool = await get_pool()
-    except Exception as e:
-        logger.error("Consent listener: DB pool not available (%s), skipping LISTEN", e)
-        timeout_task.cancel()
-        notification_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await timeout_task
-        with contextlib.suppress(asyncio.CancelledError):
-            await notification_task
-        return
-    conn = None
-    try:
-        # Wait as long as it takes. This connection is held for the life of
-        # the process, nothing retries this coroutine, and failing here also
-        # cancels the timeout and notification loops in the finally below —
-        # so an early failure silently disables consent notifications on this
-        # instance until it restarts. The acquire deadline in db.connection is
-        # for request handlers, which have a caller waiting; this has none.
-        conn = await pool.acquire(timeout=None)
-        await conn.execute("LISTEN consent_audit_new")
-        # asyncpg add_listener is a coroutine (must be awaited)
-        await conn.add_listener("consent_audit_new", _notify_callback)
-        global _listener_active
-        _listener_active = True
-        logger.info("Consent NOTIFY listener active (consent_audit_new)")
-        try:
-            while True:
-                await asyncio.sleep(3600)
-        finally:
-            _listener_active = False
+        while True:
+            pool = None
+            conn = None
+            try:
+                pool = await get_pool()
+                # This connection is held for one LISTEN attempt. Request
+                # handlers use a deadline because a caller is waiting; this
+                # recovery loop can wait until pool capacity returns.
+                conn = await pool.acquire(timeout=None)
+                await conn.execute("LISTEN consent_audit_new")
+                await conn.execute(f"LISTEN {USER_STATE_CHANNEL}")
+                await conn.add_listener("consent_audit_new", _notify_callback)
+                await conn.add_listener(USER_STATE_CHANNEL, _user_state_notify_callback)
+                _listener_active = True
+                logger.info(
+                    "Consent NOTIFY listener active (consent_audit_new, %s)",
+                    USER_STATE_CHANNEL,
+                )
+                while True:
+                    await asyncio.sleep(LISTENER_HEALTHCHECK_INTERVAL_SECONDS)
+                    is_closed = getattr(conn, "is_closed", None)
+                    if callable(is_closed) and is_closed():
+                        raise ConnectionError("Consent LISTEN connection closed")
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - listener must self-heal
+                logger.warning(
+                    "Consent listener unavailable; retrying in %ss: %s",
+                    JOB_DB_RECOVERY_DELAY_SECONDS,
+                    exc,
+                )
+            finally:
+                _listener_active = False
+                if conn is not None and pool is not None:
+                    try:
+                        await conn.remove_listener("consent_audit_new", _notify_callback)
+                        await conn.remove_listener(USER_STATE_CHANNEL, _user_state_notify_callback)
+                        await conn.execute("UNLISTEN consent_audit_new")
+                        await conn.execute(f"UNLISTEN {USER_STATE_CHANNEL}")
+                    except Exception as exc:  # noqa: BLE001 - best-effort cleanup
+                        logger.debug("Consent listener cleanup failed: %s", exc)
+                    try:
+                        await pool.release(conn)
+                    except Exception as exc:  # noqa: BLE001 - retry must survive cleanup
+                        logger.debug("Consent listener release failed: %s", exc)
+
+            await asyncio.sleep(JOB_DB_RECOVERY_DELAY_SECONDS)
     except asyncio.CancelledError:
         logger.info("Consent listener cancelled")
-    except Exception as e:
-        logger.exception("Consent listener error: %s", e)
     finally:
         _listener_active = False
         timeout_task.cancel()
@@ -818,11 +976,3 @@ async def run_consent_listener():
             await notification_task
         except asyncio.CancelledError:
             pass
-        if conn is not None:
-            try:
-                # asyncpg remove_listener is a coroutine (must be awaited)
-                await conn.remove_listener("consent_audit_new", _notify_callback)
-                await conn.execute("UNLISTEN consent_audit_new")
-            except Exception:
-                pass
-            await pool.release(conn)

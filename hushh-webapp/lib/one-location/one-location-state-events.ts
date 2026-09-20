@@ -11,6 +11,17 @@ export type OneLocationStateChangedDetail = {
   userId: string;
   domains: OneLocationStateDomain[];
   changedAt: number;
+  /** Optional, non-sensitive mutation identity for consumers that must react
+   *  differently to a terminal transition (for example, closing a Circle
+   *  detail after that Circle was deleted). */
+  notificationType?: string;
+  circleId?: string;
+  /** Account whose membership was removed. Kept as one opaque identifier so
+   *  an open detail can distinguish "you lost access" from "your roster
+   *  changed" without broadcasting any roster contents. */
+  memberUserId?: string;
+  /** Stable across SSE/FCM and tabs for one backend transition. */
+  eventId?: string;
 };
 
 function normalizeDetail(
@@ -31,11 +42,40 @@ function normalizeDetail(
     ),
   );
   const changedAt = Number(value?.changedAt);
+  const notificationType = String(value?.notificationType || "").trim();
+  const circleId = String(value?.circleId || "").trim();
+  const memberUserId = String(value?.memberUserId || "").trim();
+  const eventId = String(value?.eventId || "").trim();
   return {
     userId,
     domains: domains.length > 0 ? domains : ["workspace"],
     changedAt: Number.isFinite(changedAt) ? changedAt : Date.now(),
+    ...(notificationType ? { notificationType } : null),
+    ...(circleId ? { circleId } : null),
+    ...(memberUserId ? { memberUserId } : null),
+    ...(eventId ? { eventId } : null),
   };
+}
+
+export function circleStateChangeClosesDetail(
+  detail: Pick<
+    OneLocationStateChangedDetail,
+    "notificationType" | "circleId" | "memberUserId"
+  >,
+  viewerUserId: string,
+  openCircleId: string,
+): boolean {
+  const sameCircle =
+    Boolean(detail.circleId) &&
+    detail.circleId === String(openCircleId || "").trim();
+  if (!sameCircle) return false;
+  if (detail.notificationType === "location_circle_deleted") return true;
+  return (
+    (detail.notificationType === "location_circle_member_removed" ||
+      detail.notificationType === "location_circle_member_left") &&
+    Boolean(detail.memberUserId) &&
+    detail.memberUserId === String(viewerUserId || "").trim()
+  );
 }
 
 /**
@@ -47,9 +87,18 @@ function normalizeDetail(
 export function dispatchOneLocationStateChanged(
   userId: string,
   domains: OneLocationStateDomain[] = ["workspace"],
+  context: Pick<
+    OneLocationStateChangedDetail,
+    "notificationType" | "circleId" | "memberUserId" | "eventId"
+  > = {},
 ): void {
   if (typeof window === "undefined") return;
-  const detail = normalizeDetail({ userId, domains, changedAt: Date.now() });
+  const detail = normalizeDetail({
+    userId,
+    domains,
+    changedAt: Date.now(),
+    ...context,
+  });
   if (!detail) return;
 
   window.dispatchEvent(
@@ -71,8 +120,20 @@ export function subscribeToOneLocationStateChanges(
   if (typeof window === "undefined") return () => undefined;
 
   let lastDeliveredKey = "";
+  const seenEventIds = new Set<string>();
   const deliver = (detail: OneLocationStateChangedDetail) => {
-    const key = `${detail.userId}:${detail.changedAt}:${detail.domains.join(",")}`;
+    if (detail.eventId) {
+      const eventKey = `${detail.userId}:event:${detail.eventId}`;
+      if (seenEventIds.has(eventKey)) return;
+      seenEventIds.add(eventKey);
+      // A tab can remain open for days. Bound transport-only replay memory;
+      // backend transition ids are unique, so FIFO eviction is sufficient.
+      if (seenEventIds.size > 128) {
+        const oldest = seenEventIds.values().next().value;
+        if (oldest) seenEventIds.delete(oldest);
+      }
+    }
+    const key = `${detail.userId}:${detail.changedAt}:${detail.domains.join(",")}:${detail.notificationType || ""}:${detail.circleId || ""}:${detail.memberUserId || ""}`;
     if (key === lastDeliveredKey) return;
     lastDeliveredKey = key;
     listener(detail);

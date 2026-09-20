@@ -749,5 +749,7 @@ def test_join_push_names_the_joiner_and_deep_links_to_people(monkeypatch) -> Non
     # Named, because "someone joined" is exactly what the sender already knew.
     assert captured["body"] == "Meena joined using your code."
     assert captured["title"] == "Meena Family"
-    assert captured["deep_link"] == f"/one/location?tab=people&circleId={CIRCLE_ID}"
+    assert captured["deep_link"] == (
+        f"/one/location?view=people&action=circle-detail&circleId={CIRCLE_ID}"
+    )
     assert captured["notification_category"] == "ONE_LOCATION"

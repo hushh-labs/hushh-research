@@ -2427,6 +2427,55 @@ describe("a caller-requested re-read keeps the screen where it was", () => {
       ),
     ).toBeDisabled();
   });
+
+  it("keeps a valid page-one selection while more eligible people load", async () => {
+    const onLoad = vi.fn(async () => circle("circle-1", "K Family"));
+    const onLoadEligibleConnectionsPage = vi.fn(
+      async (
+        _circleId: string,
+        options: { page: number; limit: number; query?: string },
+      ) => ({
+        eligibleConnections: [
+          options.page === 1
+            ? {
+                connectionId: "connection-asha",
+                userId: "asha-user",
+                displayName: "Asha Meena",
+              }
+            : {
+                connectionId: "connection-ravi",
+                userId: "ravi-user",
+                displayName: "Ravi Meena",
+              },
+        ],
+        pendingInvites: [],
+        remainingCapacity: 4,
+        page: options.page,
+        hasMore: options.page === 1,
+        totalCount: 2,
+      }),
+    );
+    render(
+      <CircleDetailFlow
+        circleId="circle-1"
+        {...detailProps(onLoad)}
+        onLoadEligibleConnectionsPage={onLoadEligibleConnectionsPage}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Add people" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Asha Meena/i }));
+    expect(screen.getByRole("button", { name: "Add 1 person" })).toBeEnabled();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Load more connections" }),
+    );
+    await screen.findByRole("button", { name: /Ravi Meena/i });
+
+    // Page two is not the complete authority. Loading it must not interpret a
+    // page-one selection as removed.
+    expect(screen.getByRole("button", { name: "Add 1 person" })).toBeEnabled();
+  });
 });
 
 describe("an impatient second tap never makes a second Circle", () => {

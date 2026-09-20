@@ -97,8 +97,11 @@ def _sse_event_id(payload: dict[str, object]) -> str:
 
 
 def _sse_payload_from_event_payload(payload: dict[str, object]) -> dict[str, object]:
-    if str(payload.get("type") or "").strip() in {
+    event_type = str(payload.get("type") or "").strip()
+    if event_type.startswith("location_circle_") or event_type in {
         "connection_request",
+        "connection_request_cancelled",
+        "connection_request_resolved",
         "connection_removed",
     }:
         return payload
@@ -177,7 +180,7 @@ async def consent_event_generator(user_id: str, request: Request) -> AsyncGenera
     """
     from datetime import datetime
 
-    from api.consent_listener import get_consent_queue
+    from api.consent_listener import subscribe_consent_queue, unsubscribe_consent_queue
     from hushh_mcp.services.consent_db import ConsentDBService
 
     logger.info("consent_sse.open user_id=%s", user_id)
@@ -186,7 +189,9 @@ async def consent_event_generator(user_id: str, request: Request) -> AsyncGenera
     after_timestamp_ms = connection_start_ms - backfill_window_ms
     notified_event_ids = set()
     heartbeat_interval = 30
-    queue = get_consent_queue(user_id)
+    # Subscribe before the backfill read so a transition committed during that
+    # query is still queued. Event ids deduplicate the harmless overlap.
+    queue = await subscribe_consent_queue(user_id)
 
     try:
         service = ConsentDBService()
@@ -238,6 +243,8 @@ async def consent_event_generator(user_id: str, request: Request) -> AsyncGenera
     except Exception as e:
         logger.error("consent_sse.error user_id=%s error=%s", user_id, e)
         raise
+    finally:
+        await unsubscribe_consent_queue(user_id, queue)
 
 
 @router.get("/events/{user_id}")

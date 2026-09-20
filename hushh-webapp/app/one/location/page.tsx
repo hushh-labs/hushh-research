@@ -379,7 +379,10 @@ import { filterPeopleByQuery } from "@/lib/one-location/people-search";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { subscribeToConnectionGraphChanges } from "@/lib/connections/connection-graph-events";
-import { subscribeToOneLocationStateChanges } from "@/lib/one-location/one-location-state-events";
+import {
+  circleStateChangeClosesDetail,
+  subscribeToOneLocationStateChanges,
+} from "@/lib/one-location/one-location-state-events";
 import {
   mergeShareAudienceRecipientIds,
   mergeRecipientsByUserId,
@@ -3213,6 +3216,10 @@ export function OneLocationAgentPageContent({
   const foregroundReconcileQueuedRef = useRef(false);
   const lastForegroundReconcileAtRef = useRef(0);
   const [connectionGraphRevision, setConnectionGraphRevision] = useState(0);
+  // Kept separate from connectionGraphRevision: Circle lifecycle events must
+  // re-read an open roster/picker, but must not also restart every paged
+  // recipient-directory query that depends on the connection graph.
+  const [circleStateRevision, setCircleStateRevision] = useState(0);
   const workspaceBootstrapUserRef = useRef<string | null>(null);
   const peopleSectionRef = useRef<HTMLElement | null>(null);
   const approvalsSectionRef = useRef<HTMLElement | null>(null);
@@ -4385,6 +4392,7 @@ export function OneLocationAgentPageContent({
       OneLocationStateResource.invalidate(owner);
       clearLocationWorkspaceMemory(owner);
       setConnectionGraphRevision((current) => current + 1);
+      setCircleStateRevision((current) => current + 1);
 
       void (async () => {
         if (priorRefresh) await priorRefresh.catch(() => undefined);
@@ -4410,6 +4418,23 @@ export function OneLocationAgentPageContent({
       // while the authoritative replacement is in flight.
       OneLocationStateResource.invalidate(owner);
       const shouldRefreshSmsRoster = detail.domains.includes("sms_roster");
+      if (detail.domains.includes("circles")) {
+        const openCircleId = String(searchParams.get("circleId") || "").trim();
+        const closesOpenCircle = circleStateChangeClosesDetail(
+          detail,
+          owner,
+          openCircleId,
+        );
+        if (closesOpenCircle) {
+          router.replace(`${ROUTES.ONE_LOCATION}?view=people`, {
+            scroll: false,
+          });
+        } else {
+          // Do not wake the now-invalid detail while navigation is closing it;
+          // the workspace refresh below still updates the Circle list.
+          setCircleStateRevision((current) => current + 1);
+        }
+      }
 
       void (async () => {
         if (priorRefresh) await priorRefresh.catch(() => undefined);
@@ -4419,7 +4444,7 @@ export function OneLocationAgentPageContent({
         if (shouldRefreshSmsRoster) await refreshSmsRoster();
       })().catch(() => undefined);
     });
-  }, [auth.userId, refresh, refreshSmsRoster]);
+  }, [auth.userId, refresh, refreshSmsRoster, router, searchParams]);
 
   // The countdown hitting zero is the first moment anyone knows the share is
   // over — the backend expires it silently. Drop the local record and pull the
@@ -4783,11 +4808,9 @@ export function OneLocationAgentPageContent({
         return;
       }
       if (notificationType.startsWith("location_circle_")) {
-        CacheSyncService.onOneLocationStateMutated(owner, [
-          "workspace",
-          "circles",
-          "sms_roster",
-        ]);
+        // The app-wide NotificationProvider publishes Circle-domain state.
+        // Re-publishing here would produce two BroadcastChannel messages and
+        // two authoritative reads for one transition.
         return;
       }
       void refresh({ background: true });
@@ -8440,15 +8463,18 @@ export function OneLocationAgentPageContent({
     [refresh, vaultOwnerToken],
   );
 
-  const scheduleNamedCircleStateRefresh = useCallback(() => {
-    const activeUserId = auth.userId;
-    if (!activeUserId) return;
-    CacheSyncService.onOneLocationStateMutated(activeUserId, [
-      "workspace",
-      "circles",
-      "sms_roster",
-    ]);
-  }, [auth.userId]);
+  const scheduleNamedCircleStateRefresh = useCallback(
+    (context: { notificationType?: string; circleId?: string } = {}) => {
+      const activeUserId = auth.userId;
+      if (!activeUserId) return;
+      CacheSyncService.onOneLocationStateMutated(
+        activeUserId,
+        ["workspace", "circles", "sms_roster"],
+        context,
+      );
+    },
+    [auth.userId],
+  );
 
   const refreshIncomingCircleMemberInvites = useCallback(async () => {
     const requestId = ++circleMemberInviteRequestRef.current;
@@ -8679,7 +8705,10 @@ export function OneLocationAgentPageContent({
           name,
           kind,
         });
-        scheduleNamedCircleStateRefresh();
+        scheduleNamedCircleStateRefresh({
+          notificationType: "location_circle_created",
+          circleId: circle.id,
+        });
         // The kind, never the name — a Circle name is the user's own words and
         // often identifies a household.
         trackEvent("one_location_circle_created", {
@@ -8740,7 +8769,10 @@ export function OneLocationAgentPageContent({
           circleId,
           name,
         });
-        scheduleNamedCircleStateRefresh();
+        scheduleNamedCircleStateRefresh({
+          notificationType: "location_circle_renamed",
+          circleId,
+        });
         toast.success("Circle name updated.");
         return circle;
       } catch (error) {
@@ -9356,7 +9388,10 @@ export function OneLocationAgentPageContent({
           routeId: "one_location",
           targetType: "circle",
         });
-        scheduleNamedCircleStateRefresh();
+        scheduleNamedCircleStateRefresh({
+          notificationType: "location_circle_deleted",
+          circleId,
+        });
         toast.success("Circle deleted.");
       } catch (error) {
         throw new Error(
@@ -14226,6 +14261,7 @@ export function OneLocationAgentPageContent({
     myLocationError,
     recipients: shareRecipientPool,
     connectionGraphRevision,
+    circleStateRevision,
     circles: namedCircles,
     selectedShareCircleSelections,
     pendingShareCircleIds,
