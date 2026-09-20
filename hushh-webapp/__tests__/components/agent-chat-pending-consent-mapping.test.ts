@@ -100,12 +100,11 @@ describe("pending consent card mapping", () => {
     expect(consent.expiryHours).toBe(168);
   });
 
-  it("keeps the bundle fold inert: the stored payload carries no bundle", () => {
-    // The workspace folds a later request into an existing card only when
-    // the stored payload's bundleId matches. The parser does not re-emit the
-    // bundle fields, so that comparison never matches and a bundle of N
-    // requests renders N cards, each approvable on its own. Folding is a
-    // follow-up that needs handleApproveBundle wired to the card first.
+  it("preserves sanitized bundle descriptors through the stored payload", () => {
+    // Restored cards need their safe bundle descriptors so one consent ask
+    // remains one coherent card after history hydration. Approval still
+    // revalidates every request against live authority; these descriptors do
+    // not grant access on their own.
     const first = pendingConsentLookupItemToCardItem(lookupItem)!;
     const second = pendingConsentLookupItemToCardItem({
       ...lookupItem,
@@ -117,14 +116,14 @@ describe("pending consent card mapping", () => {
     expect(second.bundleId).toBe("bundle_9");
 
     const stored = getPendingConsentRequestPayload(embed(first))!.item;
-    expect(stored.bundleId).toBeUndefined();
-    expect(stored.bundleLabel).toBeUndefined();
-    expect(stored.bundleScopeCount).toBeUndefined();
-    expect(stored.bundledRequestIds).toBeUndefined();
-    expect(stored.bundledScopes).toBeUndefined();
-    expect(stored.bundleId === second.bundleId).toBe(false);
+    expect(stored.bundleId).toBe("bundle_9");
+    expect(stored.bundleLabel).toBe("Budget planning");
+    expect(stored.bundleScopeCount).toBe(2);
+    expect(stored.bundledRequestIds).toEqual(["req_123"]);
+    expect(stored.bundledScopes).toHaveLength(1);
+    expect(stored.bundleId === second.bundleId).toBe(true);
 
-    // Each card therefore decides for exactly its own request.
+    // A single-request card still decides only for its own request.
     expect(pendingConsentCardRequestIds(stored)).toEqual(["req_123"]);
     const storedSecond = getPendingConsentRequestPayload(embed(second))!.item;
     expect(pendingConsentCardRequestIds(storedSecond)).toEqual(["req_456"]);
@@ -140,7 +139,7 @@ describe("pending consent card mapping", () => {
     expect(card?.expiryHours).toBeNull();
     const reparsed = getPendingConsentRequestPayload(embed(card!));
     expect(reparsed?.item.metadata).toBeNull();
-    expect(reparsed?.item.bundleId).toBeUndefined();
+    expect(reparsed?.item.bundleId).toBeNull();
     const consent = pendingConsentCardItemToPendingConsent(reparsed!.item);
     expect(consent.metadata).toBeNull();
     expect(consent.bundleId).toBeUndefined();
