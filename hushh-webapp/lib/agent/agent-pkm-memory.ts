@@ -539,6 +539,7 @@ export async function addToPKM(params: {
           mergeDecision: card.merge_decision,
           structureDecision: nextStructureDecision,
           manifest: nextManifest || undefined,
+          scopePath: resolveCardScope(card) || undefined,
         }),
       });
       results[index] = {

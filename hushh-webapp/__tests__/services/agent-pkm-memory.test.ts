@@ -601,6 +601,7 @@ describe("agent PKM memory helpers", () => {
         source_text: "remember that I prefer concise summaries",
         write_mode: "can_save",
         target_domain: "preferences",
+        primary_json_path: "preferences.writing.default_style",
         candidate_payload: { writing: { default_style: "concise" } },
         structure_decision: { target_domain: "preferences" },
       },
@@ -638,6 +639,7 @@ describe("agent PKM memory helpers", () => {
     );
     expect(plan.summary).not.toHaveProperty("message_excerpt");
     expect(plan.summary).not.toHaveProperty("card_id");
+    expect(plan.scopePath).toBe("preferences.writing.default_style");
     expect(peekAgentPkmContext({ userId: "user_1", message: "writing" })).toBeNull();
   });
 

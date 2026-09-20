@@ -465,6 +465,7 @@ export class PkmWriteCoordinator {
           operation,
           confidence: Number(plan.structureDecision?.confidence ?? 1),
           explanation: String(plan.structureDecision?.explanation || "").trim() || undefined,
+          scopePath: plan.scopePath,
           sourceRevision: context.currentEncryptedDomain?.dataVersion,
           confirmation: params.confirmation,
         });

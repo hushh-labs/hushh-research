@@ -187,6 +187,41 @@ describe("PkmWriteCoordinator", () => {
       expect(result.success).toBe(false);
       expect(pkmStorePreparedDomainMock).toHaveBeenCalledTimes(1);
     });
+
+    it("binds the prepared mutation plan to the reviewed scope", async () => {
+      stubNoUpgradeNeeded();
+      stubWriteContext();
+      pkmStorePreparedDomainMock.mockResolvedValue({
+        success: true,
+        conflict: false,
+        message: "Stored",
+        dataVersion: 2,
+        fullBlob: { food: { preferences: { writing: "concise" } } },
+      });
+
+      const result = await PkmWriteCoordinator.savePreparedDomain({
+        ...BASE_PARAMS,
+        build: () => ({
+          domainData: { preferences: { writing: "concise" } },
+          summary: { item_count: 1 },
+          mergeDecision: { merge_mode: "create_entity" },
+          structureDecision: { target_domain: "food" },
+          scopePath: "preferences.writing",
+        }),
+      });
+
+      expect(result.success).toBe(true);
+      expect(pkmStorePreparedDomainMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          mutationPlan: expect.objectContaining({
+            proposed_scope: "preferences",
+            confirmation_receipt: expect.objectContaining({
+              displayed_scope: "preferences",
+            }),
+          }),
+        }),
+      );
+    });
   });
 
   describe("blocked_pending_unlock", () => {
