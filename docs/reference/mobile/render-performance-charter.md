@@ -137,6 +137,72 @@ named `chat-stream-30s`.
 The Release build sets `ENABLE_TESTABILITY=YES` because the scheme's
 unit-test target does `@testable import App`; it keeps `-O`.
 
+### Android
+
+The same card, the same two lanes, one phone over adb. The probe is the same
+module; it reads its switch from the Capacitor Preferences keys
+`hushh_perf_probe` and `hushh_perf_route` (the Preferences plugin stores them
+in `SharedPreferences("CapacitorStorage")`), which is how the iOS launch
+argument reaches it. On Android:
+
+- **Extras, debuggable builds only.** `MainActivity` honours the intent extras
+  `HUSHH_PERF_PROBE` (boolean) and `HUSHH_PERF_ROUTE` (app-relative path) and
+  seeds the two keys before the WebView loads; a debuggable launch without
+  the extras removes them, so nothing persists past the run. A non-debuggable
+  build never touches them (`PerfProbeLaunchPolicy`, pinned by
+  `hushh-webapp/android/app/src/test/java/com/hussh/app/PerfProbeLaunchPolicyTest.kt`).
+  `adb shell am start -n com.hussh.app/.MainActivity --ez HUSHH_PERF_PROBE true --es HUSHH_PERF_ROUTE /one/kai`.
+- **Attribution card:** `ANDROID_SERIAL=<serial> npm run perf:android:card`
+  (`hushh-webapp/scripts/perf/android-perf-card.sh`). Builds the web export into
+  `.next-native-android` (its own dist dir, under a build lock shared with the
+  iOS lane, through `hushh-webapp/scripts/native/with-android-native-env.mjs`),
+  syncs it, assembles the debug APK, installs it in place, and launches each
+  surface through the native test bridge (reviewer login, vault passphrase as
+  intent extras, exactly as the cold UI audit does) plus the probe extras.
+  `hushh-webapp/scripts/perf/android-perf-gestures.mjs` drives the gestures
+  with `adb shell input`, finds the bottom-bar tabs and the pane controls
+  through `uiautomator dump`, stamps every `PERF_GESTURE` line with the
+  phone's clock (the probe's windows are stamped there too), and wraps each
+  gesture group in `dumpsys gfxinfo com.hussh.app reset` / `framestats`
+  (`hushh-webapp/scripts/perf/parse-gfxinfo.mjs`). The summary carries both:
+  the probe's rAF intervals inside the WebView and HWUI's janky share and
+  percentiles for the app window (`hushh-webapp/scripts/perf/merge-android-gfxinfo.mjs`).
+  Debug build, bridge on: attribution only.
+- **Truth lane:** `PERF_ATTACHED=1 ANDROID_SERIAL=<serial> npm run perf:android:card`
+  runs `hushh-webapp/android/app/src/androidTest/java/com/hussh/app/AttachedRenderPerfTest.kt`
+  (UIAutomator, `androidx.test.uiautomator:uiautomator:2.3.0`) under
+  `am instrument`: each surface is its own launch with only the probe keys
+  seeded, the vault is unlocked with the passphrase method typed into the
+  `Vault passphrase` field (never biometrics), the reviewer bridge and its
+  status poll are absent, and the same gestures run through `UiDevice`. With
+  `PERF_CONFIGURATION=Release` it builds the `perf` build type (release
+  settings, `debuggable false`, signed with the debug key so it installs
+  without release material; `-PhushhTestBuildType=perf` points the test APK at
+  it) and the summary says `certifies=true`. Because `run-as` needs a
+  debuggable build, the test copies the probe exports and gfxinfo dumps into
+  `Download/hushh-perf` through MediaStore for the card to pull and delete.
+  The instrumentation lives in the app's own process, so the app is never
+  force-stopped between surfaces; `FLAG_ACTIVITY_CLEAR_TASK` boots a fresh
+  activity, WebView and probe run instead.
+- **Passphrase rule.** The value reaches the phone only on a command line a
+  script builds (`am start --es`, `am instrument -e`), never a file, gradle
+  property or `setprop`; every file the card keeps is grepped for it and
+  removed if it appears; no `env` dump anywhere.
+- **The screen.** The card sets `svc power stayon true` for the run and
+  restores the setting; a secure keyguard cannot be passed from adb, so a
+  locked phone fails fast (`PERF_BLOCKED reason=keyguard`) instead of
+  measuring the lock screen.
+- **Refresh rate.** `dumpsys display` while the app is in front reports the
+  active mode; the probe reports what the WebView actually delivers
+  (`raf_hz`). The two can differ: a 120 Hz panel is only a 120 Hz WebView if
+  Chromium and the frame-rate policy agree, and that is a Phase 3 platform
+  question (`Window.attributes.preferredDisplayModeId`,
+  `Surface.setFrameRate`), not something the card changes.
+- **Threads and X on the same phone:** `PERF_THIRD_PARTY=1` flicks their feeds
+  with the same swipes and records `dumpsys gfxinfo` for each (HWUI only;
+  there is no probe inside them). Native lists there against a DOM scroller
+  here, same phone, same flick, same HWUI unit.
+
 ### Threads on the same phone
 
 Native Threads is an App Store binary, which Instruments cannot attach to,

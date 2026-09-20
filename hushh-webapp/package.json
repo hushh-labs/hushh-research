@@ -41,6 +41,7 @@
     "verify:design-system": "node ./scripts/architecture/verify-design-system.mjs && node ./scripts/design/verify-accent-tokens.mjs && node ./scripts/design/verify-apple-hierarchy.mjs && node ./scripts/architecture/verify-render-performance.mjs",
     "verify:render-performance": "node ./scripts/architecture/verify-render-performance.mjs",
     "perf:ios:card": "zsh ./scripts/perf/ios-perf-card.sh",
+    "perf:android:card": "zsh ./scripts/perf/android-perf-card.sh",
     "perf:summarize": "node ./scripts/perf/summarize-probe-runs.mjs",
     "perf:video:drops": "zsh ./scripts/perf/video-frame-drops.sh",
     "verify:accent-tokens": "node ./scripts/design/verify-accent-tokens.mjs",
