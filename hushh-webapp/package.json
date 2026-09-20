@@ -80,7 +80,7 @@
     "smoke:analytics:uat": "node ./scripts/testing/run-uat-analytics-smoke.mjs",
     "audit:cache-coherence": "node ./scripts/architecture/audit-cache-coherence.mjs --check",
     "audit:ui-surfaces": "node ./scripts/architecture/audit-ui-surfaces.mjs",
-    "cap:build": "node ./scripts/native/with-ios-native-env.mjs npx cross-env CAPACITOR_BUILD=true next build --webpack --debug-build-paths \"app/**/page.tsx,!app/api/**\"",
+    "cap:build": "node ./scripts/native/clear-webpack-cache.mjs && node ./scripts/native/with-ios-native-env.mjs npx cross-env CAPACITOR_BUILD=true next build --webpack --debug-build-paths \"app/**/page.tsx,!app/api/**\"",
     "cap:sync:android": "npx cross-env CAPACITOR_PLATFORM=android npx cap sync android",
     "verify:native:css": "node ./scripts/native/verify-native-css-fresh.mjs",
     "cap:sync:ios": "npm run verify:native:css && npm run sync:native-firebase-configs -- --platform ios && node ./scripts/native/with-ios-native-env.mjs npx cross-env CAPACITOR_PLATFORM=ios npx cap sync ios",
