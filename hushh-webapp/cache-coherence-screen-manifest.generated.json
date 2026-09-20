@@ -77,7 +77,7 @@
         "cache_sync": false,
         "resource_wrapper": false,
         "direct_fetch": false,
-        "api_service": false,
+        "api_service": true,
         "hushh_loader": true,
         "sse_or_streaming": true,
         "native_beacon": true
@@ -4876,7 +4876,7 @@
         "route_refresh_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/one/setup/capabilities",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fsetup%2Fcapabilities",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -4892,9 +4892,7 @@
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": [
-        "review native route beacon coverage"
-      ]
+      "findings": []
     },
     {
       "route": "/one/setup/connected-systems",
@@ -6370,5 +6368,5 @@
       ]
     }
   ],
-  "content_sha256": "4e1c6d1af7b45d4d10c41a3cc9ad68f656314334c796dcd938f7500f5e771987"
+  "content_sha256": "dd9ef68b9c5446d66c122c1c31da10dee45dc1f752ca3d11032a80a6e6ae8aa3"
 }
