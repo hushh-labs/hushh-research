@@ -222,6 +222,44 @@ describe("ingestNaturalLanguagePkm", () => {
     expect(mocks.preview).toHaveBeenCalledTimes(3);
   });
 
+  it("previews independent source blocks with bounded concurrency and stable order", async () => {
+    const sections = Array.from(
+      { length: 7 },
+      (_, index) => `${index + 1}. Section ${index + 1}\nFact number ${index + 1} about me.`,
+    );
+    let active = 0;
+    let maxActive = 0;
+    mocks.preview.mockImplementation(async ({ message }: { message: string }) => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      active -= 1;
+      return {
+        cards: [{ card_id: "section", source_text: message, write_mode: "can_save" }],
+        preview_summary: { total_segments_detected: 1 },
+      };
+    });
+
+    const prepared = await prepareNaturalLanguagePkm({
+      userId: "user_1",
+      message: sections.join("\n\n"),
+      currentDomains: [],
+      vaultOwnerToken: "owner-token",
+      source: "agent_chat_profile_import",
+    });
+
+    expect(maxActive).toBe(2);
+    expect(mocks.preview).toHaveBeenCalledTimes(2);
+    expect(prepared.sourceCoverage).toHaveLength(2);
+    expect(prepared.sourceCoverage[0]?.sourceRange?.start).toBe(0);
+    expect(prepared.sourceCoverage[1]?.sourceRange?.start).toBeGreaterThan(
+      prepared.sourceCoverage[0]?.sourceRange?.start ?? -1,
+    );
+    expect(prepared.cards).toHaveLength(2);
+    expect(prepared.cards[0]?.source_text).toContain("Section 1");
+    expect(prepared.cards[1]?.source_text).toContain("Section 7");
+  });
+
   it("keeps usable LLM cards when an advisory segment count remains mismatched", async () => {
     mocks.preview.mockResolvedValueOnce({
       cards: [{ card_id: "one", source_text: "One represented fact." }],
