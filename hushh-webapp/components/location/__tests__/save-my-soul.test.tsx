@@ -270,7 +270,7 @@ describe("SaveMySoul", () => {
       "Rahul Mehta: not alerted (notifications off)",
     );
     expect(delivery).toHaveTextContent("Emailed 1.");
-    expect(delivery).toHaveTextContent("No email on file for Rahul Mehta.");
+    expect(delivery).toHaveTextContent("No mail on file for Rahul Mehta.");
     expect(delivery).toHaveTextContent("Skipped Sam Lee — not ready.");
     expect(service.sendSosEmails).toHaveBeenCalledWith(
       expect.objectContaining({ grantIds: ["grant-1", "grant-2"] }),
