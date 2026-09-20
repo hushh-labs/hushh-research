@@ -52,6 +52,8 @@ for (const exportName of [
   "HelperText",
   "StatusText",
   "ButtonLabel",
+  "CompactButtonLabel",
+  "EyebrowText",
   "TabLabel",
   "AgentTabLabel",
   "CaptionText",
@@ -148,11 +150,15 @@ for (const [token, value] of [
 }
 
 if (!/\.type-caption\s*\{[^}]*text-transform:\s*none;/s.test(globals)) {
-  failures.push("app/globals.css: legacy type-caption must preserve natural casing");
+  failures.push(
+    "app/globals.css: legacy type-caption must preserve natural casing",
+  );
 }
 
 if (!globals.includes(".app-page-shell")) {
-  failures.push("app/globals.css: app shell must keep scoped readable-text guardrails");
+  failures.push(
+    "app/globals.css: app shell must keep scoped readable-text guardrails",
+  );
 }
 
 expectIncludes(
@@ -203,11 +209,7 @@ for (const repoPath of [
   "components/one-location/activity-dashboard.tsx",
 ]) {
   const source = read(repoPath);
-  for (const tinyClass of [
-    "text-[9px]",
-    "text-[9.5px]",
-    "text-[10px]",
-  ]) {
+  for (const tinyClass of ["text-[9px]", "text-[9.5px]", "text-[10px]"]) {
     if (source.includes(tinyClass)) {
       failures.push(`${repoPath}: shared/system UI must not use ${tinyClass}`);
     }
@@ -219,12 +221,18 @@ for (const repoPath of [
 
 const rosterPath = "components/dashboard/one-agent-roster.tsx";
 const rosterSource = read(rosterPath);
-const hasDirectLabel = /<section\b[^>]*aria-label="One agents"/.test(rosterSource);
+const hasDirectLabel = /<section\b[^>]*aria-label="One agents"/.test(
+  rosterSource,
+);
 const hasHeadingLabel =
   /<section\b[^>]*aria-labelledby="one-agents-heading"/.test(rosterSource) &&
-  /<PageTitle\b[^>]*id="one-agents-heading"[^>]*>\s*Agents\b/.test(rosterSource);
+  /<PageTitle\b[^>]*id="one-agents-heading"[^>]*>\s*Agents\b/.test(
+    rosterSource,
+  );
 if (!hasDirectLabel && !hasHeadingLabel) {
-  failures.push(`${rosterPath}: root launcher must have an accessible agents label or linked heading`);
+  failures.push(
+    `${rosterPath}: root launcher must have an accessible agents label or linked heading`,
+  );
 }
 
 expectNotIncludes(
@@ -254,7 +262,9 @@ for (const repoPath of [
     "fontSize:",
   ]) {
     if (source.includes(forbidden)) {
-      failures.push(`${repoPath}: strict app typography must not use ${forbidden}`);
+      failures.push(
+        `${repoPath}: strict app typography must not use ${forbidden}`,
+      );
     }
   }
 }
@@ -279,15 +289,47 @@ for (const [key, uiRole] of [
   ["inputValue", "input-text"],
   ["helperText", "helper-text"],
   ["buttonLabel", "button-label"],
+  ["compactButtonLabel", "compact-button-label"],
+  ["eyebrow", "eyebrow"],
   ["tabLabel", "tab-label"],
   ["agentTabLabel", "agent-tab-label"],
   ["legal", "legal-text"],
 ]) {
-  if (!typographySource.includes(`[TYPOGRAPHY_CLASSNAMES.${key}]: "${uiRole}"`)) {
+  if (
+    !typographySource.includes(`[TYPOGRAPHY_CLASSNAMES.${key}]: "${uiRole}"`)
+  ) {
     failures.push(
       `components/app-ui/typography.tsx: ${key} must emit data-ui-role="${uiRole}"`,
     );
   }
+}
+
+for (const [size, contract] of [
+  ["compact", "ui-text-compact-button-label min-h-11 h-11"],
+  ["standard", "ui-text-button-label min-h-11 h-11"],
+  ["prominent", "ui-text-button-label min-h-[50px] h-[50px]"],
+  ["icon-touch", "size-11"],
+]) {
+  expectIncludes(
+    "lib/ui/button-variants.ts",
+    `"${contract}`,
+    `button size ${size} must keep its canonical CTA geometry`,
+  );
+}
+
+for (const marker of [
+  'data-ui-role="flow-actions"',
+  'data-action-priority="secondary"',
+  'data-action-priority="primary"',
+  'data-ui-role="selection-summary"',
+  '"grid w-full gap-2.5"',
+  '"sm:flex sm:items-center sm:justify-end"',
+]) {
+  expectIncludes(
+    "components/app-ui/flow-actions.tsx",
+    marker,
+    "responsive CTA decisions must stay on the shared action-group contract",
+  );
 }
 
 if (failures.length > 0) {

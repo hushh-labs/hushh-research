@@ -85,7 +85,7 @@ export const CIRCLE_MEMBER_TRAILING_CLASSNAME =
  * than it asked for. Same trap `circle-name-row-layout.ts` documents.
  */
 export const CIRCLE_MEMBER_ACTION_CLASSNAME =
-  "h-11 min-h-11 shrink-0 rounded-full px-3 text-[14px] font-medium";
+  "ui-text-compact-button-label h-11 min-h-11 shrink-0 rounded-full px-3";
 
 /** The kebab trigger, and the invisible spacer standing in for it. */
 export const CIRCLE_MEMBER_MENU_CLASSNAME = "h-11 w-11 shrink-0 rounded-full";

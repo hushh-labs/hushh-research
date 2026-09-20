@@ -107,12 +107,15 @@ const controlInputClassName =
  */
 function primaryActionClassName(enabled: boolean): string {
   return cn(
-    "press-scale flex h-[52px] w-full items-center justify-center gap-2 rounded-full text-[17px] font-semibold transition-colors disabled:cursor-not-allowed",
+    "press-scale ui-text-button-label flex h-[50px] min-h-[50px] w-full items-center justify-center gap-2 rounded-full px-6 transition-colors disabled:cursor-not-allowed",
     enabled
       ? "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]"
       : "bg-[color:var(--app-neutral-fill-strong)] text-[color:var(--app-tertiary-label)]",
   );
 }
+
+const secondaryActionClassName =
+  "ui-text-button-label h-11 min-h-11 w-full rounded-full text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50";
 
 /**
  * Where you are in the pin-then-details pair, and a way to move without
@@ -1374,6 +1377,14 @@ export function SaveLocationModal({
               ) : null}
               <button
                 type="button"
+                onClick={onSkip}
+                disabled={interactionBusy}
+                className={secondaryActionClassName}
+              >
+                Skip saving this place
+              </button>
+              <button
+                type="button"
                 onClick={handleSave}
                 disabled={!unifiedCanSave}
                 aria-busy={saving || undefined}
@@ -1389,14 +1400,6 @@ export function SaveLocationModal({
                   : unifiedSaveError
                     ? "Try saving again"
                     : "Save & continue"}
-              </button>
-              <button
-                type="button"
-                onClick={onSkip}
-                disabled={interactionBusy}
-                className="mt-1 min-h-11 w-full rounded-full text-[15px] font-semibold text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
-              >
-                Skip saving this place
               </button>
             </div>
           </footer>
@@ -1734,6 +1737,14 @@ export function SaveLocationModal({
             ) : null}
             <button
               type="button"
+              onClick={onSkip}
+              disabled={interactionBusy}
+              className={secondaryActionClassName}
+            >
+              Skip for now
+            </button>
+            <button
+              type="button"
               onClick={handleSave}
               disabled={!canSave}
               aria-busy={saving || undefined}
@@ -1745,14 +1756,6 @@ export function SaveLocationModal({
                 <Check className="h-5 w-5" strokeWidth={2.6} aria-hidden />
               )}
               {saveLabel}
-            </button>
-            <button
-              type="button"
-              onClick={onSkip}
-              disabled={interactionBusy}
-              className="h-11 w-full rounded-full text-[15px] font-semibold text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
-            >
-              Skip for now
             </button>
           </div>
         </div>
@@ -1890,7 +1893,9 @@ export function SaveLocationModal({
                   className={cn(controlInputClassName, "pl-10 pr-12")}
                 />
                 <SearchClearButton
-                  visible={placeQuery.length > 0 && !placeSearching && !changingPlace}
+                  visible={
+                    placeQuery.length > 0 && !placeSearching && !changingPlace
+                  }
                   label="Clear place search"
                   onClear={() => setPlaceQuery("")}
                   className="right-1 text-[color:var(--app-tertiary-label)]"
@@ -1981,6 +1986,14 @@ export function SaveLocationModal({
           <div className="mt-1 flex flex-col gap-2.5 bg-background pb-[max(1.5rem,env(safe-area-inset-bottom))]">
             <button
               type="button"
+              onClick={onSkip}
+              disabled={interactionBusy}
+              className={secondaryActionClassName}
+            >
+              Skip for now
+            </button>
+            <button
+              type="button"
               onClick={handleSave}
               disabled={!canSave}
               aria-busy={saving || undefined}
@@ -1992,14 +2005,6 @@ export function SaveLocationModal({
                 <Check className="h-5 w-5" strokeWidth={2.6} aria-hidden />
               )}
               {saveLabel}
-            </button>
-            <button
-              type="button"
-              onClick={onSkip}
-              disabled={interactionBusy}
-              className="h-11 w-full rounded-full text-[15px] font-semibold text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
-            >
-              Skip for now
             </button>
           </div>
         </div>
