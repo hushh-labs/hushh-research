@@ -65,6 +65,7 @@ describe("NativeTestBootstrap with a session persisted on the device", () => {
     (window as Window & { __HUSHH_NATIVE_TEST__?: Bridge }).__HUSHH_NATIVE_TEST__ = { enabled: true };
     auth.state.user = { uid: "owner-on-device" };
     services.signOut.mockClear();
+    auth.state.setNativeUser.mockClear();
     services.createAppReviewModeSession.mockClear();
     services.signInWithCustomToken.mockClear();
   });
@@ -77,7 +78,9 @@ describe("NativeTestBootstrap with a session persisted on the device", () => {
     const { rerender } = render(<NativeTestBootstrap />);
 
     await waitFor(() => expect(services.signOut).toHaveBeenCalledTimes(1));
-    // The sign-out cleared the context user; the next render begins the reviewer sign-in.
+    // The context ignores Firebase state changes on native, so the bootstrap
+    // withdraws the persisted user itself; then the reviewer sign-in begins.
+    await waitFor(() => expect(auth.state.setNativeUser).toHaveBeenCalledWith(null));
     await act(async () => {
       rerender(<NativeTestBootstrap />);
     });

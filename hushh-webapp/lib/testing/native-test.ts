@@ -40,6 +40,7 @@ declare global {
       dispatchAgentActionError?: string;
       bootstrapState?: string;
       bootstrapUserId?: string;
+      bootstrapDetail?: string;
       bootstrapError?: string;
       bootstrapErrorClass?: string;
       vaultCryptoStage?: string;

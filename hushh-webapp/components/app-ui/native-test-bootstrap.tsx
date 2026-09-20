@@ -14,9 +14,14 @@ import { useNativeTestConfig } from "@/lib/testing/native-test";
 import { resolveSlowRequestTimeoutMs } from "@/lib/utils/request-timeouts";
 import { useVault } from "@/lib/vault/vault-context";
 
+/** Six characters of a uid: enough to tell two identities apart in a log line, never a secret. */
+function uidPrefix(uid: string | null | undefined): string {
+  return String(uid ?? "").slice(0, 6);
+}
+
 function updateBootstrapStatus(
   stage: string,
-  options?: { userId?: string | null; errorClass?: string | null }
+  options?: { userId?: string | null; errorClass?: string | null; detail?: string | null }
 ) {
   if (typeof window === "undefined") {
     return;
@@ -50,6 +55,9 @@ function updateBootstrapStatus(
   bridge.bootstrapUserId = options?.userId ?? bridge.bootstrapUserId ?? "";
   bridge.bootstrapError = "";
   bridge.bootstrapErrorClass = options?.errorClass ?? "";
+  // Where the identity that decided this stage came from, plus a uid prefix,
+  // so a device run explains a mismatch without a console attached.
+  bridge.bootstrapDetail = options?.detail ?? "";
 }
 
 function nativeTestErrorClass(error: unknown): string {
@@ -110,6 +118,7 @@ export function NativeTestBootstrap() {
   const authAttemptedRef = useRef(false);
   const authAttemptedAtRef = useRef(0);
   const identityMismatchForExpectedUserRef = useRef<string | null>(null);
+  const identityMismatchObservedUidRef = useRef<string | null>(null);
   const replacedPersistedUidRef = useRef<string | null>(null);
   const unlockInFlightForUidRef = useRef<string | null>(null);
   const nativeSessionRecoveryInFlightRef = useRef(false);
@@ -145,6 +154,11 @@ export function NativeTestBootstrap() {
           .finally(() => {
             nativeTestBootstrapUser = null;
             setBootstrapUser(null);
+            // In native mode the auth context publishes identity only through
+            // its own restore and sign-in paths and ignores Firebase state
+            // changes, so the service sign-out alone leaves the persisted
+            // user published; withdraw it explicitly.
+            setNativeUser(null);
             setAuthRetryTick((value) => value + 1);
           });
         return undefined;
@@ -159,7 +173,10 @@ export function NativeTestBootstrap() {
       config.expectedUserId &&
       identityMismatchForExpectedUserRef.current === config.expectedUserId
     ) {
-      updateBootstrapStatus("uid_mismatch", { errorClass: "identity" });
+      updateBootstrapStatus("uid_mismatch", {
+        errorClass: "identity",
+        detail: `signin_result:${uidPrefix(identityMismatchObservedUidRef.current)}`,
+      });
       return undefined;
     }
 
@@ -223,8 +240,12 @@ export function NativeTestBootstrap() {
           authenticatedUser.uid !== config.expectedUserId
         ) {
           identityMismatchForExpectedUserRef.current = config.expectedUserId;
+          identityMismatchObservedUidRef.current = authenticatedUser.uid;
           nativeTestReviewerBootstrapCooldownUntil = Date.now() + 5 * 60_000;
-          updateBootstrapStatus("uid_mismatch", { errorClass: "identity" });
+          updateBootstrapStatus("uid_mismatch", {
+            errorClass: "identity",
+            detail: `signin_result:${uidPrefix(authenticatedUser.uid)}`,
+          });
           await AuthService.signOut();
           nativeTestBootstrapUser = null;
           setBootstrapUser(null);
@@ -279,6 +300,13 @@ export function NativeTestBootstrap() {
       bootstrapUser ??
       nativeTestBootstrapUser ??
       AuthService.getCurrentUser();
+    const vaultUserSource = user
+      ? "auth_context"
+      : bootstrapUser
+        ? "bootstrap_state"
+        : nativeTestBootstrapUser
+          ? "bootstrap_module"
+          : "firebase_js_current";
     if (!vaultUser) {
       updateBootstrapStatus("waiting_vault_user");
       if (
@@ -289,6 +317,10 @@ export function NativeTestBootstrap() {
         void AuthService.restoreNativeSession()
           .then((restoredUser) => {
             if (!restoredUser) {
+              return;
+            }
+            // Never adopt a restored session that is not the audited identity.
+            if (config.expectedUserId && restoredUser.uid !== config.expectedUserId) {
               return;
             }
             nativeTestBootstrapUser = restoredUser;
@@ -303,8 +335,19 @@ export function NativeTestBootstrap() {
     }
 
     if (config.expectedUserId && vaultUser.uid !== config.expectedUserId) {
+      // The fallbacks exist for a native sign-in that resolved before the
+      // context published it. A fallback naming a different identity than
+      // the audit expects is a stale session the auth effect is replacing;
+      // judge only the context user.
+      if (vaultUserSource !== "auth_context") {
+        updateBootstrapStatus("waiting_vault_user", {
+          detail: `${vaultUserSource}:${uidPrefix(vaultUser.uid)}`,
+        });
+        return;
+      }
       updateBootstrapStatus("uid_mismatch", {
         errorClass: "identity",
+        detail: `${vaultUserSource}:${uidPrefix(vaultUser.uid)}`,
       });
       return;
     }
