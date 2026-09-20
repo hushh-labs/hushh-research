@@ -306,17 +306,18 @@ class TestCrossProcessUserStateNotifications:
 
 
 class TestCancelWithAwaitOnDbFailure:
-    def test_tasks_done_after_db_failure_return(self):
-        """When DB pool acquisition fails both background tasks must be done
-        (cancelled counts as done) before run_consent_listener returns.
+    def test_listener_retries_db_failure_and_cleans_tasks_on_shutdown(self):
+        """A startup DB failure must retry; shutdown still joins both jobs.
 
         We intercept asyncio.create_task to capture task references, then
-        verify their state after the function exits.
+        verify their state after cancelling the long-lived listener.
         """
 
         async def _run():
             captured: list[asyncio.Task] = []
             real_create_task = asyncio.get_event_loop().create_task
+            retried = asyncio.Event()
+            attempts = 0
 
             async def _slow():
                 await asyncio.sleep(9999)
@@ -325,6 +326,13 @@ class TestCancelWithAwaitOnDbFailure:
                 t = real_create_task(coro, **kw)
                 captured.append(t)
                 return t
+
+            async def _unavailable_pool():
+                nonlocal attempts
+                attempts += 1
+                if attempts >= 2:
+                    retried.set()
+                raise RuntimeError("DB unavailable")
 
             with (
                 patch(
@@ -337,13 +345,17 @@ class TestCancelWithAwaitOnDbFailure:
                 ),
                 patch(
                     "db.connection.get_pool",
-                    side_effect=RuntimeError("DB unavailable"),
+                    side_effect=_unavailable_pool,
                 ),
+                patch("api.consent_listener.JOB_DB_RECOVERY_DELAY_SECONDS", 0),
                 patch("asyncio.create_task", side_effect=_capturing_create_task),
             ):
                 from api.consent_listener import run_consent_listener
 
-                await run_consent_listener()
+                listener = real_create_task(run_consent_listener())
+                await asyncio.wait_for(retried.wait(), timeout=1)
+                listener.cancel()
+                await listener
 
             assert len(captured) == 2, "expected exactly 2 background tasks"
             assert all(t.done() for t in captured), (

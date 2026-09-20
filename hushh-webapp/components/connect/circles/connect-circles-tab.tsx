@@ -632,7 +632,11 @@ export function ConnectCirclesTab({
             entrySurface: "connect_circles",
             targetType: "circle",
           });
-          announceCircleMutation("location_circle_member_left", circleId);
+          announceCircleMutation(
+            "location_circle_member_left",
+            circleId,
+            currentUserId || undefined,
+          );
           closeFlow(false);
         }}
         onDelete={async (circleId) => {

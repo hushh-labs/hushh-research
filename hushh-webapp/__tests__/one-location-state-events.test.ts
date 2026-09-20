@@ -162,6 +162,17 @@ describe("One Location state events", () => {
         "circle-1",
       ),
     ).toBe(true);
+    expect(
+      circleStateChangeClosesDetail(
+        {
+          notificationType: "location_circle_member_left",
+          circleId: "circle-1",
+          memberUserId: "viewer-a",
+        },
+        "viewer-a",
+        "circle-1",
+      ),
+    ).toBe(true);
   });
 
   it("collapses the same backend transition rebroadcast by multiple tabs", () => {

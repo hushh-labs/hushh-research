@@ -43,6 +43,7 @@ _USER_STATE_NOTIFY_MAX_BYTES = 7_500
 TIMEOUT_JOB_INTERVAL = 120
 NOTIFICATION_JOB_INTERVAL = 60
 JOB_DB_RECOVERY_DELAY_SECONDS = 15
+LISTENER_HEALTHCHECK_INTERVAL_SECONDS = 30
 FINAL_REMINDER_LEAD_MS = 30 * 60 * 1000
 MIN_FINAL_REMINDER_WINDOW_MS = 2 * 60 * 60 * 1000
 
@@ -914,44 +915,55 @@ async def run_consent_listener():
     try:
         from db.connection import get_pool
 
-        pool = await get_pool()
-    except Exception as e:
-        logger.error("Consent listener: DB pool not available (%s), skipping LISTEN", e)
-        timeout_task.cancel()
-        notification_task.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await timeout_task
-        with contextlib.suppress(asyncio.CancelledError):
-            await notification_task
-        return
-    conn = None
-    try:
-        # Wait as long as it takes. This connection is held for the life of
-        # the process, nothing retries this coroutine, and failing here also
-        # cancels the timeout and notification loops in the finally below —
-        # so an early failure silently disables consent notifications on this
-        # instance until it restarts. The acquire deadline in db.connection is
-        # for request handlers, which have a caller waiting; this has none.
-        conn = await pool.acquire(timeout=None)
-        await conn.execute("LISTEN consent_audit_new")
-        await conn.execute(f"LISTEN {USER_STATE_CHANNEL}")
-        # asyncpg add_listener is a coroutine (must be awaited)
-        await conn.add_listener("consent_audit_new", _notify_callback)
-        await conn.add_listener(USER_STATE_CHANNEL, _user_state_notify_callback)
-        _listener_active = True
-        logger.info(
-            "Consent NOTIFY listener active (consent_audit_new, %s)",
-            USER_STATE_CHANNEL,
-        )
-        try:
-            while True:
-                await asyncio.sleep(3600)
-        finally:
-            _listener_active = False
+        while True:
+            pool = None
+            conn = None
+            try:
+                pool = await get_pool()
+                # This connection is held for one LISTEN attempt. Request
+                # handlers use a deadline because a caller is waiting; this
+                # recovery loop can wait until pool capacity returns.
+                conn = await pool.acquire(timeout=None)
+                await conn.execute("LISTEN consent_audit_new")
+                await conn.execute(f"LISTEN {USER_STATE_CHANNEL}")
+                await conn.add_listener("consent_audit_new", _notify_callback)
+                await conn.add_listener(USER_STATE_CHANNEL, _user_state_notify_callback)
+                _listener_active = True
+                logger.info(
+                    "Consent NOTIFY listener active (consent_audit_new, %s)",
+                    USER_STATE_CHANNEL,
+                )
+                while True:
+                    await asyncio.sleep(LISTENER_HEALTHCHECK_INTERVAL_SECONDS)
+                    is_closed = getattr(conn, "is_closed", None)
+                    if callable(is_closed) and is_closed():
+                        raise ConnectionError("Consent LISTEN connection closed")
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001 - listener must self-heal
+                logger.warning(
+                    "Consent listener unavailable; retrying in %ss: %s",
+                    JOB_DB_RECOVERY_DELAY_SECONDS,
+                    exc,
+                )
+            finally:
+                _listener_active = False
+                if conn is not None and pool is not None:
+                    try:
+                        await conn.remove_listener("consent_audit_new", _notify_callback)
+                        await conn.remove_listener(USER_STATE_CHANNEL, _user_state_notify_callback)
+                        await conn.execute("UNLISTEN consent_audit_new")
+                        await conn.execute(f"UNLISTEN {USER_STATE_CHANNEL}")
+                    except Exception as exc:  # noqa: BLE001 - best-effort cleanup
+                        logger.debug("Consent listener cleanup failed: %s", exc)
+                    try:
+                        await pool.release(conn)
+                    except Exception as exc:  # noqa: BLE001 - retry must survive cleanup
+                        logger.debug("Consent listener release failed: %s", exc)
+
+            await asyncio.sleep(JOB_DB_RECOVERY_DELAY_SECONDS)
     except asyncio.CancelledError:
         logger.info("Consent listener cancelled")
-    except Exception as e:
-        logger.exception("Consent listener error: %s", e)
     finally:
         _listener_active = False
         timeout_task.cancel()
@@ -964,13 +976,3 @@ async def run_consent_listener():
             await notification_task
         except asyncio.CancelledError:
             pass
-        if conn is not None:
-            try:
-                # asyncpg remove_listener is a coroutine (must be awaited)
-                await conn.remove_listener("consent_audit_new", _notify_callback)
-                await conn.remove_listener(USER_STATE_CHANNEL, _user_state_notify_callback)
-                await conn.execute("UNLISTEN consent_audit_new")
-                await conn.execute(f"UNLISTEN {USER_STATE_CHANNEL}")
-            except Exception as exc:  # noqa: BLE001 - shutdown remains best-effort
-                logger.debug("Consent listener cleanup failed: %s", exc)
-            await pool.release(conn)

@@ -71,7 +71,8 @@ export function circleStateChangeClosesDetail(
   if (!sameCircle) return false;
   if (detail.notificationType === "location_circle_deleted") return true;
   return (
-    detail.notificationType === "location_circle_member_removed" &&
+    (detail.notificationType === "location_circle_member_removed" ||
+      detail.notificationType === "location_circle_member_left") &&
     Boolean(detail.memberUserId) &&
     detail.memberUserId === String(viewerUserId || "").trim()
   );
