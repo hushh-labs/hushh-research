@@ -18,6 +18,7 @@ const embla = vi.hoisted(() => ({
   ref: vi.fn(),
   rootNode: null as HTMLElement | null,
   options: null as Record<string, unknown> | null,
+  engine: undefined as ReturnType<EmblaCarouselType["internalEngine"]> | undefined,
 }));
 
 vi.mock("embla-carousel-react", () => ({
@@ -31,6 +32,7 @@ vi.mock("embla-carousel-react", () => ({
         scrollTo: embla.scrollTo,
         reInit: embla.reInit,
         rootNode: () => embla.rootNode ?? document.body,
+        ...(embla.engine ? { internalEngine: () => embla.engine } : {}),
         on: (event: string, listener: () => void) => {
           embla.listeners.set(event, listener);
         },
@@ -62,6 +64,32 @@ describe("SwipeViews", () => {
     embla.listeners.clear();
     embla.rootNode = document.createElement("div");
     embla.options = null;
+    embla.engine = undefined;
+  });
+
+  it("does not restore stale scroll bounds after repairing snap points", () => {
+    const toggleActive = vi.fn();
+    const target = { get: () => 0, set: vi.fn() };
+    embla.engine = {
+      slideRects: [{ width: 400 }, { width: 400 }, { width: 400 }],
+      scrollSnaps: [0, -168],
+      limit: { min: -168, max: 0 },
+      target,
+      offsetLocation: { get: () => 0 },
+      scrollBounds: { toggleActive },
+      animation: { start: vi.fn() },
+    } as unknown as ReturnType<EmblaCarouselType["internalEngine"]>;
+    const options = [...OPTIONS, { value: "third", label: "Third" }];
+    const panels = [<div key="1">Saved</div>, <div key="2">Add</div>, <div key="3">Sharing</div>];
+    const view = render(<SwipeViews options={options} tabSetId="memory-test" activeValue="second">{panels}</SwipeViews>);
+    expect(embla.engine.scrollSnaps).toEqual([-0, -400, -800]);
+    expect(toggleActive).toHaveBeenLastCalledWith(false);
+    view.rerender(<SwipeViews options={options} tabSetId="memory-test" activeValue="third">{panels}</SwipeViews>);
+    expect(target.set).toHaveBeenLastCalledWith(-800);
+    expect(toggleActive).toHaveBeenLastCalledWith(false);
+    embla.engine.limit.min = -800;
+    view.rerender(<SwipeViews options={options} tabSetId="memory-test" activeValue="second">{panels}</SwipeViews>);
+    expect(toggleActive).toHaveBeenLastCalledWith(true);
   });
 
   it("keeps pane identity mounted while route selection changes", () => {
