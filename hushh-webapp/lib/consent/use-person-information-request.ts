@@ -7,6 +7,7 @@ import { REQUEST_DURATION_OPTIONS } from "@/lib/agent/action-directive-summary";
 import { PersonProfileService } from "@/lib/services/person-profile-service";
 import { OneKycClientZkService } from "@/lib/services/one-kyc-client-zk-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { dispatchConsentStateChanged } from "@/lib/consent/consent-events";
 
 export type PersonInformationDraft = {
   scopeRefs: string[];
@@ -74,7 +75,7 @@ export function usePersonInformationRequest(personRef: string) {
           try {
             const connector = await OneKycClientZkService.ensureConnector({ userId: user.uid, vaultKey, vaultOwnerToken });
             if (stale()) return;
-            await PersonProfileService.createInformationRequest({
+            const created = await PersonProfileService.createInformationRequest({
               personRef, scopeRefs, purpose, durationSeconds: draft.durationHours * 3600,
               connectorKeyId: connector.connector_key_id, idempotencyKey, vaultOwnerToken,
               signal: controller.signal,
@@ -84,6 +85,11 @@ export function usePersonInformationRequest(personRef: string) {
             // the owner-scoped consent projections from the mutation boundary
             // so Chat, Profile, and Consent Center cannot reuse old state.
             CacheSyncService.onConsentMutated(user.uid);
+            dispatchConsentStateChanged({
+              action: "request",
+              bundleId: created.bundleId,
+              personRef,
+            });
             resolve();
           } catch (reason) { reject(reason); }
           finally { controller.signal.removeEventListener("abort", aborted); }

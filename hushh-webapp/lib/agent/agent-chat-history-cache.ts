@@ -10,6 +10,7 @@ import {
   trackCacheResourceResolved,
   trackWarmupCompleted,
 } from "@/lib/observability/client";
+import { AGENT_CHAT_HISTORY_INVALIDATED_EVENT } from "@/lib/agent/agent-chat-history-events";
 
 const HISTORY_CACHE_TTL_MS = 5 * 60 * 1000;
 const CONVERSATION_LIMIT = 20;
@@ -33,6 +34,14 @@ const warmupsByUser = new Map<string, Promise<AgentChatHistorySnapshot>>();
 const historyLoadsByKey = new Map<string, Promise<AgentChatMessage[]>>();
 const generationByUser = new Map<string, number>();
 let globalGeneration = 0;
+
+if (typeof window !== "undefined") {
+  window.addEventListener(AGENT_CHAT_HISTORY_INVALIDATED_EVENT, (event) => {
+    const detail = (event as CustomEvent<{ userId?: unknown }>).detail;
+    const userId = typeof detail?.userId === "string" ? detail.userId : "";
+    if (userId) clearAgentChatHistoryCache(userId);
+  });
+}
 
 function generationFor(userId: string): string {
   return `${globalGeneration}:${generationByUser.get(userId) || 0}`;

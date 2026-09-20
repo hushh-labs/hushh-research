@@ -207,6 +207,8 @@ import {
   ConsentCenterService,
   type PendingConsentLookupItem,
 } from "@/lib/services/consent-center-service";
+import { ApiService } from "@/lib/services/api-service";
+import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import { useAgentRuntimeStateOptional } from "@/lib/agent/agent-runtime-context";
@@ -3177,12 +3179,51 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       }
     };
 
+    const reconcilePendingConsentRequests = async () => {
+      const token = getVaultOwnerToken();
+      if (!token) return;
+      try {
+        const response = await ApiService.getPendingConsents(user.uid, token);
+        const payload = (await response.json().catch(() => ({}))) as {
+          pending?: Array<{ id?: string; request_id?: string }>;
+        };
+        if (!response.ok || cancelled) return;
+        for (const item of Array.isArray(payload.pending) ? payload.pending : []) {
+          const requestId = String(item.id || item.request_id || "").trim();
+          if (requestId) void appendPendingConsentRequest(requestId);
+        }
+      } catch {
+        // FCM and the next explicit consent refresh remain authoritative. A
+        // failed reconciliation must not block Chat or create a fake card.
+      }
+    };
+
+    const handleConsentStateChanged = (event: Event) => {
+      const detail = (event as CustomEvent<Record<string, unknown>>).detail;
+      const requestId = String(detail?.requestId || "").trim();
+      const action = String(detail?.action || "").trim().toLowerCase();
+      if (!requestId || (action !== "approve" && action !== "deny")) return;
+      setMessages((current) =>
+        current.map((message) => ({
+          ...message,
+          specialistDirective: markPendingConsentRequestDirectiveStatus(
+            message.specialistDirective,
+            requestId,
+            action === "approve" ? "approved" : "denied",
+          ),
+        })),
+      );
+    };
+
     appendPendingConsentRequestRef.current = appendPendingConsentRequest;
     window.addEventListener(FCM_MESSAGE_EVENT, handleConsentMessage);
+    window.addEventListener(CONSENT_STATE_CHANGED_EVENT, handleConsentStateChanged);
+    void reconcilePendingConsentRequests();
     return () => {
       cancelled = true;
       appendPendingConsentRequestRef.current = null;
       window.removeEventListener(FCM_MESSAGE_EVENT, handleConsentMessage);
+      window.removeEventListener(CONSENT_STATE_CHANGED_EVENT, handleConsentStateChanged);
     };
   }, [getVaultOwnerToken, isVaultUnlocked, user?.uid]);
 

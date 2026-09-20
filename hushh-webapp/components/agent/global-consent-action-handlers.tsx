@@ -49,6 +49,7 @@ import { useConsentActions } from "@/lib/consent/use-consent-actions";
 import { OneKycClientZkService } from "@/lib/services/one-kyc-client-zk-service";
 import { PersonProfileService } from "@/lib/services/person-profile-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { dispatchConsentStateChanged } from "@/lib/consent/consent-events";
 
 /** Seconds, from the hours the proposal carried. */
 function durationSeconds(hours: unknown): number {
@@ -110,7 +111,7 @@ export function GlobalConsentActionHandlers() {
           vaultKey,
           vaultOwnerToken,
         });
-        await PersonProfileService.createInformationRequest({
+        const created = await PersonProfileService.createInformationRequest({
           personRef,
           scopeRefs,
           purpose,
@@ -125,6 +126,7 @@ export function GlobalConsentActionHandlers() {
           vaultOwnerToken,
         });
         CacheSyncService.onConsentMutated(user.uid);
+        dispatchConsentStateChanged({ action: "request", bundleId: created.bundleId, personRef });
       } catch (reason) {
         const message =
           reason instanceof Error && reason.message
@@ -243,6 +245,7 @@ export function GlobalConsentActionHandlers() {
       try {
         await PersonProfileService.cancelInformationRequest({ bundleId, vaultOwnerToken });
         CacheSyncService.onConsentMutated(viewerUid);
+        dispatchConsentStateChanged({ action: "cancel", bundleId });
       } catch (reason) {
         return {
           status: "failed" as const,
