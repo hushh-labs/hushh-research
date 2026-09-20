@@ -336,8 +336,12 @@ const REDIRECT_EXPECTATIONS = {
   },
   "/one/profile/regulatory": {
     path: "/one/profile/regulatory",
-    allowedPathnames: ["/ria/profile", "/ria/onboarding"],
-    allowedRouteIds: ["ria-profile", "/ria/onboarding"],
+    // A reviewer without an established RIA persona is correctly returned to
+    // the investor home after the RIA profile's setup guard. Keep that honest
+    // fallback in the compatibility contract; it is not a standalone Profile
+    // surface and must not be mistaken for one.
+    allowedPathnames: ["/ria/profile", "/ria/onboarding", "/one"],
+    allowedRouteIds: ["ria-profile", "/ria/onboarding", "/one"],
   },
   "/": {
     path: "/",
