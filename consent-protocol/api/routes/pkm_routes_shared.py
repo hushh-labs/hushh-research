@@ -78,6 +78,55 @@ def _isoformat_or_none(value):
     return str(value)
 
 
+async def _notify_location_pkm_changed(
+    user_id: str,
+    *,
+    data_version: object = None,
+    updated_at: object = None,
+) -> None:
+    """Publish a metadata-only owner doorbell after a committed location mutation."""
+    message_id = f"location_pkm_changed:{uuid.uuid4()}"
+    sync_data = {
+        "domain": "location",
+        "data_version": str(data_version or ""),
+        "updated_at": _isoformat_or_none(updated_at) or "",
+        "sync_only": "true",
+        "message_id": message_id,
+    }
+    try:
+        from api.consent_listener import publish_user_state_event_threadsafe
+
+        publish_user_state_event_threadsafe(
+            user_id,
+            {
+                "type": "location_pkm_changed",
+                "user_id": user_id,
+                "request_url": "/one/location?action=settings",
+                "deep_link": "/one/location?action=settings",
+                "notification_tag": message_id,
+                "notification_category": "ONE_LOCATION",
+                **sync_data,
+            },
+        )
+    except Exception as exc:  # noqa: BLE001 - realtime is best-effort
+        logger.warning("[PKM] location sync SSE skipped: %s", exc)
+    try:
+        await run_in_threadpool(
+            send_user_data_push,
+            user_id,
+            notification_type="location_pkm_changed",
+            title="Saved locations updated",
+            body="Your saved locations changed on another session.",
+            deep_link="/one/location?action=settings",
+            notification_tag=message_id,
+            notification_category="ONE_LOCATION",
+            data=sync_data,
+            show_alert=False,
+        )
+    except Exception as exc:  # noqa: BLE001 - committed PKM writes must still succeed
+        logger.warning("[PKM] location sync push skipped: %s", exc)
+
+
 def _json_object_or_default(value, default: Optional[dict] = None) -> dict:
     fallback = default or {}
     if isinstance(value, dict):
@@ -829,46 +878,10 @@ async def store_domain(
         )
 
     if canonical_domain == "location":
-        # Metadata-only owner doorbell. The encrypted blob, saved-place labels,
-        # addresses and coordinates never enter notification transports.
-        message_id = f"location_pkm_changed:{uuid.uuid4()}"
-        updated_at = _isoformat_or_none(store_result.get("updated_at")) or ""
-        data_version = str(store_result.get("data_version") or "")
-        sync_data = {
-            "domain": "location",
-            "data_version": data_version,
-            "updated_at": updated_at,
-            "sync_only": "true",
-            "message_id": message_id,
-        }
-        try:
-            from api.consent_listener import publish_user_state_event_threadsafe
-
-            publish_user_state_event_threadsafe(
-                request.user_id,
-                {
-                    "type": "location_pkm_changed",
-                    "user_id": request.user_id,
-                    "request_url": "/one/location?action=settings",
-                    "deep_link": "/one/location?action=settings",
-                    "notification_tag": message_id,
-                    "notification_category": "ONE_LOCATION",
-                    **sync_data,
-                },
-            )
-        except Exception as exc:  # noqa: BLE001 - realtime is best-effort
-            logger.warning("[PKM] location sync SSE skipped: %s", exc)
-        await run_in_threadpool(
-            send_user_data_push,
+        await _notify_location_pkm_changed(
             request.user_id,
-            notification_type="location_pkm_changed",
-            title="Saved locations updated",
-            body="Your saved locations changed on another session.",
-            deep_link="/one/location?action=settings",
-            notification_tag=message_id,
-            notification_category="ONE_LOCATION",
-            data=sync_data,
-            show_alert=False,
+            data_version=store_result.get("data_version"),
+            updated_at=store_result.get("updated_at"),
         )
 
     return StoreDomainResponse(
@@ -1384,6 +1397,9 @@ async def delete_domain_data(
             detail=f"Failed to delete {domain} domain data",
         )
 
+    if canonical_top_level_domain(domain) == "location":
+        await _notify_location_pkm_changed(user_id)
+
     return DeleteDomainResponse(
         success=True,
         message=f"Successfully deleted {domain} domain data",
@@ -1478,6 +1494,12 @@ async def delete_domain_data_confirmed(
                 "code": result.get("code") or "PKM_DELETE_DOMAIN_FAILED",
                 "message": "Failed to delete encrypted PKM domain data.",
             },
+        )
+    if canonical_domain == "location" and result.get("deleted"):
+        await _notify_location_pkm_changed(
+            request.user_id,
+            data_version=result.get("data_version"),
+            updated_at=result.get("updated_at"),
         )
     return DeleteDomainResponse(
         success=True,
