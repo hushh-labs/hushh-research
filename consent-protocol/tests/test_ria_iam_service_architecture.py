@@ -1,3 +1,4 @@
+import asyncio
 import json
 from types import SimpleNamespace
 
@@ -1095,6 +1096,36 @@ async def test_consent_center_summary_uses_surface_loaders_without_get_center(mo
 
     assert payload["counts"] == {"pending": 2, "active": 1, "previous": 3}
     assert contributor_calls == {"location": 1, "marketplace": 1, "connections": 1}
+
+
+@pytest.mark.asyncio
+async def test_consent_center_identifier_expansion_is_single_flight_per_owner(monkeypatch):
+    service = ConsentCenterService()
+    calls: list[str] = []
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def _identifiers(user_id: str):
+        calls.append(user_id)
+        started.set()
+        await release.wait()
+        return [user_id, f"alias:{user_id}"]
+
+    monkeypatch.setattr(service._identity, "list_account_identifiers", _identifiers)
+    first = asyncio.create_task(service._owned_user_identifiers("owner-a"))
+    await started.wait()
+    same_owner = asyncio.create_task(service._owned_user_identifiers("owner-a"))
+    other_owner = asyncio.create_task(service._owned_user_identifiers("owner-b"))
+    await asyncio.sleep(0)
+    release.set()
+
+    assert await asyncio.gather(first, same_owner, other_owner) == [
+        ["owner-a", "alias:owner-a"],
+        ["owner-a", "alias:owner-a"],
+        ["owner-b", "alias:owner-b"],
+    ]
+    assert calls.count("owner-a") == 1
+    assert calls.count("owner-b") == 1
 
 
 @pytest.mark.asyncio

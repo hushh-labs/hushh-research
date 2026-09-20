@@ -566,8 +566,22 @@ class TestPropose:
             context.state[action_tools._STATE_INFORMATION_PERSON_CHOICES][handle]["expiresAt"] = 0
         else:
             handle = "forged"
+        context.state["hussh:requested_person_selection"] = handle
         with pytest.raises(action_tools.ConsentLifecycleError, match="choose the person again"):
             action_tools._resolve_person_for_information(None, owner, "Alex", context, handle)
+
+    def test_model_supplied_choice_requires_browser_admission(self):
+        context = _ctx(_state())
+        result = action_tools._information_person_error(
+            action_tools.InformationPersonAmbiguous(
+                [{"displayName": "Alex", "publicPersonRef": PERSON_REF}]
+            ),
+            context,
+            "owner-a",
+        )
+        handle = result["candidates"][0]["selectionHandle"]
+        with pytest.raises(action_tools.ConsentLifecycleError, match="conversation"):
+            action_tools._resolve_person_for_information(None, "owner-a", "Alex", context, handle)
 
     def test_valid_person_choice_never_resolves_a_different_name(self):
         context = _ctx(_state())
@@ -581,6 +595,7 @@ class TestPropose:
             "owner-a",
         )
         handle = result["candidates"][0]["selectionHandle"]
+        context.state["hussh:requested_person_selection"] = handle
         assert action_tools._resolve_person_for_information(
             None,
             "owner-a",
@@ -588,6 +603,50 @@ class TestPropose:
             context,
             handle,
         ) == (PERSON_REF, "Alex")
+
+    def test_incomplete_directory_never_establishes_unique_person(self):
+        context = _ctx(_state())
+        pages = [
+            {"items": [{"displayName": "Alex Kim", "publicPersonRef": PERSON_REF}], "hasMore": True}
+        ] * action_tools._DIRECTORY_RESOLVE_MAX_PAGES
+        with (
+            _connections(),
+            patch.object(
+                ConnectionsService,
+                "search_directory",
+                autospec=True,
+                side_effect=pages,
+            ),
+        ):
+            with pytest.raises(action_tools.InformationPersonAmbiguous) as error:
+                action_tools._resolve_person_for_information(
+                    ConnectionsService(), "owner-a", "Alex", context
+                )
+        assert error.value.candidates_complete is False
+
+    @pytest.mark.asyncio
+    async def test_proposal_requires_narrowing_when_more_than_fifty_fields_match(self):
+        context = _ctx(_state())
+        scopes = [
+            {
+                "scopeRef": f"psr_professional_{index}",
+                "label": f"Professional field {index}",
+                "domain": "professional",
+            }
+            for index in range(51)
+        ]
+        with (
+            _auth(),
+            _connections({"displayName": "Sarah Chen", "publicPersonRef": PERSON_REF}),
+            _profile({**PROFILE, "requestableScopes": scopes}),
+        ):
+            result = await propose_information_request(
+                "Sarah", "professional", "Synthetic review planning", context
+            )
+        assert result["status"] == "needs_clarification"
+        assert result["fieldCount"] == 51
+        assert result["maxFieldsPerRequest"] == 50
+        assert action_tools._STATE_INFORMATION_REQUEST_PROPOSALS not in context.state
 
     @pytest.mark.parametrize("spoken", ["Sarah", "sarah@example.test"])
     def test_unique_lookup_is_retained_for_followups(self, spoken):

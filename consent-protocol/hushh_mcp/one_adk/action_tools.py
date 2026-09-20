@@ -391,9 +391,15 @@ _STATE_SELECTED_INFORMATION_PERSON = "hussh:selected_information_person"
 
 
 class InformationPersonAmbiguous(ConsentLifecycleError):
-    def __init__(self, candidates: list[dict[str, Any]]) -> None:
+    def __init__(
+        self,
+        candidates: list[dict[str, Any]],
+        *,
+        candidates_complete: bool = True,
+    ) -> None:
         super().__init__("PERSON_AMBIGUOUS", "Choose which person you mean before we continue.")
         self.candidates = candidates
+        self.candidates_complete = candidates_complete
 
 
 def _information_person_error(
@@ -429,12 +435,24 @@ def _information_person_error(
                     "selectionHandle": handle,
                     "personRef": person_ref,
                     "displayName": display_name,
-                    "detail": candidate.get("maskedEmail") or candidate.get("maskedPhone"),
+                    "detail": (
+                        candidate.get("maskedEmail")
+                        or candidate.get("maskedPhone")
+                        or mask_email(str(candidate.get("email") or ""))
+                    )
+                    or None,
                     "profilePath": f"/people/{person_ref}",
                 }
             )
         tool_context.state[_STATE_INFORMATION_PERSON_CHOICES] = handles
         result["candidates"] = choices
+        if not exc.candidates_complete or len(exc.candidates) > len(choices):
+            result["candidatesIncomplete"] = True
+            result["message"] = (
+                "I found more than one possible match, and I cannot safely choose from a "
+                "partial list. Narrow the name or provide an email address for the person "
+                "you mean."
+            )
     return result
 
 
@@ -2065,7 +2083,7 @@ async def list_information_shared_with_me(
 
 def _directory_candidates(
     connections_service: ConnectionsService, user_id: str, spoken_name: str
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], bool]:
     """Page the server-owned directory for one spoken name, exactly as connect.send_request does."""
     search_term = max(spoken_name.split() or [spoken_name], key=len)
     candidates: list[dict[str, Any]] = []
@@ -2076,9 +2094,9 @@ def _directory_candidates(
         )
         candidates.extend(result.get("items") or [])
         if not result.get("hasMore"):
-            break
+            return candidates, True
         page += 1
-    return candidates
+    return candidates, False
 
 
 def _person_display_name(person: dict[str, Any]) -> str:
@@ -2162,6 +2180,20 @@ def _resolve_person_for_information(
                 else:
                     selection_handle = str(selected.get("handle") or "")
     if selection_handle:
+        requested_handle = (
+            str(tool_context.state.get("hussh:requested_person_selection") or "")
+            if tool_context
+            else ""
+        )
+        selected = (
+            tool_context.state.get(_STATE_SELECTED_INFORMATION_PERSON) if tool_context else None
+        )
+        admitted_handle = str(selected.get("handle") or "") if isinstance(selected, dict) else ""
+        if not requested_handle and selection_handle != admitted_handle:
+            raise ConsentLifecycleError(
+                "PERSON_REQUIRED",
+                "Choose a person in the conversation before we continue.",
+            )
         choices = (
             tool_context.state.get(_STATE_INFORMATION_PERSON_CHOICES) if tool_context else None
         )
@@ -2219,11 +2251,16 @@ def _resolve_person_for_information(
         if unresolved.kind == "ambiguous":
             raise InformationPersonAmbiguous(list(unresolved.matches))
         try:
-            candidates = _directory_candidates(connections_service, user_id, spoken)
+            candidates, candidates_complete = _directory_candidates(
+                connections_service, user_id, spoken
+            )
         except Exception:  # noqa: BLE001 - the directory is a fallback, never a blocker
             logger.exception("information_request_directory_lookup_failed")
             candidates = []
+            candidates_complete = True
         matches = match_by_name(candidates, spoken, _person_display_name)
+        if not candidates_complete:
+            raise InformationPersonAmbiguous(matches, candidates_complete=False)
         if not matches:
             raise ConsentLifecycleError(
                 "PERSON_NOT_FOUND",
@@ -2517,6 +2554,19 @@ async def propose_information_request(
                 "message": (
                     f"None of those fields match what {display_name} makes requestable. "
                     "Offer the available fields grouped by domain and ask which they want."
+                ),
+            }
+        if len(matched) > 50:
+            return {
+                "status": "needs_clarification",
+                "person": {"displayName": display_name, "profilePath": profile_path},
+                "fieldCount": len(matched),
+                "maxFieldsPerRequest": 50,
+                "unmatchedFields": unmatched,
+                "message": (
+                    f"I found {len(matched)} matching fields for {display_name}. "
+                    "A request can include up to 50 fields, so narrow this to a specific "
+                    "domain or name the exact fields you want. Nothing has been sent."
                 ),
             }
         cleaned_purpose = str(purpose or "").strip()
