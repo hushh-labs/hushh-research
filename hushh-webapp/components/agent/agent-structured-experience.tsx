@@ -266,9 +266,9 @@ function ScopeDiscoveryView({
 
       {unavailable ? <p role="alert" className="text-sm text-muted-foreground">We couldn’t check available information. Please try again.</p> : null}
       {profile?.scopeCatalog?.hasMore ? <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-        <p className="text-muted-foreground">{scopes.length} of {total} loaded. Search checks loaded fields.</p>
+        <p className="text-muted-foreground">{scopes.length} of {total} loaded. Search checks loaded information.</p>
         <MorphyButton type="button" size="sm" disabled={loading} onClick={() => void loadMore()}>
-          {loading ? "Loading more…" : unavailable ? "Try loading more again" : "Load more fields"}
+          {loading ? "Loading more…" : unavailable ? "Try loading more again" : "Load more information"}
         </MorphyButton>
       </div> : unavailable ? <MorphyButton type="button" size="sm" onClick={() => setRetry(value => value + 1)}>Try again</MorphyButton> : null}
 
@@ -279,7 +279,7 @@ function ScopeDiscoveryView({
           onPurposeChange={setPurpose} onDurationChange={setDurationHours} disabled={request.pending} testIdPrefix="chat-request" />
         {request.error ? <p role="alert" className="text-sm text-destructive">{request.error}</p> : null}
         <div className="flex flex-wrap justify-end gap-2">
-          <MorphyButton type="button" size="sm" disabled={request.pending} onClick={() => setReviewing(false)}>Edit fields</MorphyButton>
+          <MorphyButton type="button" size="sm" disabled={request.pending} onClick={() => setReviewing(false)}>Edit information</MorphyButton>
           <MorphyButton type="button" size="sm" disabled={!request.available || request.pending || purpose.trim().length < 8 || !selectedScopes.length || selectedScopes.length > 50}
             onClick={() => void request.submit({ scopeRefs: selectedScopes.map(scope => scope.scopeRef), purpose, durationHours }).then(success => {
               if (!success) return;

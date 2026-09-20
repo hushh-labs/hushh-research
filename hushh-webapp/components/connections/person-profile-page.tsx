@@ -1056,10 +1056,10 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
               />
               {viewerProfile.scopeCatalog?.hasMore ? (
                 <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                  <p className="text-muted-foreground">{allScopes.length} of {viewerProfile.scopeCatalog.totalCount} loaded. Search checks loaded fields.</p>
+                  <p className="text-muted-foreground">{allScopes.length} of {viewerProfile.scopeCatalog.totalCount} loaded. Search checks loaded information.</p>
                   <Button type="button" variant="none" effect="fade" disabled={catalogLoading}
                     onClick={() => void loadMoreScopes()}>
-                    {catalogLoading ? "Loading more…" : catalogError ? "Try loading more again" : "Load more fields"}
+                    {catalogLoading ? "Loading more…" : catalogError ? "Try loading more again" : "Load more information"}
                   </Button>
                 </div>
               ) : null}
