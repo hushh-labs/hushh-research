@@ -29,6 +29,17 @@ const mocks = vi.hoisted(() => {
     dispatchFeedStateChanged: vi.fn(),
     onOneLocationStateMutated: vi.fn(),
     onPkmDomainStored: vi.fn(),
+    onPkmDomainCleared: vi.fn(),
+    onRemotePkmDomainChanged: vi.fn(),
+    remotePkmListener: null as
+      | ((detail: {
+          userId: string;
+          domain: string;
+          dataVersion: number | null;
+          updatedAt: string | null;
+          operation: "stored" | "cleared" | "restored";
+        }) => void)
+      | null,
   };
 });
 
@@ -95,7 +106,18 @@ vi.mock("@/lib/cache/cache-sync-service", () => ({
   CacheSyncService: {
     onOneLocationStateMutated: mocks.onOneLocationStateMutated,
     onPkmDomainStored: mocks.onPkmDomainStored,
+    onPkmDomainCleared: mocks.onPkmDomainCleared,
+    onRemotePkmDomainChanged: mocks.onRemotePkmDomainChanged,
   },
+}));
+
+vi.mock("@/lib/pkm/pkm-domain-change-events", () => ({
+  subscribeToRemotePkmDomainChanges: vi.fn((listener) => {
+    mocks.remotePkmListener = listener;
+    return () => {
+      mocks.remotePkmListener = null;
+    };
+  }),
 }));
 
 vi.mock("@/lib/consent/consent-events", () => ({
@@ -141,6 +163,8 @@ async function renderReady(children?: ReactNode) {
   mocks.dispatchFeedStateChanged.mockClear();
   mocks.onOneLocationStateMutated.mockClear();
   mocks.onPkmDomainStored.mockClear();
+  mocks.onPkmDomainCleared.mockClear();
+  mocks.onRemotePkmDomainChanged.mockClear();
 }
 
 function dispatchLocation(
@@ -182,6 +206,7 @@ beforeEach(() => {
   mocks.prepareFCMListeners.mockResolvedValue(undefined);
   mocks.initializeFCM.mockResolvedValue({ status: "push_active" });
   mocks.getState.mockResolvedValue(EMPTY_LOCATION_STATE);
+  mocks.remotePkmListener = null;
 });
 
 describe("global One Location Feed-first notification policy", () => {
@@ -290,6 +315,41 @@ describe("global One Location Feed-first notification policy", () => {
     expect(mocks.toast).not.toHaveBeenCalled();
     expect(mocks.startTask).not.toHaveBeenCalled();
     expect(mocks.dispatchFeedStateChanged).not.toHaveBeenCalled();
+  });
+
+  it("clears saved-location caches for deletion doorbells", async () => {
+    await renderReady();
+
+    dispatchLocation({
+      type: "location_pkm_changed",
+      domain: "location",
+      operation: "cleared",
+      data_version: "12",
+      message_id: "location_pkm_changed:delete-1",
+    });
+
+    expect(mocks.onPkmDomainCleared).toHaveBeenCalledWith(
+      "recipient-user",
+      "location",
+    );
+    expect(mocks.onPkmDomainStored).not.toHaveBeenCalled();
+    expect(mocks.toast).not.toHaveBeenCalled();
+    expect(mocks.dispatchFeedStateChanged).not.toHaveBeenCalled();
+  });
+
+  it("globally invalidates PKM state when a peer tab broadcasts a change", async () => {
+    await renderReady();
+    const detail = {
+      userId: "recipient-user",
+      domain: "location",
+      dataVersion: 13,
+      updatedAt: "2026-09-20T12:30:00Z",
+      operation: "cleared" as const,
+    };
+
+    act(() => mocks.remotePkmListener?.(detail));
+
+    expect(mocks.onRemotePkmDomainChanged).toHaveBeenCalledWith(detail);
   });
 
   it("records repeated duration changes for the same grant without a replay identity", async () => {

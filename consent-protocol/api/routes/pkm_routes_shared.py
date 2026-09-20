@@ -81,6 +81,7 @@ def _isoformat_or_none(value):
 async def _notify_location_pkm_changed(
     user_id: str,
     *,
+    operation: Literal["stored", "cleared"] = "stored",
     data_version: object = None,
     updated_at: object = None,
 ) -> None:
@@ -88,6 +89,7 @@ async def _notify_location_pkm_changed(
     message_id = f"location_pkm_changed:{uuid.uuid4()}"
     sync_data = {
         "domain": "location",
+        "operation": operation,
         "data_version": str(data_version or ""),
         "updated_at": _isoformat_or_none(updated_at) or "",
         "sync_only": "true",
@@ -1398,7 +1400,7 @@ async def delete_domain_data(
         )
 
     if canonical_top_level_domain(domain) == "location":
-        await _notify_location_pkm_changed(user_id)
+        await _notify_location_pkm_changed(user_id, operation="cleared")
 
     return DeleteDomainResponse(
         success=True,
@@ -1498,6 +1500,7 @@ async def delete_domain_data_confirmed(
     if canonical_domain == "location" and result.get("deleted"):
         await _notify_location_pkm_changed(
             request.user_id,
+            operation="cleared",
             data_version=result.get("data_version"),
             updated_at=result.get("updated_at"),
         )

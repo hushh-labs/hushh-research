@@ -5,6 +5,7 @@ const loadDomainDataWithBlobMock = vi.fn();
 const loadDomainSnapshotMock = vi.fn();
 const secureReadMock = vi.fn();
 const secureWriteMock = vi.fn();
+const secureInvalidateMock = vi.fn();
 
 vi.mock("@/lib/cache/request-audit-log", () => ({
   logRequestAudit: vi.fn(),
@@ -22,7 +23,7 @@ vi.mock("@/lib/services/secure-resource-cache-service", () => ({
   SecureResourceCacheService: {
     read: (...args: unknown[]) => secureReadMock(...args),
     write: (...args: unknown[]) => secureWriteMock(...args),
-    invalidateResourcePrefix: vi.fn(),
+    invalidateResourcePrefix: (...args: unknown[]) => secureInvalidateMock(...args),
   },
 }));
 
@@ -203,6 +204,56 @@ describe("PkmDomainResourceService", () => {
         domain: "location",
       })?.data.data,
     ).toEqual(freshDomain);
+  });
+
+  it("re-fetches when a domain event arrives during a secure-cache write", async () => {
+    let resolveWrite!: () => void;
+    secureWriteMock.mockImplementationOnce(
+      () => new Promise<void>((resolve) => {
+        resolveWrite = resolve;
+      }),
+    );
+    secureInvalidateMock.mockResolvedValue(undefined);
+    loadDomainDataWithBlobMock
+      .mockResolvedValueOnce({
+        data: { savedLocations: [{ id: "old" }] },
+        blob: { dataVersion: 1, updatedAt: "2026-09-20T00:00:00.000Z" },
+      })
+      .mockResolvedValueOnce({
+        data: { savedLocations: [{ id: "fresh" }] },
+        blob: { dataVersion: 2, updatedAt: "2026-09-20T00:00:01.000Z" },
+      });
+
+    const first = PkmDomainResourceService.refresh({
+      userId: "write-race-owner",
+      domain: "location",
+      vaultKey: "vault-key",
+      vaultOwnerToken: "vault-owner",
+    });
+    await vi.waitFor(() => expect(secureWriteMock).toHaveBeenCalledOnce());
+    PkmDomainResourceService.invalidateDomain("write-race-owner", "location", {
+      includeDevice: true,
+      includeBackingCaches: true,
+    });
+    const second = PkmDomainResourceService.refresh({
+      userId: "write-race-owner",
+      domain: "location",
+      vaultKey: "vault-key",
+      vaultOwnerToken: "vault-owner",
+    });
+    resolveWrite();
+
+    await expect(first).resolves.toEqual(
+      expect.objectContaining({ data: { savedLocations: [{ id: "fresh" }] } }),
+    );
+    await expect(second).resolves.toEqual(
+      expect.objectContaining({ data: { savedLocations: [{ id: "fresh" }] } }),
+    );
+    expect(loadDomainDataWithBlobMock).toHaveBeenCalledTimes(2);
+    expect(secureInvalidateMock).toHaveBeenCalledWith(
+      "write-race-owner",
+      "pkm_domain:location:",
+    );
   });
 
   it("returns successful domains when another domain refresh fails", async () => {

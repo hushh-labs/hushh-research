@@ -52,6 +52,7 @@ import {
   dispatchConsentStateChanged,
 } from "@/lib/consent/consent-events";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { subscribeToRemotePkmDomainChanges } from "@/lib/pkm/pkm-domain-change-events";
 import { resolveConsentRequesterLabel } from "@/lib/consent/consent-display";
 import { parseSSEBlocks } from "@/lib/streaming/sse-parser";
 import {
@@ -682,6 +683,15 @@ export function ConsentNotificationProvider({
   const lastOneLocationReconcileWarningRef = useRef(0);
   const consentReconcilePromiseRef = useRef<Promise<void> | null>(null);
 
+  useEffect(() => {
+    const userId = user?.uid;
+    if (!userId) return;
+    return subscribeToRemotePkmDomainChanges((detail) => {
+      if (detail.userId !== userId) return;
+      CacheSyncService.onRemotePkmDomainChanged(detail);
+    });
+  }, [user?.uid]);
+
   const acknowledgePendingConsent = useCallback(
     async (
       consent: Pick<PendingConsent, "id" | "bundleId">,
@@ -1030,15 +1040,19 @@ export function ConsentNotificationProvider({
       if (notification.data.type === "location_pkm_changed") {
         const domain = String(notification.data.domain || "").trim();
         if (domain === "location") {
-          const parsedVersion = Number(notification.data.data_version);
-          CacheSyncService.onPkmDomainStored(user.uid, domain, {
-            eventDataVersion: Number.isFinite(parsedVersion)
-              ? parsedVersion
-              : undefined,
-            metadataTimestamp:
-              String(notification.data.updated_at || "").trim() || undefined,
-            writeThroughMetadata: false,
-          });
+          if (notification.data.operation === "cleared") {
+            CacheSyncService.onPkmDomainCleared(user.uid, domain);
+          } else {
+            const parsedVersion = Number(notification.data.data_version);
+            CacheSyncService.onPkmDomainStored(user.uid, domain, {
+              eventDataVersion: Number.isFinite(parsedVersion)
+                ? parsedVersion
+                : undefined,
+              metadataTimestamp:
+                String(notification.data.updated_at || "").trim() || undefined,
+              writeThroughMetadata: false,
+            });
+          }
         }
         continue;
       }
@@ -1617,15 +1631,19 @@ export function ConsentNotificationProvider({
       if (msgType === "location_pkm_changed" && user?.uid) {
         const domain = String(data.domain || "").trim();
         if (domain === "location") {
-          const parsedVersion = Number(data.data_version);
-          CacheSyncService.onPkmDomainStored(user.uid, domain, {
-            eventDataVersion: Number.isFinite(parsedVersion)
-              ? parsedVersion
-              : undefined,
-            metadataTimestamp:
-              String(data.updated_at || "").trim() || undefined,
-            writeThroughMetadata: false,
-          });
+          if (data.operation === "cleared") {
+            CacheSyncService.onPkmDomainCleared(user.uid, domain);
+          } else {
+            const parsedVersion = Number(data.data_version);
+            CacheSyncService.onPkmDomainStored(user.uid, domain, {
+              eventDataVersion: Number.isFinite(parsedVersion)
+                ? parsedVersion
+                : undefined,
+              metadataTimestamp:
+                String(data.updated_at || "").trim() || undefined,
+              writeThroughMetadata: false,
+            });
+          }
         }
         return;
       }

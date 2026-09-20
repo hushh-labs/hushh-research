@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   dispatchPkmDomainChanged,
   subscribeToPkmDomainChanges,
+  subscribeToRemotePkmDomainChanges,
 } from "@/lib/pkm/pkm-domain-change-events";
 
 class FakeBroadcastChannel {
@@ -82,6 +83,35 @@ describe("PKM domain change events", () => {
       operation: "stored",
     });
     expect(received).toHaveLength(1);
+    unsubscribe();
+    otherTab.close();
+  });
+
+  it("delivers only peer-tab events to the global invalidation subscriber", () => {
+    const received: unknown[] = [];
+    const unsubscribe = subscribeToRemotePkmDomainChanges((detail) =>
+      received.push(detail),
+    );
+    dispatchPkmDomainChanged({
+      userId: "owner-a",
+      domain: "location",
+      dataVersion: 10,
+      updatedAt: null,
+      operation: "stored",
+    });
+    expect(received).toEqual([]);
+
+    const otherTab = new FakeBroadcastChannel("hushh-pkm-domain-change-v1");
+    otherTab.postMessage({
+      userId: "owner-a",
+      domain: "location",
+      dataVersion: 11,
+      updatedAt: null,
+      operation: "cleared",
+    });
+    expect(received).toEqual([
+      expect.objectContaining({ operation: "cleared", dataVersion: 11 }),
+    ]);
     unsubscribe();
     otherTab.close();
   });

@@ -289,6 +289,7 @@ def test_location_store_emits_silent_metadata_only_sync_after_commit(monkeypatch
     assert push["data"]["data_version"] == "8"
     assert set(push["data"]) == {
         "domain",
+        "operation",
         "data_version",
         "updated_at",
         "sync_only",
@@ -298,6 +299,7 @@ def test_location_store_emits_silent_metadata_only_sync_after_commit(monkeypatch
     assert streams[0][0] == "user_123"
     assert streams[0][1]["type"] == "location_pkm_changed"
     assert streams[0][1]["message_id"] == push["data"]["message_id"]
+    assert streams[0][1]["operation"] == "stored"
 
 
 def test_failed_location_store_does_not_emit_sync_doorbell(monkeypatch):
@@ -465,8 +467,10 @@ def test_location_domain_delete_emits_silent_metadata_only_sync(monkeypatch, rou
     assert push["notification_type"] == "location_pkm_changed"
     assert push["show_alert"] is False
     assert push["data"]["domain"] == "location"
+    assert push["data"]["operation"] == "cleared"
     assert set(push["data"]) == {
         "domain",
+        "operation",
         "data_version",
         "updated_at",
         "sync_only",

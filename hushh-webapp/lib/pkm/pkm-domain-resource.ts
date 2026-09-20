@@ -466,6 +466,19 @@ export class PkmDomainResourceService {
             ttlMs: DEVICE_TTL_MS,
             vaultKey: params.vaultKey!,
           });
+          if (domainRevision(params.userId, params.domain) !== startRevision) {
+            // A mutation landed while the stale snapshot was being persisted.
+            // Remove that just-written device fallback before joining a fresh
+            // authoritative read; otherwise deletion can resurrect it later.
+            await SecureResourceCacheService.invalidateResourcePrefix(
+              params.userId,
+              `pkm_domain:${params.domain}:`,
+            ).catch(() => undefined);
+            if (inflightRefreshes.get(inflightKey) === request) {
+              inflightRefreshes.delete(inflightKey);
+            }
+            return await this.refresh(params);
+          }
         }
         return snapshot;
       })

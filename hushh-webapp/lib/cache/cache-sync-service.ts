@@ -8,7 +8,10 @@ import { DeviceResourceCacheService } from "@/lib/services/device-resource-cache
 import { RiaOnboardingStatusLocalService } from "@/lib/services/ria-onboarding-status-local-service";
 import { bumpRiaInvalidationEpoch } from "@/lib/cache/ria-invalidation-epoch";
 import { bumpPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
-import { dispatchPkmDomainChanged } from "@/lib/pkm/pkm-domain-change-events";
+import {
+  dispatchPkmDomainChanged,
+  type PkmDomainChangeDetail,
+} from "@/lib/pkm/pkm-domain-change-events";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import {
   clearAllLocationWorkspaceMemory,
@@ -346,10 +349,11 @@ export class CacheSyncService {
       metadataTimestamp?: string;
       writeThroughMetadata?: boolean;
       eventDataVersion?: number;
+      emitEvent?: boolean;
     },
   ): void {
     const emitDomainStoredEvent = () => {
-      if (typeof window === "undefined") return;
+      if (typeof window === "undefined" || options?.emitEvent === false) return;
       const detail = {
         userId,
         domain,
@@ -445,7 +449,11 @@ export class CacheSyncService {
     emitDomainStoredEvent();
   }
 
-  static onPkmDomainCleared(userId: string, domain: string): void {
+  static onPkmDomainCleared(
+    userId: string,
+    domain: string,
+    options?: { emitEvent?: boolean },
+  ): void {
     const cache = CacheService.getInstance();
     cache.invalidate(CACHE_KEYS.DOMAIN_MANIFEST(userId, domain));
     cache.invalidate(CACHE_KEYS.DOMAIN_DATA(userId, domain));
@@ -465,16 +473,40 @@ export class CacheSyncService {
       this.invalidateKaiFinancialResource(userId);
     }
     bumpPkmInvalidationEpoch(userId);
-    dispatchPkmDomainChanged({
-      userId,
-      domain,
-      dataVersion: null,
-      updatedAt: null,
-      operation: "cleared",
+    if (options?.emitEvent !== false) {
+      dispatchPkmDomainChanged({
+        userId,
+        domain,
+        dataVersion: null,
+        updatedAt: null,
+        operation: "cleared",
+      });
+    }
+  }
+
+  /** Apply a peer-tab doorbell without rebroadcasting it back to the channel. */
+  static onRemotePkmDomainChanged(detail: PkmDomainChangeDetail): void {
+    if (detail.operation === "cleared") {
+      this.onPkmDomainCleared(detail.userId, detail.domain, { emitEvent: false });
+      return;
+    }
+    if (detail.operation === "restored") {
+      this.onPkmDomainRestored(detail.userId, detail.domain, { emitEvent: false });
+      return;
+    }
+    this.onPkmDomainStored(detail.userId, detail.domain, {
+      eventDataVersion: detail.dataVersion ?? undefined,
+      metadataTimestamp: detail.updatedAt ?? undefined,
+      writeThroughMetadata: false,
+      emitEvent: false,
     });
   }
 
-  static onPkmDomainRestored(userId: string, domain: string): void {
+  static onPkmDomainRestored(
+    userId: string,
+    domain: string,
+    options?: { emitEvent?: boolean },
+  ): void {
     const cache = CacheService.getInstance();
     cache.invalidateMany([
       CACHE_KEYS.DOMAIN_MANIFEST(userId, domain),
@@ -501,13 +533,15 @@ export class CacheSyncService {
       this.onKaiMarketContextChanged(userId);
     }
     bumpPkmInvalidationEpoch(userId);
-    dispatchPkmDomainChanged({
-      userId,
-      domain,
-      dataVersion: null,
-      updatedAt: null,
-      operation: "restored",
-    });
+    if (options?.emitEvent !== false) {
+      dispatchPkmDomainChanged({
+        userId,
+        domain,
+        dataVersion: null,
+        updatedAt: null,
+        operation: "restored",
+      });
+    }
   }
 
   static onPortfolioUpserted(

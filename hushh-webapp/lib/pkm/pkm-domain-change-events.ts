@@ -1,4 +1,8 @@
 const PKM_DOMAIN_CHANGE_CHANNEL = "hushh-pkm-domain-change-v1";
+const PKM_DOMAIN_CHANGE_SOURCE_ID =
+  typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `tab-${Date.now()}-${Math.random()}`;
 
 export type PkmDomainChangeDetail = {
   userId: string;
@@ -38,6 +42,13 @@ function normalizeDetail(value: unknown): PkmDomainChangeDetail | null {
   };
 }
 
+function normalizeWireDetail(value: unknown): PkmDomainChangeDetail | null {
+  if (value && typeof value === "object" && "detail" in value) {
+    return normalizeDetail((value as { detail?: unknown }).detail);
+  }
+  return normalizeDetail(value);
+}
+
 /** Publish only encrypted-domain freshness metadata, never decrypted PKM. */
 export function dispatchPkmDomainChanged(
   detail: PkmDomainChangeDetail,
@@ -52,7 +63,10 @@ export function dispatchPkmDomainChanged(
   );
   if (typeof BroadcastChannel === "undefined") return;
   const channel = new BroadcastChannel(PKM_DOMAIN_CHANGE_CHANNEL);
-  channel.postMessage(normalized);
+  channel.postMessage({
+    sourceId: PKM_DOMAIN_CHANGE_SOURCE_ID,
+    detail: normalized,
+  });
   channel.close();
 }
 
@@ -62,7 +76,7 @@ export function subscribeToPkmDomainChanges(
   if (typeof window === "undefined") return () => undefined;
   let lastDeliveredKey = "";
   const deliver = (value: unknown) => {
-    const detail = normalizeDetail(value);
+    const detail = normalizeWireDetail(value);
     if (!detail) return;
     const key = `${detail.userId}:${detail.domain}:${detail.dataVersion ?? ""}:${detail.updatedAt ?? ""}:${detail.operation}`;
     if (key === lastDeliveredKey) return;
@@ -85,5 +99,36 @@ export function subscribeToPkmDomainChanges(
     window.removeEventListener("pkm-domain-changed", onWindowEvent);
     channel?.removeEventListener("message", onChannelMessage);
     channel?.close();
+  };
+}
+
+/** Subscribe only to validated events emitted by a different browser tab. */
+export function subscribeToRemotePkmDomainChanges(
+  listener: (detail: PkmDomainChangeDetail) => void,
+): () => void {
+  if (
+    typeof window === "undefined" ||
+    typeof BroadcastChannel === "undefined"
+  ) {
+    return () => undefined;
+  }
+  const channel = new BroadcastChannel(PKM_DOMAIN_CHANGE_CHANNEL);
+  const onChannelMessage = (event: MessageEvent<unknown>) => {
+    if (
+      event.data &&
+      typeof event.data === "object" &&
+      "sourceId" in event.data &&
+      (event.data as { sourceId?: unknown }).sourceId ===
+        PKM_DOMAIN_CHANGE_SOURCE_ID
+    ) {
+      return;
+    }
+    const detail = normalizeWireDetail(event.data);
+    if (detail) listener(detail);
+  };
+  channel.addEventListener("message", onChannelMessage);
+  return () => {
+    channel.removeEventListener("message", onChannelMessage);
+    channel.close();
   };
 }
