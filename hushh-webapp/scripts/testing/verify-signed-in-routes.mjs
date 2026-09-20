@@ -322,6 +322,10 @@ const ROUTE_OVERRIDES = {
     allowedPathnames: ["/one/location"],
     allowedRouteIds: ["/one/location"],
   },
+  "/one/setup/finance": {
+    allowedPathnames: ["/one/setup/finance", "/one/setup/kai", "/one"],
+    allowedRouteIds: KAI_ONBOARDING_COMPATIBILITY_ROUTE_IDS,
+  },
   // Public workspace entries remain reachable anonymously, but an
   // authenticated reviewer is admitted to canonical Chat at `/`.
   "/welcome": {
