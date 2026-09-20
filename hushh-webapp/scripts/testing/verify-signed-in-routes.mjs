@@ -647,8 +647,21 @@ async function installNativeTestBridge(page) {
     process.env.REVIEWER_ALLOW_SHARED_MUTATIONS === "true"
       ? "mutation_authorized"
       : "preparation_only";
+  // The route verifier supplies the canonical reviewer UID and passphrase,
+  // not a public email/password pair. Select the backend-minted review token
+  // path explicitly so local credential fallbacks cannot choose a stale or
+  // unrelated Firebase identity.
+  const reviewerAuthMode =
+    process.env.REVIEWER_AUTH_MODE === "local_credentials"
+      ? "local_credentials"
+      : "custom_token";
   await page.addInitScript(
-    ({ expectedUserId, vaultPassphrase, reviewerMutationPolicy }) => {
+    ({
+      expectedUserId,
+      vaultPassphrase,
+      reviewerMutationPolicy,
+      reviewerAuthMode,
+    }) => {
       window.__HUSHH_NATIVE_TEST__ = {
         ...(window.__HUSHH_NATIVE_TEST__ || {}),
         enabled: true,
@@ -656,12 +669,14 @@ async function installNativeTestBridge(page) {
         expectedUserId,
         vaultPassphrase,
         reviewerMutationPolicy,
+        reviewerAuthMode,
       };
     },
     {
       expectedUserId: smokeUserId,
       vaultPassphrase: reviewerPassphrase,
       reviewerMutationPolicy,
+      reviewerAuthMode,
     },
   );
 }
