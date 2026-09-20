@@ -1,5 +1,84 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  user: { uid: "stream-panel-reviewer", getIdToken: vi.fn(async () => "test-token") },
+  getViewer: vi.fn(),
+}));
+
+vi.mock("@/hooks/use-auth", () => ({
+  useAuth: () => ({ user: mocks.user, loading: false }),
+}));
+
+vi.mock("@/lib/vault/vault-context", () => ({
+  useVault: () => ({
+    isVaultUnlocked: true,
+    vaultKey: "test-vault-key",
+    vaultOwnerToken: "test-owner-token",
+  }),
+}));
+
+vi.mock("@/lib/services/person-profile-service", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/services/person-profile-service")>();
+  return {
+    ...actual,
+    PersonProfileService: {
+      ...actual.PersonProfileService,
+      getViewer: mocks.getViewer,
+    },
+  };
+});
+
+vi.mock("@/lib/services/one-kyc-client-zk-service", () => ({
+  OneKycClientZkService: {
+    ensureConnector: vi.fn(async () => ({ connector_key_id: "test-connector" })),
+  },
+}));
+
+beforeEach(() => {
+  mocks.getViewer.mockResolvedValue({
+    personRef: "1234567890abcdef",
+    displayName: "Alex Morgan",
+    photoUrl: null,
+    verifiedRole: null,
+    relationship: {
+      status: "connected",
+      connectionId: "test-connection",
+      connectedAt: null,
+      requestId: null,
+    },
+    grants: [],
+    requestHistory: [],
+    requestableScopes: [
+      {
+        scopeRef: "scope_ref_private_123",
+        label: "Employment status",
+        description: "Current employment eligibility status.",
+        domain: "Identity",
+        sensitivity: "sensitive",
+        wildcard: false,
+      },
+      {
+        scopeRef: "scope_ref_private_456",
+        label: "Tax residency",
+        description: null,
+        domain: "Financial",
+        sensitivity: "restricted",
+        wildcard: false,
+      },
+    ],
+    scopeCatalog: {
+      page: 1,
+      nextPage: null,
+      limit: 100,
+      totalCount: 2,
+      hasMore: false,
+      catalogRevision: "test-revision",
+      paginationReset: false,
+      domains: [],
+    },
+  });
+});
 
 import {
   AgentTurnStreamPanel,
@@ -135,7 +214,7 @@ describe("AgentTurnStreamPanel", () => {
     expect(screen.queryByText("Duplicate source.")).not.toBeInTheDocument();
   });
 
-  it("renders validated AG-UI scope discovery as a Morphy information surface", () => {
+  it("renders validated AG-UI scope discovery as a Morphy information surface", async () => {
     render(
       <AgentTurnStreamPanel
         streamEvents={[]}
@@ -172,13 +251,13 @@ describe("AgentTurnStreamPanel", () => {
     expect(
       screen.getByRole("region", { name: "Information available from Alex Morgan" }),
     ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Open Identity" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open Identity" }));
     expect(screen.getByText("Employment status")).toBeInTheDocument();
     fireEvent.click(screen.getByTestId("scope-discovery-scopes-back"));
     fireEvent.click(screen.getByRole("button", { name: "Open Financial" }));
     expect(screen.getByText("Tax residency")).toBeInTheDocument();
-    expect(screen.getByText("Highly sensitive")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Choose what to ask for/i })).toHaveAttribute(
+    expect(screen.getByRole("checkbox", { name: "Tax residency" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "View profile" })).toHaveAttribute(
       "href",
       "/people/1234567890abcdef",
     );
