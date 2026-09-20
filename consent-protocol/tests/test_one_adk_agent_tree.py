@@ -63,6 +63,7 @@ from hushh_mcp.one_adk.agent_tree import (
     STATE_USER_ID,
     STATE_VOICE_CONTEXT,
     _intro_navigable,
+    _one_chat_thinking_config,
     _one_runtime_instruction,
     _specialist_turn,
     ask_consent_agent,
@@ -89,6 +90,26 @@ from hushh_mcp.services.one_location_circle_service import OneLocationCircleServ
 
 
 class TestAgentTreeShape:
+    def test_chat_thinking_policy_preserves_provider_baseline_by_default(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("HUSHH_ONE_CHAT_THINKING_LEVEL", raising=False)
+
+        config = _one_chat_thinking_config()
+
+        assert config.include_thoughts is True
+        assert getattr(config, "thinking_level", None) is None
+
+    def test_chat_thinking_policy_can_request_low_without_affecting_other_heads(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HUSHH_ONE_CHAT_THINKING_LEVEL", "low")
+
+        config = _one_chat_thinking_config()
+
+        assert config.include_thoughts is True
+        assert getattr(getattr(config, "thinking_level", None), "value", None) == "LOW"
+
     def test_root_agent_is_one_with_full_roster(self):
         agent = build_one_root_agent()
         assert agent.name == "one"

@@ -94,7 +94,10 @@ from hushh_mcp.one_adk.specialist_availability import (
     resolve_specialist_availability,
     specialist_label,
 )
-from hushh_mcp.runtime_providers import build_managed_gemini_adk_model
+from hushh_mcp.runtime_providers import (
+    build_managed_gemini_adk_model,
+    thinking_config_for,
+)
 from hushh_mcp.runtime_providers.live_compatibility import GEMINI_LIVE_COMPATIBILITY
 from hushh_mcp.runtime_providers.puppy_transport import PuppyCapabilityUnsupported
 from hushh_mcp.runtime_settings import one_db_sessions_enabled, pod_mode
@@ -221,6 +224,27 @@ ONE_LIVE_VOICE_OPTIONS: dict[str, str] = {
 _BYOK_LIVE_MODEL = (os.getenv("HUSHH_GEMINI_BYOK_LIVE_MODEL") or "").strip()
 
 _SPECIALIST_MODEL = _KAI_MANIFEST.model_config_for_runtime().name.strip()
+_ONE_CHAT_THINKING_LEVEL_ENV = "HUSHH_ONE_CHAT_THINKING_LEVEL"
+
+
+def _one_chat_thinking_config() -> genai_types.ThinkingConfig:
+    """Build One Chat's measurable thinking policy without changing the baseline.
+
+    An unset value deliberately preserves the provider default while retaining
+    visible thought summaries. ``low`` is an explicit experiment/rollout
+    switch so latency can be compared against the baseline without silently
+    changing specialist or native-voice policies.
+    """
+    configured = os.getenv(_ONE_CHAT_THINKING_LEVEL_ENV, "").strip()
+    if not configured or configured.lower() in {"default", "provider"}:
+        return genai_types.ThinkingConfig(include_thoughts=True)
+    resolved = thinking_config_for(_SPECIALIST_MODEL, configured, genai_types)
+    if resolved is None:
+        return genai_types.ThinkingConfig(include_thoughts=True)
+    return genai_types.ThinkingConfig(
+        include_thoughts=True,
+        thinking_level=resolved.thinking_level,
+    )
 
 
 def _onboarding_goals_enabled(user_id: str) -> bool:
@@ -1960,10 +1984,10 @@ def build_one_text_agent(*, model: Any | None = None) -> LlmAgent:
         instruction=_one_runtime_instruction,
         tools=_one_roster_tools(specialist_model=text_model),
         # Surface Gemini reasoning summaries so Agent Chat can stream a visible
-        # "Thinking" trace. include_thoughts only surfaces the summaries; it
-        # sends no token-budget control (3.7-flash owns its own thinking policy).
+        # "Thinking" trace. The provider default remains the baseline; an
+        # explicit Chat-only switch can request LOW for measured comparison.
         generate_content_config=genai_types.GenerateContentConfig(
-            thinking_config=genai_types.ThinkingConfig(include_thoughts=True),
+            thinking_config=_one_chat_thinking_config(),
         ),
     )
 
