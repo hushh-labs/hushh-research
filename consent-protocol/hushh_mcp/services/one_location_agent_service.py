@@ -5668,7 +5668,9 @@ class OneLocationAgentService:
                       AND recipient_user_id = :recipient_user_id
                       AND status = 'active'
                       AND (expires_at IS NULL OR expires_at > NOW())
-                    """
+                    """  # nosec B608 - the appended lane predicate is a
+                    # module-level constant of static SQL and every value,
+                    # including the lane flag, remains a bound parameter.
                     + _share_lane_match_sql()
                     + """
                     LIMIT 1
