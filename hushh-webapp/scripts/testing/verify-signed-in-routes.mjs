@@ -268,8 +268,8 @@ const ROUTE_OVERRIDES = {
   // the query string when the stack is already mounted; direct entry may
   // still expose the compatibility pathname while it settles.
   "/one/profile/support/compose": {
-    allowedPathnames: ["/one/profile/support", "/one/profile/support/compose"],
-    allowedRouteIds: ["/one/profile/support", "/one/profile/support/compose"],
+    allowedPathnames: ["/one"],
+    allowedRouteIds: ["/one"],
   },
   "/kai/onboarding": {
     allowedPathnames: KAI_ONBOARDING_COMPATIBILITY_PATHNAMES,
@@ -771,11 +771,19 @@ function routeSpec(route) {
 
   const fixture = DYNAMIC_ROUTE_FIXTURES[route.route];
   const override = ROUTE_OVERRIDES[route.route];
+  const paneBackedProfileCompatibility =
+    route.route.startsWith("/one/profile/") &&
+    !route.route.includes("/oauth/return") &&
+    !PROFILE_DIRECT_ENTRY_ROUTES.has(route.route);
   const allowedPathnames = override?.allowedPathnames || [
-    fixture?.expectedPathname || route.route,
+    ...(paneBackedProfileCompatibility
+      ? ["/one"]
+      : [fixture?.expectedPathname || route.route]),
   ];
   const allowedRouteIds = override?.allowedRouteIds ||
-    fixture?.allowedRouteIds || [route.route];
+    (paneBackedProfileCompatibility
+      ? ["/one"]
+      : fixture?.allowedRouteIds || [route.route]);
   return {
     kind: route.mode,
     route: route.route,
