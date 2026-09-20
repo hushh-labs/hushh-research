@@ -16,6 +16,7 @@ import {
   ONE_LOCATION_GRANT_OPENED_EVENT,
   ONE_LOCATION_GRANT_UNWATCHED_EVENT,
 } from "@/lib/one-location/notifications";
+import { subscribeToOneLocationStateChanges } from "@/lib/one-location/one-location-state-events";
 
 type LocationNotificationState = {
   /** Active grants shared with me (plain shares AND quick actions: SOS,
@@ -108,15 +109,32 @@ export function useUnseenLocationShareCount(): number {
 
   useEffect(() => {
     const bump = () => setTick((value) => value + 1);
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") bump();
+    };
+    const unsubscribeLocationState = subscribeToOneLocationStateChanges(
+      (detail) => {
+        if (detail.userId === uid && detail.domains.includes("workspace")) {
+          bump();
+        }
+      },
+    );
     window.addEventListener(ONE_LOCATION_GRANT_OPENED_EVENT, bump);
     window.addEventListener(ONE_LOCATION_GRANT_UNWATCHED_EVENT, bump);
     window.addEventListener(CONSENT_STATE_CHANGED_EVENT, bump);
+    window.addEventListener("focus", bump);
+    window.addEventListener("online", bump);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
     return () => {
+      unsubscribeLocationState();
       window.removeEventListener(ONE_LOCATION_GRANT_OPENED_EVENT, bump);
       window.removeEventListener(ONE_LOCATION_GRANT_UNWATCHED_EVENT, bump);
       window.removeEventListener(CONSENT_STATE_CHANGED_EVENT, bump);
+      window.removeEventListener("focus", bump);
+      window.removeEventListener("online", bump);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
     };
-  }, []);
+  }, [uid]);
 
   const activeGrantIds = useMemo(
     () => resource.data?.receivedGrantIds ?? [],

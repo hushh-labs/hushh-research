@@ -829,15 +829,18 @@ export function ConsentNotificationProvider({
       const msgType = data.type;
       if (!isOneLocationWorkflowNotificationType(msgType)) return;
 
-      if (msgType.startsWith("location_circle_")) {
-        // The provider is mounted above both Connect and One Location, so it
-        // is the one inbound owner that exists regardless of which route is
-        // open. Publishing here prevents route-specific listeners from
-        // disagreeing and gives the existing BroadcastChannel the same event
-        // on web, iOS and Android.
+      const isCircleWorkflow = msgType.startsWith("location_circle_");
+      if (options.source === "live") {
+        // A live workflow notification is also a state transition. Publish it
+        // through the shared Location channel before presentation so the
+        // current tab, sibling tabs and native shells all repair from the same
+        // authoritative state. Reconciliation payloads are intentionally
+        // excluded because their state is already in the shared resource.
         CacheSyncService.onOneLocationStateMutated(
           user.uid,
-          ["workspace", "circles", "sms_roster"],
+          isCircleWorkflow
+            ? ["workspace", "circles", "sms_roster"]
+            : ["workspace"],
           {
             notificationType: msgType,
             circleId: String(data.circle_id || "").trim() || undefined,
@@ -847,6 +850,15 @@ export function ConsentNotificationProvider({
             eventId: String(data.message_id || "").trim() || undefined,
           },
         );
+      }
+
+      if (isCircleWorkflow) {
+        // The provider is mounted above both Connect and One Location, so it
+        // is the one inbound owner that exists regardless of which route is
+        // open. Publishing here prevents route-specific listeners from
+        // disagreeing and gives the existing BroadcastChannel the same event
+        // on web, iOS and Android.
+        // The shared state event above owns same-tab and cross-tab repair.
         // Owner-originated rename/delete events are still delivered to keep
         // the owner's other sessions current, but they must not create a
         // self-notification or duplicate Feed item.

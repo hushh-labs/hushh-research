@@ -5045,6 +5045,72 @@ def test_location_request_creation_does_not_require_requester_key_material() -> 
     assert missing_key.value.code == "LOCATION_RECIPIENT_UNAVAILABLE"
 
 
+def test_direct_location_request_rechecks_peer_eligibility_before_writing() -> None:
+    service = FourUserMemoryService()
+
+    with pytest.raises(OneLocationAgentError) as disconnected:
+        service.request_access(
+            requester_user_id="user_b",
+            owner_user_id="user_a",
+            message="Can I see your location?",
+            enforce_peer_eligibility=True,
+        )
+
+    assert disconnected.value.code == "LOCATION_RECIPIENT_NOT_CONNECTED"
+    assert not service.requests
+    assert not service.events
+    assert not service.notifications
+
+    service._seed_connection("user_a", "user_b")
+    direct = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        enforce_peer_eligibility=True,
+    )
+    assert direct["status"] == "pending"
+
+
+def test_direct_location_request_allows_current_circle_only_peer() -> None:
+    service = FourUserMemoryService()
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+    service._seed_named_circle(circle_id, "user_a", "user_c")
+
+    request = service.request_access(
+        requester_user_id="user_c",
+        owner_user_id="user_a",
+        enforce_peer_eligibility=True,
+    )
+
+    assert request["status"] == "pending"
+    assert request["requesterUserId"] == "user_c"
+
+
+def test_direct_location_extension_allows_current_grant_without_connection() -> None:
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user-b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "b", "y": "b"},
+    )
+    grant = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user-b",
+        duration_hours=1,
+    )
+
+    request = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        requested_duration_hours=2,
+        extends_grant_id=grant["id"],
+        enforce_peer_eligibility=True,
+    )
+
+    assert request["isExtension"] is True
+    assert request["extendsGrantId"] == grant["id"]
+
+
 def test_one_location_activity_summary_uses_existing_metadata_events() -> None:
     service = FourUserMemoryService()
 

@@ -1,6 +1,7 @@
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import {
   prepareLocationAudience,
+  resolveAuthoritativePreparedAudience,
   resolvePreparedAudience,
 } from "@/lib/one-location/command-audience";
 import {
@@ -211,6 +212,66 @@ it("re-reads exact recipients and keys at dispatch rather than using a partial p
   expect(() => resolvePreparedAudience(binding, pool, "other")).toThrow(
     "unavailable",
   );
+});
+
+it("revalidates the reviewed Circle membership immediately before dispatch", async () => {
+  const binding = {
+    owner: "owner",
+    recipientIds: ["a", "c"],
+    people: [people[0], people[2]],
+    sourceCircleByRecipient: { a: "goa", c: "goa" },
+  };
+  const pool = people.map((person) => ({
+    userId: person.id,
+    keyId: person.keyId,
+  }));
+  const readCircleMembers = vi.fn(async () => [
+    { userId: "owner" },
+    { userId: "a" },
+    { userId: "c" },
+  ]);
+
+  await expect(
+    resolveAuthoritativePreparedAudience({
+      binding,
+      pool,
+      owner: "owner",
+      readCircleMembers,
+    }),
+  ).resolves.toEqual([pool[0], pool[2]]);
+  expect(readCircleMembers).toHaveBeenCalledOnce();
+
+  readCircleMembers.mockResolvedValueOnce([
+    { userId: "owner" },
+    { userId: "a" },
+  ]);
+  await expect(
+    resolveAuthoritativePreparedAudience({
+      binding,
+      pool,
+      owner: "owner",
+      readCircleMembers,
+    }),
+  ).rejects.toThrow("Circle membership changed");
+});
+
+it("does not fetch a Circle roster for an explicitly direct audience", async () => {
+  const readCircleMembers = vi.fn();
+  const pool = [{ userId: "a", keyId: "ka" }];
+  await expect(
+    resolveAuthoritativePreparedAudience({
+      binding: {
+        owner: "owner",
+        recipientIds: ["a"],
+        people: [people[0]],
+        sourceCircleByRecipient: { a: null },
+      },
+      pool,
+      owner: "owner",
+      readCircleMembers,
+    }),
+  ).resolves.toEqual(pool);
+  expect(readCircleMembers).not.toHaveBeenCalled();
 });
 
 it("retains a person chosen from the card while asking for duration", async () => {

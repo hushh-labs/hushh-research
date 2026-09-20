@@ -267,6 +267,28 @@ describe("global One Location Feed-first notification policy", () => {
     expect(mocks.dispatchFeedStateChanged).toHaveBeenCalledTimes(2);
   });
 
+  it("publishes ordinary live Location metadata to the shared workspace channel", async () => {
+    await renderReady();
+
+    dispatchLocation({
+      type: "location_access_request_withdrawn",
+      message_id: "request-withdrawn:event-1",
+      request_id: "request-withdrawn-1",
+      owner_display_label: "Alex",
+    });
+
+    expect(mocks.onOneLocationStateMutated).toHaveBeenCalledOnce();
+    expect(mocks.onOneLocationStateMutated).toHaveBeenCalledWith(
+      "recipient-user",
+      ["workspace"],
+      {
+        notificationType: "location_access_request_withdrawn",
+        circleId: undefined,
+        eventId: "request-withdrawn:event-1",
+      },
+    );
+  });
+
   it("queues native location delivery during auth hydration and drains it for the addressed account", async () => {
     mocks.auth.user = null;
     mocks.platform.native = true;
