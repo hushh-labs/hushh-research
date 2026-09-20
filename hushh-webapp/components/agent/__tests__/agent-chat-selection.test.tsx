@@ -1,7 +1,11 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { SelectionChip } from "@/components/agent/selection-chip";
-import { storedMessageToAgentMessage, storedMessagesToAgentMessages } from "@/components/agent/agent-chat-workspace";
+import {
+  mergePendingConsentMessages,
+  storedMessageToAgentMessage,
+  storedMessagesToAgentMessages,
+} from "@/components/agent/agent-chat-workspace";
 import type { AgentChatMessage } from "@/lib/services/agent-chat-client";
 
 // History mapping is the load-bearing behavior: on reload a persisted selection
@@ -174,6 +178,70 @@ describe("ordered retained cards", () => {
     malformed.metadata!.structuredExperiences![0].activityType = "unsupported";
     const result = storedMessagesToAgentMessages([malformed, message("m2", ["c1"])]);
     expect(result.at(-1)?.structuredExperiences?.[0].id).toBe("c1");
+  });
+});
+
+describe("pending consent cards during history restore", () => {
+  type WorkspaceMessage = Parameters<typeof mergePendingConsentMessages>[0][number];
+
+  const pendingMessage = (
+    id: string,
+    requestId: string,
+    status: "pending" | "approved" = "pending",
+    bundledRequestIds: string[] = [],
+  ): WorkspaceMessage => ({
+    id,
+    role: "assistant",
+    text: "Review this request.",
+    timestamp: "Just now",
+    status: "done",
+    specialistDirective: {
+      delegateAgentId: "agent_nav",
+      directive: {
+        kind: "prompt",
+        payload: {
+          kind: "pending_consent_request",
+          item: {
+            id: requestId,
+            requesterLabel: "Alex Morgan",
+            scope: "professional.employment_status",
+            status,
+            bundledRequestIds,
+          },
+        },
+      },
+      message: "Review the request.",
+      stateChanged: true,
+    },
+  });
+
+  it("keeps a live hydrated card when a later history snapshot omits it", () => {
+    const live = pendingMessage("live-card", "request-1");
+    const merged = mergePendingConsentMessages(
+      [{ id: "history-answer", role: "assistant", text: "Earlier answer.", timestamp: "Earlier", status: "done" }],
+      [live],
+    );
+    expect(merged.map((message) => message.id)).toEqual(["history-answer", "live-card"]);
+  });
+
+  it("keeps a newer local approval over a stale restored pending card", () => {
+    const merged = mergePendingConsentMessages(
+      [pendingMessage("history-card", "request-1")],
+      [pendingMessage("live-card", "request-1", "approved")],
+    );
+    expect(merged).toHaveLength(1);
+    expect(
+      merged[0]?.specialistDirective?.directive.payload.item,
+    ).toMatchObject({ id: "request-1", status: "approved" });
+  });
+
+  it("matches folded cards by every request id, not only the head id", () => {
+    const merged = mergePendingConsentMessages(
+      [pendingMessage("history-card", "request-1", "pending", ["request-2"])],
+      [pendingMessage("live-card", "request-2", "approved")],
+    );
+    expect(merged).toHaveLength(1);
+    expect(merged[0]?.id).toBe("live-card");
   });
 });
 

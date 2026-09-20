@@ -48,6 +48,7 @@ import { SegmentedControl } from "@/lib/morphy-ux/ui/segmented-control";
 import {
   mergeScopeItems,
   scopeItemFromPendingConsent,
+  type ConsentScopeItem,
 } from "@/lib/consent/consent-scope-items";
 import {
   Select,
@@ -569,6 +570,48 @@ function getConsentActionsPayload(
   return { kind: "consent_actions", items };
 }
 
+function pendingConsentScopeItemFromUnknown(
+  value: unknown,
+): ConsentScopeItem | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const raw = value as Record<string, unknown>;
+  const id = typeof raw.id === "string" ? raw.id.trim() : "";
+  const label = typeof raw.label === "string" ? raw.label.trim() : "";
+  const domainKey =
+    typeof raw.domainKey === "string" ? raw.domainKey.trim() : "";
+  const domainLabel =
+    typeof raw.domainLabel === "string" ? raw.domainLabel.trim() : "";
+  if (!id || !label || !domainKey || !domainLabel) return null;
+  const pathSegments = Array.isArray(raw.pathSegments)
+    ? raw.pathSegments.filter(
+        (segment): segment is string =>
+          typeof segment === "string" && Boolean(segment.trim()),
+      )
+    : [];
+  const description =
+    typeof raw.description === "string" ? raw.description : null;
+  const badge = typeof raw.badge === "string" ? raw.badge : null;
+  return {
+    id,
+    label,
+    description,
+    domainKey,
+    pathSegments,
+    domainLabel,
+    badge,
+    disabled: raw.disabled === true,
+    searchText:
+      typeof raw.searchText === "string"
+        ? raw.searchText
+        : [label, description, domainKey, domainLabel]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase(),
+  };
+}
+
 /**
  * Re-reads a pending consent card item out of the directive payload it was
  * embedded in. The card item is stored as an untyped payload, so every field
@@ -576,13 +619,9 @@ function getConsentActionsPayload(
  * field dropped at this hop is dropped for good, however faithfully the
  * mappers before it copied it.
  *
- * The bundle fields (bundleId, bundleLabel, bundleScopeCount,
- * bundledRequestIds, bundledScopes) are deliberately NOT re-emitted. The fold
- * below compares `payload.item.bundleId` to decide whether a later request in
- * the same bundle merges into an existing card; leaving it null here keeps
- * that fold inert, so a bundle of N requests renders N cards, each approvable
- * on its own. Re-emitting them would fold the cards while Approve only acted
- * on the head request; folding needs handleApproveBundle wired first.
+ * Bundle metadata is presentation-only and is retained as sanitized
+ * descriptors. Live approval still re-looks up every request id, so restored
+ * card payloads cannot grant access from stale transcript data.
  */
 export function getPendingConsentRequestPayload(
   event: SpecialistDirectiveEvent | null,
@@ -650,6 +689,35 @@ export function getPendingConsentRequestPayload(
         !Array.isArray(rawItem.metadata)
           ? (rawItem.metadata as Record<string, unknown>)
           : null,
+      bundleId:
+        typeof rawItem.bundleId === "string" && rawItem.bundleId.trim()
+          ? rawItem.bundleId.trim()
+          : null,
+      bundleLabel:
+        typeof rawItem.bundleLabel === "string" && rawItem.bundleLabel.trim()
+          ? rawItem.bundleLabel.trim()
+          : null,
+      bundleScopeCount:
+        typeof rawItem.bundleScopeCount === "number" &&
+        Number.isFinite(rawItem.bundleScopeCount)
+          ? rawItem.bundleScopeCount
+          : null,
+      bundledRequestIds: Array.isArray(rawItem.bundledRequestIds)
+        ? Array.from(
+            new Set(
+              rawItem.bundledRequestIds.filter(
+                (requestId): requestId is string =>
+                  typeof requestId === "string" && Boolean(requestId.trim()),
+              ),
+            ),
+          )
+        : [],
+      bundledScopes: Array.isArray(rawItem.bundledScopes)
+        ? rawItem.bundledScopes.flatMap((scope) => {
+            const parsed = pendingConsentScopeItemFromUnknown(scope);
+            return parsed ? [parsed] : [];
+          })
+        : [],
     },
   };
 }
@@ -794,6 +862,47 @@ function agentMessagePendingConsentRequestId(
     message.specialistDirective ?? null,
   );
   return payload?.item.id ?? null;
+}
+
+/**
+ * Keep consent cards that arrived while history was warming.
+ *
+ * Pending requests are owner-scoped live state, while the conversation
+ * snapshot is an eventually-consistent transcript. A snapshot must not erase
+ * a card that was just hydrated, and a newer local status (approve/deny) must
+ * win over an older transcript copy. This merges only safe card descriptors;
+ * it never merges decrypted information or replays an action.
+ */
+export function mergePendingConsentMessages(
+  restored: AgentMessage[],
+  current: readonly AgentMessage[],
+): AgentMessage[] {
+  const merged = [...restored];
+
+  for (const candidate of current) {
+    const payload = getPendingConsentRequestPayload(
+      candidate.specialistDirective ?? null,
+    );
+    if (!payload) continue;
+    const candidateIds = new Set(pendingConsentCardRequestIds(payload.item));
+    const existingIndex = merged.findIndex((message) => {
+      const existing = getPendingConsentRequestPayload(
+        message.specialistDirective ?? null,
+      );
+      if (!existing) return false;
+      return pendingConsentCardRequestIds(existing.item).some((id) =>
+        candidateIds.has(id),
+      );
+    });
+
+    if (existingIndex >= 0) {
+      merged[existingIndex] = candidate;
+    } else {
+      merged.push(candidate);
+    }
+  }
+
+  return merged;
 }
 
 function markPendingConsentRequestDirectiveStatus(
@@ -3266,12 +3375,19 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       setConversations(snapshot.conversations);
       if (!snapshot.latestConversationId) {
         updateConversationId(null);
-        setMessages([createGreetingMessage()]);
+        setMessages((current) =>
+          mergePendingConsentMessages([createGreetingMessage()], current),
+        );
         return;
       }
       const restored = storedMessagesToAgentMessages(snapshot.latestMessages);
       updateConversationId(snapshot.latestConversationId);
-      setMessages(restored.length > 0 ? restored : [createGreetingMessage()]);
+      setMessages((current) =>
+        mergePendingConsentMessages(
+          restored.length > 0 ? restored : [createGreetingMessage()],
+          current,
+        ),
+      );
     };
 
     if (cached) applySnapshot(cached);
