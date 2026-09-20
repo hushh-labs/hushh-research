@@ -2054,13 +2054,13 @@ export default function GmailReceiptsPage({
                 <div className="space-y-1">
                   <p className="font-medium text-foreground">Draft with One</p>
                   <p className="text-sm leading-6 text-muted-foreground">
-                    Ask One to write, reply to or follow up on a mail message. Every
-                    draft stays editable and needs your Send click.
+                    Ask One to write, reply to, or follow up on a message. You&apos;ll
+                    always have the final say — nothing sends until you tap Send.
                   </p>
                 </div>
               </div>
               <AskOneButton onClick={handleOpenOneChat} showIcon={false}>
-                Open One Chat
+                Chat with One
               </AskOneButton>
             </SurfaceInset>
           ) : null}
@@ -2074,8 +2074,8 @@ export default function GmailReceiptsPage({
                 <div className="space-y-1">
                   <p className="font-medium text-foreground">KYC requests</p>
                   <p className="text-sm leading-6 text-muted-foreground">
-                    Import private KYC details, find new unread requests, and
-                    approve every reply.
+                    Add your KYC details, catch new requests, and approve every
+                    reply before it&apos;s sent.
                   </p>
                 </div>
               </div>
@@ -2099,7 +2099,7 @@ export default function GmailReceiptsPage({
                 <div className="space-y-1">
                   <p className="font-medium text-foreground">Receipts</p>
                   <p className="text-sm leading-6 text-muted-foreground">
-                    Sync purchase mail messages and keep shopping insights private.
+                    Sync your purchase emails and keep shopping insights private.
                   </p>
                 </div>
               </div>
@@ -2297,8 +2297,8 @@ export default function GmailReceiptsPage({
             <SurfaceInset className="space-y-1 px-4 py-3 text-sm">
               <p className="font-medium text-foreground">Latest scan</p>
               <p className="text-muted-foreground">
-                Receipt mail messages capture purchase interactions, helping One
-                understand the brands you care about.
+                Your receipt emails show what you&apos;ve bought, helping One
+                learn the brands you care about.
               </p>
               {latestRunMetrics ? (
                 <div className="space-y-2 pt-1">
