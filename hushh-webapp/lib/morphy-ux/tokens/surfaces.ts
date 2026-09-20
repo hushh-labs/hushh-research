@@ -72,8 +72,7 @@ export const EYEBROW = "ui-text-section-label";
  * `scripts/design/verify-apple-hierarchy.mjs` fails this file for shouting, and
  * several of these eyebrows are phrases ("Copy, share or revoke"), not labels.
  */
-export const SCREEN_EYEBROW =
-  "text-[12px] font-semibold leading-4 tracking-[0.04em] text-[color:var(--app-section-label)]";
+export const SCREEN_EYEBROW = "ui-text-eyebrow";
 
 /** Warning / caution banner surface. */
 export const WARNING_SURFACE =

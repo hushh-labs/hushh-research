@@ -915,6 +915,17 @@ describe("named Circle flows", () => {
       );
     });
 
+    fireEvent.click(
+      within(screen.getByRole("dialog", { name: "Invite code" })).getByRole(
+        "button",
+        { name: "Close" },
+      ),
+    );
+    await waitFor(() =>
+      expect(
+        screen.queryByRole("dialog", { name: "Invite code" }),
+      ).toBeNull(),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Add people" }));
     fireEvent.click(
       await screen.findByRole("button", {

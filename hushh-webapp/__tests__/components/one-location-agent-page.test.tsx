@@ -3942,6 +3942,66 @@ describe("OneLocationAgentPage", () => {
     expect(mockStoreEnvelope).not.toHaveBeenCalled();
   });
 
+  it("opens a named People action directly in Ask details with that person selected", async () => {
+    // Reproduce the original regression: the Ask screen restored this stale
+    // draft after the People action selected Investor D, silently replacing
+    // the person the user had just acted on.
+    window.sessionStorage.setItem(
+      "hushh:one-location:ask-draft",
+      JSON.stringify({
+        search: "Trusted",
+        selectedOwnerIds: ["user_b"],
+        durationHours: "2",
+        requestMessage: "Old draft",
+        reason: "Other",
+      }),
+    );
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: "People" }));
+    fireEvent.change(await screen.findByPlaceholderText(/Search people/i), {
+      target: { value: "Investor" },
+    });
+    await openPeoplePersonActions("Investor D");
+
+    const actionsDialog = screen.getByRole("dialog", {
+      name: "Investor D",
+    });
+    expect(document.body).toHaveStyle({ pointerEvents: "none" });
+    expect(actionsDialog).toHaveStyle({ pointerEvents: "auto" });
+    expect(document.querySelector('[data-slot="dialog-overlay"]')).toHaveClass(
+      "backdrop-blur-[12px]",
+    );
+
+    fireEvent.click(
+      within(actionsDialog).getByRole("button", { name: "Ask for location" }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Who, then how long?" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("heading", { name: "Ask for location" }),
+    ).toBeNull();
+    const selectedPeople = screen.getByRole("list", {
+      name: "People you are asking for location",
+    });
+    expect(within(selectedPeople).getByText("Investor D")).toBeTruthy();
+    expect(within(selectedPeople).queryByText("Trusted B")).toBeNull();
+    expect(screen.getByRole("button", { name: "1 hour" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(
+      screen.getByRole("radio", { name: "Safety check-in" }),
+    ).toHaveAttribute("aria-checked", "true");
+    expect(screen.queryByDisplayValue("Old draft")).toBeNull();
+    expect(screen.getByRole("button", { name: "Send request" })).toBeEnabled();
+  });
+
   it("resets every abandoned share field and ignores a late review preflight", async () => {
     const { rerender } = render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
@@ -3968,6 +4028,16 @@ describe("OneLocationAgentPage", () => {
         }),
       ).getByText("Investor D"),
     ).toBeTruthy();
+    // The recipient rail and duration control already publish these values.
+    // Repeating them above the CTA cost a full extra row without adding a
+    // decision, so the action area contains actions only.
+    expect(screen.queryByText("Ready")).toBeNull();
+    expect(screen.queryByText("1 person")).toBeNull();
+    expect(screen.queryByText("Duration: 15 min")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Start sharing" }),
+    ).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeEnabled();
     expect(mockTrackEvent).toHaveBeenCalledWith(
       "one_location_recommendation_selected",
       expect.objectContaining({
@@ -5559,7 +5629,12 @@ describe("OneLocationAgentPage", () => {
     const createLinkButton = await screen.findByRole("button", {
       name: /Create link/i,
     });
-    expect(createLinkButton).toHaveClass("mx-auto", "w-fit", "min-w-[9rem]");
+    expect(createLinkButton).toHaveClass(
+      "self-start",
+      "w-fit",
+      "min-w-[9rem]",
+    );
+    expect(createLinkButton.className).not.toContain("mx-auto");
     expect(createLinkButton.className).not.toContain("w-full");
     expect(screen.getByText("Temporary link")).toBeTruthy();
     expect(
@@ -5568,12 +5643,13 @@ describe("OneLocationAgentPage", () => {
       ),
     ).toBeTruthy();
     expect(screen.getByText("Duration")).toBeTruthy();
-    expect(screen.getByRole("radio", { name: "15 min" })).toBeTruthy();
-    expect(screen.getByRole("radio", { name: "1 hour" })).toBeTruthy();
-    expect(screen.getByRole("radio", { name: "2 hours" })).toBeTruthy();
-    expect(
-      screen.getByRole("radiogroup", { name: "Duration" }).parentElement,
-    ).toHaveClass("mx-auto", "w-full", "max-w-[420px]");
+    const durationSelect = screen.getByRole("combobox", { name: "Duration" });
+    expect(durationSelect).toBeTruthy();
+    expect(durationSelect.parentElement).toHaveClass(
+      "w-full",
+      "max-w-[260px]",
+    );
+    expect(durationSelect.parentElement?.className).not.toContain("mx-auto");
     expect(screen.queryByText("Active links")).toBeNull();
     expect(screen.queryByText("Link stays live for")).toBeNull();
     // The paragraph that used to sit under the heading is gone.

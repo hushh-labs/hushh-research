@@ -117,7 +117,7 @@ export function ContactInvitationSheet({
     outcome && !["cancelled", "failed", "unavailable"].includes(outcome);
   return (
     <Sheet
-      modal={takeover}
+      modal
       open={controller.active}
       onOpenChange={(open) => {
         if (!open) finish();

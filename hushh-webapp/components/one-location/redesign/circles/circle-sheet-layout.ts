@@ -57,7 +57,7 @@
  * what the search field and the list are measured against -- so the title
  * lines up with them instead of sitting 16px inboard of both.
  */
-export const CIRCLE_SHEET_HEADER_CLASSNAME = "p-0 pt-1 text-left";
+export const CIRCLE_SHEET_HEADER_CLASSNAME = "p-0 pt-1 text-left sm:pt-4";
 
 /**
  * A sheet body that is simply as tall as its content (Rename, Invite code).

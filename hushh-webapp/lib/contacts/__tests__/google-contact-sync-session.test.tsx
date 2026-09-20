@@ -363,7 +363,7 @@ describe("web Google sync across auth gate remounts", () => {
     mocks.probe.mockReturnValueOnce(probe.promise);
     app.rerender(<App />);
     expect(
-      screen.getByRole("button", { name: "Find contacts" }),
+      screen.getByRole("button", { name: "Find contacts", hidden: true }),
     ).toBeDisabled();
     fireEvent.click(
       screen.getByRole("button", { name: "Choose Google account" }),

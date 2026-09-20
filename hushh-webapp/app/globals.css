@@ -348,6 +348,13 @@ textarea {
   --type-button-label-size: 17px;
   --type-button-label-line: 22px;
   --type-button-label-weight: 600;
+  --type-compact-button-label-size: 15px;
+  --type-compact-button-label-line: 20px;
+  --type-compact-button-label-weight: 600;
+  --type-eyebrow-size: 12px;
+  --type-eyebrow-line: 16px;
+  --type-eyebrow-weight: 600;
+  --type-eyebrow-tracking: 0.04em;
   --type-tab-label-size: 11px;
   --type-tab-label-line: 13px;
   --type-tab-label-weight: 500;
@@ -1147,7 +1154,7 @@ textarea {
   --app-separator: rgba(84, 84, 88, 0.65);
   --app-opaque-separator: #38383a;
   --app-neutral-fill: rgba(255, 255, 255, 0.06);
-  --app-neutral-fill-strong: rgba(255, 255, 255, 0.10);
+  --app-neutral-fill-strong: rgba(255, 255, 255, 0.1);
   --app-icon-tile-background: #636366;
   --app-icon-tile-foreground: #ffffff;
   --app-destructive: #ff453a;
@@ -1228,7 +1235,7 @@ textarea {
   --ios-account-accent: var(--app-accent, #0a84ff);
   --ios-account-destructive: var(--app-destructive, #ff453a);
   --ios-account-on-accent: #ffffff;
-  --ios-account-nav-material-background: rgba(10, 10, 13, 0.90);
+  --ios-account-nav-material-background: rgba(10, 10, 13, 0.9);
   --ios-account-nav-material-border: rgba(84, 84, 88, 0.65);
 }
 
@@ -2153,10 +2160,7 @@ body:has(.profile-account-content)
 .agent-chat-workspace[data-agent-chat-route="root"] {
   /* The workspace owns its single, symmetrical top header below the fixed ambient mask.
    * Safe top respects device notch/island without adding artificial offset on desktop. */
-  --agent-chat-header-safe-top: var(
-    --app-safe-area-top-effective,
-    0px
-  );
+  --agent-chat-header-safe-top: var(--app-safe-area-top-effective, 0px);
   --agent-chat-composer-bottom: max(
     calc(var(--app-bottom-shell-height, 4.5rem) + 0.5rem),
     calc(var(--agent-chat-keyboard-inset) + 0.5rem)
@@ -4932,7 +4936,9 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   color: var(--foreground);
   border: 0.5px solid rgba(0, 0, 0, 0.08) !important;
   background: rgba(255, 255, 255, 0.96) !important;
-  box-shadow: 0 10px 30px -8px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04) !important;
+  box-shadow:
+    0 10px 30px -8px rgba(0, 0, 0, 0.08),
+    0 1px 3px rgba(0, 0, 0, 0.04) !important;
   -webkit-backdrop-filter: blur(24px) saturate(160%);
   backdrop-filter: blur(24px) saturate(160%);
 }
@@ -4941,7 +4947,9 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 .dark .kai-bottom-nav-pill {
   border-color: rgba(255, 255, 255, 0.12) !important;
   background: rgba(10, 10, 13, 0.94) !important;
-  box-shadow: 0 12px 36px -4px rgba(0, 0, 0, 0.85), 0 2px 6px rgba(0, 0, 0, 0.5) !important;
+  box-shadow:
+    0 12px 36px -4px rgba(0, 0, 0, 0.85),
+    0 2px 6px rgba(0, 0, 0, 0.5) !important;
 }
 
 /* Reduced motion keeps the shell present and keyboard-safe, but removes the
@@ -5171,7 +5179,10 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   .press-scale {
     transition-property: transform;
     transition-duration: var(--motion-press-duration, 80ms);
-    transition-timing-function: var(--motion-ease-emphasized, cubic-bezier(0.2, 0, 0, 1));
+    transition-timing-function: var(
+      --motion-ease-emphasized,
+      cubic-bezier(0.2, 0, 0, 1)
+    );
     -webkit-tap-highlight-color: transparent;
     touch-action: manipulation;
   }
@@ -5188,7 +5199,8 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   }
 
   .morphy-transition {
-    transition: transform 120ms cubic-bezier(0.2, 0, 0, 1),
+    transition:
+      transform 120ms cubic-bezier(0.2, 0, 0, 1),
       opacity 120ms cubic-bezier(0.2, 0, 0, 1);
   }
   .morphy-transition-colors {
@@ -5971,7 +5983,8 @@ html[data-accent="gold"].dark {
  * ========================================================================== */
 :root[data-route-transition="pending"] [data-app-shell-content="true"] {
   opacity: 0;
-  transition: opacity var(--motion-route-exit-duration) var(--motion-route-exit-ease) 0ms;
+  transition: opacity var(--motion-route-exit-duration)
+    var(--motion-route-exit-ease) 0ms;
   will-change: opacity;
 }
 
@@ -6316,6 +6329,37 @@ body[data-persona-surface="ria"] {
   text-transform: none !important;
 }
 
+/* Check-in is a sheet-sized document with an explicit H1 → H2 → H3 ladder.
+   The foundation heading rules also live in `@layer base` and are important,
+   so an unlayered semantic class cannot beat them (important cascade-layer
+   precedence is intentionally reversed). Keep this override narrow to the
+   drawer instead of changing heading scale across unrelated product screens. */
+@layer base {
+  .check-in-drawer-title.check-in-drawer-title {
+    font-family: var(--font-app-display) !important;
+    font-size: var(--type-page-title-size) !important;
+    font-weight: var(--type-page-title-weight) !important;
+    letter-spacing: var(--type-page-title-tracking) !important;
+    line-height: var(--type-page-title-line) !important;
+  }
+
+  .check-in-section-title.check-in-section-title {
+    font-family: var(--font-app-display) !important;
+    font-size: var(--type-major-section-title-size) !important;
+    font-weight: var(--type-major-section-title-weight) !important;
+    letter-spacing: var(--type-major-section-title-tracking) !important;
+    line-height: var(--type-major-section-title-line) !important;
+  }
+
+  .check-in-subsection-title.check-in-subsection-title {
+    font-family: var(--font-app-body) !important;
+    font-size: var(--type-row-label-size) !important;
+    font-weight: var(--type-row-label-emphasis-weight) !important;
+    letter-spacing: var(--type-row-label-tracking) !important;
+    line-height: var(--type-row-label-line) !important;
+  }
+}
+
 :is(.ui-text-section-label, .ui-text-group-label) {
   color: var(--app-section-label) !important;
   font-family: var(--font-app-body) !important;
@@ -6463,7 +6507,37 @@ body[data-persona-surface="ria"] {
   font-weight: var(--type-button-label-weight) !important;
   letter-spacing: normal !important;
   line-height: var(--type-button-label-line) !important;
+  white-space: nowrap !important;
+}
+
+:is(.ui-text-compact-button-label) {
+  font-family: var(--font-app-body) !important;
+  font-size: var(--type-compact-button-label-size) !important;
+  font-weight: var(--type-compact-button-label-weight) !important;
+  letter-spacing: normal !important;
+  line-height: var(--type-compact-button-label-line) !important;
+  white-space: nowrap !important;
+}
+
+/* Connect's directory headings and contact-sync action are peers even though
+   they use different primitives. Keep one control voice on every viewport. */
+.connect-section-control-label {
+  font-family: var(--font-app-body) !important;
+  font-size: var(--type-row-label-compact-size) !important;
+  font-weight: 600 !important;
+  letter-spacing: normal !important;
+  line-height: var(--type-row-label-compact-line) !important;
+}
+
+:is(.ui-text-eyebrow) {
+  color: var(--app-section-label) !important;
+  font-family: var(--font-app-body) !important;
+  font-size: var(--type-eyebrow-size) !important;
+  font-weight: var(--type-eyebrow-weight) !important;
+  letter-spacing: var(--type-eyebrow-tracking) !important;
+  line-height: var(--type-eyebrow-line) !important;
   opacity: 1 !important;
+  text-transform: none !important;
 }
 
 :is(.ui-text-tab-label) {

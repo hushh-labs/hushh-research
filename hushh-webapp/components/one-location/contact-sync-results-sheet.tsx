@@ -108,7 +108,7 @@ export function ContactSyncResultsSheet({
             ? "Contact sync cancelled"
             : "Could not sync Google contacts";
     return (
-      <Sheet modal={takeover} open={open} onOpenChange={onOpenChange}>
+      <Sheet modal open={open} onOpenChange={onOpenChange}>
         <SheetContent
           side="bottom"
           dragDismiss={false}
@@ -184,7 +184,7 @@ export function ContactSyncResultsSheet({
     result.uncheckedContactCount === result.lookupLimitedContactCount;
 
   return (
-    <Sheet modal={takeover} open={open} onOpenChange={onOpenChange}>
+    <Sheet modal open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="bottom"
         dragDismiss={false}

@@ -20,7 +20,9 @@ import {
   UserPlus,
 } from "@/components/icons";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
+import { FlowActionGroup } from "@/components/app-ui/flow-actions";
 import { OnboardingStepper } from "@/components/app-ui/onboarding-stepper";
+import { Button } from "@/components/ui/button";
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import { OnboardingLiveMap } from "@/components/one-location/onboarding/onboarding-live-map";
 import {
@@ -83,10 +85,7 @@ export type OnboardingContactMatch = {
   userId: string;
   displayName: string;
   connectionStatus:
-    | "auto_connected"
-    | "already_connected"
-    | "request_required"
-    | "suppressed";
+    "auto_connected" | "already_connected" | "request_required" | "suppressed";
 };
 
 /**
@@ -240,13 +239,14 @@ function PrimaryButton({
   className?: string;
 }) {
   return (
-    <button
+    <Button
       type="button"
+      size="prominent"
       onClick={onClick}
       disabled={disabled || busy}
       aria-busy={busy || undefined}
       className={cn(
-        "press-scale flex h-14 w-full items-center justify-center rounded-full px-6 text-[17px] font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+        "w-full disabled:cursor-not-allowed disabled:opacity-50",
         inverse
           ? "bg-white text-[color:var(--app-accent-deep)] dark:bg-white dark:text-[#07111f]"
           : "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]",
@@ -257,7 +257,7 @@ function PrimaryButton({
         <Loader2 className="mr-2 h-5 w-5 animate-spin" aria-hidden="true" />
       ) : null}
       {children}
-    </button>
+    </Button>
   );
 }
 
@@ -961,7 +961,6 @@ function FeaturesScreen({
           onClick={onContinue}
           busy={permissionBusy}
           disabled={permissionBusy}
-          className="h-[52px] min-h-[52px]"
         >
           {locationPreparationRetry
             ? "Try again"
@@ -1352,7 +1351,8 @@ function ContactsScreen({
               ) : null}
               {state.summary || state.partial ? (
                 <li className="rounded-2xl bg-amber-500/10 px-4 py-3 text-sm leading-5 text-foreground">
-                  {state.summary || "Only part of your contact list was checked."}
+                  {state.summary ||
+                    "Only part of your contact list was checked."}
                 </li>
               ) : null}
               <li className="flex justify-center pt-2">
@@ -1375,7 +1375,8 @@ function ContactsScreen({
               </p>
               <p className="mt-2 text-[13px] leading-5 text-[#96999e] dark:text-[color:var(--app-secondary-label)]">
                 {state.partial
-                  ? state.summary || "Only part of your contact list was checked. "
+                  ? state.summary ||
+                    "Only part of your contact list was checked. "
                   : "ONE users with an exact verified phone match connect automatically unless they are hidden, opted out, or were previously disconnected. "}
                 Use the circle code above to invite anyone you want here.
               </p>
@@ -1659,13 +1660,14 @@ function ReadyScreen({
                 <p className="max-w-[260px] text-sm leading-5 text-[#6f7580] dark:text-[color:var(--app-secondary-label)]">
                   {error}
                 </p>
-                <button
+                <Button
                   type="button"
+                  size="compact"
                   onClick={onRetry}
-                  className="press-scale inline-flex min-h-11 items-center justify-center rounded-full bg-[color:var(--app-accent)] px-5 text-sm font-bold text-[color:var(--app-accent-fg)]"
+                  className="bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
                 >
                   Try again
-                </button>
+                </Button>
               </div>
             ) : invite ? (
               <>
@@ -1691,28 +1693,36 @@ function ReadyScreen({
                 <p className="mt-2 text-[12px] leading-[18px] text-[#96999e] dark:text-[color:var(--app-secondary-label)]">
                   Expires in 72 hours
                 </p>
-                <div className="mt-4 grid grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={onCopy}
-                    className="press-scale inline-flex h-11 items-center justify-center gap-2 rounded-full border border-[#d5d9df] bg-white text-[15px] font-bold text-[#1f2b3d] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
-                  >
-                    {copied ? (
-                      <Check className="h-5 w-5" strokeWidth={2.5} />
-                    ) : (
-                      <Copy className="h-5 w-5" strokeWidth={2} />
-                    )}
-                    {copied ? "Copied" : "Copy"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onShare}
-                    className="press-scale inline-flex h-11 items-center justify-center gap-2 rounded-full bg-[color:var(--app-accent)] text-[15px] font-bold text-[color:var(--app-accent-fg)]"
-                  >
-                    <Share2 className="h-5 w-5" strokeWidth={2} />
-                    Share
-                  </button>
-                </div>
+                <FlowActionGroup
+                  className="mt-4"
+                  secondary={
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="standard"
+                      onClick={onCopy}
+                      className="border-[#d5d9df] bg-white text-[#1f2b3d] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+                    >
+                      {copied ? (
+                        <Check className="h-5 w-5" strokeWidth={2.5} />
+                      ) : (
+                        <Copy className="h-5 w-5" strokeWidth={2} />
+                      )}
+                      {copied ? "Copied" : "Copy"}
+                    </Button>
+                  }
+                  primary={
+                    <Button
+                      type="button"
+                      size="standard"
+                      onClick={onShare}
+                      className="bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
+                    >
+                      <Share2 className="h-5 w-5" strokeWidth={2} />
+                      Share
+                    </Button>
+                  }
+                />
               </>
             ) : (
               <p className="flex min-h-24 items-center justify-center px-2 text-center text-sm leading-5 text-[#6f7580] dark:text-[color:var(--app-secondary-label)]">
@@ -1889,9 +1899,7 @@ function ReadyScreen({
                     onAdd={onAddContact}
                     onOpenSettings={onOpenContactSettings}
                     showGoogleAccountSwitcher={showGoogleAccountSwitcher}
-                    onSyncDifferentGoogleAccount={
-                      onSyncDifferentGoogleAccount
-                    }
+                    onSyncDifferentGoogleAccount={onSyncDifferentGoogleAccount}
                     onBack={() => undefined}
                     onSkip={() => undefined}
                     onContinue={() => undefined}
@@ -2294,18 +2302,20 @@ export function OneLocationOnboardingFlow({
         }
         applyContactSyncResult(result);
       } catch (error) {
-      setContactState({
-        kind: "failed",
-        message:
-          error instanceof Error && error.message
-            ? error.message
-            : "We couldn't check your contacts. You can try again later.",
-        canOpenSettings: canOpenContactSettings,
-      });
-    } finally {
-      contactSyncInFlightRef.current = false;
-    }
-  }, [applyContactSyncResult, canOpenContactSettings, onSyncOnboardingContacts]);
+        setContactState({
+          kind: "failed",
+          message:
+            error instanceof Error && error.message
+              ? error.message
+              : "We couldn't check your contacts. You can try again later.",
+          canOpenSettings: canOpenContactSettings,
+        });
+      } finally {
+        contactSyncInFlightRef.current = false;
+      }
+    },
+    [applyContactSyncResult, canOpenContactSettings, onSyncOnboardingContacts],
+  );
 
   const handleAddContact = useCallback(
     (userId: string) => {
@@ -2632,9 +2642,7 @@ export function OneLocationOnboardingFlow({
             addedContactIds={addedContactIds}
             addingContactIds={addingContactIds}
             onSyncContacts={() => void handleSyncContacts()}
-            onSyncDifferentGoogleAccount={() =>
-              void handleSyncContacts(true)
-            }
+            onSyncDifferentGoogleAccount={() => void handleSyncContacts(true)}
             onAddContact={handleAddContact}
             onOpenContactSettings={() =>
               onOpenContactSettings?.(() => void handleSyncContacts())

@@ -280,6 +280,7 @@ export function CircleMemberActionsMenu({
         </Button>
 
         <Drawer
+          modal
           open={sheetOpen}
           onOpenChange={(next) => {
             setSheetOpen(next);

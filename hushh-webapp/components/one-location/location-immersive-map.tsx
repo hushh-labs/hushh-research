@@ -3157,9 +3157,7 @@ export function LocationImmersiveMap({
         control, instead of offering a Continue that leads back to the same
         blank canvas.
       */}
-      {!rendererReady &&
-      !isCheckInSurface &&
-      status !== "unavailable" ? (
+      {!rendererReady && !isCheckInSurface && status !== "unavailable" ? (
         <section
           className={MAP_CONSENT_PANEL_CLASSNAME}
           data-testid="one-location-map-disclosure"
@@ -3206,6 +3204,7 @@ export function LocationImmersiveMap({
             {MAP_CONSENT_SUPPORTING_LINE}
           </p>
           <Button
+            size="prominent"
             className={`mt-4 w-full ${MAP_ACCENT_ACTIVE_CLASSNAME}`}
             onClick={() => void acceptRenderer()}
           >
@@ -3213,6 +3212,7 @@ export function LocationImmersiveMap({
           </Button>
           {demoAvailable ? (
             <Button
+              size="standard"
               className="mt-2 w-full"
               variant="secondary"
               data-testid="one-location-map-demo-preview"
@@ -3277,6 +3277,7 @@ export function LocationImmersiveMap({
             <Button
               type="button"
               variant="secondary"
+              size="standard"
               className="relative"
               data-testid="one-location-map-unavailable-retry"
               onClick={handleRetryMap}
@@ -3496,9 +3497,9 @@ export function LocationImmersiveMap({
                               attendee.relationship === "none" ? (
                                 <Button
                                   type="button"
-                                  size="sm"
+                                  size="compact"
                                   variant="secondary"
-                                  className="h-8 shrink-0 rounded-full px-3"
+                                  className="shrink-0"
                                   aria-label={`Connect with ${attendee.displayName}`}
                                   disabled={nearbyConnectionBusyAlias !== null}
                                   onClick={() =>
@@ -3520,9 +3521,9 @@ export function LocationImmersiveMap({
                                 "pending_incoming" ? (
                                 <Button
                                   type="button"
-                                  size="sm"
+                                  size="compact"
                                   variant="secondary"
-                                  className="h-8 shrink-0 rounded-full px-3"
+                                  className="shrink-0"
                                   aria-label={`Respond to ${attendee.displayName}`}
                                   onClick={openNearbyCheckIn}
                                 >
@@ -3885,7 +3886,8 @@ export function LocationImmersiveMap({
                   >
                     {demoAvailable ? (
                       <Button
-                        className={`h-11 min-w-0 rounded-2xl px-2 ${
+                        size="standard"
+                        className={`min-w-0 px-2 ${
                           demoMode ? MAP_ACCENT_ACTIVE_CLASSNAME : ""
                         }`}
                         variant="secondary"
@@ -3901,7 +3903,8 @@ export function LocationImmersiveMap({
                     ) : null}
                     {checkInActionAvailable ? (
                       <Button
-                        className="h-auto min-h-11 min-w-0 px-1 py-1 text-sm font-semibold underline underline-offset-4"
+                        size="compact"
+                        className="h-auto min-h-11 min-w-0 px-1 py-1 underline underline-offset-4"
                         variant="link"
                         aria-label={
                           nearbyPresenceState.presence

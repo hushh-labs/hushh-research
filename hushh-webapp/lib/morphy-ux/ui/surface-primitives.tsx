@@ -61,7 +61,7 @@ export function TaskFlowHeader({
             <button
               type="button"
               onClick={onBack}
-              className="-ml-1 flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground"
+              className="-ml-1 flex h-11 w-11 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)]"
               aria-label="Back"
             >
               <ChevronRight className="h-5 w-5 rotate-180" />
@@ -75,7 +75,9 @@ export function TaskFlowHeader({
         </div>
       ) : null}
       <h1 className={SCREEN_TITLE}>{title}</h1>
-      {description ? <p className="ui-text-page-subtitle">{description}</p> : null}
+      {description ? (
+        <p className="ui-text-page-subtitle">{description}</p>
+      ) : null}
     </header>
   );
 }
@@ -165,7 +167,10 @@ export function SectionCard({
   className?: string;
 }) {
   return (
-    <section className={cn(CARD_SURFACE, "p-4", className)} data-ui-role="grouped-card">
+    <section
+      className={cn(CARD_SURFACE, "p-4", className)}
+      data-ui-role="grouped-card"
+    >
       {(title || action) && (
         <div className="mb-3 flex items-start justify-between gap-3">
           <div className="min-w-0">
@@ -209,9 +214,7 @@ export function PrivacyStatusCard({
           <ShieldCheck className="h-6 w-6" />
         </span>
         <div className="min-w-0">
-          <p className="ui-text-row-label-emphasized">
-            {headline}
-          </p>
+          <p className="ui-text-row-label-emphasized">{headline}</p>
           {lines.map((line) => (
             <p key={line} className={MUTED_TEXT}>
               {line}
@@ -257,9 +260,7 @@ export function WarningCard({
       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
       <div>
         <p className="ui-text-row-label-emphasized">{title}</p>
-        <p className="ui-text-row-description">
-          {description}
-        </p>
+        <p className="ui-text-row-description">{description}</p>
       </div>
     </div>
   );
@@ -289,9 +290,7 @@ export function EmptyState({
       )}
     >
       {icon ? <div className="text-muted-foreground">{icon}</div> : null}
-      <p className="ui-text-headline">
-        {title}
-      </p>
+      <p className="ui-text-headline">{title}</p>
       {description ? <p className={MUTED_TEXT}>{description}</p> : null}
       {action ? <div className="mt-1">{action}</div> : null}
     </div>
@@ -334,9 +333,7 @@ export function QuickPathRow({
         {icon}
       </span>
       <span className="min-w-0 flex-1">
-        <span className="ui-text-row-label-emphasized block">
-          {title}
-        </span>
+        <span className="ui-text-row-label-emphasized block">{title}</span>
         <span className={cn(MUTED_TEXT, "block")}>{description}</span>
       </span>
       {badge ? (
