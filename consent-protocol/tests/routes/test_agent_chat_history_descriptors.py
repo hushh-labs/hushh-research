@@ -4,14 +4,14 @@ from types import SimpleNamespace
 from api.routes.one.agent_chat import _event_text, _safe_agent_history_metadata
 
 
-def _event(response: dict) -> SimpleNamespace:
+def _event(response: dict, *, tool_name: str = "discover_person_information") -> SimpleNamespace:
     return SimpleNamespace(
         id="event-discovery-1",
         content=SimpleNamespace(
             parts=[
                 SimpleNamespace(
                     function_response=SimpleNamespace(
-                        name="discover_person_information",
+                        name=tool_name,
                         response=response,
                     )
                 )
@@ -98,6 +98,38 @@ def test_history_descriptor_retains_safe_catalog_pagination_metadata() -> None:
     }
     assert content["catalogIncomplete"] is True
     assert "must-not-be-copied" not in json.dumps(metadata)
+
+
+def test_history_descriptor_restores_non_actionable_information_request_review() -> None:
+    metadata = _safe_agent_history_metadata(
+        _event(
+            {
+                "status": "proposal_ready",
+                "proposalId": "must-not-be-retained",
+                "person": {"displayName": "Alex Morgan"},
+                "fields": ["Employment status", "Company name"],
+                "purpose": "Complete the onboarding review.",
+                "durationHours": 48,
+                "connectorReady": True,
+            },
+            tool_name="propose_information_request",
+        )
+    )
+
+    assert metadata is not None
+    assert metadata["structuredExperience"]["activityType"] == "one.information_request_review.v1"
+    content = metadata["structuredExperience"]["content"]
+    assert content == {
+        "personName": "Alex Morgan",
+        "purpose": "Complete the onboarding review.",
+        "durationLabel": "2 days",
+        "status": "awaiting_review",
+        "fields": [
+            {"label": "Employment status", "domain": "Information", "sensitivity": "standard"},
+            {"label": "Company name", "domain": "Information", "sensitivity": "standard"},
+        ],
+    }
+    assert "must-not-be-retained" not in json.dumps(metadata)
 
 
 def test_history_descriptor_discards_invalid_catalog_metadata() -> None:

@@ -381,11 +381,87 @@ def _safe_discovery_descriptor(
     return None
 
 
+def _safe_information_request_descriptor(
+    event: Any, selected_parts: list[Any] | None = None
+) -> dict[str, Any] | None:
+    """Project a proposal review card without retaining executable handles.
+
+    A returning owner may see what they were preparing to ask, but a history
+    descriptor must never become a replayable consent mutation. The proposal
+    id, opaque scope references, connector metadata, and any values therefore
+    stay in the encrypted session only; the restored card is explanatory.
+    """
+    parts = (
+        selected_parts
+        if selected_parts is not None
+        else (getattr(getattr(event, "content", None), "parts", None) or [])
+    )
+    for part in parts:
+        function_response = getattr(part, "function_response", None)
+        if (
+            function_response is None
+            or getattr(function_response, "name", "") != "propose_information_request"
+        ):
+            continue
+        result = _record(getattr(function_response, "response", None)) or {}
+        for key in ("result", "content", "data"):
+            nested = _record(result.get(key))
+            if nested and nested.get("status"):
+                result = nested
+                break
+        if result.get("status") != "proposal_ready":
+            return None
+        person = _record(result.get("person")) or {}
+        display_name = _bounded_text(person.get("displayName"), 120)
+        purpose = _bounded_text(result.get("purpose"), 500)
+        duration_hours = result.get("durationHours")
+        if (
+            not display_name
+            or not purpose
+            or isinstance(duration_hours, bool)
+            or not isinstance(duration_hours, int)
+            or not 1 <= duration_hours <= 720
+        ):
+            return None
+        raw_fields = result.get("fields")
+        if not isinstance(raw_fields, list):
+            return None
+        fields = [
+            {
+                "label": label,
+                "domain": "Information",
+                "sensitivity": "standard",
+            }
+            for raw_field in raw_fields[:50]
+            if (label := _bounded_text(raw_field, 120))
+        ]
+        if not fields:
+            return None
+        duration_label = (
+            f"{duration_hours // 24} {'day' if duration_hours // 24 == 1 else 'days'}"
+            if duration_hours % 24 == 0
+            else f"{duration_hours} {'hour' if duration_hours == 1 else 'hours'}"
+        )
+        return {
+            "activityType": "one.information_request_review.v1",
+            "content": {
+                "personName": display_name,
+                "purpose": purpose,
+                "durationLabel": duration_label,
+                "status": "awaiting_review",
+                "fields": fields,
+            },
+        }
+    return None
+
+
 def _safe_agent_history_metadata(event: Any) -> dict[str, Any] | None:
     descriptors = []
     seen = set()
     for index, part in enumerate(getattr(getattr(event, "content", None), "parts", None) or []):
         descriptor = _safe_discovery_descriptor(event, [part])
+        if descriptor is None:
+            descriptor = _safe_information_request_descriptor(event, [part])
         if descriptor is None:
             continue
         card_id = str(
