@@ -7,6 +7,7 @@ declare global {
     __HUSHH_NATIVE_TEST__?: {
       enabled?: boolean;
       autoReviewerLogin?: boolean;
+      reviewerMutationPolicy?: "read_only" | "preparation_only" | "mutation_authorized";
       vaultPassphrase?: string;
       expectedUserId?: string;
       expectedMarker?: string;
@@ -161,6 +162,21 @@ export function shouldSkipAmbientIdentityHydrationForAutomation(
   config: NativeTestConfig = getNativeTestConfig(),
 ): boolean {
   return isAutomatedReviewerSession(config);
+}
+
+/**
+ * Preparation-only reviewer runs must not start background migrations or
+ * other encrypted-data writes while they prove Memory preview behavior.
+ * The policy is injected in-memory by the canonical reviewer harness and is
+ * never persisted or honored outside an explicit automated reviewer session.
+ */
+export function shouldSkipReviewerBackgroundWritesForAutomation(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    window.__HUSHH_NATIVE_TEST__?.enabled === true &&
+    window.__HUSHH_NATIVE_TEST__?.autoReviewerLogin === true &&
+    window.__HUSHH_NATIVE_TEST__?.reviewerMutationPolicy === "preparation_only"
+  );
 }
 
 /** External telemetry must not leave an explicit shared reviewer session. */

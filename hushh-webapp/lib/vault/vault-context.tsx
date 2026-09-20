@@ -51,6 +51,7 @@ import { PkmUpgradeOrchestrator } from "@/lib/services/pkm-upgrade-orchestrator"
 import { UnlockWarmOrchestrator } from "@/lib/services/unlock-warm-orchestrator";
 import { VaultService } from "@/lib/services/vault-service";
 import { apiErrorCode } from "@/lib/services/api-client";
+import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { dispatchAuthSessionVerificationRequired, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
@@ -563,6 +564,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
 
     const kickoffUpgrade = () => {
       if (cancelled) return;
+      if (shouldSkipReviewerBackgroundWritesForAutomation()) return;
       void PkmUpgradeOrchestrator.ensureRunning({
         userId: user.uid,
         vaultKey,

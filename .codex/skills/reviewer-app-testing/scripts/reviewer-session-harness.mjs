@@ -31,6 +31,16 @@ const READ_ONLY_SAFE_POST_PATHS = new Set([
   "/__nextjs_original-stack-frames",
 ]);
 
+// Unlock warming publishes only the current device's public ECDH recipient
+// keys. These endpoints are idempotent bootstrap metadata, not consent, PKM,
+// export, or decrypted-information writes. Preparation-only rehearsals must
+// allow this exact readiness seam while continuing to block every other
+// state-changing request.
+const PREPARATION_SAFE_BOOTSTRAP_POST_PATHS = new Set([
+  "/api/one/location/recipient-keys",
+  "/api/one/marketplace/recipient-keys",
+]);
+
 // Firebase authentication hosts. The reviewer login handshake exchanges the
 // review-mode session for a custom token and signs in through Identity
 // Toolkit (signInWithCustomToken, accounts:lookup, token refresh). These are
@@ -74,10 +84,15 @@ export async function installReadOnlyMutationGuard(context, {
     const memoryPreparation = allowMemoryPreparation && method === "POST" &&
       pathname === "/api/pkm/memory/proposals" &&
       new URL(request.url()).origin === appOrigin;
+    const preparationBootstrap = allowMemoryPreparation &&
+      method === "POST" &&
+      PREPARATION_SAFE_BOOTSTRAP_POST_PATHS.has(pathname) &&
+      new URL(request.url()).origin === appOrigin;
     if (
       !["POST", "PUT", "PATCH", "DELETE"].includes(method) ||
       READ_ONLY_SAFE_POST_PATHS.has(pathname) ||
       memoryPreparation ||
+      preparationBootstrap ||
       AUTH_ONLY_HOSTS.has(requestHostname(request))
     ) {
       await route.continue();
@@ -158,19 +173,26 @@ export async function createReviewerSessionHarness({
   }
 
   async function installBridge(page, { includePassphrase = true } = {}) {
+    const reviewerMutationPolicy = process.env.REVIEWER_ALLOW_SHARED_MUTATIONS === "true"
+      ? "mutation_authorized"
+      : allowMemoryPreparation
+        ? "preparation_only"
+        : "read_only";
     await page.addInitScript(
-      ({ expectedUserId, vaultPassphrase }) => {
+      ({ expectedUserId, vaultPassphrase, reviewerMutationPolicy }) => {
         window.__HUSHH_NATIVE_TEST__ = {
           ...(window.__HUSHH_NATIVE_TEST__ || {}),
           enabled: true,
           autoReviewerLogin: true,
           expectedUserId,
+          reviewerMutationPolicy,
           ...(vaultPassphrase ? { vaultPassphrase } : {}),
         };
       },
       {
         expectedUserId: reviewerUid,
         vaultPassphrase: includePassphrase ? reviewerPassphrase : "",
+        reviewerMutationPolicy,
       }
     );
   }

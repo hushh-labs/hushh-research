@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // The harness owns this policy; no browser, account, or secrets are needed here.
 // @ts-expect-error The canonical Node rehearsal script has no TS declaration.
 import { installReadOnlyMutationGuard, waitForReviewerVaultAdmission } from "../../../.codex/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs";
+import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 
 describe("reviewer preparation-only authority", () => {
   it("requires the expected unlocked owner, not an anonymous route beacon", async () => {
@@ -76,6 +77,10 @@ describe("reviewer preparation-only authority", () => {
     ["http://localhost:3001/api/pkm/store-domain", "POST", true, false],
     ["http://localhost:3001/api/consent/pending/approve", "POST", true, false],
     ["http://localhost:3001/api/one/agent-chat", "POST", true, false],
+    ["http://localhost:3001/api/one/location/recipient-keys", "POST", true, true],
+    ["http://localhost:3001/api/one/location/recipient-keys", "POST", false, false],
+    ["http://localhost:3001/api/one/marketplace/recipient-keys", "POST", true, true],
+    ["http://localhost:3001/api/one/marketplace/recipient-keys", "POST", false, false],
   ])(
     "bounds the opt-in to exact preparation authority (%s %s)",
     async (url, method, enabled, allowed) => {
@@ -101,4 +106,30 @@ describe("reviewer preparation-only authority", () => {
       else expect(() => guard.assertNoBlockedMutation()).toThrow("blocked");
     },
   );
+
+  it("skips only background writes for the explicit preparation-only bridge policy", () => {
+    const target = window as unknown as {
+      __HUSHH_NATIVE_TEST__?: {
+        enabled?: boolean;
+        autoReviewerLogin?: boolean;
+        reviewerMutationPolicy?: string;
+      };
+    };
+    const original = target.__HUSHH_NATIVE_TEST__;
+    try {
+      target.__HUSHH_NATIVE_TEST__ = {
+        enabled: true,
+        autoReviewerLogin: true,
+        reviewerMutationPolicy: "preparation_only",
+      };
+      expect(shouldSkipReviewerBackgroundWritesForAutomation()).toBe(true);
+      target.__HUSHH_NATIVE_TEST__.reviewerMutationPolicy = "read_only";
+      expect(shouldSkipReviewerBackgroundWritesForAutomation()).toBe(false);
+      target.__HUSHH_NATIVE_TEST__.autoReviewerLogin = false;
+      target.__HUSHH_NATIVE_TEST__.reviewerMutationPolicy = "preparation_only";
+      expect(shouldSkipReviewerBackgroundWritesForAutomation()).toBe(false);
+    } finally {
+      target.__HUSHH_NATIVE_TEST__ = original;
+    }
+  });
 });

@@ -75,6 +75,7 @@ import {
   type WalletCardSummary,
 } from "@/lib/services/wallet-service";
 import { OneKycClientZkService } from "@/lib/services/one-kyc-client-zk-service";
+import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 import {
   CardNetworkMark,
   cardNetworkLabel,
@@ -2367,7 +2368,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // is idempotent: it reuses the stored keypair and re-registers the public half.
   useEffect(() => {
     const token = getVaultOwnerToken();
-    if (!user?.uid || !vaultKey || !token) return;
+    if (
+      !user?.uid ||
+      !vaultKey ||
+      !token ||
+      shouldSkipReviewerBackgroundWritesForAutomation()
+    ) return;
     let cancelled = false;
     void (async () => {
       try {
