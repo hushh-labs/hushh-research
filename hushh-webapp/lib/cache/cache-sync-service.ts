@@ -345,6 +345,7 @@ export class CacheSyncService {
       domainSummary?: DomainSummaryPatch;
       metadataTimestamp?: string;
       writeThroughMetadata?: boolean;
+      eventDataVersion?: number;
     },
   ): void {
     const emitDomainStoredEvent = () => {
@@ -352,7 +353,10 @@ export class CacheSyncService {
       const detail = {
         userId,
         domain,
-        dataVersion: options?.encryptedBlob?.dataVersion ?? null,
+        dataVersion:
+          options?.encryptedBlob?.dataVersion ??
+          options?.eventDataVersion ??
+          null,
         updatedAt:
           options?.encryptedBlob?.updatedAt ??
           options?.metadataTimestamp ??

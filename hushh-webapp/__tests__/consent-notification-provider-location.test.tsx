@@ -28,7 +28,7 @@ const mocks = vi.hoisted(() => {
     dispatchConsentStateChanged: vi.fn(),
     dispatchFeedStateChanged: vi.fn(),
     onOneLocationStateMutated: vi.fn(),
-    dispatchPkmDomainChanged: vi.fn(),
+    onPkmDomainStored: vi.fn(),
   };
 });
 
@@ -94,11 +94,8 @@ vi.mock("@/lib/feed/feed-events", () => ({
 vi.mock("@/lib/cache/cache-sync-service", () => ({
   CacheSyncService: {
     onOneLocationStateMutated: mocks.onOneLocationStateMutated,
+    onPkmDomainStored: mocks.onPkmDomainStored,
   },
-}));
-
-vi.mock("@/lib/pkm/pkm-domain-change-events", () => ({
-  dispatchPkmDomainChanged: mocks.dispatchPkmDomainChanged,
 }));
 
 vi.mock("@/lib/consent/consent-events", () => ({
@@ -143,7 +140,7 @@ async function renderReady(children?: ReactNode) {
   mocks.dispatchConsentStateChanged.mockClear();
   mocks.dispatchFeedStateChanged.mockClear();
   mocks.onOneLocationStateMutated.mockClear();
-  mocks.dispatchPkmDomainChanged.mockClear();
+  mocks.onPkmDomainStored.mockClear();
 }
 
 function dispatchLocation(
@@ -281,13 +278,15 @@ describe("global One Location Feed-first notification policy", () => {
         eventId: "location_settings_changed:event-1",
       },
     );
-    expect(mocks.dispatchPkmDomainChanged).toHaveBeenCalledWith({
-      userId: "recipient-user",
-      domain: "location",
-      dataVersion: 8,
-      updatedAt: "2026-09-20T00:00:00Z",
-      operation: "stored",
-    });
+    expect(mocks.onPkmDomainStored).toHaveBeenCalledWith(
+      "recipient-user",
+      "location",
+      {
+        eventDataVersion: 8,
+        metadataTimestamp: "2026-09-20T00:00:00Z",
+        writeThroughMetadata: false,
+      },
+    );
     expect(mocks.toast).not.toHaveBeenCalled();
     expect(mocks.startTask).not.toHaveBeenCalled();
     expect(mocks.dispatchFeedStateChanged).not.toHaveBeenCalled();

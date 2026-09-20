@@ -414,6 +414,44 @@ describe("CacheSyncService mutation cascades", () => {
     expect(invalidatedKeys).toContain(CACHE_KEYS.PKM_DECRYPTED_BLOB(userId));
   });
 
+  it("invalidates lower Location caches before publishing a remote PKM doorbell", () => {
+    cache.set(
+      CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, "location"),
+      { ciphertext: "old", iv: "old", tag: "old" },
+      CACHE_TTL.SESSION,
+    );
+    cache.set(
+      CACHE_KEYS.DOMAIN_DATA(userId, "location"),
+      { savedLocations: [{ id: "old" }] },
+      CACHE_TTL.SESSION,
+    );
+    const received: unknown[] = [];
+    const listener = (event: Event) =>
+      received.push((event as CustomEvent<unknown>).detail);
+    window.addEventListener("pkm-domain-changed", listener);
+
+    CacheSyncService.onPkmDomainStored(userId, "location", {
+      eventDataVersion: 8,
+      metadataTimestamp: "2026-09-20T00:00:00Z",
+      writeThroughMetadata: false,
+    });
+
+    expect(
+      cache.get(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, "location")),
+    ).toBeNull();
+    expect(cache.get(CACHE_KEYS.DOMAIN_DATA(userId, "location"))).toBeNull();
+    expect(received).toEqual([
+      {
+        userId,
+        domain: "location",
+        dataVersion: 8,
+        updatedAt: "2026-09-20T00:00:00Z",
+        operation: "stored",
+      },
+    ]);
+    window.removeEventListener("pkm-domain-changed", listener);
+  });
+
   it("onPkmDomainStored keeps the full financial domain fresh after encrypted portfolio writes", () => {
     const portfolioData = {
       holdings: [{ symbol: "MSFT", shares: 2 }],

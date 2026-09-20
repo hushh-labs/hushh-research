@@ -39,6 +39,14 @@ USER_STATE_CHANNEL = "one_user_state_changed"
 # version differences rather than publishing at the protocol boundary.
 _USER_STATE_NOTIFY_MAX_BYTES = 7_500
 
+
+def _is_user_state_event_type(event_type: str) -> bool:
+    return event_type.startswith("location_circle_") or event_type in {
+        "location_settings_changed",
+        "location_pkm_changed",
+    }
+
+
 # Interval for timeout job (seconds)
 TIMEOUT_JOB_INTERVAL = 120
 NOTIFICATION_JOB_INTERVAL = 60
@@ -169,10 +177,7 @@ async def _publish_user_state_event(user_id: str, data: Dict[str, Any]) -> bool:
     normalized_user_id = str(user_id or "").strip()
     payload = {**data, "user_id": normalized_user_id}
     event_type = str(payload.get("type") or "").strip()
-    if not normalized_user_id or not (
-        event_type.startswith("location_circle_")
-        or event_type in {"location_settings_changed", "location_pkm_changed"}
-    ):
+    if not normalized_user_id or not _is_user_state_event_type(event_type):
         return False
 
     serialized = json.dumps(payload, separators=(",", ":"), default=str)
@@ -392,7 +397,7 @@ def _user_state_notify_callback(connection, pid, channel, payload: str) -> None:
         data = json.loads(payload or "{}")
         user_id = str(data.get("user_id") or "").strip()
         event_type = str(data.get("type") or "").strip()
-        if not user_id or not event_type.startswith("location_circle_"):
+        if not user_id or not _is_user_state_event_type(event_type):
             return
 
         loop = _serving_loop

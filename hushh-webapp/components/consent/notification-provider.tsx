@@ -52,7 +52,6 @@ import {
   dispatchConsentStateChanged,
 } from "@/lib/consent/consent-events";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
-import { dispatchPkmDomainChanged } from "@/lib/pkm/pkm-domain-change-events";
 import { resolveConsentRequesterLabel } from "@/lib/consent/consent-display";
 import { parseSSEBlocks } from "@/lib/streaming/sse-parser";
 import {
@@ -1032,13 +1031,13 @@ export function ConsentNotificationProvider({
         const domain = String(notification.data.domain || "").trim();
         if (domain === "location") {
           const parsedVersion = Number(notification.data.data_version);
-          dispatchPkmDomainChanged({
-            userId: user.uid,
-            domain,
-            dataVersion: Number.isFinite(parsedVersion) ? parsedVersion : null,
-            updatedAt:
-              String(notification.data.updated_at || "").trim() || null,
-            operation: "stored",
+          CacheSyncService.onPkmDomainStored(user.uid, domain, {
+            eventDataVersion: Number.isFinite(parsedVersion)
+              ? parsedVersion
+              : undefined,
+            metadataTimestamp:
+              String(notification.data.updated_at || "").trim() || undefined,
+            writeThroughMetadata: false,
           });
         }
         continue;
@@ -1619,12 +1618,13 @@ export function ConsentNotificationProvider({
         const domain = String(data.domain || "").trim();
         if (domain === "location") {
           const parsedVersion = Number(data.data_version);
-          dispatchPkmDomainChanged({
-            userId: user.uid,
-            domain,
-            dataVersion: Number.isFinite(parsedVersion) ? parsedVersion : null,
-            updatedAt: String(data.updated_at || "").trim() || null,
-            operation: "stored",
+          CacheSyncService.onPkmDomainStored(user.uid, domain, {
+            eventDataVersion: Number.isFinite(parsedVersion)
+              ? parsedVersion
+              : undefined,
+            metadataTimestamp:
+              String(data.updated_at || "").trim() || undefined,
+            writeThroughMetadata: false,
           });
         }
         return;
