@@ -3968,6 +3968,16 @@ describe("OneLocationAgentPage", () => {
         }),
       ).getByText("Investor D"),
     ).toBeTruthy();
+    // The recipient rail and duration control already publish these values.
+    // Repeating them above the CTA cost a full extra row without adding a
+    // decision, so the action area contains actions only.
+    expect(screen.queryByText("Ready")).toBeNull();
+    expect(screen.queryByText("1 person")).toBeNull();
+    expect(screen.queryByText("Duration: 15 min")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Start sharing" }),
+    ).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeEnabled();
     expect(mockTrackEvent).toHaveBeenCalledWith(
       "one_location_recommendation_selected",
       expect.objectContaining({

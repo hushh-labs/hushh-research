@@ -5502,11 +5502,6 @@ function ShareFlow({
         />
 
         <div className={SHARE_CONFIRM_ACTIONS_CLASSNAME}>
-          <FlowSelectionSummary
-            label="Ready"
-            value={`${selectedReady.length} ${selectedReady.length === 1 ? "person" : "people"}`}
-            detail={`Duration: ${formatLocationDurationLabel(vm.shareDurationHours)}`}
-          />
           <FlowActionGroup
             stacked
             primary={
