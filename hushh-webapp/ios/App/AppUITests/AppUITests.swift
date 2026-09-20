@@ -993,10 +993,13 @@ final class AppUITests: XCTestCase {
         }
         let repetitions = max(1, Int(environment["HUSHH_PERF_REPS"] ?? "") ?? 3)
         let probeArguments = ["-CapacitorStorage.hushh_perf_probe", "1"]
+        // This card drives the app through the -UITestMode bridge (reviewer
+        // login), so it is attribution on any hardware. Sign-off numbers come
+        // from a phone, Release, test mode off (the charter's truth lane).
         #if targetEnvironment(simulator)
-        NSLog("PERF_LANE certifies=false simulator=true")
+        NSLog("PERF_LANE certifies=false simulator=true test_mode=true")
         #else
-        NSLog("PERF_LANE certifies=true simulator=false")
+        NSLog("PERF_LANE certifies=false simulator=false test_mode=true")
         #endif
 
         // Launch 1: feed flicks, bottom-nav switches, profile pane, chat stream.

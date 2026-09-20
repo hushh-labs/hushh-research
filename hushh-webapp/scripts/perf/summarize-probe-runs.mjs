@@ -2,7 +2,7 @@
 /**
  * Turn the in-app probe's exports into a baseline table.
  *
- *   node scripts/perf/summarize-probe-runs.mjs --runs <dir-or-file>... [--gestures <log>] [--tier ios-sim] [--sha <sha>] [--json <out.json>] [--md <out.md>]
+ *   node scripts/perf/summarize-probe-runs.mjs --runs <dir-or-file>... [--gestures <log>] [--tier ios-sim] [--sha <sha>] [--configuration Debug|Release] [--test-mode 1|0] [--json <out.json>] [--md <out.md>]
  *
  * `--runs` takes probe JSON files (or directories of them, as pulled from the
  * app container's Documents/hushh-perf). `--gestures` is the xcodebuild log
@@ -34,6 +34,8 @@ const sha = take("--sha")[0] ?? "";
 const jsonOut = take("--json")[0];
 const mdOut = take("--md")[0];
 const label = take("--label")[0] ?? "";
+const configuration = take("--configuration")[0] ?? "Debug";
+const testMode = (take("--test-mode")[0] ?? "1") !== "0";
 
 if (!runInputs.length) {
   console.error("usage: summarize-probe-runs.mjs --runs <file|dir>... [--gestures <log>] [--tier t] [--sha s] [--json out] [--md out]");
@@ -96,6 +98,15 @@ if (gestures.length) {
 const rows = [...byGesture.entries()].map(([name, ws]) => ({ name, ...aggregate(ws) }));
 const idleRows = idle.map((w) => ({ route: w.route, frames: w.frames, p95_ms: w.p95_ms, max_ms: w.max_ms, over_50_count: w.over_50_count }));
 const hz = runs[0]?.data.raf_hz ?? null;
+// A run certifies only when all three hold: real hardware, a Release build,
+// and the test-mode bridge off. The XCUITest card always has the bridge on.
+const simulator = tier.includes("sim");
+const certifies = !simulator && configuration === "Release" && !testMode;
+const laneSentence = certifies
+  ? "Device run, Release, test mode off: certifying."
+  : simulator
+    ? "**Simulator run: attribution only, certifies nothing.**"
+    : `**Device run, ${configuration}${testMode ? " + test mode" : ""}: attribution only, certifies nothing.**`;
 const verdict = (r) => (r.over_50_count > 0 || (r.hitch_ms_per_s_median ?? 0) >= 10 ? "critical" : (r.hitch_ms_per_s_median ?? 0) >= 5 || (hz && r.p95_ms_median > hz.budget_ms) ? "warning" : "good");
 
 const summary = {
@@ -103,7 +114,7 @@ const summary = {
   label,
   source_sha: sha,
   captured_at: new Date().toISOString(),
-  device: { tier, certifies: !tier.includes("sim"), raf_hz: hz, platform: runs[0]?.data.platform ?? null, ua_family: runs[0]?.data.ua_family ?? null, supported_entry_types: runs[0]?.data.supported_entry_types ?? [] },
+  device: { tier, certifies, configuration, test_mode: testMode, raf_hz: hz, platform: runs[0]?.data.platform ?? null, ua_family: runs[0]?.data.ua_family ?? null, supported_entry_types: runs[0]?.data.supported_entry_types ?? [] },
   runs: runs.map((r) => ({ run_id: r.data.run_id, windows: r.data.windows.length, hud: r.data.hud })),
   gestures: rows.map((r) => ({ ...r, verdict: verdict(r) })),
   idle_by_route: idleRows,
@@ -112,7 +123,7 @@ const summary = {
 const md = [
   `# Render performance baseline (${tier})${label ? ` — ${label}` : ""}`,
   "",
-  `Captured ${summary.captured_at}${sha ? ` at ${sha}` : ""}. ${summary.device.certifies ? "Device run." : "**Simulator run: attribution only, certifies nothing.**"} rAF ${hz ? `${hz.raw} Hz (nominal ${hz.nominal}, budget ${hz.budget_ms} ms)` : "n/a"}; engine ${summary.device.ua_family ?? "n/a"}.`,
+  `Captured ${summary.captured_at}${sha ? ` at ${sha}` : ""}. ${laneSentence} rAF ${hz ? `${hz.raw} Hz (nominal ${hz.nominal}, budget ${hz.budget_ms} ms)` : "n/a"}; engine ${summary.device.ua_family ?? "n/a"}.`,
   "",
   "| Gesture | Windows | Frames | p95 ms (median) | p99 ms (median) | Worst ms | Frames > 50 ms | Hitch ms/s (median) | Verdict |",
   "|---|---|---|---|---|---|---|---|---|",

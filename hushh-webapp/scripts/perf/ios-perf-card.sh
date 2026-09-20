@@ -3,7 +3,11 @@
 # iPhone, pull the in-app probe's exports, and write the baseline table.
 #
 #   npm run perf:ios:card                       # booted simulator, attribution only
-#   IOS_DEVICE_ID=<udid> npm run perf:ios:card  # a connected iPhone: the certifying run
+#   IOS_DEVICE_ID=<udid> npm run perf:ios:card  # a connected iPhone: real hardware, still attribution
+#
+# The card drives the app through the -UITestMode bridge (reviewer login), so
+# its numbers attribute on any hardware and certify on none; the summary says
+# so. The certifying lane is a phone, Release, test mode off (charter).
 #
 # Knobs: HUSHH_PERF_REPS (default 3), HUSHH_PERF_TIER (default ios-sim on a
 # simulator; REQUIRED on a device, redacted like ios-mid-2024), PERF_OUT_DIR
@@ -115,6 +119,7 @@ if [[ "$COUNT" == "0" ]]; then
 fi
 
 node scripts/perf/summarize-probe-runs.mjs --runs "$OUT_DIR/probe" --gestures "$OUT_DIR/gestures.log" \
-  --tier "$TIER" --sha "$SHA" --json "$OUT_DIR/summary.json" --md "$OUT_DIR/summary.md"
+  --tier "$TIER" --sha "$SHA" --configuration "$CONFIGURATION" --test-mode 1 \
+  --json "$OUT_DIR/summary.json" --md "$OUT_DIR/summary.md"
 echo "summary: $OUT_DIR/summary.md (test status $TEST_STATUS)"
 exit "$TEST_STATUS"
