@@ -58,7 +58,7 @@ function NudgeCard({ nudge }: { nudge: GmailNudge }) {
 function NudgeListSkeleton({ label }: { label: string }) {
   return (
     <div aria-busy="true" aria-label={`Loading ${label}`} className="space-y-2">
-      <p className="sr-only">Loading {label}. Gmail remains available.</p>
+      <p className="sr-only">Loading {label}. Mail remains available.</p>
       {Array.from({ length: 2 }, (_, index) => (
         <div
           className="flex items-center justify-between gap-3 rounded-xl border border-[color:var(--app-card-border-standard)] bg-background/60 px-3.5 py-3"

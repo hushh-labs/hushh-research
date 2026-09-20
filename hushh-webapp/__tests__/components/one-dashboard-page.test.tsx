@@ -89,7 +89,7 @@ describe("OneDashboardPage", () => {
 
     const tile = screen.getByTestId("one-setup-progress-tile");
     expect(tile.textContent).toContain(
-      "Email, Calendar connected · Advisor dismissed · 3 left to decide",
+      "Mail, Calendar connected · Advisor dismissed · 3 left to decide",
     );
   });
 
@@ -191,7 +191,7 @@ describe("OneDashboardPage", () => {
       screen.getByRole("link", { name: "Open Wallet" }).getAttribute("href"),
     ).toBe(ROUTES.ONE_WALLET);
     expect(
-      screen.getByRole("link", { name: /Open (Email|Gmail)/ }).getAttribute("href"),
+      screen.getByRole("link", { name: /Open Mail/ }).getAttribute("href"),
     ).toBe(buildOneSetupCapabilityRoute("gmail"));
     expect(
       screen.getByRole("link", { name: "Open Calendar" }).getAttribute("href"),
@@ -301,7 +301,7 @@ describe("OneDashboardPage", () => {
   it("renders authored setup actions instead of transient checking states", () => {
     render(<OneDashboardPage displayName="Kushal Trivedi" />);
     expect(screen.queryAllByText("Checking...")).toHaveLength(0);
-    expect(screen.queryByText("Connect Gmail")).toBeNull();
+    expect(screen.queryByText("Connect Mail")).toBeNull();
     expect(countRosterMetrics(document.body, "—", "checking")).toBeGreaterThan(
       0,
     );

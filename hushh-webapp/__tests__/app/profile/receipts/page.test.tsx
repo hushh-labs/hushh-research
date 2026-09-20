@@ -642,7 +642,7 @@ describe("ProfileReceiptsPage", () => {
   it("removes the redundant Gmail eyebrow", () => {
     render(<ProfileReceiptsPage initialWorkspace="receipts" />);
 
-    expect(screen.queryByText(/one \/ gmail/i)).toBeNull();
+    expect(screen.queryByText(/one \/ mail/i)).toBeNull();
   });
 
   it("lets the person explicitly save the generated summary to private memory", async () => {
@@ -948,7 +948,7 @@ describe("ProfileReceiptsPage", () => {
     ).toBeGreaterThan(0);
     expect(
       screen.getByText(
-        /we'll prepare your shopping summary after gmail finishes syncing/i,
+        /we'll prepare your shopping summary after mail finishes syncing/i,
       ),
     ).toBeTruthy();
 
@@ -978,7 +978,7 @@ describe("ProfileReceiptsPage", () => {
     render(<ProfileReceiptsPage initialWorkspace="receipts" />);
 
     expect(
-      screen.getByRole("heading", { name: /checking your gmail status/i }),
+      screen.getByRole("heading", { name: /checking your mail status/i }),
     ).toBeTruthy();
     expect(
       screen.getByText(
@@ -1025,12 +1025,12 @@ describe("ProfileReceiptsPage", () => {
       0,
     );
     expect(
-      screen.getByRole("heading", { name: /reconnect gmail/i }),
+      screen.getByRole("heading", { name: /reconnect mail/i }),
     ).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: /reconnect gmail/i }),
+      screen.getByRole("button", { name: /reconnect mail/i }),
     ).toBeTruthy();
-    expect(screen.queryByText(/gmail is currently disconnected/i)).toBeNull();
+    expect(screen.queryByText(/mail is currently disconnected/i)).toBeNull();
     expect(screen.queryByText(/shopping summary/i)).toBeNull();
     expect(vi.mocked(GmailReceiptMemoryService.preview)).not.toHaveBeenCalled();
   });
@@ -1063,7 +1063,7 @@ describe("ProfileReceiptsPage", () => {
     render(<ProfileReceiptsPage initialWorkspace="receipts" />);
 
     expect(
-      screen.getByRole("heading", { name: /gmail not connected/i }),
+      screen.getByRole("heading", { name: /mail not connected/i }),
     ).toBeTruthy();
     expect(
       screen.getByText(
@@ -1072,10 +1072,10 @@ describe("ProfileReceiptsPage", () => {
     ).toBeTruthy();
     expect(screen.queryByText("0 receipts")).toBeNull();
     expect(
-      screen.getAllByRole("button", { name: /connect gmail/i }),
+      screen.getAllByRole("button", { name: /connect mail/i }),
     ).toHaveLength(1);
 
-    fireEvent.click(screen.getByRole("button", { name: /connect gmail/i }));
+    fireEvent.click(screen.getByRole("button", { name: /connect mail/i }));
     await waitFor(() => {
       expect(mocks.gmailOAuthPopup.open).toHaveBeenCalledWith(
         mocks.gmailOAuthPopup.attempt,
@@ -1115,7 +1115,7 @@ describe("ProfileReceiptsPage", () => {
     render(<ProfileReceiptsPage initialWorkspace="receipts" />);
 
     fireEvent.click(
-      screen.getByRole("button", { name: "Retry Gmail status" }),
+      screen.getByRole("button", { name: "Retry Mail status" }),
     );
 
     await waitFor(() => {
@@ -1156,12 +1156,12 @@ describe("ProfileReceiptsPage", () => {
 
     fireEvent.click(screen.getByRole("tab", { name: "Receipts" }));
     expect(
-      await screen.findByRole("button", { name: /connect gmail/i }),
+      await screen.findByRole("button", { name: /connect mail/i }),
     ).toBeVisible();
 
     fireEvent.click(screen.getByRole("tab", { name: "KYC" }));
     expect(
-      screen.getByRole("button", { name: /connect gmail/i }),
+      screen.getByRole("button", { name: /connect mail/i }),
     ).toBeVisible();
   });
 
@@ -1217,7 +1217,7 @@ describe("ProfileReceiptsPage", () => {
     try {
       render(<ProfileReceiptsPage initialWorkspace="receipts" />);
 
-      fireEvent.click(screen.getByRole("button", { name: /connect gmail/i }));
+      fireEvent.click(screen.getByRole("button", { name: /connect mail/i }));
 
       await waitFor(() => {
         expect(GmailReceiptsService.startConnect).toHaveBeenCalledWith({
@@ -1267,7 +1267,7 @@ describe("ProfileReceiptsPage", () => {
 
     render(<ProfileReceiptsPage journeyVariant="onboarding" />);
 
-    fireEvent.click(screen.getByRole("button", { name: /connect gmail/i }));
+    fireEvent.click(screen.getByRole("button", { name: /connect mail/i }));
 
     await waitFor(() => {
       expect(GmailReceiptsService.startNativeConnect).toHaveBeenCalledWith({
@@ -1285,7 +1285,7 @@ describe("ProfileReceiptsPage", () => {
       });
     });
     expect(mocks.toast.success).toHaveBeenCalledWith(
-      "Gmail connected. Your receipt scan will continue in the background.",
+      "Mail connected. Your receipt scan will continue in the background.",
     );
     expect(mocks.toast.error).not.toHaveBeenCalled();
     expect(mocks.gmailOAuthPopup.open).not.toHaveBeenCalled();
@@ -1338,7 +1338,7 @@ describe("ProfileReceiptsPage", () => {
 
     render(<ProfileReceiptsPage journeyVariant="onboarding" />);
 
-    fireEvent.click(screen.getByRole("button", { name: /connect gmail/i }));
+    fireEvent.click(screen.getByRole("button", { name: /connect mail/i }));
 
     await waitFor(() => {
       expect(
@@ -1399,12 +1399,12 @@ describe("ProfileReceiptsPage", () => {
     );
 
     fireEvent.click(
-      screen.getByRole("button", { name: /finish gmail setup/i }),
+      screen.getByRole("button", { name: /finish mail setup/i }),
     );
 
     expect(finishSetup).toHaveBeenCalledTimes(1);
     expect(
-      screen.queryByRole("button", { name: /skip gmail setup/i }),
+      screen.queryByRole("button", { name: /skip mail setup/i }),
     ).toBeNull();
     expect(
       screen.getAllByText(/preparing your receipt scan/i).length,
@@ -1437,10 +1437,10 @@ describe("ProfileReceiptsPage", () => {
       0,
     );
     fireEvent.click(screen.getByRole("button", { name: /^disconnect$/i }));
-    expect(screen.getByText("Disconnect Gmail?")).toBeTruthy();
+    expect(screen.getByText("Disconnect Mail?")).toBeTruthy();
 
     fireEvent.click(
-      screen.getByRole("button", { name: /^disconnect gmail$/i }),
+      screen.getByRole("button", { name: /^disconnect mail$/i }),
     );
 
     await waitFor(() => {
@@ -1449,8 +1449,8 @@ describe("ProfileReceiptsPage", () => {
     expect(mocks.toast.promise).toHaveBeenCalledWith(
       expect.any(Promise),
       expect.objectContaining({
-        loading: "Disconnecting Gmail...",
-        success: "Gmail disconnected and Gmail receipt data was deleted.",
+        loading: "Disconnecting Mail...",
+        success: "Mail disconnected and Mail receipt data was deleted.",
       }),
     );
     await waitFor(() => {

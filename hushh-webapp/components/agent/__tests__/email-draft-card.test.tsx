@@ -143,7 +143,7 @@ describe("EmailDraftCard", () => {
     );
 
     expect(screen.getByTestId("one-email-draft-source-bound-notice")).toHaveTextContent(
-      "original Gmail thread",
+      "original Mail thread",
     );
     expect(screen.getByTestId("one-email-draft-source-bound-notice")).toHaveTextContent(
       "full name and educational institution",
@@ -189,7 +189,7 @@ describe("EmailDraftCard", () => {
       "aria-busy",
       "true",
     );
-    expect(screen.getByRole("status")).toHaveTextContent("Drafting your email");
+    expect(screen.getByRole("status")).toHaveTextContent("Drafting your mail");
     expect(screen.getByText("Close draft")).toBeEnabled();
     expect(screen.getByTestId("one-email-draft-send")).toBeDisabled();
     expect(screen.queryByTestId("one-email-draft-to")).not.toBeInTheDocument();

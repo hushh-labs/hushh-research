@@ -435,7 +435,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
                 // error string so a normal cancellation remains a calm UI state.
                 let isCanceled = (error as NSError).code == -5
                 call.reject(
-                    isCanceled ? "Gmail connection was cancelled" : "Gmail sign-in failed: \(error.localizedDescription)",
+                    isCanceled ? "Mail connection was cancelled" : "Mail sign-in failed: \(error.localizedDescription)",
                     isCanceled ? "USER_CANCELLED" : nil
                 )
                 return
@@ -443,7 +443,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
 
             guard let serverAuthCode = result?.serverAuthCode,
                   !serverAuthCode.isEmpty else {
-                call.reject("Google did not return a Gmail authorization code")
+                call.reject("Google did not return a Mail authorization code")
                 return
             }
 

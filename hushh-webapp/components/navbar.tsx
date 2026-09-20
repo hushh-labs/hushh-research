@@ -132,7 +132,7 @@ const BOTTOM_NAV_OPTION_META: Record<
   },
   gmail: {
     value: "gmail",
-    label: "Gmail",
+    label: "Mail",
     icon: EnvelopeSimple,
     dataTourId: "nav-one-gmail",
   },

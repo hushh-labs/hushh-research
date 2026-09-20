@@ -57,7 +57,7 @@ describe("GmailOnboardingSetupClient", () => {
     );
     expect(screen.getByTestId("gmail-vault-prerequisite")).toHaveAttribute(
       "data-label",
-      "Gmail",
+      "Mail",
     );
     await waitFor(() => expect(replace).not.toHaveBeenCalled());
   });

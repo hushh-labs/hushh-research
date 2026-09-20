@@ -244,7 +244,7 @@ describe("personal Gmail information-request scope boundary", () => {
         includeRecentInbox: true,
       }),
     );
-    expect(await screen.findByText("Emails checked")).toBeVisible();
+    expect(await screen.findByText("Mail messages checked")).toBeVisible();
     expect(screen.getByText("Newly classified")).toBeVisible();
     expect(screen.getByText("KYC requests found")).toBeVisible();
     expect(screen.getAllByText("1")).toHaveLength(3);
@@ -285,9 +285,9 @@ describe("personal Gmail information-request scope boundary", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Scan inbox" }));
 
     expect(
-      await screen.findByText("1 email could not be classified. Scan again to retry."),
+      await screen.findByText("1 mail message could not be classified. Scan again to retry."),
     ).toBeVisible();
-    expect(screen.getByText("Emails checked").nextElementSibling).toHaveTextContent("3");
+    expect(screen.getByText("Mail messages checked").nextElementSibling).toHaveTextContent("3");
   });
 
   it("keeps the server's safe scan error visible", async () => {
@@ -360,7 +360,7 @@ describe("personal Gmail information-request scope boundary", () => {
 
     expect(await screen.findByText("Turn off monitoring?")).toBeVisible();
     expect(
-      screen.getByText(/Your Gmail emails are not deleted/i),
+      screen.getByText(/Your Mail messages are not deleted/i),
     ).toBeVisible();
     expect(gmailServiceMocks.setPreference).not.toHaveBeenCalled();
 
@@ -460,7 +460,7 @@ describe("personal Gmail information-request scope boundary", () => {
     fireEvent.click(screen.getByRole("button", { name: "Review" }));
 
     expect(await screen.findByText("Review request")).toBeVisible();
-    expect(screen.getByRole("button", { name: "Open email" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "Open mail" })).toBeVisible();
   });
 
   it("moves a KYC request into One without putting private values in the handoff", async () => {

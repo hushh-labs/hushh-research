@@ -1,4 +1,5 @@
 import gatewayJson from "@/contracts/kai/kai-action-gateway.vnext.json";
+import { mailDisplayLabel } from "@/lib/copy/mail-terminology";
 import { ApiService } from "@/lib/services/api-service";
 
 import type { KaiCommandAction } from "@/lib/kai/kai-command-types";
@@ -1077,7 +1078,7 @@ export function evaluateKaiActionAvailability(input: {
     ) {
       return {
         status: "blocked",
-        reason: "Connect Gmail first.",
+        reason: "Connect Mail first.",
         target_persona: null,
         blocked_guidance: null,
       };
@@ -1091,7 +1092,7 @@ export function evaluateKaiActionAvailability(input: {
     ) {
       return {
         status: "blocked",
-        reason: "Gmail configuration is not ready yet.",
+        reason: "Mail configuration is not ready yet.",
         target_persona: null,
         blocked_guidance: null,
       };
@@ -1150,7 +1151,7 @@ function scoreSearchMatch(
     if (!action.reachability.hidden_navigable) score += 2;
     return score;
   }
-  if (action.label.toLowerCase().includes(q)) score += 8;
+  if (action.label.toLowerCase().includes(q) || mailDisplayLabel(action.label).toLowerCase().includes(q)) score += 8;
   if (action.action_id.toLowerCase().includes(q)) score += 6;
   if (action.aliases.some((alias) => alias.toLowerCase().includes(q)))
     score += 5;

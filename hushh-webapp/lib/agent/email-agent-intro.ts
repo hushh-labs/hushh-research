@@ -5,7 +5,7 @@
  */
 export function buildEmailAgentIntroPrompt(recipient: string): string {
   const normalizedRecipient = recipient.trim();
-  return `Can you send an email to '${normalizedRecipient}', In the email explain features of the email agent.`;
+  return `Can you send a mail to '${normalizedRecipient}', In the mail explain features of the mail agent.`;
 }
 
 // ---------------------------------------------------------------------------

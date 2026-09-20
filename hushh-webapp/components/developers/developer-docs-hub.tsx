@@ -663,7 +663,7 @@ function AccessWorkspace({
                     Agent id: <code>{access.app?.agent_id}</code>
                   </p>
                   <p className="text-sm leading-6 text-muted-foreground">
-                    Contact email: <code>{access.app?.contact_email}</code>
+                    Contact mail: <code>{access.app?.contact_email}</code>
                   </p>
                 </div>
                 <div className="space-y-2">

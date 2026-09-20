@@ -1,5 +1,7 @@
 "use client";
 
+import { mailDisplayLabel } from "@/lib/copy/mail-terminology";
+
 type ConsentDisplayInput = {
   scope?: string | null;
   scopeDescription?: string | null;
@@ -51,20 +53,20 @@ export function humanizeConsentScope(scope: string | null | undefined): string {
     const domain = attrMatch[1].replace(/_/g, " ");
     const tail = String(attrMatch[2] || "").trim();
     if (!tail || tail === "*") {
-      return `${domain.replace(/\b\w/g, (char) => char.toUpperCase())} data`;
+      return mailDisplayLabel(`${domain.replace(/\b\w/g, (char) => char.toUpperCase())} data`);
     }
-    return `${domain} ${tail}`
+    return mailDisplayLabel(`${domain} ${tail}`
       .replace(/[._]/g, " ")
-      .replace(/\b\w/g, (char) => char.toUpperCase());
+      .replace(/\b\w/g, (char) => char.toUpperCase()));
   }
 
   if (normalized === "vault.owner") return "Full vault access";
   if (normalized === "pkm.read") return "Personal Knowledge Model access";
   if (normalized === "pkm.write") return "Personal Knowledge Model updates";
 
-  return normalized
+  return mailDisplayLabel(normalized
     .replace(/[._]/g, " ")
-    .replace(/\b\w/g, (char) => char.toUpperCase());
+    .replace(/\b\w/g, (char) => char.toUpperCase()));
 }
 
 export function resolveConsentSupportingCopy(input: ConsentDisplayInput): string {

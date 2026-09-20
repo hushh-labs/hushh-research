@@ -142,7 +142,7 @@ describe("ProfileGmailOAuthReturnPage", () => {
       expect(mocks.routerReplace).toHaveBeenCalledWith("/one/gmail");
     });
 
-    expect(screen.queryByText("Gmail connection needs attention")).toBeNull();
+    expect(screen.queryByText("Mail connection needs attention")).toBeNull();
   });
 
   it("uses live search params when the initial server props are empty", async () => {
@@ -448,9 +448,9 @@ describe("ProfileGmailOAuthReturnPage", () => {
 
     render(<ProfileGmailOAuthReturnPage />);
 
-    await waitFor(() => expect(screen.getByText("Gmail connection needs attention")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Mail connection needs attention")).toBeTruthy());
     expect(mocks.syncOnboardingJourney).not.toHaveBeenCalled();
-    expect(screen.getByText("Gmail connection needs attention")).toBeTruthy();
+    expect(screen.getByText("Mail connection needs attention")).toBeTruthy();
   });
 
   it("does not mark a callback without the matching browser correlation", async () => {
@@ -461,7 +461,7 @@ describe("ProfileGmailOAuthReturnPage", () => {
 
     render(<ProfileGmailOAuthReturnPage />);
 
-    await waitFor(() => expect(screen.getByText("Gmail connection needs attention")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("Mail connection needs attention")).toBeTruthy());
     expect(mocks.syncOnboardingJourney).not.toHaveBeenCalled();
   });
 
@@ -498,7 +498,7 @@ describe("ProfileGmailOAuthReturnPage", () => {
     await waitFor(() => {
       expect(mocks.routerReplace).toHaveBeenCalledWith("/one/gmail");
     });
-    expect(screen.queryByText("Gmail connection needs attention")).toBeNull();
+    expect(screen.queryByText("Mail connection needs attention")).toBeNull();
     expect(
       window.sessionStorage.getItem("one_onboarding_connector_intent_v1"),
     ).toBeNull();

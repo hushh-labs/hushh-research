@@ -40,18 +40,18 @@ describe("EmailAgentPageClient", () => {
     connected = false;
     render(<EmailAgentPageClient />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Connect Gmail" }));
+    fireEvent.click(screen.getByRole("button", { name: "Connect Mail" }));
 
     expect(push).toHaveBeenCalledWith("/one/gmail");
-    expect(screen.getByRole("heading", { name: "Connect Gmail" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Connect Mail" })).toBeTruthy();
   });
 
   it("starts a normal visible One chat prompt when Gmail is connected", () => {
     connected = true;
     render(<EmailAgentPageClient />);
 
-    expect(screen.getByText("Gmail connected")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Try Email Agent with One" }));
+    expect(screen.getByText("Mail connected")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Try Mail Agent with One" }));
 
     expect(createHandoff).toHaveBeenCalledWith(
       expect.objectContaining({

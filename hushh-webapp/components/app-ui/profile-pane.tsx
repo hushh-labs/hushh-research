@@ -46,7 +46,7 @@ export function ProfilePane({ open, onOpenChange }: ProfilePaneProps) {
         : paneState.location.panel === "connected-systems"
           ? "Connected Systems"
           : paneState.location.panel === "gmail"
-            ? "Gmail receipts"
+            ? "Mail receipts"
             : paneState.location.panel === "account"
               ? "Your account"
               : paneState.location.panel === "preferences"

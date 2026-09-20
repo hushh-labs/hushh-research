@@ -32,7 +32,7 @@ describe("recursive Profile pane contracts", () => {
     for (const label of [
       "Memory",
       "Connected Systems",
-      "Gmail receipts",
+      "Mail receipts",
       "Trusted devices",
       "Invite friends",
       "Help & feedback",

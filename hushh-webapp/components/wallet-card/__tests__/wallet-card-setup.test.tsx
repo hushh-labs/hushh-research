@@ -105,7 +105,7 @@ describe("WalletCardSetup", () => {
     fireEvent.change(linkedinInput, {
       target: { value: "https://www.linkedin.com/in/ankit" },
     });
-    fireEvent.click(screen.getByRole("tab", { name: "Email" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Mail" }));
     fireEvent.click(screen.getByRole("tab", { name: "LinkedIn" }));
 
     expect(screen.getByLabelText("LinkedIn profile")).toHaveValue(
@@ -143,7 +143,7 @@ describe("WalletCardSetup", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /More details/i }));
 
-    expect(screen.getByLabelText("Email")).toBeVisible();
+    expect(screen.getByLabelText("Mail")).toBeVisible();
     expect(screen.getByLabelText("Phone")).toBeVisible();
     expect(screen.getByLabelText("Public link")).toBeVisible();
     expect(screen.getAllByLabelText("LinkedIn profile")).toHaveLength(1);
