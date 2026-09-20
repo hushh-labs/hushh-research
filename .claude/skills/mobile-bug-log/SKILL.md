@@ -361,6 +361,19 @@ Three small mobile UX/nav fixes (commit `909ea793d`):
 - **Regression prevention:** the sync and the card refuse a stale export with the fix printed.
 - **GOTCHA:** a bundle can be "fresh" (new JS hashes, fresh `index.html`, the stale-`out/` guard green) and still carry old CSS. Before trusting a device result for a CSS change, grep the export's CSS for a selector the change introduced. `cap:sync:android` still resolves `webDir` without the native env (it points at `out/`, which no longer exists); the Android lane must build with `NEXT_DIST_DIR` set or sync from `.next-native-uat`.
 
+### B36 — The Finance flick was the frosted rows, not the charts; the chat lane measured nothing because it looked on the wrong tab
+- **Symptom:** `kai-chart-flick` read p95 43 ms with 13 frames over 50 ms per 9 windows (run O), and stayed at 70 ms/s hitch after the chart tooltip and animation fixes. The chat stream never produced a gesture window in any run.
+- **Root cause:** eight advisor-pick rows in `renaissance-market-list.tsx` each carried `backdrop-blur-[16px]` and moved under the flick; a backdrop filter on moving content re-samples the backdrop every frame per row. The five small charts were cheap. For chat, `perfSendChatPrompt` searched `/one` for the composer, which mounts only on `/` (the Chat tab), so the step timed out silently.
+- **Fix:** rows are solid (`--app-card-surface-default-solid` plus the neutral Liquid Glass material; founder decision: blur stays on fixed chrome only); the market pane's raw `ResponsiveContainer`s pass `debounce={CHART_RESIZE_DEBOUNCE_MS}`; the truth lane gained a `chat` section that launches at `/`, unlocks by passphrase, sends a fixed prompt and holds a 30 s window.
+- **Regression prevention:** `backdrop-filter-on-list-row` in `verify-render-performance.mjs` (a `backdrop-blur` class on a keyed list element; allowlist only shrinks); `kai-charts-animation.contract.test.ts` requires the debounce on every raw container.
+- **GOTCHA:** the lint rule only sees a keyed JSX opening tag; a blur applied through a wrapper component or a CSS class named elsewhere still needs a human eye. Chat, Kai and Location each need their own launch in the attached lane because the vault gate hides the composer and the charts until the section unlocks.
+
+### B37 — The bottom-chrome material could not be a class: one `!important` rule owns the dock and the nav pill
+- **Symptom:** adding `morphy-liquid-neutral` to the voice dock or the nav pill changed nothing on the phone in any theme.
+- **Root cause:** `.bottom-chrome-surface, .kai-bottom-nav-pill` in `globals.css` sets `background` (shorthand) and `box-shadow` with `!important`; a utility class cannot win against it, and the shorthand also wipes any `background-image` a class sets.
+- **Fix:** the material is folded into that rule: `background` became `background-color` plus the gloss `background-image`, the rim and depth insets merged into the existing `box-shadow` through a `--bottom-chrome-drop` custom property so light and dark share one declaration, and a live voice session (`[data-voice-phase]` not `idle`) adds the accent halo. The blur stays because this chrome is fixed. `navbar-agent-trigger.contract.test.ts` pins the rule header text.
+- **GOTCHA:** the neutral material's `box-shadow` also replaces a control's outer shadow; a control that keeps one passes it through `--liquid-neutral-drop` (the shell controls keep the glass drop that way) instead of stacking a `shadow-*` utility that the material then beats.
+
 ---
 
 ## 🧪 QA test phone numbers (UAT, fixed OTP `000000`)

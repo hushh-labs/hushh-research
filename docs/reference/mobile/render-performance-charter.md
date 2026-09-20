@@ -130,7 +130,10 @@ unlocked with the passphrase method from the process environment (never
 Face ID; the value is never logged and the log is discarded if it contains
 it), and the reviewer bridge and its status poll are absent. This is the
 certifying run; the summary says so only when all three hold (phone,
-Release, test mode off). `PERF_SECTION=feed|kai|location` runs one surface.
+Release, test mode off). `PERF_SECTION=feed|chat|kai|location|all` runs one
+surface or all four; `chat` launches at `/` (the Chat tab, the only route
+where the composer mounts), sends a fixed prompt and holds a 30 s window
+named `chat-stream-30s`.
 The Release build sets `ENABLE_TESTABILITY=YES` because the scheme's
 unit-test target does `@testable import App`; it keeps `-O`.
 
@@ -179,8 +182,10 @@ table lives in the baseline report and re-ranks the remaining work.
 ## Defending it
 
 - `npm run verify:render-performance` (also the fourth link of
-  `verify:design-system`, so CI runs it): thirteen rules with an allowlist
-  that only tightens. `hushh-webapp/scripts/architecture/render-performance-allowlist.json`
+  `verify:design-system`, so CI runs it): fifteen rules with an allowlist
+  that only tightens, including `backdrop-filter-on-list-row` (a
+  `backdrop-blur` class on a keyed list element; a row that moves under a
+  flick re-samples its backdrop every frame, so blur stays on fixed chrome). `hushh-webapp/scripts/architecture/render-performance-allowlist.json`
   carries today's debt; `--write-allowlist` rewrites it after debt is paid.
 - `hushh-webapp/__tests__/ui/layer-order.contract.test.ts` pins the `--z-*` ladder;
   `hushh-webapp/e2e/profile-pane-layer-order.spec.ts` proves the browser stacks it.

@@ -130,6 +130,47 @@ is never inside the fade, which is what the person feels, but the probe still
 counts it. Cutting that frame needs a profile of the mount (Time Profiler
 over USB; `hushh-webapp/scripts/perf/ios-time-profile-buckets.mjs` buckets it).
 
+## Phase 2, morning of 2026-09-20 (same lane, same phone)
+
+Two more landings, each measured with the full truth lane (Release, test
+mode off, certifying; webpack cache cleared and the export's CSS verified
+fresh before every run, after three runs had measured a stale stylesheet):
+
+| Gesture | Before (night of 09-19) | After a5579e196 (tab-switch shell work, run W) | After 8ab3218e9 + cc52e1c82 (solid Finance rows, chat lane, run Z) |
+|---|---|---|---|
+| bottom-nav-switch, hitch ms/s | 46.5 | **31.9** | 37.9 |
+| bottom-nav-switch, p99 ms / worst ms | 47 / 56 | **32 / 44** | 37 / 48 |
+| kai-chart-flick, hitch ms/s | 70.3 | (not re-run) | **33.2** |
+| kai-chart-flick, p95 / p99 / worst ms | 21 / 72 / 74 | | 20 / 34 / 64 |
+| kai-chart-flick, frames > 50 ms (9 windows) | 1 | | 2 |
+| feed-flick, frames > 50 ms / worst ms / hitch ms/s | 0 / 43 / 25.4 | 0 / 44 / 25.1 | 0 / 46 / 36.3 |
+| chat-stream-30s (first measurement) | never measured | | 2 windows, 113 frames, p99 62.5, worst 86, 92.4 ms/s (see below) |
+| profile-pane / pager / map, hitch ms/s | 22.2 / 30.3 / 19.8 | 22.6 / 28.9 / 19.5 | 22 / 29.5 / 19.9 |
+
+Run Z's rAF read 55.1 Hz at boot (the phone was warm from the build), so
+its idle p95 of 17 ms sits on budget everywhere.
+
+The tab switch: the shell work removed the root-variable churn (26 mirrored
+variables removed and re-set on every navigation), memoised the bottom
+shell and the profile pane, stopped the persona refresh on cached state,
+and cut the scroll reset to one write plus one conditional frame. The
+reading moved from 46.5 to 31.9 ms/s and the worst frame from 56 to 44 ms.
+The next run read 37.9; the band on this gesture across identical builds
+is about ±8 ms/s, so the two later readings agree with each other and both
+sit below every earlier one.
+
+The Finance flick: the eight advisor-pick rows carried their own frosted
+blur and moved under the flick; solid rows took the hitch from 70.3 to
+33.2 ms/s and the p99 from 72 to 34 ms. The remaining two frames over
+50 ms are the chart's first paint on entry, not the flick.
+
+The chat row is not yet a stream measurement. The probe opened windows on
+pointer and scroll input only, so inside the 35 s stream span it caught two
+1 s auto-scroll windows; the stream itself landed in `idle:/` (9767
+frames, p95 17 ms, worst 98, 3 frames over 50 ms, 12.9 ms/s). be5899207
+adds a `stream` window that stays open while the assistant bubble carries
+`data-agent-streaming`; the next lane run reads the whole reply.
+
 ## Reading it
 
 - **Kai chart flick** is the surface furthest from the bar: p95 43 ms, 13
