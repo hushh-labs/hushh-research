@@ -1,9 +1,6 @@
 {
   "schema_version": 1,
   "rules": {
-    "body-subtree-mutation-observer": {
-      "lib/navigation/kai-bottom-chrome-visibility.ts": 1
-    },
     "root-custom-property-write": {
       "components/app-ui/app-bottom-shell.tsx": 6,
       "components/app-ui/app-edge-back-gesture.tsx": 2,

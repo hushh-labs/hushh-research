@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  memo,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -28,7 +29,7 @@ const BOTTOM_SCROLL_TRANSFORM =
   "translate3d(0, calc((var(--kb-height, 0px) * -1) + (var(--bottom-chrome-progress, 0) * var(--bottom-nav-travel, 0px))), 0)";
 
 /** Shared persistent bottom chrome: separate voice and navigation bars. */
-export function AppBottomShell({ model }: { model: BottomShellModel }) {
+export const AppBottomShell = memo(function AppBottomShell({ model }: { model: BottomShellModel }) {
   const command = useOptionalLocationCommand();
   const voiceActive = useAgentVoiceState((state) => state.active);
   const hidden = model.hidden && !command?.active && !voiceActive;
@@ -142,4 +143,4 @@ export function AppBottomShell({ model }: { model: BottomShellModel }) {
       </div>
     </>
   );
-}
+});

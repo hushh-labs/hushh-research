@@ -1,5 +1,7 @@
 "use client";
 
+import { memo } from "react";
+
 import {
   ArrowLeftIcon as ArrowLeft,
   XIcon as X,
@@ -32,7 +34,7 @@ type ProfilePaneProps = {
  * rows and route-aware stack; this component only supplies the immersive
  * right-side presentation used by the shell and native edge gesture.
  */
-export function ProfilePane({ open, onOpenChange }: ProfilePaneProps) {
+export const ProfilePane = memo(function ProfilePane({ open, onOpenChange }: ProfilePaneProps) {
   const { isVaultUnlocked } = useVault();
   const pathname = usePathname() || "/";
   const searchParams = useSearchParams();
@@ -116,4 +118,4 @@ export function ProfilePane({ open, onOpenChange }: ProfilePaneProps) {
       </SheetContent>
     </Sheet>
   );
-}
+});

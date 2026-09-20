@@ -182,6 +182,8 @@ function attachScrollListener() {
   activeScrollTarget = target;
   target.addEventListener("scroll", handleScroll, { passive: true });
   scrollListenerAttached = true;
+  // Follow the live root's parent so the next replacement is still seen.
+  if (scrollRootObserver) observeScrollRoot();
 
   resetKaiBottomChromeVisibility();
   onScroll(readActiveScrollY());
@@ -202,26 +204,41 @@ function scheduleScrollTargetRefresh() {
   });
 }
 
+let observedScrollParent: Node | null = null;
+
+/**
+ * Watches for the scroll root being replaced. That only ever happens under
+ * the scroll root's own parent (the route Suspense swaps its fallback and
+ * resolved trees there), so the observer watches that parent, children
+ * only. A body-wide subtree observer used to wake on every DOM mutation in
+ * the app (each streamed chat token, each map marker move) to run a
+ * querySelector; it widens to the body only while no scroll root exists.
+ */
 function observeScrollRoot() {
   if (
-    scrollRootObserver ||
     typeof MutationObserver === "undefined" ||
     typeof document === "undefined" ||
     !document.body
   ) {
     return;
   }
-
+  const target = resolveScrollTarget();
+  const rootElement = target instanceof HTMLElement ? target : null;
+  const parent: Node = rootElement?.parentElement ?? document.body;
+  if (scrollRootObserver && observedScrollParent === parent) return;
+  scrollRootObserver?.disconnect();
   scrollRootObserver = new MutationObserver(scheduleScrollTargetRefresh);
-  scrollRootObserver.observe(document.body, {
+  scrollRootObserver.observe(parent, {
     childList: true,
-    subtree: true,
+    subtree: !rootElement,
   });
+  observedScrollParent = parent;
 }
 
 function stopObservingScrollRoot() {
   scrollRootObserver?.disconnect();
   scrollRootObserver = null;
+  observedScrollParent = null;
   if (scrollRootRefreshFrame !== null && typeof window !== "undefined") {
     window.cancelAnimationFrame(scrollRootRefreshFrame);
   }
