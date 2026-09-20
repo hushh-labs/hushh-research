@@ -595,11 +595,15 @@ function AppShellFrame({ children }: ProvidersProps) {
     const previousValues = new Map<string, string>();
 
     mirroredVars.forEach((key) => {
-      previousValues.set(key, root.style.getPropertyValue(key));
+      const currentValue = root.style.getPropertyValue(key);
+      previousValues.set(key, currentValue);
       const nextValue =
         readCustomVar(topShellRouteStyle, key) ||
         readCustomVar(signedInShellContentOffset.style, key);
-      if (nextValue) {
+      // Every write here invalidates style for the whole document, on the
+      // frame the incoming route is mounting; most route changes keep the
+      // same geometry, so only a changed value is written.
+      if (nextValue && nextValue !== currentValue) {
         root.style.setProperty(key, nextValue);
       }
     });

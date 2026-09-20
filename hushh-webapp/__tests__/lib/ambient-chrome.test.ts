@@ -214,14 +214,20 @@ describe("ambient chrome", () => {
       .mockReturnValue(0);
     vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
 
+    vi.useFakeTimers();
     const stop = createAmbientChromeEngine();
     requestAnimationFrame.mockClear();
     requestAmbientChromeSample();
+    // A route settle samples after the enter beat, not on the frame the
+    // incoming page takes its first layout and paint.
+    expect(requestAnimationFrame).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(300);
     expect(requestAnimationFrame).toHaveBeenCalledTimes(1);
     stop();
     requestAnimationFrame.mockClear();
     // Once stopped, a settle request is a no-op rather than a leak.
     requestAmbientChromeSample();
+    vi.advanceTimersByTime(300);
     expect(requestAnimationFrame).not.toHaveBeenCalled();
   });
 

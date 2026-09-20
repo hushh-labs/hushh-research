@@ -341,6 +341,8 @@ const AMBIENT_MIN_SURFACE_WIDTH = 0.6;
 // samples while a scroll is live; it samples once, this long after the last
 // scroll event.
 const AMBIENT_SCROLL_IDLE_RESAMPLE_MS = 120;
+/** After a route settle: past the enter fade, on a page that has painted. */
+const AMBIENT_ROUTE_SETTLE_SAMPLE_MS = 260;
 // Route content arrives after the shell; prime across a few frames so the
 // first tone decision is not taken from an empty scaffold.
 const AMBIENT_PRIME_FRAMES = 8;
@@ -584,12 +586,22 @@ export function createAmbientChromeEngine(enabled = true): () => void {
   // subtree observer.
   const observer = new MutationObserver(requestSample);
   observer.observe(root, { attributes: true, attributeFilter: ["class"] });
+  // A route settle asks for a sample on the same frame the incoming page
+  // takes its first style, layout and paint; the hit-tests and computed-style
+  // reads would land inside that frame. Wait out the enter beat instead and
+  // sample the settled page.
+  let routeSettleTimer: number | null = null;
   engineRequestSample = () => {
     bindScrollRoot();
-    requestSample();
+    if (routeSettleTimer !== null) window.clearTimeout(routeSettleTimer);
+    routeSettleTimer = window.setTimeout(() => {
+      routeSettleTimer = null;
+      requestSample();
+    }, AMBIENT_ROUTE_SETTLE_SAMPLE_MS);
   };
   return () => {
     engineRequestSample = null;
+    if (routeSettleTimer !== null) window.clearTimeout(routeSettleTimer);
     scrollRoot?.removeEventListener("scroll", wakeFromScroll);
     window.removeEventListener("scroll", wakeFromScroll, { capture: true });
     window.removeEventListener("resize", requestSample);
