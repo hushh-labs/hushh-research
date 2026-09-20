@@ -598,6 +598,14 @@ const REDIRECT_EXPECTATIONS = {
   },
 };
 
+// Puppy One is intentionally excluded from native coverage: it reaches a
+// loopback agent on the owner's computer, and the page documents that it has
+// no native-test marker. Keep browser route coverage by checking its authored
+// page heading instead of inventing a native beacon.
+const WEB_ONLY_ROUTE_HEALTH_EXPECTATIONS = {
+  "/one/puppy": "Puppy One",
+};
+
 async function installNativeTestBridge(page) {
   await page.addInitScript(
     ({ expectedUserId, vaultPassphrase }) => {
@@ -1788,14 +1796,21 @@ async function verifyRoute(page, viewport, spec) {
       throw new Error(`${spec.route} relocked the vault unexpectedly`);
     }
 
-    try {
-      await waitForRouteBeacon(page, spec.allowedRouteIds);
-    } catch (error) {
-      const diagnostics = await captureRouteDiagnostics(page);
-      throw new Error(
-        `${spec.route} route beacon timed out.\n${JSON.stringify(diagnostics, null, 2)}`,
-        { cause: error },
-      );
+    const webOnlyRouteHeading = WEB_ONLY_ROUTE_HEALTH_EXPECTATIONS[spec.route];
+    if (webOnlyRouteHeading) {
+      await page
+        .getByRole("heading", { name: webOnlyRouteHeading, exact: true })
+        .waitFor({ state: "visible", timeout: NAVIGATION_TIMEOUT_MS });
+    } else {
+      try {
+        await waitForRouteBeacon(page, spec.allowedRouteIds);
+      } catch (error) {
+        const diagnostics = await captureRouteDiagnostics(page);
+        throw new Error(
+          `${spec.route} route beacon timed out.\n${JSON.stringify(diagnostics, null, 2)}`,
+          { cause: error },
+        );
+      }
     }
     // Every direct entry remounts the provider tree. Its route marker can
     // settle before the test-only reviewer bootstrap has restored the
