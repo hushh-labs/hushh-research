@@ -16,7 +16,7 @@ import {
 import { copyToClipboard } from "@/lib/utils/clipboard";
 
 const EXTERNAL_AGENT_PROMPT =
-  "Create a concise, reviewable summary of the personal and KYC details I have explicitly provided to you. Include only information useful for KYC, organized by field.";
+  "Summarize the personal and KYC details I've shared with you so far. Keep it short, organized by field, and only include what's useful for KYC.";
 
 export function GmailVerificationOnboarding({
   userId,
@@ -193,8 +193,8 @@ export function GmailVerificationOnboarding({
           Build your KYC profile
         </h2>
         <p className="text-sm text-muted-foreground">
-          Ask another AI for an export, paste it here, then save only the
-          details you want One to use for future KYC replies.
+          Export your details from another AI, paste them here, and choose what
+          you&apos;d like One to remember for future KYC replies.
         </p>
       </div>
       <Textarea
