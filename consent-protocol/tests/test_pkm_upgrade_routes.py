@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 from datetime import datetime, timezone
 
 import pytest
@@ -261,6 +262,7 @@ def test_store_domain_forwards_server_upgrade_claim(monkeypatch):
 def test_location_store_emits_silent_metadata_only_sync_after_commit(monkeypatch):
     pushes: list[tuple[str, dict]] = []
     streams: list[tuple[str, dict]] = []
+    push_delivered = threading.Event()
 
     class _FakePkmService:
         async def get_mutation_sharing_impact(self, **_kwargs):
@@ -283,31 +285,35 @@ def test_location_store_emits_silent_metadata_only_sync_after_commit(monkeypatch
     plan["proposed_domain"] = "location"
     plan["confirmation_receipt"]["displayed_domain"] = "location"
     monkeypatch.setattr(pkm_routes_shared, "get_pkm_service", lambda: _FakePkmService())
-    monkeypatch.setattr(
-        pkm_routes_shared,
-        "send_user_data_push",
-        lambda user_id, **kwargs: pushes.append((user_id, kwargs)) or 1,
-    )
+
+    def _capture_push(user_id, **kwargs):
+        pushes.append((user_id, kwargs))
+        push_delivered.set()
+        return 1
+
+    monkeypatch.setattr(pkm_routes_shared, "send_user_data_push", _capture_push)
     monkeypatch.setattr(
         "api.consent_listener.publish_user_state_event_threadsafe",
         lambda user_id, data: streams.append((user_id, data)) or True,
     )
 
-    response = TestClient(_build_app()).post(
-        "/api/pkm/store-domain",
-        json={
-            "user_id": "user_123",
-            "domain": "location",
-            "encrypted_blob": {
-                "ciphertext": "ciphertext-only",
-                "iv": "iv",
-                "tag": "tag",
-                "algorithm": "aes-256-gcm",
+    with TestClient(_build_app()) as client:
+        response = client.post(
+            "/api/pkm/store-domain",
+            json={
+                "user_id": "user_123",
+                "domain": "location",
+                "encrypted_blob": {
+                    "ciphertext": "ciphertext-only",
+                    "iv": "iv",
+                    "tag": "tag",
+                    "algorithm": "aes-256-gcm",
+                },
+                "summary": {},
+                "mutation_plan": plan,
             },
-            "summary": {},
-            "mutation_plan": plan,
-        },
-    )
+        )
+        assert push_delivered.wait(timeout=2)
 
     assert response.status_code == 200
     assert len(pushes) == 1
@@ -440,6 +446,7 @@ def test_confirmed_domain_delete_forwards_revision_and_plan(monkeypatch):
 def test_location_domain_delete_emits_silent_metadata_only_sync(monkeypatch, route_kind):
     pushes: list[tuple[str, dict]] = []
     streams: list[tuple[str, dict]] = []
+    push_delivered = threading.Event()
 
     class _FakePkmService:
         async def get_mutation_sharing_impact(self, **_kwargs):
@@ -463,32 +470,35 @@ def test_location_domain_delete_emits_silent_metadata_only_sync(monkeypatch, rou
             }
 
     monkeypatch.setattr(pkm_routes_shared, "get_pkm_service", lambda: _FakePkmService())
-    monkeypatch.setattr(
-        pkm_routes_shared,
-        "send_user_data_push",
-        lambda user_id, **kwargs: pushes.append((user_id, kwargs)) or 1,
-    )
+
+    def _capture_push(user_id, **kwargs):
+        pushes.append((user_id, kwargs))
+        push_delivered.set()
+        return 1
+
+    monkeypatch.setattr(pkm_routes_shared, "send_user_data_push", _capture_push)
     monkeypatch.setattr(
         "api.consent_listener.publish_user_state_event_threadsafe",
         lambda user_id, data: streams.append((user_id, data)) or True,
     )
 
-    client = TestClient(_build_app())
-    if route_kind == "legacy":
-        response = client.delete("/api/pkm/domain-data/user_123/location")
-    else:
-        plan = _confirmed_delete_plan_payload()
-        plan["proposed_domain"] = "location"
-        plan["confirmation_receipt"]["displayed_domain"] = "location"
-        response = client.post(
-            "/api/pkm/delete-domain",
-            json={
-                "user_id": "user_123",
-                "domain": "location",
-                "expected_data_version": 11,
-                "mutation_plan": plan,
-            },
-        )
+    with TestClient(_build_app()) as client:
+        if route_kind == "legacy":
+            response = client.delete("/api/pkm/domain-data/user_123/location")
+        else:
+            plan = _confirmed_delete_plan_payload()
+            plan["proposed_domain"] = "location"
+            plan["confirmation_receipt"]["displayed_domain"] = "location"
+            response = client.post(
+                "/api/pkm/delete-domain",
+                json={
+                    "user_id": "user_123",
+                    "domain": "location",
+                    "expected_data_version": 11,
+                    "mutation_plan": plan,
+                },
+            )
+        assert push_delivered.wait(timeout=2)
 
     assert response.status_code == 200
     assert len(pushes) == 1
