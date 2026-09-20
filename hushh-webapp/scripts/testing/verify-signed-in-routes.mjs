@@ -123,6 +123,7 @@ const TRANSIENT_BACKGROUND_RESPONSE_FAILURES = [
 const LOCAL_CRM_ROUTE_PREFIXES = [
   "/one/connected-systems",
   "/one/profile/connected-systems",
+  "/connected-systems",
 ];
 const localCrmEnabled = ["1", "true", "yes", "on"].includes(
   String(process.env.NEXT_PUBLIC_HUSHH_LOCAL_CRM_ENABLED || "")
