@@ -647,10 +647,6 @@ function isSameSessionShellRoute(route) {
   return route === "/one/profile" || route.startsWith("/one/profile/");
 }
 
-function requiresColdReviewerVaultAdmission(route) {
-  return route === "/agent" || route === "/one/setup" || route.startsWith("/one/setup/");
-}
-
 function isSetupGatedOneRoute(route) {
   return (
     (route === "/one" || route.startsWith("/one/")) &&
@@ -1780,11 +1776,11 @@ async function verifyRoute(page, viewport, spec) {
         { cause: error },
       );
     }
-    // Direct-entry setup and legacy Chat routes remount the provider tree.
-    // Their route marker can settle before the test-only reviewer bootstrap
-    // has restored the in-memory vault key. Wait for the actual admission
-    // boundary before attributing late bootstrap/network errors to the route.
-    if (!usedShellNav && requiresColdReviewerVaultAdmission(spec.route)) {
+    // Every direct entry remounts the provider tree. Its route marker can
+    // settle before the test-only reviewer bootstrap has restored the
+    // in-memory vault key. Wait for the actual admission boundary before
+    // attributing late bootstrap/network errors to the route.
+    if (!usedShellNav) {
       await waitForReviewerVaultAdmission(page, smokeUserId, NAVIGATION_TIMEOUT_MS);
     }
     if (spec.expectedVisibleText) {
