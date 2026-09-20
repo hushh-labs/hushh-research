@@ -711,26 +711,38 @@ export class UnlockWarmOrchestrator {
       // surfaces but do NOT match the consent center page keys, so without this
       // step /consents always lands cold after unlock. ConsentCenterService
       // handles its own cache.set into CONSENT_CENTER_SUMMARY / CONSENT_CENTER_LIST,
-      // so calling it here populates the page-read keys directly. Requires a
-      // Firebase ID token (the consent center proxy is Firebase-authenticated).
+      // so calling it here populates the page-read keys directly. Do not warm
+      // the full pending list when the summary has no pending work: that list
+      // is a 31-query surface and competing with vault/profile bootstrap made
+      // unlock needlessly contend for the small development/Cloud Run pool.
+      // Requires a Firebase ID token (the consent center proxy is
+      // Firebase-authenticated).
       if (shouldWarmConsentCenter && params.firebaseIdToken) {
         const idToken = params.firebaseIdToken;
-        await Promise.allSettled([
-          ConsentCenterService.getSummary({
-            idToken,
-            userId: params.userId,
-            mode: "consents",
-          }),
-          ConsentCenterService.listEntries({
-            idToken,
-            userId: params.userId,
-            mode: "consents",
-            surface: "pending",
-            q: "",
-            page: 1,
-            limit: CONSENT_CENTER_PAGE_SIZE,
-          }),
-        ]);
+        const summaryResult = await ConsentCenterService.getSummary({
+          idToken,
+          userId: params.userId,
+          mode: "consents",
+        }).then(
+          (value) => ({ status: "fulfilled" as const, value }),
+          () => ({ status: "rejected" as const }),
+        );
+        if (
+          summaryResult.status === "fulfilled" &&
+          Number(summaryResult.value.counts?.pending || 0) > 0
+        ) {
+          await Promise.allSettled([
+            ConsentCenterService.listEntries({
+              idToken,
+              userId: params.userId,
+              mode: "consents",
+              surface: "pending",
+              q: "",
+              page: 1,
+              limit: CONSENT_CENTER_PAGE_SIZE,
+            }),
+          ]);
+        }
         result.consentsWarmed = true;
       }
 
