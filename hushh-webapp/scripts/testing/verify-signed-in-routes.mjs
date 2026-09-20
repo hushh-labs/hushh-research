@@ -245,6 +245,14 @@ const KAI_ONBOARDING_COMPATIBILITY_ROUTE_IDS = [
 ];
 
 const ROUTE_OVERRIDES = {
+  // Legacy Profile entry is intentionally pane-backed now: `/one/profile`
+  // redirects to `/one?profile_pane=1`, whose canonical route beacon is `/one`.
+  // Keep the smoke contract aligned with that surface instead of waiting for
+  // a beacon that the retired standalone page must never emit.
+  "/one/profile": {
+    allowedPathnames: ["/one"],
+    allowedRouteIds: ["/one"],
+  },
   // Finance analysis is a compatibility pathname. The live workspace is the
   // query-tabbed /one/kai surface, so prove the canonical route rather than
   // repeatedly navigating into a redirect-only page.
