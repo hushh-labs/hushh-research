@@ -182,6 +182,17 @@ function isExpectedLocalOptionalResponseFailure(value) {
   ) {
     return true;
   }
+  // Nearby presence is deliberately restricted to profiles with verified
+  // phone identity. The Location page probes the owner state when the local
+  // feature lane is enabled, then renders the feature as unavailable when the
+  // backend returns this fail-closed denial. Keep this exact allowance local
+  // to the reviewer sweep; hosted authorization failures must remain visible.
+  if (
+    value.includes("403 GET ") &&
+    value.includes("/api/one/location/nearby-presence")
+  ) {
+    return true;
+  }
   if (
     localConsentSseDisabled &&
     value.includes("410 GET ") &&
