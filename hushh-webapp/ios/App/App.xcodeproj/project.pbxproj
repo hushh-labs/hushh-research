@@ -27,6 +27,7 @@
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
 		6146083798073DA5027983D9 /* NativeTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E424BC311E720A549078D16 /* NativeTestSupport.swift */; };
+		5CE2E0D1A0C0000000000002 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5CE2E0D1A0C0000000000001 /* SceneDelegate.swift */; };
 		71A2B3C49D8E7F6012345678 /* NativeUiTestRunnerScript.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A2B3C49D8E7F6012345679 /* NativeUiTestRunnerScript.swift */; };
 		84C1C4976C8A006BA2171BFF /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = D70EFDA31DB35F5785665EA6 /* Foundation.framework */; };
 		A11C0A710000000000000062 /* HushhLocationPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A710000000000000061 /* HushhLocationPlugin.swift */; };
@@ -80,6 +81,7 @@
 /* Begin PBXFileReference section */
 		AC0011223344556677889902 /* CountryPickerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CountryPickerTests.swift; sourceTree = "<group>"; };
 		0E424BC311E720A549078D16 /* NativeTestSupport.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NativeTestSupport.swift; sourceTree = "<group>"; };
+		5CE2E0D1A0C0000000000001 /* SceneDelegate.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		14D3E927F8363CA903B58341 /* AppUITestsLaunchTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AppUITestsLaunchTests.swift; sourceTree = "<group>"; };
 		21773A44233202A79EA4E97B /* AppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		23A8EB24F6FE1F57B965FEB1 /* MyViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MyViewController.swift; sourceTree = "<group>"; };
@@ -205,6 +207,7 @@
 				A280438C2F21B1FC005B42F3 /* App.entitlements */,
 				50379B222058CBB4000EE86E /* capacitor.config.json */,
 				504EC3071FED79650016851F /* AppDelegate.swift */,
+				5CE2E0D1A0C0000000000001 /* SceneDelegate.swift */,
 				A11C0A740000000000000001 /* OneVoiceAppIntent.swift */,
 				A11C0A730000000000000002 /* OneVoiceInvocationCoordinator.swift */,
 				A11C0A730000000000000004 /* OneSystemActionInvocationCoordinator.swift */,
@@ -466,6 +469,7 @@
 			files = (
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				A11C0A730000000000000011 /* OneVoiceAppIntent.swift in Sources */,
+				5CE2E0D1A0C0000000000002 /* SceneDelegate.swift in Sources */,
 				A11C0A730000000000000012 /* OneVoiceInvocationCoordinator.swift in Sources */,
 				A11C0A730000000000000013 /* HushhVoiceInvocationPlugin.swift in Sources */,
 				A11C0A730000000000000031 /* OneVoiceMicrophoneCapture.swift in Sources */,
