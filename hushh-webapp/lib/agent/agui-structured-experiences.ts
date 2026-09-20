@@ -5,6 +5,7 @@ export const PERSON_SELECTION_EXPERIENCE_TYPE = "one.person_selection.v1" as con
 export type PersonSelectionExperience = {
   type: typeof PERSON_SELECTION_EXPERIENCE_TYPE;
   candidates: Array<{ selectionHandle: string; displayName: string; profilePath: string; detail: string | null }>;
+  candidatesIncomplete?: boolean;
 };
 export const INFORMATION_REQUEST_REVIEW_EXPERIENCE_TYPE = "one.information_request_review.v1" as const;
 export const KYC_READINESS_EXPERIENCE_TYPE = "one.kyc_readiness.v1" as const;
@@ -419,7 +420,13 @@ export function parseAgentToolResultExperience(
           !profilePath || !PROFILE_PATH_PATTERN.test(profilePath)) return [];
       return [{ selectionHandle, displayName, profilePath, detail: boundedString(candidate?.detail, 120) }];
     });
-    return candidates.length ? { type: PERSON_SELECTION_EXPERIENCE_TYPE, candidates } : null;
+    return candidates.length
+      ? {
+          type: PERSON_SELECTION_EXPERIENCE_TYPE,
+          candidates,
+          ...(result.candidatesIncomplete === true ? { candidatesIncomplete: true } : {}),
+        }
+      : null;
   }
   if (toolName === "propose_information_request") {
     return parseInformationRequestProposal(content);

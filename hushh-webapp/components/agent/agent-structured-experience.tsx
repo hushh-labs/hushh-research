@@ -58,6 +58,11 @@ export function AgentStructuredExperienceView({
           <Link className="ml-auto inline-flex min-h-11 shrink-0 items-center text-sm text-primary underline-offset-4 hover:underline"
             href={candidate.profilePath} aria-label={`View ${candidate.displayName}'s profile`}>View profile</Link>
           </div>)}
+          {experience.candidatesIncomplete ? (
+            <p className="px-3 text-sm text-muted-foreground">
+              There are more matches than shown. Narrow the name or provide an email address to continue safely.
+            </p>
+          ) : null}
         </div>
       </ExperienceShell>;
     case "one.scope_discovery.v1":

@@ -51,6 +51,25 @@ describe("AG-UI structured experience registry", () => {
     });
     expect(result).toEqual({ type: "one.person_selection.v1", candidates: [candidate] });
   });
+  it("preserves an incomplete candidate signal for the picker", () => {
+    const candidate = {
+      selectionHandle: "c".repeat(32),
+      displayName: "Alex Morgan",
+      profilePath: "/people/1234567890abcdef",
+      detail: null,
+    };
+    expect(
+      parseAgentToolResultExperience("discover_person_information", {
+        status: "needs_clarification",
+        candidates: [candidate],
+        candidatesIncomplete: true,
+      }),
+    ).toEqual({
+      type: "one.person_selection.v1",
+      candidates: [candidate],
+      candidatesIncomplete: true,
+    });
+  });
   it("keeps person choices visible when shared-information listing needs clarification", () => {
     const candidate = {
       selectionHandle: "b".repeat(32),
