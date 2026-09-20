@@ -116,6 +116,12 @@ Two landings measured with the truth lane the same night:
 | bottom-nav-switch, worst ms | 49 | 55 | 50 |
 | profile-pane, pager, map | within 1 to 4 ms of budget | unchanged | unchanged |
 
+Later the same night, with the Liquid Glass material on every filled button
+(08eea591d) and the route-change hygiene (5e97ffab9), the full lane read:
+feed flick 25.4 ms/s and no frame over 50 ms, Kai chart 70.3 ms/s (one frame
+over 50), tab switch 46.5 ms/s, pane 22.2, pager 30.3, map 19.8. The
+material is static by contract and costs nothing the probe can see.
+
 The per-frame custom-property writes on `<html>` were the dominant scroll
 cost: removing them took the feed flick to zero frames over 50 ms and halved
 the Kai chart's p95. What remains on a tab switch is the incoming page's own
