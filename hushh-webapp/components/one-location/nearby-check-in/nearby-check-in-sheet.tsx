@@ -40,7 +40,9 @@ import {
   CHECK_IN_NOTE_MAX_LENGTH,
   CHECK_IN_NOTE_TEXTAREA_CLASSNAME,
   CHECK_IN_RATING_COMPOSER_CLASSNAME,
+  CHECK_IN_CATEGORY_CHIP_CLASSNAME,
   CHECK_IN_CATEGORY_ROW_CLASSNAME,
+  CHECK_IN_DRAWER_TITLE_CLASSNAME,
   CHECK_IN_PANEL_DESKTOP_WIDTH_REM,
   CHECK_IN_PLACE_DISTANCE_CLASSNAME,
   CHECK_IN_PLACE_META_CLASSNAME,
@@ -48,6 +50,8 @@ import {
   CHECK_IN_PLACE_ROW_CLASSNAME,
   CHECK_IN_PLACE_ROW_OFF_CLASSNAME,
   CHECK_IN_PLACE_ROW_ON_CLASSNAME,
+  CHECK_IN_SECTION_TITLE_CLASSNAME,
+  CHECK_IN_SUBSECTION_TITLE_CLASSNAME,
   CHECK_OUT_BUTTON_VARIANT,
 } from "@/components/one-location/nearby-check-in/check-in-panel-layout";
 
@@ -2427,11 +2431,13 @@ export function NearbyCheckInSheet({
             reaches this sheet who was not meant to. */}
           <SheetHeader className="gap-0 border-b border-border/60 px-5 py-4 text-left">
             <div className="flex min-h-9 flex-col justify-center gap-1 pr-10">
-              <SheetTitle className="text-[17px] leading-6">
-                Check in nearby
+              <SheetTitle asChild>
+                <h1 className={CHECK_IN_DRAWER_TITLE_CLASSNAME}>
+                  Check in nearby
+                </h1>
               </SheetTitle>
               {!state.presence && viewState !== "completed" ? (
-                <p className="text-sm leading-5 text-muted-foreground">
+                <p className="ui-text-page-subtitle">
                   Let people at the same place know you&apos;re there.
                 </p>
               ) : null}
@@ -2493,7 +2499,9 @@ export function NearbyCheckInSheet({
                       <Check className="h-4 w-4" />
                     </span>
                     <div className="min-w-0 flex-1">
-                      <p className="font-semibold">Check-in ended</p>
+                      <h2 className={CHECK_IN_SECTION_TITLE_CLASSNAME}>
+                        Check-in ended
+                      </h2>
                       {completedCheckIn?.placeLabel ? (
                         <p className="mt-0.5 truncate text-sm font-medium">
                           {completedCheckIn.placeLabel}
@@ -2526,7 +2534,10 @@ export function NearbyCheckInSheet({
                     <div className="min-w-0">
                       <h2
                         id={VISIT_RATING_HEADING_ID}
-                        className="line-clamp-2 break-words text-sm font-semibold leading-5 text-foreground text-pretty sm:text-[15px]"
+                        className={cn(
+                          CHECK_IN_SECTION_TITLE_CLASSNAME,
+                          "line-clamp-2 break-words text-pretty",
+                        )}
                       >
                         {(() => {
                           const shortName = shortRatingPlaceName(
@@ -2726,7 +2737,9 @@ export function NearbyCheckInSheet({
                       <Check className="h-4 w-4" />
                     </span>
                     <div className="min-w-0 flex-1">
-                      <p className="font-semibold">Checked in</p>
+                      <h2 className={CHECK_IN_SECTION_TITLE_CLASSNAME}>
+                        Checked in
+                      </h2>
                       <p
                         className="mt-0.5 truncate text-sm font-medium"
                         title={state.presence.placeLabel || undefined}
@@ -2805,7 +2818,10 @@ export function NearbyCheckInSheet({
                     state that already says "nobody", a "0" is the same word
                     twice. */}
                   <div className="flex items-center justify-between gap-3">
-                    <h2 id="nearby-people-title" className="font-semibold">
+                    <h2
+                      id="nearby-people-title"
+                      className={CHECK_IN_SECTION_TITLE_CLASSNAME}
+                    >
                       People nearby
                     </h2>
                     {state.attendees.length ? (
@@ -2863,7 +2879,7 @@ export function NearbyCheckInSheet({
                     to say what the list is. */}
                   <div className="flex items-center justify-between gap-3">
                     <div>
-                      <h2 className="text-[15px] font-semibold leading-5">
+                      <h2 className={CHECK_IN_SECTION_TITLE_CLASSNAME}>
                         Nearby places
                       </h2>
                     </div>
@@ -2893,9 +2909,9 @@ export function NearbyCheckInSheet({
                           <Compass className="h-4 w-4" />
                         </span>
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm font-semibold">
+                          <h3 className={CHECK_IN_SUBSECTION_TITLE_CLASSNAME}>
                             Still finding you
-                          </p>
+                          </h3>
                           <p className="mt-0.5 text-sm leading-5 text-muted-foreground">
                             {locationError}
                           </p>
@@ -2992,7 +3008,12 @@ export function NearbyCheckInSheet({
                         aria-label="Nearby place categories"
                       >
                         {typedSearchActive ? (
-                          <span className="inline-flex h-9 shrink-0 items-center rounded-full bg-primary px-3 text-sm font-medium text-primary-foreground">
+                          <span
+                            className={cn(
+                              CHECK_IN_CATEGORY_CHIP_CLASSNAME,
+                              "inline-flex h-9 items-center bg-primary px-3 text-primary-foreground",
+                            )}
+                          >
                             Search results
                           </span>
                         ) : null}
@@ -3000,13 +3021,13 @@ export function NearbyCheckInSheet({
                           <Button
                             key={option.value}
                             type="button"
-                            size="compact"
+                            size="sm"
                             variant={
                               !typedSearchActive && category === option.value
                                 ? "default"
                                 : "secondary"
                             }
-                            className="shrink-0 rounded-full"
+                            className={CHECK_IN_CATEGORY_CHIP_CLASSNAME}
                             aria-pressed={
                               !typedSearchActive && category === option.value
                             }
@@ -3131,7 +3152,9 @@ export function NearbyCheckInSheet({
                           className="mt-3 rounded-2xl bg-muted/60 px-4 py-5 text-center"
                           data-testid="nearby-category-empty"
                         >
-                          <p className="text-sm font-medium">Nothing here</p>
+                          <h3 className={CHECK_IN_SUBSECTION_TITLE_CLASSNAME}>
+                            Nothing here
+                          </h3>
                           <Button
                             type="button"
                             size="compact"
@@ -3173,7 +3196,7 @@ export function NearbyCheckInSheet({
                     carrying an icon and the other not was the only reason
                     they did not read as a pair. */}
                   <h2
-                    className="text-[15px] font-semibold leading-5"
+                    className={CHECK_IN_SECTION_TITLE_CLASSNAME}
                     id="nearby-check-in-duration-label"
                   >
                     Visible for
@@ -3213,7 +3236,7 @@ export function NearbyCheckInSheet({
                 </section>
 
                 <section>
-                  <h2 className="text-[15px] font-semibold leading-5">
+                  <h2 className={CHECK_IN_SECTION_TITLE_CLASSNAME}>
                     Visibility
                   </h2>
                   <div className="mt-3 rounded-2xl border border-border/60">
@@ -3226,7 +3249,12 @@ export function NearbyCheckInSheet({
                         }
                       />
                       <span className="min-w-0">
-                        <span className="block text-sm font-semibold">
+                        <span
+                          className={cn(
+                            CHECK_IN_SUBSECTION_TITLE_CLASSNAME,
+                            "block",
+                          )}
+                        >
                           Show my name here
                         </span>
                         <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">
@@ -3237,7 +3265,12 @@ export function NearbyCheckInSheet({
 
                     <div className="flex min-h-14 items-center justify-between gap-4 border-t border-border/60 p-4">
                       <span className="min-w-0">
-                        <span className="block text-sm font-semibold">
+                        <span
+                          className={cn(
+                            CHECK_IN_SUBSECTION_TITLE_CLASSNAME,
+                            "block",
+                          )}
+                        >
                           Allow connection requests
                         </span>
                         <span className="mt-0.5 block text-xs leading-4 text-muted-foreground">
@@ -3291,7 +3324,9 @@ export function NearbyCheckInSheet({
           aria-describedby={undefined}
         >
           <SheetHeader className="px-0 pb-3 text-left">
-            <SheetTitle className="text-[17px] leading-6">Add time</SheetTitle>
+            <SheetTitle className={CHECK_IN_SECTION_TITLE_CLASSNAME}>
+              Add time
+            </SheetTitle>
           </SheetHeader>
           <div className="grid grid-cols-2 gap-2">
             {([30, 60] as const).map((increment) => (

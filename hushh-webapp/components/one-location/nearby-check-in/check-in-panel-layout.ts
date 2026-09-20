@@ -38,6 +38,34 @@ export const CHECK_OUT_BUTTON_VARIANT: ButtonProps["variant"] = "secondary";
 export const CHECK_IN_PANEL_DESKTOP_WIDTH_REM = 26;
 
 /**
+ * The drawer's type ladder.
+ *
+ * These semantic roles deliberately beat the foundation's raw h1/h2/h3
+ * rules, which are `!important`. A local `text-[15px]` on an h2 therefore
+ * never controlled the rendered size and the three setup sections expanded
+ * to display headings. Keeping the roles here also lets the browser contract
+ * measure the exact classes the React surface ships.
+ */
+export const CHECK_IN_DRAWER_TITLE_CLASSNAME =
+  "check-in-drawer-title ui-text-page-title";
+
+export const CHECK_IN_SECTION_TITLE_CLASSNAME =
+  "check-in-section-title ui-text-major-section-title";
+
+export const CHECK_IN_SUBSECTION_TITLE_CLASSNAME =
+  "check-in-subsection-title ui-text-headline";
+
+/**
+ * Place categories are filters, not headings or primary CTAs.
+ *
+ * Phone labels stay at 14/18 inside a 36px chip so the visible choices do not
+ * crowd out the place list; `sm` and wider use the design-system compact label
+ * size of 15/20. The row itself remains a one-line horizontal scroller.
+ */
+export const CHECK_IN_CATEGORY_CHIP_CLASSNAME =
+  "shrink-0 rounded-full text-[14px] font-semibold leading-[18px] sm:text-[15px] sm:leading-5";
+
+/**
  * The category chip scroller.
  *
  * Horizontal scroll, never wrap: eight chips wrapping to three rows at 320px

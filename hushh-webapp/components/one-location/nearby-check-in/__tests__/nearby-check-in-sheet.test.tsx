@@ -109,6 +109,12 @@ vi.mock("@/lib/one-location/saved-locations", async (importOriginal) => {
 });
 
 import { NearbyCheckInSheet } from "@/components/one-location/nearby-check-in/nearby-check-in-sheet";
+import {
+  CHECK_IN_CATEGORY_CHIP_CLASSNAME,
+  CHECK_IN_DRAWER_TITLE_CLASSNAME,
+  CHECK_IN_SECTION_TITLE_CLASSNAME,
+  CHECK_IN_SUBSECTION_TITLE_CLASSNAME,
+} from "@/components/one-location/nearby-check-in/check-in-panel-layout";
 
 const point = {
   latitude: 37.4275,
@@ -354,16 +360,37 @@ describe("NearbyCheckInSheet", () => {
     await screen.findByRole("radio", { name: /Stanford University/ });
     const panel = screen.getByTestId("nearby-presence-setup");
 
+    // The drawer is a small document: one title, three peer sections, then
+    // subordinate option labels. Semantic role classes are asserted because
+    // raw h2 rules in globals.css are intentionally display-sized and carry
+    // `!important`; a local text utility cannot protect this hierarchy.
+    const drawerTitle = screen.getByRole("heading", {
+      level: 1,
+      name: "Check in nearby",
+    });
+    expect(drawerTitle).toHaveClass(CHECK_IN_DRAWER_TITLE_CLASSNAME);
+
     // Every heading the panel is allowed to carry, and nothing else. A new
     // section added here has to be a deliberate decision, not a drift.
-    expect(
-      within(panel)
-        .getAllByRole("heading")
-        .map((heading) => heading.textContent?.trim()),
-    ).toEqual(["Nearby places", "Visible for", "Visibility"]);
+    const sectionHeadings = within(panel).getAllByRole("heading", { level: 2 });
+    expect(sectionHeadings.map((heading) => heading.textContent?.trim())).toEqual(
+      ["Nearby places", "Visible for", "Visibility"],
+    );
+    sectionHeadings.forEach((heading) =>
+      expect(heading).toHaveClass(CHECK_IN_SECTION_TITLE_CLASSNAME),
+    );
+
+    expect(screen.getByText("Show my name here")).toHaveClass(
+      CHECK_IN_SUBSECTION_TITLE_CLASSNAME,
+    );
+    expect(screen.getByText("Allow connection requests")).toHaveClass(
+      CHECK_IN_SUBSECTION_TITLE_CLASSNAME,
+    );
 
     // Category filters are available immediately with their concise labels.
-    expect(screen.getByRole("button", { name: "Food" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Food" })).toHaveClass(
+      ...CHECK_IN_CATEGORY_CHIP_CLASSNAME.split(" "),
+    );
     expect(
       screen.getByRole("button", { name: "Shops" }),
     ).toBeInTheDocument();
@@ -415,11 +442,11 @@ describe("NearbyCheckInSheet", () => {
     fireEvent.change(trigger, { target: { value: "120" } });
     expect(trigger).toHaveValue("120");
 
-    // Section headings are compact body hierarchy, not page-scale h2s.
+    // Section headings use the semantic H2 role. The old local text utility
+    // was ignored by the foundation's important h2 rule in the real browser.
     for (const name of ["Nearby places", "Visible for", "Visibility"]) {
       expect(within(panel).getByRole("heading", { name })).toHaveClass(
-        "text-[15px]",
-        "leading-5",
+        CHECK_IN_SECTION_TITLE_CLASSNAME,
       );
     }
   });
