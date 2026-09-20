@@ -1311,11 +1311,12 @@ export class OneKycClientZkService {
     ]);
     const backendKeyId = backend?.connector?.connector_key_id || null;
     if (stored && (!backendKeyId || backendKeyId === stored.connector_key_id)) {
-      await OneKycService.registerClientConnector({
-        userId: params.userId,
-        vaultOwnerToken: params.vaultOwnerToken,
-        connector: stored,
-      });
+      // The authenticated GET above already confirms the stored connector is
+      // the active backend key. Re-registering the same key on every decrypt
+      // is an unnecessary state-changing request: it adds latency to the
+      // readback path and prevents read-only rehearsals from opening an
+      // otherwise valid encrypted export. Registration remains below for a
+      // missing or rotated backend key.
       return stored;
     }
     const next = await generateConnectorRecord();
