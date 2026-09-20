@@ -116,6 +116,13 @@ if [[ "${PERF_SKIP_BUILD:-0}" != "1" ]]; then
 fi
 
 RUN_START_MS="$(( $(date +%s) * 1000 ))"
+# XCTest records every typed string as a "Synthesized Event" inside the
+# result bundle, which would put the passphrase on disk. The bundle goes to a
+# path this run owns and is removed as soon as the test exits; the bundles
+# xcodebuild also drops under DerivedData/Logs/Test for this run go with it.
+RESULT_BUNDLE="$OUT_DIR/run.xcresult"
+rm -rf "$RESULT_BUNDLE"
+touch "$OUT_DIR/.run-start"
 set +e
 env "$ENABLE_VAR=true" \
     TEST_RUNNER_HUSHH_PERF_REPS="$REPS" \
@@ -126,9 +133,12 @@ env "$ENABLE_VAR=true" \
     TEST_RUNNER_REVIEWER_VAULT_PASSPHRASE="$REVIEWER_VAULT_PASSPHRASE" \
   xcodebuild -project App.xcodeproj -scheme App -configuration "$CONFIGURATION" -sdk "$SDK" \
     -destination "$DESTINATION" -derivedDataPath "$DERIVED" "${SIGNING[@]}" \
+    -resultBundlePath "$RESULT_BUNDLE" \
     -only-testing:"AppUITests/AppUITests/$TEST_NAME" test-without-building > "$OUT_DIR/test.log" 2>&1
 TEST_STATUS=$?
 set -e
+rm -rf "$RESULT_BUNDLE"
+find "$DERIVED/Logs/Test" -maxdepth 1 -name '*.xcresult' -newer "$OUT_DIR/.run-start" -print0 2>/dev/null | xargs -0 rm -rf 2>/dev/null || true
 cd "$WEB_DIR"
 
 if [[ -n "$REVIEWER_VAULT_PASSPHRASE" ]] && grep -q -F -- "$REVIEWER_VAULT_PASSPHRASE" "$OUT_DIR/test.log"; then

@@ -1309,38 +1309,76 @@ final class AppUITests: XCTestCase {
     /// bottom bar. With no passphrase configured (or a sign-in screen) it waits
     /// for the person holding the phone. The passphrase is never logged.
     private func perfUnlockVault(_ app: XCUIApplication, passphrase: String, timeout: TimeInterval) throws {
-        let deadline = Date().addingTimeInterval(timeout)
-        var typed = false
+        // The clock starts when the passphrase field is on screen: a cold
+        // launch can spend two minutes behind the system passkey sheet first.
+        var deadline = Date().addingTimeInterval(timeout)
+        var fieldSeen = false
+        var attempts = 0
         var announced = false
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         while Date() < deadline {
             if perfLabelExists(app, "One") {
                 return
             }
-            let field = app.webViews.secureTextFields.matching(NSPredicate(format: "label == %@ OR placeholderValue == %@", "Vault passphrase", "Enter passphrase")).firstMatch
-            if !typed && !passphrase.isEmpty {
-                if !field.exists {
-                    let reveal = app.webViews.buttons.matching(NSPredicate(format: "label == %@", "Passphrase")).firstMatch
-                    if reveal.exists {
-                        reveal.tap()
-                        perfSettle(0.8)
-                    }
-                }
-                if field.exists {
-                    NSLog("PERF_UNLOCK method=passphrase")
-                    field.tap()
-                    perfSettle(0.4)
-                    field.typeText(passphrase)
-                    perfSettle(0.3)
-                    let unlock = app.webViews.buttons.matching(NSPredicate(format: "label == %@", "Unlock")).firstMatch
-                    if unlock.exists && unlock.isHittable {
-                        unlock.tap()
-                    } else {
-                        field.typeText("\n")
-                    }
-                    typed = true
-                    perfSettle(2)
+            // The vault gate opens the passkey flow at launch; with no passkey
+            // on this phone iOS shows its "Scan QR Code" sheet over the app and
+            // every tap below lands on it. Close it (X) and use the passphrase.
+            let passkeySheet = springboard.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "Scan QR Code")).firstMatch
+            if passkeySheet.exists {
+                let close = springboard.buttons.matching(NSPredicate(format: "label IN %@", ["Close", "Cancel"])).firstMatch
+                if close.exists {
+                    close.tap()
+                    NSLog("PERF_UNLOCK dismissed=passkey-sheet")
+                    perfSettle(0.8)
                     continue
                 }
+            }
+            let field = app.webViews.secureTextFields.matching(NSPredicate(format: "label == %@ OR placeholderValue == %@", "Vault passphrase", "Enter passphrase")).firstMatch
+            if !field.exists && attempts == 0 && !passphrase.isEmpty {
+                let reveal = app.webViews.buttons.matching(NSPredicate(format: "label == %@", "Passphrase")).firstMatch
+                if reveal.exists {
+                    reveal.tap()
+                    perfSettle(0.8)
+                    continue
+                }
+            }
+            let mismatch = app.webViews.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "did not match")).firstMatch.exists
+            // Type once, and again after a mismatch (a partial typeText was
+            // observed when the sheet above stole focus mid-string), up to 3 times.
+            if field.exists && !passphrase.isEmpty && (attempts == 0 || (mismatch && attempts < 3)) {
+                if !fieldSeen {
+                    fieldSeen = true
+                    deadline = Date().addingTimeInterval(timeout)
+                }
+                NSLog("PERF_UNLOCK method=passphrase attempt=\(attempts + 1)")
+                field.tap()
+                perfSettle(0.4)
+                if attempts > 0 {
+                    field.press(forDuration: 1.0)
+                    let selectAll = app.menuItems.matching(NSPredicate(format: "label == %@", "Select All")).firstMatch
+                    if selectAll.waitForExistence(timeout: 1.5) {
+                        selectAll.tap()
+                        perfSettle(0.2)
+                    }
+                    field.typeText(XCUIKeyboardKey.delete.rawValue)
+                    perfSettle(0.2)
+                }
+                field.typeText(passphrase)
+                perfSettle(0.3)
+                // A secure field reports one mask character per typed character.
+                let typedCount = (field.value as? String)?.count ?? -1
+                if typedCount != passphrase.count {
+                    NSLog("PERF_UNLOCK typed_mismatch expected=\(passphrase.count) got=\(typedCount)")
+                }
+                let unlock = app.webViews.buttons.matching(NSPredicate(format: "label == %@", "Unlock")).firstMatch
+                if unlock.exists && unlock.isHittable {
+                    unlock.tap()
+                } else {
+                    field.typeText("\n")
+                }
+                attempts += 1
+                perfSettle(2)
+                continue
             }
             if !announced {
                 NSLog("PERF_WAITING_FOR_HUMAN step=sign-in-and-unlock timeout_s=\(Int(timeout))")
