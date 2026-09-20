@@ -33,6 +33,7 @@ function walk(dir: string, out: string[] = []): string[] {
 }
 
 const SERIES_TAG = /<(Line|Bar|Area|Pie|Radar|Scatter|RadialBar)(?=[\s\n>/])/g;
+const TOOLTIP_TAG = /<(ChartTooltip|Tooltip)(?=[\s\n>/])/g;
 
 describe("kai charts animation contract", () => {
   const rechartsFiles = ["components", "app", "lib"]
@@ -55,9 +56,25 @@ describe("kai charts animation contract", () => {
     }
   });
 
+  it.each(rechartsFiles)("%s declares trigger on every Tooltip", (file) => {
+    // With the default trigger Recharts attaches onTouchMove and, on every
+    // touch frame, reads the container rect and calls setState: a flick
+    // across a chart re-renders every path per frame. CHART_TOOLTIP_TRIGGER
+    // is "click" inside the native shell, which attaches no touch tracking.
+    const source = read(file);
+    for (const match of source.matchAll(TOOLTIP_TAG)) {
+      const end = source.indexOf(">", match.index! + match[0].length);
+      const tag = source.slice(match.index!, end);
+      expect(tag, `${file}: <${match[1]}> at offset ${match.index}`).toContain(
+        "trigger={CHART_TOOLTIP_TRIGGER}",
+      );
+    }
+  });
+
   it("debounces the shared ResponsiveContainer", () => {
     const chart = read("components/ui/chart.tsx");
     expect(chart).toContain("export const CHART_ANIMATION_ACTIVE");
+    expect(chart).toContain("export const CHART_TOOLTIP_TRIGGER");
     expect(chart).toMatch(
       /<RechartsPrimitive\.ResponsiveContainer debounce=\{CHART_RESIZE_DEBOUNCE_MS\}>/,
     );

@@ -14,6 +14,7 @@ import {
   ChartTooltipContent,
   type ChartConfig,
   CHART_ANIMATION_ACTIVE,
+  CHART_TOOLTIP_TRIGGER,
 } from "@/components/ui/chart";
 
 interface ConcentrationDatum {
@@ -94,7 +95,7 @@ export function HoldingsConcentrationChart({
               tickLine={false}
               tick={{ fontSize: 10 }}
             />
-            <ChartTooltip
+            <ChartTooltip trigger={CHART_TOOLTIP_TRIGGER}
               cursor={false}
               content={
                 <ChartTooltipContent

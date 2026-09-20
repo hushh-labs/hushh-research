@@ -59,8 +59,12 @@ cost on a phone is JavaScript and compositing:
    surfaces as compositor layers; `backdrop-filter` already composites.
 5. **Per-frame React state.** Audio meters, scroll progress and streamed
    text drive a CSS variable or a leaf store, never a `setState` per frame.
-6. **Default chart animation.** Recharts animates every series for 1500 ms
-   on mount and on each data change; series pass `CHART_ANIMATION_ACTIVE`.
+6. **Default chart animation and tooltip.** Recharts animates every series
+   for 1500 ms on mount and on each data change, and its default tooltip
+   trigger attaches `touchmove`, reading the container rect and re-rendering
+   the chart on every frame of a flick that crosses it; series pass
+   `CHART_ANIMATION_ACTIVE` and tooltips pass `CHART_TOOLTIP_TRIGGER` (tap
+   inside the native shell).
 7. **Layer order.** Floating primitives take their z-index from the `--z-*`
    ladder; a menu that opens behind a sheet is a ladder bug.
 

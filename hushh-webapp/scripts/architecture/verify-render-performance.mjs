@@ -168,6 +168,26 @@ const RULES = [
     },
   },
   {
+    id: "recharts-tooltip-touch-tracking",
+    files: /\.(tsx|jsx)$/,
+    reason: "A Recharts Tooltip with the default trigger attaches onTouchMove and re-renders the chart (after a layout read) on every touch frame; pass trigger={CHART_TOOLTIP_TRIGGER}.",
+    find: (lines, source) => {
+      if (!source.includes('from "recharts"') && !source.includes("ChartTooltip")) return [];
+      const out = [];
+      const tag = /<(ChartTooltip|Tooltip)(?=[\s\n>/])/g;
+      for (const match of source.matchAll(tag)) {
+        const end = source.indexOf(">", match.index + match[0].length);
+        if (end === -1) continue;
+        const inner = source.slice(match.index, end);
+        if (/TooltipProvider|TooltipContent|TooltipTrigger/.test(inner)) continue;
+        if (!inner.includes("trigger=")) {
+          out.push(source.slice(0, match.index).split("\n").length - 1);
+        }
+      }
+      return out;
+    },
+  },
+  {
     id: "continuous-float-store-in-react",
     files: /\.tsx$/,
     reason: "A component subscribed to a per-frame float (progress/position/offset) re-renders every scroll frame; consume the CSS variable instead.",

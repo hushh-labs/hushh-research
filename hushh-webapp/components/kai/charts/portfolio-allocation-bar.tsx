@@ -10,6 +10,7 @@ import {
   ChartTooltipContent,
   type ChartConfig,
   CHART_ANIMATION_ACTIVE,
+  CHART_TOOLTIP_TRIGGER,
 } from "@/components/ui/chart";
 import { cn } from "@/lib/utils";
 
@@ -101,7 +102,7 @@ export function PortfolioAllocationBar({
         >
           <XAxis type="number" domain={[0, total]} hide />
           <YAxis type="category" dataKey="label" hide />
-          <ChartTooltip
+          <ChartTooltip trigger={CHART_TOOLTIP_TRIGGER}
             cursor={false}
             content={
               <ChartTooltipContent

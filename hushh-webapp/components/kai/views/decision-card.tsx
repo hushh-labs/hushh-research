@@ -48,6 +48,7 @@ import {
   ChartTooltipContent,
   type ChartConfig,
   CHART_ANIMATION_ACTIVE,
+  CHART_TOOLTIP_TRIGGER,
 } from "@/components/ui/chart";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { toInvestorDecisionLabel } from "@/lib/copy/investor-language";
@@ -452,7 +453,7 @@ function AgentVoteBar({ result }: { result: DecisionResult }) {
             tickLine={false}
             tick={{ fontSize: 11, fill: "hsl(var(--foreground))" }}
           />
-          <ChartTooltip cursor={false} content={renderVoteTooltip} />
+          <ChartTooltip trigger={CHART_TOOLTIP_TRIGGER} cursor={false} content={renderVoteTooltip} />
           <ChartLegend content={<ChartLegendContent className="text-[11px] font-medium text-foreground/80 dark:text-foreground/80" />} />
           <Bar isAnimationActive={CHART_ANIMATION_ACTIVE} dataKey="bullish" stackId="vote" fill="var(--color-bullish)" radius={[4, 0, 0, 4]} barSize={14} />
           <Bar isAnimationActive={CHART_ANIMATION_ACTIVE} dataKey="neutral" stackId="vote" fill="var(--color-neutral)" barSize={14} />
@@ -602,7 +603,7 @@ function QuantMetricsBarChart({ data }: { data: QuantMetricChartEntry[] }) {
             axisLine={false}
             tickLine={false}
           />
-          <ChartTooltip
+          <ChartTooltip trigger={CHART_TOOLTIP_TRIGGER}
             cursor={false}
             content={
               <ChartTooltipContent
@@ -671,7 +672,7 @@ function PriceTargetsChart({ targets }: { targets: Record<string, number> }) {
             tickFormatter={(value) => `$${Number(value).toFixed(0)}`}
             width={56}
           />
-          <ChartTooltip
+          <ChartTooltip trigger={CHART_TOOLTIP_TRIGGER}
             cursor={false}
             content={
               <ChartTooltipContent
@@ -733,7 +734,7 @@ function ConfidenceGauge({ confidence }: { confidence: number }) {
     <div className="w-full">
       <ChartContainer config={confidenceChartConfig} className="mx-auto aspect-square max-h-[170px] w-full max-w-[210px]">
         <PieChart>
-          <ChartTooltip
+          <ChartTooltip trigger={CHART_TOOLTIP_TRIGGER}
             cursor={false}
             content={<ChartTooltipContent hideLabel nameKey="name" />}
           />

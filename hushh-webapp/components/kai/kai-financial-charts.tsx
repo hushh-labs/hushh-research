@@ -23,6 +23,7 @@ import {
   ChartTooltipContent,
   type ChartConfig,
   CHART_ANIMATION_ACTIVE,
+  CHART_TOOLTIP_TRIGGER,
 } from "@/components/ui/chart";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { TrendingUp, DollarSign } from "@/components/icons";
@@ -117,7 +118,7 @@ export default function KaiFinancialCharts({ quantMetrics, keyMetrics }: KaiFina
                         <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.4} />
                         <XAxis dataKey="year" tickLine={false} axisLine={false} tickMargin={8} fontSize={10} />
                         <YAxis tickLine={false} axisLine={false} tickFormatter={(value) => `$${value}B`} fontSize={10} />
-                        <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
+                        <ChartTooltip trigger={CHART_TOOLTIP_TRIGGER} cursor={false} content={<ChartTooltipContent />} />
                         <Area isAnimationActive={CHART_ANIMATION_ACTIVE}
                             dataKey="value"
                             type="monotone"
@@ -146,7 +147,7 @@ export default function KaiFinancialCharts({ quantMetrics, keyMetrics }: KaiFina
                     <BarChart data={quantMetrics.net_income_trend_data}>
                          <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.4} />
                          <XAxis dataKey="year" tickLine={false} axisLine={false} tickMargin={8} fontSize={10} />
-                         <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
+                         <ChartTooltip trigger={CHART_TOOLTIP_TRIGGER} cursor={false} content={<ChartTooltipContent />} />
                          <Bar isAnimationActive={CHART_ANIMATION_ACTIVE} dataKey="value" fill="var(--chart-2)" radius={[4, 4, 0, 0]} />
                     </BarChart>
                 </ChartContainer>
@@ -172,7 +173,7 @@ export default function KaiFinancialCharts({ quantMetrics, keyMetrics }: KaiFina
                         <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.4} />
                         <XAxis dataKey="year" fontSize={10} />
                         <YAxis fontSize={10} />
-                        <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
+                        <ChartTooltip trigger={CHART_TOOLTIP_TRIGGER} cursor={false} content={<ChartTooltipContent />} />
                         <Legend />
                         <Bar isAnimationActive={CHART_ANIMATION_ACTIVE} dataKey="ocf" name="OCF" fill="var(--chart-3)" radius={[4, 4, 0, 0]} />
                         <Line isAnimationActive={CHART_ANIMATION_ACTIVE} type="monotone" dataKey="rnd" name="R&D" stroke="var(--chart-4)" strokeWidth={2} />

@@ -16,6 +16,16 @@ import { cn } from "@/lib/utils"
 export const CHART_ANIMATION_ACTIVE = !isNative()
 
 /**
+ * A Recharts axis Tooltip with the default trigger attaches onTouchMove and,
+ * on every touch frame, reads the container's bounding rect (a layout) and
+ * calls setState (a full chart re-render). A finger flicking the page across
+ * a chart pays that on every frame of the flick. There is no hover on a
+ * phone; inside the native shell the tooltip opens on tap instead, and the
+ * chart attaches no touch tracking at all. Pass this to every Tooltip.
+ */
+export const CHART_TOOLTIP_TRIGGER: "click" | "hover" = isNative() ? "click" : "hover"
+
+/**
  * ResponsiveContainer re-renders the whole chart on every ResizeObserver
  * tick, including keyboard and visual-viewport resizes and every frame of a
  * pane swipe. Coalesce those into one render per 100ms.

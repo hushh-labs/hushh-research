@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
-import { CHART_ANIMATION_ACTIVE } from "@/components/ui/chart";
+import { CHART_ANIMATION_ACTIVE, CHART_TOOLTIP_TRIGGER } from "@/components/ui/chart";
 
 // =============================================================================
 // TYPES
@@ -120,7 +120,7 @@ export function ProjectionsCard({ projections, className, isLoading }: Projectio
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={cashFlow}>
                   <XAxis dataKey="month" hide />
-                  <Tooltip cursor={{ fill: 'transparent' }} content={({ payload }) => (
+                  <Tooltip trigger={CHART_TOOLTIP_TRIGGER} cursor={{ fill: 'transparent' }} content={({ payload }) => (
                     <div className="bg-background border p-2 text-xs rounded shadow-md">
                       {payload?.[0]?.payload.month}: {formatCurrency(payload?.[0]?.value as number)}
                     </div>

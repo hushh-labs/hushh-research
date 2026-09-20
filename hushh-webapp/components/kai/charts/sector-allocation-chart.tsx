@@ -38,6 +38,7 @@ import {
   ChartTooltipContent,
   type ChartConfig,
   CHART_ANIMATION_ACTIVE,
+  CHART_TOOLTIP_TRIGGER,
 } from "@/components/ui/chart";
 
 interface Holding {
@@ -152,7 +153,7 @@ const SectorBarChart = memo(function SectorBarChart({
             width={yAxisWidth}
             tick={{ fontSize: 10, fill: "hsl(var(--foreground) / 0.72)" }}
           />
-          <ChartTooltip
+          <ChartTooltip trigger={CHART_TOOLTIP_TRIGGER}
             cursor={false}
             content={
               <ChartTooltipContent

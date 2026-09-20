@@ -25,8 +25,9 @@ rule set a surface inherits when it is built.
    `useSyncExternalStore`, carries per-frame values; React commits at
    boundaries. `components/agent/agent-voice-waveform.tsx` is the pattern.
 7. Passes `CHART_ANIMATION_ACTIVE` (from `components/ui/chart.tsx`) to every
-   Recharts series; the default is a 1500ms animation on mount and on each
-   data change.
+   Recharts series and `CHART_TOOLTIP_TRIGGER` to every Recharts tooltip; the
+   defaults are a 1500ms animation on mount and on each data change, and a
+   tooltip that re-renders the chart on every touch frame of a flick.
 8. Takes any z-index from the `--z-*` ladder in `app/globals.css`: transient
    menus above dialogs above sheets above chrome. A menu that opens behind a
    sheet is a ladder bug, never a reason for a new number.

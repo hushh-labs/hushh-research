@@ -59,6 +59,11 @@ describe("verify-render-performance", () => {
       "components/h.tsx",
       'import { Line } from "recharts";\nexport const H = () => <Line dataKey="v" />;\n',
     ],
+    [
+      "recharts-tooltip-touch-tracking",
+      "components/h2.tsx",
+      'import { Line, Tooltip } from "recharts";\nexport const H = () => <Tooltip cursor={false} />;\n',
+    ],
     ["continuous-float-store-in-react", "components/i.tsx", "const p = useSyncExternalStore(subscribeProgress, getProgress);\n"],
     ["perf-probe-static-import", "components/j.tsx", 'import { startFramePacingProbe } from "@/lib/perf/frame-pacing";\n'],
     ["layer-order-literal", "components/ui/k.tsx", 'const c = "fixed z-[712]";\n'],
