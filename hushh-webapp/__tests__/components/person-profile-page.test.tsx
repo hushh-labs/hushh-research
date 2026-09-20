@@ -480,6 +480,30 @@ describe("PersonProfilePage request catalog tools", () => {
     );
   });
 
+  it("marks already shared fields as unavailable for a duplicate request", async () => {
+    mocks.getViewer.mockResolvedValue(
+      viewerProfile({
+        requestableScopes: manyScopes(2),
+        grants: [{
+          scopeRef: "scope-0",
+          label: "Employment status",
+          domain: "professional",
+          requestId: "req-shared",
+          issuedAt: null,
+          expiresAt: null,
+          status: "granted",
+          encryptedExportAvailable: true,
+        }],
+      }),
+    );
+
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open Professional" }));
+    const sharedField = screen.getByRole("checkbox", { name: "Employment status" });
+    expect(sharedField).toBeDisabled();
+  });
+
   it("reveals a grant behind stable test ids and confirms a copy in one word", async () => {
     const { PersonProfileService } = await import("@/lib/services/person-profile-service");
     const { OneKycClientZkService } = await import("@/lib/services/one-kyc-client-zk-service");
@@ -541,6 +565,52 @@ describe("PersonProfilePage request catalog tools", () => {
         delete (navigator as { clipboard?: unknown }).clipboard;
       }
     }
+  });
+
+  it("unwraps the domain envelope before rendering an encrypted grant", async () => {
+    const { PersonProfileService } = await import("@/lib/services/person-profile-service");
+    const { OneKycClientZkService } = await import("@/lib/services/one-kyc-client-zk-service");
+    (OneKycClientZkService.ensureConnector as ReturnType<typeof vi.fn>).mockResolvedValue({ connector_key_id: "ck_1" });
+    (PersonProfileService.getInformationRequestExports as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { requestId: "req-domain", encryptedExport: { sealed: true } },
+    ]);
+    (OneKycClientZkService.decryptScopedExport as ReturnType<typeof vi.fn>).mockResolvedValue({
+      professional: { summary: "Synthetic approved detail" },
+      __export_metadata: { source_domain: "professional" },
+    });
+    mocks.getViewer.mockResolvedValue(
+      viewerProfile({
+        requestableScopes: manyScopes(2),
+        grants: [{
+          scopeRef: "scope-0",
+          label: "Professional detail",
+          domain: "Professional",
+          requestId: "req-domain",
+          issuedAt: null,
+          expiresAt: null,
+          status: "granted",
+          encryptedExportAvailable: true,
+        }],
+        requestHistory: [{
+          bundleId: "bundle-domain",
+          requestId: "req-domain",
+          scopeRef: "scope-0",
+          label: "Professional detail",
+          sensitivity: "standard",
+          purpose: "Reviewing a professional detail",
+          durationSeconds: 24 * 3600,
+          createdAt: null,
+          expiresAt: null,
+          status: "approved",
+        }],
+      }),
+    );
+
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+
+    expect(await screen.findByTestId("person-profile-grant-value")).toHaveTextContent(
+      "Synthetic approved detail",
+    );
   });
 
   it("keeps a backend detail out of the toast when a grant cannot be opened", async () => {

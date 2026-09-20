@@ -64,6 +64,20 @@ import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 
 type Props = { personRef: string; initialProfile: PublicPersonProfile | null };
 
+function projectGrantPayload(
+  payload: Record<string, unknown>,
+  domain: string | null | undefined,
+): Record<string, unknown> {
+  const requestedDomain = String(domain || "").trim().toLowerCase();
+  if (!requestedDomain) return payload;
+  const domainEntry = Object.entries(payload).find(
+    ([key, value]) => key.toLowerCase() === requestedDomain && value && typeof value === "object" && !Array.isArray(value),
+  )?.[1];
+  return domainEntry && typeof domainEntry === "object" && !Array.isArray(domainEntry)
+    ? domainEntry as Record<string, unknown>
+    : payload;
+}
+
 export function PersonProfilePage({ personRef, initialProfile }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -296,7 +310,13 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
    * page's own service. Search, grouping and the threshold moved with it, which
    * is why the local copies of all three are gone.
    */
-  const scopeItems = useMemo(() => scopeItemsFromRequestable(allScopes), [allScopes]);
+  const scopeItems = useMemo(
+    () =>
+      scopeItemsFromRequestable(allScopes).map((item) =>
+        grantedScopeRefs.has(item.id) ? { ...item, disabled: true } : item,
+      ),
+    [allScopes, grantedScopeRefs],
+  );
 
   const selectedScopes = useMemo(
     () =>
@@ -423,7 +443,10 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
           connector,
         });
         if (generation !== requestGeneration.current) return;
-        setDecryptedByRequest((current) => ({ ...current, [requestId]: payload }));
+        setDecryptedByRequest((current) => ({
+          ...current,
+          [requestId]: projectGrantPayload(payload, grant?.domain),
+        }));
         setDecryptedRevisionByRequest((current) => ({
           ...current,
           [requestId]: packageRevision ?? expectedRevision ?? null,

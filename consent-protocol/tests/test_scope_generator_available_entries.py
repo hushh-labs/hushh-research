@@ -132,3 +132,60 @@ def test_get_information_scope_catalog_does_not_crash_on_a_real_manifest():
     )
     catalog = service.get_information_scope_catalog("viewer-user-id", "subject-user-id")
     assert any(item["scope"] == "attr.financial.holdings" for item in catalog["items"])
+
+
+def test_information_scope_catalog_matches_token_scope_grammar():
+    """Profile discovery retains valid collection paths and drops bad placement."""
+    from hushh_mcp.services.connections_service import ConnectionsService
+
+    service = ConnectionsService(
+        scope_entries_lookup=lambda _owner_user_id: [
+            {
+                "scope": "attr.professional.profile.title",
+                "label": "Title",
+                "domain": "professional",
+            },
+            {
+                "scope": "attr.professional.profile.entities._entities.summary",
+                "label": "Entity summary",
+                "domain": "professional",
+            },
+            {
+                "scope": "attr.professional.profile._entities.summary",
+                "label": "Invalid summary",
+                "domain": "professional",
+            },
+        ]
+    )
+
+    catalog = service.get_information_scope_catalog("viewer-user-id", "subject-user-id")
+
+    assert {item["scope"] for item in catalog["items"]} == {
+        "attr.professional.profile.title",
+        "attr.professional.profile.entities._entities.summary",
+    }
+    exact_entries = service.get_exact_requestable_scope_entries("viewer-user-id", "subject-user-id")
+    assert {item["scope"] for item in exact_entries} == {
+        "attr.professional.profile.title",
+        "attr.professional.profile.entities._entities.summary",
+    }
+    assert exact_entries == [
+        {
+            "scope": "attr.professional.profile.title",
+            "label": "Title",
+            "description": None,
+            "domain": "professional",
+            "path": None,
+            "wildcard": False,
+            "sensitivity": None,
+        },
+        {
+            "scope": "attr.professional.profile.entities._entities.summary",
+            "label": "Entity summary",
+            "description": None,
+            "domain": "professional",
+            "path": None,
+            "wildcard": False,
+            "sensitivity": None,
+        },
+    ]

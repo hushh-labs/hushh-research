@@ -331,6 +331,47 @@ def test_private_attr_export_is_retired_before_any_grant(monkeypatch, blocked_sc
     assert not [event for event in fake_db.events if event["action"] == "CONSENT_GRANTED"]
 
 
+def test_invalid_pending_scope_returns_refreshable_error_instead_of_500(monkeypatch):
+    """A stale pending scope must fail closed without crashing approval."""
+    fake_db = _FakeConsentDBService()
+    monkeypatch.setattr(consent, "ConsentDBService", lambda: fake_db)
+
+    async def _owned_identifiers(_user_id: str):
+        return ["investor_1"]
+
+    monkeypatch.setattr(consent, "_owned_consent_identifiers", _owned_identifiers)
+    monkeypatch.setattr(
+        consent,
+        "issue_token",
+        lambda **_kwargs: (_ for _ in ()).throw(ValueError("Unknown or invalid active scope")),
+    )
+    fake_db._add_pending(
+        "req_stale_scope",
+        {
+            "request_id": "req_stale_scope",
+            "user_id": "investor_1",
+            "agent_id": "ria:profile_stale",
+            "scope": "attr.professional.profile.title",
+            "metadata": {
+                "requester_actor_type": "ria",
+                "requester_entity_id": "profile_stale",
+            },
+        },
+    )
+
+    response = TestClient(_build_app()).post(
+        "/api/consent/pending/approve",
+        json={"userId": "investor_1", "requestId": "req_stale_scope"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == {
+        "error_code": "SCOPE_NOT_REQUESTABLE",
+        "message": "This information is no longer requestable. Refresh and try again.",
+    }
+    assert not fake_db.events
+
+
 def test_pending_lookup_resolves_cross_linked_request_ids(monkeypatch):
     """Product surfaces resolve canonical consent rows by cross-linked ids."""
     fake_db = _FakeConsentDBService()

@@ -23,6 +23,8 @@ from uuid import UUID
 from sqlalchemy import text
 
 from db.db_client import get_db
+from hushh_mcp.consent.internal_path_keys import is_internal_manifest_path
+from hushh_mcp.constants import ConsentScope
 from hushh_mcp.services.connection_graph_service import (
     ORIGIN_DIRECT_REQUEST,
     activate_contact_sync_connections_bulk,
@@ -786,24 +788,51 @@ class ConnectionsService:
         page. The caller still receives only public metadata; raw PKM values
         never enter this projection.
         """
-        return [
-            {
-                "scope": str(entry.get("scope") or ""),
-                "label": str(entry.get("label") or "") or None,
-                "description": str(entry.get("description") or "") or None,
-                "domain": str(entry.get("domain") or "") or None,
-                "path": str(entry.get("path") or "") or None,
-                "wildcard": bool(entry.get("wildcard")),
-                "sensitivity": str(entry.get("sensitivity") or "") or None,
-            }
-            for entry in self._scope_entries_lookup(counterpart_user_id)
-            if isinstance(entry, dict)
-            and str(entry.get("scope") or "").startswith("attr.")
-            and entry.get("exposure_eligibility") is not False
-            and entry.get("consumer_visible") is not False
-            and entry.get("internal_only") is not True
-            and entry.get("visibility_posture") != "private"
-        ]
+        safe_entries: list[dict[str, Any]] = []
+        for entry in self._scope_entries_lookup(counterpart_user_id):
+            if not isinstance(entry, dict):
+                continue
+            scope = str(entry.get("scope") or "").strip()
+            if not self._is_requestable_dynamic_scope(scope):
+                # Manifest metadata can contain collection markers, but only
+                # the authored placement accepted by internal-path policy is
+                # eligible for an external selector or token issuer.
+                continue
+            if (
+                entry.get("exposure_eligibility") is False
+                or entry.get("consumer_visible") is False
+                or entry.get("internal_only") is True
+                or entry.get("visibility_posture") == "private"
+            ):
+                continue
+            safe_entries.append(
+                {
+                    "scope": scope,
+                    "label": str(entry.get("label") or "") or None,
+                    "description": str(entry.get("description") or "") or None,
+                    "domain": str(entry.get("domain") or "") or None,
+                    "path": str(entry.get("path") or "") or None,
+                    "wildcard": bool(entry.get("wildcard")),
+                    "sensitivity": str(entry.get("sensitivity") or "") or None,
+                }
+            )
+        return safe_entries
+
+    @staticmethod
+    def _is_requestable_dynamic_scope(scope: str) -> bool:
+        """Keep discovery and token issuance on the same dynamic-scope grammar.
+
+        The manifest catalog also contains structural paths used to describe
+        PKM collections. Those paths are useful to the owner but are not
+        consent selectors. Checking the active token contract here prevents a
+        profile or chat card from offering a value that approval would reject.
+        """
+        if not scope.startswith("attr.") or not ConsentScope.is_dynamic_scope(scope):
+            return False
+        scope_path = scope.split(".", 2)[-1]
+        if is_internal_manifest_path(scope_path):
+            return False
+        return ConsentScope.validate(scope)
 
     def get_exact_requestable_scope_entries(
         self, viewer_user_id: str, counterpart_user_id: str
