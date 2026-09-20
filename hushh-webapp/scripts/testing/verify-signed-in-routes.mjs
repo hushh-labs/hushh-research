@@ -627,6 +627,7 @@ const ROUTE_HEALTH_EXPECTATIONS = {
   "/one/puppy": { heading: "Puppy One" },
   "/one/setup/gmail": { heading: "Your mail, made useful." },
   "/one/setup/calendar": { heading: "Stay ahead of your schedule." },
+  "/one/setup/email": { heading: "Replies, ready when you are." },
   "/one/setup/connected-systems": {
     heading: "Start with the record you already have.",
   },
