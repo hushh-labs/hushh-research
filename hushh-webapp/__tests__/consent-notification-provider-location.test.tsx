@@ -28,6 +28,7 @@ const mocks = vi.hoisted(() => {
     dispatchConsentStateChanged: vi.fn(),
     dispatchFeedStateChanged: vi.fn(),
     onOneLocationStateMutated: vi.fn(),
+    dispatchPkmDomainChanged: vi.fn(),
   };
 });
 
@@ -96,6 +97,10 @@ vi.mock("@/lib/cache/cache-sync-service", () => ({
   },
 }));
 
+vi.mock("@/lib/pkm/pkm-domain-change-events", () => ({
+  dispatchPkmDomainChanged: mocks.dispatchPkmDomainChanged,
+}));
+
 vi.mock("@/lib/consent/consent-events", () => ({
   CONSENT_STATE_CHANGED_EVENT: "consent-state-changed",
   dispatchConsentStateChanged: mocks.dispatchConsentStateChanged,
@@ -138,6 +143,7 @@ async function renderReady(children?: ReactNode) {
   mocks.dispatchConsentStateChanged.mockClear();
   mocks.dispatchFeedStateChanged.mockClear();
   mocks.onOneLocationStateMutated.mockClear();
+  mocks.dispatchPkmDomainChanged.mockClear();
 }
 
 function dispatchLocation(
@@ -249,6 +255,42 @@ describe("global One Location Feed-first notification policy", () => {
       }),
     );
     expect(mocks.dispatchFeedStateChanged).toHaveBeenCalledOnce();
+  });
+
+  it("treats settings and saved-location pushes as silent sync doorbells", async () => {
+    await renderReady();
+
+    dispatchLocation({
+      type: "location_settings_changed",
+      setting: "map_preferences",
+      message_id: "location_settings_changed:event-1",
+    });
+    dispatchLocation({
+      type: "location_pkm_changed",
+      domain: "location",
+      data_version: "8",
+      updated_at: "2026-09-20T00:00:00Z",
+      message_id: "location_pkm_changed:event-2",
+    });
+
+    expect(mocks.onOneLocationStateMutated).toHaveBeenCalledWith(
+      "recipient-user",
+      ["map_preferences"],
+      {
+        notificationType: "location_settings_changed",
+        eventId: "location_settings_changed:event-1",
+      },
+    );
+    expect(mocks.dispatchPkmDomainChanged).toHaveBeenCalledWith({
+      userId: "recipient-user",
+      domain: "location",
+      dataVersion: 8,
+      updatedAt: "2026-09-20T00:00:00Z",
+      operation: "stored",
+    });
+    expect(mocks.toast).not.toHaveBeenCalled();
+    expect(mocks.startTask).not.toHaveBeenCalled();
+    expect(mocks.dispatchFeedStateChanged).not.toHaveBeenCalled();
   });
 
   it("records repeated duration changes for the same grant without a replay identity", async () => {

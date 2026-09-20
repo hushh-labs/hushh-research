@@ -169,7 +169,10 @@ async def _publish_user_state_event(user_id: str, data: Dict[str, Any]) -> bool:
     normalized_user_id = str(user_id or "").strip()
     payload = {**data, "user_id": normalized_user_id}
     event_type = str(payload.get("type") or "").strip()
-    if not normalized_user_id or not event_type.startswith("location_circle_"):
+    if not normalized_user_id or not (
+        event_type.startswith("location_circle_")
+        or event_type in {"location_settings_changed", "location_pkm_changed"}
+    ):
         return False
 
     serialized = json.dumps(payload, separators=(",", ":"), default=str)

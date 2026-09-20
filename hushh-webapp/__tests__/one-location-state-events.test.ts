@@ -98,6 +98,30 @@ describe("One Location state events", () => {
     otherTab.close();
   });
 
+  it("preserves supporting-resource domains without accepting unknown values", () => {
+    const received: unknown[] = [];
+    const unsubscribe = subscribeToOneLocationStateChanges((detail) =>
+      received.push(detail),
+    );
+    const otherTab = new FakeBroadcastChannel("hushh-one-location-state-v1");
+
+    otherTab.postMessage({
+      userId: "user-a",
+      domains: ["map_preferences", "activity", "coordinates"],
+      changedAt: 127,
+    });
+
+    expect(received).toEqual([
+      {
+        userId: "user-a",
+        domains: ["map_preferences"],
+        changedAt: 127,
+      },
+    ]);
+    unsubscribe();
+    otherTab.close();
+  });
+
   it("preserves terminal Circle context without exposing roster data", () => {
     const received: unknown[] = [];
     const unsubscribe = subscribeToOneLocationStateChanges((detail) =>

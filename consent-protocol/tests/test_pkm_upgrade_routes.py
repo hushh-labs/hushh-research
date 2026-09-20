@@ -228,6 +228,133 @@ def test_store_domain_forwards_server_upgrade_claim(monkeypatch):
     ]
 
 
+def test_location_store_emits_silent_metadata_only_sync_after_commit(monkeypatch):
+    pushes: list[tuple[str, dict]] = []
+    streams: list[tuple[str, dict]] = []
+
+    class _FakePkmService:
+        async def get_mutation_sharing_impact(self, **_kwargs):
+            return {
+                "active_recipient_count": 0,
+                "recipient_labels": [],
+                "enters_next_export_revision": False,
+                "affected_grant_ids": [],
+                "affected_export_ids": [],
+            }
+
+        async def store_domain_data(self, **_kwargs):
+            return {
+                "success": True,
+                "data_version": 8,
+                "updated_at": "2026-09-20T00:00:00Z",
+            }
+
+    plan = _confirmed_mutation_plan_payload()
+    plan["proposed_domain"] = "location"
+    plan["confirmation_receipt"]["displayed_domain"] = "location"
+    monkeypatch.setattr(pkm_routes_shared, "get_pkm_service", lambda: _FakePkmService())
+    monkeypatch.setattr(
+        pkm_routes_shared,
+        "send_user_data_push",
+        lambda user_id, **kwargs: pushes.append((user_id, kwargs)) or 1,
+    )
+    monkeypatch.setattr(
+        "api.consent_listener.publish_user_state_event_threadsafe",
+        lambda user_id, data: streams.append((user_id, data)) or True,
+    )
+
+    response = TestClient(_build_app()).post(
+        "/api/pkm/store-domain",
+        json={
+            "user_id": "user_123",
+            "domain": "location",
+            "encrypted_blob": {
+                "ciphertext": "ciphertext-only",
+                "iv": "iv",
+                "tag": "tag",
+                "algorithm": "aes-256-gcm",
+            },
+            "summary": {},
+            "mutation_plan": plan,
+        },
+    )
+
+    assert response.status_code == 200
+    assert len(pushes) == 1
+    user_id, push = pushes[0]
+    assert user_id == "user_123"
+    assert push["notification_type"] == "location_pkm_changed"
+    assert push["show_alert"] is False
+    assert push["data"]["domain"] == "location"
+    assert push["data"]["data_version"] == "8"
+    assert set(push["data"]) == {
+        "domain",
+        "data_version",
+        "updated_at",
+        "sync_only",
+        "message_id",
+    }
+    assert "ciphertext" not in str(push)
+    assert streams[0][0] == "user_123"
+    assert streams[0][1]["type"] == "location_pkm_changed"
+    assert streams[0][1]["message_id"] == push["data"]["message_id"]
+
+
+def test_failed_location_store_does_not_emit_sync_doorbell(monkeypatch):
+    notifications: list[object] = []
+
+    class _FakePkmService:
+        async def get_mutation_sharing_impact(self, **_kwargs):
+            return {
+                "active_recipient_count": 0,
+                "recipient_labels": [],
+                "enters_next_export_revision": False,
+                "affected_grant_ids": [],
+                "affected_export_ids": [],
+            }
+
+        async def store_domain_data(self, **_kwargs):
+            return {
+                "success": False,
+                "conflict": True,
+                "data_version": 9,
+                "updated_at": "2026-09-20T00:00:01Z",
+            }
+
+    plan = _confirmed_mutation_plan_payload()
+    plan["proposed_domain"] = "location"
+    plan["confirmation_receipt"]["displayed_domain"] = "location"
+    monkeypatch.setattr(pkm_routes_shared, "get_pkm_service", lambda: _FakePkmService())
+    monkeypatch.setattr(
+        pkm_routes_shared,
+        "send_user_data_push",
+        lambda *_args, **_kwargs: notifications.append("push"),
+    )
+    monkeypatch.setattr(
+        "api.consent_listener.publish_user_state_event_threadsafe",
+        lambda *_args, **_kwargs: notifications.append("stream"),
+    )
+
+    response = TestClient(_build_app()).post(
+        "/api/pkm/store-domain",
+        json={
+            "user_id": "user_123",
+            "domain": "location",
+            "encrypted_blob": {
+                "ciphertext": "ciphertext-only",
+                "iv": "iv",
+                "tag": "tag",
+                "algorithm": "aes-256-gcm",
+            },
+            "summary": {},
+            "mutation_plan": plan,
+        },
+    )
+
+    assert response.status_code == 409
+    assert notifications == []
+
+
 def test_confirmed_domain_delete_forwards_revision_and_plan(monkeypatch):
     captured: dict[str, object] = {}
 

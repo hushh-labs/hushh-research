@@ -159,6 +159,52 @@ describe("PkmDomainResourceService", () => {
     expect(loadDomainDataWithBlobMock).toHaveBeenCalledTimes(1);
   });
 
+  it("re-fetches when a domain event arrives during an older network read", async () => {
+    const staleDomain = { savedLocations: [{ id: "old" }] };
+    const freshDomain = { savedLocations: [{ id: "fresh" }] };
+    let resolveStale!: (value: unknown) => void;
+    loadDomainDataWithBlobMock
+      .mockImplementationOnce(
+        () => new Promise((resolve) => {
+          resolveStale = resolve;
+        }),
+      )
+      .mockResolvedValueOnce({
+        data: freshDomain,
+        blob: { dataVersion: 2, updatedAt: "2026-09-20T00:00:01.000Z" },
+      });
+
+    const first = PkmDomainResourceService.refresh({
+      userId: "location-owner",
+      domain: "location",
+      vaultKey: "vault-key",
+      vaultOwnerToken: "vault-owner",
+    });
+    PkmDomainResourceService.invalidateDomain("location-owner", "location", {
+      includeBackingCaches: true,
+    });
+    const second = PkmDomainResourceService.refresh({
+      userId: "location-owner",
+      domain: "location",
+      vaultKey: "vault-key",
+      vaultOwnerToken: "vault-owner",
+    });
+    resolveStale({
+      data: staleDomain,
+      blob: { dataVersion: 1, updatedAt: "2026-09-20T00:00:00.000Z" },
+    });
+
+    await expect(first).resolves.toEqual(expect.objectContaining({ data: freshDomain }));
+    await expect(second).resolves.toEqual(expect.objectContaining({ data: freshDomain }));
+    expect(loadDomainDataWithBlobMock).toHaveBeenCalledTimes(2);
+    expect(
+      PkmDomainResourceService.peek({
+        userId: "location-owner",
+        domain: "location",
+      })?.data.data,
+    ).toEqual(freshDomain);
+  });
+
   it("returns successful domains when another domain refresh fails", async () => {
     loadDomainDataWithBlobMock.mockImplementation(async ({ domain }) => {
       if (domain === "preferences") throw new Error("temporary unavailable");

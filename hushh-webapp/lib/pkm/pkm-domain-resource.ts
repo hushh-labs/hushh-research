@@ -13,6 +13,15 @@ import { SecureResourceCacheService } from "@/lib/services/secure-resource-cache
 
 const DEVICE_TTL_MS = 24 * 60 * 60 * 1000;
 const inflightRefreshes = new Map<string, Promise<PkmDomainResourceSnapshot | null>>();
+const domainRevisions = new Map<string, number>();
+
+function domainRevisionKey(userId: string, domain: string): string {
+  return `${userId}:${domain}`;
+}
+
+function domainRevision(userId: string, domain: string): number {
+  return domainRevisions.get(domainRevisionKey(userId, domain)) ?? 0;
+}
 
 type DomainResourceCacheTier = "memory" | "device" | "network";
 type DomainResourceSource = "cache" | "secure_cache" | "network";
@@ -411,6 +420,7 @@ export class PkmDomainResourceService {
       domain: params.domain,
       segmentSignature: segmentSignature(params.segmentIds),
     });
+    const startRevision = domainRevision(params.userId, params.domain);
     const request = PersonalKnowledgeModelService.loadDomainDataWithBlob({
       userId: params.userId,
       domain: params.domain,
@@ -419,6 +429,15 @@ export class PkmDomainResourceService {
       segmentIds: params.segmentIds,
     })
       .then(async ({ data, blob }) => {
+        if (domainRevision(params.userId, params.domain) !== startRevision) {
+          // This read began before a same-tab, cross-tab, or cross-device
+          // mutation doorbell. Let every waiter converge on one post-event
+          // read instead of allowing the old response to repopulate caches.
+          if (inflightRefreshes.get(inflightKey) === request) {
+            inflightRefreshes.delete(inflightKey);
+          }
+          return await this.refresh(params);
+        }
         if (!data) {
           CacheService.getInstance().invalidate(toCacheKey(params));
           return null;
@@ -472,10 +491,19 @@ export class PkmDomainResourceService {
   static invalidateDomain(
     userId: string,
     domain: string,
-    options?: { includeDevice?: boolean }
+    options?: { includeDevice?: boolean; includeBackingCaches?: boolean }
   ): void {
     const cache = CacheService.getInstance();
+    const revisionKey = domainRevisionKey(userId, domain);
+    domainRevisions.set(revisionKey, domainRevision(userId, domain) + 1);
     cache.invalidatePattern(`pkm_domain_resource_${userId}_${domain}_`);
+    if (options?.includeBackingCaches) {
+      cache.invalidate(CACHE_KEYS.DOMAIN_MANIFEST(userId, domain));
+      cache.invalidate(CACHE_KEYS.DOMAIN_DATA(userId, domain));
+      cache.invalidate(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, domain));
+      cache.invalidate(CACHE_KEYS.PKM_BLOB(userId));
+      cache.invalidate(CACHE_KEYS.PKM_DECRYPTED_BLOB(userId));
+    }
     if (options?.includeDevice) {
       void SecureResourceCacheService.invalidateResourcePrefix(userId, `pkm_domain:${domain}:`);
     }

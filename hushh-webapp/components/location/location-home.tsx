@@ -61,6 +61,8 @@ import {
 } from "@/lib/morphy-ux/ui/surface-primitives";
 import { ROUTES } from "@/lib/navigation/routes";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
+import { subscribeToOneLocationStateChanges } from "@/lib/one-location/one-location-state-events";
+import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { OneLocationService } from "@/lib/one-location/service";
 import {
   describeShareRemaining,
@@ -220,6 +222,9 @@ export function useLocationWorkspaceState(): LocationWorkspace {
   const [status, setStatus] = useState<LocationWorkspaceStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const mountedRef = useRef(true);
+  const refreshRevisionRef = useRef(0);
+  const foregroundTaskRef = useRef<Promise<void> | null>(null);
+  const foregroundQueuedRef = useRef(false);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -231,18 +236,19 @@ export function useLocationWorkspaceState(): LocationWorkspace {
   const refresh = useCallback(
     async (options?: { invalidate?: boolean }) => {
       if (!userId || !vaultOwnerToken) return;
+      const revision = ++refreshRevisionRef.current;
       if (options?.invalidate) OneLocationStateResource.invalidate(userId);
       setStatus((current) => (current === "ready" ? "ready" : "loading"));
       try {
         const next = await OneLocationStateResource.load(userId, () =>
           OneLocationService.getState(vaultOwnerToken),
         );
-        if (!mountedRef.current) return;
+        if (!mountedRef.current || refreshRevisionRef.current !== revision) return;
         setState(next);
         setError(null);
         setStatus("ready");
       } catch (caught) {
-        if (!mountedRef.current) return;
+        if (!mountedRef.current || refreshRevisionRef.current !== revision) return;
         setError(
           caught instanceof Error && caught.message
             ? caught.message
@@ -267,6 +273,54 @@ export function useLocationWorkspaceState(): LocationWorkspace {
   useLocationVoiceReconcile({
     onLocationState: () => void refresh({ invalidate: true }),
   });
+
+  useEffect(() => {
+    if (!userId || !vaultOwnerToken) return;
+    return subscribeToOneLocationStateChanges((detail) => {
+      if (detail.userId !== userId || !detail.domains.includes("workspace")) {
+        return;
+      }
+      void refresh({ invalidate: true });
+    });
+  }, [refresh, userId, vaultOwnerToken]);
+
+  useEffect(() => {
+    if (!userId || !vaultOwnerToken) return;
+    const reconcile = () => {
+      if (
+        typeof document !== "undefined" &&
+        document.visibilityState === "hidden"
+      ) return;
+      if (foregroundTaskRef.current) {
+        foregroundQueuedRef.current = true;
+        return;
+      }
+      const run = async () => {
+        do {
+          foregroundQueuedRef.current = false;
+          await refresh({ invalidate: true });
+        } while (foregroundQueuedRef.current);
+      };
+      const task = run().finally(() => {
+        if (foregroundTaskRef.current === task) foregroundTaskRef.current = null;
+      });
+      foregroundTaskRef.current = task;
+    };
+    window.addEventListener("focus", reconcile);
+    window.addEventListener("online", reconcile);
+    document.addEventListener("visibilitychange", reconcile);
+    const removeLifecycle = appInteractionCoordinator.subscribeLifecycle(() => {
+      if (appInteractionCoordinator.getLifecycleSnapshot().state === "active") {
+        reconcile();
+      }
+    });
+    return () => {
+      window.removeEventListener("focus", reconcile);
+      window.removeEventListener("online", reconcile);
+      document.removeEventListener("visibilitychange", reconcile);
+      removeLifecycle();
+    };
+  }, [refresh, userId, vaultOwnerToken]);
 
   return useMemo(
     () => ({ userId, vaultOwnerToken, state, status, error, refresh }),

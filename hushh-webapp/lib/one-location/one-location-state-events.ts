@@ -5,7 +5,11 @@ export const ONE_LOCATION_STATE_CHANGED_EVENT =
 
 const ONE_LOCATION_STATE_CHANNEL = "hushh-one-location-state-v1";
 
-export type OneLocationStateDomain = "workspace" | "circles" | "sms_roster";
+export type OneLocationStateDomain =
+  | "workspace"
+  | "circles"
+  | "sms_roster"
+  | "map_preferences";
 
 export type OneLocationStateChangedDetail = {
   userId: string;
@@ -37,7 +41,8 @@ function normalizeDetail(
           (domain): domain is OneLocationStateDomain =>
             domain === "workspace" ||
             domain === "circles" ||
-            domain === "sms_roster",
+            domain === "sms_roster" ||
+            domain === "map_preferences",
         ),
     ),
   );

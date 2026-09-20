@@ -8,6 +8,7 @@ import { DeviceResourceCacheService } from "@/lib/services/device-resource-cache
 import { RiaOnboardingStatusLocalService } from "@/lib/services/ria-onboarding-status-local-service";
 import { bumpRiaInvalidationEpoch } from "@/lib/cache/ria-invalidation-epoch";
 import { bumpPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
+import { dispatchPkmDomainChanged } from "@/lib/pkm/pkm-domain-change-events";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import {
   clearAllLocationWorkspaceMemory,
@@ -358,11 +359,7 @@ export class CacheSyncService {
           null,
       };
       window.dispatchEvent(new CustomEvent("pkm-domain-stored", { detail }));
-      window.dispatchEvent(
-        new CustomEvent("pkm-domain-changed", {
-          detail: { ...detail, operation: "stored" },
-        }),
-      );
+      dispatchPkmDomainChanged({ ...detail, operation: "stored" });
     };
     bumpPkmInvalidationEpoch(userId);
     const cache = CacheService.getInstance();
@@ -464,19 +461,13 @@ export class CacheSyncService {
       this.invalidateKaiFinancialResource(userId);
     }
     bumpPkmInvalidationEpoch(userId);
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(
-        new CustomEvent("pkm-domain-changed", {
-          detail: {
-            userId,
-            domain,
-            dataVersion: null,
-            updatedAt: null,
-            operation: "cleared",
-          },
-        }),
-      );
-    }
+    dispatchPkmDomainChanged({
+      userId,
+      domain,
+      dataVersion: null,
+      updatedAt: null,
+      operation: "cleared",
+    });
   }
 
   static onPkmDomainRestored(userId: string, domain: string): void {
@@ -506,19 +497,13 @@ export class CacheSyncService {
       this.onKaiMarketContextChanged(userId);
     }
     bumpPkmInvalidationEpoch(userId);
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(
-        new CustomEvent("pkm-domain-changed", {
-          detail: {
-            userId,
-            domain,
-            dataVersion: null,
-            updatedAt: null,
-            operation: "restored",
-          },
-        }),
-      );
-    }
+    dispatchPkmDomainChanged({
+      userId,
+      domain,
+      dataVersion: null,
+      updatedAt: null,
+      operation: "restored",
+    });
   }
 
   static onPortfolioUpserted(
@@ -730,7 +715,9 @@ export class CacheSyncService {
     } = {},
   ): void {
     if (!userId) return;
-    OneLocationStateResource.invalidate(userId);
+    if (domains.some((domain) => domain !== "map_preferences")) {
+      OneLocationStateResource.invalidate(userId);
+    }
     dispatchOneLocationStateChanged(userId, domains, context);
   }
 

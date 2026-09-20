@@ -236,12 +236,19 @@ describe("LocationMapScreen", () => {
   });
 
   it("keeps coordinates away from the renderer until the server records renderer consent", async () => {
-    service.getMapState.mockResolvedValue({
+    const beforeConsent = {
       preferences: { presenceMode: "ghost", rendererConsentVersion: null },
       freshnessSeconds: 120,
       markers: [
         { grant: grant("grant-1", "Priya Nair"), envelope: envelope("env-1") },
       ],
+    };
+    service.getMapState.mockResolvedValueOnce(beforeConsent).mockResolvedValue({
+      ...beforeConsent,
+      preferences: {
+        presenceMode: "ghost",
+        rendererConsentVersion: GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
+      },
     });
     service.updateMapPreferences.mockResolvedValue({
       presenceMode: "ghost",

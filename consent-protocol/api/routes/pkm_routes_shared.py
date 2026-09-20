@@ -33,6 +33,7 @@ from hushh_mcp.services.pkm_mutation_contracts import (
     validate_mutation_plan_for_write,
 )
 from hushh_mcp.services.pkm_upgrade_service import get_pkm_upgrade_service
+from hushh_mcp.services.push_notifications import send_user_data_push
 from hushh_mcp.services.trusted_device_service import TrustedDeviceService
 from hushh_mcp.services.wallet_card_validation import validate_wallet_card_envelope
 
@@ -825,6 +826,49 @@ async def store_domain(
                 "message": "Failed to store domain data",
                 "error": store_result.get("error"),
             },
+        )
+
+    if canonical_domain == "location":
+        # Metadata-only owner doorbell. The encrypted blob, saved-place labels,
+        # addresses and coordinates never enter notification transports.
+        message_id = f"location_pkm_changed:{uuid.uuid4()}"
+        updated_at = _isoformat_or_none(store_result.get("updated_at")) or ""
+        data_version = str(store_result.get("data_version") or "")
+        sync_data = {
+            "domain": "location",
+            "data_version": data_version,
+            "updated_at": updated_at,
+            "sync_only": "true",
+            "message_id": message_id,
+        }
+        try:
+            from api.consent_listener import publish_user_state_event_threadsafe
+
+            publish_user_state_event_threadsafe(
+                request.user_id,
+                {
+                    "type": "location_pkm_changed",
+                    "user_id": request.user_id,
+                    "request_url": "/one/location?action=settings",
+                    "deep_link": "/one/location?action=settings",
+                    "notification_tag": message_id,
+                    "notification_category": "ONE_LOCATION",
+                    **sync_data,
+                },
+            )
+        except Exception as exc:  # noqa: BLE001 - realtime is best-effort
+            logger.warning("[PKM] location sync SSE skipped: %s", exc)
+        await run_in_threadpool(
+            send_user_data_push,
+            request.user_id,
+            notification_type="location_pkm_changed",
+            title="Saved locations updated",
+            body="Your saved locations changed on another session.",
+            deep_link="/one/location?action=settings",
+            notification_tag=message_id,
+            notification_category="ONE_LOCATION",
+            data=sync_data,
+            show_alert=False,
         )
 
     return StoreDomainResponse(

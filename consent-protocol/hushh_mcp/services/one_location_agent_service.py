@@ -1626,6 +1626,7 @@ class OneLocationAgentService:
         notification_tag: str,
         request_url: str,
         data: dict[str, str | None],
+        show_alert: bool = True,
     ) -> bool:
         """Best-effort metadata-only FCM delivery for location workflow state.
 
@@ -1693,7 +1694,7 @@ class OneLocationAgentService:
                     body=body,
                     request_url=request_url,
                     notification_tag=notification_tag,
-                    show_alert=True,
+                    show_alert=show_alert,
                 )
                 _submit_notification_send(
                     messaging=messaging,
@@ -1712,6 +1713,47 @@ class OneLocationAgentService:
                 exc,
             )
             return False
+
+    def _send_settings_sync_notification(self, *, user_id: str, setting: str) -> None:
+        """Wake the owner's other sessions without presenting a notification.
+
+        The payload is deliberately a metadata-only doorbell. Clients must
+        re-read the authenticated resource; preference values never ride the
+        push/SSE transport.
+        """
+        message_id = f"location_settings_changed:{uuid.uuid4()}"
+        data = {
+            "setting": setting,
+            "sync_only": "true",
+            "message_id": message_id,
+        }
+        try:
+            from api.consent_listener import publish_user_state_event_threadsafe
+
+            publish_user_state_event_threadsafe(
+                user_id,
+                {
+                    "type": "location_settings_changed",
+                    "user_id": user_id,
+                    "request_url": "/one/location?action=settings",
+                    "deep_link": "/one/location?action=settings",
+                    "notification_tag": message_id,
+                    "notification_category": "ONE_LOCATION",
+                    **data,
+                },
+            )
+        except Exception as exc:  # noqa: BLE001 - sync delivery is best-effort
+            logger.warning("one.location.settings_sse_skipped setting=%s error=%s", setting, exc)
+        self._send_metadata_notification(
+            user_id=user_id,
+            notification_type="location_settings_changed",
+            title="Location settings updated",
+            body="Your Location settings changed on another session.",
+            notification_tag=message_id,
+            request_url="/one/location?action=settings",
+            data=data,
+            show_alert=False,
+        )
 
     def _send_push_notification(
         self,
@@ -7173,7 +7215,9 @@ class OneLocationAgentService:
                     ),
                 },
             )
-        return self._auto_approve_preference_payload(stored)
+        payload = self._auto_approve_preference_payload(stored)
+        self._send_settings_sync_notification(user_id=user_id, setting="auto_approve")
+        return payload
 
     @staticmethod
     def _nearby_check_in_preferences_payload(row: dict[str, Any] | None) -> dict[str, Any]:
@@ -7237,7 +7281,9 @@ class OneLocationAgentService:
                 "Could not update Nearby Check-In defaults.",
                 status_code=500,
             )
-        return self._nearby_check_in_preferences_payload(row)
+        payload = self._nearby_check_in_preferences_payload(row)
+        self._send_settings_sync_notification(user_id=user_id, setting="nearby_check_in")
+        return payload
 
     @staticmethod
     def _sos_voice_preference_payload(row: dict[str, Any] | None) -> dict[str, Any]:
@@ -7452,12 +7498,14 @@ class OneLocationAgentService:
                 "renderer_consent_version": renderer_consent_version,
             },
         )
-        return {
+        payload = {
             "presenceMode": str((row or {}).get("presence_mode") or "ghost"),
             "rendererConsentVersion": str((row or {}).get("renderer_consent_version") or "")
             or None,
             "updatedAt": _iso((row or {}).get("updated_at")),
         }
+        self._send_settings_sync_notification(user_id=user_id, setting="map_preferences")
+        return payload
 
     def list_map_state(self, *, user_id: str) -> dict[str, Any]:
         """Read active, freshly published private Map envelopes for the viewer.

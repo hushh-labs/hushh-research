@@ -52,6 +52,7 @@ import {
   dispatchConsentStateChanged,
 } from "@/lib/consent/consent-events";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { dispatchPkmDomainChanged } from "@/lib/pkm/pkm-domain-change-events";
 import { resolveConsentRequesterLabel } from "@/lib/consent/consent-display";
 import { parseSSEBlocks } from "@/lib/streaming/sse-parser";
 import {
@@ -1027,6 +1028,36 @@ export function ConsentNotificationProvider({
     for (const notification of queued) {
       const targetUserId = String(notification.data.user_id || "").trim();
       if (targetUserId && targetUserId !== user.uid) continue;
+      if (notification.data.type === "location_pkm_changed") {
+        const domain = String(notification.data.domain || "").trim();
+        if (domain === "location") {
+          const parsedVersion = Number(notification.data.data_version);
+          dispatchPkmDomainChanged({
+            userId: user.uid,
+            domain,
+            dataVersion: Number.isFinite(parsedVersion) ? parsedVersion : null,
+            updatedAt:
+              String(notification.data.updated_at || "").trim() || null,
+            operation: "stored",
+          });
+        }
+        continue;
+      }
+      if (notification.data.type === "location_settings_changed") {
+        const setting = String(notification.data.setting || "").trim();
+        CacheSyncService.onOneLocationStateMutated(
+          user.uid,
+          setting === "map_preferences"
+            ? ["map_preferences"]
+            : ["workspace"],
+          {
+            notificationType: notification.data.type,
+            eventId:
+              String(notification.data.message_id || "").trim() || undefined,
+          },
+        );
+        continue;
+      }
       showOneLocationWorkflowNotification(notification.data, {
         present: notification.present,
         source: "live",
@@ -1583,6 +1614,39 @@ export function ConsentNotificationProvider({
       const dedupKey = notificationEventDedupKey(msgType, data);
       if (dedupKey && ingestedMessageIdsRef.current.has(dedupKey)) return;
       if (dedupKey) ingestedMessageIdsRef.current.add(dedupKey);
+
+      if (msgType === "location_pkm_changed" && user?.uid) {
+        const domain = String(data.domain || "").trim();
+        if (domain === "location") {
+          const parsedVersion = Number(data.data_version);
+          dispatchPkmDomainChanged({
+            userId: user.uid,
+            domain,
+            dataVersion: Number.isFinite(parsedVersion) ? parsedVersion : null,
+            updatedAt: String(data.updated_at || "").trim() || null,
+            operation: "stored",
+          });
+        }
+        return;
+      }
+
+      // Preference changes are silent sync doorbells for the owner's other
+      // sessions. They are not Feed activity and carry no preference value;
+      // mounted consumers repair from their authenticated resources.
+      if (msgType === "location_settings_changed" && user?.uid) {
+        const setting = String(data.setting || "").trim();
+        CacheSyncService.onOneLocationStateMutated(
+          user.uid,
+          setting === "map_preferences"
+            ? ["map_preferences"]
+            : ["workspace"],
+          {
+            notificationType: msgType,
+            eventId: String(data.message_id || "").trim() || undefined,
+          },
+        );
+        return;
+      }
 
       // Push is a wake-up signal; Feed remains the only routine in-app
       // presentation surface. This also covers notification families added in
