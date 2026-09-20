@@ -265,11 +265,32 @@ type AgentMessage = {
   thought?: string;
   sources?: AgentSource[];
   structuredExperience?: AgentStructuredExperience | null;
-  structuredExperiences?: Array<{
-    id: string;
-    experience: AgentStructuredExperienceWithPresentation;
-  }>;
+  structuredExperiences?: AgentStructuredExperienceEntry[];
 };
+
+export type AgentStructuredExperienceEntry = {
+  id: string;
+  experience: AgentStructuredExperienceWithPresentation;
+};
+
+/**
+ * Upsert a transport-identified AGUI card without silently dropping earlier
+ * cards from the same turn. The server may emit several distinct activities;
+ * only a repeated identity is a revision of an existing card.
+ */
+export function upsertAgentStructuredExperience(
+  current: readonly AgentStructuredExperienceEntry[],
+  id: string,
+  experience: AgentStructuredExperienceWithPresentation,
+): AgentStructuredExperienceEntry[] {
+  const existingIndex = current.findIndex((entry) => entry.id === id);
+  if (existingIndex < 0) {
+    return [...current, { id, experience }];
+  }
+  return current.map((entry, index) =>
+    index === existingIndex ? { id, experience } : entry,
+  );
+}
 
 type EmailDeliveryTimelineItem = EmailDeliveryHistoryItem & {
   anchorMessageId: string | null;
@@ -4480,19 +4501,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               eventId || `${assistantMessageId}:${structuredExperience.type}`;
             updateMessage(assistantMessageId, (message) => {
               const current = message.structuredExperiences ?? [];
-              const index = current.findIndex((item) => item.id === stableId);
-              const next =
-                index >= 0
-                  ? current.map((item, itemIndex) =>
-                      itemIndex === index
-                        ? { id: stableId, experience: structuredExperience }
-                        : item,
-                    )
-                  : [
-                      ...current,
-                      { id: stableId, experience: structuredExperience },
-                    ].slice(-8);
-              return { ...message, structuredExperiences: next };
+              return {
+                ...message,
+                structuredExperiences: upsertAgentStructuredExperience(
+                  current,
+                  stableId,
+                  structuredExperience,
+                ),
+              };
             });
           },
           onSpecialistDirective: (directive) => {

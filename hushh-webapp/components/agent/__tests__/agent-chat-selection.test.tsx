@@ -5,6 +5,7 @@ import {
   mergePendingConsentMessages,
   storedMessageToAgentMessage,
   storedMessagesToAgentMessages,
+  upsertAgentStructuredExperience,
 } from "@/components/agent/agent-chat-workspace";
 import type { AgentChatMessage } from "@/lib/services/agent-chat-client";
 
@@ -178,6 +179,38 @@ describe("ordered retained cards", () => {
     malformed.metadata!.structuredExperiences![0].activityType = "unsupported";
     const result = storedMessagesToAgentMessages([malformed, message("m2", ["c1"])]);
     expect(result.at(-1)?.structuredExperiences?.[0].id).toBe("c1");
+  });
+
+  it("retains more than eight distinct live cards while revising by identity", () => {
+    const first = {
+      type: "one.scope_discovery.v1" as const,
+      person: {
+        displayName: "Alex Morgan",
+        profilePath: "/people/profile-1234567890",
+        relationship: "Connected",
+      },
+      domainFilter: null,
+      scopes: [],
+    };
+    const all = Array.from({ length: 9 }, (_, index) =>
+      upsertAgentStructuredExperience(
+        index === 0
+          ? []
+          : Array.from({ length: index }, (_, prior) => ({
+              id: `card-${prior}`,
+              experience: first,
+            })),
+        `card-${index}`,
+        first,
+      ),
+    ).at(-1);
+    expect(all).toHaveLength(9);
+    expect(
+      upsertAgentStructuredExperience(all ?? [], "card-3", {
+        ...first,
+        person: { ...first.person, displayName: "Alex Morgan (updated)" },
+      }).find((entry) => entry.id === "card-3")?.experience.person.displayName,
+    ).toBe("Alex Morgan (updated)");
   });
 });
 
