@@ -320,6 +320,7 @@ describe("consent SSE stops retrying a permanent refusal", () => {
       {
         notificationType: "location_circle_deleted",
         circleId: "circle-1",
+        eventId: "location_circle_deleted:event-1",
       },
     );
   });

@@ -21,13 +21,17 @@ Covered:
 from __future__ import annotations
 
 import asyncio
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from api.consent_listener import (
+    USER_STATE_CHANNEL,
     _background_notify_tasks,
     _notify_callback,
+    _publish_user_state_event,
+    _user_state_notify_callback,
 )
 
 # ---------------------------------------------------------------------------
@@ -152,6 +156,148 @@ class TestNotifyCallbackTaskManagement:
             _notify_callback(fake_conn, 1, "consent_audit_new", '{"user_id":"u1"}')
 
 
+class TestCrossProcessUserStateNotifications:
+    def test_postgres_callback_delivers_to_the_stream_owned_by_this_worker(self):
+        async def _run():
+            from api import consent_listener
+
+            consent_listener._consent_notify_queues.clear()
+            queue = consent_listener.get_consent_queue("member-1")
+            payload = {
+                "type": "location_circle_renamed",
+                "user_id": "member-1",
+                "message_id": "location_circle_renamed:event-1",
+                "circle_id": "circle-1",
+            }
+
+            _user_state_notify_callback(
+                MagicMock(),
+                1,
+                USER_STATE_CHANNEL,
+                json.dumps(payload),
+            )
+            for _ in range(5):
+                await asyncio.sleep(0)
+
+            assert queue.get_nowait() == payload
+            consent_listener._consent_notify_queues.clear()
+
+        asyncio.run(_run())
+
+    def test_publish_uses_postgres_broadcast_channel_and_releases_connection(self):
+        async def _run():
+            calls: list[tuple] = []
+
+            class Connection:
+                async def execute(self, sql, *params):
+                    calls.append((sql, *params))
+
+            connection = Connection()
+
+            class Pool:
+                async def acquire(self):
+                    return connection
+
+                async def release(self, released):
+                    calls.append(("release", released))
+
+            async def get_pool():
+                return Pool()
+
+            payload = {
+                "type": "location_circle_deleted",
+                "message_id": "location_circle_deleted:event-1",
+                "circle_id": "circle-1",
+            }
+            with patch("db.connection.get_pool", side_effect=get_pool):
+                published = await _publish_user_state_event("member-1", payload)
+
+            assert published is True
+            assert calls[0][0] == "SELECT pg_notify($1, $2)"
+            assert calls[0][1] == USER_STATE_CHANNEL
+            assert json.loads(calls[0][2]) == {**payload, "user_id": "member-1"}
+            assert calls[1] == ("release", connection)
+
+        asyncio.run(_run())
+
+    def test_publish_failure_falls_back_to_same_worker_queue(self):
+        async def _run():
+            from api import consent_listener
+
+            consent_listener._consent_notify_queues.clear()
+            queue = consent_listener.get_consent_queue("member-1")
+
+            async def get_pool():
+                raise RuntimeError("database unavailable")
+
+            payload = {
+                "type": "location_circle_member_removed",
+                "message_id": "location_circle_member_removed:event-1",
+            }
+            with patch("db.connection.get_pool", side_effect=get_pool):
+                published = await _publish_user_state_event("member-1", payload)
+
+            assert published is False
+            assert queue.get_nowait() == {**payload, "user_id": "member-1"}
+            consent_listener._consent_notify_queues.clear()
+
+        asyncio.run(_run())
+
+    def test_listener_subscribes_and_unsubscribes_both_postgres_channels(self):
+        async def _run():
+            calls: list[tuple] = []
+            subscribed = asyncio.Event()
+
+            class Connection:
+                async def execute(self, sql):
+                    calls.append(("execute", sql))
+
+                async def add_listener(self, channel, callback):
+                    calls.append(("add", channel, callback))
+                    if channel == USER_STATE_CHANNEL:
+                        subscribed.set()
+
+                async def remove_listener(self, channel, callback):
+                    calls.append(("remove", channel, callback))
+
+            connection = Connection()
+
+            class Pool:
+                async def acquire(self, timeout=None):
+                    calls.append(("acquire", timeout))
+                    return connection
+
+                async def release(self, released):
+                    calls.append(("release", released))
+
+            async def get_pool():
+                return Pool()
+
+            async def dormant_loop():
+                await asyncio.Event().wait()
+
+            with (
+                patch("db.connection.get_pool", side_effect=get_pool),
+                patch("api.consent_listener._timeout_job_loop", new=dormant_loop),
+                patch("api.consent_listener._notification_job_loop", new=dormant_loop),
+            ):
+                from api.consent_listener import run_consent_listener
+
+                task = asyncio.create_task(run_consent_listener())
+                await asyncio.wait_for(subscribed.wait(), timeout=1)
+                task.cancel()
+                await task
+
+            assert ("execute", "LISTEN consent_audit_new") in calls
+            assert ("execute", f"LISTEN {USER_STATE_CHANNEL}") in calls
+            assert any(call[:2] == ("add", USER_STATE_CHANNEL) for call in calls)
+            assert any(call[:2] == ("remove", USER_STATE_CHANNEL) for call in calls)
+            assert ("execute", f"UNLISTEN {USER_STATE_CHANNEL}") in calls
+            assert ("release", connection) in calls
+
+        asyncio.run(_run())
+
+
 # ===========================================================================
 # cancel-without-await fix — DB pool failure path
 # ===========================================================================
@@ -181,11 +327,11 @@ class TestCancelWithAwaitOnDbFailure:
             with (
                 patch(
                     "api.consent_listener._timeout_job_loop",
-                    return_value=_slow(),
+                    new=_slow,
                 ),
                 patch(
                     "api.consent_listener._notification_job_loop",
-                    return_value=_slow(),
+                    new=_slow,
                 ),
                 patch(
                     "db.connection.get_pool",

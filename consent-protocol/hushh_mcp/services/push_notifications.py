@@ -544,9 +544,9 @@ def _send_circle_user_event(
     message_id = f"{notification_type}:{uuid.uuid4()}"
     client_data = {**data, "message_id": message_id}
     try:
-        from api.consent_listener import push_to_consent_queue_threadsafe
+        from api.consent_listener import publish_user_state_event_threadsafe
 
-        push_to_consent_queue_threadsafe(
+        publish_user_state_event_threadsafe(
             user_id,
             {
                 "type": notification_type,

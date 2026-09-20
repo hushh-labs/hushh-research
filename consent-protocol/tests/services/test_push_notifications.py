@@ -776,7 +776,7 @@ def test_circle_delivery_uses_one_message_id_for_fcm_and_sse(monkeypatch):
     captured = _capture_push(monkeypatch)
     streamed: list[tuple[str, dict]] = []
     monkeypatch.setattr(
-        "api.consent_listener.push_to_consent_queue_threadsafe",
+        "api.consent_listener.publish_user_state_event_threadsafe",
         lambda user_id, data: streamed.append((user_id, data)) or True,
     )
 
