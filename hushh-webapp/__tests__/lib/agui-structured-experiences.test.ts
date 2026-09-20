@@ -65,6 +65,28 @@ describe("AG-UI structured experience registry", () => {
       }),
     ).toEqual({ type: "one.person_selection.v1", candidates: [candidate] });
   });
+  it("turns a consent proposal into the Profile-aligned review card", () => {
+    expect(
+      parseAgentToolResultExperience("propose_information_request", {
+        status: "proposal_ready",
+        proposalId: "must-not-render",
+        person: { displayName: "Alex Morgan", profilePath: "/people/1234567890abcdef" },
+        fields: ["Employment status", "Company name"],
+        purpose: "Complete the onboarding review.",
+        durationHours: 48,
+      }),
+    ).toEqual({
+      type: "one.information_request_review.v1",
+      personName: "Alex Morgan",
+      purpose: "Complete the onboarding review.",
+      durationLabel: "2 days",
+      status: "awaiting_review",
+      fields: [
+        { label: "Employment status", domain: "Information", sensitivity: "standard" },
+        { label: "Company name", domain: "Information", sensitivity: "standard" },
+      ],
+    });
+  });
   it("accepts the versioned scope activity and normalizes its bounded fields", () => {
     expect(
       parseAgentActivityExperience("one.scope_discovery.v1", scopeResult),

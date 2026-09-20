@@ -197,6 +197,45 @@ function parseInformationRequestReview(content: unknown): InformationRequestRevi
   return { type: INFORMATION_REQUEST_REVIEW_EXPERIENCE_TYPE, personName, purpose, durationLabel, status, fields: parseReviewFields(record.fields) };
 }
 
+function parseInformationRequestProposal(
+  content: unknown,
+): InformationRequestReviewExperience | null {
+  const record = unwrapToolResult(content);
+  if (!record || record.status !== "proposal_ready") return null;
+  const person = asRecord(record.person);
+  const personName = boundedString(person?.displayName, 120);
+  const purpose = boundedString(record.purpose, 500);
+  const durationHours = boundedInteger(record.durationHours, 720);
+  if (!personName || !purpose || durationHours === null || durationHours < 1) {
+    return null;
+  }
+
+  const fields = (Array.isArray(record.fields) ? record.fields : []).flatMap(
+    (field) => {
+      if (typeof field === "string") {
+        const label = boundedString(field, 120);
+        return label
+          ? [{ label, domain: "Information", sensitivity: "standard" as const }]
+          : [];
+      }
+      return parseReviewFields([field], 1);
+    },
+  );
+  if (!fields.length) return null;
+  const durationLabel =
+    durationHours % 24 === 0
+      ? `${durationHours / 24} ${durationHours / 24 === 1 ? "day" : "days"}`
+      : `${durationHours} ${durationHours === 1 ? "hour" : "hours"}`;
+  return {
+    type: INFORMATION_REQUEST_REVIEW_EXPERIENCE_TYPE,
+    personName,
+    purpose,
+    durationLabel,
+    status: "awaiting_review",
+    fields,
+  };
+}
+
 function parseKycReadiness(content: unknown): KycReadinessExperience | null {
   const record = unwrapToolResult(content);
   if (!record) return null;
@@ -381,6 +420,9 @@ export function parseAgentToolResultExperience(
       return [{ selectionHandle, displayName, profilePath, detail: boundedString(candidate?.detail, 120) }];
     });
     return candidates.length ? { type: PERSON_SELECTION_EXPERIENCE_TYPE, candidates } : null;
+  }
+  if (toolName === "propose_information_request") {
+    return parseInformationRequestProposal(content);
   }
   const experience = parseScopeDiscovery(content);
   const presentation = experience ? parsePresentation(content) : null;
