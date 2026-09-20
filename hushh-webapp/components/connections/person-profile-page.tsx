@@ -64,6 +64,18 @@ import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 
 type Props = { personRef: string; initialProfile: PublicPersonProfile | null };
 
+const GRANT_DECRYPT_STEP_TIMEOUT_MS = 30_000;
+
+function withGrantDecryptTimeout<T>(operation: Promise<T>, message: string): Promise<T> {
+  let timeoutId: number | null = null;
+  const timeout = new Promise<T>((_, reject) => {
+    timeoutId = window.setTimeout(() => reject(new Error(message)), GRANT_DECRYPT_STEP_TIMEOUT_MS);
+  });
+  return Promise.race([operation, timeout]).finally(() => {
+    if (timeoutId !== null) window.clearTimeout(timeoutId);
+  });
+}
+
 function projectGrantPayload(
   payload: Record<string, unknown>,
   domain: string | null | undefined,
@@ -142,6 +154,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
   const [relationshipBusy, setRelationshipBusy] = useState(false);
   const [decryptedByRequest, setDecryptedByRequest] = useState<Record<string, Record<string, unknown>>>({});
   const [decryptedRevisionByRequest, setDecryptedRevisionByRequest] = useState<Record<string, number | null>>({});
+  const [decryptFailedByRequest, setDecryptFailedByRequest] = useState<Record<string, boolean>>({});
   const [decryptingRequestId, setDecryptingRequestId] = useState<string | null>(null);
   const [cancellingBundleId, setCancellingBundleId] = useState<string | null>(null);
   const [sharedSearchQuery, setSharedSearchQuery] = useState("");
@@ -231,6 +244,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     setBundleDetails({});
     setDecryptedByRequest({});
     setDecryptedRevisionByRequest({});
+    setDecryptFailedByRequest({});
     setDecryptingRequestId(null);
   }, [resolvedPersonRef, user?.uid]);
 
@@ -238,6 +252,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     if (isVaultUnlocked) return;
     setDecryptedByRequest({});
     setDecryptedRevisionByRequest({});
+    setDecryptFailedByRequest({});
     setDecryptingRequestId(null);
   }, [isVaultUnlocked]);
 
@@ -419,17 +434,29 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
         return;
       }
       setDecryptingRequestId(requestId);
+      setDecryptFailedByRequest((current) => {
+        if (!current[requestId]) return current;
+        const next = { ...current };
+        delete next[requestId];
+        return next;
+      });
       const generation = requestGeneration.current;
       try {
-        const connector = await OneKycClientZkService.ensureConnector({
-          userId: user.uid,
-          vaultKey,
-          vaultOwnerToken,
-        });
-        const exports = await PersonProfileService.getInformationRequestExports({
-          bundleId: history.bundleId,
-          vaultOwnerToken,
-        });
+        const connector = await withGrantDecryptTimeout(
+          OneKycClientZkService.ensureConnector({
+            userId: user.uid,
+            vaultKey,
+            vaultOwnerToken,
+          }),
+          "The receiving device took too long to prepare. Try opening this again.",
+        );
+        const exports = await withGrantDecryptTimeout(
+          PersonProfileService.getInformationRequestExports({
+            bundleId: history.bundleId,
+            vaultOwnerToken,
+          }),
+          "The shared information took too long to load. Try opening this again.",
+        );
         const exact = exports.find((item) => item.requestId === requestId);
         if (!exact) throw new Error("This shared information is not available right now.");
         const packageRevision = typeof exact.encryptedExport.export_revision === "number"
@@ -438,10 +465,13 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
         if (expectedRevision != null && packageRevision != null && expectedRevision !== packageRevision) {
           throw new Error("This shared information changed. Please check again.");
         }
-        const payload = await OneKycClientZkService.decryptScopedExport({
-          exportPackage: exact.encryptedExport,
-          connector,
-        });
+        const payload = await withGrantDecryptTimeout(
+          OneKycClientZkService.decryptScopedExport({
+            exportPackage: exact.encryptedExport,
+            connector,
+          }),
+          "The shared information took too long to open. Try again.",
+        );
         if (generation !== requestGeneration.current) return;
         setDecryptedByRequest((current) => ({
           ...current,
@@ -453,10 +483,15 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
         }));
       } catch (reason) {
         if (generation === requestGeneration.current) {
+          setDecryptFailedByRequest((current) => ({ ...current, [requestId]: true }));
           toast.error(oneLocationErrorMessage(reason, "This shared information could not be opened."));
         }
       } finally {
-        if (generation === requestGeneration.current) setDecryptingRequestId(null);
+        // A person/vault change invalidates the result, but it must not leave
+        // the old card permanently stuck in its busy state. Only clear the
+        // request that still owns the indicator; a newer decrypt remains
+        // untouched.
+        setDecryptingRequestId((current) => current === requestId ? null : current);
       }
     },
     [
@@ -518,7 +553,10 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     if (decryptingRequestId) return;
     // Prioritize visible / filtered grants first (on-demand viewport scaling)
     const pendingFiltered = filteredGrants.filter(
-      (grant) => grant.requestId && !decryptedByRequest[grant.requestId] && decryptingRequestId !== grant.requestId
+      (grant) => grant.requestId
+        && !decryptedByRequest[grant.requestId]
+        && !decryptFailedByRequest[grant.requestId]
+        && decryptingRequestId !== grant.requestId,
     );
     if (pendingFiltered.length && pendingFiltered[0]?.requestId) {
       void revealGrant(pendingFiltered[0].requestId);
@@ -526,7 +564,10 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     }
     // Lazy background decryption for off-screen/unfiltered items
     const pendingAll = allGrants.filter(
-      (grant) => grant.requestId && !decryptedByRequest[grant.requestId] && decryptingRequestId !== grant.requestId
+      (grant) => grant.requestId
+        && !decryptedByRequest[grant.requestId]
+        && !decryptFailedByRequest[grant.requestId]
+        && decryptingRequestId !== grant.requestId,
     );
     if (pendingAll.length && pendingAll[0]?.requestId) {
       void revealGrant(pendingAll[0].requestId);
@@ -538,6 +579,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     allGrants,
     filteredGrants,
     user,
+    decryptFailedByRequest,
     decryptedByRequest,
     decryptedRevisionByRequest,
     decryptingRequestId,

@@ -664,6 +664,54 @@ describe("PersonProfilePage request catalog tools", () => {
     expect(screen.queryByTestId("person-profile-grant-value")).toBeNull();
   });
 
+  it("stops automatic grant retries after a bounded failure and leaves a manual retry", async () => {
+    const { PersonProfileService } = await import("@/lib/services/person-profile-service");
+    const { OneKycClientZkService } = await import("@/lib/services/one-kyc-client-zk-service");
+    const { toast } = await import("sonner");
+    mocks.user = {
+      uid: "viewer",
+      getIdToken: vi.fn().mockResolvedValue("viewer-token"),
+    };
+    mocks.vaultKey = "vault-key";
+    mocks.vaultOwnerToken = "owner-token";
+    (OneKycClientZkService.ensureConnector as ReturnType<typeof vi.fn>).mockResolvedValue({ connector_key_id: "ck_1" });
+    (PersonProfileService.getInformationRequestExports as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("psycopg2.errors.SerializationFailure: temporary export failure"),
+    );
+    mocks.getViewer.mockResolvedValue(
+      viewerProfile({
+        grants: [{
+          scopeRef: "scope-0",
+          label: "City",
+          domain: "location",
+          requestId: "req-grant-fail",
+          issuedAt: null,
+          expiresAt: null,
+          status: "granted",
+          encryptedExportAvailable: true,
+        }],
+        requestHistory: [{
+          bundleId: "bundle-grant",
+          requestId: "req-grant-fail",
+          scopeRef: "scope-0",
+          label: "City",
+          sensitivity: "standard",
+          purpose: "Delivery",
+          durationSeconds: 24 * 3600,
+          createdAt: null,
+          expiresAt: null,
+          status: "approved",
+        }],
+      }),
+    );
+
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("This shared information could not be opened."));
+    expect(await screen.findByTestId("person-profile-grant-reveal")).toBeInTheDocument();
+    expect(PersonProfileService.getInformationRequestExports).toHaveBeenCalledTimes(1);
+  });
+
   it("brings the requestable catalog into view when opened with ?request=1", async () => {
     mocks.search = "request=1";
     const scrolled = vi.fn();
