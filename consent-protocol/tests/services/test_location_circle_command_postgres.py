@@ -232,6 +232,15 @@ async def test_rename_and_delete_notify_the_exact_locked_roster_after_commit(
 ):
     service, binding = circle_fixture(db, monkeypatch, action)
     command = await claim(db, monkeypatch, binding)
+    if action == "rename_circle":
+        # Rename does not need the roster in its reviewed effect terms, so add
+        # a member after confirmation to prove delivery uses the roster locked
+        # at commit time instead of a stale review-time snapshot.
+        db.execute_raw(
+            """INSERT INTO one_location_circle_memberships(circle_id,user_id,role,status)
+            VALUES(CAST(:circle AS UUID),'other','member','active')""",
+            {"circle": binding["circleId"]},
+        )
     delivered: list[dict] = []
     from hushh_mcp.services import push_notifications
 
