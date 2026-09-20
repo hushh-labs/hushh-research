@@ -283,6 +283,12 @@ const ROUTE_OVERRIDES = {
     allowedPathnames: KAI_ONBOARDING_COMPATIBILITY_PATHNAMES,
     allowedRouteIds: KAI_ONBOARDING_COMPATIBILITY_ROUTE_IDS,
   },
+  // A completed reviewer is intentionally ejected from the one-time setup hub
+  // to canonical Chat; an incomplete owner remains on /one/setup.
+  "/one/setup": {
+    allowedPathnames: ["/one/setup", "/"],
+    allowedRouteIds: ["/one/setup", "/"],
+  },
   "/ria/onboarding": {
     allowedPathnames: ["/ria/onboarding", "/ria"],
     allowedRouteIds: ["/ria/onboarding", "/ria"],
