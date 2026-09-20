@@ -187,6 +187,7 @@ export class PersonProfileService {
     if (catalog?.domain) query.set("catalog_domain", catalog.domain);
     const result = await jsonOrThrow<ViewerPersonProfile>(
       await ApiService.apiFetch(`/api/one/people/${encodeURIComponent(personRef)}${query.size ? `?${query}` : ""}`, {
+        cache: "no-store",
         headers: { Authorization: `Bearer ${idToken}` },
       }),
     );

@@ -44,6 +44,7 @@ describe("recipient-bound catalog pages", () => {
     expect(query.get("catalog_revision")).toBe("a".repeat(64));
     expect(query.get("catalog_domain")).toBe("professional");
     expect(query.get("catalog_query")).toBe("test employer");
+    expect(vi.mocked(ApiService.apiFetch).mock.calls[0]![1]).toEqual(expect.objectContaining({ cache: "no-store" }));
   });
 
   it("rejects a response for another person before it reaches a card", async () => {
