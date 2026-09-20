@@ -689,6 +689,51 @@ class TestPropose:
         list_shares.assert_awaited_once_with(requester_user_id="user_1", person_ref=PERSON_REF)
 
     @pytest.mark.asyncio
+    async def test_shared_information_validates_browser_selection_before_listing(self):
+        context = _ctx(_state())
+        context.state[action_tools._STATE_INFORMATION_PERSON_CHOICES] = {
+            "a" * 32: {
+                "owner": "user_1",
+                "session": "session_1",
+                "personRef": PERSON_REF,
+                "displayName": "Sarah Chen",
+                "expiresAt": 2_000_000_000,
+            },
+        }
+        context.state["hussh:requested_person_selection"] = "a" * 32
+        with (
+            _auth(),
+            patch.object(
+                InformationRequestService,
+                "list_granted_shares",
+                new=AsyncMock(return_value=[]),
+            ) as list_shares,
+        ):
+            result = await list_information_shared_with_me(context)
+        assert result["status"] == "ok"
+        assert result["person"] == {"displayName": "Sarah Chen", "personRef": PERSON_REF}
+        list_shares.assert_awaited_once_with(requester_user_id="user_1", person_ref=PERSON_REF)
+
+    @pytest.mark.asyncio
+    async def test_shared_information_does_not_fall_back_to_unfiltered_after_bad_selection(self):
+        context = _ctx(_state())
+        context.state["hussh:requested_person_selection"] = "forged"
+        with (
+            _auth(),
+            patch.object(
+                InformationRequestService,
+                "list_granted_shares",
+                new=AsyncMock(),
+            ) as list_shares,
+        ):
+            result = await list_information_shared_with_me(context)
+        assert result == {
+            "status": "needs_clarification",
+            "message": "That choice expired. Please choose the person again.",
+        }
+        list_shares.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_short_purpose_and_bad_duration_are_asked_back(self):
         with (
             _auth(),

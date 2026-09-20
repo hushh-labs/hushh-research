@@ -364,7 +364,11 @@ export function parseAgentToolResultExperience(
   toolName: string,
   content: unknown,
 ): AgentStructuredExperienceWithPresentation | null {
-  if (toolName !== "discover_person_information" && toolName !== "propose_information_request") return null;
+  const supportsPersonSelection =
+    toolName === "discover_person_information" ||
+    toolName === "propose_information_request" ||
+    toolName === "list_information_shared_with_me";
+  if (!supportsPersonSelection) return null;
   const result = unwrapToolResult(content);
   if (result?.status === "needs_clarification" && Array.isArray(result.candidates)) {
     const candidates = result.candidates.slice(0, 20).flatMap((value) => {

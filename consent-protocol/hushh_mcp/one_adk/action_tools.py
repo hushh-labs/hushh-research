@@ -2016,7 +2016,11 @@ async def list_information_shared_with_me(
     try:
         selected_person_ref: str | None = None
         selected_person_name: str | None = None
-        if str(person or "").strip() or tool_context.state.get(_STATE_SELECTED_INFORMATION_PERSON):
+        if (
+            str(person or "").strip()
+            or tool_context.state.get(_STATE_SELECTED_INFORMATION_PERSON)
+            or tool_context.state.get("hussh:requested_person_selection")
+        ):
             selected_person_ref, selected_person_name = await asyncio.to_thread(
                 _resolve_person_for_information,
                 ConnectionsService(),
@@ -2049,6 +2053,8 @@ async def list_information_shared_with_me(
                 else "No connections have shared information with you yet."
             ),
         }
+    except ConsentLifecycleError as exc:
+        return _information_person_error(exc, tool_context, user_id)
     except Exception:  # noqa: BLE001 - consumer-safe boundary
         logger.exception("list_information_shared_with_me failed")
         return {

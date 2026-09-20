@@ -51,6 +51,20 @@ describe("AG-UI structured experience registry", () => {
     });
     expect(result).toEqual({ type: "one.person_selection.v1", candidates: [candidate] });
   });
+  it("keeps person choices visible when shared-information listing needs clarification", () => {
+    const candidate = {
+      selectionHandle: "b".repeat(32),
+      displayName: "Alex Morgan",
+      profilePath: "/people/1234567890abcdef",
+      detail: "a***@example.test",
+    };
+    expect(
+      parseAgentToolResultExperience("list_information_shared_with_me", {
+        status: "needs_clarification",
+        candidates: [candidate],
+      }),
+    ).toEqual({ type: "one.person_selection.v1", candidates: [candidate] });
+  });
   it("accepts the versioned scope activity and normalizes its bounded fields", () => {
     expect(
       parseAgentActivityExperience("one.scope_discovery.v1", scopeResult),
