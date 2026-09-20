@@ -128,6 +128,7 @@ const TRANSIENT_BACKGROUND_RESPONSE_FAILURES = [
 
 const LOCAL_CRM_ROUTE_PREFIXES = [
   "/one/connected-systems",
+  "/one/setup/connected-systems",
   "/one/profile/connected-systems",
   "/connected-systems",
 ];
@@ -639,9 +640,6 @@ const ROUTE_HEALTH_EXPECTATIONS = {
   "/one/setup/gmail": { heading: "Your mail, made useful." },
   "/one/setup/calendar": { heading: "Stay ahead of your schedule." },
   "/one/setup/email": { heading: "Replies, ready when you are." },
-  "/one/setup/connected-systems": {
-    heading: "Start with the record you already have.",
-  },
 };
 
 async function installNativeTestBridge(page) {
