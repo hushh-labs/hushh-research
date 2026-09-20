@@ -560,18 +560,10 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     );
     if (pendingFiltered.length && pendingFiltered[0]?.requestId) {
       void revealGrant(pendingFiltered[0].requestId);
-      return;
     }
-    // Lazy background decryption for off-screen/unfiltered items
-    const pendingAll = allGrants.filter(
-      (grant) => grant.requestId
-        && !decryptedByRequest[grant.requestId]
-        && !decryptFailedByRequest[grant.requestId]
-        && decryptingRequestId !== grant.requestId,
-    );
-    if (pendingAll.length && pendingAll[0]?.requestId) {
-      void revealGrant(pendingAll[0].requestId);
-    }
+    // Do not serially decrypt unrelated cards in the background. Each grant
+    // stays encrypted until it is the visible filtered result or the user
+    // explicitly opens it, so one slow connector cannot block another card.
   }, [
     isVaultUnlocked,
     vaultKey,
