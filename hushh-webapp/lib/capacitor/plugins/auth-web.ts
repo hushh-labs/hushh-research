@@ -76,7 +76,7 @@ export class HushhAuthWeb implements HushhAuthPlugin {
     purpose: "read" | "send";
   }): Promise<{ serverAuthCode: string }> {
     throw new Error(
-      "Native Gmail consent is only available in the mobile app.",
+      "Native Mail consent is only available in the mobile app.",
     );
   }
 

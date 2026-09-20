@@ -159,7 +159,7 @@ describe("contact invitation selection", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "Select Person 1" }));
     expect(screen.queryByText("Person 51")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Show more contacts" }));
-    expect(screen.getByText("Not checked—email only")).toBeInTheDocument();
+    expect(screen.getByText("Not checked—mail only")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("checkbox", { name: "Select Person 51" }));
     expect(
       screen.getByRole("button", { name: "Review 2 invitations" }),

@@ -1,5 +1,7 @@
 "use client";
 
+import { mailDisplayLabel } from "@/lib/copy/mail-terminology";
+
 import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import {
   Activity,
@@ -907,7 +909,7 @@ export function KaiCommandPalette({
     const normalized = query.trim().toLowerCase();
     if (!normalized) return null;
     return actionMatches.find(({ action }) =>
-      [action.action_id, action.label, ...action.aliases].some(
+      [action.action_id, action.label, mailDisplayLabel(action.label), ...action.aliases].some(
         (value) => value.trim().toLowerCase() === normalized,
       ),
     );
@@ -1061,7 +1063,7 @@ export function KaiCommandPalette({
             disabled={actionDisabled}
           >
             <Icon icon={Activity} size="sm" className="text-muted-foreground" />
-            <span className="min-w-0 truncate font-medium">{action.label}</span>
+            <span className="min-w-0 truncate font-medium">{mailDisplayLabel(action.label)}</span>
           </button>
         );
       })}
@@ -1199,7 +1201,7 @@ export function KaiCommandPalette({
                   className="mr-2 text-muted-foreground"
                 />
                 <span className="min-w-0 truncate font-medium">
-                  {action.label}
+                  {mailDisplayLabel(action.label)}
                 </span>
               </CommandItem>
             ))}
@@ -1222,7 +1224,7 @@ export function KaiCommandPalette({
                   className="mr-2 text-muted-foreground"
                 />
                 <span className="min-w-0 truncate font-medium">
-                  {action.label}
+                  {mailDisplayLabel(action.label)}
                 </span>
               </CommandItem>
             ))}
@@ -1249,7 +1251,7 @@ export function KaiCommandPalette({
                 />
                 <span className="flex min-w-0 flex-col">
                   <span className="min-w-0 truncate font-medium">
-                    {action.label}
+                    {mailDisplayLabel(action.label)}
                   </span>
                   {/* The reason a surface published a dead end, said back to
                       the person. Without it the remedy is a bare link and they
@@ -1323,6 +1325,7 @@ export function KaiCommandPalette({
                   disabled={actionDisabled}
                   value={[
                     action.label,
+                    mailDisplayLabel(action.label),
                     action.action_id,
                     action.aliases.join(" "),
                     action.search_keywords.join(" "),
@@ -1334,7 +1337,7 @@ export function KaiCommandPalette({
                     size="sm"
                     className="mr-2 text-muted-foreground"
                   />
-                  <span className="font-medium">{action.label}</span>
+                  <span className="font-medium">{mailDisplayLabel(action.label)}</span>
                 </CommandItem>
               );
             })}

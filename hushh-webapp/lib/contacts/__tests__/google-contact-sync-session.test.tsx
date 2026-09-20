@@ -223,7 +223,7 @@ describe("Google results to personal web invitations", () => {
     );
     expect(await screen.findByText("Invite your contacts")).toBeVisible();
     expect(screen.getByText("No match found")).toBeVisible();
-    expect(screen.getByText(/Not checked.*email only/)).toBeVisible();
+    expect(screen.getByText(/Not checked.*mail only/)).toBeVisible();
     for (const checkbox of screen.getAllByRole("checkbox")) {
       expect(checkbox).not.toBeChecked();
     }
@@ -262,7 +262,7 @@ describe("Google results to personal web invitations", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Continue with 2 invitations" }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Open email" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open mail" }));
     await screen.findByRole("button", { name: "Done with this contact" });
     expect(compose).toHaveBeenCalledWith(
       candidates[0].destinations[0],
@@ -346,7 +346,7 @@ describe("Google results to personal web invitations", () => {
     await start();
     expect(await screen.findByText("No phone numbers to match")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Invite contacts" }));
-    expect(await screen.findByText(/Not checked.*email only/)).toBeVisible();
+    expect(await screen.findByText(/Not checked.*mail only/)).toBeVisible();
     expect(
       screen.getByRole("checkbox", { name: "Select Email Friend" }),
     ).not.toBeChecked();

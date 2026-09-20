@@ -7416,7 +7416,18 @@
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
-      "native": null,
+      "native": {
+        "route": "/one/setup/capabilities",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Fcapabilities",
+        "expectedMarker": "native-route-setup-capabilities",
+        "expectedRoute": "/one/setup/capabilities",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
       "shell": {
         "app_page_shell": false,
         "page_header": false,
@@ -9630,5 +9641,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "c530391e4113480aea697919eee12a3a4384103664e512932ff38eb12ed831ec"
+  "content_sha256": "6c8f2718fdbeb0c070e67267c4397aeea3f4c2add95610031d0b2901d52e6260"
 }

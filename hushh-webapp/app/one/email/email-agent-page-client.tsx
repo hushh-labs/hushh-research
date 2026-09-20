@@ -70,7 +70,7 @@ export function EmailAgentPageClient() {
         reason: "user_requested",
         transcript: emailAgentIntroRecipient
           ? buildEmailAgentIntroPrompt(emailAgentIntroRecipient)
-          : "Please help me draft an email. I will review it before anything is sent.",
+          : "Please help me draft a mail message. I will review it before anything is sent.",
         createdAtMs,
       });
     }
@@ -101,14 +101,14 @@ export function EmailAgentPageClient() {
     >
       <AppPageHeaderRegion>
         <PageHeader
-          title="Email Agent"
-          description="Use Gmail context to classify receipts and inbox activity, then draft mail with One. Every email stays editable and needs your final Send email click."
+          title="Mail Agent"
+          description="Use Mail context to classify receipts and inbox activity, then draft mail with One. Every mail message stays editable and needs your final Send click."
         />
       </AppPageHeaderRegion>
       <AppPageContentRegion>
         <SurfaceStack compact>
           {authLoading || gmail.loadingStatus ? (
-            <SurfaceInset aria-busy="true" aria-label="Loading Gmail connection" className="space-y-4 px-4 py-5 sm:px-5">
+            <SurfaceInset aria-busy="true" aria-label="Loading Mail connection" className="space-y-4 px-4 py-5 sm:px-5">
               <Skeleton className="h-4 w-28" />
               <Skeleton className="h-7 w-44" />
               <Skeleton className="h-4 w-full" />
@@ -119,14 +119,14 @@ export function EmailAgentPageClient() {
               <div className="flex items-start gap-3">
                 <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0 text-emerald-600" aria-hidden />
                 <div className="space-y-1">
-                  <h2 className="font-semibold text-foreground">Gmail connected</h2>
+                  <h2 className="font-semibold text-foreground">Mail connected</h2>
                   <p className="text-sm leading-6 text-muted-foreground">
-                    One can use your Gmail connection for receipt and inbox context, and help draft an email. Review each draft, then click Send when you are ready.
+                    One can use your Mail connection for receipt and inbox context, and help draft a mail message. Review each draft, then click Send when you are ready.
                   </p>
                 </div>
               </div>
               <AskOneButton onClick={openOneForDraft}>
-                Try Email Agent with One
+                Try Mail Agent with One
               </AskOneButton>
             </SurfaceInset>
           ) : (
@@ -134,15 +134,15 @@ export function EmailAgentPageClient() {
               <div className="flex items-start gap-3">
                 <Mail className="mt-0.5 h-5 w-5 shrink-0 text-muted-foreground" aria-hidden />
                 <div className="space-y-1">
-                  <h2 className="font-semibold text-foreground">Connect Gmail</h2>
+                  <h2 className="font-semibold text-foreground">Connect Mail</h2>
                   <p className="text-sm leading-6 text-muted-foreground">
-                    Connect Gmail once to classify receipts and inbox context, and to prepare approval-gated email drafts. One will never send from a chat reply.
+                    Connect Mail once to classify receipts and inbox context, and to prepare approval-gated mail drafts. One will never send from a chat reply.
                   </p>
                 </div>
               </div>
               <Button type="button" onClick={() => router.push(ROUTES.GMAIL)} className="w-full sm:w-auto">
                 <Mail className="mr-2 h-4 w-4" />
-                Connect Gmail
+                Connect Mail
               </Button>
             </SurfaceInset>
           )}

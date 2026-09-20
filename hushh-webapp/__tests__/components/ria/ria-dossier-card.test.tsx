@@ -287,7 +287,7 @@ describe("RiaProfileSection dossier row", () => {
     await renderWithDossier({ status: "blocked_no_email" });
     await waitFor(() =>
       expect(
-        screen.getByText("No email on your account to send it to."),
+        screen.getByText("No mail on your account to send it to."),
       ).toBeTruthy(),
     );
     expect(screen.queryByTestId("ria-dossier-retry")).toBeNull();

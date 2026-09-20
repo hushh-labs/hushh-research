@@ -148,7 +148,7 @@ export function openGmailOAuthPopup(
   }
 
   try {
-    popup.document.title = "Connecting Gmail";
+    popup.document.title = "Connecting Mail";
     if (popup.document.body) {
       popup.document.body.textContent = "Opening secure Google sign-in…";
       popup.document.body.style.cssText =

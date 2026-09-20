@@ -5236,7 +5236,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": null
+      "native_surface_id": "native-route-setup-capabilities"
     },
     {
       "route_pattern": "/one/setup/connected-systems",

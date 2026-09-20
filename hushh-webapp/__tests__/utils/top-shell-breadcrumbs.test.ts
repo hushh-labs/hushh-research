@@ -387,7 +387,7 @@ describe("top shell breadcrumbs", () => {
       items: [
         { label: "One", href: "/one" },
         { label: "Setup", href: "/one/setup/capabilities" },
-        { label: "Email" },
+        { label: "Mail" },
       ],
     });
   });
@@ -498,7 +498,7 @@ describe("top shell breadcrumbs", () => {
       backHref: "/one/gmail",
       width: "profile",
       align: "center",
-      items: [{ label: "Gmail", href: "/one/gmail" }],
+      items: [{ label: "Mail", href: "/one/gmail" }],
     });
 
     // No origin → the historic default (back to the One dashboard) is preserved.
@@ -667,7 +667,7 @@ describe("top shell breadcrumbs", () => {
       align: "center",
       items: [
         { label: "One", href: "/one" },
-        { label: "Gmail", href: "/one/gmail" },
+        { label: "Mail", href: "/one/gmail" },
         { label: "Legacy receipts" },
       ],
     });

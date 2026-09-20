@@ -1280,7 +1280,7 @@ describe("ConnectedSystemsPanel", () => {
     expect(screen.queryByLabelText("Field view")).toBeNull();
     const fieldRows = screen.getAllByRole("row");
     expect(
-      fieldRows.findIndex((row) => row.textContent?.includes("Email")),
+      fieldRows.findIndex((row) => row.textContent?.includes("Mail")),
     ).toBeLessThan(
       fieldRows.findIndex((row) =>
         row.textContent?.includes("Preferred language"),

@@ -214,7 +214,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     // Gmail remains a setup/product surface; its conversational reads now
     // belong to the unified Email specialist.
     agentId: "agent_email",
-    title: "Email",
+    title: "Mail",
     description: "Receipt sync and purchase-memory review.",
     previewLabel: "Receipt & purchase memory",
     href: ROUTES.GMAIL,

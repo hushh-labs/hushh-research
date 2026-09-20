@@ -69,7 +69,7 @@ function AgentThinkingContent({
 }
 
 const SOURCE_SUMMARIES: Record<string, { badge: string; message: string }> = {
-  agent_email: { badge: "Specialist", message: "Email assistant consulted." },
+  agent_email: { badge: "Specialist", message: "Mail assistant consulted." },
   agent_location: { badge: "Specialist", message: "Location assistant consulted." },
   agent_connected_systems: { badge: "Specialist", message: "Connections assistant consulted." },
   agent_connections: { badge: "Specialist", message: "Connections assistant consulted." },

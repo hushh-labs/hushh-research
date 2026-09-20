@@ -15,9 +15,11 @@
  * reverted for a good reason: shortening "Employment status" to "status"
  * changes its meaning. Humanize at capture, never at render.
  *
- * Deliberately dependency-free and not a client module, so `lib/consent` can
+ * Deliberately framework-independent and not a client module, so `lib/consent` can
  * import it without inheriting `"use client"` or the memory-card graph.
  */
+
+import { mailDisplayLabel } from "@/lib/copy/mail-terminology";
 
 /**
  * A readable name for one segment, given the segment as it was originally
@@ -27,7 +29,7 @@
  * and letter-to-digit runs. Then title-cases.
  */
 export function humanizeMemorySegment(segment: string): string {
-  return (
+  return mailDisplayLabel(
     String(segment ?? "")
       .replace(/\[\d+\]/g, " ")
       .replace(/[_-]+/g, " ")

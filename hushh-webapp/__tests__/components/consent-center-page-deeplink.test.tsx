@@ -462,7 +462,7 @@ describe("ConsentCenterPage requestId deep links", () => {
     expect(
       screen.queryByRole("combobox", { name: "Access duration" }),
     ).toBeNull();
-    expect(screen.getAllByRole("link", { name: "Open Email" })).toHaveLength(1);
+    expect(screen.getAllByRole("link", { name: "Open Mail" })).toHaveLength(1);
     expect(screen.queryByText("Original request")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Allow" }));

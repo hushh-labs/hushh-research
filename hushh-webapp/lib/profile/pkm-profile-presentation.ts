@@ -1,5 +1,7 @@
 "use client";
 
+import { mailDisplayLabel } from "@/lib/copy/mail-terminology";
+
 import {
   buildNaturalAccessEntries,
   buildNaturalDomainPresentation,
@@ -143,6 +145,7 @@ function humanizePath(value: string | null | undefined): string {
         .trim()
     )
     .filter(Boolean)
+    .map(mailDisplayLabel)
     .join(" ");
 }
 
@@ -242,7 +245,7 @@ function friendlySourceLabel(value: string | null | undefined): string | null {
   if (/upgrade|migration|schema|manifest|structure agent|runtime secret/.test(normalized)) {
     return null;
   }
-  if (/gmail|receipt/.test(normalized)) return "From Gmail";
+  if (/gmail|receipt/.test(normalized)) return "From Mail";
   if (/portfolio|brokerage|plaid|alpaca|investment import/.test(normalized)) {
     return "From a portfolio import";
   }

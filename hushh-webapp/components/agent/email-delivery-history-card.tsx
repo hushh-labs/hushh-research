@@ -28,11 +28,11 @@ function statusCopy(item: EmailDeliveryHistoryItem): string {
     case "sending":
       return "Sending in the background…";
     case "sent":
-      return "Email sent";
+      return "Mail sent";
     case "outcome_unknown":
       return "Delivery status needs checking";
     default:
-      return item.errorMessage || "Email could not be sent.";
+      return item.errorMessage || "Mail could not be sent.";
   }
 }
 
@@ -73,7 +73,7 @@ export function EmailDeliveryHistoryCard({
         </span>
         <span className="min-w-0 flex-1">
           <span className="block text-sm font-semibold text-foreground">
-            {item.status === "sending" ? "Email sending" : "Email activity"}
+            {item.status === "sending" ? "Mail sending" : "Mail activity"}
           </span>
           <span className="block truncate text-sm text-muted-foreground">
             {statusCopy(item)}
@@ -95,7 +95,7 @@ export function EmailDeliveryHistoryCard({
           {item.sourceBoundWorkflowId ? (
             <div className="sm:col-span-2">
               <dt className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">Delivery</dt>
-              <dd className="mt-1 break-words text-foreground">Original Gmail thread</dd>
+              <dd className="mt-1 break-words text-foreground">Original Mail thread</dd>
             </div>
           ) : (
             <>
@@ -139,7 +139,7 @@ export function EmailDeliveryHistoryCard({
           <div className="flex flex-wrap gap-2">
             {needsGmailReconnect ? (
               <Button asChild type="button" variant="outline" size="sm">
-                <Link href="/one/gmail">Reconnect Gmail</Link>
+                <Link href="/one/gmail">Reconnect Mail</Link>
               </Button>
             ) : null}
             {onRetry ? (
