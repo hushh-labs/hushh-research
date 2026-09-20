@@ -107,7 +107,11 @@ describe("reviewer preparation-only authority", () => {
     },
   );
 
-  it("skips only background writes for the explicit preparation-only bridge policy", () => {
+  it.each([
+    ["preparation_only", true],
+    ["read_only", true],
+    ["mutation_authorized", false],
+  ])("skips background writes only for the non-mutating bridge policy (%s)", (policy, expected) => {
     const target = window as unknown as {
       __HUSHH_NATIVE_TEST__?: {
         enabled?: boolean;
@@ -120,11 +124,9 @@ describe("reviewer preparation-only authority", () => {
       target.__HUSHH_NATIVE_TEST__ = {
         enabled: true,
         autoReviewerLogin: true,
-        reviewerMutationPolicy: "preparation_only",
+        reviewerMutationPolicy: policy,
       };
-      expect(shouldSkipReviewerBackgroundWritesForAutomation()).toBe(true);
-      target.__HUSHH_NATIVE_TEST__.reviewerMutationPolicy = "read_only";
-      expect(shouldSkipReviewerBackgroundWritesForAutomation()).toBe(false);
+      expect(shouldSkipReviewerBackgroundWritesForAutomation()).toBe(expected);
       target.__HUSHH_NATIVE_TEST__.autoReviewerLogin = false;
       target.__HUSHH_NATIVE_TEST__.reviewerMutationPolicy = "preparation_only";
       expect(shouldSkipReviewerBackgroundWritesForAutomation()).toBe(false);

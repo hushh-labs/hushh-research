@@ -167,17 +167,20 @@ export function shouldSkipAmbientIdentityHydrationForAutomation(
 }
 
 /**
- * Preparation-only reviewer runs must not start background migrations or
- * other encrypted-data writes while they prove Memory preview behavior.
+ * Read-only and preparation-only reviewer runs must not start background
+ * migrations or connector registration while they prove UI/read behavior.
  * The policy is injected in-memory by the canonical reviewer harness and is
  * never persisted or honored outside an explicit automated reviewer session.
+ * Mutation-authorized journeys retain explicit action-boundary setup.
  */
 export function shouldSkipReviewerBackgroundWritesForAutomation(): boolean {
   return (
     typeof window !== "undefined" &&
     window.__HUSHH_NATIVE_TEST__?.enabled === true &&
     window.__HUSHH_NATIVE_TEST__?.autoReviewerLogin === true &&
-    window.__HUSHH_NATIVE_TEST__?.reviewerMutationPolicy === "preparation_only"
+    ["read_only", "preparation_only"].includes(
+      window.__HUSHH_NATIVE_TEST__?.reviewerMutationPolicy || "",
+    )
   );
 }
 
