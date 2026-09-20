@@ -167,9 +167,11 @@ function scrollToIndexSafely(
     // Repairing the mutable snaps does not rebuild ScrollBounds' captured
     // limit. Keep stale bounds disabled on subsequent selections too; only a
     // genuinely remeasured engine may restore the normal edge guard.
+    const limit = engine.limit;
     const boundsMatch =
-      Math.abs(engine.limit.min + (slideRects.length - 1) * slideWidth) <= 1 &&
-      Math.abs(engine.limit.max) <= 1;
+      Boolean(limit) &&
+      Math.abs(limit.min + (slideRects.length - 1) * slideWidth) <= 1 &&
+      Math.abs(limit.max) <= 1;
     engine.scrollBounds?.toggleActive?.(!isStale && boundsMatch);
   }
 
