@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy import text
 
 from hushh_mcp.services import location_command_effect_receipts as receipts
+from hushh_mcp.services import one_location_circle_service as circle_service_module
 from hushh_mcp.services.location_circle_command import circle_effect_terms
 from hushh_mcp.services.one_location_circle_service import (
     OneLocationCircleError,
@@ -230,6 +231,11 @@ async def test_real_circle_writers_commit_once_and_replay_after_authority_expire
 async def test_rename_and_delete_notify_the_exact_locked_roster_after_commit(
     db, monkeypatch, action, notifier_name, expected_type
 ):
+    monkeypatch.setattr(
+        circle_service_module,
+        "_submit_circle_lifecycle_notification",
+        lambda callback, **kwargs: callback(**kwargs),
+    )
     service, binding = circle_fixture(db, monkeypatch, action)
     command = await claim(db, monkeypatch, binding)
     if action == "rename_circle":

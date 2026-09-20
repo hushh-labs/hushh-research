@@ -126,6 +126,21 @@ _GENERIC_CONNECTION_REQUEST_BODY = connection_request_body()
 # is the shape `buildConsentCenterHref` emits and the one the Feed's Review
 # action already uses, so all three entry points agree.
 CONNECTION_REQUEST_LIST_LINK = "/one/consent?tab=connections"
+ONE_LOCATION_CIRCLE_LIST_LINK = "/one/location?view=people"
+
+
+def _circle_detail_link(circle_id: str) -> str:
+    return (
+        f"{ONE_LOCATION_CIRCLE_LIST_LINK}&action=circle-detail"
+        f"&circleId={quote(str(circle_id or '').strip(), safe='')}"
+    )
+
+
+def _circle_invite_link(invite_id: str) -> str:
+    return (
+        f"{ONE_LOCATION_CIRCLE_LIST_LINK}"
+        f"&circleInviteId={quote(str(invite_id or '').strip(), safe='')}"
+    )
 
 
 def _connection_request_link(connection_request_id: str | None) -> str:
@@ -580,7 +595,7 @@ def send_circle_code_joined_push(
     inviting, and they are the one person for whom this is news.
     """
 
-    deep_link = f"/one/location?tab=people&circleId={circle_id}"
+    deep_link = _circle_detail_link(circle_id)
     return _send_circle_user_event(
         inviter_user_id,
         notification_type="location_circle_code_joined",
@@ -625,7 +640,7 @@ def send_circle_member_added_push(
         body = f'You were added to "{circle}".'
     else:
         body = "You were added to a Circle."
-    deep_link = f"/one/location?tab=people&circleId={circle_id}"
+    deep_link = _circle_detail_link(circle_id)
     return _send_circle_user_event(
         member_user_id,
         notification_type="location_circle_member_added",
@@ -655,7 +670,7 @@ def send_circle_member_invite_push(
 ) -> int:
     """Nudge one exact invitee about a pending named Circle invitation."""
 
-    deep_link = f"/one/location?tab=people&circleInviteId={invite_id}"
+    deep_link = _circle_invite_link(invite_id)
     return _send_circle_user_event(
         invitee_user_id,
         notification_type="location_circle_member_invite",
@@ -688,7 +703,7 @@ def send_circle_member_invite_accepted_push(
     manual reload.
     """
 
-    deep_link = f"/one/location?tab=people&circleId={circle_id}"
+    deep_link = _circle_detail_link(circle_id)
     return _send_circle_user_event(
         inviter_user_id,
         notification_type="location_circle_member_invite_accepted",
@@ -723,7 +738,7 @@ def send_circle_member_invite_declined_push(
     """
 
     label = str(invitee_display_name or "").strip() or "Someone"
-    deep_link = f"/one/location?tab=people&circleId={circle_id}"
+    deep_link = _circle_detail_link(circle_id)
     return _send_circle_user_event(
         inviter_user_id,
         notification_type="location_circle_member_invite_declined",
@@ -760,7 +775,7 @@ def send_circle_member_invite_cancelled_push(
         if circle
         else "A Circle invitation was withdrawn."
     )
-    deep_link = "/one/location?tab=people"
+    deep_link = ONE_LOCATION_CIRCLE_LIST_LINK
     return _send_circle_user_event(
         invitee_user_id,
         notification_type="location_circle_member_invite_cancelled",
@@ -790,7 +805,7 @@ def send_circle_member_removed_push(
 
     circle = str(circle_name or "").strip()
     body = f'You were removed from "{circle}".' if circle else "You were removed from a Circle."
-    deep_link = "/one/location?tab=people"
+    deep_link = ONE_LOCATION_CIRCLE_LIST_LINK
     return _send_circle_user_event(
         member_user_id,
         notification_type="location_circle_member_removed",
@@ -819,7 +834,7 @@ def send_circle_member_left_push(
     label = str(member_display_name or "").strip() or "Someone"
     circle = str(circle_name or "").strip()
     body = f'{label} left "{circle}".' if circle else f"{label} left your Circle."
-    deep_link = f"/one/location?tab=people&circleId={circle_id}"
+    deep_link = _circle_detail_link(circle_id)
     return _send_circle_user_event(
         owner_user_id,
         notification_type="location_circle_member_left",
@@ -855,7 +870,7 @@ def send_circle_renamed_push(
         notification_type="location_circle_renamed",
         title="Circle renamed",
         body=body,
-        deep_link=f"/one/location?tab=people&circleId={circle_id}",
+        deep_link=_circle_detail_link(circle_id),
         notification_tag=f"location-circle-renamed:{circle_id}",
         data=data,
         show_alert=show_alert,
@@ -881,7 +896,7 @@ def send_circle_deleted_push(
         notification_type="location_circle_deleted",
         title="Circle deleted",
         body=body,
-        deep_link="/one/location?tab=people",
+        deep_link=ONE_LOCATION_CIRCLE_LIST_LINK,
         notification_tag=f"location-circle-deleted:{circle_id}",
         data=data,
         show_alert=show_alert,

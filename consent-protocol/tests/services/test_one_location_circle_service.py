@@ -2544,7 +2544,7 @@ def test_being_added_to_a_circle_always_names_who_added_you(
     assert captured["notification_category"] == "ONE_LOCATION"
     assert captured["body"] == 'Neelesh added you to "Family".'
     assert captured["deep_link"].endswith(
-        "?tab=people&circleId=550e8400-e29b-41d4-a716-446655440000"
+        "?view=people&action=circle-detail&circleId=550e8400-e29b-41d4-a716-446655440000"
     )
     assert captured["data"]["added_by_label"] == "Neelesh"
     assert captured["data"]["circle_name"] == "Family"
@@ -2690,7 +2690,7 @@ def test_targeted_circle_invite_push_is_metadata_only_and_deep_links_to_people(
     assert captured["notification_type"] == "location_circle_member_invite"
     assert captured["notification_category"] == "ONE_LOCATION"
     assert captured["deep_link"].endswith(
-        "?tab=people&circleInviteId=550e8400-e29b-41d4-a716-446655440002"
+        "?view=people&circleInviteId=550e8400-e29b-41d4-a716-446655440002"
     )
     assert captured["data"] | {"message_id": "<ignored>"} == {
         "invite_id": "550e8400-e29b-41d4-a716-446655440002",
@@ -4059,3 +4059,72 @@ def test_circle_lifecycle_fanout_continues_after_one_recipient_delivery_fails(
     )
 
     assert delivered == ["healthy-user"]
+
+
+def test_circle_lifecycle_fanout_is_submitted_without_running_on_the_request_thread(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    submissions: list[tuple[object, dict]] = []
+    delivered: list[str] = []
+
+    class RecordingExecutor:
+        def submit(self, callback, **kwargs):
+            submissions.append((callback, kwargs))
+
+    monkeypatch.setattr(
+        circle_service_module,
+        "_CIRCLE_NOTIFICATION_EXECUTOR",
+        RecordingExecutor(),
+    )
+
+    def deliver(*, circle_id: str) -> None:
+        delivered.append(circle_id)
+
+    circle_service_module._submit_circle_lifecycle_notification(
+        deliver,
+        circle_id="550e8400-e29b-41d4-a716-446655440000",
+    )
+
+    assert delivered == []
+    assert len(submissions) == 1
+    callback, kwargs = submissions[0]
+    callback(**kwargs)
+    assert delivered == ["550e8400-e29b-41d4-a716-446655440000"]
+
+
+def test_circle_deleted_invite_fanout_continues_after_one_delivery_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    delivered: list[str] = []
+
+    monkeypatch.setattr(
+        push_notifications_module,
+        "send_circle_deleted_push",
+        lambda **_kwargs: 1,
+    )
+
+    def deliver_cancelled(**kwargs):
+        invite_id = kwargs["invite_id"]
+        if invite_id == "broken-invite":
+            raise RuntimeError("transport unavailable")
+        delivered.append(invite_id)
+        return 1
+
+    monkeypatch.setattr(
+        push_notifications_module,
+        "send_circle_member_invite_cancelled_push",
+        deliver_cancelled,
+    )
+
+    OneLocationCircleService._notify_circle_deleted(
+        owner_user_id="owner-user",
+        circle_id="550e8400-e29b-41d4-a716-446655440000",
+        circle_name="Family",
+        affected_user_ids=[],
+        cancelled_invites=[
+            {"id": "broken-invite", "invitee_user_id": "broken-user"},
+            {"id": "healthy-invite", "invitee_user_id": "healthy-user"},
+        ],
+    )
+
+    assert delivered == ["healthy-invite"]

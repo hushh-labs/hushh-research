@@ -14,13 +14,15 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 import re
 import secrets
 import uuid
 from collections.abc import Iterable
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
 from datetime import datetime, timedelta, timezone
-from typing import Any
+from typing import Any, Callable
 
 from sqlalchemy import text
 
@@ -36,6 +38,29 @@ from hushh_mcp.services.ria_status import RIA_VERIFIED_STATUS_SQL
 from mcp_modules.log_redaction import redact_log_field
 
 logger = logging.getLogger(__name__)
+
+_CIRCLE_NOTIFICATION_EXECUTOR = ThreadPoolExecutor(
+    max_workers=max(1, int(os.getenv("ONE_LOCATION_CIRCLE_NOTIFICATION_WORKERS", "2"))),
+    thread_name_prefix="one-location-circle-notify",
+)
+
+
+def _submit_circle_lifecycle_notification(
+    callback: Callable[..., None],
+    /,
+    **kwargs: Any,
+) -> None:
+    """Queue post-commit Circle fan-out without extending mutation latency."""
+
+    circle_id = str(kwargs.get("circle_id") or "").strip()
+    try:
+        _CIRCLE_NOTIFICATION_EXECUTOR.submit(callback, **kwargs)
+    except Exception:
+        logger.exception(
+            "circle.notify_submit_failed circle_id=%s",
+            circle_id,
+        )
+
 
 CIRCLE_CODE_TTL_HOURS = 72
 # Nothing sets this any more -- connections are added outright rather than
@@ -2266,6 +2291,7 @@ class OneLocationCircleService:
         circle_id: str,
         circle_name: str,
         affected_user_ids: Iterable[str],
+        cancelled_invites: Iterable[dict[str, Any]] = (),
     ) -> None:
         try:
             from hushh_mcp.services.push_notifications import send_circle_deleted_push
@@ -2288,6 +2314,32 @@ class OneLocationCircleService:
                     circle_id,
                     redact_log_field("user_id", user_id),
                 )
+
+        try:
+            from hushh_mcp.services.push_notifications import (
+                send_circle_member_invite_cancelled_push,
+            )
+
+            for invite in cancelled_invites:
+                invitee_user_id = str(invite.get("invitee_user_id") or "").strip()
+                invite_id = str(invite.get("id") or "").strip()
+                if not invitee_user_id or not invite_id:
+                    continue
+                try:
+                    send_circle_member_invite_cancelled_push(
+                        invitee_user_id=invitee_user_id,
+                        circle_id=circle_id,
+                        circle_name=circle_name,
+                        invite_id=invite_id,
+                    )
+                except Exception:
+                    logger.exception(
+                        "circle.notify_deleted_invite_failed circle_id=%s invite_id=%s",
+                        circle_id,
+                        invite_id,
+                    )
+        except Exception:
+            logger.exception("circle.notify_deleted_invites_import_failed circle_id=%s", circle_id)
 
     def update_circle(
         self,
@@ -2351,11 +2403,12 @@ class OneLocationCircleService:
                     circle_id=cleaned_circle_id,
                     result="renamed",
                 )
-            self._notify_circle_renamed(
+            _submit_circle_lifecycle_notification(
+                self._notify_circle_renamed,
                 owner_user_id=owner_user_id,
                 circle_id=cleaned_circle_id,
                 circle_name=renamed_circle_name,
-                affected_user_ids=affected_user_ids,
+                affected_user_ids=tuple(affected_user_ids),
             )
             return command_result
         try:
@@ -2372,11 +2425,12 @@ class OneLocationCircleService:
                     renamed_circle_name = str(updated_row.get("name") or cleaned_name)
 
             if cleaned_name is not None:
-                self._notify_circle_renamed(
+                _submit_circle_lifecycle_notification(
+                    self._notify_circle_renamed,
                     owner_user_id=owner_user_id,
                     circle_id=cleaned_circle_id,
                     circle_name=renamed_circle_name,
-                    affected_user_ids=affected_user_ids,
+                    affected_user_ids=tuple(affected_user_ids),
                 )
 
             return self.get_circle(
@@ -5719,33 +5773,14 @@ class OneLocationCircleService:
                 "one_location.circle_deleted owner=%s",
                 redact_log_field("user_id", owner_user_id),
             )
-            self._notify_circle_deleted(
+            _submit_circle_lifecycle_notification(
+                self._notify_circle_deleted,
                 owner_user_id=owner_user_id,
                 circle_id=cleaned_circle_id,
                 circle_name=str(circle_row.get("name") or ""),
-                affected_user_ids=[str(member.get("user_id") or "") for member in member_rows],
+                affected_user_ids=tuple(str(member.get("user_id") or "") for member in member_rows),
+                cancelled_invites=tuple(dict(invite) for invite in cancelled_invite_rows),
             )
-            try:
-                from hushh_mcp.services.push_notifications import (
-                    send_circle_member_invite_cancelled_push,
-                )
-
-                for invite in cancelled_invite_rows:
-                    invitee_user_id = str(invite.get("invitee_user_id") or "").strip()
-                    invite_id = str(invite.get("id") or "").strip()
-                    if not invitee_user_id or not invite_id:
-                        continue
-                    send_circle_member_invite_cancelled_push(
-                        invitee_user_id=invitee_user_id,
-                        circle_id=cleaned_circle_id,
-                        circle_name=str(circle_row.get("name") or ""),
-                        invite_id=invite_id,
-                    )
-            except Exception:
-                logger.exception(
-                    "circle.notify_deleted_invites_failed circle_id=%s",
-                    cleaned_circle_id,
-                )
             return command_result
         except OneLocationCircleError:
             raise

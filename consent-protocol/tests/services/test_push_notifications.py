@@ -664,6 +664,9 @@ def test_circle_member_invite_declined_push_names_the_invitee_and_targets_the_in
     assert captured["data"]["invitee_user_id"] == "invitee-1"
     assert captured["data"]["network_display_label"] == "Ankit Sharma"
     assert captured["data"]["message_id"].startswith("location_circle_member_invite_declined:")
+    assert captured["deep_link"] == (
+        "/one/location?view=people&action=circle-detail&circleId=circle-1"
+    )
 
 
 def test_circle_member_invite_declined_push_falls_back_when_name_is_missing(monkeypatch):
@@ -694,6 +697,7 @@ def test_circle_member_invite_cancelled_push_targets_the_invitee(monkeypatch):
     assert captured["user_id"] == "invitee-1"
     assert captured["body"] == 'Your invitation to "Family" was withdrawn.'
     assert captured["data"]["circle_id"] == "circle-1"
+    assert captured["deep_link"] == "/one/location?view=people"
 
 
 def test_circle_member_removed_push_targets_the_removed_member(monkeypatch):
@@ -707,6 +711,7 @@ def test_circle_member_removed_push_targets_the_removed_member(monkeypatch):
 
     assert captured["user_id"] == "member-1"
     assert captured["body"] == 'You were removed from "Family".'
+    assert captured["deep_link"] == "/one/location?view=people"
 
 
 def test_circle_member_left_push_names_the_member_and_targets_the_owner(monkeypatch):
@@ -722,6 +727,9 @@ def test_circle_member_left_push_names_the_member_and_targets_the_owner(monkeypa
 
     assert captured["user_id"] == "owner-1"
     assert captured["body"] == 'Ankit Sharma left "Family".'
+    assert captured["deep_link"] == (
+        "/one/location?view=people&action=circle-detail&circleId=circle-1"
+    )
 
 
 def test_circle_member_invite_declined_and_cancelled_pushes_use_distinct_tags(monkeypatch):
@@ -800,6 +808,9 @@ def test_circle_renamed_push_can_silently_wake_the_owners_other_devices(monkeypa
     assert captured["show_alert"] is False
     assert captured["data"]["circle_name"] == "Family trip"
     assert captured["data"]["sync_only"] == "true"
+    assert captured["deep_link"] == (
+        "/one/location?view=people&action=circle-detail&circleId=circle-1"
+    )
 
 
 def test_circle_deleted_push_routes_affected_members_back_to_the_circle_list(monkeypatch):
@@ -812,7 +823,7 @@ def test_circle_deleted_push_routes_affected_members_back_to_the_circle_list(mon
     )
 
     assert captured["notification_type"] == "location_circle_deleted"
-    assert captured["deep_link"] == "/one/location?tab=people"
+    assert captured["deep_link"] == "/one/location?view=people"
     assert captured["body"] == '"Family" was deleted by its owner.'
     assert "sync_only" not in captured["data"]
 
