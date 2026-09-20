@@ -9,13 +9,16 @@
 # simulator; REQUIRED on a device, redacted like ios-mid-2024), PERF_OUT_DIR
 # (default tmp/perf/<timestamp>), PERF_SKIP_BUILD=1 to reuse the last test bundle.
 #
-# Reviewer identity comes from the env resolver (REVIEWER_UID /
-# REVIEWER_VAULT_PASSPHRASE). The id is NOT pinned by default: the reviewer
-# each backend mints differs from the env file's id, and a pinned mismatch
-# stalls the bootstrap (identity_mismatch). PERF_PIN_REVIEWER_UID=1 pins it.
-# Credentials are handed to the test runner as process
-# environment only; it is never written to disk, the log is grepped for the
-# passphrase before it is kept, and only the summary is durable.
+# Reviewer identity: the passphrase comes from the env resolver
+# (REVIEWER_VAULT_PASSPHRASE); the uid is asked of the backend the bundle
+# targets (scripts/perf/resolve-reviewer-uid.mjs), because the env file's
+# REVIEWER_UID drifts from what each lane mints. A pinned mismatch stalls the
+# bootstrap (identity_mismatch); an unpinned id leaves the bridge without an
+# expectedUserId, which switches off the native phone-mandate bypass and the
+# card lands on /register-phone. PERF_REVIEWER_UID=<uid> overrides the
+# lookup. Credentials are handed to the test runner as process environment
+# only; nothing is written to disk, the log is grepped for the passphrase
+# before it is kept, and only the summary is durable.
 set -euo pipefail
 
 cd "$(dirname "$0")/../.."
@@ -28,8 +31,13 @@ BUNDLE_ID="com.hushh.app"
 REPS="${HUSHH_PERF_REPS:-3}"
 
 eval "$(node scripts/testing/export-reviewer-test-env.mjs)"
-if [[ -z "${REVIEWER_UID:-}" || -z "${REVIEWER_VAULT_PASSPHRASE:-}" ]]; then
-  echo "Reviewer identity did not resolve (REVIEWER_UID / REVIEWER_VAULT_PASSPHRASE)." >&2
+if [[ -z "${REVIEWER_VAULT_PASSPHRASE:-}" ]]; then
+  echo "Reviewer passphrase did not resolve (REVIEWER_VAULT_PASSPHRASE)." >&2
+  exit 1
+fi
+REVIEWER_UID="${PERF_REVIEWER_UID:-$(node scripts/perf/resolve-reviewer-uid.mjs)}"
+if [[ -z "$REVIEWER_UID" ]]; then
+  echo "Reviewer uid did not resolve; set PERF_REVIEWER_UID or check the backend." >&2
   exit 1
 fi
 
@@ -70,9 +78,9 @@ fi
 set +e
 env TEST_RUNNER_HUSHH_ENABLE_PERF_BENCHMARK=true \
     TEST_RUNNER_HUSHH_PERF_REPS="$REPS" \
-    TEST_RUNNER_HUSHH_UI_TEST_REVIEWER_UID="${PERF_PIN_REVIEWER_UID:+${HUSHH_UI_TEST_REVIEWER_UID:-$REVIEWER_UID}}" \
+    TEST_RUNNER_HUSHH_UI_TEST_REVIEWER_UID="$REVIEWER_UID" \
     TEST_RUNNER_HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE="${HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE:-$REVIEWER_VAULT_PASSPHRASE}" \
-    TEST_RUNNER_REVIEWER_UID="${PERF_PIN_REVIEWER_UID:+$REVIEWER_UID}" \
+    TEST_RUNNER_REVIEWER_UID="$REVIEWER_UID" \
     TEST_RUNNER_REVIEWER_VAULT_PASSPHRASE="$REVIEWER_VAULT_PASSPHRASE" \
   xcodebuild -project App.xcodeproj -scheme App -configuration "$CONFIGURATION" -sdk "$SDK" \
     -destination "$DESTINATION" -derivedDataPath "$DERIVED" "${SIGNING[@]}" \
