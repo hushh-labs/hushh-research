@@ -549,6 +549,8 @@ def test_memory_proposals_are_enriched_with_current_sharing_impact(monkeypatch):
     assert payload["preview_cards"][0]["sharing_impact"]["recipient_labels"] == [
         "Hushh Technologies"
     ]
+    assert payload["performance"]["sharing_impact_calls"] == 1
+    assert payload["performance"]["sharing_impact_cache_hits"] == 0
 
     monkeypatch.setenv("ENVIRONMENT", "uat")
     lab_response = TestClient(app).post(
@@ -564,6 +566,72 @@ def test_memory_proposals_are_enriched_with_current_sharing_impact(monkeypatch):
         json={"user_id": "user_123", "message": "Save AAPL in my portfolio"},
     )
     assert unset_environment_response.status_code == 404
+
+
+def test_memory_proposals_deduplicate_same_scope_sharing_impact(monkeypatch):
+    class _FakeAgentLabService:
+        async def generate_structure_preview(self, **_kwargs):
+            card = {
+                "write_mode": "can_save",
+                "target_domain": "Professional",
+                "primary_json_path": "profile.work",
+                "manifest_draft": {
+                    "domain": "professional",
+                    "top_level_scope_paths": ["profile"],
+                },
+            }
+            return {
+                "agent_id": "pkm_structure",
+                "agent_name": "PKM Structure",
+                "model": "deterministic-test",
+                "used_fallback": False,
+                "candidate_payload": {},
+                "structure_decision": {
+                    "action": "create_domain",
+                    "target_domain": "professional",
+                },
+                "preview_cards": [card.copy(), card.copy()],
+                "preview_summary": {"card_count": 2},
+            }
+
+    class _FakePkmService:
+        def __init__(self):
+            self.calls = 0
+
+        async def get_mutation_sharing_impact(self, **kwargs):
+            self.calls += 1
+            assert kwargs == {
+                "user_id": "user_123",
+                "domain": "professional",
+                "scope_path": "profile",
+            }
+            return {
+                "active_recipient_count": 0,
+                "recipient_labels": [],
+                "enters_next_export_revision": False,
+                "summary": "No active recipients are affected.",
+                "affected_grant_ids": [],
+                "affected_export_ids": [],
+            }
+
+    app = FastAPI()
+    app.include_router(pkm.router)
+    app.dependency_overrides[pkm.require_vault_owner_token] = lambda: {"user_id": "user_123"}
+    pkm_service = _FakePkmService()
+    monkeypatch.setattr(pkm, "get_pkm_agent_lab_service", lambda: _FakeAgentLabService())
+    monkeypatch.setattr(pkm, "get_pkm_service", lambda: pkm_service)
+
+    response = TestClient(app).post(
+        "/api/pkm/memory/proposals",
+        json={"user_id": "user_123", "message": "Save a professional preference"},
+    )
+
+    assert response.status_code == 200
+    assert pkm_service.calls == 1
+    payload = response.json()
+    assert payload["performance"]["sharing_impact_calls"] == 1
+    assert payload["performance"]["sharing_impact_cache_hits"] == 1
+    assert all("sharing_impact" in card for card in payload["preview_cards"])
 
 
 def test_memory_mutation_impact_preflight_returns_authoritative_recipient_ids(monkeypatch):

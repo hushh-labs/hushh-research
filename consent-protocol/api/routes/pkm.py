@@ -8,6 +8,7 @@ Canonical API surface for PKM.
 import logging
 import os
 import time
+from copy import deepcopy
 from typing import Literal
 
 from fastapi import (
@@ -448,6 +449,10 @@ async def _generate_pkm_memory_proposals(
     pkm_service = get_pkm_service()
     preview_cards = payload.get("preview_cards") or []
     total_active_recipients = 0
+    sharing_impact_cache: dict[tuple[str, str], dict] = {}
+    sharing_impact_cache_hits = 0
+    sharing_impact_started_at = time.perf_counter()
+    sharing_impact_calls = 0
     for card in preview_cards:
         if not isinstance(card, dict) or card.get("write_mode") == "do_not_save":
             continue
@@ -477,21 +482,29 @@ async def _generate_pkm_memory_proposals(
                     "message": "The PKM structure agent did not produce a reviewable target.",
                 },
             )
-        try:
-            sharing_impact = await pkm_service.get_mutation_sharing_impact(
-                user_id=request.user_id,
-                domain=target_domain,
-                scope_path=target_scope,
-            )
-        except Exception as exc:
-            logger.warning("PKM sharing-impact lookup failed: %s", exc)
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail={
-                    "code": "PKM_SHARING_IMPACT_UNAVAILABLE",
-                    "message": "Current recipients could not be verified. Try the preview again.",
-                },
-            ) from exc
+        impact_key = (target_domain.casefold(), target_scope.casefold())
+        cached_impact = sharing_impact_cache.get(impact_key)
+        if cached_impact is not None:
+            sharing_impact = deepcopy(cached_impact)
+            sharing_impact_cache_hits += 1
+        else:
+            try:
+                sharing_impact = await pkm_service.get_mutation_sharing_impact(
+                    user_id=request.user_id,
+                    domain=target_domain,
+                    scope_path=target_scope,
+                )
+            except Exception as exc:
+                logger.warning("PKM sharing-impact lookup failed: %s", exc)
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail={
+                        "code": "PKM_SHARING_IMPACT_UNAVAILABLE",
+                        "message": "Current recipients could not be verified. Try the preview again.",
+                    },
+                ) from exc
+            sharing_impact_cache[impact_key] = deepcopy(sharing_impact)
+            sharing_impact_calls += 1
         card["sharing_impact"] = sharing_impact
         if (
             card.get("write_mode") == "can_save"
@@ -506,6 +519,20 @@ async def _generate_pkm_memory_proposals(
         **(payload.get("preview_summary") or {}),
         "active_recipient_count": total_active_recipients,
     }
+    performance = payload.get("performance")
+    if not isinstance(performance, dict):
+        performance = {}
+    stage_latencies = performance.get("stage_latencies_ms")
+    if not isinstance(stage_latencies, dict):
+        stage_latencies = {}
+    stage_latencies["sharing_impact_total"] = round(
+        (time.perf_counter() - sharing_impact_started_at) * 1000,
+        2,
+    )
+    performance["stage_latencies_ms"] = stage_latencies
+    performance["sharing_impact_calls"] = sharing_impact_calls
+    performance["sharing_impact_cache_hits"] = sharing_impact_cache_hits
+    payload["performance"] = performance
     logger.info(
         "pkm.memory_proposal.completed ingestion_id=%s chunk_index=%s message_chars=%s card_count=%s duration_ms=%.2f",
         safe_ingestion_id,
