@@ -240,7 +240,7 @@ export function LocationMapScreen() {
       setError(null);
       setStatus("ready");
     } catch (caught) {
-      if (!mountedRef.current) return;
+      if (!mountedRef.current || loadRevisionRef.current !== revision) return;
       setError(
         caught instanceof Error && caught.message
           ? caught.message
@@ -399,8 +399,7 @@ export function LocationMapScreen() {
   }, [router]);
 
   const staleMs = freshnessSeconds * 1000;
-  const consentReady =
-    consentAccepted && rendererConsentCurrent(preferences);
+  const consentReady = consentAccepted && rendererConsentCurrent(preferences);
 
   return (
     <main
