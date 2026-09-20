@@ -289,6 +289,16 @@ const ROUTE_OVERRIDES = {
     allowedPathnames: ["/one/setup", "/"],
     allowedRouteIds: ["/one/setup", "/"],
   },
+  // Public workspace entries remain reachable anonymously, but an
+  // authenticated reviewer is admitted to canonical Chat at `/`.
+  "/welcome": {
+    allowedPathnames: ["/welcome", "/"],
+    allowedRouteIds: ["/welcome", "/"],
+  },
+  "/research": {
+    allowedPathnames: ["/welcome", "/"],
+    allowedRouteIds: ["/welcome", "/"],
+  },
   "/ria/onboarding": {
     allowedPathnames: ["/ria/onboarding", "/ria"],
     allowedRouteIds: ["/ria/onboarding", "/ria"],
@@ -635,6 +645,10 @@ function isSameSessionShellRoute(route) {
   if (SAME_SESSION_SHELL_ROUTES.has(route)) return true;
   if (PROFILE_DIRECT_ENTRY_ROUTES.has(route)) return false;
   return route === "/one/profile" || route.startsWith("/one/profile/");
+}
+
+function requiresColdReviewerVaultAdmission(route) {
+  return route === "/agent" || route === "/one/setup" || route.startsWith("/one/setup/");
 }
 
 function isSetupGatedOneRoute(route) {
@@ -1765,6 +1779,13 @@ async function verifyRoute(page, viewport, spec) {
         `${spec.route} route beacon timed out.\n${JSON.stringify(diagnostics, null, 2)}`,
         { cause: error },
       );
+    }
+    // Direct-entry setup and legacy Chat routes remount the provider tree.
+    // Their route marker can settle before the test-only reviewer bootstrap
+    // has restored the in-memory vault key. Wait for the actual admission
+    // boundary before attributing late bootstrap/network errors to the route.
+    if (!usedShellNav && requiresColdReviewerVaultAdmission(spec.route)) {
+      await waitForReviewerVaultAdmission(page, smokeUserId, NAVIGATION_TIMEOUT_MS);
     }
     if (spec.expectedVisibleText) {
       await page

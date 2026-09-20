@@ -83,6 +83,8 @@ let nativeTestBootstrapUser: User | null = null;
 // used to mark that healthy request as a vault failure before the service's
 // own retry policy could finish.
 const NATIVE_TEST_VAULT_STEP_TIMEOUT_MS = resolveSlowRequestTimeoutMs(20_000);
+const NATIVE_TEST_VAULT_MAX_ATTEMPTS = 5;
+const NATIVE_TEST_VAULT_RETRY_DELAY_MS = 250;
 
 async function withVaultBootstrapTimeout<T>(
   label: string,
@@ -103,6 +105,47 @@ async function withVaultBootstrapTimeout<T>(
       clearTimeout(timeoutId);
     }
   }
+}
+
+function isRetryableNativeTestVaultError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  return /network|failed to fetch|connection|timeout|timed out|502|503/.test(message);
+}
+
+/**
+ * Retry only transient reads during the test-only vault admission handoff.
+ *
+ * The reviewer bootstrap runs while the Next shell and the local ADK proxy
+ * are warming. A single failed read must not strand an otherwise valid
+ * session, but authentication, vault-integrity, and setup-state failures must
+ * remain terminal. The operation is supplied as a factory so each attempt
+ * gets a fresh request and the final failure is still surfaced to the native
+ * test bridge.
+ */
+async function withNativeTestVaultRetry<T>(
+  label: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= NATIVE_TEST_VAULT_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      return await withVaultBootstrapTimeout(label, operation());
+    } catch (error) {
+      lastError = error;
+      if (
+        attempt >= NATIVE_TEST_VAULT_MAX_ATTEMPTS ||
+        !isRetryableNativeTestVaultError(error)
+      ) {
+        throw error;
+      }
+      await new Promise((resolve) =>
+        setTimeout(resolve, NATIVE_TEST_VAULT_RETRY_DELAY_MS * attempt),
+      );
+    }
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error(`${label} failed`);
 }
 
 export function NativeTestBootstrap() {
@@ -375,9 +418,9 @@ export function NativeTestBootstrap() {
         // for vault presence, phone, and setup state. Calling the native vault
         // plugin first duplicated the same backend lookup and could leave iOS
         // stuck in `checking vault` while this authoritative snapshot waited.
-        const setupState = await withVaultBootstrapTimeout(
+        const setupState = await withNativeTestVaultRetry(
           "Setup state load",
-          PreVaultUserStateService.bootstrapState(vaultUser.uid),
+          () => PreVaultUserStateService.bootstrapState(vaultUser.uid),
         );
         if (!setupState.hasVault) {
           throw new Error(
@@ -385,9 +428,9 @@ export function NativeTestBootstrap() {
           );
         }
 
-        const vaultState = await withVaultBootstrapTimeout(
+        const vaultState = await withNativeTestVaultRetry(
           "Vault state load",
-          VaultService.getVaultState(vaultUser.uid)
+          () => VaultService.getVaultState(vaultUser.uid),
         );
         updateBootstrapStatus("unlocking_vault", {
           userId: vaultUser.uid,
