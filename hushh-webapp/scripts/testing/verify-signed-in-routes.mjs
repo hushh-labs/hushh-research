@@ -114,6 +114,12 @@ const TRANSIENT_BACKGROUND_FETCH_ERRORS = [
   "[KaiHistory] Failed to get history: TypeError: Failed to fetch",
   "Failed to load profile manager data: TypeError: Failed to fetch",
 ];
+const LOCAL_OPTIONAL_CONSOLE_ERRORS = [
+  // Contact discoverability is an optional, fail-closed Profile preference.
+  // The local reviewer backend may not have that IAM dependency available;
+  // Profile deliberately keeps the preference disabled and remains usable.
+  "[ProfilePage] Failed to load contact discoverability: TypeError: Failed to fetch",
+];
 const TRANSIENT_BACKGROUND_REQUEST_FAILURES = [];
 const TRANSIENT_BACKGROUND_RESPONSE_FAILURES = [
   "/api/connected-systems/salesforce-fsc-customer0/schema?objectType=Contact",
@@ -1617,6 +1623,14 @@ function assertNoIssues(route, viewport, issues) {
       )
     ) {
       return false;
+    }
+    if (
+      appOrigin.startsWith("http://localhost:") ||
+      appOrigin.startsWith("http://127.0.0.1:")
+    ) {
+      if (LOCAL_OPTIONAL_CONSOLE_ERRORS.some((pattern) => value.includes(pattern))) {
+        return false;
+      }
     }
     if (
       value.includes(
