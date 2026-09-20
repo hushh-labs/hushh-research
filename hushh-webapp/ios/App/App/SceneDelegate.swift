@@ -27,17 +27,12 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         }
     }
 
-    func sceneDidBecomeActive(_ scene: UIScene) {
-        AppLifecycleHandlers.didBecomeActive()
-    }
-
-    func sceneWillResignActive(_ scene: UIScene) {
-        AppLifecycleHandlers.willResignActive()
-    }
-
-    func sceneDidEnterBackground(_ scene: UIScene) {
-        AppLifecycleHandlers.didEnterBackground()
-    }
+    // Active/background transitions are not handled here on purpose. In
+    // sceneDidBecomeActive, UIApplication.shared.applicationState is still
+    // .inactive, and the session privacy shield gates its published state on
+    // it; driving the shield from here published appIsActive=false once and
+    // the auth context never restored. AppLifecycleHandlers observes the
+    // UIApplication notifications, which fire once the state has changed.
 
     func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
         for context in URLContexts {
@@ -50,10 +45,32 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
     }
 }
 
-/// The lifecycle work the shell does, shared by the scene delegate (the path
-/// UIKit takes now) and the app delegate (kept so a build without the scene
-/// manifest behaves the same).
+/// The lifecycle work the shell does. Active/inactive/background transitions
+/// come from the UIApplication notifications, which UIKit posts for a
+/// single-scene app under either lifecycle and only after
+/// `UIApplication.shared.applicationState` has changed (the scene delegate's
+/// callbacks run before it does). URL and Universal Link opens come from
+/// whichever delegate UIKit routes them to.
 enum AppLifecycleHandlers {
+    private static var observers: [NSObjectProtocol] = []
+
+    /// Called once from didFinishLaunching.
+    static func install() {
+        guard observers.isEmpty else { return }
+        let center = NotificationCenter.default
+        observers = [
+            center.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { _ in
+                willResignActive()
+            },
+            center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { _ in
+                didEnterBackground()
+            },
+            center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
+                didBecomeActive()
+            },
+        ]
+    }
+
     static func willResignActive() {
         // Cover the WebView before iOS captures an app-switcher snapshot. The
         // cover remains after resume until JavaScript acknowledges this exact

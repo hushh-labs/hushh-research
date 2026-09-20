@@ -44,6 +44,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             print("ℹ️ [AppDelegate] Firebase already initialized")
         }
 
+        AppLifecycleHandlers.install()
         NativeTestResetter.resetAppStateIfNeeded(configuration: nativeTestConfig)
         requestVoiceDeviceTestMicrophonePermissionIfNeeded()
 
@@ -91,22 +92,12 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         completionHandler(.newData)
     }
 
-    // With the scene manifest in Info.plist UIKit routes these to
-    // SceneDelegate; the bodies live in AppLifecycleHandlers so both paths
-    // do the same work.
-    func applicationWillResignActive(_ application: UIApplication) {
-        AppLifecycleHandlers.willResignActive()
-    }
+    // Active/background transitions are observed by AppLifecycleHandlers
+    // through the UIApplication notifications (installed in
+    // didFinishLaunching), so they behave the same under the scene lifecycle,
+    // where UIKit no longer calls the app delegate's transition methods.
 
-    func applicationDidEnterBackground(_ application: UIApplication) {
-        AppLifecycleHandlers.didEnterBackground()
-    }
-
-    func applicationDidBecomeActive(_ application: UIApplication) {
-        AppLifecycleHandlers.didBecomeActive()
-    }
-
-    /// Called by AppLifecycleHandlers on activation from either lifecycle.
+    /// Called by AppLifecycleHandlers on activation.
     func logNotificationSettingsOnActivation() {
         logNotificationSettings(context: "didBecomeActive")
     }
