@@ -1142,6 +1142,51 @@ final class AppUITests: XCTestCase {
         app.terminate()
     }
 
+    // MARK: - Third-party scroll benchmark (Threads, X)
+
+    /// Apple's own scroll-hitch number for the apps the founder holds up as the
+    /// bar, on the same phone, with the same flick. Instruments cannot attach to
+    /// an App Store binary, but XCUITest can drive one, and
+    /// XCTOSSignpostMetric.scrollDecelerationMetric measures the UIScrollView
+    /// deceleration hitches those native feeds produce. Our own feed is a DOM
+    /// scroller without a UIScrollView, so it is measured by the in-app probe
+    /// instead; the unit (hitch ms per second) is the same.
+    ///
+    /// Opt-in only: HUSHH_ENABLE_THIRD_PARTY_SCROLL_BENCHMARK=true. Records
+    /// timings only; nothing from either app's content is read or stored.
+    func testThirdPartyFeedScrollBenchmark() throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["HUSHH_ENABLE_THIRD_PARTY_SCROLL_BENCHMARK"] == "true" else {
+            throw XCTSkip("Third-party scroll benchmark runs only with HUSHH_ENABLE_THIRD_PARTY_SCROLL_BENCHMARK=true.")
+        }
+        let targets: [(name: String, bundleId: String)] = [
+            ("threads", "com.burbn.barcelona"),
+            ("x", "com.atebits.Tweetie2"),
+        ]
+        for target in targets {
+            let app = XCUIApplication(bundleIdentifier: target.bundleId)
+            app.launch()
+            guard app.wait(for: .runningForeground, timeout: 30) else {
+                NSLog("PERF_SKIPPED name=\(target.name)-feed-flick reason=did_not_launch")
+                continue
+            }
+            perfSettle(5)
+            NSLog("PERF_APP_READY app=\(target.name)")
+            let options = XCTMeasureOptions()
+            options.iterationCount = 3
+            let start = perfEpochMs()
+            measure(metrics: [XCTOSSignpostMetric.scrollDecelerationMetric, XCTCPUMetric(application: app)], options: options) {
+                for _ in 0..<5 {
+                    perfFlick(app, fromY: 0.75, toY: 0.25)
+                    perfSettle(0.6)
+                }
+                perfSettle(1.2)
+            }
+            NSLog("PERF_GESTURE name=\(target.name)-feed-flick rep=0 start_epoch_ms=\(start) end_epoch_ms=\(perfEpochMs())")
+            app.terminate()
+        }
+    }
+
     private func perfEpochMs() -> Int64 {
         Int64((Date().timeIntervalSince1970 * 1000).rounded())
     }
