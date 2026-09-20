@@ -60,6 +60,7 @@ type RouteTransitionState = "idle" | "pending" | "entering";
 let clearTimer: number | null = null;
 let maxPendingTimer: number | null = null;
 let commitTimer: number | null = null;
+let enterFrame: number | null = null;
 let activeRouteIntentId: string | null = null;
 
 // True while an explicitly coordinated navigation is committing. The History
@@ -79,14 +80,18 @@ function clearRouteTimers() {
   if (clearTimer) window.clearTimeout(clearTimer);
   if (maxPendingTimer) window.clearTimeout(maxPendingTimer);
   if (commitTimer) window.clearTimeout(commitTimer);
+  if (enterFrame !== null) window.cancelAnimationFrame(enterFrame);
   clearTimer = null;
   maxPendingTimer = null;
   commitTimer = null;
+  enterFrame = null;
 }
 
 function playEnter() {
   if (maxPendingTimer) window.clearTimeout(maxPendingTimer);
   if (clearTimer) window.clearTimeout(clearTimer);
+  if (enterFrame !== null) window.cancelAnimationFrame(enterFrame);
+  enterFrame = null;
   maxPendingTimer = null;
   setRouteState("entering");
   clearTimer = window.setTimeout(() => setRouteState("idle"), ENTER_MS);
@@ -447,7 +452,24 @@ export function useRouteTransition() {
       setRouteState("idle");
       return;
     }
-    if (pathnameChanged) playEnter();
+    if (pathnameChanged) {
+      if (document.documentElement.dataset.routeTransition === "pending") {
+        // The incoming page's first style, layout and paint is the heaviest
+        // frame of a tab switch (40 to 55 ms on a phone). Let it happen while
+        // the shell is still held at opacity 0 by the exit, then start the
+        // fade two frames later on a page that is already laid out, so that
+        // frame never lands inside the animation.
+        if (enterFrame !== null) window.cancelAnimationFrame(enterFrame);
+        enterFrame = window.requestAnimationFrame(() => {
+          enterFrame = window.requestAnimationFrame(() => {
+            enterFrame = null;
+            playEnter();
+          });
+        });
+      } else {
+        playEnter();
+      }
+    }
     settleCommittedIntent("route_key_settled");
   }, [pathname, routeKey]);
 }
