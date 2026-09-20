@@ -40,13 +40,12 @@ REPS="${HUSHH_PERF_REPS:-3}"
 # PERF_CONFIGURATION=Release it is the certifying run.
 ATTACHED="${PERF_ATTACHED:-0}"
 REVIEWER_UID=""
-REVIEWER_VAULT_PASSPHRASE=""
+eval "$(node scripts/testing/export-reviewer-test-env.mjs)"
+if [[ -z "${REVIEWER_VAULT_PASSPHRASE:-}" ]]; then
+  echo "Reviewer passphrase did not resolve (REVIEWER_VAULT_PASSPHRASE)." >&2
+  exit 1
+fi
 if [[ "$ATTACHED" != "1" ]]; then
-  eval "$(node scripts/testing/export-reviewer-test-env.mjs)"
-  if [[ -z "${REVIEWER_VAULT_PASSPHRASE:-}" ]]; then
-    echo "Reviewer passphrase did not resolve (REVIEWER_VAULT_PASSPHRASE)." >&2
-    exit 1
-  fi
   REVIEWER_UID="${PERF_REVIEWER_UID:-$(node scripts/perf/resolve-reviewer-uid.mjs)}"
   if [[ -z "$REVIEWER_UID" ]]; then
     echo "Reviewer uid did not resolve; set PERF_REVIEWER_UID or check the backend." >&2
@@ -117,6 +116,7 @@ RUN_START_MS="$(( $(date +%s) * 1000 ))"
 set +e
 env "$ENABLE_VAR=true" \
     TEST_RUNNER_HUSHH_PERF_REPS="$REPS" \
+    TEST_RUNNER_HUSHH_PERF_ATTACHED_SECTION="${PERF_SECTION:-all}" \
     TEST_RUNNER_HUSHH_UI_TEST_REVIEWER_UID="$REVIEWER_UID" \
     TEST_RUNNER_HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE="${HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE:-$REVIEWER_VAULT_PASSPHRASE}" \
     TEST_RUNNER_REVIEWER_UID="$REVIEWER_UID" \

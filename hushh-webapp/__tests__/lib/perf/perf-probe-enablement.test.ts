@@ -2,7 +2,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const capacitor = vi.hoisted(() => ({ native: false, preference: null as string | null }));
+const capacitor = vi.hoisted(() => ({ native: false, preference: null as string | null, route: null as string | null }));
 
 vi.mock("@capacitor/core", () => ({
   Capacitor: {
@@ -13,7 +13,9 @@ vi.mock("@capacitor/core", () => ({
 
 vi.mock("@capacitor/preferences", () => ({
   Preferences: {
-    get: async () => ({ value: capacitor.preference }),
+    get: async ({ key }: { key: string }) => ({
+      value: key === "hushh_perf_route" ? capacitor.route : capacitor.preference,
+    }),
   },
 }));
 
@@ -32,6 +34,7 @@ describe("perf probe enablement", () => {
   beforeEach(() => {
     capacitor.native = false;
     capacitor.preference = null;
+    capacitor.route = null;
     window.sessionStorage.clear();
     setSearch("");
   });
@@ -80,7 +83,24 @@ describe("perf probe enablement", () => {
       enabled: true,
       hud: false,
       source: "preferences",
+      route: undefined,
     });
+  });
+
+  it("carries an app-relative launch route only with the probe on, and only a safe one", async () => {
+    capacitor.native = true;
+    capacitor.preference = "1";
+    capacitor.route = "/one/kai?tab=analysis";
+    await expect(resolvePerfProbeEnablement()).resolves.toMatchObject({ enabled: true, route: "/one/kai?tab=analysis" });
+
+    capacitor.route = "https://evil.example/one";
+    await expect(resolvePerfProbeEnablement()).resolves.toMatchObject({ enabled: true, route: undefined });
+    capacitor.route = "//evil.example";
+    await expect(resolvePerfProbeEnablement()).resolves.toMatchObject({ enabled: true, route: undefined });
+
+    capacitor.preference = null;
+    capacitor.route = "/one/kai";
+    await expect(resolvePerfProbeEnablement()).resolves.toMatchObject({ enabled: false });
   });
 
   it("ignores any other preference value", async () => {

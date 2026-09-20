@@ -120,11 +120,32 @@ pane open and drag-dismiss, holdings drawer open and drag-close, chat stream
 for 30 s, Kai chart flick, Location map pan (native map: hitches only), and
 cold start to the first interactive tab.
 
+### The truth lane
+
+`PERF_ATTACHED=1 PERF_CONFIGURATION=Release IOS_DEVICE_ID=<udid> HUSHH_PERF_TIER=<tier> npm run perf:ios:card`
+runs the same card with test mode off on a Release build: each surface is
+its own launch with only the probe argument and a route argument the probe
+honours (`-CapacitorStorage.hushh_perf_route /one/kai`), the vault is
+unlocked with the passphrase method from the process environment (never
+Face ID; the value is never logged and the log is discarded if it contains
+it), and the reviewer bridge and its status poll are absent. This is the
+certifying run; the summary says so only when all three hold (phone,
+Release, test mode off). `PERF_SECTION=feed|kai|location` runs one surface.
+The Release build sets `ENABLE_TESTABILITY=YES` because the scheme's
+unit-test target does `@testable import App`; it keeps `-O`.
+
 ### Threads on the same phone
 
 Native Threads is an App Store binary, which Instruments cannot attach to,
-so the comparison uses two symmetric methods on the same phone, same
-gesture, same session:
+but XCUITest can drive it by bundle identifier and
+`XCTOSSignpostMetric.scrollDecelerationMetric` scores its UIScrollView
+deceleration in Apple's own hitch unit (`testThirdPartyFeedScrollBenchmarkThreads`,
+opt-in with `HUSHH_ENABLE_THIRD_PARTY_SCROLL_BENCHMARK=true`; read the result
+with `hushh-webapp/scripts/perf/summarize-xcresult-metrics.mjs`). X aborts
+itself under any XCUITest-driven session and cannot be measured this way.
+One's feed scrolls a DOM element that instrument cannot see, so One's number
+is the probe's frame-interval hitch on the identical flick. Two further
+symmetric methods, same phone, same gesture, same session:
 
 1. **Threads web in Safari, same sampler.** Enable Web Inspector on the phone
    (Settings > Safari > Advanced > Web Inspector), sign in to threads.com in

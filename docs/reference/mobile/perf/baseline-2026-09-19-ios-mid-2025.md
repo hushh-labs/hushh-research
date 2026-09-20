@@ -9,17 +9,43 @@ side-by-side with Threads on the same phone.
 
 **Two lanes, stated plainly.**
 
-- **Gesture card: attribution only.** Debug build, signed in as the reviewer
-  through `-UITestMode`, which also runs the native status poll every 350 ms
-  and the XCUITest driver's accessibility snapshots. Every number in the
-  gesture table carries that overhead. Reproduce:
-  `cd hushh-webapp && IOS_DEVICE_ID=<udid> HUSHH_PERF_TIER=ios-mid-2025 npm run perf:ios:card`.
 - **Truth lane: certifying.** Release build (`ENABLE_TESTABILITY=YES`, which
-  keeps `-O`), test mode off, the person holding the phone signs in and
-  unlocks, then the same gestures run (`PERF_ATTACHED=1 PERF_CONFIGURATION=Release`).
-  On this date the lane ran end to end but nobody was at the phone during its
-  four-minute sign-in window, so it recorded only the idle reading below. The
-  gesture numbers from this lane are the ones that will be held against the bar.
+  keeps `-O`), test mode off, the founder's own account, each surface its own
+  launch with the probe and a route argument, the vault unlocked by the test
+  with the passphrase method. No reviewer bridge, no native status poll.
+  Reproduce: `PERF_ATTACHED=1 PERF_CONFIGURATION=Release IOS_DEVICE_ID=<udid> HUSHH_PERF_TIER=ios-mid-2025 npm run perf:ios:card`.
+  These are the numbers held against the bar.
+- **Gesture card: attribution only.** Debug build, signed in as the reviewer
+  through `-UITestMode` (native status poll every 350 ms, XCUITest snapshots).
+  Kept below for the lane-overhead comparison.
+
+## Truth lane (Release, test mode off, certifying)
+
+Captured 2026-09-20T05:51:36Z at 85007a81f. rAF 59.8 Hz (nominal 60, budget
+16.7 ms); engine iPhone AppleWebKit/605. Three reps each, median.
+
+| Gesture | Windows | Frames | p95 ms (median) | p99 ms (median) | Worst ms | Frames > 50 ms | Hitch ms/s (median) | Verdict |
+|---|---|---|---|---|---|---|---|---|
+| feed-flick | 30 | 2739 | 18.5 | 35 | 76 | 16 | 30.3 | critical |
+| bottom-nav-switch | 9 | 742 | 21 | 45 | 49 | 0 | 51.8 | critical |
+| profile-pane-open-dismiss | 6 | 448 | 17.5 | 34 | 35 | 0 | 22.4 | critical |
+| top-shell-pager-swipe | 6 | 546 | 18 | 34.5 | 38 | 0 | 24.7 | critical |
+| kai-chart-flick | 9 | 643 | 43 | 81 | 83 | 13 | 215.4 | critical |
+| location-map-pan | 9 | 755 | 18 | 30 | 31 | 0 | 18.9 | critical |
+| chat-stream-30s | - | - | - | - | - | - | - | not in this lane yet |
+
+Idle (no gesture in flight), by route, same lane:
+
+| Route | Frames | p95 ms | Worst ms | Frames > 50 ms |
+|---|---|---|---|---|
+| idle:/one/feed/ | 9419 | 19 | 119 | 3 |
+| idle:/one/kai/ | 9317 | 17 | 108 | 3 |
+| idle:/one/location/ | 8534 | 17 | 97 | 1 |
+| idle:/one/ | 1123 | 19 | 50 | 0 |
+
+The lane overhead is small: the Debug/test-mode card below lands within
+1 to 2 ms of these at p95 on every gesture, so the gesture cost is the app's,
+not the harness's.
 
 ## Gesture card (Debug, test mode, attribution only)
 
@@ -74,34 +100,30 @@ window, on a Debug build with the test bridge on. Same unit, same phone,
 same flick, but One's figure is inflated by its lane. The truth lane closes
 that gap.
 
-## Release idle reading (truth lane, certifying)
-
-Captured 2026-09-20T03:56:40Z at c240c1563. Release, test mode off, probe
-on, the app sitting on its landing route for four minutes with nobody
-touching it: 14,360 frames, p95 **17 ms**, one frame over 50 ms (193 ms,
-a single stall). rAF read 58.1 Hz at boot.
-
-Against the same route class in the Debug/test-mode lane (p95 20 to 26 ms)
-this is the size of the lane overhead at idle: roughly 4 to 9 ms at p95.
-
 ## Reading it
 
-- **Kai chart flick** stays the worst surface on the phone (p95 44 ms, nine
-  frames over 50 ms in nine windows), with the Recharts tooltip already on
-  tap and series animation off. What remains is layout and paint of several
-  SVG charts plus the pane under them; attribute with Web Inspector Timelines
-  on `/one/kai` before touching code.
-- **Feed flick** drops 16 frames over 50 ms in 30 windows and its p99 is
-  double the budget. The known seams are the top bar's per-scroll `<html>`
-  write with a forced reflow and the unmemoised rows (charter items 2 and
-  5; Wave 2 items 7 and 10).
+- **Kai chart flick** is the surface furthest from the bar: p95 43 ms, 13
+  frames over 50 ms in nine windows, 215 ms/s of hitch against Apple's
+  10 ms/s "critical" line, with the Recharts tooltip already on tap and
+  series animation off. What remains is layout and paint of several SVG
+  charts and the pane under them; attribute with Web Inspector Timelines on
+  `/one/kai` before touching code.
+- **Feed flick** drops 16 frames over 50 ms in 30 windows (about one per
+  flick) and its p99 is double the budget, against Threads' one dropped
+  frame in fifteen flicks. The known seams are the top bar's per-scroll
+  `<html>` write with a forced reflow and the unmemoised rows (charter items
+  2 and 5; Wave 2 items 7 and 10).
 - **Bottom-nav switch** has the highest hitch ratio of the navigation
-  gestures (52.6 ms/s) with no frame over 50 ms: many slightly late frames
+  gestures (51.8 ms/s) with no frame over 50 ms: many slightly late frames
   during the route transition rather than one stall.
-- **Profile pane, pager swipe, map pan** sit within 2 to 4 ms of budget at
-  p95; the map pan is the native map and the probe only sees the DOM around it.
-- **Chat stream** is still unmeasured on the phone: the composer is not found
-  by the driver. Fix the selector before the next card.
+- **Profile pane, pager swipe, map pan** sit within 1 to 4 ms of budget at
+  p95 with no frame over 50 ms; the map pan is the native map and the probe
+  only sees the DOM around it.
+- **At rest** every route is at or near budget (p95 17 to 19 ms) with a
+  handful of stalls per two and a half minutes (worst 97 to 119 ms); those
+  stalls are timers or polls and are worth one Web Inspector session each.
+- **Chat stream** is not in the truth lane yet (the composer is not found by
+  the driver on the phone). Fix the selector before the next card.
 
 ## What this reading cost to obtain
 
@@ -115,6 +137,9 @@ file's reviewer uid is not the one UAT mints.
 
 ## Next
 
-1. Truth lane with a person at the phone: `PERF_ATTACHED=1 PERF_CONFIGURATION=Release PERF_SKIP_BUILD=1 PERF_DERIVED_DATA=/tmp/hushh-ios-dd-release IOS_DEVICE_ID=<udid> HUSHH_PERF_TIER=ios-mid-2025 npm run perf:ios:card`, sign in and unlock within four minutes, open Finance when the log asks. Those numbers replace the gesture table above as the ones held against the bar.
-2. Attribute the Kai chart and the feed flick on the phone with Web Inspector (Release made inspectable with `CAPACITOR_DEBUG=true`).
-3. Wave 2 by that evidence.
+1. Attribute the Kai chart flick and the feed flick on the phone with Web
+   Inspector Timelines (Release made inspectable with `CAPACITOR_DEBUG=true`).
+2. Wave 2 by that evidence: top bar and bottom chrome per-frame `<html>`
+   writes, feed rows; chat streaming after the composer selector is fixed.
+3. Re-run the truth lane after each Wave 2 landing; the before/after pair
+   goes in the commit message, per the charter.

@@ -19,14 +19,32 @@ export const PERF_PROBE_QUERY_KEY = "perf";
 export const PERF_PROBE_SESSION_KEY = "hushh.perf.probe";
 export const PERF_HUD_SESSION_KEY = "hushh.perf.hud";
 export const PERF_PROBE_PREFERENCE_KEY = "hushh_perf_probe";
+/**
+ * Native only, read only when the probe itself is on: an app-relative route
+ * to open once at boot (`-CapacitorStorage.hushh_perf_route /one/kai`), so a
+ * device run without the test bridge can start on a surface that the
+ * signed-in bottom bar does not reach. The auth guard still owns admission:
+ * a locked vault sends the route through /login?redirect= and back.
+ */
+export const PERF_ROUTE_PREFERENCE_KEY = "hushh_perf_route";
 
 export type PerfProbeEnablement = {
   enabled: boolean;
   hud: boolean;
   source: "query" | "session" | "preferences" | "none";
+  /** App-relative path to open once at boot; native launch argument only. */
+  route?: string;
 };
 
 const DISABLED: PerfProbeEnablement = { enabled: false, hud: false, source: "none" };
+
+/** Only an app-relative path, so the argument can never point off the app. */
+export function sanitizePerfRoute(value: string | null | undefined): string | undefined {
+  const trimmed = String(value ?? "").trim();
+  if (!trimmed.startsWith("/") || trimmed.startsWith("//")) return undefined;
+  if (!/^[A-Za-z0-9/_?=&%.-]+$/.test(trimmed)) return undefined;
+  return trimmed;
+}
 
 function readSession(key: string): string | null {
   try {
@@ -71,8 +89,9 @@ export async function resolvePerfProbeEnablement(): Promise<PerfProbeEnablement>
   try {
     const { Preferences } = await import("@capacitor/preferences");
     const { value } = await Preferences.get({ key: PERF_PROBE_PREFERENCE_KEY });
-    if (value === "1") return { enabled: true, hud: false, source: "preferences" };
-    if (value === "hud") return { enabled: true, hud: true, source: "preferences" };
+    if (value !== "1" && value !== "hud") return DISABLED;
+    const { value: routeValue } = await Preferences.get({ key: PERF_ROUTE_PREFERENCE_KEY });
+    return { enabled: true, hud: value === "hud", source: "preferences", route: sanitizePerfRoute(routeValue) };
   } catch {
     // No plugin, or the bridge is not ready: stay inert.
   }

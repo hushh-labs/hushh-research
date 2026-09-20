@@ -1146,17 +1146,24 @@ final class AppUITests: XCTestCase {
         app.terminate()
     }
 
-    /// The truth lane: the same gesture card with test mode off. The app is
-    /// launched with only the probe argument, so there is no reviewer bridge
-    /// and no native status poll; the person holding the phone signs in and
-    /// unlocks, then opens Finance when asked. On a Release build this is the
-    /// certifying run the charter names. Opt-in: HUSHH_ENABLE_PERF_ATTACHED=true.
+    /// The truth lane: the same gesture card with test mode off. Each surface
+    /// is its own launch with only the probe argument and a route argument the
+    /// probe honours (`-CapacitorStorage.hushh_perf_route`), so there is no
+    /// reviewer bridge and no native status poll. The vault is unlocked with
+    /// the passphrase from the process environment (never Face ID); if none
+    /// is configured the test waits for the person holding the phone. On a
+    /// Release build this is the certifying run the charter names.
+    /// Opt-in: HUSHH_ENABLE_PERF_ATTACHED=true. HUSHH_PERF_ATTACHED_SECTION
+    /// = feed | kai | location | all (default all).
     func testRenderPerformanceCardAttached() throws {
         let environment = ProcessInfo.processInfo.environment
         guard environment["HUSHH_ENABLE_PERF_ATTACHED"] == "true" else {
             throw XCTSkip("Attached render performance card runs only with HUSHH_ENABLE_PERF_ATTACHED=true.")
         }
         let repetitions = max(1, Int(environment["HUSHH_PERF_REPS"] ?? "") ?? 3)
+        let section = environment["HUSHH_PERF_ATTACHED_SECTION"] ?? "all"
+        let passphrase = (environment["HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE"] ?? environment["REVIEWER_VAULT_PASSPHRASE"] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         #if DEBUG
         let release = false
         #else
@@ -1168,60 +1175,70 @@ final class AppUITests: XCTestCase {
         NSLog("PERF_LANE certifies=\(release) simulator=false test_mode=false")
         #endif
 
-        let app = XCUIApplication()
-        app.launchArguments = ["-CapacitorStorage.hushh_perf_probe", "1"]
-        app.launch()
-        let webView = app.webViews.firstMatch
-        XCTAssertTrue(webView.waitForExistence(timeout: 30), "WebView unavailable")
-        NSLog("PERF_WAITING_FOR_HUMAN step=sign-in-and-unlock timeout_s=240")
-        guard perfWaitForLabel(app, label: "One", timeout: 240) else {
-            XCTFail("The app was not signed in and unlocked within 240 s.")
-            return
-        }
-        perfSettle(2)
-        perfTapNav(app, label: "Feed")
-        perfSettle(3)
-        NSLog("PERF_APP_READY route=/one/feed")
-        for rep in 0..<repetitions {
-            perfGesture("feed-flick", rep: rep) {
-                for _ in 0..<5 {
-                    perfFlick(webView, fromY: 0.75, toY: 0.25)
-                    perfSettle(0.35)
-                }
-                perfSettle(1.5)
-                for _ in 0..<5 {
-                    perfFlick(webView, fromY: 0.25, toY: 0.75)
-                    perfSettle(0.35)
-                }
-                perfSettle(1.5)
+        func launchAttached(route: String?) throws -> (XCUIApplication, XCUIElement) {
+            let app = XCUIApplication()
+            var arguments = ["-CapacitorStorage.hushh_perf_probe", "1"]
+            if let route {
+                arguments += ["-CapacitorStorage.hushh_perf_route", route]
             }
+            app.launchArguments = arguments
+            app.launch()
+            let webView = app.webViews.firstMatch
+            XCTAssertTrue(webView.waitForExistence(timeout: 30), "WebView unavailable")
+            try perfUnlockVault(app, passphrase: passphrase, timeout: 240)
+            return (app, webView)
         }
-        for rep in 0..<repetitions {
-            perfGesture("bottom-nav-switch", rep: rep) {
-                for label in ["One", "Connect", "Feed"] {
-                    perfTapNav(app, label: label)
+
+        if section == "all" || section == "feed" {
+            let (app, webView) = try launchAttached(route: "/one/feed")
+            perfSettle(3)
+            NSLog("PERF_APP_READY route=/one/feed")
+            for rep in 0..<repetitions {
+                perfGesture("feed-flick", rep: rep) {
+                    for _ in 0..<5 {
+                        perfFlick(webView, fromY: 0.75, toY: 0.25)
+                        perfSettle(0.35)
+                    }
+                    perfSettle(1.5)
+                    for _ in 0..<5 {
+                        perfFlick(webView, fromY: 0.25, toY: 0.75)
+                        perfSettle(0.35)
+                    }
                     perfSettle(1.5)
                 }
             }
-        }
-        perfTapNav(app, label: "One")
-        perfSettle(1.5)
-        for rep in 0..<repetitions {
-            perfGesture("profile-pane-open-dismiss", rep: rep) {
-                let start = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5))
-                let end = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.5))
-                start.press(forDuration: 0.05, thenDragTo: end)
-                perfSettle(1.5)
-                webView.coordinate(withNormalizedOffset: CGVector(dx: 0.04, dy: 0.5)).tap()
-                perfSettle(1.2)
+            for rep in 0..<repetitions {
+                perfGesture("bottom-nav-switch", rep: rep) {
+                    for label in ["One", "Connect", "Feed"] {
+                        perfTapNav(app, label: label)
+                        perfSettle(1.5)
+                    }
+                }
             }
+            perfTapNav(app, label: "One")
+            perfSettle(1.5)
+            for rep in 0..<repetitions {
+                perfGesture("profile-pane-open-dismiss", rep: rep) {
+                    let start = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5))
+                    let end = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.5))
+                    start.press(forDuration: 0.05, thenDragTo: end)
+                    perfSettle(1.5)
+                    webView.coordinate(withNormalizedOffset: CGVector(dx: 0.04, dy: 0.5)).tap()
+                    perfSettle(1.2)
+                }
+            }
+            perfSettle(12)
+            NSLog("PERF_DONE route=/one/feed")
+            app.terminate()
         }
-        perfSettle(12)
-        NSLog("PERF_DONE route=/one/feed")
 
-        // Finance is not on the signed-in bottom bar; the person opens it.
-        NSLog("PERF_WAITING_FOR_HUMAN step=open-finance timeout_s=120")
-        if perfWaitForLabel(app, label: "Portfolio", timeout: 120) {
+        if section == "all" || section == "kai" {
+            let (app, webView) = try launchAttached(route: "/one/kai")
+            guard perfWaitForLabel(app, label: "Portfolio", timeout: 60) else {
+                NSLog("PERF_SKIPPED name=kai reason=finance_not_reached")
+                app.terminate()
+                throw XCTSkip("Finance did not open")
+            }
             perfSettle(2.5)
             NSLog("PERF_APP_READY route=/one/kai")
             for rep in 0..<repetitions {
@@ -1245,10 +1262,80 @@ final class AppUITests: XCTestCase {
             }
             perfSettle(12)
             NSLog("PERF_DONE route=/one/kai")
-        } else {
-            NSLog("PERF_SKIPPED name=kai reason=finance_not_opened")
+            app.terminate()
         }
-        // The session belongs to the person holding the phone; leave it running.
+
+        if section == "all" || section == "location" {
+            let (app, webView) = try launchAttached(route: "/one/location")
+            perfSettle(4)
+            NSLog("PERF_APP_READY route=/one/location")
+            for rep in 0..<repetitions {
+                perfGesture("location-map-pan", rep: rep) {
+                    for _ in 0..<3 {
+                        let start = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.4))
+                        let end = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.55))
+                        start.press(forDuration: 0.05, thenDragTo: end)
+                        perfSettle(0.6)
+                    }
+                    perfSettle(1.5)
+                }
+            }
+            perfSettle(12)
+            NSLog("PERF_DONE route=/one/location")
+            app.terminate()
+        }
+    }
+
+    /// Unlocks the vault with the passphrase method: reveal the field if Face ID
+    /// is the default, type the passphrase, tap Unlock, wait for the signed-in
+    /// bottom bar. With no passphrase configured (or a sign-in screen) it waits
+    /// for the person holding the phone. The passphrase is never logged.
+    private func perfUnlockVault(_ app: XCUIApplication, passphrase: String, timeout: TimeInterval) throws {
+        let deadline = Date().addingTimeInterval(timeout)
+        var typed = false
+        var announced = false
+        while Date() < deadline {
+            if perfLabelExists(app, "One") {
+                return
+            }
+            let field = app.webViews.secureTextFields.matching(NSPredicate(format: "label == %@ OR placeholderValue == %@", "Vault passphrase", "Enter passphrase")).firstMatch
+            if !typed && !passphrase.isEmpty {
+                if !field.exists {
+                    let reveal = app.webViews.buttons.matching(NSPredicate(format: "label == %@", "Passphrase")).firstMatch
+                    if reveal.exists {
+                        reveal.tap()
+                        perfSettle(0.8)
+                    }
+                }
+                if field.exists {
+                    NSLog("PERF_UNLOCK method=passphrase")
+                    field.tap()
+                    perfSettle(0.4)
+                    field.typeText(passphrase)
+                    perfSettle(0.3)
+                    let unlock = app.webViews.buttons.matching(NSPredicate(format: "label == %@", "Unlock")).firstMatch
+                    if unlock.exists && unlock.isHittable {
+                        unlock.tap()
+                    } else {
+                        field.typeText("\n")
+                    }
+                    typed = true
+                    perfSettle(2)
+                    continue
+                }
+            }
+            if !announced {
+                NSLog("PERF_WAITING_FOR_HUMAN step=sign-in-and-unlock timeout_s=\(Int(timeout))")
+                announced = true
+            }
+            perfSettle(1.0)
+        }
+        XCTFail("The app was not signed in and unlocked within \(Int(timeout)) s.")
+        throw XCTSkip("unlock timeout")
+    }
+
+    private func perfLabelExists(_ app: XCUIApplication, _ label: String) -> Bool {
+        app.webViews.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).count > 0
     }
 
     /// Waits for any web element with the exact accessibility label.
