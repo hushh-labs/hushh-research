@@ -9,6 +9,7 @@ import { RiaOnboardingStatusLocalService } from "@/lib/services/ria-onboarding-s
 import { bumpRiaInvalidationEpoch } from "@/lib/cache/ria-invalidation-epoch";
 import { bumpPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
 import {
+  dispatchLocalPkmDomainChanged,
   dispatchPkmDomainChanged,
   type PkmDomainChangeDetail,
 } from "@/lib/pkm/pkm-domain-change-events";
@@ -488,18 +489,19 @@ export class CacheSyncService {
   static onRemotePkmDomainChanged(detail: PkmDomainChangeDetail): void {
     if (detail.operation === "cleared") {
       this.onPkmDomainCleared(detail.userId, detail.domain, { emitEvent: false });
-      return;
-    }
-    if (detail.operation === "restored") {
+    } else if (detail.operation === "restored") {
       this.onPkmDomainRestored(detail.userId, detail.domain, { emitEvent: false });
-      return;
+    } else {
+      this.onPkmDomainStored(detail.userId, detail.domain, {
+        eventDataVersion: detail.dataVersion ?? undefined,
+        metadataTimestamp: detail.updatedAt ?? undefined,
+        writeThroughMetadata: false,
+        emitEvent: false,
+      });
     }
-    this.onPkmDomainStored(detail.userId, detail.domain, {
-      eventDataVersion: detail.dataVersion ?? undefined,
-      metadataTimestamp: detail.updatedAt ?? undefined,
-      writeThroughMetadata: false,
-      emitEvent: false,
-    });
+    // Window-only consumers in this tab still need the peer transition. Do not
+    // rebroadcast it, otherwise tabs can echo the same doorbell indefinitely.
+    dispatchLocalPkmDomainChanged(detail);
   }
 
   static onPkmDomainRestored(

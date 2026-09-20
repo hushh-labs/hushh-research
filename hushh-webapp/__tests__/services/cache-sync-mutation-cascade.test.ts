@@ -452,6 +452,25 @@ describe("CacheSyncService mutation cascades", () => {
     window.removeEventListener("pkm-domain-changed", listener);
   });
 
+  it("fans a peer-tab PKM clear out to window-only consumers without rebroadcasting", () => {
+    const detail = {
+      userId,
+      domain: "location",
+      dataVersion: null,
+      updatedAt: "2026-09-20T00:00:00Z",
+      operation: "cleared" as const,
+    };
+    const received: unknown[] = [];
+    const listener = (event: Event) =>
+      received.push((event as CustomEvent<unknown>).detail);
+    window.addEventListener("pkm-domain-changed", listener);
+
+    CacheSyncService.onRemotePkmDomainChanged(detail);
+
+    expect(received).toEqual([detail]);
+    window.removeEventListener("pkm-domain-changed", listener);
+  });
+
   it("onPkmDomainStored keeps the full financial domain fresh after encrypted portfolio writes", () => {
     const portfolioData = {
       holdings: [{ symbol: "MSFT", shares: 2 }],

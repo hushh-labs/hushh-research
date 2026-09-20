@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  dispatchLocalPkmDomainChanged,
   dispatchPkmDomainChanged,
   subscribeToPkmDomainChanges,
   subscribeToRemotePkmDomainChanges,
@@ -114,5 +115,30 @@ describe("PKM domain change events", () => {
     ]);
     unsubscribe();
     otherTab.close();
+  });
+
+  it("can notify legacy local consumers without echoing to peer subscribers", () => {
+    const local: unknown[] = [];
+    const remote: unknown[] = [];
+    const onLocal = (event: Event) =>
+      local.push((event as CustomEvent<unknown>).detail);
+    window.addEventListener("pkm-domain-changed", onLocal);
+    const unsubscribe = subscribeToRemotePkmDomainChanges((detail) =>
+      remote.push(detail),
+    );
+    const detail = {
+      userId: "owner-a",
+      domain: "location",
+      dataVersion: null,
+      updatedAt: null,
+      operation: "cleared" as const,
+    };
+
+    dispatchLocalPkmDomainChanged(detail);
+
+    expect(local).toEqual([detail]);
+    expect(remote).toEqual([]);
+    window.removeEventListener("pkm-domain-changed", onLocal);
+    unsubscribe();
   });
 });

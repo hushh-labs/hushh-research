@@ -203,7 +203,9 @@ export type LocationWorkspace = {
   status: LocationWorkspaceStatus;
   error: string | null;
   /** Commit an acknowledged mutation immediately and fence older reads. */
-  commitState: (next: OneLocationState) => string | null;
+  commitState: (
+    update: OneLocationState | ((current: OneLocationState) => OneLocationState),
+  ) => string | null;
   /** Refetch; `invalidate` fences off any in-flight pre-mutation load first. */
   refresh: (options?: { invalidate?: boolean }) => Promise<void>;
 };
@@ -264,8 +266,15 @@ export function useLocationWorkspaceState(): LocationWorkspace {
   );
 
   const commitState = useCallback(
-    (next: OneLocationState) => {
+    (
+      update:
+        | OneLocationState
+        | ((current: OneLocationState) => OneLocationState),
+    ) => {
       if (!userId || !mountedRef.current) return null;
+      const current = OneLocationStateResource.readPresentation(userId);
+      if (!current) return null;
+      const next = typeof update === "function" ? update(current) : update;
       const eventId = `location_workspace:${Date.now()}:${Math.random()
         .toString(36)
         .slice(2)}`;

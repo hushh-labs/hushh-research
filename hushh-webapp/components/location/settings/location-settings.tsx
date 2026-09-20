@@ -186,10 +186,10 @@ export function LocationSettings() {
         );
         let eventId: string | null = null;
         if (workspace.state) {
-          eventId = workspace.commitState({
-            ...workspace.state,
+          eventId = workspace.commitState((current) => ({
+            ...current,
             autoApprovePreference: preference,
-          });
+          }));
         }
         CacheSyncService.onOneLocationStateMutated(
           workspace.userId,
@@ -235,10 +235,10 @@ export function LocationSettings() {
           });
         let eventId: string | null = null;
         if (workspace.state) {
-          eventId = workspace.commitState({
-            ...workspace.state,
+          eventId = workspace.commitState((current) => ({
+            ...current,
             nearbyCheckInPreferences: preferences,
-          });
+          }));
         }
         CacheSyncService.onOneLocationStateMutated(
           workspace.userId,

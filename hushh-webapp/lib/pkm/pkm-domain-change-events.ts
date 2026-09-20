@@ -50,7 +50,7 @@ function normalizeWireDetail(value: unknown): PkmDomainChangeDetail | null {
 }
 
 /** Publish only encrypted-domain freshness metadata, never decrypted PKM. */
-export function dispatchPkmDomainChanged(
+export function dispatchLocalPkmDomainChanged(
   detail: PkmDomainChangeDetail,
 ): void {
   if (typeof window === "undefined") return;
@@ -61,6 +61,16 @@ export function dispatchPkmDomainChanged(
       detail: normalized,
     }),
   );
+}
+
+/** Publish to this tab and relay the same metadata-only doorbell to peers. */
+export function dispatchPkmDomainChanged(
+  detail: PkmDomainChangeDetail,
+): void {
+  if (typeof window === "undefined") return;
+  const normalized = normalizeDetail(detail);
+  if (!normalized) return;
+  dispatchLocalPkmDomainChanged(normalized);
   if (typeof BroadcastChannel === "undefined") return;
   const channel = new BroadcastChannel(PKM_DOMAIN_CHANGE_CHANNEL);
   channel.postMessage({

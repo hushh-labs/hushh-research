@@ -70,7 +70,9 @@ vi.mock("@/lib/one-location/one-location-state-resource", () => ({
     invalidate: vi.fn(),
     mergeOwnerGrant: vi.fn(),
     mergeRequestStatus: vi.fn(),
-    write: vi.fn(),
+    write: vi.fn((_userId: string, next: Record<string, unknown>) => {
+      harness.state = next;
+    }),
   },
 }));
 vi.mock("@/lib/voice/voice-surface-metadata", () => ({
@@ -219,6 +221,62 @@ describe("LocationSettings", () => {
       }),
     );
     await waitFor(() => expect(visible).toHaveAttribute("aria-checked", "true"));
+  });
+
+  it("preserves both settings when independent PATCH responses finish in either order", async () => {
+    let resolveAuto!: (value: unknown) => void;
+    let resolveNearby!: (value: unknown) => void;
+    harness.getState.mockReset().mockResolvedValue(STATE);
+    harness.updateAutoApprovePreference.mockReset().mockImplementationOnce(
+      () => new Promise((resolve) => {
+        resolveAuto = resolve;
+      }),
+    );
+    harness.updateNearbyCheckInPreferences.mockReset().mockImplementationOnce(
+      () => new Promise((resolve) => {
+        resolveNearby = resolve;
+      }),
+    );
+
+    render(<LocationSettings />);
+    const auto = await screen.findByTestId(
+      "location-settings-auto-approve-switch",
+    );
+    const nearby = await screen.findByTestId(
+      "location-settings-nearby-visible-switch",
+    );
+    await waitFor(() => {
+      expect(auto).toBeEnabled();
+      expect(nearby).toBeEnabled();
+    });
+    fireEvent.click(auto);
+    fireEvent.click(nearby);
+    await waitFor(() => {
+      expect(harness.updateAutoApprovePreference).toHaveBeenCalledOnce();
+      expect(harness.updateNearbyCheckInPreferences).toHaveBeenCalledOnce();
+    });
+
+    resolveAuto({
+      enabled: true,
+      scope: { kind: "all_contacts" },
+      enabledAt: null,
+      ruleVersion: 2,
+    });
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("location-settings-auto-approve-switch"),
+      ).toHaveAttribute("aria-checked", "true"),
+    );
+
+    resolveNearby({ visible: true, allowConnectionRequests: true });
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("location-settings-nearby-visible-switch"),
+      ).toHaveAttribute("aria-checked", "true"),
+    );
+    expect(
+      screen.getByTestId("location-settings-auto-approve-switch"),
+    ).toHaveAttribute("aria-checked", "true");
   });
 
   it("opens the Turn off confirmation before turning sharing off", async () => {
