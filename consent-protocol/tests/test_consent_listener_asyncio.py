@@ -3,7 +3,7 @@
 Canonical attach point:
     _notify_callback -> _background_notify_tasks (create_task fix)
     GET /api/consent/events/{user_id} (sse.router -> api/routes/sse.py
-     -> api.consent_listener.get_consent_queue)
+     -> api.consent_listener.subscribe_consent_queue)
 
 No DB, no network, no LLM.
 
@@ -14,8 +14,8 @@ Covered:
     _background_notify_tasks -- membership during and after task lifetime
     cancel-without-await fix -- tasks are awaited after cancel on DB failure
                                path so no "Task destroyed but pending" leak
-    HTTP reachability -- get_consent_queue is the canonical entry point from
-                       GET /api/consent/events/{user_id} (sse router)
+    HTTP reachability -- subscribe_consent_queue is the canonical entry point
+                       from GET /api/consent/events/{user_id} (sse router)
 """
 
 from __future__ import annotations
@@ -157,12 +157,13 @@ class TestNotifyCallbackTaskManagement:
 
 
 class TestCrossProcessUserStateNotifications:
-    def test_postgres_callback_delivers_to_the_stream_owned_by_this_worker(self):
+    def test_postgres_callback_delivers_to_every_stream_owned_by_this_worker(self):
         async def _run():
             from api import consent_listener
 
             consent_listener._consent_notify_queues.clear()
-            queue = consent_listener.get_consent_queue("member-1")
+            first_queue = await consent_listener.subscribe_consent_queue("member-1")
+            second_queue = await consent_listener.subscribe_consent_queue("member-1")
             payload = {
                 "type": "location_circle_renamed",
                 "user_id": "member-1",
@@ -179,7 +180,8 @@ class TestCrossProcessUserStateNotifications:
             for _ in range(5):
                 await asyncio.sleep(0)
 
-            assert queue.get_nowait() == payload
+            assert first_queue.get_nowait() == payload
+            assert second_queue.get_nowait() == payload
             consent_listener._consent_notify_queues.clear()
 
         asyncio.run(_run())
@@ -225,7 +227,7 @@ class TestCrossProcessUserStateNotifications:
             from api import consent_listener
 
             consent_listener._consent_notify_queues.clear()
-            queue = consent_listener.get_consent_queue("member-1")
+            queue = await consent_listener.subscribe_consent_queue("member-1")
 
             async def get_pool():
                 raise RuntimeError("database unavailable")
@@ -352,28 +354,34 @@ class TestCancelWithAwaitOnDbFailure:
 
 
 # ---------------------------------------------------------------------------
-# HTTP reachability: GET /api/consent/events/{user_id} exercises get_consent_queue
-# The SSE endpoint (api/routes/sse.py) calls get_consent_queue() which is the
+# HTTP reachability: GET /api/consent/events/{user_id} subscribes a stream queue.
+# The SSE endpoint calls subscribe_consent_queue() and always unsubscribes it,
 # canonical entry point into the consent_listener module where the task-management
 # fixes live (_background_notify_tasks, create_task, cancel-without-await).
 # ---------------------------------------------------------------------------
 
 
 class TestConsentListenerHTTPReachability:
-    """Prove get_consent_queue is reachable from GET /api/consent/events/{user_id}."""
+    """Prove the per-stream subscription contract used by the SSE endpoint."""
 
-    def test_get_consent_queue_returns_queue_for_user(self):
-        """get_consent_queue creates and returns a per-user asyncio.Queue."""
+    def test_subscribe_consent_queue_returns_distinct_stream_queues(self):
+        """Every same-user SSE stream must receive its own bounded queue."""
 
         async def _run():
-            from api.consent_listener import get_consent_queue
+            from api.consent_listener import (
+                subscribe_consent_queue,
+                unsubscribe_consent_queue,
+            )
 
-            q = get_consent_queue("sse_test_user_1")
+            q = await subscribe_consent_queue("sse_test_user_1")
             assert isinstance(q, asyncio.Queue)
-            q2 = get_consent_queue("sse_test_user_1")
-            assert q is q2, "same user must return the same queue instance"
-            q3 = get_consent_queue("sse_test_user_2")
+            q2 = await subscribe_consent_queue("sse_test_user_1")
+            assert q is not q2, "same-user streams must not compete on one queue"
+            q3 = await subscribe_consent_queue("sse_test_user_2")
             assert q3 is not q, "different users must have distinct queues"
+            await unsubscribe_consent_queue("sse_test_user_1", q)
+            await unsubscribe_consent_queue("sse_test_user_1", q2)
+            await unsubscribe_consent_queue("sse_test_user_2", q3)
 
         asyncio.run(_run())
 

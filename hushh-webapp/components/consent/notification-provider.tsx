@@ -841,6 +841,9 @@ export function ConsentNotificationProvider({
           {
             notificationType: msgType,
             circleId: String(data.circle_id || "").trim() || undefined,
+            ...(String(data.member_user_id || "").trim()
+              ? { memberUserId: String(data.member_user_id).trim() }
+              : null),
             eventId: String(data.message_id || "").trim() || undefined,
           },
         );

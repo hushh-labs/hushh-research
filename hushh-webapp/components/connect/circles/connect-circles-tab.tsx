@@ -22,7 +22,10 @@ import { SmsTextIcon } from "@/components/one-location/redesign/sms-text-icon";
 import { createConnectCircleActions } from "@/components/connect/circles/connect-circle-actions";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { CIRCLE_JOIN_CODE_PARAM } from "@/lib/one-location/circle-join-url";
-import { subscribeToOneLocationStateChanges } from "@/lib/one-location/one-location-state-events";
+import {
+  circleStateChangeClosesDetail,
+  subscribeToOneLocationStateChanges,
+} from "@/lib/one-location/one-location-state-events";
 import { OneLocationService } from "@/lib/one-location/service";
 import {
   CONNECT_CIRCLE_ACTION_PARAM,
@@ -374,7 +377,7 @@ export function ConnectCirclesTab({
    *  channel remote notifications use. That updates this tab and every other
    *  Connect/Location tab without persisting roster data in browser storage. */
   const announceCircleMutation = useCallback(
-    (notificationType: string, circleId?: string) => {
+    (notificationType: string, circleId?: string, memberUserId?: string) => {
       if (!currentUserId) {
         // Story/tests may render this leaf without an authenticated host. Keep
         // its local behavior useful without broadcasting an unscoped event.
@@ -385,7 +388,7 @@ export function ConnectCirclesTab({
       CacheSyncService.onOneLocationStateMutated(
         currentUserId,
         ["workspace", "circles", "sms_roster"],
-        { notificationType, circleId },
+        { notificationType, circleId, memberUserId },
       );
     },
     [currentUserId],
@@ -408,11 +411,7 @@ export function ConnectCirclesTab({
       ) {
         return;
       }
-      if (
-        detail.notificationType === "location_circle_deleted" &&
-        detail.circleId &&
-        detail.circleId === circleIdParam
-      ) {
+      if (circleStateChangeClosesDetail(detail, currentUserId, circleIdParam)) {
         go({ action: null, circleId: null, code: null }, "replace");
       } else {
         setDetailReloadToken((token) => token + 1);
@@ -563,7 +562,11 @@ export function ConnectCirclesTab({
             targetType: "circle",
             countBucket: "1",
           });
-          announceCircleMutation("location_circle_member_removed", circleId);
+          announceCircleMutation(
+            "location_circle_member_removed",
+            circleId,
+            userId,
+          );
         }}
         onConnectMember={async (_circleId, userId, person) => {
           if (!onRequestConnection) {

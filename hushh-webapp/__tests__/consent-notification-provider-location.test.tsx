@@ -534,6 +534,9 @@ describe("global One Location Feed-first notification policy", () => {
       message_id: `${type}:event-1`,
       circle_id: "circle-1",
       circle_name: "Family",
+      ...(type === "location_circle_member_removed"
+        ? { member_user_id: "recipient-user" }
+        : null),
       notification_title: "Circle changed",
       notification_body: "Circle state changed.",
     });
@@ -545,6 +548,9 @@ describe("global One Location Feed-first notification policy", () => {
       {
         notificationType: type,
         circleId: "circle-1",
+        ...(type === "location_circle_member_removed"
+          ? { memberUserId: "recipient-user" }
+          : null),
         eventId: `${type}:event-1`,
       },
     );

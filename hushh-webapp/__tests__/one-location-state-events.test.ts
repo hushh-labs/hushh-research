@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  circleStateChangeClosesDetail,
   dispatchOneLocationStateChanged,
   subscribeToOneLocationStateChanges,
 } from "@/lib/one-location/one-location-state-events";
@@ -109,6 +110,7 @@ describe("One Location state events", () => {
       {
         notificationType: "location_circle_deleted",
         circleId: "circle-1",
+        memberUserId: "user-a",
         eventId: "delete-transition-1",
       },
     );
@@ -119,11 +121,47 @@ describe("One Location state events", () => {
         domains: ["workspace", "circles"],
         notificationType: "location_circle_deleted",
         circleId: "circle-1",
+        memberUserId: "user-a",
         eventId: "delete-transition-1",
       }),
     ]);
     expect(received[0]).not.toHaveProperty("members");
     unsubscribe();
+  });
+
+  it("closes only when the current viewer loses access to the open Circle", () => {
+    expect(
+      circleStateChangeClosesDetail(
+        {
+          notificationType: "location_circle_member_removed",
+          circleId: "circle-1",
+          memberUserId: "viewer-a",
+        },
+        "viewer-a",
+        "circle-1",
+      ),
+    ).toBe(true);
+    expect(
+      circleStateChangeClosesDetail(
+        {
+          notificationType: "location_circle_member_removed",
+          circleId: "circle-1",
+          memberUserId: "member-b",
+        },
+        "viewer-a",
+        "circle-1",
+      ),
+    ).toBe(false);
+    expect(
+      circleStateChangeClosesDetail(
+        {
+          notificationType: "location_circle_deleted",
+          circleId: "circle-1",
+        },
+        "viewer-a",
+        "circle-1",
+      ),
+    ).toBe(true);
   });
 
   it("collapses the same backend transition rebroadcast by multiple tabs", () => {

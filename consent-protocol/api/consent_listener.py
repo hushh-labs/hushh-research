@@ -46,12 +46,13 @@ JOB_DB_RECOVERY_DELAY_SECONDS = 15
 FINAL_REMINDER_LEAD_MS = 30 * 60 * 1000
 MIN_FINAL_REMINDER_WINDOW_MS = 2 * 60 * 60 * 1000
 
-# Per-user queues for SSE generators (no polling). Key = user_id.
-# Each queue is bounded so a stalled or slow SSE consumer cannot accumulate an
-# unbounded backlog of notifications and exhaust memory. When a queue is full,
-# the oldest pending event is dropped to make room for the newest.
+# Per-user subscriber queues for SSE generators (no polling). Key = user_id.
+# Every live stream owns a distinct bounded queue so two tabs/devices on the
+# same backend worker both receive every transition instead of competing on one
+# queue. A stalled consumer drops only its own oldest event and cannot delay or
+# starve the other streams for the account.
 _CONSENT_NOTIFY_QUEUE_MAXSIZE = 100
-_consent_notify_queues: Dict[str, asyncio.Queue] = {}
+_consent_notify_queues: Dict[str, set[asyncio.Queue]] = {}
 _consent_notify_queues_lock = asyncio.Lock()
 # The loop the SSE queues live on. Captured when a consumer connects, so a
 # producer running on a FastAPI threadpool worker can still reach them.
@@ -131,9 +132,9 @@ def _is_database_unavailable_error(exc: Exception) -> bool:
 
 async def _push_to_consent_queue(user_id: str, data: Dict[str, Any]) -> None:
     async with _consent_notify_queues_lock:
-        q = _consent_notify_queues.get(user_id)
-        if q is None:
-            return
+        queues = list(_consent_notify_queues.get(user_id, set()))
+
+    for q in queues:
         try:
             q.put_nowait(data)
         except asyncio.QueueFull:
@@ -148,7 +149,10 @@ async def _push_to_consent_queue(user_id: str, data: Dict[str, Any]) -> None:
                 q.put_nowait(data)
             except asyncio.QueueFull:
                 pass
-            logger.warning("consent notify queue full; dropped oldest event to bound memory")
+            logger.warning(
+                "consent notify queue full; dropped oldest event to bound memory user_id=%s",
+                user_id,
+            )
 
 
 async def _publish_user_state_event(user_id: str, data: Dict[str, Any]) -> bool:
@@ -252,18 +256,32 @@ async def _push_to_developer_consent_queues(data: Dict[str, Any]) -> None:
             logger.warning("developer consent SSE queue full; dropped oldest event")
 
 
-def get_consent_queue(user_id: str) -> asyncio.Queue:
-    """Get or create the asyncio queue for this user (used by SSE generator)."""
+async def subscribe_consent_queue(user_id: str) -> asyncio.Queue:
+    """Register one bounded queue for one active authenticated SSE stream."""
+
     _remember_serving_loop()
-    if user_id not in _consent_notify_queues:
-        _consent_notify_queues[user_id] = asyncio.Queue(maxsize=_CONSENT_NOTIFY_QUEUE_MAXSIZE)
-    return _consent_notify_queues[user_id]
+    queue: asyncio.Queue = asyncio.Queue(maxsize=_CONSENT_NOTIFY_QUEUE_MAXSIZE)
+    async with _consent_notify_queues_lock:
+        _consent_notify_queues.setdefault(user_id, set()).add(queue)
+    return queue
+
+
+async def unsubscribe_consent_queue(user_id: str, queue: asyncio.Queue) -> None:
+    """Remove one SSE stream queue and release its account registry entry."""
+
+    async with _consent_notify_queues_lock:
+        queues = _consent_notify_queues.get(user_id)
+        if queues is None:
+            return
+        queues.discard(queue)
+        if not queues:
+            _consent_notify_queues.pop(user_id, None)
 
 
 def _remember_serving_loop() -> None:
     """Record the loop the SSE queues live on, so worker threads can reach them.
 
-    Called from ``get_consent_queue``, which only ever runs inside the SSE
+    Called from ``subscribe_consent_queue``, which only ever runs inside the SSE
     endpoint -- i.e. on the serving loop itself.
     """
     global _serving_loop
@@ -333,7 +351,8 @@ def get_consent_listener_status() -> dict:
     """Return status for GET /debug/consent-listener (listener_active, queue_count, notify_received_count)."""
     return {
         "listener_active": _listener_active,
-        "queue_count": len(_consent_notify_queues),
+        "queue_count": sum(len(queues) for queues in _consent_notify_queues.values()),
+        "queue_user_count": len(_consent_notify_queues),
         "developer_queue_count": sum(
             len(queues) for queues in _developer_consent_subscribers.values()
         ),
@@ -886,7 +905,7 @@ async def run_consent_listener():
 
     # The serving loop exists even before the first SSE client connects. Sync
     # mutation workers can therefore schedule a PostgreSQL broadcast during the
-    # small startup window before get_consent_queue() first observes the loop.
+    # small startup window before subscribe_consent_queue() first observes it.
     _serving_loop = asyncio.get_running_loop()
 
     # Start timeout + reminder jobs in background.

@@ -784,4 +784,59 @@ describe("somebody else acting on your Circle", () => {
     await waitFor(() => expect(mocks.listCircles).toHaveBeenCalledTimes(2));
     expect(mocks.getCircle).toHaveBeenCalledTimes(1);
   });
+
+  it("closes an open Circle when the current viewer is removed remotely", async () => {
+    mocks.searchParams = new URLSearchParams(
+      "tab=circles&action=circle-detail&circleId=mine",
+    );
+    render(<ConnectCirclesTab currentUserId="viewer-user" />);
+    await waitFor(() => expect(mocks.getCircle).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("hushh:one-location-state-changed", {
+          detail: {
+            userId: "viewer-user",
+            domains: ["workspace", "circles"],
+            changedAt: 5,
+            notificationType: "location_circle_member_removed",
+            circleId: "mine",
+            memberUserId: "viewer-user",
+          },
+        }),
+      );
+    });
+
+    await waitFor(() => expect(mocks.routerReplace).toHaveBeenCalledOnce());
+    expect(String(mocks.routerReplace.mock.calls[0][0])).not.toContain(
+      "circleId",
+    );
+    expect(mocks.getCircle).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps an owner's Circle open when a different member is removed", async () => {
+    mocks.searchParams = new URLSearchParams(
+      "tab=circles&action=circle-detail&circleId=mine",
+    );
+    render(<ConnectCirclesTab currentUserId="owner-user" />);
+    await waitFor(() => expect(mocks.getCircle).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("hushh:one-location-state-changed", {
+          detail: {
+            userId: "owner-user",
+            domains: ["workspace", "circles"],
+            changedAt: 6,
+            notificationType: "location_circle_member_removed",
+            circleId: "mine",
+            memberUserId: "member-b",
+          },
+        }),
+      );
+    });
+
+    await waitFor(() => expect(mocks.getCircle).toHaveBeenCalledTimes(2));
+    expect(mocks.routerReplace).not.toHaveBeenCalled();
+  });
 });

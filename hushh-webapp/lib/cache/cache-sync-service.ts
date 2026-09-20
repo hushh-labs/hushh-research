@@ -725,6 +725,7 @@ export class CacheSyncService {
     context: {
       notificationType?: string;
       circleId?: string;
+      memberUserId?: string;
       eventId?: string;
     } = {},
   ): void {

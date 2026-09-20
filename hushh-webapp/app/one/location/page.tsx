@@ -379,7 +379,10 @@ import { filterPeopleByQuery } from "@/lib/one-location/people-search";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { subscribeToConnectionGraphChanges } from "@/lib/connections/connection-graph-events";
-import { subscribeToOneLocationStateChanges } from "@/lib/one-location/one-location-state-events";
+import {
+  circleStateChangeClosesDetail,
+  subscribeToOneLocationStateChanges,
+} from "@/lib/one-location/one-location-state-events";
 import {
   mergeShareAudienceRecipientIds,
   mergeRecipientsByUserId,
@@ -4417,10 +4420,11 @@ export function OneLocationAgentPageContent({
       const shouldRefreshSmsRoster = detail.domains.includes("sms_roster");
       if (detail.domains.includes("circles")) {
         const openCircleId = String(searchParams.get("circleId") || "").trim();
-        const closesOpenCircle =
-          detail.notificationType === "location_circle_deleted" &&
-          detail.circleId &&
-          detail.circleId === openCircleId;
+        const closesOpenCircle = circleStateChangeClosesDetail(
+          detail,
+          owner,
+          openCircleId,
+        );
         if (closesOpenCircle) {
           router.replace(`${ROUTES.ONE_LOCATION}?view=people`, {
             scroll: false,

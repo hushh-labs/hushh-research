@@ -458,7 +458,7 @@ def test_threadsafe_enqueue_delivers_to_a_waiting_sse_consumer():
     from api import consent_listener as cl
 
     async def scenario():
-        queue = cl.get_consent_queue("addressee-e2e")
+        queue = await cl.subscribe_consent_queue("addressee-e2e")
         outcome: dict = {}
 
         def worker():
@@ -479,7 +479,10 @@ def test_threadsafe_enqueue_delivers_to_a_waiting_sse_consumer():
         # FastAPI threadpool the production callers run on.
         assert outcome["had_loop"] is False
         assert outcome["scheduled"] is True
-        return await asyncio.wait_for(queue.get(), timeout=5)
+        try:
+            return await asyncio.wait_for(queue.get(), timeout=5)
+        finally:
+            await cl.unsubscribe_consent_queue("addressee-e2e", queue)
 
     delivered = asyncio.run(scenario())
     assert delivered["requester_label"] == "John Smith"

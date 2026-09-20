@@ -1680,6 +1680,95 @@ describe("OneLocationAgentPage", () => {
     await waitFor(() => expect(mockGetSmsContacts).toHaveBeenCalledOnce());
   });
 
+  it("closes an open Circle when the current viewer is removed remotely", async () => {
+    mockLocationSearchParams(
+      "view=people&action=circle-detail&circleId=circle-1",
+    );
+    mockGetCircle.mockResolvedValue({
+      id: "circle-1",
+      name: "Family",
+      kind: "family",
+      role: "member",
+      memberCount: 2,
+      memberLimit: 20,
+      members: [],
+      viewerCapabilities: {
+        canInviteMembers: false,
+        canViewInviteCode: true,
+        canRotateInviteCode: false,
+        canManageCircle: false,
+        canModerateInvites: false,
+      },
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow({ expectMain: false });
+    await waitFor(() => expect(mockGetCircle).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      dispatchOneLocationStateChanged(
+        "user_a",
+        ["workspace", "circles", "sms_roster"],
+        {
+          notificationType: "location_circle_member_removed",
+          circleId: "circle-1",
+          memberUserId: "user_a",
+          eventId: "remove-viewer-transition-1",
+        },
+      );
+    });
+
+    await waitFor(() =>
+      expect(mockRouterReplace).toHaveBeenCalledWith(
+        `${ROUTES.ONE_LOCATION}?view=people`,
+        { scroll: false },
+      ),
+    );
+    expect(mockGetCircle).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps an owner's Circle open when another member is removed", async () => {
+    mockLocationSearchParams(
+      "view=people&action=circle-detail&circleId=circle-1",
+    );
+    mockGetCircle.mockResolvedValue({
+      id: "circle-1",
+      name: "Family",
+      kind: "family",
+      role: "owner",
+      memberCount: 2,
+      memberLimit: 20,
+      members: [],
+      viewerCapabilities: {
+        canInviteMembers: true,
+        canViewInviteCode: true,
+        canRotateInviteCode: true,
+        canManageCircle: true,
+        canModerateInvites: true,
+      },
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow({ expectMain: false });
+    await waitFor(() => expect(mockGetCircle).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      dispatchOneLocationStateChanged(
+        "user_a",
+        ["workspace", "circles", "sms_roster"],
+        {
+          notificationType: "location_circle_member_removed",
+          circleId: "circle-1",
+          memberUserId: "member-b",
+          eventId: "remove-member-transition-1",
+        },
+      );
+    });
+
+    await waitFor(() => expect(mockGetCircle).toHaveBeenCalledTimes(2));
+    expect(mockRouterReplace).not.toHaveBeenCalled();
+  });
+
   it("removes a disconnected person from Ask without a page refresh", async () => {
     const initialRecipients = locationState().recipients;
     mockListRecipientsPage.mockResolvedValue({
