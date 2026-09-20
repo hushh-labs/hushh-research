@@ -1061,6 +1061,8 @@ final class AppUITests: XCTestCase {
             }
         }
 
+        perfTapNav(app, label: "Chat")
+        perfSettle(2.5)
         perfGesture("chat-stream-30s", rep: 0) {
             if perfSendChatPrompt(app, webView: webView) {
                 perfSettle(30)
@@ -1154,7 +1156,7 @@ final class AppUITests: XCTestCase {
     /// is configured the test waits for the person holding the phone. On a
     /// Release build this is the certifying run the charter names.
     /// Opt-in: HUSHH_ENABLE_PERF_ATTACHED=true. HUSHH_PERF_ATTACHED_SECTION
-    /// = feed | kai | location | all (default all).
+    /// = feed | chat | kai | location | all (default all).
     func testRenderPerformanceCardAttached() throws {
         let environment = ProcessInfo.processInfo.environment
         guard environment["HUSHH_ENABLE_PERF_ATTACHED"] == "true" else {
@@ -1229,6 +1231,22 @@ final class AppUITests: XCTestCase {
             }
             perfSettle(12)
             NSLog("PERF_DONE route=/one/feed")
+            app.terminate()
+        }
+
+        if section == "all" || section == "chat" {
+            let (app, webView) = try launchAttached(route: "/")
+            perfSettle(3)
+            NSLog("PERF_APP_READY route=/")
+            perfGesture("chat-stream-30s", rep: 0) {
+                if perfSendChatPrompt(app, webView: webView) {
+                    perfSettle(30)
+                } else {
+                    NSLog("PERF_SKIPPED name=chat-stream-30s reason=composer_not_found")
+                }
+            }
+            perfSettle(12)
+            NSLog("PERF_DONE route=/")
             app.terminate()
         }
 
@@ -1443,26 +1461,24 @@ final class AppUITests: XCTestCase {
     /// Types a fixed prompt into the chat composer and sends it. Best effort:
     /// returns false when the composer cannot be found, so the card records a
     /// skip instead of failing.
+    /// The composer lives on the canonical Chat route ("/"), not on /one:
+    /// `<textarea aria-label="Message One">` with a `Send message` button.
+    /// The caller puts the app on that route first.
     private func perfSendChatPrompt(_ app: XCUIApplication, webView: XCUIElement) -> Bool {
-        let queries: [XCUIElementQuery] = [app.webViews.textViews, app.webViews.textFields, app.textViews]
-        for query in queries {
-            let count = query.count
-            guard count > 0 else { continue }
-            let field = query.element(boundBy: count - 1)
-            guard field.exists, field.isHittable else { continue }
-            field.tap()
-            perfSettle(0.5)
-            field.typeText("Summarize my week in three short bullet points.")
-            perfSettle(0.5)
-            let send = app.webViews.buttons.matching(NSPredicate(format: "label CONTAINS[c] 'send'")).firstMatch
-            if send.exists, send.isHittable {
-                send.tap()
-            } else {
-                field.typeText("\n")
-            }
-            return true
+        let composer = app.webViews.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", "Message One")).firstMatch
+        guard composer.waitForExistence(timeout: 20) else { return false }
+        composer.tap()
+        perfSettle(0.5)
+        composer.typeText("Summarize my week in three short bullet points.")
+        perfSettle(0.5)
+        let send = app.webViews.buttons.matching(NSPredicate(format: "label == %@", "Send message")).firstMatch
+        if send.exists, send.isHittable {
+            send.tap()
+        } else {
+            composer.typeText("\n")
         }
-        return false
+        return true
     }
 
     private func launchApp(_ route: RouteCase, extraArguments: [String] = []) -> XCUIApplication {
