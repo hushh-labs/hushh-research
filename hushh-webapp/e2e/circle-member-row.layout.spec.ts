@@ -22,6 +22,8 @@ import {
   CIRCLE_MEMBER_NAME_CLASSNAME,
   CIRCLE_MEMBER_NAME_ROW_CLASSNAME,
   CIRCLE_MEMBER_MENU_CLASSNAME,
+  CIRCLE_MEMBER_MENU_ITEM_CLASSNAME,
+  CIRCLE_MEMBER_MENU_TRIGGER_CLASSNAME,
   CIRCLE_MEMBER_ROW_CLASSNAME,
   CIRCLE_MEMBER_ROW_MIN_HEIGHT_PX,
   CIRCLE_MEMBER_MENU_SLOT_PX,
@@ -214,6 +216,12 @@ const connectClass = cn(
   CIRCLE_MEMBER_ACTION_CLASSNAME,
 );
 
+/** Relevant state rules from the shared DropdownMenuItem primitive. Keeping
+ * them in the fixture is essential: the reported fade was a cascade conflict
+ * between these generic rules and the Circle-specific neutral background. */
+const DROPDOWN_ITEM_STATE_CLASSNAME =
+  "focus:bg-accent focus:text-accent-foreground data-[disabled]:opacity-50 data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[variant=destructive]:text-destructive";
+
 const MENU_GLYPH = "&#8942;"; // ⋮
 
 /** The four trailing combinations one circle really produces at once. */
@@ -271,7 +279,7 @@ function rosterBody(rows: RosterRow[], legacy = false): string {
       const menu = row.menu
         ? `<button data-testid="row-menu" class="${cn(
             buttonVariants({ variant: "ghost", size: "icon" }),
-            CIRCLE_MEMBER_MENU_CLASSNAME,
+            CIRCLE_MEMBER_MENU_TRIGGER_CLASSNAME,
           )}">${MENU_GLYPH}</button>`
         : legacy
           ? // What shipped: nothing at all, so the column collapsed.
@@ -310,7 +318,7 @@ const CANDIDATES = [
   ...connectClass.split(/\s+/),
   ...cn(
     buttonVariants({ variant: "ghost", size: "icon" }),
-    CIRCLE_MEMBER_MENU_CLASSNAME,
+    CIRCLE_MEMBER_MENU_TRIGGER_CLASSNAME,
   ).split(/\s+/),
   ...cn(
     buttonVariants({ variant: "secondary", size: "sm" }),
@@ -325,6 +333,9 @@ const CANDIDATES = [
   ...CIRCLE_MEMBER_NAME_CLASSNAME.split(/\s+/),
   ...CIRCLE_MEMBER_SECONDARY_CLASSNAME.split(/\s+/),
   ...CIRCLE_MEMBER_MENU_CLASSNAME.split(/\s+/),
+  ...CIRCLE_MEMBER_MENU_ITEM_CLASSNAME.split(/\s+/),
+  ...CIRCLE_MEMBER_MENU_TRIGGER_CLASSNAME.split(/\s+/),
+  ...DROPDOWN_ITEM_STATE_CLASSNAME.split(/\s+/),
   ...CIRCLE_DETAIL_HEADER_CLASSNAME.split(/\s+/),
   ...CIRCLE_DETAIL_HEADER_COPY_CLASSNAME.split(/\s+/),
   ...CIRCLE_MEMBERS_CARD_SHELL_CLASSNAME.split(/\s+/),
@@ -509,6 +520,91 @@ test.describe("Circle roster row", () => {
       }
     });
   }
+
+  test("keeps the kebab bare and an enabled highlighted action readable", async ({
+    page,
+  }, testInfo) => {
+    const triggerClass = cn(
+      buttonVariants({ variant: "ghost", size: "icon" }),
+      CIRCLE_MEMBER_MENU_TRIGGER_CLASSNAME,
+    );
+    const itemClass = cn(
+      DROPDOWN_ITEM_STATE_CLASSNAME,
+      CIRCLE_MEMBER_MENU_ITEM_CLASSNAME,
+    );
+    const body = `<section style="max-width:720px;margin:48px auto;padding:28px 24px;background:var(--app-primary-surface);border-radius:24px;box-shadow:var(--app-card-shadow-standard)">
+  <header style="margin-bottom:18px">
+    <h1 style="margin:0;color:var(--app-primary-label);font-size:28px;line-height:34px">SMS Circle</h1>
+    <p style="margin:4px 0 0;color:var(--app-secondary-label);font-size:14px">4 people</p>
+  </header>
+  <div style="display:flex;align-items:center;gap:12px;min-height:64px;border-top:1px solid var(--app-separator)">
+    <span style="display:inline-flex;width:40px;height:40px;align-items:center;justify-content:center;border-radius:999px;background:#0b9dad;color:#fff">N</span>
+    <span style="min-width:0;flex:1"><strong style="display:block;color:var(--app-primary-label)">Neelesh Meena</strong><small style="color:var(--app-secondary-label)">Connected</small></span>
+    <button data-testid="bare-trigger" aria-label="Actions for Neelesh Meena" class="${triggerClass}" style="font-size:24px">${MENU_GLYPH}</button>
+  </div>
+  <div style="display:flex;justify-content:flex-end">
+    <div style="width:220px;margin-top:4px;padding:4px;background:var(--app-primary-surface);border:1px solid var(--app-separator);border-radius:14px;box-shadow:var(--app-card-shadow-standard)">
+      <button data-testid="enabled-action" data-highlighted class="${itemClass}" style="width:100%;text-align:left"><span>Share location</span></button>
+      <button data-variant="destructive" class="${itemClass}" style="width:100%;text-align:left"><span>Remove from Circle</span></button>
+      <button data-testid="disabled-action" data-disabled class="${itemClass}" style="display:none"><span>Unavailable</span></button>
+    </div>
+  </div>
+  <span data-testid="primary-probe" style="color:var(--app-primary-label)"></span>
+  <span data-testid="neutral-probe" style="background:var(--app-neutral-fill)"></span>
+</section>`;
+
+    const mobileEvidence = testInfo.project.name !== "chromium";
+    await page.setViewportSize(
+      mobileEvidence
+        ? { width: 390, height: 844 }
+        : { width: 1024, height: 720 },
+    );
+    await page.goto(
+      await buildFixture("circle-member-actions", body, CANDIDATES),
+    );
+    await page.getByTestId("bare-trigger").hover();
+
+    const styles = await page.evaluate(() => {
+      const style = (testId: string) =>
+        getComputedStyle(
+          document.querySelector<HTMLElement>(`[data-testid="${testId}"]`)! ,
+        );
+      const trigger = style("bare-trigger");
+      const action = style("enabled-action");
+      return {
+        triggerBackground: trigger.backgroundColor,
+        triggerShadow: trigger.boxShadow,
+        actionColor: action.color,
+        actionBackground: action.backgroundColor,
+        actionOpacity: action.opacity,
+        primaryColor: style("primary-probe").color,
+        neutralBackground: style("neutral-probe").backgroundColor,
+        disabledOpacity: style("disabled-action").opacity,
+      };
+    });
+
+    expect(styles.triggerBackground).toBe("rgba(0, 0, 0, 0)");
+    // Tailwind v4 may serialize `shadow-none` as several zero-sized,
+    // transparent shadow slots instead of the keyword `none`. Either is
+    // visually empty; any non-zero geometry would be a real halo/shadow.
+    expect(styles.triggerShadow).not.toMatch(/-?(?:[1-9]\d*|0\.\d+)px/);
+    expect(styles.actionColor).toBe(styles.primaryColor);
+    expect(styles.actionBackground).toBe(styles.neutralBackground);
+    expect(styles.actionOpacity).toBe("1");
+    expect(Number(styles.disabledOpacity)).toBeLessThan(1);
+
+    const evidenceDir = process.env.OVERFLOW_ACTION_EVIDENCE_DIR;
+    if (evidenceDir) {
+      fs.mkdirSync(evidenceDir, { recursive: true });
+      await page.screenshot({
+        path: path.join(
+          evidenceDir,
+          `circle-overflow-actions-${testInfo.project.name}.png`,
+        ),
+        fullPage: true,
+      });
+    }
+  });
 
   test("the roster QA photographed really did stagger", async ({ page }) => {
     // Mutation check. Without it the assertions above could be passing on a

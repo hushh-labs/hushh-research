@@ -83,7 +83,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { CIRCLE_MEMBER_MENU_CLASSNAME } from "@/components/one-location/redesign/circles/circle-member-row-layout";
+import {
+  CIRCLE_MEMBER_MENU_CLASSNAME,
+  CIRCLE_MEMBER_MENU_ITEM_CLASSNAME,
+  CIRCLE_MEMBER_MENU_TRIGGER_CLASSNAME,
+} from "@/components/one-location/redesign/circles/circle-member-row-layout";
 import { cn } from "@/lib/utils";
 
 /* ------------------------------------------------------------------ */
@@ -119,7 +123,7 @@ export const MEMBER_ACTIONS_MENU_SURFACE_CLASSNAME =
  * to owner.
  */
 export const MEMBER_ACTIONS_MENU_ITEM_CLASSNAME =
-  "flex min-h-11 items-center gap-3 rounded-[10px] px-3 text-[15px] font-normal leading-5 focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-[color:var(--app-neutral-fill-strong)]";
+  CIRCLE_MEMBER_MENU_ITEM_CLASSNAME;
 
 /** One row of the bottom sheet's action list. 56px, full bleed, so the whole
  *  width of the row is the target rather than the label alone. */
@@ -266,13 +270,13 @@ export function CircleMemberActionsMenu({
           aria-label={menuLabel}
           aria-haspopup="menu"
           aria-expanded={sheetOpen}
-          className={CIRCLE_MEMBER_MENU_CLASSNAME}
+          className={CIRCLE_MEMBER_MENU_TRIGGER_CLASSNAME}
           onClick={() => {
             setSheetConfirmingRemove(false);
             setSheetOpen(true);
           }}
         >
-          <MoreVertical className="h-5 w-5" />
+          <MoreVertical className="h-5 w-5" weight="regular" />
         </Button>
 
         <Drawer
@@ -431,9 +435,9 @@ export function CircleMemberActionsMenu({
             variant="ghost"
             disabled={busy}
             aria-label={menuLabel}
-            className={CIRCLE_MEMBER_MENU_CLASSNAME}
+            className={CIRCLE_MEMBER_MENU_TRIGGER_CLASSNAME}
           >
-            <MoreVertical className="h-5 w-5" />
+            <MoreVertical className="h-5 w-5" weight="regular" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent

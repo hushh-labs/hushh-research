@@ -91,6 +91,30 @@ export const CIRCLE_MEMBER_ACTION_CLASSNAME =
 export const CIRCLE_MEMBER_MENU_CLASSNAME = "h-11 w-11 shrink-0 rounded-full";
 
 /**
+ * Visual treatment for the actionable kebab only.
+ *
+ * Keep the 44px hit target from `CIRCLE_MEMBER_MENU_CLASSNAME`, but do not
+ * paint that entire target. The generic ghost button uses the product accent
+ * tint on hover, which turned this quiet row affordance into a large sky-blue
+ * disc in Circle detail (including the same flow hosted by Connect). The
+ * focus ring remains for keyboard users; pointer hover/open states stay bare.
+ */
+export const CIRCLE_MEMBER_MENU_TRIGGER_CLASSNAME =
+  "h-11 w-11 shrink-0 rounded-full border-0 bg-transparent text-[color:var(--app-secondary-label)] shadow-none hover:bg-transparent hover:text-[color:var(--app-primary-label)] data-[state=open]:bg-transparent data-[state=open]:text-[color:var(--app-primary-label)]";
+
+/**
+ * A row inside the desktop member-actions menu.
+ *
+ * The dropdown primitive's generic focus state pairs an accent background
+ * with accent-foreground text. This menu replaces only that background with a
+ * neutral fill, so leaving the generic text rule in place made the first item
+ * white/grey and apparently disabled on hover. Own both halves of the state,
+ * while preserving destructive red for the remove action.
+ */
+export const CIRCLE_MEMBER_MENU_ITEM_CLASSNAME =
+  "flex min-h-11 items-center gap-3 rounded-[10px] px-3 text-[15px] font-normal leading-5 text-[color:var(--app-primary-label)] hover:!bg-[color:var(--app-neutral-fill)] hover:!text-[color:var(--app-primary-label)] focus:!bg-[color:var(--app-neutral-fill)] focus:!text-[color:var(--app-primary-label)] data-[highlighted]:!bg-[color:var(--app-neutral-fill)] data-[highlighted]:!text-[color:var(--app-primary-label)] data-[variant=destructive]:hover:!text-destructive data-[variant=destructive]:focus:!text-destructive data-[variant=destructive]:data-[highlighted]:!text-destructive dark:hover:!bg-[color:var(--app-neutral-fill-strong)] dark:focus:!bg-[color:var(--app-neutral-fill-strong)] dark:data-[highlighted]:!bg-[color:var(--app-neutral-fill-strong)]";
+
+/**
  * Phones retain one page scroll so touch gestures cannot get trapped inside a
  * nested roster. On larger screens, rosters can be capped for fast access to
  * actions below them.
