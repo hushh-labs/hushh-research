@@ -2692,11 +2692,13 @@ def test_targeted_circle_invite_push_is_metadata_only_and_deep_links_to_people(
     assert captured["deep_link"].endswith(
         "?tab=people&circleInviteId=550e8400-e29b-41d4-a716-446655440002"
     )
-    assert captured["data"] == {
+    assert captured["data"] | {"message_id": "<ignored>"} == {
         "invite_id": "550e8400-e29b-41d4-a716-446655440002",
         "circle_id": "550e8400-e29b-41d4-a716-446655440000",
         "inviter_user_id": "owner-user",
+        "message_id": "<ignored>",
     }
+    assert captured["data"]["message_id"].startswith("location_circle_member_invite:")
     assert captured["body"] == "You have a new Circle invitation."
 
 
@@ -4024,3 +4026,36 @@ def test_notify_failure_does_not_break_leave_circle(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(push_notifications_module, "send_circle_member_left_push", _boom)
 
     service.leave_circle(user_id="member-user", circle_id=circle_id)
+
+
+@pytest.mark.parametrize(
+    ("method_name", "push_name"),
+    [
+        ("_notify_circle_renamed", "send_circle_renamed_push"),
+        ("_notify_circle_deleted", "send_circle_deleted_push"),
+    ],
+)
+def test_circle_lifecycle_fanout_continues_after_one_recipient_delivery_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    method_name: str,
+    push_name: str,
+) -> None:
+    delivered: list[str] = []
+
+    def deliver(**kwargs):
+        user_id = kwargs["user_id"]
+        if user_id == "broken-user":
+            raise RuntimeError("transport unavailable")
+        delivered.append(user_id)
+        return 1
+
+    monkeypatch.setattr(push_notifications_module, push_name, deliver)
+
+    getattr(OneLocationCircleService, method_name)(
+        owner_user_id="owner-user",
+        circle_id="550e8400-e29b-41d4-a716-446655440000",
+        circle_name="Family",
+        affected_user_ids=["broken-user", "healthy-user"],
+    )
+
+    assert delivered == ["healthy-user"]

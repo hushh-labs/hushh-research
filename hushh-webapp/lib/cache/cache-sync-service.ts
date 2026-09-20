@@ -722,10 +722,15 @@ export class CacheSyncService {
   static onOneLocationStateMutated(
     userId: string,
     domains: OneLocationStateDomain[] = ["workspace"],
+    context: {
+      notificationType?: string;
+      circleId?: string;
+      eventId?: string;
+    } = {},
   ): void {
     if (!userId) return;
     OneLocationStateResource.invalidate(userId);
-    dispatchOneLocationStateChanged(userId, domains);
+    dispatchOneLocationStateChanged(userId, domains, context);
   }
 
   /**

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import {
+  act,
   fireEvent,
   render,
   screen,
@@ -696,38 +697,91 @@ describe("a roster row on Connect behaves like a directory row", () => {
 });
 
 describe("somebody else acting on your Circle", () => {
-  it("re-reads when circle news arrives, without a page reload", async () => {
+  it("re-reads when the shared Circle channel announces a change", async () => {
     // A person joining with a code, accepting an invitation, or being added by
     // another owner changes this list without the viewer touching anything.
     // Until this listener the only way to see it was to reload the page --
     // while the Location agent, on the same event, had always refreshed.
     mocks.searchParams = new URLSearchParams("tab=circles");
-    render(<ConnectCirclesTab />);
+    render(<ConnectCirclesTab currentUserId="owner-user" />);
     await waitFor(() => expect(mocks.listCircles).toHaveBeenCalledTimes(1));
 
-    window.dispatchEvent(
-      new CustomEvent("consent-state-changed", {
-        detail: { source: "one_location_notification" },
-      }),
-    );
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("hushh:one-location-state-changed", {
+          detail: {
+            userId: "owner-user",
+            domains: ["workspace", "circles"],
+            changedAt: 1,
+            notificationType: "location_circle_member_added",
+            circleId: "mine",
+          },
+        }),
+      );
+    });
 
     await waitFor(() => expect(mocks.listCircles).toHaveBeenCalledTimes(2));
   });
 
-  it("ignores news that has nothing to do with circles", async () => {
-    // Every consent change in the app fires this event. Re-reading on all of
-    // them would put a request behind unrelated activity.
+  it("ignores another account and non-Circle domains", async () => {
     mocks.searchParams = new URLSearchParams("tab=circles");
-    render(<ConnectCirclesTab />);
+    render(<ConnectCirclesTab currentUserId="owner-user" />);
     await waitFor(() => expect(mocks.listCircles).toHaveBeenCalledTimes(1));
 
     window.dispatchEvent(
-      new CustomEvent("consent-state-changed", {
-        detail: { source: "gmail_receipts", notificationType: "gmail_synced" },
+      new CustomEvent("hushh:one-location-state-changed", {
+        detail: {
+          userId: "other-user",
+          domains: ["circles"],
+          changedAt: 2,
+        },
+      }),
+    );
+    window.dispatchEvent(
+      new CustomEvent("hushh:one-location-state-changed", {
+        detail: {
+          userId: "owner-user",
+          domains: ["workspace"],
+          changedAt: 3,
+        },
       }),
     );
 
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(mocks.listCircles).toHaveBeenCalledTimes(1);
+  });
+
+  it("closes an open Circle when its owner deletes it remotely", async () => {
+    mocks.searchParams = new URLSearchParams(
+      "tab=circles&action=circle-detail&circleId=mine",
+    );
+    render(<ConnectCirclesTab currentUserId="owner-user" />);
+    await waitFor(() => expect(mocks.getCircle).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("hushh:one-location-state-changed", {
+          detail: {
+            userId: "owner-user",
+            domains: ["workspace", "circles"],
+            changedAt: 4,
+            notificationType: "location_circle_deleted",
+            circleId: "mine",
+          },
+        }),
+      );
+    });
+
+    await waitFor(() =>
+      expect(mocks.routerReplace).toHaveBeenCalledWith(
+        expect.stringContaining("/one/connect?tab=circles"),
+        { scroll: false },
+      ),
+    );
+    expect(String(mocks.routerReplace.mock.calls[0][0])).not.toContain(
+      "circleId",
+    );
+    await waitFor(() => expect(mocks.listCircles).toHaveBeenCalledTimes(2));
+    expect(mocks.getCircle).toHaveBeenCalledTimes(1);
   });
 });

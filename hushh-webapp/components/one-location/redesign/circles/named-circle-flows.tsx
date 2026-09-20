@@ -1698,19 +1698,42 @@ export function CircleDetailFlow({
     page = 1,
     append = false,
     query = peopleSearch,
-  }: { page?: number; append?: boolean; query?: string } = {}) => {
+    reconcileSelections = false,
+  }: {
+    page?: number;
+    append?: boolean;
+    query?: string;
+    /** A remote mutation may invalidate a selection that is not on the
+     *  currently rendered page. Pair the paged display read with the bounded
+     *  full eligible set before trimming selections. */
+    reconcileSelections?: boolean;
+  } = {}) => {
     if (!circle || !canInviteMembers) return;
     const requestId = ++peopleRequestRef.current;
     if (append) setPeopleLoadingMore(true);
     else setPeopleLoading(true);
     setPeopleLoadError(null);
     try {
+      let authoritativeResult: OneLocationCircleEligibleConnections | null =
+        null;
       const result = onLoadEligibleConnectionsPage
-        ? await onLoadEligibleConnectionsPage(circle.id, {
-            page,
-            limit: 50,
-            query: query.trim() || undefined,
-          })
+        ? reconcileSelections
+          ? await Promise.all([
+              onLoadEligibleConnectionsPage(circle.id, {
+                page,
+                limit: 50,
+                query: query.trim() || undefined,
+              }),
+              onLoadEligibleConnections(circle.id),
+            ]).then(([paged, authoritative]) => {
+              authoritativeResult = authoritative;
+              return paged;
+            })
+          : await onLoadEligibleConnectionsPage(circle.id, {
+              page,
+              limit: 50,
+              query: query.trim() || undefined,
+            })
         : await onLoadEligibleConnections(circle.id);
       if (requestId !== peopleRequestRef.current) return;
       setEligibleConnections((current) => {
@@ -1723,8 +1746,9 @@ export function CircleDetailFlow({
         }
         return [...byUserId.values()];
       });
-      setPendingInvites(result.pendingInvites);
-      setRemainingCapacity(result.remainingCapacity);
+      const authoritative = authoritativeResult ?? result;
+      setPendingInvites(authoritative.pendingInvites);
+      setRemainingCapacity(authoritative.remainingCapacity);
       const pagedResult = onLoadEligibleConnectionsPage
         ? (result as OneLocationCircleEligibleConnectionsPage)
         : null;
@@ -1733,20 +1757,32 @@ export function CircleDetailFlow({
       setPeopleTotalCount(
         pagedResult?.totalCount ?? result.eligibleConnections.length,
       );
-      const eligibleByUserId = new Map(
-        result.eligibleConnections.map((connection) => [
-          connection.userId,
-          connection,
-        ]),
-      );
-      setSelectedConnections((current) =>
-        new Map(
-          [...current]
-            .filter(([userId]) => eligibleByUserId.has(userId))
-            .map(([userId]) => [userId, eligibleByUserId.get(userId)!] as const)
-            .slice(0, circleInviteSelectionLimit(result.remainingCapacity)),
-        ),
-      );
+      // Appending page 2 proves nothing about a selection from page 1. Trim
+      // only when this response is the complete authority (non-paged) or the
+      // explicit remote-change reconciliation fetched that authority beside
+      // the visible page.
+      if (!onLoadEligibleConnectionsPage || authoritativeResult) {
+        const eligibleByUserId = new Map(
+          authoritative.eligibleConnections.map((connection) => [
+            connection.userId,
+            connection,
+          ]),
+        );
+        setSelectedConnections((current) =>
+          new Map(
+            [...current]
+              .filter(([userId]) => eligibleByUserId.has(userId))
+              .map(
+                ([userId]) =>
+                  [userId, eligibleByUserId.get(userId)!] as const,
+              )
+              .slice(
+                0,
+                circleInviteSelectionLimit(authoritative.remainingCapacity),
+              ),
+          ),
+        );
+      }
     } catch (error) {
       if (requestId !== peopleRequestRef.current) return;
       setPeopleLoadError(
@@ -1776,7 +1812,11 @@ export function CircleDetailFlow({
     // picker too. Reload in place so search text and the sheet stay put; the
     // response also trims selections that no longer fit the authoritative
     // eligible set.
-    void loadEligibleConnections({ page: 1, query: peopleSearch });
+    void loadEligibleConnections({
+      page: 1,
+      query: peopleSearch,
+      reconcileSelections: true,
+    });
     // This effect is signal-driven. Capturing the current loader is intended;
     // depending on its render-local identity would refetch on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps

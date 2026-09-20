@@ -44,3 +44,17 @@ def test_connection_removed_sse_keeps_its_type_and_delivery_identity():
 
     assert _sse_event_id(event) == event["message_id"]
     assert _sse_payload_from_event_payload(event) == event
+
+
+def test_circle_sse_keeps_its_type_transition_id_and_reconciliation_context():
+    event = {
+        "type": "location_circle_deleted",
+        "user_id": "member-1",
+        "message_id": "location_circle_deleted:event-1",
+        "circle_id": "circle-1",
+        "circle_name": "Family",
+        "request_url": "/one/location?tab=people",
+    }
+
+    assert _sse_event_id(event) == event["message_id"]
+    assert _sse_payload_from_event_payload(event) == event

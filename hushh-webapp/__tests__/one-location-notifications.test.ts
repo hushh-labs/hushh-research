@@ -214,6 +214,8 @@ describe("One-Location workflow deep-link sections", () => {
     expect(oneLocationSectionForWorkflowNotificationType("location_circle_member_added")).toBe("people");
     expect(oneLocationSectionForWorkflowNotificationType("location_circle_member_removed")).toBe("people");
     expect(oneLocationSectionForWorkflowNotificationType("location_circle_member_left")).toBe("people");
+    expect(oneLocationSectionForWorkflowNotificationType("location_circle_renamed")).toBe("people");
+    expect(oneLocationSectionForWorkflowNotificationType("location_circle_deleted")).toBe("people");
   });
 
   it("describes Circle removal and departure events without technical copy", () => {
@@ -235,6 +237,18 @@ describe("One-Location workflow deep-link sections", () => {
         networkLabel: "Asha",
       }).description,
     ).toBe("Asha declined your Circle invitation.");
+    expect(
+      locationWorkflowNotificationCopy({
+        type: "location_circle_renamed",
+        circleName: "Family trip",
+      }).description,
+    ).toBe("This Circle is now called Family trip.");
+    expect(
+      locationWorkflowNotificationCopy({
+        type: "location_circle_deleted",
+        circleName: "Family trip",
+      }).description,
+    ).toBe("Family trip was deleted by its owner.");
   });
 
   it("names the person who added you, and never says nobody did", () => {

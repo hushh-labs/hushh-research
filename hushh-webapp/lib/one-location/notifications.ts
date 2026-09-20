@@ -56,6 +56,8 @@ export type OneLocationWorkflowNotificationType =
   | "location_circle_member_added"
   | "location_circle_member_removed"
   | "location_circle_member_left"
+  | "location_circle_renamed"
+  | "location_circle_deleted"
   | "location_circle_code_joined";
 
 export type OneLocationNotificationSection =
@@ -152,6 +154,14 @@ const WORKFLOW_COPY: Record<
   location_circle_member_left: {
     title: "Circle member left",
     fallbackDescription: "Someone left your Circle.",
+  },
+  location_circle_renamed: {
+    title: "Circle renamed",
+    fallbackDescription: "A Circle you belong to was renamed.",
+  },
+  location_circle_deleted: {
+    title: "Circle deleted",
+    fallbackDescription: "A Circle you belonged to was deleted.",
   },
   location_circle_code_joined: {
     title: "Someone joined your Circle",
@@ -505,6 +515,8 @@ export function oneLocationSectionForWorkflowNotificationType(
     case "location_circle_member_added":
     case "location_circle_member_removed":
     case "location_circle_member_left":
+    case "location_circle_renamed":
+    case "location_circle_deleted":
     case "location_circle_code_joined":
       return "people";
     default:
@@ -918,6 +930,24 @@ export function locationWorkflowNotificationCopy(params: {
         title: copy.title,
         description: `${networkLabel} left your Circle.`,
       };
+    case "location_circle_renamed": {
+      const circleName = String(params.circleName || "").trim();
+      return {
+        title: copy.title,
+        description: circleName
+          ? `This Circle is now called ${circleName}.`
+          : copy.fallbackDescription,
+      };
+    }
+    case "location_circle_deleted": {
+      const circleName = String(params.circleName || "").trim();
+      return {
+        title: copy.title,
+        description: circleName
+          ? `${circleName} was deleted by its owner.`
+          : copy.fallbackDescription,
+      };
+    }
     default:
       return { title: copy.title, description: copy.fallbackDescription };
   }

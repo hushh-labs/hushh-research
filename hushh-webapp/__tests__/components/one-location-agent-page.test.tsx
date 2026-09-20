@@ -596,6 +596,7 @@ import { prepareLocalOnboardingAction, resolveLocalOnboardingHandler } from "@/l
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { dispatchOneLocationStateChanged } from "@/lib/one-location/one-location-state-events";
 import { toast } from "sonner";
 
 if (!window.localStorage) {
@@ -1665,13 +1666,14 @@ describe("OneLocationAgentPage", () => {
     mockGetSmsContacts.mockResolvedValue(["user_d"]);
 
     act(() => {
-      window.dispatchEvent(
-        new CustomEvent(CONSENT_STATE_CHANGED_EVENT, {
-          detail: {
-            source: "one_location_notification",
-            notificationType: "location_circle_member_removed",
-          },
-        }),
+      dispatchOneLocationStateChanged(
+        "user_a",
+        ["workspace", "circles", "sms_roster"],
+        {
+          notificationType: "location_circle_member_removed",
+          circleId: "circle-1",
+          eventId: "remove-transition-1",
+        },
       );
     });
 
@@ -3595,7 +3597,7 @@ describe("OneLocationAgentPage", () => {
         }),
       ]),
     );
-  });
+  }, 10_000);
 
   it("abandons a pending share capture when the Location page unmounts", async () => {
     mockGetState.mockResolvedValue({

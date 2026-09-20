@@ -2165,7 +2165,7 @@ class OneLocationCircleService:
         circle_id: str,
         name: str | None,
         kind: str | None,
-    ) -> None:
+    ) -> dict[str, Any]:
         statement = """
                 UPDATE one_location_circles
                 SET name = COALESCE(:name, name),
@@ -2181,7 +2181,7 @@ class OneLocationCircleService:
                   -- The SMS Circle is deliberately NOT excluded -- its rename
                   -- is a decision `ensure_sms_system_circle` promises to keep.
                   AND system_kind IS DISTINCT FROM 'trusted'
-                RETURNING id
+                RETURNING id, name
                 """
         params = {
             "circle_id": circle_id,
@@ -2194,14 +2194,100 @@ class OneLocationCircleService:
             if connection is not None
             else self._db.execute_raw(statement, params)
         )
-        if (
-            result.first() if connection is not None else next(iter(result.data or []), None)
-        ) is None:
+        row = _first(result) if connection is not None else next(iter(result.data or []), None)
+        if row is None:
             raise OneLocationCircleError(
                 "LOCATION_CIRCLE_OWNER_REQUIRED",
                 "Only the Circle owner can make this change.",
                 status_code=403,
             )
+        return row
+
+    @staticmethod
+    def _active_circle_user_ids(conn: Any, circle_id: str) -> list[str]:
+        """Capture the exact notification audience inside the mutation lock."""
+
+        return [
+            user_id
+            for row in _all(
+                conn.execute(
+                    text(
+                        """
+                        SELECT user_id
+                        FROM one_location_circle_memberships
+                        WHERE circle_id = CAST(:circle_id AS UUID)
+                          AND status = 'active'
+                        ORDER BY joined_at ASC, user_id ASC
+                        """
+                    ),
+                    {"circle_id": circle_id},
+                )
+            )
+            if (user_id := str(row.get("user_id") or "").strip())
+        ]
+
+    @staticmethod
+    def _notify_circle_renamed(
+        *,
+        owner_user_id: str,
+        circle_id: str,
+        circle_name: str,
+        affected_user_ids: Iterable[str],
+    ) -> None:
+        try:
+            from hushh_mcp.services.push_notifications import send_circle_renamed_push
+
+        except Exception:
+            logger.exception("circle.notify_renamed_import_failed circle_id=%s", circle_id)
+            return
+
+        for user_id in dict.fromkeys(affected_user_ids):
+            try:
+                send_circle_renamed_push(
+                    user_id=user_id,
+                    circle_id=circle_id,
+                    circle_name=circle_name,
+                    # The owner already saw their action succeed. Their other
+                    # devices need the data wake-up, not a banner about their
+                    # own rename.
+                    show_alert=user_id != owner_user_id,
+                )
+            except Exception:
+                logger.exception(
+                    "circle.notify_renamed_failed circle_id=%s user_id=%s",
+                    circle_id,
+                    redact_log_field("user_id", user_id),
+                )
+
+    @staticmethod
+    def _notify_circle_deleted(
+        *,
+        owner_user_id: str,
+        circle_id: str,
+        circle_name: str,
+        affected_user_ids: Iterable[str],
+    ) -> None:
+        try:
+            from hushh_mcp.services.push_notifications import send_circle_deleted_push
+
+        except Exception:
+            logger.exception("circle.notify_deleted_import_failed circle_id=%s", circle_id)
+            return
+
+        for user_id in dict.fromkeys(affected_user_ids):
+            try:
+                send_circle_deleted_push(
+                    user_id=user_id,
+                    circle_id=circle_id,
+                    circle_name=circle_name,
+                    show_alert=user_id != owner_user_id,
+                )
+            except Exception:
+                logger.exception(
+                    "circle.notify_deleted_failed circle_id=%s user_id=%s",
+                    circle_id,
+                    redact_log_field("user_id", user_id),
+                )
 
     def update_circle(
         self,
@@ -2222,6 +2308,8 @@ class OneLocationCircleService:
                 "Change the Circle name or type before saving.",
                 status_code=422,
             )
+        affected_user_ids: list[str] = []
+        renamed_circle_name = cleaned_name or ""
         if command_operation_id is not None or command_binding is not None:
             if kind is not None or cleaned_name is None:
                 raise OneLocationCircleError(
@@ -2247,28 +2335,49 @@ class OneLocationCircleService:
                         "Review this circle operation again.",
                         status_code=409,
                     )
-                self._update_circle_row(
+                updated_row = self._update_circle_row(
                     conn,
                     owner_user_id=owner_user_id,
                     circle_id=cleaned_circle_id,
                     name=cleaned_name,
                     kind=None,
                 )
-                return save_circle_command(
+                affected_user_ids = self._active_circle_user_ids(conn, cleaned_circle_id)
+                renamed_circle_name = str(updated_row.get("name") or cleaned_name or "")
+                command_result = save_circle_command(
                     receipt,
                     operation=command_operation_id,
                     action="location.rename_circle",
                     circle_id=cleaned_circle_id,
                     result="renamed",
                 )
-        try:
-            self._update_circle_row(
-                None,
+            self._notify_circle_renamed(
                 owner_user_id=owner_user_id,
                 circle_id=cleaned_circle_id,
-                name=cleaned_name,
-                kind=cleaned_kind,
+                circle_name=renamed_circle_name,
+                affected_user_ids=affected_user_ids,
             )
+            return command_result
+        try:
+            with self._db.engine.begin() as conn:
+                updated_row = self._update_circle_row(
+                    conn,
+                    owner_user_id=owner_user_id,
+                    circle_id=cleaned_circle_id,
+                    name=cleaned_name,
+                    kind=cleaned_kind,
+                )
+                if cleaned_name is not None:
+                    affected_user_ids = self._active_circle_user_ids(conn, cleaned_circle_id)
+                    renamed_circle_name = str(updated_row.get("name") or cleaned_name)
+
+            if cleaned_name is not None:
+                self._notify_circle_renamed(
+                    owner_user_id=owner_user_id,
+                    circle_id=cleaned_circle_id,
+                    circle_name=renamed_circle_name,
+                    affected_user_ids=affected_user_ids,
+                )
 
             return self.get_circle(
                 user_id=owner_user_id,
@@ -5526,7 +5635,7 @@ class OneLocationCircleService:
                             WHERE id = CAST(:circle_id AS UUID)
                               AND owner_user_id = :owner_user_id
                               AND status = 'active'
-                            RETURNING id
+                            RETURNING id, name
                             """
                         ),
                         {
@@ -5566,17 +5675,20 @@ class OneLocationCircleService:
                     ),
                     {"circle_id": cleaned_circle_id},
                 )
-                conn.execute(
-                    text(
-                        """
-                        UPDATE one_location_circle_member_invites
-                        SET status = 'cancelled', cancelled_at = NOW(),
-                            updated_at = NOW()
-                        WHERE circle_id = CAST(:circle_id AS UUID)
-                          AND status = 'pending'
-                        """
-                    ),
-                    {"circle_id": cleaned_circle_id},
+                cancelled_invite_rows = _all(
+                    conn.execute(
+                        text(
+                            """
+                            UPDATE one_location_circle_member_invites
+                            SET status = 'cancelled', cancelled_at = NOW(),
+                                updated_at = NOW()
+                            WHERE circle_id = CAST(:circle_id AS UUID)
+                              AND status = 'pending'
+                            RETURNING id, invitee_user_id
+                            """
+                        ),
+                        {"circle_id": cleaned_circle_id},
+                    )
                 )
                 revoke_circle_origins(
                     conn,
@@ -5594,17 +5706,47 @@ class OneLocationCircleService:
                             user_id=member_user_id,
                         )
                 if receipt is not None and command_operation_id is not None:
-                    return save_circle_command(
+                    command_result = save_circle_command(
                         receipt,
                         operation=command_operation_id,
                         action="location.delete_circle",
                         circle_id=cleaned_circle_id,
                         result="deleted",
                     )
+                else:
+                    command_result = None
             logger.info(
                 "one_location.circle_deleted owner=%s",
                 redact_log_field("user_id", owner_user_id),
             )
+            self._notify_circle_deleted(
+                owner_user_id=owner_user_id,
+                circle_id=cleaned_circle_id,
+                circle_name=str(circle_row.get("name") or ""),
+                affected_user_ids=[str(member.get("user_id") or "") for member in member_rows],
+            )
+            try:
+                from hushh_mcp.services.push_notifications import (
+                    send_circle_member_invite_cancelled_push,
+                )
+
+                for invite in cancelled_invite_rows:
+                    invitee_user_id = str(invite.get("invitee_user_id") or "").strip()
+                    invite_id = str(invite.get("id") or "").strip()
+                    if not invitee_user_id or not invite_id:
+                        continue
+                    send_circle_member_invite_cancelled_push(
+                        invitee_user_id=invitee_user_id,
+                        circle_id=cleaned_circle_id,
+                        circle_name=str(circle_row.get("name") or ""),
+                        invite_id=invite_id,
+                    )
+            except Exception:
+                logger.exception(
+                    "circle.notify_deleted_invites_failed circle_id=%s",
+                    cleaned_circle_id,
+                )
+            return command_result
         except OneLocationCircleError:
             raise
         except Exception as exc:

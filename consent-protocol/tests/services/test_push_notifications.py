@@ -5,10 +5,12 @@ from hushh_mcp.services import push_notifications as push_module
 from hushh_mcp.services.push_notifications import (
     _GENERIC_CONNECTION_REQUEST_BODY,
     _connection_request_body,
+    send_circle_deleted_push,
     send_circle_member_invite_cancelled_push,
     send_circle_member_invite_declined_push,
     send_circle_member_left_push,
     send_circle_member_removed_push,
+    send_circle_renamed_push,
     send_connection_removed_push,
     send_connection_request_cancelled_push,
     send_connection_request_push,
@@ -661,6 +663,7 @@ def test_circle_member_invite_declined_push_names_the_invitee_and_targets_the_in
     assert captured["body"] == "Ankit Sharma declined your Circle invitation."
     assert captured["data"]["invitee_user_id"] == "invitee-1"
     assert captured["data"]["network_display_label"] == "Ankit Sharma"
+    assert captured["data"]["message_id"].startswith("location_circle_member_invite_declined:")
 
 
 def test_circle_member_invite_declined_push_falls_back_when_name_is_missing(monkeypatch):
@@ -759,6 +762,59 @@ def test_circle_member_removed_and_left_pushes_use_distinct_tags_per_member(monk
     removed_tag_2 = captured["notification_tag"]
 
     assert removed_tag_1 != removed_tag_2
+
+
+def test_circle_delivery_uses_one_message_id_for_fcm_and_sse(monkeypatch):
+    captured = _capture_push(monkeypatch)
+    streamed: list[tuple[str, dict]] = []
+    monkeypatch.setattr(
+        "api.consent_listener.push_to_consent_queue_threadsafe",
+        lambda user_id, data: streamed.append((user_id, data)) or True,
+    )
+
+    send_circle_member_removed_push(
+        member_user_id="member-1",
+        circle_id="circle-1",
+        circle_name="Family",
+    )
+
+    assert len(streamed) == 1
+    assert streamed[0][0] == "member-1"
+    assert streamed[0][1]["type"] == "location_circle_member_removed"
+    assert streamed[0][1]["message_id"] == captured["data"]["message_id"]
+    assert streamed[0][1]["circle_id"] == "circle-1"
+
+
+def test_circle_renamed_push_can_silently_wake_the_owners_other_devices(monkeypatch):
+    captured = _capture_push(monkeypatch)
+
+    send_circle_renamed_push(
+        user_id="owner-1",
+        circle_id="circle-1",
+        circle_name="Family trip",
+        show_alert=False,
+    )
+
+    assert captured["user_id"] == "owner-1"
+    assert captured["notification_type"] == "location_circle_renamed"
+    assert captured["show_alert"] is False
+    assert captured["data"]["circle_name"] == "Family trip"
+    assert captured["data"]["sync_only"] == "true"
+
+
+def test_circle_deleted_push_routes_affected_members_back_to_the_circle_list(monkeypatch):
+    captured = _capture_push(monkeypatch)
+
+    send_circle_deleted_push(
+        user_id="member-1",
+        circle_id="circle-1",
+        circle_name="Family",
+    )
+
+    assert captured["notification_type"] == "location_circle_deleted"
+    assert captured["deep_link"] == "/one/location?tab=people"
+    assert captured["body"] == '"Family" was deleted by its owner.'
+    assert "sync_only" not in captured["data"]
 
 
 # ---------------------------------------------------------------------------

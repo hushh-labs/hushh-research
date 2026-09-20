@@ -440,6 +440,8 @@ export type LocationHubViewModel = {
   recipients: OneLocationRecipient[];
   /** Bumps when the underlying connection graph changes in any open tab. */
   connectionGraphRevision: number;
+  /** Bumps when a Circle lifecycle event changes an open roster or picker. */
+  circleStateRevision: number;
   circles: OneLocationCircleSummary[];
   selectedShareCircleSelections: CircleRecipientSelection[];
   pendingShareCircleIds: string[];
@@ -1687,7 +1689,9 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
           />
         ) : flow === "circle-detail" ? (
           <CircleDetailFlow
-            reloadSignal={vm.connectionGraphRevision}
+            reloadSignal={
+              vm.connectionGraphRevision + vm.circleStateRevision
+            }
             circleId={
               selectedCircleId ||
               String(searchParams.get("circleId") || "")

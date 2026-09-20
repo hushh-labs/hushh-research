@@ -97,8 +97,11 @@ def _sse_event_id(payload: dict[str, object]) -> str:
 
 
 def _sse_payload_from_event_payload(payload: dict[str, object]) -> dict[str, object]:
-    if str(payload.get("type") or "").strip() in {
+    event_type = str(payload.get("type") or "").strip()
+    if event_type.startswith("location_circle_") or event_type in {
         "connection_request",
+        "connection_request_cancelled",
+        "connection_request_resolved",
         "connection_removed",
     }:
         return payload

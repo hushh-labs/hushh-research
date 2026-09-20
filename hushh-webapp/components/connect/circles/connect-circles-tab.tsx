@@ -20,8 +20,9 @@ import {
 } from "@/components/one-location/redesign/circles/named-circle-flows";
 import { SmsTextIcon } from "@/components/one-location/redesign/sms-text-icon";
 import { createConnectCircleActions } from "@/components/connect/circles/connect-circle-actions";
-import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { CIRCLE_JOIN_CODE_PARAM } from "@/lib/one-location/circle-join-url";
+import { subscribeToOneLocationStateChanges } from "@/lib/one-location/one-location-state-events";
 import { OneLocationService } from "@/lib/one-location/service";
 import {
   CONNECT_CIRCLE_ACTION_PARAM,
@@ -230,6 +231,7 @@ export function ConnectCirclesTab({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
+  const [detailReloadToken, setDetailReloadToken] = useState(0);
   /** Which vault session has already had its Trusted Circle reconciled. */
   const reconciledForTokenRef = useRef<string | null>(null);
 
@@ -325,46 +327,6 @@ export function ConnectCirclesTab({
     onStateChange?.({ loading, error, count: circles.length });
   }, [circles.length, error, loading, onStateChange]);
 
-  /**
-   * Somebody else acting on your Circle.
-   *
-   * A person joining with a code, accepting an invitation, or being added by
-   * another owner changes this list without you touching anything -- and until
-   * this listener, the only way to see it was to reload the page. The Location
-   * agent has always refreshed on the same event
-   * (`app/one/location/page.tsx`, the `handleLocationNotification` effect), so
-   * the two surfaces disagreed about how current they were.
-   *
-   * The same notification the push already delivers. This is not polling and
-   * opens no socket: it listens to the event the notification layer dispatches
-   * when something lands.
-   */
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const onConsentStateChanged = (event: Event) => {
-      const detail =
-        (event as CustomEvent<Record<string, unknown>>).detail || {};
-      const source = String(detail.source || "").trim();
-      const notificationType = String(detail.notificationType || "").trim();
-      // Circle news arrives on the Location channel, because that is where the
-      // backend still sends it from.
-      if (
-        source !== "one_location_notification" &&
-        !notificationType.startsWith("location_") &&
-        !notificationType.startsWith("circle")
-      ) {
-        return;
-      }
-      setReloadToken((token) => token + 1);
-    };
-    window.addEventListener(CONSENT_STATE_CHANGED_EVENT, onConsentStateChanged);
-    return () =>
-      window.removeEventListener(
-        CONSENT_STATE_CHANGED_EVENT,
-        onConsentStateChanged,
-      );
-  }, []);
-
   const { owned, joined } = useMemo(() => orderCircles(circles), [circles]);
 
   const actions = useMemo(
@@ -408,7 +370,58 @@ export function ConnectCirclesTab({
     [router, searchParams],
   );
 
-  const closeFlow = useCallback(() => {
+  /** Publish a successful local mutation through the same account-scoped
+   *  channel remote notifications use. That updates this tab and every other
+   *  Connect/Location tab without persisting roster data in browser storage. */
+  const announceCircleMutation = useCallback(
+    (notificationType: string, circleId?: string) => {
+      if (!currentUserId) {
+        // Story/tests may render this leaf without an authenticated host. Keep
+        // its local behavior useful without broadcasting an unscoped event.
+        setReloadToken((token) => token + 1);
+        setDetailReloadToken((token) => token + 1);
+        return;
+      }
+      CacheSyncService.onOneLocationStateMutated(
+        currentUserId,
+        ["workspace", "circles", "sms_roster"],
+        { notificationType, circleId },
+      );
+    },
+    [currentUserId],
+  );
+
+  /**
+   * Circle news from this tab, another tab, or the notification provider.
+   *
+   * `CircleDetailFlow` consumes the same token and re-reads its roster and an
+   * open Add people sheet in place. A remote deletion is terminal, so leave
+   * the now-invalid detail route instead of turning a valid server outcome
+   * into a permanent-looking load error.
+   */
+  useEffect(() => {
+    if (!currentUserId) return;
+    return subscribeToOneLocationStateChanges((detail) => {
+      if (
+        detail.userId !== currentUserId ||
+        !detail.domains.includes("circles")
+      ) {
+        return;
+      }
+      if (
+        detail.notificationType === "location_circle_deleted" &&
+        detail.circleId &&
+        detail.circleId === circleIdParam
+      ) {
+        go({ action: null, circleId: null, code: null }, "replace");
+      } else {
+        setDetailReloadToken((token) => token + 1);
+      }
+      setReloadToken((token) => token + 1);
+    });
+  }, [circleIdParam, currentUserId, go]);
+
+  const closeFlow = useCallback((refreshList = true) => {
     // `replace`, not push. This runs after leaving and after deleting, so the
     // entry it closes may name a Circle that no longer exists -- and pushing
     // left it a back destination that re-mounted into "Could not open this
@@ -418,7 +431,7 @@ export function ConnectCirclesTab({
     // The list behind the flow is stale the moment anything was created,
     // renamed, joined or left. Re-read rather than patch: a roster kept in two
     // places is the thing this move exists to end.
-    setReloadToken((token) => token + 1);
+    if (refreshList) setReloadToken((token) => token + 1);
   }, [go]);
 
   const openCircle = useCallback(
@@ -470,7 +483,7 @@ export function ConnectCirclesTab({
           // `replace`, so back from the new Circle returns to the list rather
           // than to the form that just succeeded.
           go({ action: "circle-detail", circleId: circle.id }, "replace");
-          setReloadToken((token) => token + 1);
+          announceCircleMutation("location_circle_created", circle.id);
         }}
       />
     );
@@ -495,7 +508,7 @@ export function ConnectCirclesTab({
             targetType: "circle",
           });
           go({ action: "circle-detail", circleId: circle.id }, "replace");
-          setReloadToken((token) => token + 1);
+          announceCircleMutation("location_circle_code_joined", circle.id);
         }}
       />
     );
@@ -512,7 +525,7 @@ export function ConnectCirclesTab({
         // A signal, not a `key`. Remounting would re-read the roster but also
         // close an open add-people sheet, clear a half-typed search and drop
         // the selection -- and a notification can arrive at any moment.
-        reloadSignal={reloadToken + refreshToken}
+        reloadSignal={detailReloadToken + refreshToken}
         circleId={circleIdParam}
         currentUserId={currentUserId}
         busy={busy}
@@ -524,7 +537,7 @@ export function ConnectCirclesTab({
           const renamed = await withBusy(() =>
             actions.renameCircle(circleId, name),
           );
-          setReloadToken((token) => token + 1);
+          announceCircleMutation("location_circle_renamed", circleId);
           return renamed;
         }}
         onGenerateCode={(circleId, rotate) =>
@@ -550,7 +563,7 @@ export function ConnectCirclesTab({
             targetType: "circle",
             countBucket: "1",
           });
-          setReloadToken((token) => token + 1);
+          announceCircleMutation("location_circle_member_removed", circleId);
         }}
         onConnectMember={async (_circleId, userId, person) => {
           if (!onRequestConnection) {
@@ -593,7 +606,7 @@ export function ConnectCirclesTab({
           });
           // The roster on screen is stale the moment somebody is added. It
           // used to stay stale until the person navigated away and back.
-          setReloadToken((token) => token + 1);
+          announceCircleMutation("location_circle_member_added", circleId);
         }}
         onCancelMemberInvite={async (inviteId) => {
           await actions.cancelMemberInvite(inviteId);
@@ -603,6 +616,10 @@ export function ConnectCirclesTab({
             entrySurface: "connect_circles",
             targetType: "circle",
           });
+          announceCircleMutation(
+            "location_circle_member_invite_cancelled",
+            circleIdParam,
+          );
         }}
         onLeave={async (circleId) => {
           await withBusy(() => actions.leaveCircle(circleId));
@@ -612,7 +629,8 @@ export function ConnectCirclesTab({
             entrySurface: "connect_circles",
             targetType: "circle",
           });
-          closeFlow();
+          announceCircleMutation("location_circle_member_left", circleId);
+          closeFlow(false);
         }}
         onDelete={async (circleId) => {
           await withBusy(() => actions.deleteCircle(circleId));
@@ -622,7 +640,8 @@ export function ConnectCirclesTab({
             entrySurface: "connect_circles",
             targetType: "circle",
           });
-          closeFlow();
+          announceCircleMutation("location_circle_deleted", circleId);
+          closeFlow(false);
         }}
       />
     );

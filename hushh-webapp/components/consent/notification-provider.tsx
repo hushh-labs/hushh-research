@@ -466,7 +466,9 @@ function isOneLocationWorkflowNotificationType(
     value === "location_circle_code_joined" ||
     value === "location_circle_member_added" ||
     value === "location_circle_member_removed" ||
-    value === "location_circle_member_left"
+    value === "location_circle_member_left" ||
+    value === "location_circle_renamed" ||
+    value === "location_circle_deleted"
   );
 }
 
@@ -513,7 +515,17 @@ function oneLocationNetworkLabel(data: Record<string, string>): string {
 }
 
 function oneLocationNotificationId(data: Record<string, string>): string {
+  const liveTransitionId =
+    data.type === "location_circle_member_invite"
+      ? ""
+      : String(data.message_id || "").trim();
   const base =
+    // Live delivery carries one id per transition. Prefer it over the entity
+    // id so remove → re-add → remove is two real events, while the FCM and SSE
+    // copies of either transition still collapse to one presentation. A
+    // still-pending Circle invite is also reconstructed from state; retain its
+    // invite id so that catch-up path cannot create a second Feed item.
+    liveTransitionId ||
     String(data.grant_id || "").trim() ||
     String(data.approved_grant_id || "").trim() ||
     String(data.request_id || "").trim() ||
@@ -817,6 +829,27 @@ export function ConsentNotificationProvider({
       const msgType = data.type;
       if (!isOneLocationWorkflowNotificationType(msgType)) return;
 
+      if (msgType.startsWith("location_circle_")) {
+        // The provider is mounted above both Connect and One Location, so it
+        // is the one inbound owner that exists regardless of which route is
+        // open. Publishing here prevents route-specific listeners from
+        // disagreeing and gives the existing BroadcastChannel the same event
+        // on web, iOS and Android.
+        CacheSyncService.onOneLocationStateMutated(
+          user.uid,
+          ["workspace", "circles", "sms_roster"],
+          {
+            notificationType: msgType,
+            circleId: String(data.circle_id || "").trim() || undefined,
+            eventId: String(data.message_id || "").trim() || undefined,
+          },
+        );
+        // Owner-originated rename/delete events are still delivered to keep
+        // the owner's other sessions current, but they must not create a
+        // self-notification or duplicate Feed item.
+        if (String(data.sync_only || "").toLowerCase() === "true") return;
+      }
+
       if (msgType === "location_share_created") {
         showOneLocationShareNotification(data, options);
         return;
@@ -940,6 +973,7 @@ export function ConsentNotificationProvider({
           submissionId: submissionId || null,
           connectionId: connectionId || null,
           inviteId: inviteId || null,
+          circleId: String(data.circle_id || "").trim() || null,
         },
       });
       dispatchConsentStateChanged({
@@ -1169,7 +1203,10 @@ export function ConsentNotificationProvider({
                 payload.type === "connection_request_cancelled" ||
                 payload.type === "connection_request_resolved" ||
                 payload.type === "connection_removed";
-              const type = preservesConnectionType
+              const preservesDomainType =
+                preservesConnectionType ||
+                String(payload.type || "").startsWith("location_");
+              const type = preservesDomainType
                 ? payload.type
                 : normalizedAction === "REQUESTED"
                   ? "consent_request"

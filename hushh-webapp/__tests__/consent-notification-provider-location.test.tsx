@@ -27,6 +27,7 @@ const mocks = vi.hoisted(() => {
     completeTask: vi.fn(),
     dispatchConsentStateChanged: vi.fn(),
     dispatchFeedStateChanged: vi.fn(),
+    onOneLocationStateMutated: vi.fn(),
   };
 });
 
@@ -89,6 +90,12 @@ vi.mock("@/lib/feed/feed-events", () => ({
   dispatchFeedStateChanged: mocks.dispatchFeedStateChanged,
 }));
 
+vi.mock("@/lib/cache/cache-sync-service", () => ({
+  CacheSyncService: {
+    onOneLocationStateMutated: mocks.onOneLocationStateMutated,
+  },
+}));
+
 vi.mock("@/lib/consent/consent-events", () => ({
   CONSENT_STATE_CHANGED_EVENT: "consent-state-changed",
   dispatchConsentStateChanged: mocks.dispatchConsentStateChanged,
@@ -130,6 +137,7 @@ async function renderReady(children?: ReactNode) {
   mocks.completeTask.mockClear();
   mocks.dispatchConsentStateChanged.mockClear();
   mocks.dispatchFeedStateChanged.mockClear();
+  mocks.onOneLocationStateMutated.mockClear();
 }
 
 function dispatchLocation(
@@ -503,6 +511,59 @@ describe("global One Location Feed-first notification policy", () => {
       owner_display_label: "Alex",
     });
 
+    expect(mocks.toast).not.toHaveBeenCalled();
+    expect(mocks.startTask).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "location_circle_member_invite",
+    "location_circle_member_invite_accepted",
+    "location_circle_member_invite_declined",
+    "location_circle_member_invite_cancelled",
+    "location_circle_code_joined",
+    "location_circle_member_added",
+    "location_circle_member_removed",
+    "location_circle_member_left",
+    "location_circle_renamed",
+    "location_circle_deleted",
+  ])("publishes one authoritative Circle reconciliation for %s", async (type) => {
+    await renderReady();
+
+    dispatchLocation({
+      type,
+      message_id: `${type}:event-1`,
+      circle_id: "circle-1",
+      circle_name: "Family",
+      notification_title: "Circle changed",
+      notification_body: "Circle state changed.",
+    });
+
+    expect(mocks.onOneLocationStateMutated).toHaveBeenCalledTimes(1);
+    expect(mocks.onOneLocationStateMutated).toHaveBeenCalledWith(
+      "recipient-user",
+      ["workspace", "circles", "sms_roster"],
+      {
+        notificationType: type,
+        circleId: "circle-1",
+        eventId: `${type}:event-1`,
+      },
+    );
+  });
+
+  it("uses an owner event for sync without showing or recording a self-notification", async () => {
+    await renderReady();
+
+    dispatchLocation({
+      type: "location_circle_renamed",
+      message_id: "location_circle_renamed:event-owner",
+      circle_id: "circle-1",
+      circle_name: "Family trip",
+      sync_only: "true",
+      notification_title: "Circle renamed",
+      notification_body: "This Circle is now called Family trip.",
+    });
+
+    expect(mocks.onOneLocationStateMutated).toHaveBeenCalledTimes(1);
     expect(mocks.toast).not.toHaveBeenCalled();
     expect(mocks.startTask).not.toHaveBeenCalled();
   });

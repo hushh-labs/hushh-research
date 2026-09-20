@@ -220,6 +220,46 @@ async def test_real_circle_writers_commit_once_and_replay_after_authority_expire
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("action", "notifier_name", "expected_type"),
+    [
+        ("rename_circle", "send_circle_renamed_push", "renamed"),
+        ("delete_circle", "send_circle_deleted_push", "deleted"),
+    ],
+)
+async def test_rename_and_delete_notify_the_exact_locked_roster_after_commit(
+    db, monkeypatch, action, notifier_name, expected_type
+):
+    service, binding = circle_fixture(db, monkeypatch, action)
+    command = await claim(db, monkeypatch, binding)
+    delivered: list[dict] = []
+    from hushh_mcp.services import push_notifications
+
+    monkeypatch.setattr(
+        push_notifications,
+        notifier_name,
+        lambda **kwargs: delivered.append(kwargs) or 1,
+    )
+
+    result = execute(service, binding, command)
+    replay = execute(service, binding, command)
+
+    assert result["operationReceipt"]["result"] == expected_type
+    assert replay == result
+    assert len(delivered) == 2
+    assert {delivery["user_id"] for delivery in delivered} == {"owner", "other"}
+    assert (
+        next(delivery for delivery in delivered if delivery["user_id"] == "owner")["show_alert"]
+        is False
+    )
+    assert (
+        next(delivery for delivery in delivered if delivery["user_id"] == "other")["show_alert"]
+        is True
+    )
+    assert {delivery["circle_id"] for delivery in delivered} == {binding["circleId"]}
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("action", ACTIONS)
 async def test_receipt_failure_rolls_back_every_coupled_circle_effect(db, monkeypatch, action):
     service, binding = circle_fixture(db, monkeypatch, action)
