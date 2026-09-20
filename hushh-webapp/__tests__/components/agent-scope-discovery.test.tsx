@@ -44,7 +44,14 @@ function page(number: number, revision = "a".repeat(64)): ViewerPersonProfile {
 }
 
 describe("current-authority inline Chat catalog", () => {
-  beforeEach(() => { vi.clearAllMocks(); mocks.unlocked = true; mocks.getViewer.mockResolvedValue(page(1)); mocks.create.mockResolvedValue({ bundleId: "test-bundle" }); });
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.unlocked = true;
+    mocks.getViewer.mockReset();
+    mocks.getViewer.mockResolvedValue(page(1));
+    mocks.create.mockReset();
+    mocks.create.mockResolvedValue({ bundleId: "test-bundle" });
+  });
   afterEach(cleanup);
 
   it("refreshes retained descriptors, loads consecutive pages, and never replays actions", async () => {
@@ -52,7 +59,7 @@ describe("current-authority inline Chat catalog", () => {
     render(<AgentStructuredExperienceView experience={experience} />);
     expect(screen.queryByText("Stale history label")).not.toBeInTheDocument();
     await screen.findByText("Synthetic field 1");
-    fireEvent.click(screen.getByText("Load more fields"));
+    fireEvent.click(screen.getByText("Load more information"));
     await screen.findByText("Synthetic field 2");
     expect(screen.getByText("Synthetic field 1")).toBeInTheDocument();
     expect(mocks.getViewer).toHaveBeenLastCalledWith(person, "test-token", { page: 2, revision: "a".repeat(64), domain: "" });
@@ -78,7 +85,7 @@ describe("current-authority inline Chat catalog", () => {
     render(<AgentStructuredExperienceView experience={experience} />);
     fireEvent.click(await screen.findByText("Synthetic field 1"));
     expect(screen.getByText("Review request")).toBeEnabled();
-    fireEvent.click(screen.getByText("Load more fields"));
+    fireEvent.click(screen.getByText("Load more information"));
     await waitFor(() => expect(screen.getByText("Review request")).toBeDisabled());
   });
 
