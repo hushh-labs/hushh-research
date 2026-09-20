@@ -326,6 +326,13 @@ const ROUTE_OVERRIDES = {
     allowedPathnames: ["/one/setup/finance", "/one/setup/kai", "/one"],
     allowedRouteIds: KAI_ONBOARDING_COMPATIBILITY_ROUTE_IDS,
   },
+  // RIA setup reuses the canonical onboarding journey. The setup wrapper
+  // contributes its terminal actions, while the embedded page owns the
+  // route beacon and remains `/ria/onboarding`.
+  "/one/setup/ria": {
+    allowedPathnames: ["/one/setup/ria", "/ria/onboarding", "/ria"],
+    allowedRouteIds: ["/one/setup/ria", "/ria/onboarding", "/ria"],
+  },
   // Public workspace entries remain reachable anonymously, but an
   // authenticated reviewer is admitted to canonical Chat at `/`.
   "/welcome": {
