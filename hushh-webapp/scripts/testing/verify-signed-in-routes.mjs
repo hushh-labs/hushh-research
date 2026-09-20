@@ -464,8 +464,9 @@ const REDIRECT_EXPECTATIONS = {
   },
   "/one/profile/connectors/oauth/return": {
     path: "/one/profile/connectors/oauth/return",
-    expectedPathname: "/one/profile/connectors",
-    allowedRouteIds: ["/one/profile/connectors"],
+    expectedPathname: "/",
+    allowedRouteIds: ["/"],
+    expectedVisibleText: "MCP connections",
   },
   "/one/profile/integrations": {
     path: "/one/profile/integrations",
@@ -1758,6 +1759,11 @@ async function verifyRoute(page, viewport, spec) {
         `${spec.route} route beacon timed out.\n${JSON.stringify(diagnostics, null, 2)}`,
         { cause: error },
       );
+    }
+    if (spec.expectedVisibleText) {
+      await page
+        .getByRole("heading", { name: spec.expectedVisibleText, exact: true })
+        .waitFor({ state: "visible", timeout: NAVIGATION_TIMEOUT_MS });
     }
     assertUrl(spec, page.url());
     if (contextProbe) {
