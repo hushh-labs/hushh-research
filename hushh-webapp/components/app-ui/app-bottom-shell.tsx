@@ -105,6 +105,7 @@ export function AppBottomShell({ model }: { model: BottomShellModel }) {
           model.navigationHidden || undefined
         }
         data-ambient-chrome-ignore
+        data-bottom-chrome-progress-consumer=""
         onPointerDownCapture={
           model.navigationHidden ? undefined : snapKaiBottomChromeVisible
         }

@@ -1144,6 +1144,26 @@ textarea {
   --app-shell-surface-blur: 20px;
 }
 
+/* The scroll-collapsed app bar writes --top-chrome-progress and
+   --top-chrome-collapse-px per frame on the elements that read them (the top
+   shell, the top mask, registered sticky headers), not on <html>; the derived
+   heights re-resolve here so those elements follow the live value while the
+   root only receives the settled one. */
+[data-testid="app-top-shell-layout"],
+.ambient-chrome-mask--top,
+[data-top-chrome-collapse-consumer] {
+  --top-shell-live-height: calc(
+    var(--top-shell-visual-height) - var(--top-chrome-collapse-px, 0px)
+  );
+  --top-shell-mask-solid-height: calc(
+    var(--top-shell-reserved-height) - var(--top-shell-mask-tabs-gap) -
+      var(--top-chrome-collapse-px, 0px)
+  );
+  --top-shell-mask-visible-height: calc(
+    var(--top-shell-mask-solid-height) + var(--top-fade-active)
+  );
+}
+
 /* Mobile: reduce card shadow spread — device edge is the frame */
 @media (max-width: 639px) {
   :root {

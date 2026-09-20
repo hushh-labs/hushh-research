@@ -365,9 +365,38 @@ export function useKaiBottomChromeProgressCssVar(enabled: boolean): void {
       return;
     }
 
+    // Per-frame writes go to the elements that read the progress (the bottom
+    // shell, its mask, the chat composer form), never to <html>: a root
+    // custom-property write recomputes style for the whole document on every
+    // scroll frame. <html> receives the settled value once the scroll has
+    // been quiet for a beat, for anything unregistered.
     const root = document.documentElement;
+    const ROOT_SETTLE_MS = 160;
+    let consumers: HTMLElement[] = [];
+    let rootWriteTimer = 0;
+    let lastWritten = "";
+    const collectConsumers = () => {
+      consumers = Array.from(
+        document.querySelectorAll<HTMLElement>(
+          '[data-bottom-chrome-progress-consumer], .ambient-chrome-mask--bottom, [data-agent-chat-composer-form="root"]',
+        ),
+      );
+    };
     const writeVar = () => {
-      root.style.setProperty(BOTTOM_CHROME_PROGRESS_VAR, String(getSnapshot()));
+      const next = String(getSnapshot());
+      if (next === lastWritten) return;
+      lastWritten = next;
+      if (consumers.length === 0 || consumers.some((element) => !element.isConnected)) {
+        collectConsumers();
+      }
+      for (const element of consumers) {
+        element.style.setProperty(BOTTOM_CHROME_PROGRESS_VAR, next);
+      }
+      window.clearTimeout(rootWriteTimer);
+      rootWriteTimer = window.setTimeout(() => {
+        rootWriteTimer = 0;
+        root.style.setProperty(BOTTOM_CHROME_PROGRESS_VAR, lastWritten);
+      }, ROOT_SETTLE_MS);
     };
 
     listenerRefCount += 1;
@@ -379,10 +408,14 @@ export function useKaiBottomChromeProgressCssVar(enabled: boolean): void {
 
     return () => {
       unsubscribe();
+      window.clearTimeout(rootWriteTimer);
       listenerRefCount = Math.max(0, listenerRefCount - 1);
       if (listenerRefCount === 0) {
         resetKaiBottomChromeVisibility();
         detachScrollListener();
+      }
+      for (const element of consumers) {
+        if (element.isConnected) element.style.setProperty(BOTTOM_CHROME_PROGRESS_VAR, "0");
       }
       root.style.setProperty(BOTTOM_CHROME_PROGRESS_VAR, "0");
     };

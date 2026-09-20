@@ -8,7 +8,6 @@
       "components/app-ui/app-bottom-shell.tsx": 6,
       "components/app-ui/app-edge-back-gesture.tsx": 2,
       "components/app-ui/app-profile-edge-gesture.tsx": 1,
-      "components/app-ui/top-app-bar.tsx": 3,
       "components/keyboard-inset-manager.tsx": 1,
       "components/navbar.tsx": 1
     },

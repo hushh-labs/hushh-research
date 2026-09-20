@@ -2618,6 +2618,7 @@ export default function ConnectPageClient() {
                   <div
                     ref={stickyHeaderRef}
                     data-testid="connect-sticky-header"
+                    data-top-chrome-collapse-consumer=""
                     className={CONNECT_STICKY_HEADER_CLASSNAME}
                   >
                     <TopShellTabs
@@ -2964,6 +2965,7 @@ export default function ConnectPageClient() {
                     Held by e2e/connect-sticky-header.layout.spec.ts. */
                                 <div
                                   data-testid="connect-search-row"
+                                  data-top-chrome-collapse-consumer=""
                                   className={cn(
                                     CONNECT_STICKY_SEARCH_CLASSNAME,
                                     "block",
