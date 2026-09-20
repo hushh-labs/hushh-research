@@ -9938,6 +9938,32 @@ class OneLocationAgentService:
                     )
                 },
             )
+            if operation_id:
+                # A committed operation is a receipt, not a new authorization
+                # attempt. Return an exact replay before consulting current
+                # relationship state: the original response may have been lost
+                # and the peers may have disconnected after the write already
+                # succeeded. Changed inputs still fail closed by fingerprint.
+                prior = self._execute_one(
+                    """SELECT *, metadata->'command_operations'->>:operation AS command_fingerprint
+                    FROM one_location_access_requests WHERE owner_user_id=:owner AND requester_user_id=:requester
+                    AND metadata->'command_operations' ? :operation LIMIT 1""",
+                    {
+                        "owner": owner_user_id,
+                        "requester": requester_user_id,
+                        "operation": operation_id,
+                    },
+                )
+                if prior:
+                    if prior["command_fingerprint"] != operation_fingerprint:
+                        raise OneLocationAgentError(
+                            "LOCATION_OPERATION_CONFLICT",
+                            "This request operation has different inputs.",
+                            status_code=409,
+                        )
+                    if command and not command_prior:
+                        command.save(str(prior["id"]))
+                    return self._request_payload(prior) or {}
             if enforce_peer_eligibility:
                 # Direct authenticated Ask flows have the same relationship
                 # boundary as a private share. Lock that relationship inside
@@ -9980,27 +10006,6 @@ class OneLocationAgentService:
                         LOCATION_PEER_NOT_ELIGIBLE_MESSAGE,
                         status_code=403,
                     )
-            if operation_id:
-                prior = self._execute_one(
-                    """SELECT *, metadata->'command_operations'->>:operation AS command_fingerprint
-                    FROM one_location_access_requests WHERE owner_user_id=:owner AND requester_user_id=:requester
-                    AND metadata->'command_operations' ? :operation LIMIT 1""",
-                    {
-                        "owner": owner_user_id,
-                        "requester": requester_user_id,
-                        "operation": operation_id,
-                    },
-                )
-                if prior:
-                    if prior["command_fingerprint"] != operation_fingerprint:
-                        raise OneLocationAgentError(
-                            "LOCATION_OPERATION_CONFLICT",
-                            "This request operation has different inputs.",
-                            status_code=409,
-                        )
-                    if command and not command_prior:
-                        command.save(str(prior["id"]))
-                    return self._request_payload(prior) or {}
             if command_prior:
                 raise OneLocationAgentError(
                     "LOCATION_OPERATION_CONFLICT",

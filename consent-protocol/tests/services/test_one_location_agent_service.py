@@ -2931,6 +2931,19 @@ class FourUserMemoryService(OneLocationAgentService):
                 and envelope["recipient_user_id"] == params["recipient_user_id"]
             ]
             return matches[-1] if matches else None
+        if "metadata->'command_operations'->>:operation AS command_fingerprint" in sql:
+            for request in self.requests.values():
+                operations = (request.get("metadata") or {}).get("command_operations") or {}
+                if (
+                    request["owner_user_id"] == params["owner"]
+                    and request["requester_user_id"] == params["requester"]
+                    and params["operation"] in operations
+                ):
+                    return {
+                        **request,
+                        "command_fingerprint": operations[params["operation"]],
+                    }
+            return None
         if (
             "FROM one_location_access_requests" in sql
             and "requester_user_id = :requester_user_id" in sql
@@ -2993,9 +3006,20 @@ class FourUserMemoryService(OneLocationAgentService):
                 "requested_duration_mode": params.get("requested_duration_mode"),
                 "extends_grant_id": params.get("extends_grant_id"),
                 "request_revision": 1,
+                "metadata": {},
             }
             self.requests[request_id] = row
             return row
+        if "SET metadata=" in sql and "command_operations" in sql:
+            request = self.requests.get(params["id"])
+            if not request:
+                return None
+            metadata = dict(request.get("metadata") or {})
+            operations = dict(metadata.get("command_operations") or {})
+            operations[params["operation"]] = params["fingerprint"]
+            metadata["command_operations"] = operations
+            request["metadata"] = metadata
+            return request
         if (
             "UPDATE one_location_access_requests" in sql
             and "SET message = CASE WHEN :exact_message" in sql
@@ -5083,6 +5107,40 @@ def test_direct_location_request_allows_current_circle_only_peer() -> None:
 
     assert request["status"] == "pending"
     assert request["requesterUserId"] == "user_c"
+
+
+def test_direct_location_request_replays_after_relationship_removal() -> None:
+    service = FourUserMemoryService()
+    operation_id = "123e4567-e89b-12d3-a456-426614174099"
+    service._seed_connection("user_a", "user_b")
+
+    first = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        message="Can I see your location?",
+        client_operation_id=operation_id,
+        enforce_peer_eligibility=True,
+    )
+    event_count = len(service.events)
+    notification_count = len(service.notifications)
+    service._revoke_connection_origin(
+        "user_a",
+        "user_b",
+        origin_kind="direct_request",
+    )
+
+    replay = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        message="Can I see your location?",
+        client_operation_id=operation_id,
+        enforce_peer_eligibility=True,
+    )
+
+    assert replay == first
+    assert len(service.requests) == 1
+    assert len(service.events) == event_count
+    assert len(service.notifications) == notification_count
 
 
 def test_direct_location_extension_allows_current_grant_without_connection() -> None:
