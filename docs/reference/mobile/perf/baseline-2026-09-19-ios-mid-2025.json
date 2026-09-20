@@ -399,5 +399,268 @@
         "over_50_count": 1
       }
     ]
+  },
+  "after_9230d6ae4": {
+    "schema_version": "hushh-render-perf-baseline-v1",
+    "label": "",
+    "source_sha": "bea3b68b8",
+    "captured_at": "2026-09-20T06:16:29.579Z",
+    "device": {
+      "tier": "ios-mid-2025",
+      "certifies": true,
+      "configuration": "Release",
+      "test_mode": false,
+      "raf_hz": {
+        "raw": 59.4,
+        "nominal": 60,
+        "budget_ms": 16.7,
+        "samples": 60
+      },
+      "platform": "ios",
+      "ua_family": "iPhone AppleWebKit/605",
+      "supported_entry_types": [
+        "event",
+        "first-input",
+        "largest-contentful-paint",
+        "mark",
+        "measure",
+        "navigation",
+        "paint",
+        "resource"
+      ]
+    },
+    "runs": [
+      {
+        "run_id": "114d3f36",
+        "windows": 47,
+        "hud": false
+      },
+      {
+        "run_id": "aaa40f54",
+        "windows": 10,
+        "hud": false
+      },
+      {
+        "run_id": "ab32b48f",
+        "windows": 17,
+        "hud": false
+      }
+    ],
+    "gestures": [
+      {
+        "name": "feed-flick",
+        "windows": 30,
+        "frames": 2840,
+        "p95_ms_median": 18,
+        "p99_ms_median": 34,
+        "max_ms": 49,
+        "over_50_count": 0,
+        "hitch_ms_per_s_median": 25.6,
+        "longtask_count": null,
+        "verdict": "critical"
+      },
+      {
+        "name": "bottom-nav-switch",
+        "windows": 9,
+        "frames": 736,
+        "p95_ms_median": 20,
+        "p99_ms_median": 46,
+        "max_ms": 55,
+        "over_50_count": 2,
+        "hitch_ms_per_s_median": 50,
+        "longtask_count": null,
+        "verdict": "critical"
+      },
+      {
+        "name": "profile-pane-open-dismiss",
+        "windows": 6,
+        "frames": 448,
+        "p95_ms_median": 18,
+        "p99_ms_median": 34,
+        "max_ms": 48,
+        "over_50_count": 0,
+        "hitch_ms_per_s_median": 21.8,
+        "longtask_count": null,
+        "verdict": "critical"
+      },
+      {
+        "name": "top-shell-pager-swipe",
+        "windows": 6,
+        "frames": 542,
+        "p95_ms_median": 18,
+        "p99_ms_median": 36.5,
+        "max_ms": 39,
+        "over_50_count": 0,
+        "hitch_ms_per_s_median": 23,
+        "longtask_count": null,
+        "verdict": "critical"
+      },
+      {
+        "name": "kai-chart-flick",
+        "windows": 9,
+        "frames": 739,
+        "p95_ms_median": 21,
+        "p99_ms_median": 47,
+        "max_ms": 61,
+        "over_50_count": 2,
+        "hitch_ms_per_s_median": 72,
+        "longtask_count": null,
+        "verdict": "critical"
+      },
+      {
+        "name": "location-map-pan",
+        "windows": 9,
+        "frames": 756,
+        "p95_ms_median": 18,
+        "p99_ms_median": 30,
+        "max_ms": 30,
+        "over_50_count": 0,
+        "hitch_ms_per_s_median": 18.2,
+        "longtask_count": null,
+        "verdict": "critical"
+      }
+    ],
+    "idle_by_route": [
+      {
+        "route": "idle:/one/feed/",
+        "frames": 9385,
+        "p95_ms": 19,
+        "max_ms": 130,
+        "over_50_count": 3
+      },
+      {
+        "route": "idle:/one/",
+        "frames": 1165,
+        "p95_ms": 19,
+        "max_ms": 49,
+        "over_50_count": 0
+      },
+      {
+        "route": "idle:/one/connect/",
+        "frames": 125,
+        "p95_ms": 24,
+        "max_ms": 62,
+        "over_50_count": 1
+      },
+      {
+        "route": "idle:/one/location/",
+        "frames": 8672,
+        "p95_ms": 17,
+        "max_ms": 118,
+        "over_50_count": 3
+      },
+      {
+        "route": "idle:/one/kai/",
+        "frames": 9185,
+        "p95_ms": 17,
+        "max_ms": 118,
+        "over_50_count": 3
+      }
+    ]
+  },
+  "after_bda07869a_feed_section": {
+    "schema_version": "hushh-render-perf-baseline-v1",
+    "label": "",
+    "source_sha": "9230d6ae4",
+    "captured_at": "2026-09-20T06:30:18.742Z",
+    "device": {
+      "tier": "ios-mid-2025",
+      "certifies": true,
+      "configuration": "Release",
+      "test_mode": false,
+      "raf_hz": {
+        "raw": 59.2,
+        "nominal": 60,
+        "budget_ms": 16.7,
+        "samples": 60
+      },
+      "platform": "ios",
+      "ua_family": "iPhone AppleWebKit/605",
+      "supported_entry_types": [
+        "event",
+        "first-input",
+        "largest-contentful-paint",
+        "mark",
+        "measure",
+        "navigation",
+        "paint",
+        "resource"
+      ]
+    },
+    "runs": [
+      {
+        "run_id": "66fade3a",
+        "windows": 47,
+        "hud": false
+      }
+    ],
+    "gestures": [
+      {
+        "name": "feed-flick",
+        "windows": 30,
+        "frames": 2852,
+        "p95_ms_median": 18,
+        "p99_ms_median": 34.5,
+        "max_ms": 43,
+        "over_50_count": 0,
+        "hitch_ms_per_s_median": 24.4,
+        "longtask_count": null,
+        "verdict": "critical"
+      },
+      {
+        "name": "bottom-nav-switch",
+        "windows": 9,
+        "frames": 742,
+        "p95_ms_median": 20,
+        "p99_ms_median": 44,
+        "max_ms": 50,
+        "over_50_count": 0,
+        "hitch_ms_per_s_median": 41.6,
+        "longtask_count": null,
+        "verdict": "critical"
+      },
+      {
+        "name": "profile-pane-open-dismiss",
+        "windows": 6,
+        "frames": 448,
+        "p95_ms_median": 19,
+        "p99_ms_median": 34,
+        "max_ms": 36,
+        "over_50_count": 0,
+        "hitch_ms_per_s_median": 21.9,
+        "longtask_count": null,
+        "verdict": "critical"
+      }
+    ],
+    "idle_by_route": [
+      {
+        "route": "idle:/",
+        "frames": 1,
+        "p95_ms": 1,
+        "max_ms": 1,
+        "over_50_count": 0
+      },
+      {
+        "route": "idle:/one/feed/",
+        "frames": 9389,
+        "p95_ms": 19,
+        "max_ms": 116,
+        "over_50_count": 2
+      },
+      {
+        "route": "idle:/one/",
+        "frames": 1161,
+        "p95_ms": 19,
+        "max_ms": 51,
+        "over_50_count": 1
+      },
+      {
+        "route": "idle:/one/connect/",
+        "frames": 124,
+        "p95_ms": 25,
+        "max_ms": 58,
+        "over_50_count": 2
+      }
+    ]
   }
 }

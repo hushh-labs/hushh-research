@@ -100,6 +100,30 @@ window, on a Debug build with the test bridge on. Same unit, same phone,
 same flick, but One's figure is inflated by its lane. The truth lane closes
 that gap.
 
+## After the first two fixes (same lane, same phone)
+
+Two landings measured with the truth lane the same night:
+
+| Gesture | Baseline | After 9230d6ae4 (scroll chrome off `<html>`) | After bda07869a (enter deferred, rows memoised) |
+|---|---|---|---|
+| feed-flick, frames > 50 ms (30 windows) | 16 | **0** | 0 |
+| feed-flick, worst ms | 76 | 49 | 43 |
+| feed-flick, hitch ms/s | 30.3 | 25.6 | 24.4 |
+| kai-chart-flick, p95 ms | 43 | **21** | (not re-run) |
+| kai-chart-flick, frames > 50 ms (9 windows) | 13 | 2 | |
+| kai-chart-flick, hitch ms/s | 215 | 72 | |
+| bottom-nav-switch, hitch ms/s | 51.8 | 50 | **41.6** |
+| bottom-nav-switch, worst ms | 49 | 55 | 50 |
+| profile-pane, pager, map | within 1 to 4 ms of budget | unchanged | unchanged |
+
+The per-frame custom-property writes on `<html>` were the dominant scroll
+cost: removing them took the feed flick to zero frames over 50 ms and halved
+the Kai chart's p95. What remains on a tab switch is the incoming page's own
+first frame (about 45 ms); the enter beat now waits two frames so that frame
+is never inside the fade, which is what the person feels, but the probe still
+counts it. Cutting that frame needs a profile of the mount (Time Profiler
+over USB; `hushh-webapp/scripts/perf/ios-time-profile-buckets.mjs` buckets it).
+
 ## Reading it
 
 - **Kai chart flick** is the surface furthest from the bar: p95 43 ms, 13
@@ -137,9 +161,13 @@ file's reviewer uid is not the one UAT mints.
 
 ## Next
 
-1. Attribute the Kai chart flick and the feed flick on the phone with Web
-   Inspector Timelines (Release made inspectable with `CAPACITOR_DEBUG=true`).
-2. Wave 2 by that evidence: top bar and bottom chrome per-frame `<html>`
-   writes, feed rows; chat streaming after the composer selector is fixed.
-3. Re-run the truth lane after each Wave 2 landing; the before/after pair
-   goes in the commit message, per the charter.
+1. Profile the tab switch's mount frame with Instruments over USB (Wi-Fi
+   pairing cannot record) and split it into JavaScript, style, layout and
+   paint; then either trim what mounts on first paint (`content-visibility`
+   on off-screen rows, lighter Connect first render) or move work off the
+   first frame.
+2. Kai chart: re-run the truth lane on Finance after the next chart change;
+   the remaining 72 ms/s is SVG layout and paint under a flick.
+3. Chat stream: fix the composer selector so streaming is measured on the phone.
+4. Re-run the full truth lane after each landing; before/after pairs go in
+   the commit message, per the charter.
