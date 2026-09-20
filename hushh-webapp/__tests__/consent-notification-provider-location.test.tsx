@@ -28,6 +28,29 @@ const mocks = vi.hoisted(() => {
     dispatchConsentStateChanged: vi.fn(),
     dispatchFeedStateChanged: vi.fn(),
     onOneLocationStateMutated: vi.fn(),
+    onPkmDomainStored: vi.fn(),
+    onPkmDomainCleared: vi.fn(),
+    onRemotePkmDomainChanged: vi.fn(),
+    onRemoteOneLocationStateChanged: vi.fn(),
+    remotePkmListener: null as
+      | ((detail: {
+          userId: string;
+          domain: string;
+          dataVersion: number | null;
+          updatedAt: string | null;
+          operation: "stored" | "cleared" | "restored";
+        }) => void)
+      | null,
+    remoteLocationStateListener: null as
+      | ((detail: {
+          userId: string;
+          domains: Array<
+            "workspace" | "circles" | "sms_roster" | "map_preferences"
+          >;
+          changedAt: number;
+          eventId?: string;
+        }) => void)
+      | null,
   };
 });
 
@@ -93,7 +116,29 @@ vi.mock("@/lib/feed/feed-events", () => ({
 vi.mock("@/lib/cache/cache-sync-service", () => ({
   CacheSyncService: {
     onOneLocationStateMutated: mocks.onOneLocationStateMutated,
+    onPkmDomainStored: mocks.onPkmDomainStored,
+    onPkmDomainCleared: mocks.onPkmDomainCleared,
+    onRemotePkmDomainChanged: mocks.onRemotePkmDomainChanged,
+    onRemoteOneLocationStateChanged: mocks.onRemoteOneLocationStateChanged,
   },
+}));
+
+vi.mock("@/lib/pkm/pkm-domain-change-events", () => ({
+  subscribeToRemotePkmDomainChanges: vi.fn((listener) => {
+    mocks.remotePkmListener = listener;
+    return () => {
+      mocks.remotePkmListener = null;
+    };
+  }),
+}));
+
+vi.mock("@/lib/one-location/one-location-state-events", () => ({
+  subscribeToRemoteOneLocationStateChanges: vi.fn((listener) => {
+    mocks.remoteLocationStateListener = listener;
+    return () => {
+      mocks.remoteLocationStateListener = null;
+    };
+  }),
 }));
 
 vi.mock("@/lib/consent/consent-events", () => ({
@@ -138,6 +183,10 @@ async function renderReady(children?: ReactNode) {
   mocks.dispatchConsentStateChanged.mockClear();
   mocks.dispatchFeedStateChanged.mockClear();
   mocks.onOneLocationStateMutated.mockClear();
+  mocks.onPkmDomainStored.mockClear();
+  mocks.onPkmDomainCleared.mockClear();
+  mocks.onRemotePkmDomainChanged.mockClear();
+  mocks.onRemoteOneLocationStateChanged.mockClear();
 }
 
 function dispatchLocation(
@@ -179,6 +228,7 @@ beforeEach(() => {
   mocks.prepareFCMListeners.mockResolvedValue(undefined);
   mocks.initializeFCM.mockResolvedValue({ status: "push_active" });
   mocks.getState.mockResolvedValue(EMPTY_LOCATION_STATE);
+  mocks.remotePkmListener = null;
 });
 
 describe("global One Location Feed-first notification policy", () => {
@@ -249,6 +299,95 @@ describe("global One Location Feed-first notification policy", () => {
       }),
     );
     expect(mocks.dispatchFeedStateChanged).toHaveBeenCalledOnce();
+  });
+
+  it("treats settings and saved-location pushes as silent sync doorbells", async () => {
+    await renderReady();
+
+    dispatchLocation({
+      type: "location_settings_changed",
+      setting: "map_preferences",
+      message_id: "location_settings_changed:event-1",
+    });
+    dispatchLocation({
+      type: "location_pkm_changed",
+      domain: "location",
+      data_version: "8",
+      updated_at: "2026-09-20T00:00:00Z",
+      message_id: "location_pkm_changed:event-2",
+    });
+
+    expect(mocks.onOneLocationStateMutated).toHaveBeenCalledWith(
+      "recipient-user",
+      ["map_preferences"],
+      {
+        notificationType: "location_settings_changed",
+        eventId: "location_settings_changed:event-1",
+      },
+    );
+    expect(mocks.onPkmDomainStored).toHaveBeenCalledWith(
+      "recipient-user",
+      "location",
+      {
+        eventDataVersion: 8,
+        metadataTimestamp: "2026-09-20T00:00:00Z",
+        writeThroughMetadata: false,
+        eventId: "location_pkm_changed:event-2",
+      },
+    );
+    expect(mocks.toast).not.toHaveBeenCalled();
+    expect(mocks.startTask).not.toHaveBeenCalled();
+    expect(mocks.dispatchFeedStateChanged).not.toHaveBeenCalled();
+  });
+
+  it("clears saved-location caches for deletion doorbells", async () => {
+    await renderReady();
+
+    dispatchLocation({
+      type: "location_pkm_changed",
+      domain: "location",
+      operation: "cleared",
+      data_version: "12",
+      message_id: "location_pkm_changed:delete-1",
+    });
+
+    expect(mocks.onPkmDomainCleared).toHaveBeenCalledWith(
+      "recipient-user",
+      "location",
+      { eventId: "location_pkm_changed:delete-1" },
+    );
+    expect(mocks.onPkmDomainStored).not.toHaveBeenCalled();
+    expect(mocks.toast).not.toHaveBeenCalled();
+    expect(mocks.dispatchFeedStateChanged).not.toHaveBeenCalled();
+  });
+
+  it("globally invalidates PKM state when a peer tab broadcasts a change", async () => {
+    await renderReady();
+    const detail = {
+      userId: "recipient-user",
+      domain: "location",
+      dataVersion: 13,
+      updatedAt: "2026-09-20T12:30:00Z",
+      operation: "cleared" as const,
+    };
+
+    act(() => mocks.remotePkmListener?.(detail));
+
+    expect(mocks.onRemotePkmDomainChanged).toHaveBeenCalledWith(detail);
+  });
+
+  it("globally invalidates map preferences when a peer tab broadcasts a change", async () => {
+    await renderReady();
+    const detail = {
+      userId: "recipient-user",
+      domains: ["map_preferences" as const],
+      changedAt: 123,
+      eventId: "map-preferences:remote-1",
+    };
+
+    act(() => mocks.remoteLocationStateListener?.(detail));
+
+    expect(mocks.onRemoteOneLocationStateChanged).toHaveBeenCalledWith(detail);
   });
 
   it("records repeated duration changes for the same grant without a replay identity", async () => {
@@ -548,35 +687,38 @@ describe("global One Location Feed-first notification policy", () => {
     "location_circle_member_left",
     "location_circle_renamed",
     "location_circle_deleted",
-  ])("publishes one authoritative Circle reconciliation for %s", async (type) => {
-    await renderReady();
+  ])(
+    "publishes one authoritative Circle reconciliation for %s",
+    async (type) => {
+      await renderReady();
 
-    dispatchLocation({
-      type,
-      message_id: `${type}:event-1`,
-      circle_id: "circle-1",
-      circle_name: "Family",
-      ...(type === "location_circle_member_removed"
-        ? { member_user_id: "recipient-user" }
-        : null),
-      notification_title: "Circle changed",
-      notification_body: "Circle state changed.",
-    });
-
-    expect(mocks.onOneLocationStateMutated).toHaveBeenCalledTimes(1);
-    expect(mocks.onOneLocationStateMutated).toHaveBeenCalledWith(
-      "recipient-user",
-      ["workspace", "circles", "sms_roster"],
-      {
-        notificationType: type,
-        circleId: "circle-1",
+      dispatchLocation({
+        type,
+        message_id: `${type}:event-1`,
+        circle_id: "circle-1",
+        circle_name: "Family",
         ...(type === "location_circle_member_removed"
-          ? { memberUserId: "recipient-user" }
+          ? { member_user_id: "recipient-user" }
           : null),
-        eventId: `${type}:event-1`,
-      },
-    );
-  });
+        notification_title: "Circle changed",
+        notification_body: "Circle state changed.",
+      });
+
+      expect(mocks.onOneLocationStateMutated).toHaveBeenCalledTimes(1);
+      expect(mocks.onOneLocationStateMutated).toHaveBeenCalledWith(
+        "recipient-user",
+        ["workspace", "circles", "sms_roster"],
+        {
+          notificationType: type,
+          circleId: "circle-1",
+          ...(type === "location_circle_member_removed"
+            ? { memberUserId: "recipient-user" }
+            : null),
+          eventId: `${type}:event-1`,
+        },
+      );
+    },
+  );
 
   it("uses an owner event for sync without showing or recording a self-notification", async () => {
     await renderReady();

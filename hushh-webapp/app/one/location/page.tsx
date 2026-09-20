@@ -378,6 +378,7 @@ import type {
 } from "@/lib/one-location/types";
 import { filterPeopleByQuery } from "@/lib/one-location/people-search";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
+import { useOneLocationMapPreferences } from "@/lib/one-location/use-one-location-map-preferences";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { subscribeToConnectionGraphChanges } from "@/lib/connections/connection-graph-events";
 import {
@@ -391,10 +392,6 @@ import {
   sourceCircleIdForRecipient,
   type CircleRecipientSelection,
 } from "@/lib/one-location/circle-recipient-selection";
-import {
-  addRecentDestination,
-  loadRecentDestinations,
-} from "@/lib/one-location/drive-recents";
 import { CacheService } from "@/lib/services/cache-service";
 import {
   loadPersistedDriveSession,
@@ -3277,10 +3274,6 @@ export function OneLocationAgentPageContent({
   // Me Up" request no longer overwrites the first grant's fixed spot, which
   // would otherwise cause it to drift back to live GPS.
   const pickupSessionRef = useRef<Map<string, PlainLocationPoint>>(new Map());
-  const [_recentDestinations, setRecentDestinations] = useState<
-    DriveDestination[]
-  >([]);
-
   const recipients = useMemo(
     () => state?.recipients ?? [],
     [state?.recipients],
@@ -3561,37 +3554,29 @@ export function OneLocationAgentPageContent({
   // location and then wondered why they never appeared on the other person's
   // map had no way to discover the switch that decided it. Null while loading,
   // so the control can be shown disabled rather than lying about its state.
-  const [mapPresenceEnabled, setMapPresenceEnabled] = useState<boolean | null>(
-    null,
-  );
+  const {
+    preferences: mapPreferences,
+    commit: commitMapPreferences,
+  } = useOneLocationMapPreferences({
+    userId: auth.userId,
+    vaultOwnerToken,
+  });
+  const [mapPresenceEnabled, setMapPresenceEnabled] = useState<boolean | null>(null);
   useEffect(() => {
-    if (!vaultOwnerToken) return;
-    let cancelled = false;
-    void OneLocationService.getMapPreferences(vaultOwnerToken)
-      .then((preferences) => {
-        if (cancelled) return;
-        setMapPresenceEnabled(
-          preferences.presenceMode === "foreground_private",
-        );
-      })
-      .catch(() => {
-        // Unknown is not the same as off, but the control has to say something
-        // -- and offering it as "off" is the honest failure: it cannot make a
-        // person more visible than they already are.
-        if (!cancelled) setMapPresenceEnabled(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [vaultOwnerToken]);
+    if (!mapPreferences) return;
+    setMapPresenceEnabled(
+      mapPreferences.presenceMode === "foreground_private",
+    );
+  }, [mapPreferences]);
   const setMapPresence = useCallback(async (next: boolean) => {
     if (!vaultOwnerToken) throw new Error("Unlock One to change map visibility.");
     const desired = next ? "foreground_private" : "ghost";
     const preferences = await OneLocationService.updateMapPreferences({ vaultOwnerToken, presenceMode: desired });
+    commitMapPreferences(preferences);
     setMapPresenceEnabled(preferences.presenceMode === "foreground_private");
     if (preferences.presenceMode !== desired) throw new Error("Map visibility did not change. Review the current setting.");
     return preferences;
-  }, [vaultOwnerToken]);
+  }, [commitMapPreferences, vaultOwnerToken]);
   const handleMapPresenceChange = useCallback((next: boolean) => {
     const previous = mapPresenceEnabled;
     setMapPresenceEnabled(next);
@@ -4210,9 +4195,8 @@ export function OneLocationAgentPageContent({
       })
       .catch(() => {
         if (!active) return;
-        setActivitySnapshot(null);
         setActivityError(
-          "Showing current page activity while history sync catches up.",
+          "Showing the last synced activity while history catches up.",
         );
       })
       .finally(() => {
@@ -4435,6 +4419,10 @@ export function OneLocationAgentPageContent({
 
     return subscribeToOneLocationStateChanges((detail) => {
       if (detail.userId !== owner) return;
+      const shouldRefreshWorkspace = detail.domains.some(
+        (domain) => domain !== "map_preferences",
+      );
+      if (!shouldRefreshWorkspace) return;
       const revision = ++oneLocationStateRefreshRevisionRef.current;
       const priorRefresh = refreshInFlightRef.current;
 
@@ -4861,8 +4849,17 @@ export function OneLocationAgentPageContent({
   }, []);
 
   useEffect(() => {
-    if (!auth.userId) return;
-    void loadRecentDestinations(auth.userId).then(setRecentDestinations);
+    if (!auth.userId || typeof window === "undefined") return;
+    // Recents had no rendered consumer and stored exact destination points in
+    // plaintext localStorage. Remove the obsolete per-account record instead
+    // of adding realtime transport around sensitive, unused data.
+    try {
+      window.localStorage.removeItem(
+        `hushh.one-location.drive-recents.${auth.userId}`,
+      );
+    } catch {
+      // Storage may be unavailable in a restricted browser; nothing else to do.
+    }
   }, [auth.userId]);
 
   useEffect(() => {
@@ -10443,11 +10440,6 @@ export function OneLocationAgentPageContent({
           });
         }
 
-        if (auth.userId) {
-          await addRecentDestination(auth.userId, destination);
-          setRecentDestinations(await loadRecentDestinations(auth.userId));
-        }
-
         toast.success(
           `Sharing your drive with ${peopleCountLabel(selected.length)}.`,
         );
@@ -10731,11 +10723,6 @@ export function OneLocationAgentPageContent({
             distanceMeters,
             etaComputedAt,
           });
-        }
-
-        if (auth.userId) {
-          await addRecentDestination(auth.userId, destination);
-          setRecentDestinations(await loadRecentDestinations(auth.userId));
         }
 
         toast.success(
@@ -13369,7 +13356,11 @@ export function OneLocationAgentPageContent({
 
   const handleAutoApproveChange = useCallback(
     async (input: { enabled: boolean; scope?: AutoApproveScope | null }) => {
-      if (!vaultOwnerToken || autoApprovePreferenceMutationRef.current) return null;
+      if (
+        !vaultOwnerToken ||
+        !auth.userId ||
+        autoApprovePreferenceMutationRef.current
+      ) return null;
       const enabled = Boolean(input.enabled && input.scope);
       autoApprovePreferenceMutationRef.current = true;
       try {
@@ -13379,6 +13370,11 @@ export function OneLocationAgentPageContent({
             enabled,
             scope: enabled ? (input.scope ?? null) : null,
           },
+        );
+        OneLocationStateResource.mergeAutoApprovePreference(
+          auth.userId,
+          preference,
+          stateEntry?.userId === auth.userId ? stateEntry.state : undefined,
         );
         // The PATCH result is the authority. Keep it visible even when the
         // broader workspace refresh fails after the rule has already changed;
@@ -13400,7 +13396,11 @@ export function OneLocationAgentPageContent({
             ? "Auto-approve is on. Waiting requests still need your answer."
             : "Auto-approve is off.",
         );
-        void refresh().catch(() => null);
+        CacheSyncService.onOneLocationStateMutated(
+          auth.userId,
+          ["workspace"],
+          { notificationType: "location_settings_changed" },
+        );
         return preference;
       } catch (error) {
         toast.error(
@@ -13413,7 +13413,7 @@ export function OneLocationAgentPageContent({
         autoApprovePreferenceMutationRef.current = false;
       }
     },
-    [auth.userId, refresh, vaultOwnerToken],
+    [auth.userId, stateEntry, vaultOwnerToken],
   );
 
   const markLocationOnboardingSeen = useCallback(() => {
@@ -13966,10 +13966,11 @@ export function OneLocationAgentPageContent({
       vaultOwnerToken,
       rendererConsentVersion: GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
     });
+    if (auth.userId) commitMapPreferences(next);
     setSavedLocationRendererAccepted(
       next.rendererConsentVersion === GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
     );
-  }, [vaultOwnerToken]);
+  }, [auth.userId, commitMapPreferences, vaultOwnerToken]);
 
   // "Locate me" inside the map picker — re-center on a fresh GPS fix.
   const locateMeForSavedLocation = useCallback(async () => {

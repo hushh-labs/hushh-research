@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 
 import { currentPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
+import { subscribeToPkmDomainChanges } from "@/lib/pkm/pkm-domain-change-events";
+import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 
 /**
  * Advances when the current owner's encrypted PKM changes. CacheSyncService
@@ -13,6 +15,7 @@ import { currentPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch"
  */
 export function usePkmDomainChangeRevision(
   userId: string | null | undefined,
+  domain?: string,
 ): number {
   // Seeded from the epoch so a screen that mounts after a write made elsewhere
   // starts above zero and forces a fresh read; the listener covers writes made
@@ -23,15 +26,16 @@ export function usePkmDomainChangeRevision(
     if (!userId || typeof window === "undefined") return;
     setRevision((current) => Math.max(current, currentPkmInvalidationEpoch(userId)));
 
-    const handleChange = (event: Event) => {
-      const detail = (event as CustomEvent<{ userId?: unknown }>).detail;
-      if (detail?.userId !== userId) return;
+    return subscribeToPkmDomainChanges((detail) => {
+      if (detail.userId !== userId) return;
+      if (domain && detail.domain !== domain) return;
+      PkmDomainResourceService.invalidateDomain(userId, detail.domain, {
+        includeDevice: false,
+        includeBackingCaches: true,
+      });
       setRevision((current) => current + 1);
-    };
-
-    window.addEventListener("pkm-domain-changed", handleChange);
-    return () => window.removeEventListener("pkm-domain-changed", handleChange);
-  }, [userId]);
+    });
+  }, [domain, userId]);
 
   return revision;
 }

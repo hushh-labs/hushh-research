@@ -74,6 +74,7 @@ const serviceHarness = vi.hoisted(() => ({
     sourcePlatform: "ios" as const,
   })),
   getMapState: vi.fn(),
+  getMapPreferences: vi.fn(),
   getState: vi.fn(),
   requestNearbyConnection: vi.fn(),
   storeEnvelope: vi.fn(),
@@ -475,6 +476,10 @@ beforeEach(() => {
     markers: [],
     preferences: { presenceMode: "ghost" },
   });
+  serviceHarness.getMapPreferences.mockResolvedValue({
+    presenceMode: "ghost",
+    rendererConsentVersion: null,
+  });
   serviceHarness.captureCurrentPosition.mockResolvedValue({
     latitude: 37.776,
     longitude: -122.418,
@@ -490,9 +495,13 @@ beforeEach(() => {
     relationship: "pending_outgoing",
   });
   serviceHarness.storeEnvelope.mockResolvedValue(undefined);
-  serviceHarness.updateMapPreferences.mockResolvedValue({
-    presenceMode: "ghost",
-    rendererConsentVersion: "google-maps-renderer-v1",
+  serviceHarness.updateMapPreferences.mockImplementation(async () => {
+    const next = {
+      presenceMode: "ghost" as const,
+      rendererConsentVersion: "google-maps-renderer-v1",
+    };
+    serviceHarness.getMapPreferences.mockResolvedValue(next);
+    return next;
   });
 });
 
@@ -1374,6 +1383,9 @@ describe("LocationImmersiveMap demo experience", () => {
     expect(screen.getByTestId("one-location-map-people-tray")).toBeTruthy();
     mapView.unmount();
 
+    // The accepted renderer version is authoritative server state on the
+    // second mount; a local consent cache must never enable decryption.
+    seedConsentedRenderer();
     render(<LocationImmersiveMap surface="check-in" />);
     await openMap();
     expect(screen.queryByTestId("one-location-map-people-tray")).toBeNull();

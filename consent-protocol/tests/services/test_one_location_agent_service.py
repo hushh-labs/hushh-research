@@ -492,6 +492,50 @@ def test_nearby_check_in_preferences_default_visible_true_requests_false(
     }
 
 
+def test_settings_sync_notification_is_silent_and_metadata_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pushes: list[dict] = []
+    streams: list[tuple[str, dict]] = []
+    service = OneLocationAgentService()
+
+    monkeypatch.setattr(
+        service,
+        "_send_metadata_notification",
+        lambda **kwargs: pushes.append(kwargs) or True,
+    )
+    monkeypatch.setattr(
+        "api.consent_listener.publish_user_state_event_threadsafe",
+        lambda user_id, data: streams.append((user_id, data)) or True,
+    )
+
+    service._send_settings_sync_notification(
+        user_id="user_a",
+        setting="map_preferences",
+    )
+
+    assert len(pushes) == 1
+    assert pushes[0]["notification_type"] == "location_settings_changed"
+    assert pushes[0]["show_alert"] is False
+    assert pushes[0]["data"]["setting"] == "map_preferences"
+    assert pushes[0]["data"]["sync_only"] == "true"
+    assert set(pushes[0]["data"]) == {"setting", "sync_only", "message_id"}
+    assert streams == [
+        (
+            "user_a",
+            {
+                "type": "location_settings_changed",
+                "user_id": "user_a",
+                "request_url": "/one/location?action=settings",
+                "deep_link": "/one/location?action=settings",
+                "notification_tag": pushes[0]["data"]["message_id"],
+                "notification_category": "ONE_LOCATION",
+                **pushes[0]["data"],
+            },
+        )
+    ]
+
+
 def test_nearby_check_in_preferences_update_upserts_and_returns_stored_row(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

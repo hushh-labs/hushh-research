@@ -9,7 +9,13 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const service = vi.hoisted(() => ({
@@ -100,6 +106,7 @@ import {
   rendererConsentCurrent,
 } from "@/components/location/map/location-map-screen";
 import { GOOGLE_MAPS_RENDERER_CONSENT_VERSION } from "@/lib/one-location/map-renderer-consent";
+import { dispatchOneLocationStateChanged } from "@/lib/one-location/one-location-state-events";
 import { readLocationWorkspaceMemory } from "@/lib/one-location/location-workspace-memory";
 
 const SOURCE = fs.readFileSync(
@@ -236,12 +243,19 @@ describe("LocationMapScreen", () => {
   });
 
   it("keeps coordinates away from the renderer until the server records renderer consent", async () => {
-    service.getMapState.mockResolvedValue({
+    const beforeConsent = {
       preferences: { presenceMode: "ghost", rendererConsentVersion: null },
       freshnessSeconds: 120,
       markers: [
         { grant: grant("grant-1", "Priya Nair"), envelope: envelope("env-1") },
       ],
+    };
+    service.getMapState.mockResolvedValueOnce(beforeConsent).mockResolvedValue({
+      ...beforeConsent,
+      preferences: {
+        presenceMode: "ghost",
+        rendererConsentVersion: GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
+      },
     });
     service.updateMapPreferences.mockResolvedValue({
       presenceMode: "ghost",
@@ -273,6 +287,36 @@ describe("LocationMapScreen", () => {
     render(<LocationMapScreen />);
     await screen.findByTestId("live-map");
     expect(liveMap.avatarUrls).toContain("https://example.com/avatar.jpg");
+  });
+
+  it("ignores an older load failure after a newer refresh succeeds", async () => {
+    let rejectOlderLoad: (reason: Error) => void = () => undefined;
+    const olderLoad = new Promise<never>((_resolve, reject) => {
+      rejectOlderLoad = reject;
+    });
+    service.getMapState.mockImplementationOnce(() => olderLoad);
+
+    render(<LocationMapScreen />);
+    await waitFor(() => expect(service.getMapState).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      dispatchOneLocationStateChanged("user-1", ["map_preferences"]);
+    });
+    expect(await screen.findByTestId("live-map")).toHaveAttribute(
+      "data-lat",
+      "13.0827",
+    );
+
+    await act(async () => {
+      rejectOlderLoad(new Error("Superseded request failed"));
+      await olderLoad.catch(() => undefined);
+    });
+
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByTestId("live-map")).toHaveAttribute(
+      "data-lat",
+      "13.0827",
+    );
   });
 
   it("draws its own way back to Location because the route hides the chrome", async () => {

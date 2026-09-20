@@ -101,6 +101,8 @@ import {
 } from "@/lib/one-location/nearby-private-navigation";
 import { OneLocationService } from "@/lib/one-location/service";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
+import { subscribeToOneLocationStateChanges } from "@/lib/one-location/one-location-state-events";
+import { publishOneLocationMapPreferences } from "@/lib/one-location/use-one-location-map-preferences";
 import type {
   OneLocationMapMarker,
   OneLocationMapPreferences,
@@ -128,7 +130,6 @@ import {
 } from "@/lib/one-location/native-map-lifecycle";
 import {
   GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
-  readCachedRendererConsentAccepted,
   writeCachedRendererConsentAccepted,
 } from "@/lib/one-location/map-renderer-consent";
 
@@ -571,6 +572,7 @@ export function LocationImmersiveMap({
   const markerByMapIdRef = useRef<Map<string, RenderMarker>>(new Map());
   const framedInitialMarkersRef = useRef(false);
   const refreshInFlightRef = useRef(false);
+  const preferenceRevisionRef = useRef(0);
   /** A tick that arrived mid-refresh, to be served once the current one ends. */
   const refreshRequestedWhileBusyRef = useRef(false);
   /** Lets the finally block re-enter refresh without depending on itself. */
@@ -596,9 +598,9 @@ export function LocationImmersiveMap({
   // Seeded from the local cache so a returning owner's map starts
   // initializing immediately instead of waiting on the consent re-check
   // below. That fetch still runs and remains authoritative.
-  const [acceptedRenderer, setAcceptedRenderer] = useState(() =>
-    readCachedRendererConsentAccepted(auth.userId),
-  );
+  // Coordinates stay gated until the server confirms consent for this account.
+  // The device mirror must never override a revoked or outdated server value.
+  const [acceptedRenderer, setAcceptedRenderer] = useState(false);
   const [preferences, setPreferences] = useState<OneLocationMapPreferences>({
     presenceMode: "ghost",
   });
@@ -1065,6 +1067,7 @@ export function LocationImmersiveMap({
       return;
     }
     refreshInFlightRef.current = true;
+    const preferenceRevision = preferenceRevisionRef.current;
     setStatus("loading");
     try {
       if (demoMode) {
@@ -1108,7 +1111,9 @@ export function LocationImmersiveMap({
       const nextMarkers = resolved.filter(
         (item): item is RenderMarker => item !== null,
       );
-      setPreferences(state.preferences);
+      if (preferenceRevisionRef.current === preferenceRevision) {
+        setPreferences(state.preferences);
+      }
       if (
         Number.isFinite(state.freshnessSeconds) &&
         state.freshnessSeconds > 0
@@ -1155,6 +1160,31 @@ export function LocationImmersiveMap({
   }, [auth.userId, demoMode, vaultOwnerToken]);
 
   useEffect(() => {
+    if (!auth.userId || !vaultOwnerToken || demoMode) return;
+    return subscribeToOneLocationStateChanges((detail) => {
+      if (
+        detail.userId !== auth.userId ||
+        !detail.domains.includes("map_preferences")
+      ) return;
+      const revision = ++preferenceRevisionRef.current;
+      void OneLocationService.getMapPreferences(vaultOwnerToken)
+        .then((next) => {
+          if (
+            !mountedRef.current ||
+            preferenceRevisionRef.current !== revision
+          ) return;
+          const accepted =
+            next.rendererConsentVersion ===
+            GOOGLE_MAPS_RENDERER_CONSENT_VERSION;
+          setPreferences(next);
+          setAcceptedRenderer(accepted);
+          writeCachedRendererConsentAccepted(auth.userId, accepted);
+        })
+        .catch(() => undefined);
+    });
+  }, [auth.userId, demoMode, vaultOwnerToken]);
+
+  useEffect(() => {
     if (!sharingPopoverOpen) return;
     const close = () => setSharingPopoverOpen(false);
     window.addEventListener("scroll", close, true);
@@ -1191,20 +1221,15 @@ export function LocationImmersiveMap({
   // every Map entry; no envelope is decrypted in this bootstrap step.
   useEffect(() => {
     if (!vaultOwnerToken || !auth.userId) return;
+    const revision = ++preferenceRevisionRef.current;
     if (demoMode) {
       setPreferences({ presenceMode: "ghost" });
       return;
     }
-    // Re-apply the cache on every userId change (covers the case where the
-    // very first render ran before auth.userId was available, so the lazy
-    // useState initializer above saw nothing to read yet).
-    if (readCachedRendererConsentAccepted(auth.userId)) {
-      setAcceptedRenderer(true);
-    }
     let cancelled = false;
     void OneLocationService.getMapState(vaultOwnerToken)
       .then((state) => {
-        if (cancelled) return;
+        if (cancelled || preferenceRevisionRef.current !== revision) return;
         setPreferences(state.preferences);
         const accepted =
           state.preferences.rendererConsentVersion ===
@@ -2145,14 +2170,17 @@ export function LocationImmersiveMap({
 
   const acceptRenderer = useCallback(async () => {
     if (!vaultOwnerToken) return;
+    const revision = ++preferenceRevisionRef.current;
     try {
       const next = await OneLocationService.updateMapPreferences({
         vaultOwnerToken,
         rendererConsentVersion: GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
       });
+      if (!mountedRef.current || preferenceRevisionRef.current !== revision) return;
       setPreferences(next);
       setAcceptedRenderer(true);
       writeCachedRendererConsentAccepted(auth.userId, true);
+      if (auth.userId) publishOneLocationMapPreferences(auth.userId, next);
     } catch {
       toast.error("Your Map could not be prepared.");
     }
@@ -2161,6 +2189,7 @@ export function LocationImmersiveMap({
   const setPresence = useCallback(async () => {
     if (!vaultOwnerToken) return;
     setBusy("presence");
+    const revision = ++preferenceRevisionRef.current;
     try {
       const nextMode =
         preferences.presenceMode === "ghost" ? "foreground_private" : "ghost";
@@ -2180,7 +2209,9 @@ export function LocationImmersiveMap({
         vaultOwnerToken,
         presenceMode: nextMode,
       });
+      if (!mountedRef.current || preferenceRevisionRef.current !== revision) return;
       setPreferences(next);
+      if (auth.userId) publishOneLocationMapPreferences(auth.userId, next);
       // "Nobody sees you on their map" was the old copy, and it described the
       // old bug rather than the feature: it was true only because Ghost Mode
       // was silently cancelling private shares the person had deliberately
@@ -2199,7 +2230,7 @@ export function LocationImmersiveMap({
     } finally {
       setBusy(null);
     }
-  }, [demoMode, preferences.presenceMode, privateShareCount, vaultOwnerToken]);
+  }, [auth.userId, demoMode, preferences.presenceMode, privateShareCount, vaultOwnerToken]);
 
   const focusMarker = useCallback(async (marker: RenderMarker) => {
     setSelected(marker);
