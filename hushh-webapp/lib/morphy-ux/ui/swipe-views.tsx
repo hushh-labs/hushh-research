@@ -162,13 +162,15 @@ function scrollToIndexSafely(
       current.length !== expected.length ||
       expected.some((value, i) => Math.abs((current[i] ?? NaN) - value) > 1);
     if (isStale) {
-      engine.scrollBounds?.toggleActive?.(false);
       current.splice(0, current.length, ...expected);
-    } else {
-      // A previous stale-measurement repair may have disabled the bound. Once
-      // Embla has rebuilt a truthful limit, restore its normal guard.
-      engine.scrollBounds?.toggleActive?.(true);
     }
+    // Repairing the mutable snaps does not rebuild ScrollBounds' captured
+    // limit. Keep stale bounds disabled on subsequent selections too; only a
+    // genuinely remeasured engine may restore the normal edge guard.
+    const boundsMatch =
+      Math.abs(engine.limit.min + (slideRects.length - 1) * slideWidth) <= 1 &&
+      Math.abs(engine.limit.max) <= 1;
+    engine.scrollBounds?.toggleActive?.(!isStale && boundsMatch);
   }
 
   if (jump) {

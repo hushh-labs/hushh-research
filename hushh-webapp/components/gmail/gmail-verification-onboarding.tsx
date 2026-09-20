@@ -5,7 +5,6 @@ import { Check, Copy, ShieldCheck } from "@/components/icons";
 import { toast } from "sonner";
 
 import { SurfaceInset } from "@/components/app-ui/surfaces";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/lib/morphy-ux/button";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
@@ -147,17 +146,14 @@ export function GmailVerificationOnboarding({
 
   if (checking) {
     return (
-      <SurfaceInset
+      <div
         aria-busy="true"
         aria-live="polite"
         aria-label="Checking KYC setup"
-        className="space-y-3 px-4 py-5 sm:px-5"
+        className="sr-only"
       >
-        <div className="space-y-2">
-          <Skeleton className="h-5 w-40" />
-          <Skeleton className="h-4 w-full max-w-md" />
-        </div>
-      </SurfaceInset>
+        Checking KYC setup
+      </div>
     );
   }
   if (profileReady || deferred) return <>{children}</>;
