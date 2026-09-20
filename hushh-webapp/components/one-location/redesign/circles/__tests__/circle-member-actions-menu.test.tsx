@@ -205,15 +205,28 @@ describe("CircleMemberActionsMenu on a pointer device", () => {
     renderMenu();
 
     const trigger = screen.getByRole("button", { name: triggerName });
+    expect(trigger).toHaveClass("bg-transparent", "shadow-none");
+    expect(trigger).toHaveClass("hover:bg-transparent");
+    expect(trigger).toHaveClass(
+      "text-[color:var(--app-secondary-label)]",
+    );
+    expect(trigger).not.toHaveClass(
+      "hover:bg-[color:var(--app-accent-tint)]",
+    );
     // Radix opens DropdownMenuTrigger on pointerdown (no PointerEvent in
     // jsdom) or on Enter/Space keydown -- use the keyboard path here.
     fireEvent.keyDown(trigger, { key: "Enter" });
 
     const menu = await screen.findByTestId(MEMBER_ACTIONS_MENU_TESTID);
     expect(screen.queryByTestId(MEMBER_ACTIONS_SHEET_TESTID)).toBeNull();
-    expect(
-      within(menu).getByRole("menuitem", { name: /Share location/i }),
-    ).toBeInTheDocument();
+    const share = within(menu).getByRole("menuitem", {
+      name: /Share location/i,
+    });
+    expect(share).toBeInTheDocument();
+    expect(share).toHaveClass(
+      "focus:!text-[color:var(--app-primary-label)]",
+      "data-[highlighted]:!text-[color:var(--app-primary-label)]",
+    );
   });
 
   it("closes the menu when the remove confirm takes over", async () => {
