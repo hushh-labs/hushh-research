@@ -1041,7 +1041,10 @@ export function ConsentNotificationProvider({
         const domain = String(notification.data.domain || "").trim();
         if (domain === "location") {
           if (notification.data.operation === "cleared") {
-            CacheSyncService.onPkmDomainCleared(user.uid, domain);
+            CacheSyncService.onPkmDomainCleared(user.uid, domain, {
+              eventId:
+                String(notification.data.message_id || "").trim() || undefined,
+            });
           } else {
             const parsedVersion = Number(notification.data.data_version);
             CacheSyncService.onPkmDomainStored(user.uid, domain, {
@@ -1051,6 +1054,8 @@ export function ConsentNotificationProvider({
               metadataTimestamp:
                 String(notification.data.updated_at || "").trim() || undefined,
               writeThroughMetadata: false,
+              eventId:
+                String(notification.data.message_id || "").trim() || undefined,
             });
           }
         }
@@ -1060,9 +1065,7 @@ export function ConsentNotificationProvider({
         const setting = String(notification.data.setting || "").trim();
         CacheSyncService.onOneLocationStateMutated(
           user.uid,
-          setting === "map_preferences"
-            ? ["map_preferences"]
-            : ["workspace"],
+          setting === "map_preferences" ? ["map_preferences"] : ["workspace"],
           {
             notificationType: notification.data.type,
             eventId:
@@ -1632,7 +1635,9 @@ export function ConsentNotificationProvider({
         const domain = String(data.domain || "").trim();
         if (domain === "location") {
           if (data.operation === "cleared") {
-            CacheSyncService.onPkmDomainCleared(user.uid, domain);
+            CacheSyncService.onPkmDomainCleared(user.uid, domain, {
+              eventId: String(data.message_id || "").trim() || undefined,
+            });
           } else {
             const parsedVersion = Number(data.data_version);
             CacheSyncService.onPkmDomainStored(user.uid, domain, {
@@ -1642,6 +1647,7 @@ export function ConsentNotificationProvider({
               metadataTimestamp:
                 String(data.updated_at || "").trim() || undefined,
               writeThroughMetadata: false,
+              eventId: String(data.message_id || "").trim() || undefined,
             });
           }
         }
@@ -1655,9 +1661,7 @@ export function ConsentNotificationProvider({
         const setting = String(data.setting || "").trim();
         CacheSyncService.onOneLocationStateMutated(
           user.uid,
-          setting === "map_preferences"
-            ? ["map_preferences"]
-            : ["workspace"],
+          setting === "map_preferences" ? ["map_preferences"] : ["workspace"],
           {
             notificationType: msgType,
             eventId: String(data.message_id || "").trim() || undefined,

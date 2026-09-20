@@ -310,6 +310,7 @@ describe("global One Location Feed-first notification policy", () => {
         eventDataVersion: 8,
         metadataTimestamp: "2026-09-20T00:00:00Z",
         writeThroughMetadata: false,
+        eventId: "location_pkm_changed:event-2",
       },
     );
     expect(mocks.toast).not.toHaveBeenCalled();
@@ -331,6 +332,7 @@ describe("global One Location Feed-first notification policy", () => {
     expect(mocks.onPkmDomainCleared).toHaveBeenCalledWith(
       "recipient-user",
       "location",
+      { eventId: "location_pkm_changed:delete-1" },
     );
     expect(mocks.onPkmDomainStored).not.toHaveBeenCalled();
     expect(mocks.toast).not.toHaveBeenCalled();
@@ -649,35 +651,38 @@ describe("global One Location Feed-first notification policy", () => {
     "location_circle_member_left",
     "location_circle_renamed",
     "location_circle_deleted",
-  ])("publishes one authoritative Circle reconciliation for %s", async (type) => {
-    await renderReady();
+  ])(
+    "publishes one authoritative Circle reconciliation for %s",
+    async (type) => {
+      await renderReady();
 
-    dispatchLocation({
-      type,
-      message_id: `${type}:event-1`,
-      circle_id: "circle-1",
-      circle_name: "Family",
-      ...(type === "location_circle_member_removed"
-        ? { member_user_id: "recipient-user" }
-        : null),
-      notification_title: "Circle changed",
-      notification_body: "Circle state changed.",
-    });
-
-    expect(mocks.onOneLocationStateMutated).toHaveBeenCalledTimes(1);
-    expect(mocks.onOneLocationStateMutated).toHaveBeenCalledWith(
-      "recipient-user",
-      ["workspace", "circles", "sms_roster"],
-      {
-        notificationType: type,
-        circleId: "circle-1",
+      dispatchLocation({
+        type,
+        message_id: `${type}:event-1`,
+        circle_id: "circle-1",
+        circle_name: "Family",
         ...(type === "location_circle_member_removed"
-          ? { memberUserId: "recipient-user" }
+          ? { member_user_id: "recipient-user" }
           : null),
-        eventId: `${type}:event-1`,
-      },
-    );
-  });
+        notification_title: "Circle changed",
+        notification_body: "Circle state changed.",
+      });
+
+      expect(mocks.onOneLocationStateMutated).toHaveBeenCalledTimes(1);
+      expect(mocks.onOneLocationStateMutated).toHaveBeenCalledWith(
+        "recipient-user",
+        ["workspace", "circles", "sms_roster"],
+        {
+          notificationType: type,
+          circleId: "circle-1",
+          ...(type === "location_circle_member_removed"
+            ? { memberUserId: "recipient-user" }
+            : null),
+          eventId: `${type}:event-1`,
+        },
+      );
+    },
+  );
 
   it("uses an owner event for sync without showing or recording a self-notification", async () => {
     await renderReady();

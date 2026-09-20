@@ -10,7 +10,22 @@ export type PkmDomainChangeDetail = {
   dataVersion: number | null;
   updatedAt: string | null;
   operation: "stored" | "cleared" | "restored";
+  /** Stable across SSE/FCM and tabs for one backend mutation. */
+  eventId?: string;
 };
+
+let fallbackEventSequence = 0;
+
+function createEventId(): string {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
+    return `pkm-domain-change:${crypto.randomUUID()}`;
+  }
+  fallbackEventSequence += 1;
+  return `${PKM_DOMAIN_CHANGE_SOURCE_ID}:${Date.now()}:${fallbackEventSequence}`;
+}
 
 function normalizeDetail(value: unknown): PkmDomainChangeDetail | null {
   if (!value || typeof value !== "object") return null;
@@ -19,6 +34,7 @@ function normalizeDetail(value: unknown): PkmDomainChangeDetail | null {
   const domain = String(candidate.domain || "").trim();
   if (!userId || !domain) return null;
   const operation = candidate.operation;
+  const eventId = String(candidate.eventId || "").trim();
   if (
     operation !== "stored" &&
     operation !== "cleared" &&
@@ -39,6 +55,7 @@ function normalizeDetail(value: unknown): PkmDomainChangeDetail | null {
         ? candidate.updatedAt
         : null,
     operation,
+    ...(eventId ? { eventId } : null),
   };
 }
 
@@ -64,18 +81,19 @@ export function dispatchLocalPkmDomainChanged(
 }
 
 /** Publish to this tab and relay the same metadata-only doorbell to peers. */
-export function dispatchPkmDomainChanged(
-  detail: PkmDomainChangeDetail,
-): void {
+export function dispatchPkmDomainChanged(detail: PkmDomainChangeDetail): void {
   if (typeof window === "undefined") return;
   const normalized = normalizeDetail(detail);
   if (!normalized) return;
-  dispatchLocalPkmDomainChanged(normalized);
+  const identified = normalized.eventId
+    ? normalized
+    : { ...normalized, eventId: createEventId() };
+  dispatchLocalPkmDomainChanged(identified);
   if (typeof BroadcastChannel === "undefined") return;
   const channel = new BroadcastChannel(PKM_DOMAIN_CHANGE_CHANNEL);
   channel.postMessage({
     sourceId: PKM_DOMAIN_CHANGE_SOURCE_ID,
-    detail: normalized,
+    detail: identified,
   });
   channel.close();
 }
@@ -84,13 +102,18 @@ export function subscribeToPkmDomainChanges(
   listener: (detail: PkmDomainChangeDetail) => void,
 ): () => void {
   if (typeof window === "undefined") return () => undefined;
-  let lastDeliveredKey = "";
+  const seenEventIds = new Set<string>();
   const deliver = (value: unknown) => {
     const detail = normalizeWireDetail(value);
     if (!detail) return;
-    const key = `${detail.userId}:${detail.domain}:${detail.dataVersion ?? ""}:${detail.updatedAt ?? ""}:${detail.operation}`;
-    if (key === lastDeliveredKey) return;
-    lastDeliveredKey = key;
+    if (detail.eventId) {
+      if (seenEventIds.has(detail.eventId)) return;
+      seenEventIds.add(detail.eventId);
+      if (seenEventIds.size > 128) {
+        const oldest = seenEventIds.values().next().value;
+        if (oldest) seenEventIds.delete(oldest);
+      }
+    }
     listener(detail);
   };
   const onWindowEvent = (event: Event) =>

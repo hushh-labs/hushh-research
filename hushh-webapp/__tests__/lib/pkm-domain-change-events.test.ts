@@ -22,10 +22,16 @@ class FakeBroadcastChannel {
       }
     }
   }
-  addEventListener(_type: "message", listener: (event: MessageEvent<unknown>) => void) {
+  addEventListener(
+    _type: "message",
+    listener: (event: MessageEvent<unknown>) => void,
+  ) {
     this.listeners.add(listener);
   }
-  removeEventListener(_type: "message", listener: (event: MessageEvent<unknown>) => void) {
+  removeEventListener(
+    _type: "message",
+    listener: (event: MessageEvent<unknown>) => void,
+  ) {
     this.listeners.delete(listener);
   }
   close() {
@@ -56,13 +62,14 @@ describe("PKM domain change events", () => {
       operation: "stored",
     });
     expect(received).toEqual([
-      {
+      expect.objectContaining({
         userId: "owner-a",
         domain: "location",
         dataVersion: 8,
         updatedAt: "2026-09-20T00:00:00.000Z",
         operation: "stored",
-      },
+        eventId: expect.any(String),
+      }),
     ]);
     expect(received[0]).not.toHaveProperty("locations");
     expect(received[0]).not.toHaveProperty("coordinates");
@@ -140,5 +147,53 @@ describe("PKM domain change events", () => {
     expect(remote).toEqual([]);
     window.removeEventListener("pkm-domain-changed", onLocal);
     unsubscribe();
+  });
+
+  it("deduplicates one transport replay but delivers later clears with new identities", () => {
+    const received: unknown[] = [];
+    const unsubscribe = subscribeToPkmDomainChanges((detail) =>
+      received.push(detail),
+    );
+    const otherTab = new FakeBroadcastChannel("hushh-pkm-domain-change-v1");
+    const base = {
+      userId: "owner-a",
+      domain: "location",
+      dataVersion: null,
+      updatedAt: null,
+      operation: "cleared" as const,
+    };
+
+    otherTab.postMessage({ ...base, eventId: "clear-1" });
+    otherTab.postMessage({ ...base, eventId: "clear-1" });
+    otherTab.postMessage({ ...base, eventId: "clear-2" });
+
+    expect(received).toEqual([
+      { ...base, eventId: "clear-1" },
+      { ...base, eventId: "clear-2" },
+    ]);
+    unsubscribe();
+    otherTab.close();
+  });
+
+  it("does not collapse legacy clear events that have no transition identity", () => {
+    const received: unknown[] = [];
+    const unsubscribe = subscribeToPkmDomainChanges((detail) =>
+      received.push(detail),
+    );
+    const otherTab = new FakeBroadcastChannel("hushh-pkm-domain-change-v1");
+    const clear = {
+      userId: "owner-a",
+      domain: "location",
+      dataVersion: null,
+      updatedAt: null,
+      operation: "cleared" as const,
+    };
+
+    otherTab.postMessage(clear);
+    otherTab.postMessage(clear);
+
+    expect(received).toEqual([clear, clear]);
+    unsubscribe();
+    otherTab.close();
   });
 });

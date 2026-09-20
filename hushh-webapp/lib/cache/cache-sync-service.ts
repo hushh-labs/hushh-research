@@ -14,6 +14,7 @@ import {
   type PkmDomainChangeDetail,
 } from "@/lib/pkm/pkm-domain-change-events";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
+import { OneLocationMapPreferencesResource } from "@/lib/one-location/one-location-map-preferences-resource";
 import {
   clearAllLocationWorkspaceMemory,
   clearLocationWorkspaceMemory,
@@ -351,6 +352,7 @@ export class CacheSyncService {
       writeThroughMetadata?: boolean;
       eventDataVersion?: number;
       emitEvent?: boolean;
+      eventId?: string;
     },
   ): void {
     const emitDomainStoredEvent = () => {
@@ -368,7 +370,11 @@ export class CacheSyncService {
           null,
       };
       window.dispatchEvent(new CustomEvent("pkm-domain-stored", { detail }));
-      dispatchPkmDomainChanged({ ...detail, operation: "stored" });
+      dispatchPkmDomainChanged({
+        ...detail,
+        operation: "stored",
+        ...(options?.eventId ? { eventId: options.eventId } : null),
+      });
     };
     bumpPkmInvalidationEpoch(userId);
     const cache = CacheService.getInstance();
@@ -453,7 +459,7 @@ export class CacheSyncService {
   static onPkmDomainCleared(
     userId: string,
     domain: string,
-    options?: { emitEvent?: boolean },
+    options?: { emitEvent?: boolean; eventId?: string },
   ): void {
     const cache = CacheService.getInstance();
     cache.invalidate(CACHE_KEYS.DOMAIN_MANIFEST(userId, domain));
@@ -481,6 +487,7 @@ export class CacheSyncService {
         dataVersion: null,
         updatedAt: null,
         operation: "cleared",
+        ...(options?.eventId ? { eventId: options.eventId } : null),
       });
     }
   }
@@ -488,9 +495,13 @@ export class CacheSyncService {
   /** Apply a peer-tab doorbell without rebroadcasting it back to the channel. */
   static onRemotePkmDomainChanged(detail: PkmDomainChangeDetail): void {
     if (detail.operation === "cleared") {
-      this.onPkmDomainCleared(detail.userId, detail.domain, { emitEvent: false });
+      this.onPkmDomainCleared(detail.userId, detail.domain, {
+        emitEvent: false,
+      });
     } else if (detail.operation === "restored") {
-      this.onPkmDomainRestored(detail.userId, detail.domain, { emitEvent: false });
+      this.onPkmDomainRestored(detail.userId, detail.domain, {
+        emitEvent: false,
+      });
     } else {
       this.onPkmDomainStored(detail.userId, detail.domain, {
         eventDataVersion: detail.dataVersion ?? undefined,
@@ -757,6 +768,16 @@ export class CacheSyncService {
     if (!userId) return;
     if (domains.some((domain) => domain !== "map_preferences")) {
       OneLocationStateResource.invalidate(userId);
+    }
+    if (domains.includes("map_preferences")) {
+      if (context.eventId) {
+        OneLocationMapPreferencesResource.invalidateFromEvent(
+          userId,
+          context.eventId,
+        );
+      } else {
+        OneLocationMapPreferencesResource.invalidate(userId);
+      }
     }
     dispatchOneLocationStateChanged(userId, domains, context);
   }

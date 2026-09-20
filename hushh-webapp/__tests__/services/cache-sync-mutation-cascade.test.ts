@@ -26,6 +26,7 @@ import {
   CACHE_TTL,
 } from "@/lib/services/cache-service";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
+import { OneLocationMapPreferencesResource } from "@/lib/one-location/one-location-map-preferences-resource";
 import {
   readLocationWorkspaceMemory,
   writeLocationWorkspaceMemory,
@@ -162,6 +163,22 @@ describe("CacheSyncService mutation cascades", () => {
       }),
     ]);
     window.removeEventListener(ONE_LOCATION_STATE_CHANGED_EVENT, listener);
+  });
+
+  it("invalidates map preferences at notification ingress before broadcasting", () => {
+    const invalidateMapPreferences = vi.spyOn(
+      OneLocationMapPreferencesResource,
+      "invalidateFromEvent",
+    );
+
+    CacheSyncService.onOneLocationStateMutated(userId, ["map_preferences"], {
+      eventId: "map-preferences:event-1",
+    });
+
+    expect(invalidateMapPreferences).toHaveBeenCalledWith(
+      userId,
+      "map-preferences:event-1",
+    );
   });
 
   it("owns optimistic Feed read state and preserves rows above the watermark", () => {
@@ -441,13 +458,14 @@ describe("CacheSyncService mutation cascades", () => {
     ).toBeNull();
     expect(cache.get(CACHE_KEYS.DOMAIN_DATA(userId, "location"))).toBeNull();
     expect(received).toEqual([
-      {
+      expect.objectContaining({
         userId,
         domain: "location",
         dataVersion: 8,
         updatedAt: "2026-09-20T00:00:00Z",
         operation: "stored",
-      },
+        eventId: expect.any(String),
+      }),
     ]);
     window.removeEventListener("pkm-domain-changed", listener);
   });
