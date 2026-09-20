@@ -110,6 +110,7 @@ export function NativeTestBootstrap() {
   const authAttemptedRef = useRef(false);
   const authAttemptedAtRef = useRef(0);
   const identityMismatchForExpectedUserRef = useRef<string | null>(null);
+  const replacedPersistedUidRef = useRef<string | null>(null);
   const unlockInFlightForUidRef = useRef<string | null>(null);
   const nativeSessionRecoveryInFlightRef = useRef(false);
 
@@ -126,6 +127,28 @@ export function NativeTestBootstrap() {
     }
 
     if (user) {
+      // A session the device kept from before the audit (a simulator whose
+      // keychain survived an app removal, a phone signed in as its owner) is
+      // not the requested fixture. When the audit names an identity and this
+      // is not it, replace it once instead of auditing as whoever was there
+      // last; a second sighting of the same uid after that is a real
+      // mismatch and falls through to the ordinary failure below.
+      if (
+        config.expectedUserId &&
+        user.uid !== config.expectedUserId &&
+        replacedPersistedUidRef.current !== user.uid
+      ) {
+        replacedPersistedUidRef.current = user.uid;
+        updateBootstrapStatus("authenticating");
+        void AuthService.signOut()
+          .catch(() => undefined)
+          .finally(() => {
+            nativeTestBootstrapUser = null;
+            setBootstrapUser(null);
+            setAuthRetryTick((value) => value + 1);
+          });
+        return undefined;
+      }
       updateBootstrapStatus("authenticated", {
         userId: user.uid,
       });
