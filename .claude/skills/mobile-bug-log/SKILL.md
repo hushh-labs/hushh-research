@@ -346,6 +346,14 @@ Three small mobile UX/nav fixes (commit `909ea793d`):
 - **Regression prevention:** the new test mounts the bootstrap with a persisted foreign user and fails on the old code; the card no longer carries a uid to guess.
 - **GOTCHA:** a simulator has no persisted owner session, so this class never shows there. Read the status line: `uidcfg=0` means no identity was named, and `bootstrap_error_class=identity` with `uidcfg=1` means the device held someone else. Also: an Xcode update that lands mid-session (26.3 to 27.0 on 2026-09-19) makes every `xcrun`, `xcodebuild` and the `/usr/bin/git` shim refuse with "You have not agreed to the Xcode license agreements" until `sudo xcodebuild -license accept`; `/Applications/Xcode.app/Contents/Developer/usr/bin/git` still works for commits in the meantime.
 
+### B34 — First Xcode 27 build crashed at launch on the phone: UIKit now requires the UIScene lifecycle
+- **Symptom:** the app died 13 s after launch, before any route, on iOS 27.0; the XCUITest reported only "com.hushh.app crashed". Same web bundle had run minutes earlier from an Xcode 26 build.
+- **Root cause:** `EXC_BREAKPOINT` in `__UIApplicationEvaluateRuntimeIssueForNoSceneLifecycleAdoption` during `workspace:didCreateScene:`. Linking against `iPhoneOS27.0.sdk` turns the "no scene lifecycle" runtime issue into a trap. The shell was a storyboard-driven `AppDelegate` with no `UIApplicationSceneManifest` and no scene delegate.
+- **Fix:** `Info.plist` scene manifest (single scene, `Main` storyboard, `SceneDelegate`); `SceneDelegate.swift` owns the active/background transitions and URL / Universal Link opens (cold start through `connectionOptions`), with the bodies in `AppLifecycleHandlers` shared with the AppDelegate methods (privacy shield, voice availability publishers, Google Sign-In URL, Capacitor's `ApplicationDelegateProxy`). Commit `515eca1db`.
+- **Files:** `hushh-webapp/ios/App/App/SceneDelegate.swift`, `hushh-webapp/ios/App/App/AppDelegate.swift`, `hushh-webapp/ios/App/App/Info.plist`, `hushh-webapp/ios/App/App.xcodeproj/project.pbxproj`.
+- **Regression prevention:** the app launching at all on an iOS 27 SDK build is the test; `verify:capacitor:static` passes. Any CI or release runner that moves to Xcode 27 needs this commit first.
+- **GOTCHA:** read the crash from the xcresult, not the test log: `xcrun xcresulttool export attachments --path <bundle>.xcresult --output-path <dir>` drops the `.ips`; its `faultingThread` frames name the UIKit evaluator. Under the scene lifecycle, `applicationWillResignActive` / `applicationDidBecomeActive` / `application(_:open:)` on the AppDelegate are no longer called; anything living there silently stops (the privacy shield would have).
+
 ---
 
 ## 🧪 QA test phone numbers (UAT, fixed OTP `000000`)
