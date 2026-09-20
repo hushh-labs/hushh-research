@@ -634,19 +634,25 @@ const ROUTE_HEALTH_EXPECTATIONS = {
 };
 
 async function installNativeTestBridge(page) {
+  const reviewerMutationPolicy =
+    process.env.REVIEWER_ALLOW_SHARED_MUTATIONS === "true"
+      ? "mutation_authorized"
+      : "preparation_only";
   await page.addInitScript(
-    ({ expectedUserId, vaultPassphrase }) => {
+    ({ expectedUserId, vaultPassphrase, reviewerMutationPolicy }) => {
       window.__HUSHH_NATIVE_TEST__ = {
         ...(window.__HUSHH_NATIVE_TEST__ || {}),
         enabled: true,
         autoReviewerLogin: true,
         expectedUserId,
         vaultPassphrase,
+        reviewerMutationPolicy,
       };
     },
     {
       expectedUserId: smokeUserId,
       vaultPassphrase: reviewerPassphrase,
+      reviewerMutationPolicy,
     },
   );
 }
