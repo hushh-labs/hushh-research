@@ -2,7 +2,7 @@
 /**
  * Turn the in-app probe's exports into a baseline table.
  *
- *   node scripts/perf/summarize-probe-runs.mjs --runs <dir-or-file>... [--gestures <log>] [--tier ios-sim] [--sha <sha>] [--configuration Debug|Release] [--test-mode 1|0] [--json <out.json>] [--md <out.md>]
+ *   node scripts/perf/summarize-probe-runs.mjs --runs <dir-or-file>... [--gestures <log>] [--tier ios-sim] [--sha <sha>] [--configuration Debug|Release] [--test-mode 1|0] [--since <epoch-ms>] [--json <out.json>] [--md <out.md>]
  *
  * `--runs` takes probe JSON files (or directories of them, as pulled from the
  * app container's Documents/hushh-perf). `--gestures` is the xcodebuild log
@@ -50,7 +50,13 @@ function collect(input) {
   return [input];
 }
 
-const runs = runInputs.flatMap(collect).map((file) => ({ file, data: JSON.parse(fs.readFileSync(file, "utf8")) }));
+// The app container keeps every export it ever wrote; --since <epoch ms>
+// keeps only the runs this session started.
+const since = Number(take("--since")[0] ?? 0) || 0;
+const runs = runInputs
+  .flatMap(collect)
+  .map((file) => ({ file, data: JSON.parse(fs.readFileSync(file, "utf8")) }))
+  .filter((run) => !since || Number(run.data.started_at_epoch_ms ?? 0) >= since);
 const windows = runs.flatMap((r) => r.data.windows.map((w) => ({ ...w, run_id: r.data.run_id })));
 const idle = runs.flatMap((r) => r.data.idle_by_route.map((w) => ({ ...w, run_id: r.data.run_id })));
 

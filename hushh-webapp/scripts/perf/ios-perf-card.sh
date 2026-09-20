@@ -34,15 +34,31 @@ DERIVED="${PERF_DERIVED_DATA:-/tmp/hushh-ios-dd}"
 BUNDLE_ID="com.hushh.app"
 REPS="${HUSHH_PERF_REPS:-3}"
 
-eval "$(node scripts/testing/export-reviewer-test-env.mjs)"
-if [[ -z "${REVIEWER_VAULT_PASSPHRASE:-}" ]]; then
-  echo "Reviewer passphrase did not resolve (REVIEWER_VAULT_PASSPHRASE)." >&2
-  exit 1
+# PERF_ATTACHED=1 is the truth lane: no reviewer bridge, no test mode. The app
+# is launched with only the probe argument and the person holding the phone
+# signs in and unlocks (then opens Finance when the log says so). With
+# PERF_CONFIGURATION=Release it is the certifying run.
+ATTACHED="${PERF_ATTACHED:-0}"
+REVIEWER_UID=""
+REVIEWER_VAULT_PASSPHRASE=""
+if [[ "$ATTACHED" != "1" ]]; then
+  eval "$(node scripts/testing/export-reviewer-test-env.mjs)"
+  if [[ -z "${REVIEWER_VAULT_PASSPHRASE:-}" ]]; then
+    echo "Reviewer passphrase did not resolve (REVIEWER_VAULT_PASSPHRASE)." >&2
+    exit 1
+  fi
+  REVIEWER_UID="${PERF_REVIEWER_UID:-$(node scripts/perf/resolve-reviewer-uid.mjs)}"
+  if [[ -z "$REVIEWER_UID" ]]; then
+    echo "Reviewer uid did not resolve; set PERF_REVIEWER_UID or check the backend." >&2
+    exit 1
+  fi
 fi
-REVIEWER_UID="${PERF_REVIEWER_UID:-$(node scripts/perf/resolve-reviewer-uid.mjs)}"
-if [[ -z "$REVIEWER_UID" ]]; then
-  echo "Reviewer uid did not resolve; set PERF_REVIEWER_UID or check the backend." >&2
-  exit 1
+if [[ "$ATTACHED" == "1" ]]; then
+  TEST_NAME="testRenderPerformanceCardAttached"
+  ENABLE_VAR="TEST_RUNNER_HUSHH_ENABLE_PERF_ATTACHED"
+else
+  TEST_NAME="testRenderPerformanceCard"
+  ENABLE_VAR="TEST_RUNNER_HUSHH_ENABLE_PERF_BENCHMARK"
 fi
 
 if [[ -n "${IOS_DEVICE_ID:-}" ]]; then
@@ -69,18 +85,37 @@ else
 fi
 
 SHA="$(git rev-parse --short HEAD)"
+
+# The iOS app ships whatever `cap sync` last copied into ios/App/App/public.
+# A bare `npx cap sync ios` resolves webDir without the native env and copies
+# the stale default `out/` export (it measured a five-week-old bundle once).
+# Refuse to measure unless the synced bundle is the current native export.
+NATIVE_EXPORT="${NEXT_DIST_DIR:-.next-native-uat}"
+if [[ ! -f "$NATIVE_EXPORT/index.html" ]]; then
+  echo "No native export at $NATIVE_EXPORT; run: npm run cap:build && npm run cap:sync:ios" >&2
+  exit 1
+fi
+if ! cmp -s "$NATIVE_EXPORT/index.html" ios/App/App/public/index.html; then
+  echo "ios/App/App/public is not the current native export ($NATIVE_EXPORT); run: npm run cap:sync:ios" >&2
+  exit 1
+fi
 echo "perf card: $DESTINATION, configuration $CONFIGURATION, tier $TIER, reps $REPS, sha $SHA"
 echo "artifacts: $OUT_DIR (raw log and probe JSON stay here; only the summary is committed)"
 
 cd ios/App
 if [[ "${PERF_SKIP_BUILD:-0}" != "1" ]]; then
+  # The scheme's unit-test target does @testable import App, which a Release
+  # module refuses (build-for-testing compiles every test target regardless
+  # of -only-testing). ENABLE_TESTABILITY keeps -O and only exports internal
+  # symbols; the shell is a thin host, so the WebView's frame cost is untouched.
   xcodebuild -project App.xcodeproj -scheme App -configuration "$CONFIGURATION" -sdk "$SDK" \
-    -destination "$DESTINATION" -derivedDataPath "$DERIVED" "${SIGNING[@]}" build-for-testing > "$OUT_DIR/build.log" 2>&1 \
+    -destination "$DESTINATION" -derivedDataPath "$DERIVED" "${SIGNING[@]}" ENABLE_TESTABILITY=YES build-for-testing > "$OUT_DIR/build.log" 2>&1 \
     || { echo "build-for-testing failed; see $OUT_DIR/build.log" >&2; exit 1; }
 fi
 
+RUN_START_MS="$(( $(date +%s) * 1000 ))"
 set +e
-env TEST_RUNNER_HUSHH_ENABLE_PERF_BENCHMARK=true \
+env "$ENABLE_VAR=true" \
     TEST_RUNNER_HUSHH_PERF_REPS="$REPS" \
     TEST_RUNNER_HUSHH_UI_TEST_REVIEWER_UID="$REVIEWER_UID" \
     TEST_RUNNER_HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE="${HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE:-$REVIEWER_VAULT_PASSPHRASE}" \
@@ -88,12 +123,12 @@ env TEST_RUNNER_HUSHH_ENABLE_PERF_BENCHMARK=true \
     TEST_RUNNER_REVIEWER_VAULT_PASSPHRASE="$REVIEWER_VAULT_PASSPHRASE" \
   xcodebuild -project App.xcodeproj -scheme App -configuration "$CONFIGURATION" -sdk "$SDK" \
     -destination "$DESTINATION" -derivedDataPath "$DERIVED" "${SIGNING[@]}" \
-    -only-testing:AppUITests/AppUITests/testRenderPerformanceCard test-without-building > "$OUT_DIR/test.log" 2>&1
+    -only-testing:"AppUITests/AppUITests/$TEST_NAME" test-without-building > "$OUT_DIR/test.log" 2>&1
 TEST_STATUS=$?
 set -e
 cd "$WEB_DIR"
 
-if grep -q -F -- "$REVIEWER_VAULT_PASSPHRASE" "$OUT_DIR/test.log"; then
+if [[ -n "$REVIEWER_VAULT_PASSPHRASE" ]] && grep -q -F -- "$REVIEWER_VAULT_PASSPHRASE" "$OUT_DIR/test.log"; then
   echo "The test log contained the vault passphrase; removing the log." >&2
   rm -f "$OUT_DIR/test.log"
   exit 1
@@ -119,7 +154,7 @@ if [[ "$COUNT" == "0" ]]; then
 fi
 
 node scripts/perf/summarize-probe-runs.mjs --runs "$OUT_DIR/probe" --gestures "$OUT_DIR/gestures.log" \
-  --tier "$TIER" --sha "$SHA" --configuration "$CONFIGURATION" --test-mode 1 \
-  --json "$OUT_DIR/summary.json" --md "$OUT_DIR/summary.md"
+  --tier "$TIER" --sha "$SHA" --configuration "$CONFIGURATION" --test-mode "$([[ "$ATTACHED" == "1" ]] && echo 0 || echo 1)" \
+  --since "$RUN_START_MS" --json "$OUT_DIR/summary.json" --md "$OUT_DIR/summary.md"
 echo "summary: $OUT_DIR/summary.md (test status $TEST_STATUS)"
 exit "$TEST_STATUS"

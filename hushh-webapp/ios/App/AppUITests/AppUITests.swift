@@ -926,6 +926,7 @@ final class AppUITests: XCTestCase {
             "portfolio_stream_error_class",
             "bootstrap_uid_ok",
             "bootstrap_error_class",
+            "bootstrap_detail",
             "jserr_class",
             "jsrej_class",
             "long_wait",
@@ -1145,6 +1146,125 @@ final class AppUITests: XCTestCase {
         app.terminate()
     }
 
+    /// The truth lane: the same gesture card with test mode off. The app is
+    /// launched with only the probe argument, so there is no reviewer bridge
+    /// and no native status poll; the person holding the phone signs in and
+    /// unlocks, then opens Finance when asked. On a Release build this is the
+    /// certifying run the charter names. Opt-in: HUSHH_ENABLE_PERF_ATTACHED=true.
+    func testRenderPerformanceCardAttached() throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["HUSHH_ENABLE_PERF_ATTACHED"] == "true" else {
+            throw XCTSkip("Attached render performance card runs only with HUSHH_ENABLE_PERF_ATTACHED=true.")
+        }
+        let repetitions = max(1, Int(environment["HUSHH_PERF_REPS"] ?? "") ?? 3)
+        #if DEBUG
+        let release = false
+        #else
+        let release = true
+        #endif
+        #if targetEnvironment(simulator)
+        NSLog("PERF_LANE certifies=false simulator=true test_mode=false")
+        #else
+        NSLog("PERF_LANE certifies=\(release) simulator=false test_mode=false")
+        #endif
+
+        let app = XCUIApplication()
+        app.launchArguments = ["-CapacitorStorage.hushh_perf_probe", "1"]
+        app.launch()
+        let webView = app.webViews.firstMatch
+        XCTAssertTrue(webView.waitForExistence(timeout: 30), "WebView unavailable")
+        NSLog("PERF_WAITING_FOR_HUMAN step=sign-in-and-unlock timeout_s=240")
+        guard perfWaitForLabel(app, label: "One", timeout: 240) else {
+            XCTFail("The app was not signed in and unlocked within 240 s.")
+            return
+        }
+        perfSettle(2)
+        perfTapNav(app, label: "Feed")
+        perfSettle(3)
+        NSLog("PERF_APP_READY route=/one/feed")
+        for rep in 0..<repetitions {
+            perfGesture("feed-flick", rep: rep) {
+                for _ in 0..<5 {
+                    perfFlick(webView, fromY: 0.75, toY: 0.25)
+                    perfSettle(0.35)
+                }
+                perfSettle(1.5)
+                for _ in 0..<5 {
+                    perfFlick(webView, fromY: 0.25, toY: 0.75)
+                    perfSettle(0.35)
+                }
+                perfSettle(1.5)
+            }
+        }
+        for rep in 0..<repetitions {
+            perfGesture("bottom-nav-switch", rep: rep) {
+                for label in ["One", "Connect", "Feed"] {
+                    perfTapNav(app, label: label)
+                    perfSettle(1.5)
+                }
+            }
+        }
+        perfTapNav(app, label: "One")
+        perfSettle(1.5)
+        for rep in 0..<repetitions {
+            perfGesture("profile-pane-open-dismiss", rep: rep) {
+                let start = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5))
+                let end = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.5))
+                start.press(forDuration: 0.05, thenDragTo: end)
+                perfSettle(1.5)
+                webView.coordinate(withNormalizedOffset: CGVector(dx: 0.04, dy: 0.5)).tap()
+                perfSettle(1.2)
+            }
+        }
+        perfSettle(12)
+        NSLog("PERF_DONE route=/one/feed")
+
+        // Finance is not on the signed-in bottom bar; the person opens it.
+        NSLog("PERF_WAITING_FOR_HUMAN step=open-finance timeout_s=120")
+        if perfWaitForLabel(app, label: "Portfolio", timeout: 120) {
+            perfSettle(2.5)
+            NSLog("PERF_APP_READY route=/one/kai")
+            for rep in 0..<repetitions {
+                perfGesture("top-shell-pager-swipe", rep: rep) {
+                    let left = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.82, dy: 0.48))
+                    let right = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.18, dy: 0.48))
+                    left.press(forDuration: 0.08, thenDragTo: right)
+                    perfSettle(1.2)
+                    right.press(forDuration: 0.08, thenDragTo: left)
+                    perfSettle(1.2)
+                }
+            }
+            for rep in 0..<repetitions {
+                perfGesture("kai-chart-flick", rep: rep) {
+                    for _ in 0..<3 {
+                        perfFlick(webView, fromY: 0.7, toY: 0.3)
+                        perfSettle(0.4)
+                    }
+                    perfSettle(1.5)
+                }
+            }
+            perfSettle(12)
+            NSLog("PERF_DONE route=/one/kai")
+        } else {
+            NSLog("PERF_SKIPPED name=kai reason=finance_not_opened")
+        }
+        // The session belongs to the person holding the phone; leave it running.
+    }
+
+    /// Waits for any web element with the exact accessibility label.
+    private func perfWaitForLabel(_ app: XCUIApplication, label: String, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let matches = app.webViews.descendants(matching: .any)
+                .matching(NSPredicate(format: "label == %@", label))
+            if matches.count > 0 {
+                return true
+            }
+            perfSettle(1.0)
+        }
+        return false
+    }
+
     // MARK: - Third-party scroll benchmark (Threads, X)
 
     /// Apple's own scroll-hitch number for the apps the founder holds up as the
@@ -1157,37 +1277,41 @@ final class AppUITests: XCTestCase {
     ///
     /// Opt-in only: HUSHH_ENABLE_THIRD_PARTY_SCROLL_BENCHMARK=true. Records
     /// timings only; nothing from either app's content is read or stored.
-    func testThirdPartyFeedScrollBenchmark() throws {
+    /// XCTest records one set of metrics per test method, so each app gets
+    /// its own method around one shared helper.
+    func testThirdPartyFeedScrollBenchmarkThreads() throws {
+        try thirdPartyFeedScrollBenchmark(name: "threads", bundleId: "com.burbn.barcelona")
+    }
+
+    func testThirdPartyFeedScrollBenchmarkX() throws {
+        try thirdPartyFeedScrollBenchmark(name: "x", bundleId: "com.atebits.Tweetie2")
+    }
+
+    private func thirdPartyFeedScrollBenchmark(name: String, bundleId: String) throws {
         let environment = ProcessInfo.processInfo.environment
         guard environment["HUSHH_ENABLE_THIRD_PARTY_SCROLL_BENCHMARK"] == "true" else {
             throw XCTSkip("Third-party scroll benchmark runs only with HUSHH_ENABLE_THIRD_PARTY_SCROLL_BENCHMARK=true.")
         }
-        let targets: [(name: String, bundleId: String)] = [
-            ("threads", "com.burbn.barcelona"),
-            ("x", "com.atebits.Tweetie2"),
-        ]
-        for target in targets {
-            let app = XCUIApplication(bundleIdentifier: target.bundleId)
-            app.launch()
-            guard app.wait(for: .runningForeground, timeout: 30) else {
-                NSLog("PERF_SKIPPED name=\(target.name)-feed-flick reason=did_not_launch")
-                continue
-            }
-            perfSettle(5)
-            NSLog("PERF_APP_READY app=\(target.name)")
-            let options = XCTMeasureOptions()
-            options.iterationCount = 3
-            let start = perfEpochMs()
-            measure(metrics: [XCTOSSignpostMetric.scrollDecelerationMetric, XCTCPUMetric(application: app)], options: options) {
-                for _ in 0..<5 {
-                    perfFlick(app, fromY: 0.75, toY: 0.25)
-                    perfSettle(0.6)
-                }
-                perfSettle(1.2)
-            }
-            NSLog("PERF_GESTURE name=\(target.name)-feed-flick rep=0 start_epoch_ms=\(start) end_epoch_ms=\(perfEpochMs())")
-            app.terminate()
+        let app = XCUIApplication(bundleIdentifier: bundleId)
+        app.launch()
+        guard app.wait(for: .runningForeground, timeout: 30) else {
+            NSLog("PERF_SKIPPED name=\(name)-feed-flick reason=did_not_launch")
+            throw XCTSkip("\(name) is not installed or did not launch.")
         }
+        perfSettle(5)
+        NSLog("PERF_APP_READY app=\(name)")
+        let options = XCTMeasureOptions()
+        options.iterationCount = 3
+        let start = perfEpochMs()
+        measure(metrics: [XCTOSSignpostMetric.scrollDecelerationMetric, XCTCPUMetric(application: app)], options: options) {
+            for _ in 0..<5 {
+                perfFlick(app, fromY: 0.75, toY: 0.25)
+                perfSettle(0.6)
+            }
+            perfSettle(1.2)
+        }
+        NSLog("PERF_GESTURE name=\(name)-feed-flick rep=0 start_epoch_ms=\(start) end_epoch_ms=\(perfEpochMs())")
+        app.terminate()
     }
 
     private func perfEpochMs() -> Int64 {
