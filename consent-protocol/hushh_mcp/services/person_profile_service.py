@@ -317,10 +317,19 @@ class PersonProfileService:
         )
         request_history = []
         now_ms = int(time.time() * 1000)
+        request_ids = [str(item["request_id"]) for item in request_rows if item.get("request_id")]
+        batch_status_loader = getattr(self._consent_db, "get_request_statuses", None)
+        has_batch_status_loader = callable(batch_status_loader)
+        if has_batch_status_loader:
+            statuses = await batch_status_loader(subject_user_id, request_ids)
+        else:
+            statuses = {}
         for item in request_rows:
-            status = await self._consent_db.get_request_status(
-                subject_user_id, str(item["request_id"])
-            )
+            request_id = str(item["request_id"])
+            if has_batch_status_loader:
+                status = statuses.get(request_id)
+            else:
+                status = await self._consent_db.get_request_status(subject_user_id, request_id)
             action = str((status or {}).get("action") or "REQUESTED")
             expires_at = (status or {}).get("expires_at")
             state = {

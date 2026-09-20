@@ -196,6 +196,25 @@ class _ConsentWithHistory(_Consent):
         return {"action": action, "expires_at": None}
 
 
+class _ConsentWithBatchedHistory(_ConsentWithHistory):
+    def __init__(self, latest_by_request: dict[str, str | None]) -> None:
+        super().__init__(latest_by_request)
+        self.batch_calls = 0
+        self.single_calls = 0
+
+    async def get_request_statuses(self, _subject_user_id: str, request_ids: list[str]):
+        self.batch_calls += 1
+        return {
+            request_id: {"action": action, "expires_at": None}
+            for request_id in request_ids
+            if (action := self._latest_by_request.get(request_id)) is not None
+        }
+
+    async def get_request_status(self, _subject_user_id: str, request_id: str):
+        self.single_calls += 1
+        return await super().get_request_status(_subject_user_id, request_id)
+
+
 def _request_row(request_id: str, *, cancelled_at: str | None = None) -> dict:
     return {
         "bundle_id": "bundle-1",
@@ -208,6 +227,38 @@ def _request_row(request_id: str, *, cancelled_at: str | None = None) -> dict:
         "label": "Legal name",
         "sensitivity": "sensitive",
     }
+
+
+@pytest.mark.asyncio
+async def test_viewer_profile_batches_request_status_reads() -> None:
+    rows = iter(
+        [
+            [
+                {
+                    "user_id": "subject",
+                    "public_person_ref": "11111111-1111-4111-8111-111111111111",
+                    "display_name": "A Person",
+                    "photo_url": None,
+                    "is_verified_ria": False,
+                }
+            ],
+            [{"public_person_ref": "22222222-2222-4222-8222-222222222222"}],
+            [_request_row("request-1"), _request_row("request-2")],
+            [],
+            [],
+        ]
+    )
+    db = SimpleNamespace(execute_raw=lambda *_args, **_kwargs: SimpleNamespace(data=next(rows)))
+    consent = _ConsentWithBatchedHistory({"request-1": "REQUESTED", "request-2": "CONSENT_DENIED"})
+    service = PersonProfileService(connections=_Connections(), consent_db=consent)
+    with patch("hushh_mcp.services.person_profile_service.get_db", lambda: db):
+        payload = await service.get_viewer_profile(
+            viewer_user_id="viewer",
+            public_person_ref="11111111-1111-4111-8111-111111111111",
+        )
+    assert [item["status"] for item in payload["requestHistory"]] == ["pending", "denied"]
+    assert consent.batch_calls == 1
+    assert consent.single_calls == 0
 
 
 @pytest.mark.asyncio

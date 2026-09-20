@@ -2211,25 +2211,74 @@ class ConsentDBService:
         )
 
         if response.data and len(response.data) > 0:
-            row = response.data[0]
-            if not self._is_external_audit_row(row):
-                return None
-            metadata = self._parse_metadata(row.get("metadata"))
-            request_id_value = row.get("request_id")
-            return {
-                **row,
-                "metadata": metadata,
-                "approval_timeout_at": self._effective_pending_timeout_at(row),
-                "requester_label": self._requester_label(row.get("agent_id"), metadata),
-                "requester_image_url": metadata.get("requester_image_url"),
-                "requester_website_url": metadata.get("requester_website_url"),
-                "reason": metadata.get("reason"),
-                "request_url": self._request_url(request_id=request_id_value, metadata=metadata),
-                "bundle_id": metadata.get("bundle_id"),
-                "bundle_label": metadata.get("bundle_label"),
-                "bundle_scope_count": metadata.get("bundle_scope_count"),
-            }
+            return self._format_request_status_row(response.data[0])
         return None
+
+    def _format_request_status_row(self, row: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Project one latest audit row using the same rules as single lookup."""
+        if not self._is_external_audit_row(row):
+            return None
+        metadata = self._parse_metadata(row.get("metadata"))
+        request_id_value = row.get("request_id")
+        return {
+            **row,
+            "metadata": metadata,
+            "approval_timeout_at": self._effective_pending_timeout_at(row),
+            "requester_label": self._requester_label(row.get("agent_id"), metadata),
+            "requester_image_url": metadata.get("requester_image_url"),
+            "requester_website_url": metadata.get("requester_website_url"),
+            "reason": metadata.get("reason"),
+            "request_url": self._request_url(request_id=request_id_value, metadata=metadata),
+            "bundle_id": metadata.get("bundle_id"),
+            "bundle_label": metadata.get("bundle_label"),
+            "bundle_scope_count": metadata.get("bundle_scope_count"),
+        }
+
+    async def get_request_statuses(
+        self, user_id: str, request_ids: List[str]
+    ) -> Dict[str, Dict[str, Any]]:
+        """Return latest status rows for many requests in one owner-scoped read.
+
+        Profile history can contain many request items. The previous caller
+        performed one consent_audit query per item, which amplified normal
+        profile loading into a database-pool burst. This keeps the same
+        user/action filtering and latest-row semantics while reducing the
+        history projection to one query.
+        """
+        normalized_ids: List[str] = []
+        seen: set[str] = set()
+        for value in request_ids:
+            request_id = str(value or "").strip()
+            if request_id and request_id not in seen:
+                seen.add(request_id)
+                normalized_ids.append(request_id)
+        if not normalized_ids:
+            return {}
+
+        db = self._get_db()
+        response = (
+            db.table("consent_audit")
+            .select(
+                "id,token_id,request_id,action,scope,agent_id,issued_at,scope_description,metadata,expires_at,poll_timeout_at"
+            )
+            .eq("user_id", user_id)
+            .in_("request_id", normalized_ids)
+            .neq("action", "EXPORT_READ")
+            .order("issued_at", desc=True)
+            .execute()
+        )
+
+        latest: Dict[str, Dict[str, Any]] = {}
+        seen_request_ids: set[str] = set()
+        for row in response.data or []:
+            request_id = str(row.get("request_id") or "").strip()
+            if not request_id or request_id in seen_request_ids:
+                continue
+            seen_request_ids.add(request_id)
+            formatted = self._format_request_status_row(row)
+            if formatted is not None:
+                latest[request_id] = formatted
+        return latest
 
     async def get_request_status_for_agent(
         self,
