@@ -158,7 +158,9 @@ vi.mock("@/components/gmail/gmail-information-requests-section", () => ({
 }));
 
 vi.mock("@/components/ui/progress", () => ({
-  Progress: ({ value }: { value?: number }) => <div data-value={value} />,
+  Progress: ({ value, className }: { value?: number; className?: string }) => (
+    <div role="progressbar" data-value={value} className={className} />
+  ),
 }));
 
 vi.mock("@/components/ui/badge", () => ({
@@ -914,6 +916,32 @@ describe("ProfileReceiptsPage", () => {
         forceRefresh: false,
       }),
     );
+  });
+
+  it.each(["overview", "receipts"] as const)("hides only the background progress visual in %s", async (workspace) => {
+    mocks.useGmailConnectorStatus.mockReturnValue(makeGmailView({
+      syncRun: {
+        run_id: "background-scan", user_id: "user-123", trigger_source: "manual",
+        status: "running", listed_count: 10, filtered_count: 5,
+        synced_count: 3, extracted_count: 1, duplicates_dropped: 0,
+        extraction_success_rate: 1,
+      },
+      presentation: {
+        ...buildGmailView().presentation,
+        state: "syncing", badgeLabel: "Syncing", description: "Fetching recent purchases.",
+      },
+    }));
+    render(<ProfileReceiptsPage initialWorkspace={workspace} />);
+    await waitFor(() => {
+      const bars = screen.getAllByRole("progressbar", { hidden: true });
+      expect(bars.length).toBeGreaterThan(0);
+      for (const bar of bars) {
+        expect(bar).toHaveClass("hidden");
+        expect(bar).toHaveAttribute("data-value", "30");
+      }
+    });
+    expect(screen.getAllByText(/10/).length).toBeGreaterThan(0);
+    expect(mocks.gmailReceiptsService.syncNow).not.toHaveBeenCalled();
   });
 
   it("waits until Gmail sync settles before building the receipt-memory preview", async () => {

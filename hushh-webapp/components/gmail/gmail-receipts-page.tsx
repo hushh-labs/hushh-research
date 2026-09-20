@@ -1907,7 +1907,7 @@ export default function GmailReceiptsPage({
               {isSyncingState && latestRunMetrics && !isPassiveBackfillState ? (
                 <div className="space-y-2">
                   {progressPercent !== null ? (
-                    <Progress value={progressPercent} className="h-2" />
+                    <Progress value={progressPercent} className="hidden" />
                   ) : null}
                   <p className="text-xs text-muted-foreground">
                     {hasObservedScanWork
@@ -2303,7 +2303,7 @@ export default function GmailReceiptsPage({
               {latestRunMetrics ? (
                 <div className="space-y-2 pt-1">
                   {progressPercent !== null ? (
-                    <Progress value={progressPercent} className="h-2" />
+                    <Progress value={progressPercent} className="hidden" />
                   ) : null}
                   {hasObservedScanWork ? (
                     <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-muted-foreground sm:grid-cols-3">
