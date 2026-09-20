@@ -352,8 +352,13 @@ const REDIRECT_EXPECTATIONS = {
   },
   "/one/connect/settings": {
     path: "/one/connect/settings",
-    expectedPathname: "/one/profile/preferences/gemini",
-    allowedRouteIds: ["/one/profile/preferences/gemini"],
+    expectedPathname: "/one",
+    expectedQueryIncludes: [
+      "profile_pane=1",
+      "profile_panel=preferences",
+      "profile_detail=gemini",
+    ],
+    allowedRouteIds: ["/one"],
   },
   "/consents": {
     path: "/consents",
