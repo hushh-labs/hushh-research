@@ -237,9 +237,9 @@ async function loadSampleBrokerage(page) {
   return holdingsCount;
 }
 
-function proposalCardCount(payload) {
+function proposalCards(payload) {
   const cards = Array.isArray(payload?.preview_cards) ? payload.preview_cards : [];
-  return cards.length;
+  return cards;
 }
 
 async function saveNaturalMemory(page) {
@@ -258,9 +258,9 @@ async function saveNaturalMemory(page) {
   );
   // Chat's current contract is owner-authorized background capture. It does
   // not mount the retired inline "Save to PKM?" panel; the explicit review
-  // surface remains the Memory workspace. Capture the authoritative store
-  // response before sending so a fast save cannot be missed.
-  const storeResponsePromise = waitForFinancialStore(page);
+  // surface remains the Memory workspace. A durable preference is expected to
+  // remain confirm_first, so only arm the store watcher when the returned
+  // proposal actually authorizes an automatic private write.
   await composer.fill(naturalPrompt);
   await page.getByRole("button", { name: "Send message" }).click();
   const proposalResponse = await proposalPromise;
@@ -268,13 +268,27 @@ async function saveNaturalMemory(page) {
     throw new Error(`Natural PKM proposal failed with HTTP ${proposalResponse.status()}.`);
   }
   const proposal = await proposalResponse.json();
-  if (proposalCardCount(proposal) === 0) {
+  const cards = proposalCards(proposal);
+  if (cards.length === 0) {
     throw new Error("Natural prompt produced no reviewable PKM proposal cards.");
   }
+  const reviewRequired = cards.some((card) =>
+    card?.write_mode === "confirm_first" ||
+    card?.requires_confirmation === true ||
+    card?.preparation_requires_review === true ||
+    card?.intent_frame?.requires_confirmation === true
+  );
+  const storeResponsePromise = reviewRequired ? null : waitForFinancialStore(page);
 
   const memoryStatus = page.locator('[data-testid="memory-capture-status"]').last();
   await memoryStatus.waitFor({ state: "visible", timeout: timeoutMs });
   const statusText = (await memoryStatus.getByRole("status").textContent()) || "";
+  if (reviewRequired) {
+    if (!/details? need review before saving/i.test(statusText)) {
+      throw new Error("Natural Chat capture did not preserve the review-required status.");
+    }
+    return { phase: "review", cardCount: cards.length };
+  }
   if (!/details? saved privately/i.test(statusText)) {
     throw new Error("Natural Chat capture did not reach its saved-private status.");
   }
