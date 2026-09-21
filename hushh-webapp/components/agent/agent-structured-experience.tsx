@@ -316,9 +316,63 @@ function informationRequestStatusLabel(
 }
 
 function InformationRequestReviewView({ experience }: { experience: InformationRequestReviewExperience }) {
+  const { isVaultUnlocked, vaultOwnerToken } = useVault();
+  const [current, setCurrent] = useState<{
+    status: InformationRequestReviewExperience["status"];
+    fields: InformationRequestReviewExperience["fields"];
+  } | null>(null);
+  const [refreshState, setRefreshState] = useState<"idle" | "checking" | "loaded" | "unavailable">("idle");
+
+  useEffect(() => {
+    let active = true;
+    setCurrent(null);
+    if (experience.phase !== "submitted" || !experience.bundleId) {
+      setRefreshState("idle");
+      return () => { active = false; };
+    }
+    if (!isVaultUnlocked || !vaultOwnerToken) {
+      setRefreshState("unavailable");
+      return () => { active = false; };
+    }
+    setRefreshState("checking");
+    void PersonProfileService.getInformationRequest({
+      bundleId: experience.bundleId,
+      vaultOwnerToken,
+    }).then((bundle) => {
+      if (!active || (experience.subjectRef && bundle.personRef !== experience.subjectRef)) return;
+      if (!bundle.items.length) {
+        setRefreshState("unavailable");
+        return;
+      }
+      const statuses = bundle.items.map((item) => item.status);
+      const firstStatus = statuses[0]!;
+      const status = statuses.every((itemStatus) => itemStatus === firstStatus)
+        ? firstStatus
+        : "mixed" as const;
+      const byLabel = new Map<string, typeof bundle.items>();
+      for (const item of bundle.items) {
+        const matches = byLabel.get(item.label) || [];
+        matches.push(item);
+        byLabel.set(item.label, matches);
+      }
+      const fields = experience.fields.map((field) => {
+        const matches = byLabel.get(field.label);
+        const item = matches?.shift();
+        return item ? { ...field, status: item.status } : field;
+      });
+      setCurrent({ status, fields });
+      setRefreshState("loaded");
+    }).catch(() => {
+      if (active) setRefreshState("unavailable");
+    });
+    return () => { active = false; };
+  }, [experience.bundleId, experience.fields, experience.phase, experience.subjectRef, isVaultUnlocked, vaultOwnerToken]);
+
+  const displayFields = current?.fields || experience.fields;
+  const displayStatus = current?.status || experience.status;
   // Every field becomes a row in the one list every scope surface uses, so this
   // reads the same as Memory and the same as the pending-request card.
-  const items = experience.fields.map((field, index) => ({
+  const items = displayFields.map((field, index) => ({
     id: `${field.domain}:${field.label}:${index}`,
     label: field.label,
     description: null,
@@ -347,23 +401,29 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
       : experience.direction === "outgoing"
         ? `Request sent to ${experience.personName}`
         : `Information request involving ${experience.personName}`;
-  const statusText = experience.phase === "historical"
+  const statusText = refreshState === "unavailable" && experience.phase === "submitted"
+    ? "Current status unavailable · last recorded status is shown below"
+    : refreshState === "checking"
+      ? "Checking current status…"
+      : experience.phase === "historical"
     ? "Historical preview · current status was not checked"
-    : experience.status === "awaiting_review"
+    : displayStatus === "awaiting_review"
       ? "Not sent yet"
-      : experience.direction === "incoming" && experience.status === "pending"
+      : experience.direction === "incoming" && displayStatus === "pending"
         ? "Waiting for your decision"
-        : experience.direction === "outgoing" && experience.status === "pending"
+        : experience.direction === "outgoing" && displayStatus === "pending"
           ? "Waiting for their decision"
-          : experience.status === "granted"
+          : displayStatus === "granted"
             ? "Access granted"
-            : experience.status === "denied"
+            : displayStatus === "mixed"
+              ? "Mixed outcomes; see each item below"
+            : displayStatus === "denied"
               ? "Request declined"
-              : experience.status === "cancelled"
+              : displayStatus === "cancelled"
                 ? "Request withdrawn"
-                : experience.status === "expired"
+                : displayStatus === "expired"
                   ? "Request expired"
-                  : experience.status === "revoked"
+                  : displayStatus === "revoked"
                     ? "Access revoked"
                     : "Status unavailable";
 

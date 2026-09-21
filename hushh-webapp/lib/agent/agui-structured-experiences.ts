@@ -72,7 +72,7 @@ export type InformationRequestReviewExperience = {
   subjectRef: string | null;
   bundleId: string | null;
   requestId: string | null;
-  status: "awaiting_review" | "pending" | "cancelled" | "granted" | "denied" | "expired" | "revoked";
+  status: "awaiting_review" | "pending" | "mixed" | "cancelled" | "granted" | "denied" | "expired" | "revoked";
   fields: Array<ReviewField & { status?: InformationRequestItemStatus }>;
 };
 
@@ -208,7 +208,7 @@ function parseInformationRequestReview(content: unknown): InformationRequestRevi
   const purpose = boundedString(record.purpose, 500);
   const durationLabel = boundedString(record.durationLabel, 100);
   const status = boundedString(record.status, 32) as InformationRequestReviewExperience["status"] | null;
-  if (!personName || !purpose || !durationLabel || !status || !["awaiting_review", "pending", "cancelled", "granted", "denied", "expired", "revoked"].includes(status)) return null;
+  if (!personName || !purpose || !durationLabel || !status || !["awaiting_review", "pending", "mixed", "cancelled", "granted", "denied", "expired", "revoked"].includes(status)) return null;
   const directionValue = boundedString(record.direction, 16);
   const phaseValue = boundedString(record.phase, 16);
   const subjectRef = boundedString(record.subjectRef, 128);

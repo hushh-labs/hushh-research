@@ -502,7 +502,8 @@ def _safe_submitted_information_request_descriptor(
             not person_name
             or not purpose
             or not duration_label
-            or status not in {"pending", "cancelled", "granted", "denied", "expired", "revoked"}
+            or status
+            not in {"pending", "mixed", "cancelled", "granted", "denied", "expired", "revoked"}
         ):
             continue
         raw_fields = card.get("fields")
