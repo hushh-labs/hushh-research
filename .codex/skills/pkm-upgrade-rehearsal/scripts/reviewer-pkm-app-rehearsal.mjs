@@ -158,7 +158,9 @@ async function fetchExactFinancialPayload(ownerToken) {
 
 function assertFinancialScopes(scopePayload) {
   const scopes = Array.isArray(scopePayload?.scopes) ? scopePayload.scopes : [];
-  const requiredScope = "attr.financial.*";
+  // Financial exposure is intentionally emitted as bounded manifest branches;
+  // the retired broad domain wildcard is not a valid requestable scope.
+  const requiredScope = "attr.financial.portfolio.*";
   if (!scopes.includes(requiredScope)) {
     throw new Error(`Generated scope ${requiredScope} is missing.`);
   }
@@ -248,7 +250,10 @@ function proposalDomain(payload) {
 }
 
 async function saveNaturalFinancialMemory(page) {
-  await navigateInApp(page, "/agent");
+  // `/agent` is a compatibility redirect; the active chat surface is the
+  // root route. Navigating to the canonical route preserves the vault key and
+  // avoids waiting for a URL that the app intentionally rewrites.
+  await navigateInApp(page, "/");
   const composer = page.getByRole("textbox", { name: "Message One" });
   await composer.waitFor({ state: "visible", timeout: timeoutMs });
 
