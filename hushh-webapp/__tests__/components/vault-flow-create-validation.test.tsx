@@ -69,6 +69,18 @@ vi.mock("@/lib/services/vault-method-prompt-local-service", () => ({
   VaultMethodPromptLocalService: {},
 }));
 
+// Every native device in this file counts as already trusted for its quick
+// method (the pre-2026-09-21 contract); the trust gate itself is covered by
+// vault-flow-quick-unlock-trust.test.tsx.
+vi.mock("@/lib/services/vault-quick-unlock-trust-local-service", () => ({
+  isQuickUnlockTrustRequired: () => false,
+  VaultQuickUnlockTrustLocalService: {
+    load: vi.fn(async () => null),
+    mark: vi.fn(async () => undefined),
+    clear: vi.fn(async () => undefined),
+  },
+}));
+
 vi.mock("@/lib/vault/prf-auth", () => ({
   checkPrfSupport: (...args: unknown[]) => checkPrfSupportMock(...args),
 }));
