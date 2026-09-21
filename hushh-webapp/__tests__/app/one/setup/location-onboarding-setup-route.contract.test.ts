@@ -44,6 +44,22 @@ describe("Location setup route contract", () => {
     expect(adapter).not.toMatch(/if\s*\(\s*live\s*\)/);
   });
 
+  it("keeps setup paired with the established Location workspace", () => {
+    const locationPage = read("app/one/location/page.tsx");
+
+    // The migration-223 setup-progress UI is owned by the separate,
+    // non-routed LocationArea experiment. The customer-facing workspace and
+    // its setup route must stay on the same established One Location tree so
+    // one cannot declare the other incomplete after settlement.
+    expect(locationPage).toContain(
+      "return <OneLocationAgentPage {...props} />;",
+    );
+    expect(locationPage).not.toContain("LocationAreaSwitch");
+    expect(locationPage).not.toContain(
+      '@/components/location/location-area',
+    );
+  });
+
   it("keeps Location setup vault-free until the root setup completion", () => {
     const locationPage = read("app/one/location/page.tsx");
 

@@ -75,10 +75,13 @@ export function LocationOnboardingSetupClient() {
         .unwrap();
     },
   };
-  // Root setup is deliberately pre-vault, so it must always use the canonical
-  // One Location journey that can stage its sensitive draft until the root
-  // wizard creates the vault. One Voice readiness selects the microphone and
-  // publisher owners in AgentOwnerGate; it must never swap this route's visual
-  // tree or introduce a vault-gated setup path here.
+  // Keep setup paired with the established /one/location workspace. That
+  // workspace was restored as the unconditional customer-facing route and its
+  // setup completion is persisted by the coordinator above. The migration-223
+  // progress UI belongs to the separate LocationArea experiment; mounting it
+  // here would create a split-brain journey and would also gate root setup on a
+  // vault token that deliberately does not exist yet. One Voice readiness may
+  // select runtime owners in AgentOwnerGate, but it must not select this route's
+  // presentation.
   return <OneLocationAgentPage mode="setup" {...flowProps} />;
 }
