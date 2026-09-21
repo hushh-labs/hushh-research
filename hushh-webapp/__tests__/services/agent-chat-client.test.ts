@@ -155,6 +155,16 @@ describe("AG-UI Agent One client", () => {
     ).toBe("One's conversation history is temporarily unavailable. Please try again.");
   });
 
+  it("maps untyped provider capacity failures without exposing runtime details", () => {
+    const visible = formatAgentChatErrorMessage(
+      "429 Too Many Requests: RESOURCE_EXHAUSTED",
+    );
+
+    expect(visible).toBe("One is temporarily at capacity. Please try again in a moment.");
+    expect(visible).not.toContain("RESOURCE_EXHAUSTED");
+    expect(visible).not.toContain("429");
+  });
+
   it("settles an interrupted HITL turn while preserving its resumable boundary", async () => {
     mockTransport.outcome = "interrupt";
     const controller = new AbortController();

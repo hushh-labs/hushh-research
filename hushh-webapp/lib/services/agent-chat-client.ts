@@ -261,6 +261,17 @@ export function formatAgentChatErrorMessage(message: string, code?: string): str
   if (code === "DATABASE_UNAVAILABLE" || code === "DATABASE_EXECUTION_ERROR") {
     return "One's conversation history is temporarily unavailable. Please try again.";
   }
+  // AG-UI may deliver provider failures as an untyped RunErrorEvent when the
+  // ADK bridge cannot preserve the backend error code. Recognize only the
+  // stable provider markers and keep the raw message out of the transcript.
+  const normalizedMessage = message.toUpperCase();
+  if (
+    normalizedMessage.includes("RESOURCE_EXHAUSTED") ||
+    normalizedMessage.includes("TOO MANY REQUESTS") ||
+    /\b429\b/.test(normalizedMessage)
+  ) {
+    return "One is temporarily at capacity. Please try again in a moment.";
+  }
   // AG-UI RunErrorEvent.message may be derived from str(exception). Database
   // drivers append SQL and bound values there, so unknown runtime text is
   // never consumer-safe. Only explicitly mapped codes cross this boundary.
