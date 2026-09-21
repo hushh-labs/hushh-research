@@ -263,6 +263,11 @@ async function saveNaturalFinancialMemory(page) {
       response.request().method() === "POST",
     { timeout: timeoutMs }
   );
+  // Chat's current contract is owner-authorized background capture. It does
+  // not mount the retired inline "Save to PKM?" panel; the explicit review
+  // surface remains the Memory workspace. Capture the authoritative store
+  // response before sending so a fast save cannot be missed.
+  const storeResponsePromise = waitForFinancialStore(page);
   await composer.fill(naturalPrompt);
   await page.getByRole("button", { name: "Send message" }).click();
   const proposalResponse = await proposalPromise;
@@ -274,13 +279,12 @@ async function saveNaturalFinancialMemory(page) {
     throw new Error("Natural prompt was not structured into the financial domain.");
   }
 
-  const reviewTitle = page.getByText("Save to PKM?", { exact: true });
-  await reviewTitle.waitFor({ state: "visible", timeout: timeoutMs });
-  const reviewPanel = reviewTitle.locator(
-    "xpath=ancestor::div[.//button[normalize-space()='Save']][1]"
-  );
-  const storeResponsePromise = waitForFinancialStore(page);
-  await reviewPanel.getByRole("button", { name: /^Save$/i }).click();
+  const memoryStatus = page.locator('[data-testid="memory-capture-status"]').last();
+  await memoryStatus.waitFor({ state: "visible", timeout: timeoutMs });
+  const statusText = (await memoryStatus.getByRole("status").textContent()) || "";
+  if (!/details? saved privately/i.test(statusText)) {
+    throw new Error("Natural Chat capture did not reach its saved-private status.");
+  }
   const storeResponse = await storeResponsePromise;
   if (!storeResponse.ok()) {
     throw new Error(
