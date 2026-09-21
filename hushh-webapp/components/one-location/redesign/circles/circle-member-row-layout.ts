@@ -31,6 +31,27 @@
  *  minimum touch target, so the slot cannot be narrowed to tighten the row. */
 export const CIRCLE_MEMBER_MENU_SLOT_PX = 44;
 
+/**
+ * Desktop/tablet member actions stay attached to the row that opened them.
+ *
+ * A bottom-aligned popper puts both action rows over the next member, so the
+ * menu appears to belong to that person instead. Place it immediately outside
+ * the row, to the right of the kebab, and centre it on the selected row. That
+ * keeps both the member identity and any Connect/Respond/Cancel control visible
+ * on the wide layouts where an anchored pointer menu is appropriate. Radix may
+ * collision-flip the surface on a narrower pointer viewport; the menu itself
+ * therefore repeats the member name as its visible context.
+ *
+ * These values are exported because the real-browser layout contract measures
+ * the same placement that the component passes to Radix.
+ */
+export const CIRCLE_MEMBER_ACTIONS_MENU_SIDE = "right" as const;
+export const CIRCLE_MEMBER_ACTIONS_MENU_ALIGN = "center" as const;
+/** The trigger ends 16px inside the padded row; 22px leaves a 6px visual gap
+ *  between the card edge and the menu rather than merely clearing the icon. */
+export const CIRCLE_MEMBER_ACTIONS_MENU_SIDE_OFFSET_PX = 22;
+export const CIRCLE_MEMBER_ACTIONS_MENU_COLLISION_PADDING_PX = 12;
+
 /** One-line and two-line rows share this floor, so the list keeps a beat even
  *  where a member has no second line to show. */
 export const CIRCLE_MEMBER_ROW_MIN_HEIGHT_PX = 72;
