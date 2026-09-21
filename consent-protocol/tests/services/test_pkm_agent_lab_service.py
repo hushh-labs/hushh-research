@@ -304,6 +304,38 @@ async def test_agent_contract_retries_one_timeout_within_preview_budget(monkeypa
 
 
 @pytest.mark.asyncio
+async def test_managed_adk_contract_retries_one_timeout_within_preview_budget(monkeypatch):
+    from google.adk import models as adk_models
+
+    service = PKMAgentLabService()
+    service._client = object()
+    monkeypatch.setattr(service, "_should_use_adk_single_turn", lambda _manifest: True)
+    monkeypatch.setattr(adk_models, "Gemini", lambda **_kwargs: object())
+    monkeypatch.setattr(
+        pkm_agent_lab_module, "build_single_turn_agent", lambda *args, **kwargs: object()
+    )
+    run_single_turn = AsyncMock(
+        side_effect=[
+            asyncio.TimeoutError,
+            SimpleNamespace(model_dump=lambda mode: {"status": "ok"}),
+        ]
+    )
+    monkeypatch.setattr(pkm_agent_lab_module, "run_single_turn", run_single_turn)
+    monkeypatch.setattr(pkm_agent_lab_module, "_AGENT_CONTRACT_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(pkm_agent_lab_module, "_AGENT_CONTRACT_MAX_ATTEMPTS", 2)
+
+    result = await service._run_agent_contract(
+        manifest=SimpleNamespace(id="agent_test"),
+        prompt="Return a valid structured response.",
+        response_schema={"type": "OBJECT"},
+        timeout_seconds=1.0,
+    )
+
+    assert result == {"status": "ok"}
+    assert run_single_turn.await_count == 2
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("model_id", ["gemini-3.8-flash", "gemini-3.7-flash"])
 async def test_agent_contract_asks_every_catalog_model_for_minimal_thinking(monkeypatch, model_id):
     """Every schema worker requests the lowest thinking level, whichever catalog model the

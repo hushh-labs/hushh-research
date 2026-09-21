@@ -1604,39 +1604,106 @@ class PKMAgentLabService:
         # Test doubles and legacy manifest stand-ins retain the direct-client
         # seam so deterministic tests never acquire credentials or network I/O.
         if self._should_use_adk_single_turn(manifest):
-            try:
-                from google.adk.models import Gemini
+            deadline = (
+                time.perf_counter() + timeout_seconds if timeout_seconds is not None else None
+            )
+            for attempt in range(1, _AGENT_CONTRACT_MAX_ATTEMPTS + 1):
+                remaining_seconds = (
+                    max(0.0, deadline - time.perf_counter()) if deadline is not None else None
+                )
+                if remaining_seconds is not None and remaining_seconds <= 0.25:
+                    record("budget_exhausted", attempts=attempt - 1)
+                    return None
+                effective_timeout = _AGENT_CONTRACT_TIMEOUT_SECONDS
+                if remaining_seconds is not None:
+                    effective_timeout = max(0.25, min(effective_timeout, remaining_seconds))
+                try:
+                    from google.adk.models import Gemini
 
-                adk_model = Gemini(
-                    model=model_override or _manifest_model_name(manifest) or GEMINI_MODEL,
-                    client=self.client,
-                )
-                agent = build_single_turn_agent(
-                    manifest,
-                    output_schema=response_schema,
-                    model=adk_model,
-                )
-                parsed = await run_single_turn(
-                    agent,
-                    prompt_parts=prompt,
-                    user_id="pkm-agent-lab",
-                    consent_token="managed-runtime",  # noqa: S106 - turn-local sentinel
-                    timeout_seconds=timeout_seconds,
-                )
-                value = parsed.model_dump(mode="json") if hasattr(parsed, "model_dump") else parsed
-                if isinstance(value, dict):
-                    record("success", attempts=1)
-                    return value
-                record("invalid_response", attempts=1)
-                return None
-            except Exception as error:
-                record("adk_failure", attempts=1, error_type=type(error).__name__)
-                logger.warning(
-                    "pkm.agent_contract_adk_failed agent=%s error=%s",
-                    agent_id,
-                    type(error).__name__,
-                )
-                return None
+                    adk_model = Gemini(
+                        model=model_override or _manifest_model_name(manifest) or GEMINI_MODEL,
+                        client=self.client,
+                    )
+                    agent = build_single_turn_agent(
+                        manifest,
+                        output_schema=response_schema,
+                        model=adk_model,
+                    )
+                    parsed = await run_single_turn(
+                        agent,
+                        prompt_parts=prompt,
+                        user_id="pkm-agent-lab",
+                        consent_token="managed-runtime",  # noqa: S106 - turn-local sentinel
+                        timeout_seconds=effective_timeout,
+                    )
+                    value = (
+                        parsed.model_dump(mode="json") if hasattr(parsed, "model_dump") else parsed
+                    )
+                    if isinstance(value, dict):
+                        record("success", attempts=attempt)
+                        return value
+                    record("invalid_response", attempts=attempt)
+                    return None
+                except asyncio.TimeoutError:
+                    retry_budget_seconds = (
+                        max(0.0, deadline - time.perf_counter()) if deadline is not None else None
+                    )
+                    if attempt < _AGENT_CONTRACT_MAX_ATTEMPTS and (
+                        retry_budget_seconds is None or retry_budget_seconds > 0.25
+                    ):
+                        logger.warning(
+                            "pkm.agent_contract_adk_timeout_retry agent=%s attempt=%s "
+                            "max_attempts=%s timeout_seconds=%s budget_remaining_seconds=%s",
+                            agent_id,
+                            attempt,
+                            _AGENT_CONTRACT_MAX_ATTEMPTS,
+                            round(effective_timeout, 3),
+                            round(retry_budget_seconds, 3)
+                            if retry_budget_seconds is not None
+                            else None,
+                        )
+                        continue
+                    record("timeout", attempts=attempt)
+                    logger.warning(
+                        "pkm.agent_contract_adk_timeout agent=%s attempts=%s timeout_seconds=%s",
+                        agent_id,
+                        attempt,
+                        round(effective_timeout, 3),
+                    )
+                    return None
+                except Exception as error:
+                    retry_budget_seconds = (
+                        max(0.0, deadline - time.perf_counter()) if deadline is not None else None
+                    )
+                    can_retry = (
+                        attempt < _AGENT_CONTRACT_MAX_ATTEMPTS
+                        and self._is_retryable_provider_error(error)
+                        and (retry_budget_seconds is None or retry_budget_seconds > 0.25)
+                    )
+                    if can_retry:
+                        retry_delay_seconds = self._provider_retry_delay_seconds(attempt)
+                        if retry_budget_seconds is None or (
+                            retry_budget_seconds > retry_delay_seconds + 0.25
+                        ):
+                            logger.warning(
+                                "pkm.agent_contract_adk_provider_retry agent=%s attempt=%s "
+                                "max_attempts=%s delay_seconds=%s error_type=%s",
+                                agent_id,
+                                attempt,
+                                _AGENT_CONTRACT_MAX_ATTEMPTS,
+                                round(retry_delay_seconds, 3),
+                                type(error).__name__,
+                            )
+                            await asyncio.sleep(retry_delay_seconds)
+                            continue
+                    record("error", attempts=attempt, error_type=type(error).__name__)
+                    logger.warning(
+                        "pkm.agent_contract_adk_failed agent=%s error=%s",
+                        agent_id,
+                        type(error).__name__,
+                    )
+                    return None
+            return None
         deadline = time.perf_counter() + timeout_seconds if timeout_seconds is not None else None
         from google.genai import types as genai_types
 
