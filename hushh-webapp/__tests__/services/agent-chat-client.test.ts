@@ -130,6 +130,64 @@ describe("AG-UI Agent One client", () => {
     expect(ids.slice(0, 2)).toEqual(toolCallId.trim() ? ["invocation-1", "invocation-1"] : ["transport-1", "transport-2"]);
   });
 
+  it("parses the materialized activity after an AG-UI JSON patch", async () => {
+    const updatedLabel = "Professional role";
+    mockTransport.emitEvents = subscriber => {
+      subscriber.onActivityDeltaEvent?.({
+        event: {
+          type: "ACTIVITY_DELTA",
+          messageId: "activity-delta-1",
+          activityType: "one.scope_discovery.v1",
+          patch: [
+            {
+              op: "replace",
+              path: "/requestableScopes",
+              value: [
+                {
+                  scopeRef: "attr.professional.role",
+                  label: updatedLabel,
+                  domain: "professional",
+                  sensitivity: "standard",
+                },
+              ],
+            },
+          ],
+        },
+        activityMessage: {
+          id: "activity-delta-1",
+          role: "activity",
+          activityType: "one.scope_discovery.v1",
+          content: {
+            status: "ok",
+            person: {
+              displayName: "Alex Morgan",
+              profilePath: "/people/1234567890abcdef",
+              relationship: "connected",
+            },
+            requestableScopes: [],
+          },
+        },
+      });
+    };
+
+    const labels: string[] = [];
+    await streamAgentChat({
+      userId: "user-1",
+      message: "List what Alex can share",
+      conversationId: "thread-activity-delta",
+      vaultOwnerToken: "owner-token",
+      handlers: {
+        onStructuredExperience: experience => {
+          if (experience.type === "one.scope_discovery.v1") {
+            labels.push(...experience.scopes.map(scope => scope.label));
+          }
+        },
+      },
+    });
+
+    expect(labels[0]).toBe(updatedLabel);
+  });
+
   it("uses the same AG-UI endpoint before vault unlock", async () => {
     await expect(streamAgentIntro({ message: "What is Hussh?" })).resolves.toMatchObject({
       text: "Hello",

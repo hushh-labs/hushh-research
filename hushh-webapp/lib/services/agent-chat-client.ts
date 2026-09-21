@@ -1,6 +1,7 @@
 import { ApiService } from "@/lib/services/api-service";
 import { nativeStreamFetch } from "@/lib/services/native-sse-fetch";
 import { HttpAgent, type AgentSubscriber, type Tool } from "@ag-ui/client";
+import { applyPatch, type Operation } from "fast-json-patch";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 import { describeDirectiveForOwner } from "@/lib/agent/action-directive-summary";
 import {
@@ -537,9 +538,24 @@ export async function streamAgentChat(input: {
       }
     },
     onActivityDeltaEvent: ({ event, activityMessage }) => {
+      let content: unknown = activityMessage?.content;
+      if (activityMessage && Array.isArray(event.patch)) {
+        try {
+          content = applyPatch(
+            activityMessage.content ?? {},
+            event.patch as Operation[],
+            true,
+            false,
+          ).newDocument;
+        } catch {
+          // The AG-UI client will still apply the patch to its message store.
+          // Do not emit a stale structured card when this delta is malformed.
+          return;
+        }
+      }
       const experience = parseAgentActivityExperience(
         activityMessage?.activityType || event.activityType,
-        activityMessage?.content,
+        content,
       );
       if (experience) {
         handlers.onStructuredExperience?.(experience, String(event.messageId || "").trim() || undefined);
