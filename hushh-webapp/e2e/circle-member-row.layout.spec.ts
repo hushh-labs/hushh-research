@@ -15,6 +15,7 @@ import {
   CIRCLE_DETAIL_HEADER_COPY_CLASSNAME,
   CIRCLE_MEMBERS_CARD_SCROLL_CLASSNAME,
   CIRCLE_MEMBERS_CARD_SHELL_CLASSNAME,
+  CIRCLE_PROCEED_TO_SMS_CLASSNAME,
   CIRCLE_MEMBER_ACTION_CLASSNAME,
   CIRCLE_MEMBER_ACTION_COPY_CLASSNAME,
   CIRCLE_MEMBER_STACKED_ACTION_CLASSNAME,
@@ -340,6 +341,7 @@ const CANDIDATES = [
   ...CIRCLE_DETAIL_HEADER_COPY_CLASSNAME.split(/\s+/),
   ...CIRCLE_MEMBERS_CARD_SHELL_CLASSNAME.split(/\s+/),
   ...CIRCLE_MEMBERS_CARD_SCROLL_CLASSNAME.split(/\s+/),
+  ...CIRCLE_PROCEED_TO_SMS_CLASSNAME.split(/\s+/),
   "flex",
   "items-start",
   "items-center",
@@ -643,6 +645,52 @@ test.describe("Circle roster row", () => {
 });
 
 test.describe("Circle detail responsive layout", () => {
+  for (const width of WIDTHS) {
+    test(`places Proceed to SMS after the roster and against its right edge at ${width}px`, async ({
+      page,
+    }) => {
+      const proceedClass = cn(
+        buttonVariants({ variant: "default", size: "default" }),
+        CIRCLE_PROCEED_TO_SMS_CLASSNAME,
+      );
+      const body = `<main data-flow style="max-width:960px;margin:32px auto;display:flex;flex-direction:column;gap:20px">
+  <section data-members>
+    <div style="margin-bottom:10px;color:var(--app-secondary-label);font-size:14px;font-weight:600">Members</div>
+    <div style="border-radius:24px;background:var(--app-card-surface-default-solid);overflow:hidden">
+      <div style="min-height:72px;padding:16px;color:var(--app-primary-label)">Jhumma Kumari</div>
+      <div style="min-height:72px;padding:16px;border-top:1px solid var(--app-separator);color:var(--app-primary-label)">Neelesh Meena</div>
+      <div style="min-height:72px;padding:16px;border-top:1px solid var(--app-separator);color:var(--app-primary-label)">Rashid</div>
+    </div>
+  </section>
+  <button data-proceed class="${proceedClass}">Proceed to SMS</button>
+</main>`;
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto(
+        await buildFixture("circle-proceed-to-sms", body, CANDIDATES),
+      );
+
+      const [flow, members, proceed] = await Promise.all([
+        boxesOf(page, "[data-flow]"),
+        boxesOf(page, "[data-members]"),
+        boxesOf(page, "[data-proceed]"),
+      ]);
+
+      expect(proceed[0].top).toBeGreaterThanOrEqual(members[0].bottom);
+      expect(Math.abs(proceed[0].right - flow[0].right)).toBeLessThanOrEqual(1);
+      expect(proceed[0].width).toBeLessThanOrEqual(320);
+      expect(proceed[0].height).toBe(48);
+
+      const evidenceDir = process.env.CIRCLE_CTA_EVIDENCE_DIR;
+      if (evidenceDir && (width === 393 || width === 1440)) {
+        fs.mkdirSync(evidenceDir, { recursive: true });
+        await page.screenshot({
+          path: path.join(evidenceDir, `circle-cta-${width}.png`),
+          fullPage: true,
+        });
+      }
+    });
+  }
+
   for (const width of WIDTHS) {
     test(`keeps the complete Circle title and Edit action visible at ${width}px`, async ({
       page,
