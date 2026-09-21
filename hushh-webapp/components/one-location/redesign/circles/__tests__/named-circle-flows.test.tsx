@@ -135,7 +135,17 @@ describe("named Circle flows", () => {
     const proceed = await screen.findByRole("button", {
       name: "Proceed to SMS",
     });
-    expect(proceed).toHaveClass("max-w-[320px]", "mx-auto");
+    const members = screen.getByTestId("one-location-circle-members");
+    expect(
+      members.compareDocumentPosition(proceed) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(proceed).toHaveClass("max-w-[320px]", "min-h-12");
+    expect(proceed).not.toHaveClass("mx-auto");
+    expect(screen.getByTestId("one-location-proceed-to-sms-row")).toHaveClass(
+      "flex",
+      "justify-end",
+    );
     fireEvent.click(proceed);
     expect(onProceedToSms).toHaveBeenCalledTimes(1);
   });

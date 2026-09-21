@@ -62,6 +62,7 @@ import {
   CIRCLE_DETAIL_HEADER_COPY_CLASSNAME,
   CIRCLE_MEMBERS_CARD_SCROLL_CLASSNAME,
   CIRCLE_MEMBERS_CARD_SHELL_CLASSNAME,
+  CIRCLE_PROCEED_TO_SMS_CLASSNAME,
   CIRCLE_MEMBER_ACTION_CLASSNAME,
   CIRCLE_MEMBER_ACTION_COPY_CLASSNAME,
   CIRCLE_MEMBER_STACKED_ACTION_CLASSNAME,
@@ -2062,17 +2063,6 @@ export function CircleDetailFlow({
             ) : null}
           </div>
 
-          {onProceedToSms && hasOtherMember ? (
-            <Button
-              type="button"
-              onClick={onProceedToSms}
-              className="mx-auto h-12 w-full max-w-[320px] rounded-[14px] text-[15px] font-semibold"
-              data-testid="one-location-proceed-to-sms"
-            >
-              Proceed to SMS
-            </Button>
-          ) : null}
-
           {isOwner && circle.systemKind !== "trusted" ? (
             <Sheet
               modal
@@ -2769,6 +2759,22 @@ export function CircleDetailFlow({
               </Button>
             ) : null}
           </section>
+
+          {onProceedToSms && hasOtherMember ? (
+            <div
+              className="flex justify-end"
+              data-testid="one-location-proceed-to-sms-row"
+            >
+              <Button
+                type="button"
+                onClick={onProceedToSms}
+                className={CIRCLE_PROCEED_TO_SMS_CLASSNAME}
+                data-testid="one-location-proceed-to-sms"
+              >
+                Proceed to SMS
+              </Button>
+            </div>
+          ) : null}
 
           {/* A system Circle (today: SMS Contacts) is provisioned by the product
               and read by SOS, so deleting it would switch emergency alerts off

@@ -124,3 +124,10 @@ export const CIRCLE_MEMBERS_CARD_SHELL_CLASSNAME =
 
 export const CIRCLE_MEMBERS_CARD_SCROLL_CLASSNAME =
   "min-h-0 flex-1 sm:overflow-y-auto sm:overscroll-contain sm:[-webkit-overflow-scrolling:touch]";
+
+/**
+ * The SMS handoff follows the complete roster in reading order. It fills a
+ * narrow phone safely, then stays bounded and right-aligned on wider screens.
+ */
+export const CIRCLE_PROCEED_TO_SMS_CLASSNAME =
+  "h-12 min-h-12 w-full max-w-[320px] rounded-[14px] text-[15px] font-semibold";
