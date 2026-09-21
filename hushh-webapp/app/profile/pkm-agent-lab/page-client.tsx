@@ -43,6 +43,7 @@ import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 import {
   getPersistablePreviewCards,
   getReviewRequiredPreviewCount,
+  isDegradedPreviewCard,
 } from "@/lib/profile/pkm-agent-lab-preview";
 import {
   getDeveloperAccess,
@@ -107,6 +108,10 @@ type AgentLabPreviewCard = {
   candidate_payload?: Record<string, unknown>;
   structure_decision?: Record<string, unknown>;
   manifest_draft?: DomainManifest | null;
+  preview_degraded?: boolean;
+  drift_flags?: {
+    fallback_used?: boolean;
+  };
   sharing_impact?: {
     active_recipient_count: number;
     recipient_labels: string[];
@@ -283,7 +288,10 @@ function buildPreviewCards(
   message: string
 ): AgentLabPreviewCard[] {
   if (Array.isArray(response?.preview_cards) && response.preview_cards.length > 0) {
-    return response.preview_cards;
+    return response.preview_cards.map((card) => ({
+      ...card,
+      preview_degraded: card.preview_degraded === true || response.used_fallback === true,
+    }));
   }
   if (!response) return [];
   return [
@@ -319,6 +327,7 @@ function buildPreviewCards(
       candidate_payload: response.candidate_payload,
       structure_decision: response.structure_decision,
       manifest_draft: response.manifest_draft,
+      preview_degraded: response.used_fallback === true,
     },
   ];
 }
@@ -1284,10 +1293,12 @@ export default function PkmAgentLabPageClient() {
                 <SettingsRow
                   key={card.card_id}
                   title={`${titleize(card.target_domain || "general")} capture`}
-                  description={`${String(card.source_text || "").slice(0, 180)}${String(card.source_text || "").length > 180 ? "..." : ""}${card.sharing_impact?.summary ? ` ${card.sharing_impact.summary}` : ""}`}
+                  description={`${String(card.source_text || "").slice(0, 180)}${String(card.source_text || "").length > 180 ? "..." : ""}${isDegradedPreviewCard(card) ? " This preview needs to be prepared again before it can be saved." : ""}${card.sharing_impact?.summary ? ` ${card.sharing_impact.summary}` : ""}`}
                   trailing={
                     <Badge variant="secondary">
-                      {card.write_mode === "can_save"
+                      {isDegradedPreviewCard(card)
+                        ? "Retry required"
+                        : card.write_mode === "can_save"
                         ? "Ready"
                         : card.write_mode === "confirm_first"
                           ? "Review"
