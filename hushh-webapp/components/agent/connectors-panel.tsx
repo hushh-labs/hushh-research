@@ -30,10 +30,12 @@ import {
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { useAuth } from "@/hooks/use-auth";
 import { ROUTES } from "@/lib/navigation/routes";
+import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
 import {
   ExternalConnectorService,
   type ExternalConnectorSummary,
 } from "@/lib/services/external-connector-service";
+import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
 import { useVault } from "@/lib/vault/vault-context";
 
 /**
@@ -42,9 +44,12 @@ import { useVault } from "@/lib/vault/vault-context";
  * them here, disabled, tells a person what's coming without implying any of
  * them is one API call away. Real rows from the registry always render first
  * and never duplicate an id also listed here.
+ *
+ * Google Workspace/Gmail is deliberately absent: it's a real, already-shipped
+ * connection (see `useGmailConnectorStatus`), not a registry row, so it gets
+ * its own card above with live status instead of a disabled stub here.
  */
 const COMING_SOON_CONNECTORS: { id: string; displayName: string }[] = [
-  { id: "google-workspace", displayName: "Google Workspace" },
   { id: "microsoft-graph", displayName: "Microsoft Graph" },
   { id: "notion", displayName: "Notion" },
   { id: "hubspot", displayName: "HubSpot" },
@@ -68,6 +73,41 @@ export function ConnectorsPanel({
   const [error, setError] = useState<string | null>(null);
   const [apiKeyTarget, setApiKeyTarget] =
     useState<ExternalConnectorSummary | null>(null);
+  const [gmailConnectBusy, setGmailConnectBusy] = useState(false);
+
+  const gmailIdTokenProvider = useCallback(
+    () => (user?.getIdToken ? user.getIdToken() : Promise.resolve("")),
+    [user],
+  );
+  const gmailConnectorStatus = useGmailConnectorStatus({
+    userId: user?.uid || null,
+    enabled: open,
+    idTokenProvider: user?.getIdToken ? gmailIdTokenProvider : null,
+    routeHref: ROUTES.HOME,
+  });
+  const handleConnectGmail = useCallback(async () => {
+    if (!user?.uid || !user?.getIdToken) return;
+    setGmailConnectBusy(true);
+    try {
+      const idToken = await user.getIdToken();
+      const start = await GmailReceiptsService.startConnect({
+        idToken,
+        userId: user.uid,
+        includeGrantedScopes: false,
+      });
+      window.location.assign(start.authorize_url);
+    } catch {
+      setGmailConnectBusy(false);
+    }
+  }, [user]);
+  const handleDisconnectGmail = useCallback(async () => {
+    setGmailConnectBusy(true);
+    try {
+      await gmailConnectorStatus.disconnectGmail();
+    } finally {
+      setGmailConnectBusy(false);
+    }
+  }, [gmailConnectorStatus]);
 
   const refresh = useCallback(async () => {
     if (!vaultOwnerToken) {
@@ -174,6 +214,41 @@ export function ConnectorsPanel({
               </p>
             ) : (
               <div className="flex flex-col gap-3">
+                <Card key="google-workspace">
+                  <CardHeader className="flex-row items-center justify-between gap-4">
+                    <div>
+                      <CardTitle>Google Workspace</CardTitle>
+                      <CardDescription>Gmail and Calendar</CardDescription>
+                    </div>
+                    {gmailConnectorStatus.status?.connected ? (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        disabled={gmailConnectBusy}
+                        onClick={() => void handleDisconnectGmail()}
+                      >
+                        {gmailConnectBusy ? "Disconnecting…" : "Disconnect"}
+                      </Button>
+                    ) : (
+                      <Button
+                        type="button"
+                        disabled={gmailConnectBusy}
+                        onClick={() => void handleConnectGmail()}
+                      >
+                        {gmailConnectBusy ? "Connecting…" : "Connect"}
+                      </Button>
+                    )}
+                  </CardHeader>
+                  {gmailConnectorStatus.status?.connected &&
+                  gmailConnectorStatus.status?.google_email ? (
+                    <CardContent className="pt-0">
+                      <p className="text-muted-foreground text-xs">
+                        Connected as {gmailConnectorStatus.status.google_email}
+                      </p>
+                    </CardContent>
+                  ) : null}
+                </Card>
+
                 {connectors.map((connector) => (
                   <Card key={connector.connectorId}>
                     <CardHeader className="flex-row items-center justify-between gap-4">
