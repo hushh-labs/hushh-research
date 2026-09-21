@@ -125,6 +125,7 @@ function keyguardShowing() {
 function wake() {
   tryShell("input keyevent KEYCODE_WAKEUP");
   tryShell("wm dismiss-keyguard");
+  tryShell("cmd statusbar collapse");
   sleep(600);
   if (keyguardShowing()) {
     log("PERF_BLOCKED reason=keyguard detail=the phone is locked; unlock it and run again");

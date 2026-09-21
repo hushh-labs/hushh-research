@@ -11,6 +11,7 @@ import android.util.Log
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
+import androidx.test.uiautomator.StaleObjectException
 import androidx.test.uiautomator.BySelector
 import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.UiObject2
@@ -59,6 +60,9 @@ class AttachedRenderPerfTest {
         exportDir.deleteRecursively()
         device.wakeUp()
         device.executeShellCommand("wm dismiss-keyguard")
+        // A pulled-down shade takes every tap; a gesture in an earlier run can
+        // leave it open.
+        device.executeShellCommand("cmd statusbar collapse")
 
         try {
             if (section == "all" || section == "feed") feedSection()
@@ -101,16 +105,16 @@ class AttachedRenderPerfTest {
         // agent rows, so the pane's own controls carry the open and dismiss.
         val openProfile = device.wait(Until.findObject(By.desc("Open Profile")), 5_000)
         if (openProfile != null) {
-            openProfile.click()
+            tapObject(openProfile)
             settle(1_500)
             val close = device.wait(Until.findObject(By.desc("Close Profile")), 3_000)
-            if (close != null) close.click() else device.pressBack()
+            if (close != null) tapObject(close) else device.pressBack()
             settle(1_500)
             group("profile-pane-open-dismiss") {
-                device.findObject(By.desc("Open Profile"))?.click()
+                device.findObject(By.desc("Open Profile"))?.let { tapObject(it) }
                 settle(1_500)
                 val c = device.findObject(By.desc("Close Profile"))
-                if (c != null) c.click() else device.pressBack()
+                if (c != null) tapObject(c) else device.pressBack()
                 settle(1_200)
             }
         } else {
@@ -125,12 +129,12 @@ class AttachedRenderPerfTest {
                 if (composer == null) {
                     log("PERF_SKIPPED name=chat-stream-30s reason=composer_not_found")
                 } else {
-                    composer.click()
+                    tapObject(composer)
                     settle(500)
                     composer.text = "Summarize my week in three short bullet points."
                     settle(500)
                     val send = device.findObject(By.desc("Send message"))
-                    if (send != null) send.click() else device.pressEnter()
+                    if (send != null) tapObject(send) else device.pressEnter()
                     settle(30_000)
                 }
             }
@@ -222,9 +226,34 @@ class AttachedRenderPerfTest {
             .putExtra(PerfProbeLaunchPolicy.PROBE_EXTRA, true)
             .putExtra(PerfProbeLaunchPolicy.ROUTE_EXTRA, route)
         target.startActivity(intent)
-        assertTrue("app window", device.wait(Until.hasObject(By.pkg(pkg).depth(0)), 30_000))
+        // The gate's passkey attempt can put Android's Credential Manager in
+        // front before the app's own window is visible to UIAutomator.
+        val windowDeadline = System.currentTimeMillis() + 30_000
+        var appWindow = false
+        while (System.currentTimeMillis() < windowDeadline && !appWindow) {
+            dismissCredentialManager()
+            appWindow = device.wait(Until.hasObject(By.pkg(pkg).depth(0)), 2_000)
+        }
+        assertTrue("app window", appWindow)
+        // CLEAR_TASK finishes the previous activity, but its WebView can stay
+        // on screen for a moment; the old window would then take the taps and
+        // the swipes (and its accessibility tree would answer for the new
+        // one). Wait until exactly one MainActivity record remains.
+        var records = activityRecordCount()
+        val recordDeadline = System.currentTimeMillis() + 15_000
+        while (records != 1 && System.currentTimeMillis() < recordDeadline) {
+            settle(500)
+            records = activityRecordCount()
+        }
+        log("PERF_ACTIVITIES route=$route main_activity_records=$records front=${device.currentPackageName}")
+        device.waitForIdle(5_000)
         return unlockVault(240_000)
     }
+
+    private fun activityRecordCount(): Int =
+        Regex("\\* Hist +#\\d+: ActivityRecord\\{[^}]*$pkg/\\.MainActivity")
+            .findAll(device.executeShellCommand("dumpsys activity activities"))
+            .count()
 
     /**
      * Passphrase method only: reveal the field if a quick method is the
@@ -233,33 +262,79 @@ class AttachedRenderPerfTest {
      * the person holding the phone. The passphrase is never logged.
      */
     private fun unlockVault(timeoutMs: Long): Boolean {
-        val deadline = System.currentTimeMillis() + timeoutMs
-        var typed = false
+        // The clock starts when the field is on screen (a cold boot can take a
+        // while to reach the gate); a mismatch is retyped, up to three times.
+        var deadline = System.currentTimeMillis() + timeoutMs
+        var fieldSeen = false
+        var attempts = 0
         var announced = false
+        var snapshotLogged = false
+        var typedAt = 0L
+        var fieldGoneSince = 0L
         while (System.currentTimeMillis() < deadline) {
             if (signedInBarPresent()) return true
+            // The gate starts the passkey flow at launch; with no passkey on
+            // this phone Android's Credential Manager covers the app with a
+            // "No available sign-in" sheet. Cancel it and use the passphrase.
+            if (dismissCredentialManager()) continue
             var field = findPassphraseField()
-            if (!typed && passphrase.isNotEmpty()) {
-                if (field == null) {
-                    // "Passphrase" is the escape link on the biometric / passkey step.
-                    device.findObject(By.text("Passphrase").clazz("android.widget.Button"))?.let {
-                        it.click()
-                        settle(800)
-                        field = findPassphraseField()
-                    }
+            // After the unlock the gate unmounts and UIAutomator's view of the
+            // page can go stale (no tab buttons visible to it although the
+            // shell is up); the field staying gone for four seconds with the
+            // app in front and no mismatch banner is the unlock.
+            if (attempts > 0 && field == null && device.currentPackageName == pkg &&
+                device.findObject(By.textContains("did not match")) == null
+            ) {
+                if (fieldGoneSince == 0L) fieldGoneSince = System.currentTimeMillis()
+                if (System.currentTimeMillis() - fieldGoneSince >= 4_000) {
+                    log("PERF_UNLOCK verified=field-gone")
+                    return true
                 }
-                if (field != null) {
-                    log("PERF_UNLOCK method=passphrase")
-                    field.click()
-                    settle(400)
-                    field.text = passphrase
-                    settle(300)
-                    val unlock = device.findObject(By.text("Unlock"))
-                    if (unlock != null) unlock.click() else device.pressEnter()
-                    typed = true
-                    settle(2_000)
-                    continue
+            } else {
+                fieldGoneSince = 0L
+            }
+            if (field == null && attempts == 0 && passphrase.isNotEmpty()) {
+                // "Passphrase" is the escape link on the biometric / passkey step.
+                device.findObject(By.text("Passphrase").clazz("android.widget.Button"))?.let {
+                    it.click()
+                    settle(800)
+                    field = findPassphraseField()
                 }
+            }
+            val mismatch = device.findObject(By.textContains("did not match")) != null
+            if (field != null && passphrase.isNotEmpty() && (attempts == 0 || (mismatch && attempts < 3))) {
+                if (!fieldSeen) {
+                    fieldSeen = true
+                    deadline = System.currentTimeMillis() + timeoutMs
+                }
+                log("PERF_UNLOCK method=passphrase attempt=${attempts + 1}")
+                field.click()
+                settle(400)
+                if (attempts > 0) field.clear()
+                field.text = passphrase
+                settle(300)
+                // The page re-renders on input; the node handle can go stale.
+                val typedLength = try { field.text?.length ?: -1 } catch (_: StaleObjectException) { -2 }
+                if (typedLength >= 0 && typedLength != passphrase.length) log("PERF_UNLOCK typed_mismatch expected=${passphrase.length} got=$typedLength")
+                val unlock = device.findObject(By.text("Unlock"))
+                try {
+                    if (unlock != null) tapObject(unlock) else device.pressEnter()
+                } catch (_: StaleObjectException) {
+                    device.pressEnter()
+                }
+                attempts += 1
+                typedAt = System.currentTimeMillis()
+                settle(2_000)
+                continue
+            }
+            if (attempts > 0 && !snapshotLogged && System.currentTimeMillis() - typedAt > 20_000) {
+                // What UIAutomator can see while the signed-in bar stays unfound:
+                // counts and the tab labels only. Never node texts: the page
+                // exposes the passphrase field's value through accessibility.
+                val radios = device.findObjects(By.clazz("android.widget.RadioButton")).size
+                val webViews = device.findObjects(By.clazz("android.webkit.WebView")).size
+                log("PERF_TREE pkg=${device.currentPackageName} webviews=$webViews radios=$radios records=${activityRecordCount()}")
+                snapshotLogged = true
             }
             if (!announced) {
                 log("PERF_WAITING_FOR_HUMAN step=sign-in-and-unlock timeout_s=${timeoutMs / 1000}")
@@ -271,13 +346,23 @@ class AttachedRenderPerfTest {
         return false
     }
 
+    /** Cancels the system passkey sheet when it is in front; true when it was. */
+    private fun dismissCredentialManager(): Boolean {
+        if (device.currentPackageName != "com.android.credentialmanager") return false
+        val cancel = device.findObject(By.text("Cancel")) ?: return false
+        cancel.click()
+        log("PERF_UNLOCK dismissed=credential-manager")
+        settle(800)
+        return true
+    }
+
     private fun findPassphraseField(): UiObject2? =
         device.findObject(By.desc("Vault passphrase"))
             ?: device.findObject(By.hint("Enter passphrase"))
             ?: device.findObject(By.clazz("android.widget.EditText").pkg(pkg))
 
     private fun signedInBarPresent(): Boolean =
-        device.findObject(By.text("One").clazz("android.widget.RadioButton")) != null
+        device.wait(Until.hasObject(By.text("One").clazz("android.widget.RadioButton")), 500)
 
     private fun finishLaunch(route: String) {
         // 12 s idle lets the probe write its export; HOME fires one more
@@ -301,33 +386,69 @@ class AttachedRenderPerfTest {
     private fun x(f: Float) = (device.displayWidth * f).toInt()
     private fun y(f: Float) = (device.displayHeight * f).toInt()
 
-    /** One thumb sweep; the step count sets the speed (about 5 ms per step). */
+    // Gestures go through the shell's `input` tool, the same injection path
+    // the attribution card uses from adb: events UiDevice.swipe/click inject
+    // through UiAutomation never reached the page's pointer listeners on this
+    // phone (the probe saw no window while the screen kept its idle 120 Hz).
+    private fun shellInput(command: String) {
+        device.executeShellCommand("input $command")
+    }
+
+    /** One thumb sweep at the card's speed (200 ms). */
     private fun flick(fromY: Float, toY: Float) {
-        device.swipe(x(0.5f), y(fromY), x(0.5f), y(toY), 30)
+        shellInput("swipe ${x(0.5f)} ${y(fromY)} ${x(0.5f)} ${y(toY)} 200")
     }
 
     private fun drag(x1: Float, y1: Float, x2: Float, y2: Float) {
-        device.swipe(x(x1), y(y1), x(x2), y(y2), 40)
+        shellInput("swipe ${x(x1)} ${y(y1)} ${x(x2)} ${y(y2)} 300")
+    }
+
+    private fun tapAt(px: Int, py: Int) {
+        shellInput("tap $px $py")
+    }
+
+    private fun tapObject(node: UiObject2) {
+        val c = node.visibleCenter
+        tapAt(c.x, c.y)
     }
 
     private val navCache = HashMap<String, Pair<Int, Int>>()
+
+    /**
+     * The signed-in bottom bar, left to right, as fractions of the screen:
+     * five equal pills in a row that spans the width, centred 5.8 % above
+     * the bottom. Used when the accessibility tree does not expose the bar
+     * (it goes stale after the gate unmounts); the tree wins when it answers.
+     */
+    private val navFractions = mapOf(
+        "Chat" to 0.15f, "One" to 0.325f, "Connect" to 0.5f, "Feed" to 0.675f, "Search" to 0.85f,
+    )
 
     /** The bottom bar tab with this label: a RadioButton (segmented pill). */
     private fun tapNav(label: String): Boolean {
         val cached = navCache[label]
         if (cached != null) {
-            device.click(cached.first, cached.second)
+            tapAt(cached.first, cached.second)
             return true
         }
         val selector: BySelector = By.text(label).clazz("android.widget.RadioButton")
-        val tab = device.wait(Until.findObject(selector), 5_000)
-        if (tab == null) {
+        val tab = device.wait(Until.findObject(selector), 2_000)
+        if (tab != null) {
+            val c = tab.visibleCenter
+            navCache[label] = c.x to c.y
+            tapAt(c.x, c.y)
+            return true
+        }
+        val fraction = navFractions[label]
+        if (fraction == null) {
             log("PERF_SKIPPED name=nav-tap reason=label_not_found label=$label")
             return false
         }
-        val c = tab.visibleCenter
-        navCache[label] = c.x to c.y
-        device.click(c.x, c.y)
+        val px = x(fraction)
+        val py = y(0.942f)
+        navCache[label] = px to py
+        log("PERF_NAV label=$label source=position")
+        tapAt(px, py)
         return true
     }
 

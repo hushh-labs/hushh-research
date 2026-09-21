@@ -183,6 +183,7 @@ if [[ "$ATTACHED" == "1" ]]; then
   "$ADB" -s "$ANDROID_SERIAL" shell rm -rf /sdcard/Download/hushh-perf >/dev/null 2>&1 || true
   # Stream the tag for the whole run: a `logcat -d` afterwards can lose the
   # early lines to buffer eviction on a busy phone.
+  "$ADB" -s "$ANDROID_SERIAL" logcat -c >/dev/null 2>&1 || true
   "$ADB" -s "$ANDROID_SERIAL" logcat -v raw -s HUSHH_PERF:I > "$OUT_DIR/logcat.log" 2>&1 &
   LOGCAT_PID=$!
   # The passphrase is quoted for the device shell by a script, never echoed.
@@ -194,6 +195,8 @@ if [[ "$ATTACHED" == "1" ]]; then
   TEST_STATUS=$?
   sleep 1
   kill "$LOGCAT_PID" 2>/dev/null || true
+  # The phone's own log buffer keeps every line the test logged; clear it.
+  "$ADB" -s "$ANDROID_SERIAL" logcat -c >/dev/null 2>&1 || true
   grep -E "^PERF_" "$OUT_DIR/logcat.log" > "$OUT_DIR/gestures.log" || true
   grep -q "INSTRUMENTATION_STATUS_CODE: -1\|INSTRUMENTATION_RESULT: shortMsg=" "$OUT_DIR/instrument.log" && TEST_STATUS=1
   grep -E "PERF_DISPLAY" "$OUT_DIR/gestures.log" > "$OUT_DIR/display.txt" || true
@@ -202,8 +205,8 @@ if [[ "$ATTACHED" == "1" ]]; then
   # a debuggable build also still has them under files/hushh-perf.
   "$ADB" -s "$ANDROID_SERIAL" pull /sdcard/Download/hushh-perf "$OUT_DIR/pull" >/dev/null 2>&1 || true
   if [[ -d "$OUT_DIR/pull" ]]; then
-    for f in "$OUT_DIR"/pull/*.json; do [[ -f "$f" ]] && mv "$f" "$OUT_DIR/probe/"; done
-    for f in "$OUT_DIR"/pull/gfx-*.txt; do
+    for f in "$OUT_DIR"/pull/*.json(N); do [[ -f "$f" ]] && mv "$f" "$OUT_DIR/probe/"; done
+    for f in "$OUT_DIR"/pull/gfx-*.txt(N); do
       [[ -f "$f" ]] || continue
       name="$(basename "$f" .txt)"; name="${name#gfx-}"
       mv "$f" "$OUT_DIR/gfx/$name.txt"
@@ -227,7 +230,7 @@ fi
 set -e
 
 # ---- the passphrase must not be anywhere in what we keep ----
-for f in "$OUT_DIR"/*.log "$OUT_DIR"/probe/*.json "$OUT_DIR"/gfx/*; do
+for f in "$OUT_DIR"/*.log(N) "$OUT_DIR"/probe/*.json(N) "$OUT_DIR"/gfx/*(N); do
   [[ -f "$f" ]] || continue
   if grep -q -F -- "$REVIEWER_VAULT_PASSPHRASE" "$f"; then
     echo "$f contained the vault passphrase; removing it." >&2
@@ -236,7 +239,7 @@ for f in "$OUT_DIR"/*.log "$OUT_DIR"/probe/*.json "$OUT_DIR"/gfx/*; do
   fi
 done
 
-COUNT="$(ls "$OUT_DIR"/probe/*.json 2>/dev/null | wc -l | tr -d ' ')"
+COUNT="$(ls "$OUT_DIR"/probe/*.json(N) 2>/dev/null | wc -l | tr -d ' ')"
 if [[ "$COUNT" == "0" ]]; then
   echo "No probe exports were pulled (status $TEST_STATUS); see $OUT_DIR/gestures.log" >&2
   exit 1
