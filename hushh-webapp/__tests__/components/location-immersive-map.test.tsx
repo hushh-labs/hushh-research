@@ -257,7 +257,12 @@ vi.mock(
         <button
           type="button"
           data-testid="dismiss-nearby-check-in"
-          onClick={() => onOpenChange(false)}
+          onClick={() => {
+            // The real sheet retires its transient focus when it closes. A live
+            // venue must therefore remain derivable from authoritative presence.
+            onPlaceFocusChange(null);
+            onOpenChange(false);
+          }}
         >
           Dismiss check-in
         </button>
@@ -274,7 +279,9 @@ vi.mock(
                 consentVersion: "one-location-nearby-presence-v3",
                 checkedInAt: "2026-07-31T00:00:00.000Z",
                 expiresAt: "2026-07-31T01:00:00.000Z",
-                placeLabel: "Event venue",
+                placeLabel: "Hotel Two",
+                placeLat: 37.7775,
+                placeLng: -122.4172,
               },
               attendees: [
                 {
@@ -294,6 +301,39 @@ vi.mock(
           }
         >
           Publish nearby state
+        </button>
+        <button
+          type="button"
+          data-testid="publish-legacy-nearby-state"
+          onClick={() =>
+            onStateChange({
+              presence: {
+                status: "active",
+                audience: "all_opted_in",
+                radiusMeters: 500,
+                allowConnectionRequests: true,
+                consentVersion: "one-location-nearby-presence-v3",
+                checkedInAt: "2026-07-31T00:00:00.000Z",
+                expiresAt: "2026-07-31T01:00:00.000Z",
+                placeLabel: "Legacy venue",
+              },
+              attendees: [],
+            })
+          }
+        >
+          Publish legacy nearby state
+        </button>
+        <button
+          type="button"
+          data-testid="clear-nearby-state"
+          onClick={() =>
+            onStateChange({
+              presence: null,
+              attendees: [],
+            })
+          }
+        >
+          Clear nearby state
         </button>
         <button
           type="button"
@@ -370,6 +410,7 @@ import {
   readOneLocationControlState,
   updateOneLocationControlState,
 } from "@/lib/one-location/location-control-state";
+import { clearAllLocationWorkspaceMemory } from "@/lib/one-location/location-workspace-memory";
 import { forgetCachedRendererConsent } from "@/lib/one-location/map-renderer-consent";
 import { __resetNativeMapLifecycleForTests } from "@/lib/one-location/native-map-lifecycle";
 
@@ -403,6 +444,7 @@ beforeEach(() => {
   // Lanes are module state: without this a superseded claim or a queued
   // teardown from an earlier case leaks into the next one.
   __resetNativeMapLifecycleForTests();
+  clearAllLocationWorkspaceMemory();
   experienceHarness.placeFocus = { ...DEFAULT_PLACE_FOCUS };
   forgetOneLocationControlPreference("test-user");
   forgetCachedRendererConsent("test-user");
@@ -524,6 +566,44 @@ function seedConsentedRenderer() {
   });
 }
 
+function stubCheckInMapGeometry() {
+  vi.spyOn(Element.prototype, "getBoundingClientRect").mockImplementation(
+    function (this: Element) {
+      const width = this.tagName === "CAPACITOR-GOOGLE-MAP" ? 1_000 : 0;
+      const height = this.tagName === "CAPACITOR-GOOGLE-MAP" ? 800 : 0;
+      return {
+        x: 0,
+        y: 0,
+        width,
+        height,
+        top: 0,
+        left: 0,
+        right: width,
+        bottom: height,
+        toJSON: () => ({}),
+      } as DOMRect;
+    },
+  );
+}
+
+async function reportCheckInCamera() {
+  await act(async () => {
+    mapHarness.listeners.cameraIdle?.({
+      bounds: {
+        northeast: { lat: 37.79, lng: -122.4 },
+        southwest: { lat: 37.76, lng: -122.43 },
+        center: { lat: 37.775, lng: -122.415 },
+      },
+      latitude: 37.775,
+      longitude: -122.415,
+      zoom: 14,
+      bearing: 0,
+      tilt: 0,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 40));
+  });
+}
+
 afterEach(() => {
   forgetOneLocationControlPreference("test-user");
   forgetCachedRendererConsent("test-user");
@@ -584,9 +664,7 @@ describe("LocationImmersiveMap demo experience", () => {
       screen.queryByTestId("one-location-map-disclosure"),
     ).not.toBeInTheDocument();
     // And the screen is still usable: the way out is still there.
-    expect(
-      screen.getByTestId("one-location-map-close"),
-    ).toBeInTheDocument();
+    expect(screen.getByTestId("one-location-map-close")).toBeInTheDocument();
   });
 
   it("says the title and one short line, and nothing about how the renderer is fed", () => {
@@ -610,7 +688,9 @@ describe("LocationImmersiveMap demo experience", () => {
 
     // Consent itself is unchanged: this is still the gate, and Continue is
     // still the only thing that writes the renderer consent version.
-    expect(screen.getByRole("button", { name: "Continue" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Continue" }),
+    ).toBeInTheDocument();
   });
 
   it("frames demo people, searches locally, focuses, locates, and exits without writes", async () => {
@@ -658,9 +738,7 @@ describe("LocationImmersiveMap demo experience", () => {
     // sat beside Ghost and read as its alternative. Demo puts three people
     // on the map, and narrowing the search must not change that count --
     // the row counts who shares with you, not who survived the filter.
-    const framingRows = screen.getAllByTestId(
-      "one-location-map-show-everyone",
-    );
+    const framingRows = screen.getAllByTestId("one-location-map-show-everyone");
     expect(framingRows).toHaveLength(1);
     expect(framingRows[0]).toHaveAccessibleName(
       "3 people sharing with you. Fit them all on the map.",
@@ -772,9 +850,7 @@ describe("LocationImmersiveMap demo experience", () => {
     trayContentHeightStub = 96;
 
     render(<LocationImmersiveMap />);
-    fireEvent.click(
-      screen.getByRole("button", { name: "Continue" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
         "data-map-ready",
@@ -830,9 +906,7 @@ describe("LocationImmersiveMap demo experience", () => {
     }));
 
     render(<LocationImmersiveMap />);
-    fireEvent.click(
-      screen.getByRole("button", { name: "Continue" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
         "data-map-ready",
@@ -1063,11 +1137,10 @@ describe("LocationImmersiveMap demo experience", () => {
     expect(live.size).toBe(added.at(-1)?.length ?? 0);
   });
 
-  it("pins the check-in place while the owner stays an avatar", async () => {
-    // The owner's position and the venue they check in to are routinely a
-    // street apart. The venue keeps its renderer pin; the owner is drawn as
-    // their avatar in HTML and never as a second renderer pin -- two markers
-    // on one coordinate, one of them generic, was the bug being reported.
+  it("previews a candidate place separately from the owner's avatar", async () => {
+    // Before confirmation the owner still needs to compare their live position
+    // with the venue they are considering. The pending venue keeps its renderer
+    // pin while the owner stays an HTML avatar at the current device fix.
     experienceHarness.demoMode = false;
     experienceHarness.nearbyAvailable = true;
     // Check-in is its own destination now; the legacy `?action=check-in`
@@ -1115,7 +1188,8 @@ describe("LocationImmersiveMap demo experience", () => {
       expect(drawn.every((marker) => marker.title === undefined)).toBe(true);
     });
 
-    // A connector makes the gap readable rather than leaving two loose pins.
+    // A connector makes the pre-confirmation gap readable rather than leaving
+    // two loose points.
     await waitFor(() => {
       expect(mapHarness.map.addPolylines).toHaveBeenCalledWith([
         expect.objectContaining({
@@ -1138,6 +1212,143 @@ describe("LocationImmersiveMap demo experience", () => {
         "polyline-0",
       ]);
     });
+    expect(
+      screen.queryByTestId("one-location-nearby-place-legend"),
+    ).not.toBeInTheDocument();
+  });
+
+  it("moves the owner avatar to the venue and removes the place pin after check-in", async () => {
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    experienceHarness.placeFocus = {
+      ...experienceHarness.placeFocus,
+      active: true,
+    };
+    stubCheckInMapGeometry();
+
+    seedConsentedRenderer();
+    render(<LocationImmersiveMap surface="check-in" />);
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+
+    mapHarness.map.addMarkers.mockClear();
+    mapHarness.map.addPolylines.mockClear();
+    fireEvent.click(screen.getByTestId("publish-nearby-search-area"));
+    fireEvent.click(screen.getByTestId("publish-nearby-state"));
+    fireEvent.click(screen.getByTestId("publish-nearby-place-focus"));
+    await reportCheckInCamera();
+
+    let avatar = await screen.findByTestId("one-location-map-self-avatar");
+    expect(avatar).toHaveAccessibleName("Your check-in at Hotel Two");
+    fireEvent.click(screen.getByTestId("dismiss-nearby-check-in"));
+    avatar = screen.getByTestId("one-location-map-self-avatar");
+    expect(avatar).toHaveAccessibleName("Your check-in at Hotel Two");
+    expect(screen.getByTestId("one-location-map-locate")).toHaveAccessibleName(
+      "Show my check-in place",
+    );
+    fireEvent.click(avatar);
+    expect(mapHarness.map.setCamera).toHaveBeenLastCalledWith({
+      coordinate: { lat: 37.7775, lng: -122.4172 },
+      zoom: 15,
+      animate: true,
+    });
+
+    // The owner avatar is HTML, and it now owns the venue coordinate. Neither
+    // the old GPS point nor a duplicate green venue pin reaches the renderer.
+    const rendererCoordinates = mapHarness.map.addMarkers.mock.calls.flatMap(
+      (call) =>
+        (call[0] as Array<{ coordinate: { lat: number; lng: number } }>) ?? [],
+    );
+    expect(
+      rendererCoordinates.some(
+        (marker) =>
+          marker.coordinate.lat === 37.776 &&
+          marker.coordinate.lng === -122.418,
+      ),
+    ).toBe(false);
+    expect(
+      rendererCoordinates.some(
+        (marker) =>
+          marker.coordinate.lat === 37.7775 &&
+          marker.coordinate.lng === -122.4172,
+      ),
+    ).toBe(false);
+    expect(mapHarness.map.addPolylines).not.toHaveBeenCalled();
+
+    const legend = screen.getByTestId("one-location-nearby-search-area-legend");
+    expect(legend).toHaveTextContent("Checked in at Hotel Two");
+    expect(legend).not.toHaveTextContent("You are here");
+    expect(legend).not.toHaveTextContent("180 m from you");
+
+    // Checkout retires the venue identity and restores the untouched device
+    // marker; no GPS data was overwritten to achieve the active presentation.
+    fireEvent.click(screen.getByTestId("clear-nearby-state"));
+    fireEvent.click(screen.getByTestId("clear-nearby-place-focus"));
+    avatar = await screen.findByTestId("one-location-map-self-avatar");
+    expect(avatar).toHaveAccessibleName("Your location");
+    fireEvent.click(avatar);
+    expect(mapHarness.map.setCamera).toHaveBeenLastCalledWith({
+      coordinate: { lat: 37.776, lng: -122.418 },
+      zoom: 15,
+      animate: true,
+    });
+  });
+
+  it("renders the venue-anchored avatar without a fresh device fix", async () => {
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    stubCheckInMapGeometry();
+    serviceHarness.captureCurrentPosition.mockRejectedValue(
+      new Error("location permission unavailable"),
+    );
+
+    seedConsentedRenderer();
+    render(<LocationImmersiveMap surface="check-in" />);
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+    fireEvent.click(screen.getByTestId("publish-nearby-state"));
+    await reportCheckInCamera();
+
+    const avatar = await screen.findByTestId("one-location-map-self-avatar");
+    expect(avatar).toHaveAccessibleName("Your check-in at Hotel Two");
+    fireEvent.click(avatar);
+    expect(mapHarness.map.setCamera).toHaveBeenLastCalledWith({
+      coordinate: { lat: 37.7775, lng: -122.4172 },
+      zoom: 15,
+      animate: true,
+    });
+  });
+
+  it("keeps the GPS avatar when a legacy active presence has no venue coordinates", async () => {
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    stubCheckInMapGeometry();
+
+    seedConsentedRenderer();
+    render(<LocationImmersiveMap surface="check-in" />);
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+    fireEvent.click(screen.getByTestId("publish-legacy-nearby-state"));
+    fireEvent.click(screen.getByTestId("clear-nearby-place-focus"));
+    await reportCheckInCamera();
+
+    const avatar = await screen.findByTestId("one-location-map-self-avatar");
+    expect(avatar).toHaveAccessibleName("Your location");
+    expect(screen.getByTestId("one-location-map-locate")).toHaveAccessibleName(
+      "Show my location",
+    );
     expect(
       screen.queryByTestId("one-location-nearby-place-legend"),
     ).not.toBeInTheDocument();
@@ -1181,6 +1392,7 @@ describe("LocationImmersiveMap demo experience", () => {
     expect(
       screen.getByTestId("one-location-nearby-search-area-legend"),
     ).toHaveTextContent("Checked in at Hotel Two");
+    expect(mapHarness.map.addPolylines).not.toHaveBeenCalled();
   });
 
   it("keeps the full search circle in the visible mobile viewport above the sheet", async () => {
@@ -1316,7 +1528,9 @@ describe("LocationImmersiveMap demo experience", () => {
       );
     });
     fireEvent.click(screen.getByTestId("publish-nearby-search-area"));
-    await waitFor(() => expect(mapHarness.map.fitBounds).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(mapHarness.map.fitBounds).toHaveBeenCalledTimes(1),
+    );
 
     experienceHarness.searchPoint = {
       ...experienceHarness.searchPoint,
@@ -1327,7 +1541,9 @@ describe("LocationImmersiveMap demo experience", () => {
     expect(mapHarness.map.fitBounds).toHaveBeenCalledTimes(1);
 
     await act(async () => resolveFirstFit?.());
-    await waitFor(() => expect(mapHarness.map.fitBounds).toHaveBeenCalledTimes(2));
+    await waitFor(() =>
+      expect(mapHarness.map.fitBounds).toHaveBeenCalledTimes(2),
+    );
     const latestBounds = mapHarness.map.fitBounds.mock.calls.at(-1)?.[0] as {
       value: { center: { lat: number; lng: number } };
     };
@@ -1572,9 +1788,7 @@ describe("LocationImmersiveMap demo experience", () => {
     // Check-in's own route opens the sheet on arrival, and while it is open
     // the pill is the one control on screen with nothing to do -- its whole
     // job is getting back INTO the sheet. Dismiss first, then it is here.
-    expect(
-      screen.queryByTestId("one-location-map-nearby-check-in"),
-    ).toBeNull();
+    expect(screen.queryByTestId("one-location-map-nearby-check-in")).toBeNull();
     fireEvent.click(screen.getByTestId("dismiss-nearby-check-in"));
     expect(
       screen.getByTestId("one-location-map-nearby-check-in"),
@@ -1675,9 +1889,7 @@ describe("LocationImmersiveMap demo experience", () => {
     });
 
     // Resolution clears the loading state cleanly.
-    await waitFor(() =>
-      expect(locate).toHaveAttribute("aria-busy", "false"),
-    );
+    await waitFor(() => expect(locate).toHaveAttribute("aria-busy", "false"));
     expect(locate.querySelector(".animate-spin")).toBeNull();
   });
 });
@@ -1838,11 +2050,7 @@ describe("LocationImmersiveMap native map lifecycle", () => {
     // Teardown has to *complete* before the next create is issued. Firing the
     // destroy and the create back to back leaves them interleaving on one id,
     // which is how a live map got torn down behind a ready screen.
-    expect(events).toEqual([
-      "create:1",
-      "destroyed:1",
-      "create:2",
-    ]);
+    expect(events).toEqual(["create:1", "destroyed:1", "create:2"]);
   });
 });
 
@@ -1905,9 +2113,10 @@ describe("LocationImmersiveMap open latency", () => {
 
     const failed = render(<LocationImmersiveMap />);
     await waitFor(() => {
-      expect(
-        screen.getByTestId("one-location-map"),
-      ).toHaveAttribute("data-map-ready", "false");
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "false",
+      );
     });
     failed.unmount();
 
@@ -2007,7 +2216,6 @@ describe("LocationImmersiveMap remount triggers", () => {
     });
   });
 
-
   it("leaves a usable map behind when check-in is opened and dismissed", async () => {
     experienceHarness.demoMode = false;
     experienceHarness.nearbyAvailable = true;
@@ -2093,9 +2301,7 @@ describe("LocationImmersiveMap reported map defects", () => {
     if (props.surface === "check-in") {
       expect(screen.queryByTestId("one-location-map-disclosure")).toBeNull();
     } else {
-      fireEvent.click(
-        screen.getByRole("button", { name: "Continue" }),
-      );
+      fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     }
     await waitFor(() => {
       expect(screen.getByTestId("one-location-map")).toHaveAttribute(
@@ -2232,9 +2438,9 @@ describe("LocationImmersiveMap reported map defects", () => {
     expect(ghost).toHaveAttribute("data-state", "checked");
     // The switch is the whole control now: a name and an on/off state, with
     // no paragraph under it restating what the two rows above already say.
-    expect(
-      screen.getByTestId("one-location-map-ghost"),
-    ).toHaveTextContent(/^Ghost Mode$/);
+    expect(screen.getByTestId("one-location-map-ghost")).toHaveTextContent(
+      /^Ghost Mode$/,
+    );
 
     // Check-in is still here and still one tap away -- it is just no longer
     // the loudest thing on a sheet that is not about it.
@@ -2497,9 +2703,10 @@ describe("LocationImmersiveMap reported map defects", () => {
     });
 
     // The sheet opens with the route.
-    expect(
-      screen.getByTestId("nearby-check-in-sheet-mock"),
-    ).toHaveAttribute("data-open", "true");
+    expect(screen.getByTestId("nearby-check-in-sheet-mock")).toHaveAttribute(
+      "data-open",
+      "true",
+    );
     expect(
       header.querySelector('[data-testid="one-location-map-nearby-check-in"]'),
     ).toBeNull();
@@ -2706,9 +2913,9 @@ describe("LocationImmersiveMap reported map defects", () => {
     // And the renderer is no longer asked to draw a pin under it. The last
     // marker write carries the two incoming people and nothing else.
     await waitFor(() => {
-      const lastAddMarkers = mapHarness.map.addMarkers.mock.calls.at(-1)?.[0] as
-        | Array<{ coordinate: { lat: number; lng: number } }>
-        | undefined;
+      const lastAddMarkers = mapHarness.map.addMarkers.mock.calls.at(
+        -1,
+      )?.[0] as Array<{ coordinate: { lat: number; lng: number } }> | undefined;
       expect(lastAddMarkers).toHaveLength(2);
       expect(
         lastAddMarkers?.some(
@@ -2752,10 +2959,9 @@ describe("LocationImmersiveMap reported map defects", () => {
   });
 
   it("uses the owner's avatar for the check-in map location marker", async () => {
-    // Check-in asks a different question -- how far am I from the place I am
-    // checking in to -- and still answers it with a place pin, connector and
-    // legend. The generic blue self pin is replaced by the same avatar used on
-    // Your Map, so the map and its key identify the owner consistently.
+    // During selection the avatar is still the current device fix. The active
+    // check-in transition is covered separately above, including its move to
+    // the venue and removal of the renderer pin.
     experienceHarness.nearbyAvailable = true;
     stubPhoneGeometry();
     serviceHarness.captureCurrentPosition.mockResolvedValue({
@@ -2770,9 +2976,9 @@ describe("LocationImmersiveMap reported map defects", () => {
     fireEvent.click(screen.getByTestId("publish-nearby-search-area"));
     await reportCamera();
 
-    expect(screen.getByTestId("one-location-map-self-avatar")).toHaveAccessibleName(
-      "Your location",
-    );
+    expect(
+      screen.getByTestId("one-location-map-self-avatar"),
+    ).toHaveAccessibleName("Your location");
     expect(
       screen.getByTestId("one-location-map-self-avatar-legend"),
     ).toBeInTheDocument();
@@ -2937,7 +3143,9 @@ describe("LocationImmersiveMap reported map defects", () => {
     });
 
     await reportCamera();
-    expect(screen.getAllByTestId("one-location-map-name-label")).toHaveLength(1);
+    expect(screen.getAllByTestId("one-location-map-name-label")).toHaveLength(
+      1,
+    );
 
     // The projection is flat, so under a bearing every name would slide off
     // its own pin. A name over the wrong pin is worse than no name.
