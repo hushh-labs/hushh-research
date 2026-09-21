@@ -1606,12 +1606,35 @@ final class AppUITests: XCTestCase {
             .matching(NSPredicate(format: "label == %@", "Message One")).firstMatch
         guard composer.waitForExistence(timeout: 20) else { return false }
 
+        var keyboardShown = false
         perfGesture("chat-keyboard-show", rep: 0) {
             composer.tap()
-            let keyboard = app.keyboards.firstMatch
-            let shown = keyboard.waitForExistence(timeout: 3)
-            NSLog("PERF_KEYBOARD shown=\(shown ? 1 : 0)")
+            // No accessibility polling while the keyboard rises (a WebView
+            // snapshot blocks the page's main thread); one check after the
+            // rise has settled.
             perfSettle(1.2)
+            keyboardShown = app.keyboards.firstMatch.exists
+            NSLog("PERF_KEYBOARD shown=\(keyboardShown ? 1 : 0)")
+        }
+
+        // Settled geometry, read outside the measured window: an accessibility
+        // snapshot of the WebView runs on the app's main thread and would show
+        // up as a long frame of its own. The composer belongs just above the
+        // keyboard's edge; the gap is the number the summary carries.
+        if keyboardShown {
+            let window = app.windows.firstMatch.frame
+            let keyRowsTop = app.keyboards.firstMatch.frame.minY
+            // The QuickType strip sits above the key rows and outside the
+            // keyboard element's frame; the keyboard's visible edge is the
+            // strip's top when the strip is there.
+            var keyboardTop = keyRowsTop
+            let predictions = app.descendants(matching: .any)
+                .matching(NSPredicate(format: "label CONTAINS[c] %@ OR identifier CONTAINS[c] %@", "predict", "predict")).firstMatch
+            if predictions.exists {
+                keyboardTop = min(keyboardTop, predictions.frame.minY)
+            }
+            let composerBottom = composer.frame.maxY
+            NSLog("PERF_KEYBOARD_GEOMETRY window_h=\(Int(window.height)) keyboard_top=\(Int(keyboardTop)) key_rows_top=\(Int(keyRowsTop)) composer_bottom=\(Int(composerBottom)) gap=\(Int(keyboardTop - composerBottom))")
         }
 
         perfGesture("chat-keyboard-type", rep: 0) {
@@ -1621,8 +1644,11 @@ final class AppUITests: XCTestCase {
 
         perfGesture("chat-stream-30s", rep: 0) {
             let send = app.webViews.buttons.matching(NSPredicate(format: "label == %@", "Send message")).firstMatch
-            if send.exists, send.isHittable {
-                send.tap()
+            if send.exists {
+                // A finger lands on the button's centre; XCTest's own hit
+                // test can return no point for a lifted composer while the
+                // button is plainly on screen, so the tap goes by coordinate.
+                send.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
             } else {
                 composer.typeText("\n")
             }

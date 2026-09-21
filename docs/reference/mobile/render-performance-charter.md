@@ -175,7 +175,21 @@ the card deletes the run's `.xcresult` bundles as soon as the test exits
 exchange in four named gestures: `chat-keyboard-show` (composer tap, the
 keyboard's presence asserted), `chat-keyboard-type` (the prompt typed
 through the keyboard), `chat-stream-30s` (send and the reply, a real
-stream since HushhStream, bug log B39) and `chat-keyboard-dismiss`.
+stream since HushhStream, bug log B39) and `chat-keyboard-dismiss`. After
+the rise has settled, and outside any measured window (an accessibility
+snapshot of the WebView blocks the page's main thread, so the lane never
+polls while frames are being counted), the test reads the composer field's
+bottom edge and the keyboard's top edge and the summary carries the gap in
+points (`keyboard_geometry`). The composer belongs just above the keyboard's
+edge; on the phone it once sat 138 pt above it (bug log B44).
+
+On a native shell the keyboard never resizes the WebView, so the root chat
+composer lifts itself: `--kb-height` lands once at `keyboardWillShow` with
+the keyboard's final height, and the composer form moves on the CSS
+`translate` property with the keyboard's own duration and curve
+(`--kb-motion-duration`, `--kb-motion-curve` in `globals.css`), composited
+and independent of the nav-ride `transform`; its padding stays at the resting
+value, so no layout runs during the rise.
 
 ### Android
 

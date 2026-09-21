@@ -668,6 +668,12 @@ textarea {
    * no-op there. Fixed/bottom-anchored surfaces subtract/pad by this so inputs
    * sit above the keyboard. See mobile-bug-log B21. */
   --kb-height: 0px;
+  /* How the on-screen keyboard moves on iOS: 0.25 s on the curve UIKit
+   * reports for it (its reverse-engineered control points). A surface that
+   * rides the keyboard's edge transitions on these, so it neither leads nor
+   * trails the keyboard. */
+  --kb-motion-duration: 250ms;
+  --kb-motion-curve: cubic-bezier(0.38, 0.7, 0.125, 1);
   /* Effective safe-area used by bottom-fixed UI primitives.
    * Overridden on native iOS because WKWebView contentInset already applies bottom insets. */
   --app-safe-area-bottom-effective: var(--app-safe-area-bottom);
@@ -2243,6 +2249,55 @@ html.native-keyboard-inset .agent-chat-workspace {
   --agent-chat-keyboard-inset: var(--kb-height, 0px);
 }
 
+/* A native shell keeps its WebView frame under the keyboard (Keyboard.resize
+ * "none"), so the root composer lifts itself. `--kb-height` lands once, at
+ * keyboardWillShow, already holding the keyboard's final height, while the
+ * keyboard itself is still sliding up. Padding the form by that height moved
+ * the bar to its final spot in a single layout and left the keyboard to catch
+ * up (iPhone 16e: the bar led the keyboard by its whole travel). The lift now
+ * rides the `translate` property, composited and independent of the nav-ride
+ * `transform`, on the keyboard's own duration and curve, and the padding stays
+ * at its resting value so no layout runs during the rise. The transcript keeps
+ * its keyboard clearance through --agent-chat-composer-bottom as before. */
+html.native-keyboard-inset .agent-chat-workspace[data-agent-chat-route="root"] {
+  --agent-chat-composer-lift: max(
+    0px,
+    calc(var(--kb-height, 0px) - var(--app-bottom-shell-height, 4.5rem))
+  );
+}
+
+html.native-keyboard-inset
+  .agent-chat-workspace[data-agent-chat-route="root"]
+  [data-agent-chat-composer-form="root"] {
+  padding-bottom: calc(var(--app-bottom-shell-height, 4.5rem) + 0.5rem);
+  translate: 0 calc(var(--agent-chat-composer-lift, 0px) * -1);
+  transition:
+    transform var(--motion-duration-lg) cubic-bezier(0.16, 1, 0.3, 1),
+    translate var(--kb-motion-duration) var(--kb-motion-curve);
+}
+
+html.native-keyboard-inset
+  .agent-chat-workspace[data-agent-chat-route="root"]
+  [data-agent-chat-composer-form="root"]:focus-within {
+  padding-bottom: calc(var(--app-bottom-shell-height, 4.5rem) + 0.75rem);
+}
+
+/* While the keyboard is up the bottom navigation is hidden, so the composer
+ * must not ride its scroll travel down over the keyboard. */
+html.native-keyboard-inset.kb-open
+  .agent-chat-workspace[data-agent-chat-route="root"]
+  [data-agent-chat-composer-form="root"] {
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html.native-keyboard-inset
+    .agent-chat-workspace[data-agent-chat-route="root"]
+    [data-agent-chat-composer-form="root"] {
+    transition: none;
+  }
+}
+
 html.native-ios .agent-chat-workspace[data-agent-chat-workspace="page"] {
   --agent-chat-header-safe-top: max(64px, var(--app-safe-area-top-effective));
   --agent-chat-composer-bottom: max(
@@ -2294,12 +2349,23 @@ html.kb-open [data-agent-bar-shell][data-agent-bar-layout="fixed"] {
  * a focused bottom input (e.g. Connect's people search, Share location). Hide
  * the whole bottom chrome while a real keyboard is open so the input is never
  * occluded; it returns on blur. Only active under html.kb-open (native +
- * mobile web) → byte-for-byte inert on desktop. See mobile-bug-log B21. */
+ * mobile web) → byte-for-byte inert on desktop. See mobile-bug-log B21.
+ *
+ * Hidden means out of hit-testing too. The shell's stack still rides up by
+ * --kb-height while faded, which put the navigation pill (its own
+ * `pointer-events: auto`, which the shell's `none` never reached) exactly
+ * over the lifted chat composer: an invisible nav took the taps meant for
+ * Send and the mic (the probe classed them as bottom-nav taps, bug log B45).
+ * `visibility: hidden` cannot be overridden by a child's pointer-events; it
+ * flips once the fade has run and returns at once. */
 html.kb-open [data-app-bottom-shell],
 html.kb-open .ambient-chrome-mask--bottom {
   opacity: 0;
+  visibility: hidden;
   pointer-events: none;
-  transition: opacity 150ms ease;
+  transition:
+    opacity 150ms ease,
+    visibility 0s linear 150ms;
 }
 
 .app-page-shell {

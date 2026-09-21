@@ -61,10 +61,24 @@ const windows = runs.flatMap((r) => r.data.windows.map((w) => ({ ...w, run_id: r
 const idle = runs.flatMap((r) => r.data.idle_by_route.map((w) => ({ ...w, run_id: r.data.run_id })));
 
 const gestures = [];
+// The keyboard's settled geometry, in points, from the lane that opened it: the
+// composer must sit right above the keyboard's edge, so the gap is a number
+// the summary carries, not a log line.
+const keyboardGeometry = [];
 if (gestureLog && fs.existsSync(gestureLog)) {
   const text = fs.readFileSync(gestureLog, "utf8");
   for (const m of text.matchAll(/PERF_GESTURE name=(\S+) rep=(\d+) start_epoch_ms=(\d+) end_epoch_ms=(\d+)/g)) {
     gestures.push({ name: m[1], rep: Number(m[2]), start: Number(m[3]), end: Number(m[4]) });
+  }
+  for (const m of text.matchAll(/PERF_KEYBOARD_GEOMETRY ([^\n]*)/g)) {
+    const fields = Object.fromEntries([...m[1].matchAll(/(\w+)=(-?\d+)/g)].map((f) => [f[1], Number(f[2])]));
+    keyboardGeometry.push({
+      window_h: fields.window_h ?? null,
+      keyboard_top: fields.keyboard_top ?? null,
+      key_rows_top: fields.key_rows_top ?? null,
+      composer_bottom: fields.composer_bottom ?? null,
+      gap_pt: fields.gap ?? null,
+    });
   }
 }
 
@@ -153,6 +167,7 @@ const summary = {
   idle_by_route: idleRows,
   react_profiling: reactProfiling,
   route_enter: routeEnterRows,
+  keyboard_geometry: keyboardGeometry,
 };
 
 const md = [
@@ -170,6 +185,16 @@ const md = [
   "|---|---|---|---|---|",
   ...idleRows.map((r) => `| ${r.route} | ${r.frames} | ${r.p95_ms} | ${r.max_ms} | ${r.over_50_count} |`),
   "",
+  ...(keyboardGeometry.length
+    ? [
+        "Keyboard (settled, points): composer field bottom to keyboard top.",
+        "",
+        "| Window h | Keyboard top | Key rows top | Composer bottom | Gap |",
+        "|---|---|---|---|---|",
+        ...keyboardGeometry.map((k) => `| ${k.window_h} | ${k.keyboard_top} | ${k.key_rows_top ?? "-"} | ${k.composer_bottom} | ${k.gap_pt} |`),
+        "",
+      ]
+    : []),
   ...(routeEnterRows.length
     ? [
         `Route enter attribution (${reactProfiling ? "React profiling build: commits are real" : "no profiling build: commit columns empty"}):`,

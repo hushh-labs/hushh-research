@@ -402,11 +402,23 @@ Three small mobile UX/nav fixes (commit `909ea793d`):
 - **Symptom:** every XCUITest launch failed within a minute with that error; `devicectl` listed the phone as `available (paired)` rather than `connected`; killing `testmanagerd` on the phone did not help.
 - **Root cause:** the phone was asleep/locked at the far end of the Wi-Fi tunnel; the automation session needs the phone awake and unlocked when the runner attaches.
 - **Fix:** the founder woke the phone; the next attach succeeded at once. Nothing in the tooling changes this; a lane run needs an awake phone at its start.
+- **Second cause, same error:** on attach the phone can show "Enter iPhone Passcode for 'XCTest', Enable UI Automation" and wait a minute for the device passcode. Only the phone takes it: `devicectl` has no input injection, `devicectl manage pair` reports already paired, AppleScript UI scripting is denied on the Mac. Screenshot the phone (`xcrun devicectl device capture screenshot`) when an attach hangs to tell the two causes apart.
 
 ### B43 — With the keyboard up on the phone: the rise costs one 68 ms frame, typing runs at p95 21 ms, and a tap outside the composer reaches the page as no pointer event
 - **Symptom (run AD, first keyboard-in-the-loop chat section):** `chat-keyboard-show` one frame of 68 ms (91 ms/s), `chat-keyboard-type` p95 21 ms, worst 50 (51 ms/s), `chat-keyboard-dismiss` no probe window at all although the keyboard went away.
 - **Root cause:** not attributed yet (the keyboard height variable and the composer's autosize `scrollHeight` reads are the suspects); the dismissal tap is consumed by WebKit's end-editing before any pointer event, so the probe saw nothing.
 - **Fix:** the probe gained a `viewport` window (visual viewport resize) so a keyboard rise or fall is measured even without a pointer event; the frame cost is the next Phase 3 item after the tab switch.
+
+### B44 — The chat composer floated a nav-height above the keyboard (and above the nav at rest), and jumped ahead of the keyboard's rise
+- **Symptom (founder, iPhone 16e):** "the position of the bar is messed up on agent chat; with the keyboard it should be exactly above the keyboard, smoothly". Measured by the lane: composer field bottom 422 pt, keyboard top 560 pt, a 138 pt gap; at rest the bar sat about 96 pt above the navigation pill.
+- **Root cause, two halves.** (1) Double clearance: `0d9eae0e7` (main) made the root workspace `100% - --app-bottom-shell-height` tall while the root rule in `globals.css` already pads the composer by the shell height, so the shell was subtracted twice; main fixed it in `979897efa` (workspace back to `flex-1 h-full`) and this branch had not taken it. (2) `--kb-height` lands once at `keyboardWillShow` with the keyboard's final height and the composer's padding took it in one layout, so the bar teleported to its final spot while the keyboard was still sliding.
+- **Fix:** cherry-pick of `979897efa`; on native the root composer's padding stays at its resting value and the keyboard lift rides the CSS `translate` property with the keyboard's duration and curve (`--kb-motion-duration` 250 ms, `--kb-motion-curve` cubic-bezier(0.38, 0.7, 0.125, 1), the reverse-engineered iOS keyboard curve), independent of the nav-ride `transform`, which is held at `none` while the keyboard is up. Gap after: 19 pt from the field's bottom to the QuickType strip (the bar's own edge about 8 pt above it).
+- **GOTCHA (instrument):** XCUITest's `app.keyboards` frame excludes the QuickType strip (key rows at 560, strip at 516); the lane reads the strip's element too. Accessibility snapshots of the WebView run on the page's main thread: never poll (`waitForExistence`, `.frame`) inside a measured window; the geometry line is read after the window closes.
+
+### B45 — With the keyboard up, an invisible bottom navigation swallowed taps on Send and the mic
+- **Symptom:** after B44 placed the composer where it belongs, the lane's tap on "Send message" did nothing; the probe classed the tap as `bottom-nav`; XCTest reported "Computed hit point {-1, -1}" for a button plainly on screen.
+- **Root cause:** `html.kb-open [data-app-bottom-shell]` fades the shell (`opacity: 0; pointer-events: none`) but the shell's stack still rides up by `--kb-height`, and the navigation pill's own `pointer-events: auto` overrides the shell's `none`. The invisible pill landed exactly over the lifted composer (nav at y 444..519, bar at 450..506). Present on main too; the double clearance had hidden it by pushing the bar above the pill's ghost.
+- **Fix:** `visibility: hidden` on the faded shell (a child's pointer-events cannot override it), flipping after the 150 ms fade and returning at once.
 
 ---
 
