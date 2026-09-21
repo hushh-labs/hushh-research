@@ -5297,7 +5297,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       surface={agentSurface}
       onClose={onClose}
       onToggleCollapsed={toggleHistoryDrawer}
-      onOpenConnectors={() => setConnectorsPanelOpen(true)}
+      // MCP connections isn't ready to surface in the chat sidebar yet --
+      // omitting onOpenConnectors hides AgentHistorySidebar's button (it
+      // renders only when the prop is passed). The panel, the deep-link
+      // effect below, and the OAuth-return route stay intact so re-enabling
+      // this is a one-line change, not a re-build.
       onCreateNew={handleSidebarCreateNewChat}
       onSelectConversation={handleSidebarSelectConversation}
       onRenameConversation={isPuppySurface ? handleRenamePuppyConversation : handleRenameConversation}
@@ -5769,7 +5773,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 />
               ) : null}
 
-              {!isPopover &&
+              {// Hidden: listNudges() is surfacing non-actionable mail (an
+              // automated "Welcome back to One" send, a NoBroker listing) as
+              // if it needs a reply, so this card was showing up on the chat
+              // landing screen with nothing real waiting on the person. Off
+              // until that classification only returns genuine action items;
+              // state/hook below untouched, so re-enabling is a one-line
+              // condition change, not a rebuild.
+              false &&
+              !isPopover &&
               hasChatAccess &&
               !hasStartedConversation &&
               !gmailNudgeCardDismissed &&
