@@ -11,9 +11,9 @@
  *   - under 640px there is no anchored popper at all, and the surface that
  *     opens names the member it belongs to;
  *   - the destructive step never stacks a second modal over the first;
- *   - at 640px and up the anchored menu still opens, and it too names the
- *     member -- and it closes when the confirm takes over rather than being
- *     left open behind it.
+ *   - at 640px and up the anchored menu still opens beside the selected row,
+ *     carries an accessible member-specific label, and closes when the
+ *     confirm takes over rather than being left open behind it.
  *
  * `__tests__/setup.ts` stubs `matchMedia` as permanently non-matching, which
  * is the desktop answer; the phone lane restubs it per test.
@@ -37,6 +37,12 @@ import {
   memberRemoveConfirmDescription,
   memberRemoveConfirmTitle,
 } from "@/components/one-location/redesign/circles/circle-member-actions-menu";
+import {
+  CIRCLE_MEMBER_ACTIONS_MENU_ALIGN,
+  CIRCLE_MEMBER_ACTIONS_MENU_COLLISION_PADDING_PX,
+  CIRCLE_MEMBER_ACTIONS_MENU_SIDE,
+  CIRCLE_MEMBER_ACTIONS_MENU_SIDE_OFFSET_PX,
+} from "@/components/one-location/redesign/circles/circle-member-row-layout";
 
 const MEMBER_NAME = "Ankit Kumar Singh";
 
@@ -201,7 +207,7 @@ describe("CircleMemberActionsMenu on a pointer device", () => {
     setViewport("desktop");
   });
 
-  it("keeps the anchored menu", async () => {
+  it("keeps the menu anchored beside the selected member", async () => {
     renderMenu();
 
     const trigger = screen.getByRole("button", { name: triggerName });
@@ -219,6 +225,11 @@ describe("CircleMemberActionsMenu on a pointer device", () => {
 
     const menu = await screen.findByTestId(MEMBER_ACTIONS_MENU_TESTID);
     expect(screen.queryByTestId(MEMBER_ACTIONS_SHEET_TESTID)).toBeNull();
+    expect(menu).toHaveAttribute("aria-label", triggerName);
+    expect(CIRCLE_MEMBER_ACTIONS_MENU_SIDE).toBe("left");
+    expect(CIRCLE_MEMBER_ACTIONS_MENU_ALIGN).toBe("center");
+    expect(CIRCLE_MEMBER_ACTIONS_MENU_SIDE_OFFSET_PX).toBe(6);
+    expect(CIRCLE_MEMBER_ACTIONS_MENU_COLLISION_PADDING_PX).toBe(12);
     const share = within(menu).getByRole("menuitem", {
       name: /Share location/i,
     });

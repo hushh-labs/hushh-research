@@ -31,6 +31,23 @@
  *  minimum touch target, so the slot cannot be narrowed to tighten the row. */
 export const CIRCLE_MEMBER_MENU_SLOT_PX = 44;
 
+/**
+ * Desktop/tablet member actions stay attached to the row that opened them.
+ *
+ * A bottom-aligned popper puts both action rows over the next member, so the
+ * menu appears to belong to that person instead. Place it immediately beside
+ * the kebab and centre it on the selected row. The small vertical overhang is
+ * then split evenly above and below that row instead of being deposited on a
+ * neighbour's identity.
+ *
+ * These values are exported because the real-browser layout contract measures
+ * the same placement that the component passes to Radix.
+ */
+export const CIRCLE_MEMBER_ACTIONS_MENU_SIDE = "left" as const;
+export const CIRCLE_MEMBER_ACTIONS_MENU_ALIGN = "center" as const;
+export const CIRCLE_MEMBER_ACTIONS_MENU_SIDE_OFFSET_PX = 6;
+export const CIRCLE_MEMBER_ACTIONS_MENU_COLLISION_PADDING_PX = 12;
+
 /** One-line and two-line rows share this floor, so the list keeps a beat even
  *  where a member has no second line to show. */
 export const CIRCLE_MEMBER_ROW_MIN_HEIGHT_PX = 72;

@@ -11,6 +11,10 @@ import {
 
 // Relative, not "@/": the e2e tsconfig deliberately carries no path aliases.
 import {
+  CIRCLE_MEMBER_ACTIONS_MENU_ALIGN,
+  CIRCLE_MEMBER_ACTIONS_MENU_COLLISION_PADDING_PX,
+  CIRCLE_MEMBER_ACTIONS_MENU_SIDE,
+  CIRCLE_MEMBER_ACTIONS_MENU_SIDE_OFFSET_PX,
   CIRCLE_DETAIL_HEADER_CLASSNAME,
   CIRCLE_DETAIL_HEADER_COPY_CLASSNAME,
   CIRCLE_MEMBERS_CARD_SCROLL_CLASSNAME,
@@ -527,9 +531,15 @@ test.describe("Circle roster row", () => {
     });
   }
 
-  test("keeps the kebab bare and an enabled highlighted action readable", async ({
+  test("keeps the desktop menu centred beside the selected row", async ({
     page,
   }, testInfo) => {
+    const browserErrors: string[] = [];
+    page.on("console", (message) => {
+      if (message.type() === "error") browserErrors.push(message.text());
+    });
+    page.on("pageerror", (error) => browserErrors.push(error.message));
+
     const triggerClass = cn(
       buttonVariants({ variant: "ghost", size: "icon" }),
       CIRCLE_MEMBER_MENU_TRIGGER_CLASSNAME,
@@ -538,37 +548,89 @@ test.describe("Circle roster row", () => {
       DROPDOWN_ITEM_STATE_CLASSNAME,
       CIRCLE_MEMBER_MENU_ITEM_CLASSNAME,
     );
+    expect(CIRCLE_MEMBER_ACTIONS_MENU_SIDE).toBe("left");
+    expect(CIRCLE_MEMBER_ACTIONS_MENU_ALIGN).toBe("center");
+
     const body = `<section style="max-width:720px;margin:48px auto;padding:28px 24px;background:var(--app-primary-surface);border-radius:24px;box-shadow:var(--app-card-shadow-standard)">
   <header style="margin-bottom:18px">
     <h1 style="margin:0;color:var(--app-primary-label);font-size:28px;line-height:34px">SMS Circle</h1>
     <p style="margin:4px 0 0;color:var(--app-secondary-label);font-size:14px">4 people</p>
   </header>
-  <div style="display:flex;align-items:center;gap:12px;min-height:64px;border-top:1px solid var(--app-separator)">
-    <span style="display:inline-flex;width:40px;height:40px;align-items:center;justify-content:center;border-radius:999px;background:#0b9dad;color:#fff">N</span>
-    <span style="min-width:0;flex:1"><strong style="display:block;color:var(--app-primary-label)">Neelesh Meena</strong><small style="color:var(--app-secondary-label)">Connected</small></span>
-    <button data-testid="bare-trigger" aria-label="Actions for Neelesh Meena" class="${triggerClass}" style="font-size:24px">${MENU_GLYPH}</button>
-  </div>
-  <div style="display:flex;justify-content:flex-end">
-    <div style="width:220px;margin-top:4px;padding:4px;background:var(--app-primary-surface);border:1px solid var(--app-separator);border-radius:14px;box-shadow:var(--app-card-shadow-standard)">
-      <button data-testid="enabled-action" data-highlighted class="${itemClass}" style="width:100%;text-align:left"><span>Share location</span></button>
-      <button data-variant="destructive" class="${itemClass}" style="width:100%;text-align:left"><span>Remove from Circle</span></button>
-      <button data-testid="disabled-action" data-disabled class="${itemClass}" style="display:none"><span>Unavailable</span></button>
+  <div style="border-radius:20px;background:var(--app-card-surface-default-solid)">
+    <div style="display:flex;align-items:center;gap:12px;min-height:72px;padding:0 16px">
+      <span style="display:inline-flex;width:40px;height:40px;align-items:center;justify-content:center;border-radius:999px;background:#7352c8;color:#fff">J</span>
+      <span style="min-width:0;flex:1"><strong data-testid="previous-identity" style="display:block;width:max-content;color:var(--app-primary-label)">Jhumma Kumari</strong><small style="color:var(--app-secondary-label)">Circle owner</small></span>
+      <span aria-hidden="true" style="display:block;width:44px;height:44px"></span>
+    </div>
+    <div data-testid="selected-row" style="position:relative;display:flex;align-items:center;gap:12px;min-height:72px;padding:0 16px;border-top:1px solid var(--app-separator)">
+      <span style="display:inline-flex;width:40px;height:40px;align-items:center;justify-content:center;border-radius:999px;background:#0b9dad;color:#fff">N</span>
+      <span style="min-width:0;flex:1"><strong data-testid="selected-identity" style="display:block;width:max-content;color:var(--app-primary-label)">Neelesh Meena</strong><small style="color:var(--app-secondary-label)">Connected</small></span>
+      <span style="position:relative;display:inline-flex;width:44px;height:44px">
+        <button data-testid="bare-trigger" aria-label="Actions for Neelesh Meena" class="${triggerClass}" style="font-size:24px">${MENU_GLYPH}</button>
+        <div data-testid="anchored-menu" role="menu" aria-label="Actions for Neelesh Meena" data-side="${CIRCLE_MEMBER_ACTIONS_MENU_SIDE}" data-align="${CIRCLE_MEMBER_ACTIONS_MENU_ALIGN}" style="position:absolute;z-index:2;right:calc(100% + ${CIRCLE_MEMBER_ACTIONS_MENU_SIDE_OFFSET_PX}px);top:50%;width:216px;transform:translateY(-50%);padding:4px;background:var(--app-primary-surface);border:1px solid var(--app-separator);border-radius:14px;box-shadow:var(--app-card-shadow-standard)">
+          <button data-testid="enabled-action" data-highlighted class="${itemClass}" style="width:100%;text-align:left"><span>Share location</span></button>
+          <button data-variant="destructive" class="${itemClass}" style="width:100%;text-align:left"><span>Remove from Circle</span></button>
+          <button data-testid="disabled-action" data-disabled class="${itemClass}" style="display:none"><span>Unavailable</span></button>
+        </div>
+      </span>
+    </div>
+    <div style="display:flex;align-items:center;gap:12px;min-height:72px;padding:0 16px;border-top:1px solid var(--app-separator)">
+      <span style="display:inline-flex;width:40px;height:40px;align-items:center;justify-content:center;border-radius:999px;background:#0b9dad;color:#fff">G</span>
+      <span style="min-width:0;flex:1"><strong data-testid="next-identity" style="display:block;width:max-content;color:var(--app-primary-label)">Gautam Ahuja</strong><small style="color:var(--app-secondary-label)">Connected</small></span>
+      <span aria-hidden="true" style="display:block;width:44px;height:44px"></span>
     </div>
   </div>
   <span data-testid="primary-probe" style="color:var(--app-primary-label)"></span>
   <span data-testid="neutral-probe" style="background:var(--app-neutral-fill)"></span>
 </section>`;
 
-    const mobileEvidence = testInfo.project.name !== "chromium";
-    await page.setViewportSize(
-      mobileEvidence
-        ? { width: 390, height: 844 }
-        : { width: 1024, height: 720 },
-    );
+    await page.setViewportSize({ width: 1024, height: 720 });
     await page.goto(
       await buildFixture("circle-member-actions", body, CANDIDATES),
     );
+    await awaitProductFont(page);
+    await expect(page.getByRole("heading", { name: "SMS Circle" })).toBeVisible();
     await page.getByTestId("bare-trigger").hover();
+
+    const [menu, trigger, selectedRow, previousIdentity, selectedIdentity, nextIdentity] =
+      await Promise.all([
+        boxesOf(page, '[data-testid="anchored-menu"]'),
+        boxesOf(page, '[data-testid="bare-trigger"]'),
+        boxesOf(page, '[data-testid="selected-row"]'),
+        boxesOf(page, '[data-testid="previous-identity"]'),
+        boxesOf(page, '[data-testid="selected-identity"]'),
+        boxesOf(page, '[data-testid="next-identity"]'),
+      ]);
+
+    expect(Math.abs(contentCentre(menu[0]) - contentCentre(selectedRow[0]))).toBeLessThanOrEqual(1);
+    expect(
+      Math.abs(
+        trigger[0].left -
+          menu[0].right -
+          CIRCLE_MEMBER_ACTIONS_MENU_SIDE_OFFSET_PX,
+      ),
+    ).toBeLessThanOrEqual(1);
+    expect(selectedRow[0].top - menu[0].top).toBeLessThanOrEqual(
+      CIRCLE_MEMBER_ACTIONS_MENU_COLLISION_PADDING_PX + 2,
+    );
+    expect(menu[0].bottom - selectedRow[0].bottom).toBeLessThanOrEqual(
+      CIRCLE_MEMBER_ACTIONS_MENU_COLLISION_PADDING_PX + 2,
+    );
+
+    const overlaps = (first: Box, second: Box) =>
+      first.left < second.right &&
+      first.right > second.left &&
+      first.top < second.bottom &&
+      first.bottom > second.top;
+    expect(overlaps(menu[0], previousIdentity[0])).toBe(false);
+    expect(overlaps(menu[0], selectedIdentity[0])).toBe(false);
+    expect(overlaps(menu[0], nextIdentity[0])).toBe(false);
+    expect(menu[0].left).toBeGreaterThanOrEqual(
+      CIRCLE_MEMBER_ACTIONS_MENU_COLLISION_PADDING_PX,
+    );
+    expect(menu[0].right).toBeLessThanOrEqual(
+      1024 - CIRCLE_MEMBER_ACTIONS_MENU_COLLISION_PADDING_PX,
+    );
 
     const styles = await page.evaluate(() => {
       const style = (testId: string) =>
@@ -599,6 +661,11 @@ test.describe("Circle roster row", () => {
     expect(styles.actionOpacity).toBe("1");
     expect(Number(styles.disabledOpacity)).toBeLessThan(1);
 
+    await page.reload();
+    await awaitProductFont(page);
+    await expect(page.getByTestId("anchored-menu")).toBeVisible();
+    expect(browserErrors).toEqual([]);
+
     const evidenceDir = process.env.OVERFLOW_ACTION_EVIDENCE_DIR;
     if (evidenceDir) {
       fs.mkdirSync(evidenceDir, { recursive: true });
@@ -606,6 +673,89 @@ test.describe("Circle roster row", () => {
         path: path.join(
           evidenceDir,
           `circle-overflow-actions-${testInfo.project.name}.png`,
+        ),
+        fullPage: true,
+      });
+    }
+  });
+
+  test("keeps phone actions in a member-named bottom sheet", async ({
+    page,
+  }, testInfo) => {
+    const browserErrors: string[] = [];
+    page.on("console", (message) => {
+      if (message.type() === "error") browserErrors.push(message.text());
+    });
+    page.on("pageerror", (error) => browserErrors.push(error.message));
+
+    const itemClass = cn(
+      DROPDOWN_ITEM_STATE_CLASSNAME,
+      CIRCLE_MEMBER_MENU_ITEM_CLASSNAME,
+    );
+    const body = `<main style="min-height:844px;padding:28px 0 180px;background:var(--background)">
+  <section style="margin:0 auto;max-width:358px">
+    <header style="margin-bottom:18px"><h1 style="margin:0;color:var(--app-primary-label);font-size:28px;line-height:34px">SMS Circle</h1><p style="margin:4px 0 0;color:var(--app-secondary-label);font-size:14px">3 people</p></header>
+    <div style="border-radius:20px;background:var(--app-primary-surface)">
+      <div style="min-height:72px;padding:16px;color:var(--app-primary-label)">Jhumma Kumari · Owner</div>
+      <div style="min-height:72px;padding:16px;border-top:1px solid var(--app-separator);color:var(--app-primary-label)">Ankit Kumar Singh · Connected</div>
+      <div style="min-height:72px;padding:16px;border-top:1px solid var(--app-separator);color:var(--app-primary-label)">Gautam Ahuja · Connected</div>
+    </div>
+  </section>
+  <div aria-hidden="true" style="position:fixed;inset:0;background:rgba(0,0,0,.22);backdrop-filter:blur(8px)"></div>
+  <section data-testid="member-sheet" role="dialog" aria-label="Actions for Ankit Kumar Singh" style="position:fixed;z-index:2;right:0;bottom:0;left:0;padding:10px 16px max(12px,env(safe-area-inset-bottom));border-radius:20px 20px 0 0;background:var(--app-primary-surface);box-shadow:var(--app-card-shadow-standard)">
+    <div style="width:38px;height:4px;margin:0 auto 12px;border-radius:999px;background:var(--app-separator)"></div>
+    <header style="display:flex;align-items:center;gap:12px;padding-bottom:12px">
+      <span style="display:inline-flex;width:44px;height:44px;align-items:center;justify-content:center;border-radius:999px;background:#0b9dad;color:#fff">AK</span>
+      <span><strong data-testid="sheet-member" style="display:block;color:var(--app-primary-label)">Ankit Kumar Singh</strong><small style="color:var(--app-secondary-label)">Connected</small></span>
+    </header>
+    <div role="menu" aria-label="Actions for Ankit Kumar Singh" style="overflow:hidden;border:1px solid var(--app-separator);border-radius:14px">
+      <button class="${itemClass}" style="width:100%;min-height:56px;text-align:left">Share location</button>
+      <button data-variant="destructive" class="${itemClass}" style="width:100%;min-height:56px;border-top:1px solid var(--app-separator);text-align:left">Remove from Circle</button>
+    </div>
+    <button style="width:100%;min-height:48px;margin-top:8px;color:var(--app-primary-label)">Cancel</button>
+  </section>
+</main>`;
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(
+      await buildFixture("circle-member-actions-sheet", body, CANDIDATES),
+    );
+    await awaitProductFont(page);
+
+    await expect(page.getByTestId("member-sheet")).toBeVisible();
+    await expect(page.getByTestId("sheet-member")).toHaveText(
+      "Ankit Kumar Singh",
+    );
+    await expect(
+      page.getByRole("menu", { name: "Actions for Ankit Kumar Singh" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Share location" }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Remove from Circle" }),
+    ).toBeVisible();
+
+    const sheet = (await boxesOf(page, '[data-testid="member-sheet"]'))[0];
+    expect(sheet.left).toBe(0);
+    expect(sheet.right).toBe(390);
+    expect(sheet.bottom).toBe(844);
+
+    await page.reload();
+    await awaitProductFont(page);
+    await expect(page.getByTestId("member-sheet")).toBeVisible();
+    await expect(page.getByTestId("sheet-member")).toHaveText(
+      "Ankit Kumar Singh",
+    );
+    expect(browserErrors).toEqual([]);
+
+    const evidenceDir = process.env.OVERFLOW_ACTION_EVIDENCE_DIR;
+    if (evidenceDir) {
+      fs.mkdirSync(evidenceDir, { recursive: true });
+      await page.screenshot({
+        path: path.join(
+          evidenceDir,
+          `circle-overflow-actions-sheet-${testInfo.project.name}.png`,
         ),
         fullPage: true,
       });

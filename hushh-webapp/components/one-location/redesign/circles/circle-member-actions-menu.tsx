@@ -27,11 +27,12 @@ import Link from "next/link";
  *                      because it is not laid out against one, and it says
  *                      who it is for in the header rather than by proximity.
  *
- *   desktop (>=640px)  the anchored menu, restyled onto the app's surface
- *                      grammar and headed by the same name. A cursor makes
- *                      the anchor unambiguous, and a bottom sheet on a
- *                      1440px window is the wrong trade in the other
- *                      direction.
+ *   desktop (>=640px)  an anchored menu immediately beside the kebab and
+ *                      vertically centred on the selected row. It may
+ *                      overhang that row slightly, but cannot drop onto the
+ *                      next member's identity. A cursor makes the anchor
+ *                      unambiguous, and a bottom sheet on a 1440px window is
+ *                      the wrong trade in the other direction.
  *
  * 640px is the same boundary `save-location-sheet-layout.ts` switches its own
  * sheet on, and the same one Tailwind's `sm:` uses -- restated here rather
@@ -41,15 +42,15 @@ import Link from "next/link";
  * ## Visual Map
  *
  *   phone                                desktop
- *   +--------------------------+         roster row          [...]
- *   | Ankit Kumar Singh  [...] |                               |
- *   | JHUMMA KUMARI      [...] |                               v
- *   +==========================+                  +---------------------+
- *   |           ====           |                  | Ankit Kumar Singh   |
- *   |  (AK)  Ankit Kumar Singh |                  +---------------------+
- *   |        Connected         |                  | (>) Share location  |
- *   |  +--------------------+  |                  | (X) Remove from ... |
- *   |  | (>) Share location |  |                  +---------------------+
+ *   +--------------------------+                   +---------------------+  [...]
+ *   | Ankit Kumar Singh  [...] |                   | (>) Share location  |<-- row
+ *   | JHUMMA KUMARI      [...] |                   | (X) Remove from ... |
+ *   +==========================+                   +---------------------+
+ *   |           ====           |
+ *   |  (AK)  Ankit Kumar Singh |
+ *   |        Connected         |
+ *   |  +--------------------+  |
+ *   |  | (>) Share location |  |
  *   |  | (X) Remove from .. |  |
  *   |  +--------------------+  |
  *   |  |       Cancel       |  |
@@ -84,6 +85,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
+  CIRCLE_MEMBER_ACTIONS_MENU_ALIGN,
+  CIRCLE_MEMBER_ACTIONS_MENU_COLLISION_PADDING_PX,
+  CIRCLE_MEMBER_ACTIONS_MENU_SIDE,
+  CIRCLE_MEMBER_ACTIONS_MENU_SIDE_OFFSET_PX,
   CIRCLE_MEMBER_MENU_CLASSNAME,
   CIRCLE_MEMBER_MENU_ITEM_CLASSNAME,
   CIRCLE_MEMBER_MENU_TRIGGER_CLASSNAME,
@@ -443,10 +448,11 @@ export function CircleMemberActionsMenu({
         </DropdownMenuTrigger>
         <DropdownMenuContent
           data-testid={MEMBER_ACTIONS_MENU_TESTID}
-          side="bottom"
-          align="end"
-          sideOffset={6}
-          collisionPadding={12}
+          aria-label={menuLabel}
+          side={CIRCLE_MEMBER_ACTIONS_MENU_SIDE}
+          align={CIRCLE_MEMBER_ACTIONS_MENU_ALIGN}
+          sideOffset={CIRCLE_MEMBER_ACTIONS_MENU_SIDE_OFFSET_PX}
+          collisionPadding={CIRCLE_MEMBER_ACTIONS_MENU_COLLISION_PADDING_PX}
           className={MEMBER_ACTIONS_MENU_SURFACE_CLASSNAME}
         >
           {canShare ? (
