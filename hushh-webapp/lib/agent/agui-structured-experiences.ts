@@ -81,6 +81,7 @@ export type MemoryImportReviewExperience = {
   type: typeof MEMORY_IMPORT_REVIEW_EXPERIENCE_TYPE;
   sourceBlockCount: number;
   accountedBlockCount: number;
+  presentationIncomplete: boolean;
   groups: Array<{
     domain: string;
     candidates: Array<{
@@ -289,22 +290,35 @@ function parseMemoryImportReview(content: unknown): MemoryImportReviewExperience
   const sourceBlockCount = boundedInteger(record.sourceBlockCount);
   const accountedBlockCount = boundedInteger(record.accountedBlockCount);
   if (sourceBlockCount === null || accountedBlockCount === null || accountedBlockCount > sourceBlockCount) return null;
-  const groups = (Array.isArray(record.groups) ? record.groups.slice(0, 50) : []).flatMap((rawGroup) => {
+  const rawGroups = record.groups;
+  let presentationIncomplete = sourceBlockCount !== accountedBlockCount || !Array.isArray(rawGroups);
+  if (Array.isArray(rawGroups) && rawGroups.length > 50) presentationIncomplete = true;
+  const seenCandidateRefs = new Set<string>();
+  const groups = (Array.isArray(rawGroups) ? rawGroups.slice(0, 50) : []).flatMap((rawGroup) => {
     const group = asRecord(rawGroup);
     const domain = boundedString(group?.domain, 80);
-    if (!domain) return [];
-    const candidates = (Array.isArray(group?.candidates) ? group.candidates.slice(0, 250) : []).flatMap((rawCandidate) => {
+    if (!domain || !Array.isArray(group?.candidates)) {
+      presentationIncomplete = true;
+      return [];
+    }
+    const rawCandidates = group.candidates;
+    if (rawCandidates.length > 250) presentationIncomplete = true;
+    const candidates = rawCandidates.slice(0, 250).flatMap((rawCandidate) => {
       const candidate = asRecord(rawCandidate);
       const candidateRef = boundedString(candidate?.candidateRef, 180);
       const label = boundedString(candidate?.label, 120);
       const preview = boundedString(candidate?.preview, 280);
       const sharingPosture = boundedString(candidate?.sharingPosture, 32) as MemoryImportReviewExperience["groups"][number]["candidates"][number]["sharingPosture"] | null;
-      if (!candidateRef || !label || !preview || !sharingPosture || !["private", "ask_first", "discoverable"].includes(sharingPosture)) return [];
+      if (!candidateRef || !label || !preview || !sharingPosture || !["private", "ask_first", "discoverable"].includes(sharingPosture) || seenCandidateRefs.has(candidateRef)) {
+        presentationIncomplete = true;
+        return [];
+      }
+      seenCandidateRefs.add(candidateRef);
       return [{ candidateRef, label, preview, sharingPosture, sensitivity: normalizeSensitivity(candidate?.sensitivity) }];
     });
     return [{ domain, candidates }];
   });
-  return { type: MEMORY_IMPORT_REVIEW_EXPERIENCE_TYPE, sourceBlockCount, accountedBlockCount, groups };
+  return { type: MEMORY_IMPORT_REVIEW_EXPERIENCE_TYPE, sourceBlockCount, accountedBlockCount, presentationIncomplete, groups };
 }
 
 function parseEvidenceBrief(content: unknown): EvidenceBriefExperience | null {

@@ -374,7 +374,7 @@ function KycReadinessView({ experience }: { experience: KycReadinessExperience }
 }
 
 function MemoryImportReviewView({ experience }: { experience: MemoryImportReviewExperience }) {
-  const complete = experience.sourceBlockCount === experience.accountedBlockCount;
+  const complete = experience.sourceBlockCount === experience.accountedBlockCount && !experience.presentationIncomplete;
   const total = experience.groups.reduce((count, group) => count + group.candidates.length, 0);
   return (
     <ExperienceShell label="Memory review" title={`${total} memories ready to review`} summary={`${experience.accountedBlockCount} of ${experience.sourceBlockCount} source sections accounted for`} icon={<FolderLock className="h-5 w-5" aria-hidden="true" />}>

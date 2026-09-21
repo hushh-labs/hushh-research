@@ -199,7 +199,7 @@ describe("AG-UI structured experience registry", () => {
       sourceBlockCount: 12,
       accountedBlockCount: 12,
       groups: [{ domain: "Professional", candidates: [{ candidateRef: "candidate-1", label: "Role", preview: "Product lead", sensitivity: "standard", sharingPosture: "private" }] }],
-    })).toMatchObject({ type: "one.memory_import_review.v1", accountedBlockCount: 12 });
+    })).toMatchObject({ type: "one.memory_import_review.v1", accountedBlockCount: 12, presentationIncomplete: false });
 
     expect(parseAgentActivityExperience("one.evidence_brief.v1", {
       title: "Verification summary",
@@ -226,5 +226,36 @@ describe("AG-UI structured experience registry", () => {
       accountedBlockCount: 3,
       groups: [],
     })).toBeNull();
+  });
+
+  it("marks dropped memory review rows as incomplete instead of claiming full coverage", () => {
+    const result = parseAgentActivityExperience("one.memory_import_review.v1", {
+      sourceBlockCount: 1,
+      accountedBlockCount: 1,
+      groups: [{
+        domain: "Professional",
+        candidates: [
+          { candidateRef: "candidate-1", label: "Role", preview: "Product lead", sharingPosture: "private" },
+          { candidateRef: "candidate-1", label: "Duplicate", preview: "Must not be silently merged", sharingPosture: "private" },
+          { candidateRef: "candidate-2", label: "Malformed", preview: "", sharingPosture: "private" },
+        ],
+      }],
+    });
+
+    expect(result).toMatchObject({ presentationIncomplete: true });
+  });
+
+  it("marks truncated memory groups and candidates as incomplete", () => {
+    const groups = Array.from({ length: 51 }, (_, index) => ({
+      domain: `Domain ${index}`,
+      candidates: [{ candidateRef: `candidate-${index}`, label: "Role", preview: "Lead", sharingPosture: "private" }],
+    }));
+    const result = parseAgentActivityExperience("one.memory_import_review.v1", {
+      sourceBlockCount: 1,
+      accountedBlockCount: 1,
+      groups,
+    });
+
+    expect(result).toMatchObject({ presentationIncomplete: true });
   });
 });
