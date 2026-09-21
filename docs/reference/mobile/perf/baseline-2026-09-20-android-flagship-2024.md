@@ -141,9 +141,16 @@ the 99 ms one on the pane), which is where our remaining work is.
   for the run, restores the setting, and fails fast with
   `PERF_BLOCKED reason=keyguard` on a locked phone. Re-run:
   `PERF_SKIP_BUILD=1 PERF_THIRD_PARTY=1 ANDROID_SERIAL=<serial> npm run perf:android:card`.
-- The truth lane (`AttachedRenderPerfTest`, UIAutomator 2.3.0) compiles for
-  both the debug and the `perf` build types; its first phone run is next.
-  Until it has run, nothing on this page certifies.
+- The truth lane (`AttachedRenderPerfTest`, UIAutomator 2.3.0) ran its kai
+  section on the phone (Debug, bridge off): it cancels Android's Credential
+  Manager sheet (the gate's passkey attempt), types the passphrase, and its
+  shell-input gestures reach the page (probe windows recorded). Its first
+  full run, and the `perf` build type, wait for a phone that stays
+  unlocked for a lane's length (the secure lock engaged between runs
+  twice). Until then nothing on this page certifies. Note for the reading:
+  with the bridge off, HWUI on the Finance launch read 0.13 to 0.44 %
+  janky against 3 to 5 % with the bridge's 350 ms status poll on, so the
+  attribution card's HWUI columns run high.
 
 ## What this reading cost to obtain
 
