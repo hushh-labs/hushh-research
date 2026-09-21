@@ -328,6 +328,20 @@ function walkValue(
             : existingDescriptor.path_type,
         exposure_eligibility: false,
       });
+    } else {
+      // Collection walks are intentionally order-independent. A null, empty,
+      // or otherwise non-materialized occurrence must not hide a populated
+      // sibling that resolves to the same logical path later in the array or
+      // entity map. Keep the first safe presentation metadata, but union the
+      // independently computed eligibility/materialization signal.
+      descriptors.set(pathKey, {
+        ...existingDescriptor,
+        exposure_eligibility:
+          existingDescriptor.exposure_eligibility || nextDescriptor.exposure_eligibility,
+        consent_label: existingDescriptor.consent_label || nextDescriptor.consent_label,
+        sensitivity_label:
+          existingDescriptor.sensitivity_label || nextDescriptor.sensitivity_label,
+      });
     }
   }
 
