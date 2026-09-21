@@ -5369,7 +5369,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             // what `h-[calc(...)]` says. Dropping `flex-1` lets `flex-basis: auto`
             // fall back to the `height` property instead, so the calc() actually
             // governs the rendered size.
-            "agent-chat-workspace--root h-[calc(100%-var(--app-bottom-shell-height,0px))] min-h-0"
+            "agent-chat-workspace--root flex-1 h-full min-h-0"
           : "h-[calc(100dvh-var(--app-top-content-offset,0px)-var(--app-bottom-shell-height,calc(var(--app-bottom-fixed-ui,0px)+var(--app-safe-area-bottom-effective,0px))))]",
         className,
       )}
