@@ -5510,7 +5510,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       ) : null}
       <ShellActionSurface
         type="submit"
-        material="filled"
         className="border-transparent bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)] disabled:bg-black/[0.06] disabled:text-[rgba(0,0,0,0.36)] dark:disabled:bg-white/[0.08] dark:disabled:text-zinc-500"
         disabled={!canSend}
         aria-label="Send message"
@@ -5789,7 +5788,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               </span>
               <ShellActionSurface
                 variant="icon"
-                material="none"
                 data-testid="profile-open-button"
                 aria-label="Open Profile"
                 onClick={() => requestProfilePaneOpen("tap")}

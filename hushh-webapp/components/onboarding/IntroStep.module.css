@@ -374,10 +374,8 @@
   padding: 16px 20px;
   overflow: visible;
   border-radius: 1000px;
-  /* The fill is the accent; the Liquid Glass material (morphy-liquid) adds
-     the rim, gloss, depth and halo, replacing the exported bitmap. */
-  background-color: var(--app-accent);
-  color: var(--app-accent-fg);
+  background: transparent;
+  color: #fff;
   font-family: var(--intro-font);
   font-size: 17px;
   font-weight: 510;
@@ -387,6 +385,15 @@
 
 /* Exact frame-8 BG export includes the glass rendered over its black
    backdrop. The label and existing ripple remain live interactive elements. */
+:global(.dark) .cta::before {
+  position: absolute;
+  inset: -0.5px;
+  content: "";
+  pointer-events: none;
+  background: url("/onboarding/figma/intro-dark-cta-material.png") center / 100% 100% no-repeat;
+  border-radius: inherit;
+}
+
 :global(.dark) .ctaLabel {
   display: block;
   width: 155px;
@@ -573,10 +580,8 @@
   padding: 16px 20px;
   overflow: visible;
   border-radius: 1000px;
-  /* The fill is the accent; the Liquid Glass material (morphy-liquid) adds
-     the rim, gloss, depth and halo, replacing the exported bitmap. */
-  background-color: var(--app-accent);
-  color: var(--app-accent-fg);
+  background: transparent;
+  color: #fff;
   font-family: var(--intro-font);
   font-size: 17px;
   font-weight: 510;
@@ -586,6 +591,15 @@
 
 /* Exported BG instance includes the authored half-point backing outside the
    330 × 52 control. Text and the existing ripple/handler remain live HTML. */
+:global(html:not(.dark)) .cta::before {
+  position: absolute;
+  inset: -0.5px;
+  content: "";
+  pointer-events: none;
+  background: url("/onboarding/figma/intro-cta-material.png") center / 100% 100% no-repeat;
+  border-radius: inherit;
+}
+
 :global(html:not(.dark)) .ctaLabel {
   display: block;
   width: 155px;

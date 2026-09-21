@@ -14,14 +14,12 @@ import { cn } from "@/lib/utils";
 // bottom nav pill and the back button exactly: soft fill (bg-black/[0.05]
 // light, bg-white/[0.07] dark), no border, no shadow, no blur. Icon controls
 // carry the muted eyebrow tone on the stroke and warm to full foreground on
-// hover; pill controls add horizontal padding + label text. The track wears
-// the neutral Liquid Glass material (design-system policy 7) and keeps its
-// glass drop shadow through the material's --liquid-neutral-drop slot.
+// hover; pill controls add horizontal padding + label text.
 const shellActionSurfaceVariants = cva(
   // `touch-manipulation` removes the iOS ~300ms double-tap delay that made the
   // top-bar back/close controls feel like they needed a second tap. Kept on the
   // base so every shell control (back, close, theme, profile) gets it.
-  "shell-action-surface group/shell-action relative isolate inline-flex touch-manipulation overflow-hidden rounded-full border border-[color:var(--app-glass-border)] bg-[color:var(--app-glass-surface)] transition-[color,background-color,transform] duration-150 hover:bg-[color:var(--app-shell-surface-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-60",
+  "shell-action-surface group/shell-action relative isolate inline-flex touch-manipulation overflow-hidden rounded-full border border-[color:var(--app-glass-border)] bg-[color:var(--app-glass-surface)] shadow-[var(--app-glass-shadow)] transition-[color,background-color,transform] duration-150 hover:bg-[color:var(--app-shell-surface-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-60",
   {
     variants: {
       variant: {
@@ -30,29 +28,15 @@ const shellActionSurfaceVariants = cva(
         pill:
           "h-9 min-w-0 max-w-full items-center justify-center gap-1.5 px-3.5 text-[14px] font-semibold tracking-normal text-foreground active:scale-[0.97] sm:gap-2 sm:px-4 sm:text-base",
       },
-      // `neutral` is the translucent track; `filled` is for a control whose
-      // className paints the accent (chat Send) so the halo follows the fill;
-      // `none` is for a control whose content covers the whole circle (an
-      // avatar), where a gloss would only ever be hidden.
-      material: {
-        neutral:
-          "morphy-liquid-neutral [--liquid-neutral-drop:var(--app-glass-shadow)]",
-        filled: "morphy-liquid",
-        none: "shadow-[var(--app-glass-shadow)]",
-      },
     },
     defaultVariants: {
       variant: "icon",
-      material: "neutral",
     },
   }
 );
 
 export const SHELL_ICON_BUTTON_CLASSNAME = shellActionSurfaceVariants({ variant: "icon" });
 export const SHELL_PILL_TRIGGER_CLASSNAME = shellActionSurfaceVariants({ variant: "pill" });
-export type ShellActionMaterial = NonNullable<
-  VariantProps<typeof shellActionSurfaceVariants>["material"]
->;
 
 interface ShellActionSurfaceProps
   extends React.ButtonHTMLAttributes<HTMLButtonElement>,
@@ -70,7 +54,6 @@ export const ShellActionSurface = React.forwardRef<
 >(function ShellActionSurface(
   {
     variant = "icon",
-    material = "neutral",
     className,
     wrapperClassName,
     contentClassName,
@@ -88,7 +71,7 @@ export const ShellActionSurface = React.forwardRef<
       <button
         ref={ref}
         type={type}
-        className={cn(shellActionSurfaceVariants({ variant, material }), className)}
+        className={cn(shellActionSurfaceVariants({ variant }), className)}
         {...props}
       >
         <span

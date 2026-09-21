@@ -111,7 +111,7 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
               }}
               data-voice-control-id="onboarding_claim_one"
               aria-label="Claim your One"
-              className={`morphy-liquid ${styles.cta}`}
+              className={styles.cta}
             >
               <span className={`relative z-0 inline-flex items-center gap-2 ${styles.ctaLabel}`}>
                 Create your One

@@ -690,7 +690,7 @@ export function RiaPicksList({
                       // flick was the Finance page's frame cost (founder decision,
                       // 2026-09-20: blur stays on fixed chrome only). The Liquid
                       // Glass neutral rim keeps the elevated read.
-                      ? "morphy-liquid-neutral items-start overflow-hidden rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-3 py-3 hover:bg-[color:var(--app-card-surface-compact)] active:bg-[color:var(--app-card-surface-compact)]"
+                      ? "items-start overflow-hidden rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-3 py-3 hover:bg-[color:var(--app-card-surface-compact)] active:bg-[color:var(--app-card-surface-compact)]"
                       : "items-center overflow-hidden border-t border-white/45 px-4 py-3 hover:bg-white/24 active:bg-white/34 first:border-t-0 dark:border-white/10 dark:hover:bg-white/6 dark:active:bg-white/8",
                   )}
                 >

@@ -281,7 +281,7 @@ function SheetContent(
           the handle draggable everywhere except the corner it never owned.
         */}
         {showCloseButton && (
-          <SheetPrimitive.Close className="morphy-liquid-neutral ring-offset-background focus:ring-ring absolute top-4 right-4 z-10 rounded-full border border-transparent bg-[color:var(--app-card-surface-compact)] p-2 opacity-70 transition-opacity after:absolute after:-inset-1.5 after:content-[''] hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none">
+          <SheetPrimitive.Close className="ring-offset-background focus:ring-ring absolute top-4 right-4 z-10 rounded-full border border-transparent bg-[color:var(--app-card-surface-compact)] p-2 opacity-70 transition-opacity after:absolute after:-inset-1.5 after:content-[''] hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none">
             <XIcon className="size-4" />
             <span className="sr-only">Close</span>
           </SheetPrimitive.Close>

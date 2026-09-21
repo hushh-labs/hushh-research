@@ -267,7 +267,7 @@ export function ThemeToggleCompact({ className }: { className?: string }) {
           type="button"
           aria-label={`Theme: ${activeOption.label}`}
           className={cn(
-          "morphy-liquid-neutral inline-flex h-10 w-10 items-center justify-center rounded-full border backdrop-blur-xl transition-[background-color,border-color,color,box-shadow,transform] duration-150",
+          "inline-flex h-10 w-10 items-center justify-center rounded-full border backdrop-blur-xl transition-[background-color,border-color,color,box-shadow,transform] duration-150",
             isDark
               ? "border-white/8 bg-black/85 text-zinc-100 hover:bg-neutral-900"
               : "border-slate-200 bg-white/85 text-slate-700 hover:bg-white",

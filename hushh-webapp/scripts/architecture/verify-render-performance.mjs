@@ -190,7 +190,7 @@ const RULES = [
   {
     id: "backdrop-filter-on-list-row",
     files: /\.(tsx|jsx)$/,
-    reason: "A backdrop blur on a list row moves under every scroll frame; the engine re-reads and re-blurs what is behind it per row per frame. Blur belongs on fixed chrome; rows take a solid surface (plus morphy-liquid-neutral for the rim).",
+    reason: "A backdrop blur on a list row moves under every scroll frame; the engine re-reads and re-blurs what is behind it per row per frame. Blur belongs on fixed chrome; rows take a solid surface.",
     find: (lines, source) => {
       // A keyed JSX element is a list row. Flag a backdrop-blur class inside
       // the opening tag of an element that carries key={...}.

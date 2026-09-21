@@ -15,14 +15,10 @@
    it; never drives a React state update from an audio, scroll or streaming
    frame; passes `CHART_ANIMATION_ACTIVE` to every chart series and
    `CHART_TOOLTIP_TRIGGER` to every chart tooltip; takes any
-   z-index from the `--z-*` ladder; and gives a filled interactive surface
-   the Liquid Glass material through the `Button`/Morphy primitives (or
-   `morphy-liquid` directly), never a bitmap or a one-off gradient; a
-   circular shell control goes through `ShellActionSurface` (its `material`
-   variant) and a filled icon circle carries `morphy-liquid-neutral`; a
-   list row that moves under a flick never carries `backdrop-blur`
-   (the `backdrop-filter-on-list-row` rule), blur stays on fixed chrome;
-   every raw `ResponsiveContainer` passes `debounce={CHART_RESIZE_DEBOUNCE_MS}`.
+   z-index from the `--z-*` ladder; never puts `backdrop-blur` on a list
+   row that moves under a flick (the `backdrop-filter-on-list-row` rule;
+   blur stays on fixed chrome); and passes
+   `debounce={CHART_RESIZE_DEBOUNCE_MS}` to every raw `ResponsiveContainer`.
    `npm run verify:render-performance` fails
    a violation, and the allowlist beside it only shrinks. The reasoning and the
    measuring tools are in `docs/reference/mobile/render-performance-charter.md`;

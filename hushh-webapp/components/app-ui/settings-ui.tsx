@@ -851,7 +851,7 @@ export function AdaptiveDetailSurface({
       onClick={() => onOpenChange(false)}
       className={cn(
         "group absolute right-4 top-4 z-20 isolate inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-full",
-        "morphy-liquid-neutral border border-transparent bg-[color:var(--app-neutral-fill)] text-[color:var(--app-secondary-label)]",
+        "border border-transparent bg-[color:var(--app-neutral-fill)] text-[color:var(--app-secondary-label)]",
         "transition-[transform,color,background-color] duration-100 ease-out hover:bg-[color:var(--app-neutral-fill-strong)] hover:text-foreground active:scale-[0.97]",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
       )}
