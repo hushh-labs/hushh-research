@@ -138,6 +138,7 @@ _STATE_GOAL_RUN = "hussh:goal_run"
 _STATE_USER_ID = "hussh:user_id"
 _STATE_CONSENT_TOKEN = "hussh:consent_token"  # noqa: S105
 _STATE_TIMEZONE = "hussh:timezone"
+_STATE_CONVERSATION_ID = "hussh:conversation_id"
 
 # Manifest delegate ids -> One's specialist tool names. Only these redirect;
 # other delegate markers (e.g. "agent_kyc", which has no conversational
@@ -236,6 +237,24 @@ def _agent_context(tool_context: ToolContext) -> Any:
     if isinstance(published, dict):
         return published
     return current
+
+
+def _tool_session_id(tool_context: ToolContext | None) -> str:
+    """Use the authenticated conversation id when ADK omits session.id.
+
+    AG-UI's text bridge currently supplies the conversation id in trusted
+    state but leaves ToolContext.session.id empty. Consent picker handles
+    are still owner- and conversation-bound; this fallback only restores that
+    existing binding and never creates identity authority.
+    """
+    if tool_context is None:
+        return ""
+    live_id = str(getattr(getattr(tool_context, "session", None), "id", "") or "").strip()
+    if live_id:
+        return live_id
+    state = getattr(tool_context, "state", None)
+    value = state.get(_STATE_CONVERSATION_ID) if hasattr(state, "get") else None
+    return str(value or "").strip()
 
 
 def _available_action_ids(tool_context: ToolContext) -> set[str] | None:
@@ -432,7 +451,7 @@ def _information_person_error(
     }.get(exc.code, "failed")
     result: dict[str, Any] = {"status": status, "message": exc.message}
     if isinstance(exc, InformationPersonAmbiguous):
-        session_id = str(getattr(getattr(tool_context, "session", None), "id", "") or "")
+        session_id = _tool_session_id(tool_context)
         if not session_id:
             return result
         choices, handles = [], {}
@@ -2158,7 +2177,7 @@ def _remember_information_person(
     This is conversation context, not information-access authority. Profile and
     mutation services must still revalidate current exposure and consent.
     """
-    session_id = str(getattr(getattr(tool_context, "session", None), "id", "") or "")
+    session_id = _tool_session_id(tool_context)
     if tool_context is not None and session_id:
         handle = uuid.uuid4().hex
         tool_context.state[_STATE_INFORMATION_PERSON_CHOICES] = {
@@ -2251,17 +2270,28 @@ def _resolve_person_for_information(
             tool_context.state.get(_STATE_INFORMATION_PERSON_CHOICES) if tool_context else None
         )
         choice = choices.get(selection_handle) if isinstance(choices, dict) else None
-        session_id = str(getattr(getattr(tool_context, "session", None), "id", "") or "")
-        if (
-            not isinstance(choice, dict)
-            or choice.get("owner") != user_id
-            or not session_id
-            or choice.get("session") != session_id
+        session_id = _tool_session_id(tool_context)
+        if not isinstance(choice, dict):
+            if retained_selection:
+                # A persisted selection is only a convenience. If its
+                # short-lived admission record was pruned or belongs to an
+                # earlier conversation, clear it and resolve the spoken name
+                # again so duplicate names produce a fresh picker.
+                retained_person = selected if isinstance(selected, dict) else {}
+                spoken = spoken or str(retained_person.get("displayName") or "").strip()
+                tool_context.state[_STATE_SELECTED_INFORMATION_PERSON] = None
+                selection_handle = ""
+            else:
+                raise ConsentLifecycleError(
+                    "PERSON_REQUIRED", "That choice expired. Please choose the person again."
+                )
+        elif (
+            choice.get("owner") != user_id or not session_id or choice.get("session") != session_id
         ):
             raise ConsentLifecycleError(
                 "PERSON_REQUIRED", "That choice expired. Please choose the person again."
             )
-        if float(choice.get("expiresAt") or 0) <= time.time():
+        if selection_handle and float(choice.get("expiresAt") or 0) <= time.time():
             if retained_selection:
                 # A persisted conversational selection is a convenience, not
                 # identity authority. Discard only the stale retention and
@@ -2588,12 +2618,12 @@ async def propose_information_request(
     Resolves the person (connections, then the directory), matches the spoken
     fields to that person's requestable catalog by label or domain, checks the
     purpose and duration, and parks a proposal. Nothing is sent: read the
-    proposal back so they know what is about to be asked, then run
-    run_app_action("consent.request") with the proposal id. The app shows the
-    confirmation and that tap is the authorization, so do not ask for a yes
-    first and then hand over to a card that asks again. If connectorReady is
-    false the owner's secure key is not ready and nothing can be asked for
-    yet; tell them to unlock their private agent and try again.
+    proposal back so they know what is about to be asked. When the owner's
+    connector is ready, the tool stages the app's one confirmation card; the
+    visible tap is the authorization, so do not ask for a spoken yes or call
+    another consent action. If connectorReady is false the owner's secure key
+    is not ready and nothing can be asked for yet; tell them to unlock their
+    private agent and try again.
     """
     user_id, blocked = await _read_tool_user_id(tool_context)
     if blocked is not None:
@@ -2711,7 +2741,31 @@ async def propose_information_request(
         for stale in list(proposals)[:-_INFORMATION_REQUEST_MAX_PROPOSALS]:
             proposals.pop(stale, None)
         tool_context.state[_STATE_INFORMATION_REQUEST_PROPOSALS] = proposals
-        return {
+        proposal_directive: dict[str, Any] | None = None
+        if connector_ready:
+            # The proposal is the authority-bearing boundary for this flow.
+            # Park the same server-resolved directive that run_app_action would
+            # have produced, but do it here so a model that ends after the
+            # proposal still gives the browser one visible confirmation card.
+            # The full slots stay in the server-resolved directive contract;
+            # the browser consumes them only to execute after the visible tap.
+            action_id = "consent.request"
+            action_entry = get_action_gateway_action(action_id)
+            flags = _directive_flags(action_entry)
+            directive_payload = {
+                "actionId": action_id,
+                "slots": _resolved_directive_slots(
+                    action_id, {"proposal_id": proposal_id}, tool_context
+                ),
+                "needsConfirmation": flags["needsConfirmation"],
+                "trustedActivationRequired": flags["trustedActivationRequired"],
+            }
+            tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:{action_id}"] = {
+                "kind": "action",
+                "payload": directive_payload,
+            }
+            proposal_directive = directive_payload
+        result = {
             "status": "proposal_ready",
             "proposalId": proposal_id,
             "person": {
@@ -2726,17 +2780,23 @@ async def propose_information_request(
             "connectorReady": connector_ready,
             "nextStep": (
                 "Read back who you are asking, what you are asking for, why, and for how long, "
-                "in plain words. Name the things themselves, never a path or an id. Then call "
-                "run_app_action with action_id consent.request and slots "
-                '{"proposal_id": "<proposalId>"}. The app shows the confirmation and their tap '
-                "is what authorizes it, so do not ask for a yes yourself first. Say nothing was "
-                "sent until the action result confirms it."
+                "in plain words. Name the things themselves, never a path or an id. The app "
+                "will show one confirmation card for this proposal; do not ask for a spoken "
+                "yes or call another consent action yourself. Their tap is what authorizes it. "
+                "Say nothing was sent until the action result confirms it."
                 if connector_ready
                 else "The owner's secure key is not ready yet, so nothing can be asked for. "
                 "Say exactly that in plain words, tell them to unlock their private agent and try "
                 "again, and do not use the word connector: it means nothing to them."
             ),
         }
+        if proposal_directive is not None:
+            # AG-UI does not forward ADK state deltas emitted by function tools.
+            # Reuse the existing parked-directive result shape so the browser
+            # can stage the same one-tap confirmation without a second model
+            # tool call.
+            result["directive"] = proposal_directive
+        return result
     except ConsentLifecycleError as exc:
         return _information_person_error(exc, tool_context, user_id)
     except (ConnectionsError, PersonProfileNotFoundError, ValueError) as exc:

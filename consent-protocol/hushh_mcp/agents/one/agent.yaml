@@ -41,7 +41,7 @@ system_instruction: |
   - "Who can see my information?" / "what am I sharing with X?" / "does anyone still have my address?": list_active_grants.
   - "What did I ask X for?" / "what requests have I sent?": list_my_outgoing_information_requests.
   - "What could I ask X for?" / "what does X have?": discover_person_information.
-  - "Ask X for their Y": propose_information_request with the person, the things in their words, a purpose, and a duration in hours. Read the proposal back in plain words, then run_app_action("consent.request") with that proposal id. If the proposal says the secure key is not ready, say nothing can be asked for yet and tell them to unlock their private agent and try again.
+  - "Ask X for their Y": propose_information_request with the person, the things in their words, a purpose, and a duration in hours. Read the proposal back in plain words; when the secure key is ready, the proposal stages the one app confirmation card automatically. Do not ask for a spoken yes or call consent.request a second time. If the proposal says the secure key is not ready, say nothing can be asked for yet and tell them to unlock their private agent and try again.
   - "Say no to that request": run_app_action("consent.deny") with the requestId from the pending list.
   - "Stop sharing Y with X" / "take back that access": list_active_grants first if you do not already hold a grantId, then run_app_action("consent.revoke") with it.
   - "Cancel the request I sent" / "withdraw that": run_app_action("consent.cancel_request") with the requestId from the outgoing list, or with no id at all for the most recent.

@@ -5100,6 +5100,21 @@ class TestNamedShareChain:
         assert instruction.count("ASK FOR IT OUT LOUD") >= 3
         assert "then STOP and wait" in instruction
 
+    def test_consent_actions_have_one_app_confirmation_owner(self):
+        """Consent cards must not be followed by a second spoken approval.
+
+        The authored manifest already owns this distinction. Keep the dynamic
+        runtime instruction aligned with it so the generic confirmation rule
+        cannot make Chat ask for a redundant yes before the app card appears.
+        """
+        instruction = ONE_IDENTITY_INSTRUCTION
+        start = instruction.index("The four consent actions")
+        consent_rule = instruction[start : start + 700]
+        assert "one app confirmation" in consent_rule
+        assert "consent.request" in consent_rule
+        assert "do not ask for a spoken yes" in consent_rule
+        assert "non-consent action needs spoken confirmation" in instruction
+
     def test_circle_creation_and_adding_use_the_surface_or_authored_journey(self):
         """Circle actions must not bypass the current executable inventory."""
         instruction = ONE_IDENTITY_INSTRUCTION

@@ -513,9 +513,24 @@ class TestPropose:
         assert result["durationHours"] == 48
         assert result["connectorReady"] is True
         assert result["person"]["profilePath"] == f"/people/{PERSON_REF}"
-        assert "psr_" not in str(result)
+        assert result["directive"]["actionId"] == "consent.request"
+        assert result["directive"]["needsConfirmation"] is True
+        assert result["directive"]["slots"]["personRef"] == PERSON_REF
+        assert result["directive"]["slots"]["scopeRefs"] == [
+            "psr_employment",
+            "psr_cuisine",
+        ]
         parked = state[action_tools._STATE_INFORMATION_REQUEST_PROPOSALS][result["proposalId"]]
         assert parked["scopeRefs"] == ["psr_employment", "psr_cuisine"]
+        directive = state[f"{action_tools._STATE_PENDING_DIRECTIVE}:consent.request"]
+        assert directive["kind"] == "action"
+        assert directive["payload"]["actionId"] == "consent.request"
+        assert directive["payload"]["needsConfirmation"] is True
+        assert directive["payload"]["slots"]["scopeRefs"] == [
+            "psr_employment",
+            "psr_cuisine",
+        ]
+        assert "run_app_action" not in result["nextStep"]
 
     @pytest.mark.asyncio
     async def test_a_domain_name_selects_that_domain(self):
@@ -633,6 +648,25 @@ class TestPropose:
             action_tools._resolve_person_for_information(
                 None, "owner-a", "Alex", context, "model-only-handle"
             )
+
+    def test_conversation_state_binds_picker_when_adk_session_id_is_missing(self):
+        state = _state()
+        state["hussh:conversation_id"] = "thread_1"
+        context = _ctx(state)
+        context.session.id = None
+        result = action_tools._information_person_error(
+            action_tools.InformationPersonAmbiguous(
+                [{"displayName": "Alex", "publicPersonRef": PERSON_REF}]
+            ),
+            context,
+            "owner-a",
+        )
+        assert result["candidates"][0]["displayName"] == "Alex"
+        handle = result["candidates"][0]["selectionHandle"]
+        assert (
+            context.state[action_tools._STATE_INFORMATION_PERSON_CHOICES][handle]["session"]
+            == "thread_1"
+        )
 
     def test_valid_person_choice_never_resolves_a_different_name(self):
         context = _ctx(_state())
@@ -758,6 +792,20 @@ class TestPropose:
         with _connections(person):
             assert action_tools._resolve_person_for_information(
                 ConnectionsService(), "owner-a", "", context, old_handle
+            ) == (PERSON_REF, "Sarah Chen")
+
+    def test_pruned_implicit_selection_re_resolves_instead_of_blocking(self):
+        context = _ctx(_state())
+        person = {"displayName": "Sarah Chen", "publicPersonRef": PERSON_REF}
+        with _connections(person):
+            action_tools._resolve_person_for_information(
+                ConnectionsService(), "owner-a", "Sarah", context
+            )
+        context.state[action_tools._STATE_INFORMATION_PERSON_CHOICES] = {}
+
+        with _connections(person):
+            assert action_tools._resolve_person_for_information(
+                ConnectionsService(), "owner-a", "Sarah Chen", context
             ) == (PERSON_REF, "Sarah Chen")
 
     def test_email_punctuation_cannot_reuse_another_recipient(self):
@@ -925,6 +973,7 @@ class TestPropose:
 
     @pytest.mark.asyncio
     async def test_missing_connector_points_at_the_profile(self):
+        state = _state()
         with (
             _auth(),
             _connections({"displayName": "Sarah Chen", "publicPersonRef": PERSON_REF}),
@@ -932,7 +981,7 @@ class TestPropose:
             _connector(False),
         ):
             result = await propose_information_request(
-                "Sarah", "food", "Dinner planning for the offsite", _ctx(_state())
+                "Sarah", "food", "Dinner planning for the offsite", _ctx(state)
             )
         assert result["status"] == "proposal_ready"
         assert result["connectorReady"] is False
@@ -943,3 +992,4 @@ class TestPropose:
         # import and nothing ran.
         assert "unlock their private agent" in result["nextStep"]
         assert "profilePath" not in result["nextStep"]
+        assert f"{action_tools._STATE_PENDING_DIRECTIVE}:consent.request" not in state

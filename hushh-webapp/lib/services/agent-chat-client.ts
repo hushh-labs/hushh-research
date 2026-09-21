@@ -110,6 +110,54 @@ type ParkedAppActionDirective = {
   message: string;
 };
 
+function parseStateActionDirective(
+  path: string,
+  value: unknown,
+  threadId: string,
+): AgentChatToolEvent | null {
+  const record = asRecord(value);
+  if (!record || record.kind !== "action") return null;
+  const payload = asRecord(record.payload);
+  const actionId = String(payload?.actionId || "").trim();
+  const slots = asRecord(payload?.slots);
+  const action = getKaiActionById(actionId);
+  if (!actionId || !slots || !action) return null;
+
+  const needsConfirmation =
+    payload?.needsConfirmation === true || action.execution_policy === "confirm_required";
+  const trustedActivationRequired =
+    payload?.trustedActivationRequired === true ||
+    action.activation_policy === "trusted_activation_required";
+  const directiveId = path.slice("/".length);
+  const callId = `${threadId}:state:${directiveId}`;
+  return {
+    callId,
+    directiveId,
+    conversationId: threadId,
+    contextRevision: null,
+    expiresAt: null,
+    actionId,
+    label: action.label,
+    execution: "frontend",
+    slots,
+    message: describeDirectiveForOwner(actionId, action.label, slots, {
+      requiresConfirmation: needsConfirmation || trustedActivationRequired,
+    }),
+    requiresConfirmation: needsConfirmation,
+    trustedActivationRequired,
+    raw: {
+      protocol: "ag-ui",
+      toolName: "pending_directive",
+      args: {},
+      parked: true,
+      statePath: path,
+      // The proposal has already completed server-side. There is no model
+      // interrupt to resume; the browser's visible tap is the sole authority.
+      resume: async () => undefined,
+    },
+  };
+}
+
 /** Reads the directive a run_app_action result carries when it parked an action for the browser. */
 export function parseParkedAppActionDirective(content: unknown): ParkedAppActionDirective | null {
   let result: unknown = content;
@@ -123,15 +171,22 @@ export function parseParkedAppActionDirective(content: unknown): ParkedAppAction
   const record = asRecord(result);
   if (!record) return null;
   const status = String(record.status || "");
-  if (status !== "ready_to_run" && status !== "confirm_pending") return null;
+  const isProposalDirective = status === "proposal_ready";
+  if (
+    status !== "ready_to_run" &&
+    status !== "confirm_pending" &&
+    !isProposalDirective
+  ) return null;
   const directive = asRecord(record.directive);
   const actionId = String(directive?.actionId || record.action_id || "").trim();
-  if (!actionId) return null;
+  if (!actionId || (isProposalDirective && actionId !== "consent.request")) return null;
   const slots = asRecord(directive?.slots) || {};
+  if (isProposalDirective && directive?.needsConfirmation !== true) return null;
   return {
     actionId,
     slots,
-    needsConfirmation: directive?.needsConfirmation === true || status === "confirm_pending",
+    needsConfirmation:
+      directive?.needsConfirmation === true || status === "confirm_pending",
     trustedActivationRequired: directive?.trustedActivationRequired === true,
     message: String(record.message || ""),
   };
@@ -303,6 +358,7 @@ export async function streamAgentChat(input: {
   const toolNames = new Map<string, string>();
   const toolArgs = new Map<string, Record<string, unknown>>();
   const interruptsByToolCall = new Map<string, string>();
+  const emittedStateDirectivePaths = new Set<string>();
   const toolPayload = (callId: string, name: string, args: Record<string, unknown> = {}): AgentChatToolEvent => {
     const actionId = tools.find((tool) => tool.name === name)?.metadata?.actionId;
     const action = getKaiActionById(typeof actionId === "string" ? actionId : null);
@@ -463,7 +519,7 @@ export async function streamAgentChat(input: {
         if (!patch || typeof patch !== "object") continue;
         const op = patch as { op?: string; path?: string; value?: unknown };
         if (
-          op.op === "add" &&
+          (op.op === "add" || op.op === "replace") &&
           typeof op.path === "string" &&
           op.path.startsWith("/hussh:pending_directive:")
         ) {
@@ -484,6 +540,13 @@ export async function streamAgentChat(input: {
               stateChanged: true,
             };
             handlers.onSpecialistDirective?.(directiveEvent);
+            continue;
+          }
+          if (emittedStateDirectivePaths.has(op.path)) continue;
+          const actionEvent = parseStateActionDirective(op.path, op.value, threadId);
+          if (actionEvent) {
+            emittedStateDirectivePaths.add(op.path);
+            handlers.onToolWaiting?.(actionEvent);
           }
         }
       }

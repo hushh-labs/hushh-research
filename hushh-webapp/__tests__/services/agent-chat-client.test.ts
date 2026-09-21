@@ -217,6 +217,86 @@ describe("AG-UI Agent One client", () => {
       },
     ]);
   });
+
+  it("stages a server-resolved action directive from state without a second model call", async () => {
+    mockTransport.emitEvents = (subscriber) => {
+      subscriber.onStateDeltaEvent?.({
+        event: {
+          type: "STATE_DELTA",
+          delta: [
+            {
+              op: "add",
+              path: "/hussh:pending_directive:consent.request",
+              value: {
+                kind: "action",
+                payload: {
+                  actionId: "consent.request",
+                  slots: {
+                    personRef: "person_1234567890123456",
+                    scopeRefs: ["opaque_scope"],
+                    purpose: "Review a role opportunity",
+                    durationHours: 48,
+                    idempotencyKey: "agent-chat-proposal-1234567890",
+                  },
+                  needsConfirmation: true,
+                  trustedActivationRequired: false,
+                },
+              },
+            },
+          ],
+        },
+      });
+    };
+
+    const waiting: Array<Record<string, unknown>> = [];
+    await streamAgentChat({
+      userId: "user-1",
+      message: "Ask Alex for employment status",
+      conversationId: "thread-consent",
+      vaultOwnerToken: "owner-token",
+      handlers: { onToolWaiting: (event) => waiting.push(event as unknown as Record<string, unknown>) },
+    });
+
+    expect(waiting).toHaveLength(1);
+    expect(waiting[0]).toMatchObject({
+      actionId: "consent.request",
+      requiresConfirmation: true,
+      slots: {
+        personRef: "person_1234567890123456",
+        scopeRefs: ["opaque_scope"],
+      },
+    });
+  });
+
+  it("accepts only the consent proposal directive from a proposal result", async () => {
+    const { parseParkedAppActionDirective } = await import(
+      "@/lib/services/agent-chat-client"
+    );
+    expect(
+      parseParkedAppActionDirective({
+        status: "proposal_ready",
+        directive: {
+          actionId: "consent.request",
+          slots: { proposal_id: "opaque-proposal" },
+          needsConfirmation: true,
+        },
+      }),
+    ).toMatchObject({
+      actionId: "consent.request",
+      needsConfirmation: true,
+      slots: { proposal_id: "opaque-proposal" },
+    });
+    expect(
+      parseParkedAppActionDirective({
+        status: "proposal_ready",
+        directive: {
+          actionId: "consent.request",
+          slots: { proposal_id: "opaque-proposal" },
+          needsConfirmation: false,
+        },
+      }),
+    ).toBeNull();
+  });
 });
 
 describe("parsePendingConsentRequestIds", () => {
