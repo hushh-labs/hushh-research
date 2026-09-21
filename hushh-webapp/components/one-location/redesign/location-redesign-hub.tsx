@@ -53,6 +53,7 @@ import {
 } from "@/lib/one-location/request-recipient-status";
 import { SmsTextIcon } from "@/components/one-location/redesign/sms-text-icon";
 import { isLocationRequestPending } from "@/lib/one-location/request-expiry";
+import { useCoarseClock } from "@/lib/perf/use-periodic-task";
 import { isSmsTriggeredGrant } from "@/lib/one-location/notifications";
 import {
   formatLocationDurationLabel,
@@ -5065,13 +5066,8 @@ function ShareFlow({
   // another thirty seconds -- long enough to read a wrong end time, and long
   // enough for the replacement warning below to compare against a share that
   // has less left than it thinks.
-  const [nowMs, setNowMs] = useState(() => Date.now());
-  useEffect(() => {
-    if (step !== "details") return;
-    setNowMs(Date.now());
-    const intervalId = window.setInterval(() => setNowMs(Date.now()), 30_000);
-    return () => window.clearInterval(intervalId);
-  }, [step]);
+  // The shared 30 s clock; cheap enough to keep ticking on every step.
+  const nowMs = useCoarseClock(30_000);
 
   const setShareReviewOpen = vm.setShareReviewOpen;
   const backToPeople = useCallback(() => {
@@ -5718,11 +5714,7 @@ function LiveShareDurationEditor({
 }) {
   // Same 30-second tick as the share confirm step: an editor left open must
   // not keep quoting an end time that has already gone past.
-  const [nowMs, setNowMs] = useState(() => Date.now());
-  useEffect(() => {
-    const intervalId = window.setInterval(() => setNowMs(Date.now()), 30_000);
-    return () => window.clearInterval(intervalId);
-  }, []);
+  const nowMs = useCoarseClock(30_000);
 
   return (
     <div

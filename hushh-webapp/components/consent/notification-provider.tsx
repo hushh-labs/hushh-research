@@ -83,6 +83,7 @@ import { buildOneLocationNotificationPayloads } from "@/lib/one-location/notific
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { EmergencySmsNotificationToast } from "@/components/one-location/emergency-sms-notification-toast";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
+import { markPeriodicTaskRan, registerPeriodicTask } from "@/lib/perf/idle-scheduler";
 
 // ============================================================================
 // Helpers
@@ -1810,6 +1811,7 @@ export function ConsentNotificationProvider({
         document.visibilityState !== "visible"
       )
         return;
+      markPeriodicTaskRan("consent:location-reconcile");
       void reconcileOneLocationNotifications();
     };
     const handleVisibilityChange = () => {
@@ -1830,14 +1832,22 @@ export function ConsentNotificationProvider({
         }
       });
 
+    // On the shared idle clock: one wake with every other poll, after a
+    // frame, never while hidden (lib/perf/idle-scheduler.ts).
     const intervalMs = deliveryMode === "push_active" ? 5 * 60_000 : 30_000;
-    const intervalId = window.setInterval(reconcileWhenVisible, intervalMs);
+    const unregister = registerPeriodicTask({
+      id: "consent:location-reconcile",
+      intervalMs,
+      run: () => {
+        void reconcileOneLocationNotifications();
+      },
+    });
 
     return () => {
       window.removeEventListener("focus", reconcileWhenVisible);
       window.removeEventListener("online", reconcileWhenVisible);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
-      window.clearInterval(intervalId);
+      unregister();
       removeLifecycleListener();
     };
   }, [
@@ -2012,6 +2022,7 @@ export function ConsentNotificationProvider({
       ) {
         return;
       }
+      markPeriodicTaskRan("consent:pending-reconcile");
       void reconcilePendingConsents();
     };
     const onVisibilityChange = () => {
@@ -2020,12 +2031,18 @@ export function ConsentNotificationProvider({
     window.addEventListener("focus", reconcileWhenVisible);
     window.addEventListener("online", reconcileWhenVisible);
     document.addEventListener("visibilitychange", onVisibilityChange);
-    const intervalId = window.setInterval(reconcileWhenVisible, 5 * 60_000);
+    const unregister = registerPeriodicTask({
+      id: "consent:pending-reconcile",
+      intervalMs: 5 * 60_000,
+      run: () => {
+        void reconcilePendingConsents();
+      },
+    });
     return () => {
       window.removeEventListener("focus", reconcileWhenVisible);
       window.removeEventListener("online", reconcileWhenVisible);
       document.removeEventListener("visibilitychange", onVisibilityChange);
-      window.clearInterval(intervalId);
+      unregister();
     };
   }, [deliveryMode, isVaultUnlocked, reconcilePendingConsents, user?.uid]);
 

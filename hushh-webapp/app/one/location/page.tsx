@@ -3,6 +3,8 @@
 import { prepareCircleManagement, verifyCircleManagementReceipt, circleManagementResult,
   type CircleManagementAction, type CircleManagementBinding } from "@/lib/one-location/command-circle-management";
 import { OwnerOperationGate, SosOperationGate, stopSosShares } from "@/lib/one-location/command-sos";
+import { registerPeriodicTask } from "@/lib/perf/idle-scheduler";
+import { useCoarseClock } from "@/lib/perf/use-periodic-task";
 import { locationConnectionPrerequisite } from "@/lib/one-location/command-connection";
 import { prepareCircleMembership, executeCircleMembership, type CircleMembershipBinding } from "@/lib/one-location/command-circle-membership";
 import { prepareLocationAudience, resolvePreparedAudience } from "@/lib/one-location/command-audience";
@@ -2606,22 +2608,10 @@ export function OneLocationAgentPageContent({
   // was the one that had quietly stopped moving. 30s, not 1s: these labels
   // are minute-grained, and re-rendering to move nothing is cost with no
   // reader.
-  const [nowMs, setNowMs] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = window.setInterval(() => setNowMs(Date.now()), 30_000);
-    // A screen returning from background can be minutes stale; refresh the
-    // clock on the way in rather than waiting out the next tick.
-    const syncNow = () => setNowMs(Date.now());
-    if (typeof document !== "undefined") {
-      document.addEventListener("visibilitychange", syncNow);
-    }
-    return () => {
-      window.clearInterval(timer);
-      if (typeof document !== "undefined") {
-        document.removeEventListener("visibilitychange", syncNow);
-      }
-    };
-  }, []);
+  // The shared 30 s clock (lib/perf/use-periodic-task): one wake for every
+  // consumer, after a frame, and it catches up on the way back from the
+  // background instead of waiting out the next tick.
+  const nowMs = useCoarseClock(30_000);
   const approvalsNowMs = nowMs;
   /*
    * The live share card's own time editor. Separate from the three flags above
@@ -6958,16 +6948,16 @@ export function OneLocationAgentPageContent({
     }
 
     void refreshVisibleGrants();
-    const interval = window.setInterval(() => {
-      // A synchronous throw here would kill the interval for the rest of the
-      // session, so nothing is allowed to escape the tick.
-      try {
+    // On the shared idle clock: the map's own 5 s marker refresh runs in the
+    // same wake, after a frame, never while hidden. The clock swallows a
+    // throw itself, so a bad tick cannot end the poll for the session.
+    return registerPeriodicTask({
+      id: "location:visible-grants",
+      intervalMs: LIVE_VIEW_REFRESH_INTERVAL_MS,
+      run: () => {
         void refreshVisibleGrants();
-      } catch (error) {
-        console.warn("[OneLocationAgent] Live view tick failed:", error);
-      }
-    }, LIVE_VIEW_REFRESH_INTERVAL_MS);
-    return () => window.clearInterval(interval);
+      },
+    });
   }, [visibleReceivedGrantKey, liveViewPollBlocked, setGrantViewErrors]);
 
   // Keep native background publishing in sync with the opt-in toggle + grants.

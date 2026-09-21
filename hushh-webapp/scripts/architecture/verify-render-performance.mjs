@@ -219,6 +219,15 @@ const RULES = [
     },
   },
   {
+    id: "interval-state-tick",
+    files: /\.(tsx|ts)$/,
+    reason: "A private setInterval whose only work is setX(Date.now()) wakes the page on its own phase and re-renders one component for a coarse clock; take the shared clock (useCoarseClock in lib/perf/use-periodic-task.ts) so every consumer ticks in one wake, after a frame, and never while hidden.",
+    find: (lines) =>
+      lines.flatMap((line, i) =>
+        /setInterval\(\s*\(\)\s*=>\s*(?:void\s+)?set[A-Z]\w*\(\s*Date\.now\(\)\s*\)/.test(line) && !isCommentLine(line) ? [i] : [],
+      ),
+  },
+  {
     id: "continuous-float-store-in-react",
     files: /\.tsx$/,
     reason: "A component subscribed to a per-frame float (progress/position/offset) re-renders every scroll frame; consume the CSS variable instead.",

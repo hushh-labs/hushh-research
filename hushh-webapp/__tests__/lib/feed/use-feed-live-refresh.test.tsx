@@ -9,6 +9,7 @@ import {
   FEED_LIVE_POLL_INTERVAL_MS,
   useFeedLiveRefresh,
 } from "@/lib/feed/use-feed-live-refresh";
+import { resetIdleSchedulerForTests } from "@/lib/perf/idle-scheduler";
 
 /**
  * The Feed was reported as "neither real time, not accurate and not precise".
@@ -36,6 +37,14 @@ function setVisibility(state: DocumentVisibilityState) {
 describe("useFeedLiveRefresh", () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    // The shared idle clock runs tasks at multiples of their interval and
+    // after an animation frame; pin the clock to a multiple and make the
+    // frame a fake timer so the interval arithmetic below stays exact.
+    vi.setSystemTime(new Date(1789930800000));
+    vi.spyOn(window, "requestAnimationFrame").mockImplementation((cb) => {
+      setTimeout(() => cb(0), 0);
+      return 1;
+    });
     Object.defineProperty(document, "visibilityState", {
       configurable: true,
       get: () => "visible" as DocumentVisibilityState,
@@ -43,6 +52,7 @@ describe("useFeedLiveRefresh", () => {
   });
 
   afterEach(() => {
+    resetIdleSchedulerForTests();
     vi.useRealTimers();
     vi.restoreAllMocks();
   });
@@ -54,7 +64,8 @@ describe("useFeedLiveRefresh", () => {
     // Mount is itself the freshest moment to ask.
     expect(refresh).toHaveBeenCalledTimes(1);
 
-    vi.advanceTimersByTime(FEED_LIVE_POLL_INTERVAL_MS);
+    // The clock's wake runs the task after a frame, so a hair past the tick.
+    vi.advanceTimersByTime(FEED_LIVE_POLL_INTERVAL_MS + 10);
     expect(refresh).toHaveBeenCalledTimes(2);
 
     vi.advanceTimersByTime(FEED_LIVE_POLL_INTERVAL_MS * 2);
@@ -176,7 +187,7 @@ describe("useFeedLiveRefresh", () => {
     expect(first).toHaveBeenCalledTimes(1);
 
     rerender({ fn: second });
-    vi.advanceTimersByTime(FEED_LIVE_POLL_INTERVAL_MS);
+    vi.advanceTimersByTime(FEED_LIVE_POLL_INTERVAL_MS + 10);
 
     expect(first).toHaveBeenCalledTimes(1);
     expect(second).toHaveBeenCalledTimes(1);

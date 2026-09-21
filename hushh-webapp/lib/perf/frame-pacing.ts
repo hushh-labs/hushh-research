@@ -38,7 +38,9 @@ export type GestureKind =
   | "scroll"
   | "tap"
   /** Keyboard input: opened by `input`/`keydown`, closed after TYPE_QUIET_MS without one. */
-  | "type";
+  | "type"
+  /** The visual viewport changed size (the keyboard rose or fell) with no pointer window open. */
+  | "viewport";
 
 type WindowKind = GestureKind | `${GestureKind}→route` | "scroll:programmatic" | "stream";
 
@@ -70,6 +72,10 @@ const POINTER_SETTLE_MS = 900;
 // pointer event, the keys are native); a window stays open while they keep
 // coming and closes this long after the last one.
 const TYPE_QUIET_MS = 600;
+// A keyboard rise or fall resizes the visual viewport; when no pointer
+// window is open (a tap outside an editable reaches the page as no pointer
+// event on iOS while the keyboard is up) this is the only signal of it.
+const VIEWPORT_SETTLE_MS = 900;
 // A tap on a tab or nav item is followed by a route change that a cold dev
 // server can take seconds to serve; keep those windows open long enough for
 // the change to attach, so "tap to settled" includes the destination paint.
@@ -275,6 +281,7 @@ export function startFramePacingProbe(options: { hud: boolean }): FramePacingPro
   let frameIndex = 0;
   let lastScrollAt = 0;
   let lastInputAt = 0;
+  let lastViewportAt = 0;
   let pointerUpAt: number | null = null;
   let routeChangedAt: number | null = null;
   let rafHandle = 0;
@@ -371,10 +378,12 @@ export function startFramePacingProbe(options: { hud: boolean }): FramePacingPro
         const routeSettled = routeChangedAt !== null && now - routeChangedAt >= ROUTE_SETTLE_MS;
         const programmatic = current.kind === "scroll:programmatic" && sinceScroll >= SCROLL_QUIET_MS;
         const typingDone = current.kind === "type" && now - lastInputAt >= TYPE_QUIET_MS;
+        const viewportDone = current.kind === "viewport" && now - lastViewportAt >= VIEWPORT_SETTLE_MS;
         if (
           (settled && (routeChangedAt === null || routeSettled)) ||
           programmatic ||
           typingDone ||
+          viewportDone ||
           now - current.startPerf >= WINDOW_CAP_MS
         ) {
           closeWindow(now);
@@ -406,6 +415,10 @@ export function startFramePacingProbe(options: { hud: boolean }): FramePacingPro
     lastInputAt = performance.now();
     if (!current) openWindow("type", lastInputAt);
   };
+  const onViewportResize = () => {
+    lastViewportAt = performance.now();
+    if (!current) openWindow("viewport", lastViewportAt);
+  };
 
   const supportsPointer = typeof window.PointerEvent === "function";
   const downEvent = supportsPointer ? "pointerdown" : "touchstart";
@@ -417,6 +430,7 @@ export function startFramePacingProbe(options: { hud: boolean }): FramePacingPro
   document.addEventListener("scroll", onScroll, { capture: true, passive: true });
   document.addEventListener("input", onInput, { capture: true, passive: true });
   document.addEventListener("keydown", onInput, { capture: true, passive: true });
+  window.visualViewport?.addEventListener("resize", onViewportResize);
 
   // Observers where the engine has them. Safari: none of these before 26.2.
   const supported = (typeof PerformanceObserver !== "undefined" && PerformanceObserver.supportedEntryTypes) || [];
@@ -654,6 +668,7 @@ export function startFramePacingProbe(options: { hud: boolean }): FramePacingPro
       document.removeEventListener("scroll", onScroll, { capture: true });
       document.removeEventListener("input", onInput, { capture: true });
       document.removeEventListener("keydown", onInput, { capture: true });
+      window.visualViewport?.removeEventListener("resize", onViewportResize);
       document.removeEventListener("visibilitychange", onVisibility);
       for (const observer of observers) observer.disconnect();
       if (exportTimer !== null) window.clearInterval(exportTimer);
