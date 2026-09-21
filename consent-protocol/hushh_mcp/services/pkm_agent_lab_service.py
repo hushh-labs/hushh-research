@@ -758,7 +758,8 @@ class PKMAgentLabService:
         status_code = PKMAgentLabService._provider_status_code(exc)
         if status_code in {429, 500, 503}:
             return True
-        message = str(exc).lower()
+        current: BaseException | None = exc
+        seen: set[int] = set()
         markers = (
             "resource_exhausted",
             "resource exhausted",
@@ -772,21 +773,42 @@ class PKMAgentLabService:
             "code 500",
             "code 503",
         )
-        return any(marker in message for marker in markers)
+        while current is not None and id(current) not in seen:
+            seen.add(id(current))
+            if any(marker in str(current).lower() for marker in markers):
+                return True
+            current = current.__cause__ or current.__context__
+        return False
+
+    @staticmethod
+    def _has_timeout_cause(exc: Exception) -> bool:
+        current: BaseException | None = exc
+        seen: set[int] = set()
+        while current is not None and id(current) not in seen:
+            seen.add(id(current))
+            if isinstance(current, (asyncio.TimeoutError, TimeoutError)):
+                return True
+            current = current.__cause__ or current.__context__
+        return False
 
     @staticmethod
     def _provider_status_code(exc: Exception) -> int | None:
-        for field in ("status_code", "code"):
-            value = getattr(exc, field, None)
-            if callable(value):
+        current: BaseException | None = exc
+        seen: set[int] = set()
+        while current is not None and id(current) not in seen:
+            seen.add(id(current))
+            for field in ("status_code", "code"):
+                value = getattr(current, field, None)
+                if callable(value):
+                    try:
+                        value = value()
+                    except TypeError:
+                        continue
                 try:
-                    value = value()
-                except TypeError:
+                    return int(value)
+                except (TypeError, ValueError):
                     continue
-            try:
-                return int(value)
-            except (TypeError, ValueError):
-                continue
+            current = current.__cause__ or current.__context__
         return None
 
     @classmethod
@@ -1675,6 +1697,30 @@ class PKMAgentLabService:
                     retry_budget_seconds = (
                         max(0.0, deadline - time.perf_counter()) if deadline is not None else None
                     )
+                    if self._has_timeout_cause(error):
+                        if attempt < _AGENT_CONTRACT_MAX_ATTEMPTS and (
+                            retry_budget_seconds is None or retry_budget_seconds > 0.25
+                        ):
+                            logger.warning(
+                                "pkm.agent_contract_adk_timeout_retry agent=%s attempt=%s "
+                                "max_attempts=%s timeout_seconds=%s budget_remaining_seconds=%s",
+                                agent_id,
+                                attempt,
+                                _AGENT_CONTRACT_MAX_ATTEMPTS,
+                                round(effective_timeout, 3),
+                                round(retry_budget_seconds, 3)
+                                if retry_budget_seconds is not None
+                                else None,
+                            )
+                            continue
+                        record("timeout", attempts=attempt)
+                        logger.warning(
+                            "pkm.agent_contract_adk_timeout agent=%s attempts=%s timeout_seconds=%s",
+                            agent_id,
+                            attempt,
+                            round(effective_timeout, 3),
+                        )
+                        return None
                     can_retry = (
                         attempt < _AGENT_CONTRACT_MAX_ATTEMPTS
                         and self._is_retryable_provider_error(error)

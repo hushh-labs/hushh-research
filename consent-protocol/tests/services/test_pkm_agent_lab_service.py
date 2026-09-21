@@ -314,11 +314,10 @@ async def test_managed_adk_contract_retries_one_timeout_within_preview_budget(mo
     monkeypatch.setattr(
         pkm_agent_lab_module, "build_single_turn_agent", lambda *args, **kwargs: object()
     )
+    wrapped_timeout = RuntimeError("Specialist turn failed")
+    wrapped_timeout.__cause__ = asyncio.TimeoutError()
     run_single_turn = AsyncMock(
-        side_effect=[
-            asyncio.TimeoutError,
-            SimpleNamespace(model_dump=lambda mode: {"status": "ok"}),
-        ]
+        side_effect=[wrapped_timeout, SimpleNamespace(model_dump=lambda mode: {"status": "ok"})]
     )
     monkeypatch.setattr(pkm_agent_lab_module, "run_single_turn", run_single_turn)
     monkeypatch.setattr(pkm_agent_lab_module, "_AGENT_CONTRACT_TIMEOUT_SECONDS", 0.01)
@@ -482,6 +481,17 @@ async def test_agent_contract_retries_transient_resource_exhausted(monkeypatch):
     assert result == {"status": "ok"}
     assert generate_content.await_count == 2
     sleep.assert_awaited_once_with(0.5)
+
+
+def test_provider_retry_classifier_walks_wrapped_adk_cause_chain():
+    class ResourceExhaustedError(Exception):
+        status_code = 429
+
+    wrapped = RuntimeError("Specialist turn failed")
+    wrapped.__cause__ = ResourceExhaustedError("RESOURCE_EXHAUSTED")
+
+    assert PKMAgentLabService._provider_status_code(wrapped) == 429
+    assert PKMAgentLabService._is_retryable_provider_error(wrapped) is True
 
 
 @pytest.mark.asyncio
