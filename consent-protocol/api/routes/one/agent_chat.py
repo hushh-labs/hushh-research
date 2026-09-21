@@ -103,9 +103,9 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         # A picker handle is an untrusted, current-turn admission request. The
         # ADK temp prefix keeps it out of persisted conversation state so an
         # expired selection cannot block or redirect a later typed prompt.
-        "temp:hussh:requested_person_selection": str(
-            forwarded.get("personSelectionHandle") or ""
-        )[:64],
+        "temp:hussh:requested_person_selection": str(forwarded.get("personSelectionHandle") or "")[
+            :64
+        ],
         # Typed chat carries the current screen snapshot in this request. It
         # must not inherit a stale live-voice publication that is still marked
         # as settling; that would suppress the consent confirmation card even

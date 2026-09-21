@@ -741,7 +741,9 @@ class TestPropose:
             assert action_tools._resolve_person_for_information(
                 ConnectionsService(), "owner-a", "Sarah Chen", context
             ) == (PERSON_REF, "Sarah Chen")
-        assert context.state[action_tools._STATE_SELECTED_INFORMATION_PERSON]["handle"] != old_handle
+        assert (
+            context.state[action_tools._STATE_SELECTED_INFORMATION_PERSON]["handle"] != old_handle
+        )
 
     def test_expired_implicit_selection_re_resolves_when_model_omits_name(self):
         context = _ctx(_state())

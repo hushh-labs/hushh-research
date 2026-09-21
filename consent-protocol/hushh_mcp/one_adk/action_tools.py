@@ -2197,9 +2197,7 @@ def _resolve_person_for_information(
     confirm_changed_person = False
     retained_selection = False
     if tool_context:
-        requested = str(
-            tool_context.state.get(_STATE_REQUESTED_INFORMATION_PERSON) or ""
-        )
+        requested = str(tool_context.state.get(_STATE_REQUESTED_INFORMATION_PERSON) or "")
         # Only the temp-prefixed value was admitted by the browser for this
         # turn.  ``selection_handle`` is model-visible tool input and must
         # never become identity authority; an echoed old handle otherwise
