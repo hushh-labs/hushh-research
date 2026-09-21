@@ -318,13 +318,21 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
     searchText: `${field.label} ${field.domain || ""}`.toLowerCase(),
   }));
 
+  const isIncoming = experience.direction === "incoming";
+  const isOutgoingDraft = experience.direction === "outgoing" && experience.phase === "draft";
+  const label = isIncoming ? "Waiting on you" : isOutgoingDraft ? "Draft request" : experience.direction === "outgoing" ? "Request sent" : "Information request";
+  const title = isIncoming
+    ? `${experience.personName} asked to see some of your information`
+    : isOutgoingDraft
+      ? `Requesting information from ${experience.personName}`
+      : experience.direction === "outgoing"
+        ? `Request sent to ${experience.personName}`
+        : `Information request involving ${experience.personName}`;
+
   return (
     <ExperienceShell
-      // Not "Consent review", not "N fields", and the raw domain key no longer
-      // sits beside every row. agent.yaml:62-70 bans this vocabulary in
-      // owner-facing speech; the chrome used to reintroduce all of it.
-      label="Waiting on you"
-      title={`${experience.personName} asked to see some of your information`}
+      label={label}
+      title={title}
       summary={`${items.length} ${items.length === 1 ? "thing" : "things"} · ${experience.durationLabel}`}
       icon={<ShieldCheck className="h-5 w-5" aria-hidden="true" />}
     >

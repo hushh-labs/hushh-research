@@ -99,11 +99,38 @@ describe("AG-UI structured experience registry", () => {
       personName: "Alex Morgan",
       purpose: "Complete the onboarding review.",
       durationLabel: "2 days",
+      direction: "outgoing",
+      phase: "draft",
+      subjectRef: null,
+      bundleId: null,
+      requestId: null,
       status: "awaiting_review",
       fields: [
         { label: "Employment status", domain: "Information", sensitivity: "standard" },
         { label: "Company name", domain: "Information", sensitivity: "standard" },
       ],
+    });
+  });
+  it("keeps restored request direction explicit and accepts terminal lifecycle states", () => {
+    const result = parseAgentActivityExperience("one.information_request_review.v1", {
+      direction: "outgoing",
+      phase: "submitted",
+      subjectRef: "person_1234567890123456",
+      bundleId: "bundle_12345678",
+      requestId: "request_12345678",
+      personName: "Alex Morgan",
+      purpose: "Complete payroll onboarding",
+      durationLabel: "30 days",
+      status: "revoked",
+      fields: [{ label: "Work authorization", domain: "Identity", sensitivity: "high" }],
+    });
+    expect(result).toMatchObject({
+      direction: "outgoing",
+      phase: "submitted",
+      subjectRef: "person_1234567890123456",
+      bundleId: "bundle_12345678",
+      requestId: "request_12345678",
+      status: "revoked",
     });
   });
   it("accepts the versioned scope activity and normalizes its bounded fields", () => {

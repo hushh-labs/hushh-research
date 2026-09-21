@@ -120,6 +120,8 @@ def test_history_descriptor_restores_non_actionable_information_request_review()
     assert metadata["structuredExperience"]["activityType"] == "one.information_request_review.v1"
     content = metadata["structuredExperience"]["content"]
     assert content == {
+        "direction": "outgoing",
+        "phase": "draft",
         "personName": "Alex Morgan",
         "purpose": "Complete the onboarding review.",
         "durationLabel": "2 days",

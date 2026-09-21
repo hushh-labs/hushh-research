@@ -413,6 +413,9 @@ def _safe_information_request_descriptor(
             return None
         person = _record(result.get("person")) or {}
         display_name = _bounded_text(person.get("displayName"), 120)
+        subject_ref = _bounded_text(person.get("personRef"), 128)
+        if subject_ref and not re.fullmatch(r"[A-Za-z0-9_-]{16,128}", subject_ref):
+            subject_ref = None
         purpose = _bounded_text(result.get("purpose"), 500)
         duration_hours = result.get("durationHours")
         if (
@@ -442,15 +445,20 @@ def _safe_information_request_descriptor(
             if duration_hours % 24 == 0
             else f"{duration_hours} {'hour' if duration_hours == 1 else 'hours'}"
         )
+        content = {
+            "direction": "outgoing",
+            "phase": "draft",
+            "status": "awaiting_review",
+            "personName": display_name,
+            "purpose": purpose,
+            "durationLabel": duration_label,
+            "fields": fields,
+        }
+        if subject_ref:
+            content["subjectRef"] = subject_ref
         return {
             "activityType": "one.information_request_review.v1",
-            "content": {
-                "personName": display_name,
-                "purpose": purpose,
-                "durationLabel": duration_label,
-                "status": "awaiting_review",
-                "fields": fields,
-            },
+            "content": content,
         }
     return None
 

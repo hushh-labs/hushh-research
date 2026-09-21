@@ -59,7 +59,12 @@ export type InformationRequestReviewExperience = {
   personName: string;
   purpose: string;
   durationLabel: string;
-  status: "awaiting_review" | "pending" | "cancelled" | "granted" | "denied";
+  direction: "incoming" | "outgoing" | "unknown";
+  phase: "draft" | "submitted" | "historical";
+  subjectRef: string | null;
+  bundleId: string | null;
+  requestId: string | null;
+  status: "awaiting_review" | "pending" | "cancelled" | "granted" | "denied" | "expired" | "revoked";
   fields: ReviewField[];
 };
 
@@ -194,8 +199,26 @@ function parseInformationRequestReview(content: unknown): InformationRequestRevi
   const purpose = boundedString(record.purpose, 500);
   const durationLabel = boundedString(record.durationLabel, 100);
   const status = boundedString(record.status, 32) as InformationRequestReviewExperience["status"] | null;
-  if (!personName || !purpose || !durationLabel || !status || !["awaiting_review", "pending", "cancelled", "granted", "denied"].includes(status)) return null;
-  return { type: INFORMATION_REQUEST_REVIEW_EXPERIENCE_TYPE, personName, purpose, durationLabel, status, fields: parseReviewFields(record.fields) };
+  if (!personName || !purpose || !durationLabel || !status || !["awaiting_review", "pending", "cancelled", "granted", "denied", "expired", "revoked"].includes(status)) return null;
+  const directionValue = boundedString(record.direction, 16);
+  const phaseValue = boundedString(record.phase, 16);
+  const subjectRef = boundedString(record.subjectRef, 128);
+  const safeSubjectRef = subjectRef && /^[A-Za-z0-9_-]{16,128}$/.test(subjectRef) ? subjectRef : null;
+  const bundleId = boundedString(record.bundleId, 128);
+  const requestId = boundedString(record.requestId, 128);
+  return {
+    type: INFORMATION_REQUEST_REVIEW_EXPERIENCE_TYPE,
+    personName,
+    purpose,
+    durationLabel,
+    direction: directionValue === "incoming" || directionValue === "outgoing" ? directionValue : "unknown",
+    phase: phaseValue === "draft" || phaseValue === "submitted" ? phaseValue : "historical",
+    subjectRef: safeSubjectRef,
+    bundleId: bundleId && /^[A-Za-z0-9_-]{8,128}$/.test(bundleId) ? bundleId : null,
+    requestId: requestId && /^[A-Za-z0-9_-]{8,128}$/.test(requestId) ? requestId : null,
+    status,
+    fields: parseReviewFields(record.fields),
+  };
 }
 
 function parseInformationRequestProposal(
@@ -232,6 +255,12 @@ function parseInformationRequestProposal(
     personName,
     purpose,
     durationLabel,
+    direction: "outgoing",
+    phase: "draft",
+    subjectRef:
+      boundedString(person?.personRef, 128)?.match(/^[A-Za-z0-9_-]{16,128}$/)?.[0] ?? null,
+    bundleId: null,
+    requestId: null,
     status: "awaiting_review",
     fields,
   };

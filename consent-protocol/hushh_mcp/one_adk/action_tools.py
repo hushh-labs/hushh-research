@@ -2536,7 +2536,11 @@ async def propose_information_request(
         if not requestable:
             return {
                 "status": "nothing_requestable",
-                "person": {"displayName": display_name, "profilePath": profile_path},
+                "person": {
+                    "displayName": display_name,
+                    "personRef": person_ref,
+                    "profilePath": profile_path,
+                },
                 "message": f"{display_name} has not made any information requestable yet.",
             }
         matched, unmatched = _match_requested_fields(requestable, fields)
@@ -2548,7 +2552,11 @@ async def propose_information_request(
                 )
             return {
                 "status": "needs_clarification",
-                "person": {"displayName": display_name, "profilePath": profile_path},
+                "person": {
+                    "displayName": display_name,
+                    "personRef": person_ref,
+                    "profilePath": profile_path,
+                },
                 "unmatchedFields": unmatched,
                 "availableFields": by_domain,
                 "message": (
@@ -2559,7 +2567,11 @@ async def propose_information_request(
         if len(matched) > 50:
             return {
                 "status": "needs_clarification",
-                "person": {"displayName": display_name, "profilePath": profile_path},
+                "person": {
+                    "displayName": display_name,
+                    "personRef": person_ref,
+                    "profilePath": profile_path,
+                },
                 "fieldCount": len(matched),
                 "maxFieldsPerRequest": 50,
                 "unmatchedFields": unmatched,
@@ -2573,7 +2585,11 @@ async def propose_information_request(
         if not 8 <= len(cleaned_purpose) <= 500:
             return {
                 "status": "needs_clarification",
-                "person": {"displayName": display_name, "profilePath": profile_path},
+                "person": {
+                    "displayName": display_name,
+                    "personRef": person_ref,
+                    "profilePath": profile_path,
+                },
                 "message": "Ask for a purpose of at least a short sentence (8 to 500 characters); "
                 "the other person reads it before deciding.",
             }
@@ -2584,7 +2600,11 @@ async def propose_information_request(
         if not 1 <= hours <= _INFORMATION_REQUEST_MAX_HOURS:
             return {
                 "status": "needs_clarification",
-                "person": {"displayName": display_name, "profilePath": profile_path},
+                "person": {
+                    "displayName": display_name,
+                    "personRef": person_ref,
+                    "profilePath": profile_path,
+                },
                 "message": "Access lasts between 1 hour and 30 days (720 hours). Ask for a duration in that range.",
             }
         connector = await OneEmailKycService().get_client_connector(user_id=user_id)
@@ -2605,7 +2625,11 @@ async def propose_information_request(
         return {
             "status": "proposal_ready",
             "proposalId": proposal_id,
-            "person": {"displayName": display_name, "profilePath": profile_path},
+            "person": {
+                "displayName": display_name,
+                "personRef": person_ref,
+                "profilePath": profile_path,
+            },
             "fields": _pending_scope_labels(matched),
             "unmatchedFields": unmatched,
             "purpose": cleaned_purpose,
