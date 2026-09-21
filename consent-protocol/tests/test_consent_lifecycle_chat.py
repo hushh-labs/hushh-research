@@ -331,17 +331,18 @@ class TestRevokeAndCancelAreTargetable:
         ):
             result = await list_active_grants(_ctx(state))
         assert result["status"] == "ok"
-        assert result["grants"] == [
-            {
-                "grantId": "g1",
-                "label": "Professional Employment",
-                "sharedWith": "Sarah Chen",
-                "expiresAt": 2,
-            }
-        ]
+        assert len(result["grants"]) == 1
+        grant_id = result["grants"][0]["grantId"]
+        assert grant_id.startswith("g_")
+        assert result["grants"][0] == {
+            "grantId": grant_id,
+            "label": "Professional Employment",
+            "sharedWith": "Sarah Chen",
+            "expiresAt": 2,
+        }
         # The raw scope stays on the server, against the handle.
         assert "attr." not in json.dumps(result)
-        assert state[action_tools._STATE_ACTIVE_GRANT_HANDLES]["g1"]["scope"] == (
+        assert state[action_tools._STATE_ACTIVE_GRANT_HANDLES][grant_id]["scope"] == (
             "attr.professional.employment"
         )
 
@@ -372,13 +373,69 @@ class TestRevokeAndCancelAreTargetable:
         ):
             result = await list_my_outgoing_information_requests(_ctx(state))
         assert result["status"] == "ok"
-        assert [row["requestId"] for row in result["requests"]] == ["r1", "r2"]
+        request_handles = [row["requestId"] for row in result["requests"]]
+        assert all(handle.startswith("r_") for handle in request_handles)
         assert "bundle_newest" not in json.dumps(result)
-        # Insertion order is load-bearing: _resolved_directive_slots takes the
-        # first entry when the model names none.
+        # Listing order remains newest first for the unnamed fallback, while
+        # each handle is keyed to its bundle identity.
         handles = state[action_tools._STATE_SENT_REQUEST_HANDLES]
-        assert list(handles) == ["r1", "r2"]
-        assert handles["r1"]["bundleId"] == "bundle_newest"
+        assert list(handles) == request_handles
+        assert handles[request_handles[0]]["bundleId"] == "bundle_newest"
+
+    @pytest.mark.asyncio
+    async def test_grant_handles_survive_reordering(self):
+        first = [
+            {
+                "scope": "attr.professional.employment",
+                "requestId": "req_a",
+                "holderLabel": "Sarah",
+            },
+            {"scope": "attr.financial.income", "requestId": "req_b", "holderLabel": "Dev"},
+        ]
+        second = [first[1], first[0]]
+        state = _state()
+        with (
+            _auth(),
+            patch.object(
+                ConsentLifecycleService,
+                "list_active_grants",
+                new=AsyncMock(side_effect=[first, second]),
+            ),
+        ):
+            first_result = await list_active_grants(_ctx(state))
+            first_handles = {row["sharedWith"]: row["grantId"] for row in first_result["grants"]}
+            await list_active_grants(_ctx(state))
+
+        resolved = _resolved_directive_slots(
+            "consent.revoke", {"grant_id": first_handles["Sarah"]}, _ctx(state)
+        )
+        assert resolved["scope"] == "attr.professional.employment"
+        assert resolved["requestId"] == "req_a"
+
+    @pytest.mark.asyncio
+    async def test_request_handles_survive_reordering_and_removed_rows_fail_closed(self):
+        first = [
+            {"bundleId": "bundle_newest", "displayName": "Sarah"},
+            {"bundleId": "bundle_older", "displayName": "Dev"},
+        ]
+        second = [first[1]]
+        state = _state()
+        with (
+            _auth(),
+            patch.object(
+                InformationRequestService,
+                "list_outgoing",
+                new=AsyncMock(side_effect=[first, second]),
+            ),
+        ):
+            first_result = await list_my_outgoing_information_requests(_ctx(state))
+            first_handles = {row["person"]: row["requestId"] for row in first_result["requests"]}
+            await list_my_outgoing_information_requests(_ctx(state))
+
+        resolved = _resolved_directive_slots(
+            "consent.cancel_request", {"request_id": first_handles["Sarah"]}, _ctx(state)
+        )
+        assert resolved == {"request_id": first_handles["Sarah"]}
 
     @pytest.mark.asyncio
     async def test_both_listings_fail_closed_without_a_vault_owner_session(self):

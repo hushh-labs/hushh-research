@@ -24,6 +24,8 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import hashlib
+import hmac
 import json
 import logging
 import re
@@ -58,6 +60,7 @@ from hushh_mcp.operons.location.policy import (
     UNTIL_STOPPED_LOCATION_SHARE_DURATION_MODE,
     normalize_duration_hours,
 )
+from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.services.action_gateway import (
     GLOBAL_SESSION_ACTION_IDS,
     get_action_gateway_action,
@@ -472,6 +475,25 @@ _INFORMATION_REQUEST_MAX_PROPOSALS = 5
 # app/connect/page-client.tsx's own DIRECTORY_RESOLVE_MAX_PAGES/_PAGE_SIZE.
 _DIRECTORY_RESOLVE_MAX_PAGES = 5
 _DIRECTORY_RESOLVE_PAGE_SIZE = 50
+
+
+def _stable_lifecycle_handle(prefix: str, stable_key: str) -> str:
+    """Create an opaque handle that survives list reordering.
+
+    The underlying consent identifier never reaches the model, but a
+    positional ``g1``/``r1`` handle can retarget an older utterance when the
+    service order changes between listing and mutation. A keyed digest keeps
+    the handle stable for the same lifecycle record and unguessable without
+    exposing the raw scope or bundle identifier.
+    """
+    key = get_core_security_settings().app_signing_key.encode("utf-8")
+    digest = hmac.new(
+        key,
+        f"one-consent-handle:{prefix}:{stable_key}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()[:24]
+    return f"{prefix}_{digest}"
+
 
 # Unlike BACKEND_DIRECT_ACTION_IDS, these two are only backend-direct when
 # the model actually named a person -- there is no backend concept of
@@ -2407,8 +2429,19 @@ async def list_active_grants(tool_context: ToolContext) -> dict[str, Any]:
     # handle and return only the words.
     handles: dict[str, dict[str, Any]] = {}
     spoken: list[dict[str, Any]] = []
-    for index, grant in enumerate(grants, start=1):
-        handle = f"g{index}"
+    for grant in grants:
+        scope = str(grant.get("scope") or "").strip()
+        request_id = str(grant.get("requestId") or "").strip()
+        if not scope:
+            # Without the scope or a request identity the revoke action cannot
+            # be targeted safely. Do not manufacture a positional target.
+            continue
+        stable_key = f"{scope}\x1f{request_id or grant.get('holderLabel') or ''}"
+        handle = _stable_lifecycle_handle("g", stable_key)
+        if handle in handles:
+            # A collision or duplicate projection must fail closed rather than
+            # make one spoken row point at two possible grants.
+            continue
         handles[handle] = grant
         spoken.append(
             {
@@ -2457,8 +2490,15 @@ async def list_my_outgoing_information_requests(tool_context: ToolContext) -> di
 
     handles: dict[str, dict[str, Any]] = {}
     spoken: list[dict[str, Any]] = []
-    for index, record in enumerate(sent, start=1):
-        handle = f"r{index}"
+    for record in sent:
+        bundle_id = str(record.get("bundleId") or "").strip()
+        if not bundle_id:
+            # cancel_request requires the bundle identity; an unbound row is
+            # informational only and must not become an actionable target.
+            continue
+        handle = _stable_lifecycle_handle("r", bundle_id)
+        if handle in handles:
+            continue
         handles[handle] = record
         spoken.append(
             {
@@ -2468,9 +2508,8 @@ async def list_my_outgoing_information_requests(tool_context: ToolContext) -> di
                 "sentAt": record.get("sentAt"),
             }
         )
-    # Insertion order is the service's order, newest first, and
-    # _resolved_directive_slots takes the first entry when the model names
-    # none. Re-sorting this dict would silently retarget "the one I just sent".
+    # Keep the service's newest-first order for the unnamed "one I just sent"
+    # fallback, while each named handle remains keyed to its bundle identity.
     tool_context.state[_STATE_SENT_REQUEST_HANDLES] = handles
     return {
         "status": "ok",
@@ -2869,9 +2908,9 @@ def _resolved_directive_slots(
         if not isinstance(sent, dict) or not sent:
             return slots
         # "withdraw the one I just sent" is the usual case and names nothing.
-        # The listing parks its rows newest-first, so the first handle is that
-        # request; resolving it here keeps the model from having to repeat an
-        # identifier back, which it is told never to do.
+        # The listing parks its rows newest-first, so the first record is that
+        # request; named handles are keyed to the bundle and cannot retarget
+        # when a later listing changes order.
         record = sent.get(handle) if handle else next(iter(sent.values()), None)
         if not isinstance(record, dict):
             return slots
