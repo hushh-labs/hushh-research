@@ -185,6 +185,44 @@ describe("agent PKM memory helpers", () => {
     ]);
   });
 
+  it("keeps degraded previews out of automatic writes", () => {
+    const cards: AgentPkmPreviewCard[] = [
+      { card_id: "verified", source_text: "", write_mode: "can_save" },
+      {
+        card_id: "degraded",
+        source_text: "",
+        write_mode: "can_save",
+        preview_degraded: true,
+      },
+    ];
+
+    expect(getPkmAutoSaveCards(cards).map((card) => card.card_id)).toEqual(["verified"]);
+  });
+
+  it("rejects a degraded preview even when a caller supplies explicit confirmation", async () => {
+    const result = await addToPKM({
+      userId: "user_1",
+      sourceMessage: "I prefer tea.",
+      vaultKey: "test-key",
+      vaultOwnerToken: "test-token",
+      confirmation: { confirmedByUser: true, surface: "web", source: "test" },
+      cards: [{
+        card_id: "degraded",
+        source_text: "I prefer tea.",
+        write_mode: "can_save",
+        preview_degraded: true,
+        target_domain: "preferences",
+        candidate_payload: { drink: "tea" },
+        structure_decision: { target_domain: "preferences" },
+      }],
+    });
+
+    expect(result).toMatchObject({ saved: 0, failed: 1 });
+    expect(result.results[0]?.message).toContain("prepared again");
+    expect(pkmSavePreparedDomainMock).not.toHaveBeenCalled();
+    expect(pkmSaveMergedDomainMock).not.toHaveBeenCalled();
+  });
+
   it("rechecks token expiry without requiring a React render", () => {
     vi.useFakeTimers();
     const state = { authLoading: false, sessionVerificationRequired: false, isVaultUnlocked: true,
@@ -552,6 +590,38 @@ describe("agent PKM memory helpers", () => {
       card_id: "card_1",
       source_text: "remember that I prefer concise summaries",
       write_mode: "confirm_first",
+    });
+  });
+
+  it("carries a response-level fallback marker onto every preview card", async () => {
+    apiFetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        agent_id: "agent",
+        agent_name: "One",
+        model: "test",
+        used_fallback: true,
+        preview_cards: [{
+          card_id: "fallback-card",
+          source_text: "",
+          write_mode: "can_save",
+          target_domain: "preferences",
+          candidate_payload: { writing: { default_style: "concise" } },
+          structure_decision: { target_domain: "preferences" },
+        }],
+      }),
+    });
+
+    const preview = await previewAgentPkmMemory({
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      message: "remember that I prefer concise summaries",
+      currentDomains: ["preferences"],
+    });
+
+    expect(preview.cards[0]).toMatchObject({
+      card_id: "fallback-card",
+      preview_degraded: true,
     });
   });
 

@@ -20,6 +20,7 @@ import {
   AgentPkmContextStore,
   type AgentPkmContextCoverage,
 } from "@/lib/agent/agent-pkm-context-store";
+import { isDegradedPreviewCard } from "@/lib/profile/pkm-agent-lab-preview";
 
 export type AgentPkmDomainChoice = {
   domain_key: string;
@@ -53,6 +54,11 @@ export type AgentPkmPreviewCard = {
   confirmation_reason?: string;
   candidate_domain_choices?: AgentPkmDomainChoice[];
   validation_hints?: string[];
+  /** A degraded preview is diagnostic output, never write authority. */
+  preview_degraded?: boolean;
+  drift_flags?: {
+    fallback_used?: boolean;
+  } | null;
   /** Local preparation coverage, not a model semantic decision or persisted field. */
   preparation_requires_review?: boolean;
   intent_frame?: AgentPkmIntentFrame;
@@ -167,7 +173,13 @@ function titleize(value: string | null | undefined): string {
 
 function normalizePreviewCards(response: AgentPkmPreviewResponse): AgentPkmPreviewCard[] {
   if (Array.isArray(response.preview_cards)) {
-    return response.preview_cards;
+    return response.preview_cards.map((card) => ({
+      ...card,
+      preview_degraded:
+        card.preview_degraded === true ||
+        response.used_fallback === true ||
+        Boolean(response.error),
+    }));
   }
   if (!response.candidate_payload || !response.structure_decision) {
     return [];
@@ -187,6 +199,7 @@ function normalizePreviewCards(response: AgentPkmPreviewResponse): AgentPkmPrevi
       confirmation_reason: response.intent_frame?.confirmation_reason,
       candidate_domain_choices: response.intent_frame?.candidate_domain_choices,
       validation_hints: response.validation_hints,
+      preview_degraded: response.used_fallback === true || Boolean(response.error),
       intent_frame: response.intent_frame,
       merge_decision: response.merge_decision,
       candidate_payload: response.candidate_payload,
@@ -214,6 +227,7 @@ export function getPkmAutoSaveCards(
   return cards.filter(
     (card) =>
       !isReservedPkmCard(card) &&
+      !isDegradedPreviewCard(card) &&
       card.preparation_requires_review !== true &&
       card.write_mode === "can_save" &&
       card.requires_confirmation !== true &&
@@ -404,6 +418,17 @@ export async function addToPKM(params: {
   }
 
   const saveCard = async (card: AgentPkmPreviewCard, index: number): Promise<void> => {
+    if (isDegradedPreviewCard(card)) {
+      results[index] = {
+        cardId: card.card_id || "agent_pkm_card",
+        domain: resolveCardTargetDomain(card) || "unknown",
+        scope: resolveCardScope(card),
+        sharingPosture: resolveCardSharingPosture(card),
+        success: false,
+        message: "This memory preview needs to be prepared again before it can be saved.",
+      };
+      return;
+    }
     if (isReservedPkmCard(card)) {
       results[index] = {
         cardId: card.card_id || "agent_pkm_card",
@@ -566,6 +591,7 @@ export async function addToPKM(params: {
   };
 
   const isSimpleDomainExtension = (card: AgentPkmPreviewCard): boolean => {
+    if (isDegradedPreviewCard(card)) return false;
     if (isReservedPkmCard(card)) return false;
     if (card.write_mode !== "can_save" && card.write_mode !== "confirm_first") {
       return false;
