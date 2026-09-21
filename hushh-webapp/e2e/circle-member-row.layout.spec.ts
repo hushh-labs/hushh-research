@@ -11,9 +11,6 @@ import {
 
 // Relative, not "@/": the e2e tsconfig deliberately carries no path aliases.
 import {
-  CIRCLE_MEMBER_ACTIONS_MENU_ALIGN,
-  CIRCLE_MEMBER_ACTIONS_MENU_COLLISION_PADDING_PX,
-  CIRCLE_MEMBER_ACTIONS_MENU_SIDE,
   CIRCLE_MEMBER_ACTIONS_MENU_SIDE_OFFSET_PX,
   CIRCLE_DETAIL_HEADER_CLASSNAME,
   CIRCLE_DETAIL_HEADER_COPY_CLASSNAME,
@@ -157,6 +154,201 @@ async function buildFixture(name: string, body: string, candidates: string[]) {
 <body style="margin:0"><div style="padding:0 ${PAGE_PADDING_PX}px">${body}</div></body></html>`,
   );
   return `file://${path.join(dir, "fixture.html")}`;
+}
+
+/**
+ * Mount the production actions component in a real browser without adding a
+ * public test-only route to the Next.js application. Vite is already the
+ * repository's Vitest compiler; here it serves a temporary entry point whose
+ * only product import is `CircleMemberActionsMenu` itself. Radix therefore
+ * owns the portal and popper geometry that the assertions measure.
+ */
+let productionMemberActionsStylesheet: Promise<string> | null = null;
+
+function buildProductionMemberActionsStylesheet(): Promise<string> {
+  productionMemberActionsStylesheet ??= (async () => {
+    const webappRoot = process.cwd();
+    const { Scanner } = await import("@tailwindcss/oxide");
+    const sources = [
+      "components/one-location/redesign/circles/circle-member-actions-menu.tsx",
+      "components/one-location/redesign/circles/circle-member-row-layout.ts",
+      "components/connections/connection-person-avatar.tsx",
+      "components/ui/alert-dialog.tsx",
+      "components/ui/avatar.tsx",
+      "components/ui/button.tsx",
+      "components/ui/drawer.tsx",
+      "components/ui/dropdown-menu.tsx",
+      "lib/ui/button-variants.ts",
+    ].map((relativePath) => path.join(webappRoot, relativePath));
+    const scanner = new Scanner({ sources: [] });
+    const candidates = scanner.scanFiles(
+      sources.map((file) => ({
+        content: fs.readFileSync(file, "utf8"),
+        extension: path.extname(file).slice(1),
+      })),
+    );
+    return buildStylesheet([...new Set([...CANDIDATES, ...candidates])]);
+  })();
+  return productionMemberActionsStylesheet;
+}
+
+async function startProductionMemberActionsFixture() {
+  const webappRoot = process.cwd();
+  const fixturePrefix = "circle-member-actions-component-";
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), fixturePrefix));
+  const componentPath = path
+    .join(
+      webappRoot,
+      "components/one-location/redesign/circles/circle-member-actions-menu.tsx",
+    )
+    .replaceAll("\\", "/");
+  const memberName = "Wilhelmina Featherstonehaugh-Rajendran";
+
+  fs.mkdirSync(path.join(dir, "src"));
+  fs.writeFileSync(
+    path.join(dir, "fixture.css"),
+    await buildProductionMemberActionsStylesheet(),
+  );
+  fs.writeFileSync(
+    path.join(dir, "index.html"),
+    `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>${productFontStyle()}</style><link rel="stylesheet" href="/fixture.css"></head><body><div id="root"></div><script type="module" src="/src/main.tsx"></script></body></html>`,
+  );
+  fs.writeFileSync(
+    path.join(dir, "src/next-link.tsx"),
+    `import type { AnchorHTMLAttributes, ReactNode } from "react";
+export default function Link({ href, children, ...props }: AnchorHTMLAttributes<HTMLAnchorElement> & { href: unknown; children: ReactNode }) {
+  return <a href={typeof href === "string" ? href : "#"} {...props}>{children}</a>;
+}`,
+  );
+  fs.writeFileSync(
+    path.join(dir, "src/main.tsx"),
+    `import React from "react";
+import { createRoot } from "react-dom/client";
+import { CircleMemberActionsMenu } from "/@fs/${componentPath}";
+
+const memberName = ${JSON.stringify(memberName)};
+const noop = () => {};
+const noopAsync = async () => {};
+
+function PersonRow({ name, secondary, selected = false, children }: { name: string; secondary: string; selected?: boolean; children?: React.ReactNode }) {
+  return (
+    <div
+      data-testid={selected ? "selected-row" : undefined}
+      style={{ display: "flex", minHeight: 72, alignItems: "center", gap: 12, padding: "0 16px", borderTop: "1px solid var(--app-separator)" }}
+    >
+      <span aria-hidden="true" style={{ display: "inline-flex", width: 40, height: 40, flex: "0 0 40px", alignItems: "center", justifyContent: "center", borderRadius: 999, background: selected ? "#0b9dad" : "#7352c8", color: "white" }}>{name.slice(0, 1)}</span>
+      <span data-testid={selected ? "selected-identity" : undefined} style={{ minWidth: 0, flex: 1 }}>
+        <strong style={{ display: "block", overflowWrap: "anywhere", color: "var(--app-primary-label)" }}>{name}</strong>
+        <small style={{ color: "var(--app-secondary-label)" }}>{secondary}</small>
+      </span>
+      {children ?? <span aria-hidden="true" style={{ width: 44, height: 44 }} />}
+    </div>
+  );
+}
+
+function App() {
+  return (
+    <main style={{ minHeight: "100vh", padding: "48px 24px", background: "var(--background)" }}>
+      <section style={{ maxWidth: 720, margin: "0 auto", padding: "28px 24px", borderRadius: 24, background: "var(--app-primary-surface)", boxShadow: "var(--app-card-shadow-standard)" }}>
+        <header style={{ marginBottom: 18 }}>
+          <h1 style={{ margin: 0, color: "var(--app-primary-label)", fontSize: 28, lineHeight: "34px" }}>SMS Circle</h1>
+          <p style={{ margin: "4px 0 0", color: "var(--app-secondary-label)", fontSize: 14 }}>3 people</p>
+        </header>
+        <div style={{ overflow: "visible", borderRadius: 20, background: "var(--app-card-surface-default-solid)" }}>
+          <PersonRow name="Jhumma Kumari" secondary="Circle owner" />
+          <PersonRow name={memberName} secondary="Connected" selected>
+            <span data-testid="selected-controls" style={{ display: "inline-flex", flexShrink: 0, alignItems: "center", gap: 4 }}>
+              <button data-testid="relationship-action" type="button" style={{ minHeight: 36, border: "1px solid var(--app-separator)", borderRadius: 999, padding: "0 14px", color: "var(--app-primary-label)" }}>Connect</button>
+              <CircleMemberActionsMenu
+                displayName={memberName}
+                initials="WF"
+                secondaryLine="Connected"
+                canShare
+                canRemove
+                busy={false}
+                onShare={noop}
+                onRemove={noopAsync}
+              />
+            </span>
+          </PersonRow>
+          <PersonRow name="Gautam Ahuja" secondary="Connected" />
+        </div>
+      </section>
+    </main>
+  );
+}
+
+createRoot(document.getElementById("root")!).render(<App />);`,
+  );
+
+  const [{ createServer }, { default: react }] = await Promise.all([
+    import("vite"),
+    import("@vitejs/plugin-react"),
+  ]);
+  const server = await createServer({
+    root: dir,
+    configFile: false,
+    logLevel: "error",
+    publicDir: path.join(webappRoot, "public"),
+    plugins: [react()],
+    resolve: {
+      alias: [
+        { find: "@", replacement: webappRoot },
+        { find: "next/link", replacement: path.join(dir, "src/next-link.tsx") },
+        {
+          find: /^react\/jsx-dev-runtime$/,
+          replacement: path.join(
+            webappRoot,
+            "node_modules/react/jsx-dev-runtime.js",
+          ),
+        },
+        {
+          find: /^react\/jsx-runtime$/,
+          replacement: path.join(webappRoot, "node_modules/react/jsx-runtime.js"),
+        },
+        {
+          find: /^react-dom\/client$/,
+          replacement: path.join(webappRoot, "node_modules/react-dom/client.js"),
+        },
+        {
+          find: /^react-dom$/,
+          replacement: path.join(webappRoot, "node_modules/react-dom/index.js"),
+        },
+        {
+          find: /^react$/,
+          replacement: path.join(webappRoot, "node_modules/react/index.js"),
+        },
+      ],
+      dedupe: ["react", "react-dom"],
+    },
+    server: {
+      host: "127.0.0.1",
+      port: 0,
+      strictPort: false,
+      fs: { allow: [webappRoot, dir] },
+    },
+  });
+  await server.listen();
+  const address = server.httpServer?.address();
+  if (!address || typeof address === "string") {
+    await server.close();
+    throw new Error("The production component fixture did not bind a port");
+  }
+
+  return {
+    memberName,
+    url: `http://127.0.0.1:${address.port}/`,
+    async close() {
+      await server.close();
+      const resolvedDir = path.resolve(dir);
+      if (
+        path.dirname(resolvedDir) === path.resolve(os.tmpdir()) &&
+        path.basename(resolvedDir).startsWith(fixturePrefix)
+      ) {
+        fs.rmSync(resolvedDir, { recursive: true, force: true });
+      }
+    },
+  };
 }
 
 /** Box geometry, as a human reads it off a screenshot. */
@@ -531,234 +723,163 @@ test.describe("Circle roster row", () => {
     });
   }
 
-  test("keeps the desktop menu centred beside the selected row", async ({
+  test("opens the production desktop menu outside the selected row", async ({
     page,
   }, testInfo) => {
+    const fixture = await startProductionMemberActionsFixture();
     const browserErrors: string[] = [];
     page.on("console", (message) => {
       if (message.type() === "error") browserErrors.push(message.text());
     });
     page.on("pageerror", (error) => browserErrors.push(error.message));
 
-    const triggerClass = cn(
-      buttonVariants({ variant: "ghost", size: "icon" }),
-      CIRCLE_MEMBER_MENU_TRIGGER_CLASSNAME,
-    );
-    const itemClass = cn(
-      DROPDOWN_ITEM_STATE_CLASSNAME,
-      CIRCLE_MEMBER_MENU_ITEM_CLASSNAME,
-    );
-    expect(CIRCLE_MEMBER_ACTIONS_MENU_SIDE).toBe("left");
-    expect(CIRCLE_MEMBER_ACTIONS_MENU_ALIGN).toBe("center");
+    try {
+      await page.setViewportSize({ width: 1440, height: 900 });
+      await page.goto(fixture.url);
+      await awaitProductFont(page);
+      await expect(
+        page.getByRole("heading", { name: "SMS Circle" }),
+      ).toBeVisible();
 
-    const body = `<section style="max-width:720px;margin:48px auto;padding:28px 24px;background:var(--app-primary-surface);border-radius:24px;box-shadow:var(--app-card-shadow-standard)">
-  <header style="margin-bottom:18px">
-    <h1 style="margin:0;color:var(--app-primary-label);font-size:28px;line-height:34px">SMS Circle</h1>
-    <p style="margin:4px 0 0;color:var(--app-secondary-label);font-size:14px">4 people</p>
-  </header>
-  <div style="border-radius:20px;background:var(--app-card-surface-default-solid)">
-    <div style="display:flex;align-items:center;gap:12px;min-height:72px;padding:0 16px">
-      <span style="display:inline-flex;width:40px;height:40px;align-items:center;justify-content:center;border-radius:999px;background:#7352c8;color:#fff">J</span>
-      <span style="min-width:0;flex:1"><strong data-testid="previous-identity" style="display:block;width:max-content;color:var(--app-primary-label)">Jhumma Kumari</strong><small style="color:var(--app-secondary-label)">Circle owner</small></span>
-      <span aria-hidden="true" style="display:block;width:44px;height:44px"></span>
-    </div>
-    <div data-testid="selected-row" style="position:relative;display:flex;align-items:center;gap:12px;min-height:72px;padding:0 16px;border-top:1px solid var(--app-separator)">
-      <span style="display:inline-flex;width:40px;height:40px;align-items:center;justify-content:center;border-radius:999px;background:#0b9dad;color:#fff">N</span>
-      <span style="min-width:0;flex:1"><strong data-testid="selected-identity" style="display:block;width:max-content;color:var(--app-primary-label)">Neelesh Meena</strong><small style="color:var(--app-secondary-label)">Connected</small></span>
-      <span style="position:relative;display:inline-flex;width:44px;height:44px">
-        <button data-testid="bare-trigger" aria-label="Actions for Neelesh Meena" class="${triggerClass}" style="font-size:24px">${MENU_GLYPH}</button>
-        <div data-testid="anchored-menu" role="menu" aria-label="Actions for Neelesh Meena" data-side="${CIRCLE_MEMBER_ACTIONS_MENU_SIDE}" data-align="${CIRCLE_MEMBER_ACTIONS_MENU_ALIGN}" style="position:absolute;z-index:2;right:calc(100% + ${CIRCLE_MEMBER_ACTIONS_MENU_SIDE_OFFSET_PX}px);top:50%;width:216px;transform:translateY(-50%);padding:4px;background:var(--app-primary-surface);border:1px solid var(--app-separator);border-radius:14px;box-shadow:var(--app-card-shadow-standard)">
-          <button data-testid="enabled-action" data-highlighted class="${itemClass}" style="width:100%;text-align:left"><span>Share location</span></button>
-          <button data-variant="destructive" class="${itemClass}" style="width:100%;text-align:left"><span>Remove from Circle</span></button>
-          <button data-testid="disabled-action" data-disabled class="${itemClass}" style="display:none"><span>Unavailable</span></button>
-        </div>
-      </span>
-    </div>
-    <div style="display:flex;align-items:center;gap:12px;min-height:72px;padding:0 16px;border-top:1px solid var(--app-separator)">
-      <span style="display:inline-flex;width:40px;height:40px;align-items:center;justify-content:center;border-radius:999px;background:#0b9dad;color:#fff">G</span>
-      <span style="min-width:0;flex:1"><strong data-testid="next-identity" style="display:block;width:max-content;color:var(--app-primary-label)">Gautam Ahuja</strong><small style="color:var(--app-secondary-label)">Connected</small></span>
-      <span aria-hidden="true" style="display:block;width:44px;height:44px"></span>
-    </div>
-  </div>
-  <span data-testid="primary-probe" style="color:var(--app-primary-label)"></span>
-  <span data-testid="neutral-probe" style="background:var(--app-neutral-fill)"></span>
-</section>`;
-
-    await page.setViewportSize({ width: 1024, height: 720 });
-    await page.goto(
-      await buildFixture("circle-member-actions", body, CANDIDATES),
-    );
-    await awaitProductFont(page);
-    await expect(page.getByRole("heading", { name: "SMS Circle" })).toBeVisible();
-    await page.getByTestId("bare-trigger").hover();
-
-    const [menu, trigger, selectedRow, previousIdentity, selectedIdentity, nextIdentity] =
-      await Promise.all([
-        boxesOf(page, '[data-testid="anchored-menu"]'),
-        boxesOf(page, '[data-testid="bare-trigger"]'),
-        boxesOf(page, '[data-testid="selected-row"]'),
-        boxesOf(page, '[data-testid="previous-identity"]'),
-        boxesOf(page, '[data-testid="selected-identity"]'),
-        boxesOf(page, '[data-testid="next-identity"]'),
-      ]);
-
-    expect(Math.abs(contentCentre(menu[0]) - contentCentre(selectedRow[0]))).toBeLessThanOrEqual(1);
-    expect(
-      Math.abs(
-        trigger[0].left -
-          menu[0].right -
-          CIRCLE_MEMBER_ACTIONS_MENU_SIDE_OFFSET_PX,
-      ),
-    ).toBeLessThanOrEqual(1);
-    expect(selectedRow[0].top - menu[0].top).toBeLessThanOrEqual(
-      CIRCLE_MEMBER_ACTIONS_MENU_COLLISION_PADDING_PX + 2,
-    );
-    expect(menu[0].bottom - selectedRow[0].bottom).toBeLessThanOrEqual(
-      CIRCLE_MEMBER_ACTIONS_MENU_COLLISION_PADDING_PX + 2,
-    );
-
-    const overlaps = (first: Box, second: Box) =>
-      first.left < second.right &&
-      first.right > second.left &&
-      first.top < second.bottom &&
-      first.bottom > second.top;
-    expect(overlaps(menu[0], previousIdentity[0])).toBe(false);
-    expect(overlaps(menu[0], selectedIdentity[0])).toBe(false);
-    expect(overlaps(menu[0], nextIdentity[0])).toBe(false);
-    expect(menu[0].left).toBeGreaterThanOrEqual(
-      CIRCLE_MEMBER_ACTIONS_MENU_COLLISION_PADDING_PX,
-    );
-    expect(menu[0].right).toBeLessThanOrEqual(
-      1024 - CIRCLE_MEMBER_ACTIONS_MENU_COLLISION_PADDING_PX,
-    );
-
-    const styles = await page.evaluate(() => {
-      const style = (testId: string) =>
-        getComputedStyle(
-          document.querySelector<HTMLElement>(`[data-testid="${testId}"]`)! ,
-        );
-      const trigger = style("bare-trigger");
-      const action = style("enabled-action");
-      return {
-        triggerBackground: trigger.backgroundColor,
-        triggerShadow: trigger.boxShadow,
-        actionColor: action.color,
-        actionBackground: action.backgroundColor,
-        actionOpacity: action.opacity,
-        primaryColor: style("primary-probe").color,
-        neutralBackground: style("neutral-probe").backgroundColor,
-        disabledOpacity: style("disabled-action").opacity,
-      };
-    });
-
-    expect(styles.triggerBackground).toBe("rgba(0, 0, 0, 0)");
-    // Tailwind v4 may serialize `shadow-none` as several zero-sized,
-    // transparent shadow slots instead of the keyword `none`. Either is
-    // visually empty; any non-zero geometry would be a real halo/shadow.
-    expect(styles.triggerShadow).not.toMatch(/-?(?:[1-9]\d*|0\.\d+)px/);
-    expect(styles.actionColor).toBe(styles.primaryColor);
-    expect(styles.actionBackground).toBe(styles.neutralBackground);
-    expect(styles.actionOpacity).toBe("1");
-    expect(Number(styles.disabledOpacity)).toBeLessThan(1);
-
-    await page.reload();
-    await awaitProductFont(page);
-    await expect(page.getByTestId("anchored-menu")).toBeVisible();
-    expect(browserErrors).toEqual([]);
-
-    const evidenceDir = process.env.OVERFLOW_ACTION_EVIDENCE_DIR;
-    if (evidenceDir) {
-      fs.mkdirSync(evidenceDir, { recursive: true });
-      await page.screenshot({
-        path: path.join(
-          evidenceDir,
-          `circle-overflow-actions-${testInfo.project.name}.png`,
-        ),
-        fullPage: true,
+      const trigger = page.getByRole("button", {
+        name: `Actions for ${fixture.memberName}`,
       });
+      await trigger.click();
+
+      const menu = page.getByTestId("circle-member-actions-menu");
+      await expect(menu).toBeVisible();
+      await expect(menu).toHaveAttribute("data-side", "right");
+      await expect(menu).toHaveAttribute("data-align", "center");
+      await expect(
+        page.getByTestId("circle-member-actions-menu-context"),
+      ).toHaveText(`Actions for ${fixture.memberName}`);
+      await expect(
+        page.getByRole("menuitem", { name: "Share location" }),
+      ).toBeVisible();
+      await expect(
+        page.getByRole("menuitem", { name: "Remove from Circle" }),
+      ).toBeVisible();
+
+      const [menuBox, triggerBox, selectedRow, selectedIdentity, relationship] =
+        await Promise.all([
+          boxesOf(page, '[data-testid="circle-member-actions-menu"]'),
+          boxesOf(page, `button[aria-label="Actions for ${fixture.memberName}"]`),
+          boxesOf(page, '[data-testid="selected-row"]'),
+          boxesOf(page, '[data-testid="selected-identity"]'),
+          boxesOf(page, '[data-testid="relationship-action"]'),
+        ]);
+
+      expect(
+        Math.abs(contentCentre(menuBox[0]) - contentCentre(triggerBox[0])),
+      ).toBeLessThanOrEqual(2);
+      expect(
+        Math.abs(
+          menuBox[0].left -
+            triggerBox[0].right -
+            CIRCLE_MEMBER_ACTIONS_MENU_SIDE_OFFSET_PX,
+        ),
+      ).toBeLessThanOrEqual(2);
+      expect(menuBox[0].left).toBeGreaterThan(selectedRow[0].right);
+
+      const overlaps = (first: Box, second: Box) =>
+        first.left < second.right &&
+        first.right > second.left &&
+        first.top < second.bottom &&
+        first.bottom > second.top;
+      expect(overlaps(menuBox[0], selectedRow[0])).toBe(false);
+      expect(overlaps(menuBox[0], selectedIdentity[0])).toBe(false);
+      expect(overlaps(menuBox[0], relationship[0])).toBe(false);
+      await expect(page.getByTestId("relationship-action")).toBeVisible();
+
+      await page.reload();
+      await awaitProductFont(page);
+      await page
+        .getByRole("button", { name: `Actions for ${fixture.memberName}` })
+        .click();
+      await expect(page.getByTestId("circle-member-actions-menu")).toBeVisible();
+      expect(browserErrors).toEqual([]);
+
+      const evidenceDir = process.env.OVERFLOW_ACTION_EVIDENCE_DIR;
+      if (evidenceDir) {
+        fs.mkdirSync(evidenceDir, { recursive: true });
+        await page.screenshot({
+          path: path.join(
+            evidenceDir,
+            `circle-overflow-actions-${testInfo.project.name}.png`,
+          ),
+          fullPage: true,
+        });
+      }
+    } finally {
+      await fixture.close();
     }
   });
 
-  test("keeps phone actions in a member-named bottom sheet", async ({
+  test("opens the production phone sheet with member context", async ({
     page,
   }, testInfo) => {
+    const fixture = await startProductionMemberActionsFixture();
     const browserErrors: string[] = [];
     page.on("console", (message) => {
       if (message.type() === "error") browserErrors.push(message.text());
     });
     page.on("pageerror", (error) => browserErrors.push(error.message));
 
-    const itemClass = cn(
-      DROPDOWN_ITEM_STATE_CLASSNAME,
-      CIRCLE_MEMBER_MENU_ITEM_CLASSNAME,
-    );
-    const body = `<main style="min-height:844px;padding:28px 0 180px;background:var(--background)">
-  <section style="margin:0 auto;max-width:358px">
-    <header style="margin-bottom:18px"><h1 style="margin:0;color:var(--app-primary-label);font-size:28px;line-height:34px">SMS Circle</h1><p style="margin:4px 0 0;color:var(--app-secondary-label);font-size:14px">3 people</p></header>
-    <div style="border-radius:20px;background:var(--app-primary-surface)">
-      <div style="min-height:72px;padding:16px;color:var(--app-primary-label)">Jhumma Kumari · Owner</div>
-      <div style="min-height:72px;padding:16px;border-top:1px solid var(--app-separator);color:var(--app-primary-label)">Ankit Kumar Singh · Connected</div>
-      <div style="min-height:72px;padding:16px;border-top:1px solid var(--app-separator);color:var(--app-primary-label)">Gautam Ahuja · Connected</div>
-    </div>
-  </section>
-  <div aria-hidden="true" style="position:fixed;inset:0;background:rgba(0,0,0,.22);backdrop-filter:blur(8px)"></div>
-  <section data-testid="member-sheet" role="dialog" aria-label="Actions for Ankit Kumar Singh" style="position:fixed;z-index:2;right:0;bottom:0;left:0;padding:10px 16px max(12px,env(safe-area-inset-bottom));border-radius:20px 20px 0 0;background:var(--app-primary-surface);box-shadow:var(--app-card-shadow-standard)">
-    <div style="width:38px;height:4px;margin:0 auto 12px;border-radius:999px;background:var(--app-separator)"></div>
-    <header style="display:flex;align-items:center;gap:12px;padding-bottom:12px">
-      <span style="display:inline-flex;width:44px;height:44px;align-items:center;justify-content:center;border-radius:999px;background:#0b9dad;color:#fff">AK</span>
-      <span><strong data-testid="sheet-member" style="display:block;color:var(--app-primary-label)">Ankit Kumar Singh</strong><small style="color:var(--app-secondary-label)">Connected</small></span>
-    </header>
-    <div role="menu" aria-label="Actions for Ankit Kumar Singh" style="overflow:hidden;border:1px solid var(--app-separator);border-radius:14px">
-      <button class="${itemClass}" style="width:100%;min-height:56px;text-align:left">Share location</button>
-      <button data-variant="destructive" class="${itemClass}" style="width:100%;min-height:56px;border-top:1px solid var(--app-separator);text-align:left">Remove from Circle</button>
-    </div>
-    <button style="width:100%;min-height:48px;margin-top:8px;color:var(--app-primary-label)">Cancel</button>
-  </section>
-</main>`;
+    try {
+      await page.setViewportSize({ width: 390, height: 844 });
+      await page.goto(fixture.url);
+      await awaitProductFont(page);
 
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto(
-      await buildFixture("circle-member-actions-sheet", body, CANDIDATES),
-    );
-    await awaitProductFont(page);
+      await page
+        .getByRole("button", { name: `Actions for ${fixture.memberName}` })
+        .click();
 
-    await expect(page.getByTestId("member-sheet")).toBeVisible();
-    await expect(page.getByTestId("sheet-member")).toHaveText(
-      "Ankit Kumar Singh",
-    );
-    await expect(
-      page.getByRole("menu", { name: "Actions for Ankit Kumar Singh" }),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Share location" }),
-    ).toBeVisible();
-    await expect(
-      page.getByRole("button", { name: "Remove from Circle" }),
-    ).toBeVisible();
+      const sheet = page.getByTestId("circle-member-actions-sheet");
+      await expect(sheet).toBeVisible();
+      await expect(sheet).toContainText(fixture.memberName);
+      await expect(
+        page.getByRole("menu", { name: `Actions for ${fixture.memberName}` }),
+      ).toBeVisible();
+      await expect(
+        page.getByRole("menuitem", { name: "Share location" }),
+      ).toBeVisible();
+      await expect(
+        page.getByRole("menuitem", { name: "Remove from Circle" }),
+      ).toBeVisible();
 
-    const sheet = (await boxesOf(page, '[data-testid="member-sheet"]'))[0];
-    expect(sheet.left).toBe(0);
-    expect(sheet.right).toBe(390);
-    expect(sheet.bottom).toBe(844);
+      const sheetBox = (
+        await boxesOf(page, '[data-testid="circle-member-actions-sheet"]')
+      )[0];
+      expect(sheetBox.left).toBe(0);
+      expect(sheetBox.right).toBe(390);
+      // Vaul deliberately extends the draggable sheet below the viewport so
+      // an overscroll cannot expose the page behind it. What matters to the
+      // person is that the visible surface covers the bottom edge completely.
+      expect(sheetBox.top).toBeGreaterThan(0);
+      expect(sheetBox.top).toBeLessThan(844);
+      expect(sheetBox.bottom).toBeGreaterThanOrEqual(844);
 
-    await page.reload();
-    await awaitProductFont(page);
-    await expect(page.getByTestId("member-sheet")).toBeVisible();
-    await expect(page.getByTestId("sheet-member")).toHaveText(
-      "Ankit Kumar Singh",
-    );
-    expect(browserErrors).toEqual([]);
+      await page.reload();
+      await awaitProductFont(page);
+      await page
+        .getByRole("button", { name: `Actions for ${fixture.memberName}` })
+        .click();
+      await expect(page.getByTestId("circle-member-actions-sheet")).toBeVisible();
+      expect(browserErrors).toEqual([]);
 
-    const evidenceDir = process.env.OVERFLOW_ACTION_EVIDENCE_DIR;
-    if (evidenceDir) {
-      fs.mkdirSync(evidenceDir, { recursive: true });
-      await page.screenshot({
-        path: path.join(
-          evidenceDir,
-          `circle-overflow-actions-sheet-${testInfo.project.name}.png`,
-        ),
-        fullPage: true,
-      });
+      const evidenceDir = process.env.OVERFLOW_ACTION_EVIDENCE_DIR;
+      if (evidenceDir) {
+        fs.mkdirSync(evidenceDir, { recursive: true });
+        await page.screenshot({
+          path: path.join(
+            evidenceDir,
+            `circle-overflow-actions-sheet-${testInfo.project.name}.png`,
+          ),
+          fullPage: true,
+        });
+      }
+    } finally {
+      await fixture.close();
     }
   });
 

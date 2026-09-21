@@ -27,12 +27,13 @@ import Link from "next/link";
  *                      because it is not laid out against one, and it says
  *                      who it is for in the header rather than by proximity.
  *
- *   desktop (>=640px)  an anchored menu immediately beside the kebab and
- *                      vertically centred on the selected row. It may
- *                      overhang that row slightly, but cannot drop onto the
- *                      next member's identity. A cursor makes the anchor
- *                      unambiguous, and a bottom sheet on a 1440px window is
- *                      the wrong trade in the other direction.
+ *   desktop (>=640px)  an anchored menu immediately outside the row, to the
+ *                      right of the kebab and vertically centred on the
+ *                      selected member. It visibly repeats the member name,
+ *                      so a collision-flip on a narrower pointer viewport
+ *                      does not make the actions ambiguous. A cursor makes
+ *                      the anchor unambiguous, and a bottom sheet on a 1440px
+ *                      window is the wrong trade in the other direction.
  *
  * 640px is the same boundary `save-location-sheet-layout.ts` switches its own
  * sheet on, and the same one Tailwind's `sm:` uses -- restated here rather
@@ -82,6 +83,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -105,6 +107,8 @@ export const MEMBER_ACTIONS_SHEET_QUERY = "(max-width: 639.98px)";
 
 export const MEMBER_ACTIONS_SHEET_TESTID = "circle-member-actions-sheet";
 export const MEMBER_ACTIONS_MENU_TESTID = "circle-member-actions-menu";
+export const MEMBER_ACTIONS_MENU_CONTEXT_TESTID =
+  "circle-member-actions-menu-context";
 
 /**
  * The anchored menu's surface, on the app's card grammar rather than the
@@ -455,6 +459,14 @@ export function CircleMemberActionsMenu({
           collisionPadding={CIRCLE_MEMBER_ACTIONS_MENU_COLLISION_PADDING_PX}
           className={MEMBER_ACTIONS_MENU_SURFACE_CLASSNAME}
         >
+          <DropdownMenuLabel
+            data-testid={MEMBER_ACTIONS_MENU_CONTEXT_TESTID}
+            className="px-3 pb-1 pt-1.5 text-[12px] font-medium leading-4 text-[color:var(--app-secondary-label)]"
+          >
+            <span className="block max-w-[11rem] whitespace-normal [overflow-wrap:anywhere]">
+              Actions for {displayName}
+            </span>
+          </DropdownMenuLabel>
           {canShare ? (
             <DropdownMenuItem
               className={MEMBER_ACTIONS_MENU_ITEM_CLASSNAME}
