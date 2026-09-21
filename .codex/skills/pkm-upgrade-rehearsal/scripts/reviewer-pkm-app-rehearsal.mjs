@@ -234,6 +234,15 @@ async function loadSampleBrokerage(page) {
       `Sample brokerage PKM save failed with HTTP ${storeResponse.status()}: ${await boundedResponseError(storeResponse)}`
     );
   }
+  // The review component finalizes the successful save through KaiFlow after
+  // the store response. Wait for that same-session dashboard transition before
+  // requesting the next client navigation; otherwise the late completion can
+  // race this rehearsal's root-chat navigation and replace it with the
+  // import route's own dashboard destination.
+  await page.waitForURL(
+    (url) => url.pathname === "/one/kai" && url.searchParams.get("tab") === "portfolio",
+    { timeout: Math.min(timeoutMs, 60_000) },
+  );
   return holdingsCount;
 }
 
