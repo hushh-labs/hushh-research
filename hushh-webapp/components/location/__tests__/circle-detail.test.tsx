@@ -188,9 +188,12 @@ describe("CircleDetail", () => {
     expect(screen.queryByRole("link", { name: /Invite people/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /Delete circle/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /Rename circle/ })).toBeNull();
+    const leaveCircle = screen.getByRole("button", { name: /Leave circle/ });
+    expect(leaveCircle).toHaveClass("w-full", "max-w-[320px]");
+    expect(leaveCircle.parentElement).toHaveClass("justify-end");
     expect(
-      screen.getByRole("button", { name: /Leave circle/ }),
-    ).toBeInTheDocument();
+      screen.getByTestId("circle-leave-icon").querySelector('[opacity="0.2"]'),
+    ).toBeNull();
   });
 
   it("leaves the screen only when the server resolves delete_circle as executed", async () => {

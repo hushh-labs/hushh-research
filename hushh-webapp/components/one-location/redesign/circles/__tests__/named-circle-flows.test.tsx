@@ -911,7 +911,17 @@ describe("named Circle flows", () => {
     expect(screen.queryByRole("button", { name: "Replace code" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Delete circle" })).toBeNull();
     expect(screen.queryByLabelText("Circle name")).toBeNull();
-    expect(screen.getByRole("button", { name: "Leave circle" })).toBeTruthy();
+    const leaveCircle = screen.getByRole("button", { name: "Leave circle" });
+    expect(leaveCircle).toHaveClass("w-full", "max-w-[320px]");
+    expect(screen.getByTestId("one-location-leave-circle-row")).toHaveClass(
+      "flex",
+      "justify-end",
+    );
+    expect(
+      screen
+        .getByTestId("one-location-leave-circle-icon")
+        .querySelector('[opacity="0.2"]'),
+    ).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: /Invite code/i }));
     expect(await screen.findByText(inviteCode.code)).toBeTruthy();

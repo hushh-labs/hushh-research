@@ -34,7 +34,6 @@ import {
   Loader2,
   Copy,
   Link2,
-  MapPin,
   Pencil,
   Plus,
   Send,
@@ -94,7 +93,6 @@ import {
   CardTitle,
   FormLabel,
   MediumRowLabel,
-  PageTitle,
   RowDescription,
   RowLabel,
   SectionLabel,
@@ -1812,12 +1810,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
       className="mx-auto w-full max-w-[820px] space-y-3.5 sm:space-y-3.5"
     >
       <PageHeader
-        title={
-          <PageTitle as="span" className="!text-[22px] !leading-7 !font-bold">
-            Location
-          </PageTitle>
-        }
-        leading={<LocationHeaderIconTile />}
+        title="Location"
         accent="location"
         titleRole="agent"
         actionsInlineMobile
@@ -2362,20 +2355,6 @@ function LocationSharePulseIcon() {
       <span className="absolute inset-[13%] rounded-full bg-[color:var(--app-accent-surface)]" />
       <span className="absolute inset-[28%] rounded-full bg-[color:var(--app-accent)]/20" />
       <span className="relative h-[25%] w-[25%] rounded-full bg-[color:var(--app-accent)] shadow-[0_0_0_4px_var(--app-primary-surface),0_8px_16px_rgba(0,122,255,0.18)] dark:shadow-[0_0_0_4px_var(--app-primary-surface)]" />
-    </span>
-  );
-}
-
-function LocationHeaderIconTile() {
-  // The tile itself now lives with the header primitive, so RIA's agent
-  // screens draw the same one instead of a second copy of these classes.
-  return (
-    <span
-      aria-hidden="true"
-      className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[9px] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
-      data-testid="one-location-header-icon"
-    >
-      <MapPin className="h-5 w-5" strokeWidth={2} />
     </span>
   );
 }

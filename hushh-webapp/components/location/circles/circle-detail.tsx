@@ -769,15 +769,21 @@ export function CircleDetail({ circleId }: CircleDetailProps) {
           </div>
 
           {canLeave || canDelete ? (
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
               {canLeave ? (
                 <Button
                   size="sm"
                   variant="outline"
+                  className="w-full max-w-[320px] text-[color:var(--app-destructive)]"
                   disabled={busy !== null}
                   onClick={() => setConfirmLeave(true)}
                 >
-                  <LogOut className="h-4 w-4" aria-hidden />
+                  <LogOut
+                    className="h-4 w-4"
+                    weight="regular"
+                    aria-hidden
+                    data-testid="circle-leave-icon"
+                  />
                   Leave circle
                 </Button>
               ) : null}

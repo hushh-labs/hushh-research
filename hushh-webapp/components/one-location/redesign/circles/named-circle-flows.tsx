@@ -62,6 +62,7 @@ import {
   CIRCLE_DETAIL_HEADER_COPY_CLASSNAME,
   CIRCLE_MEMBERS_CARD_SCROLL_CLASSNAME,
   CIRCLE_MEMBERS_CARD_SHELL_CLASSNAME,
+  CIRCLE_LEAVE_ACTION_CLASSNAME,
   CIRCLE_PROCEED_TO_SMS_CLASSNAME,
   CIRCLE_MEMBER_ACTION_CLASSNAME,
   CIRCLE_MEMBER_ACTION_COPY_CLASSNAME,
@@ -2818,41 +2819,50 @@ export function CircleDetailFlow({
               </AlertDialogContent>
             </AlertDialog>
           ) : canLeaveCircle ? (
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  disabled={busy}
-                  className={cn(CARD_SURFACE, CIRCLE_DESTRUCTIVE_ACTION)}
-                >
-                  <LogOut className="mr-2 h-4 w-4" />
-                  Leave circle
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Leave “{circle.name}”?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    Circle shares with you will stop. Direct shares stay
-                    unchanged.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel className="h-11 w-full sm:w-auto">
-                    Cancel
-                  </AlertDialogCancel>
-                  <AlertDialogAction
-                    variant="destructive"
+            <div
+              className="flex justify-end"
+              data-testid="one-location-leave-circle-row"
+            >
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
                     disabled={busy}
-                    onClick={() => void leaveCircle()}
-                    className="h-11 w-full sm:w-auto"
+                    className={cn(CARD_SURFACE, CIRCLE_LEAVE_ACTION_CLASSNAME)}
                   >
-                    Leave Circle
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+                    <LogOut
+                      className="mr-2 h-4 w-4"
+                      weight="regular"
+                      data-testid="one-location-leave-circle-icon"
+                    />
+                    Leave circle
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Leave “{circle.name}”?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Circle shares with you will stop. Direct shares stay
+                      unchanged.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel className="h-11 w-full sm:w-auto">
+                      Cancel
+                    </AlertDialogCancel>
+                    <AlertDialogAction
+                      variant="destructive"
+                      disabled={busy}
+                      onClick={() => void leaveCircle()}
+                      className="h-11 w-full sm:w-auto"
+                    >
+                      Leave Circle
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
           ) : null}
         </>
       ) : !loadError ? (
