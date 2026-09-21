@@ -28,6 +28,7 @@ import com.getcapacitor.BridgeWebViewClient
 import com.getcapacitor.WebViewListener
 import com.hussh.app.plugins.HushhAuth.HushhAuthPlugin
 import com.hussh.app.plugins.HushhConsent.HushhConsentPlugin
+import com.hussh.app.plugins.HushhStream.HushhStreamPlugin
 import com.hussh.app.plugins.HushhVault.HushhVaultPlugin
 import com.hussh.app.plugins.HushhKeystore.HushhKeystorePlugin
 import com.hussh.app.plugins.HushhSettings.HushhSettingsPlugin
@@ -256,6 +257,7 @@ class MainActivity : BridgeActivity() {
         registerPlugin(HushhVoiceInvocationPlugin::class.java)
         registerPlugin(HushhInvitationsPlugin::class.java) // User-confirmed invitations
         registerPlugin(HushhSessionPrivacyPlugin::class.java) // Resume-time session privacy shield
+        registerPlugin(HushhStreamPlugin::class.java) // Streaming HTTP transport (chat replies)
         
         Log.d("MainActivity", "All 13 plugins registered successfully")
 

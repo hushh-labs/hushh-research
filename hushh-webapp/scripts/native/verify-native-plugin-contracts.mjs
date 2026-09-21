@@ -13,6 +13,7 @@ const tsPluginFiles = [
   "lib/capacitor/personal-knowledge-model.ts",
   "lib/capacitor/one-voice-invocation.ts",
   "lib/capacitor/session-privacy.ts",
+  "lib/capacitor/stream.ts",
 ];
 
 const iosPluginsDir = path.join(appRoot, "ios/App/App/Plugins");
@@ -47,6 +48,7 @@ const ignoredTsMethodsByPlugin = new Map([
   ["Kai", new Set(["addListener"])],
   ["HushhVoiceInvocation", new Set(["addListener"])],
   ["HushhSessionPrivacy", new Set(["addListener"])],
+  ["HushhStream", new Set(["addListener"])],
 ]);
 
 const failures = [];

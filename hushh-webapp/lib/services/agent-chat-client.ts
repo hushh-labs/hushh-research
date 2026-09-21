@@ -1,4 +1,5 @@
 import { ApiService } from "@/lib/services/api-service";
+import { nativeStreamFetch } from "@/lib/services/native-sse-fetch";
 import { HttpAgent, type AgentSubscriber, type Tool } from "@ag-ui/client";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 import { describeDirectiveForOwner } from "@/lib/agent/action-directive-summary";
@@ -287,7 +288,7 @@ export async function streamAgentChat(input: {
     threadId,
     headers: { Authorization: `Bearer ${input.vaultOwnerToken}` },
     initialMessages: [{ id: crypto.randomUUID(), role: "user", content: input.message }],
-    fetch: (_url, init) => ApiService.apiFetchStream("/api/one/agent-chat", init),
+    fetch: (_url, init) => nativeStreamFetch("/api/one/agent-chat", init),
   });
   let text = "";
   let failure: Error | null = null;
@@ -552,7 +553,7 @@ export async function streamAgentIntro(input: {
     url: "/api/one/agent-chat",
     threadId,
     initialMessages: [{ id: crypto.randomUUID(), role: "user", content: input.message }],
-    fetch: (_url, init) => ApiService.apiFetchStream("/api/one/agent-chat", init),
+    fetch: (_url, init) => nativeStreamFetch("/api/one/agent-chat", init),
   });
   let text = "";
   let failure: Error | null = null;
