@@ -1000,6 +1000,8 @@ class TestRunAppAction:
         assert result["status"] == "confirm_pending"
         assert result["directive"]["needsConfirmation"] is True
         assert result["directive"]["slots"] == {"duration_hours": "1"}
+        assert "control they must tap" in result["next_step"]
+        assert "spoken approval" in result["next_step"]
 
     @pytest.mark.asyncio
     async def test_unwired_specialist_action_is_not_advertised_as_executable(self):

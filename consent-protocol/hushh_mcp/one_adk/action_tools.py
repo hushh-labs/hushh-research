@@ -3487,11 +3487,11 @@ async def run_app_action(
         #
         # Only the trusted-activation pair still has anything to wait for.
         "next_step": (
-            (
-                "The app is showing the person a control they must tap for "
-                f"{label}. Say so once and then wait; do not propose it again."
-            )
-            if trusted_activation
+            "The app is showing the person a control they must tap for "
+            f"{label}. Say so once and then stop; do not ask for spoken approval, "
+            "propose it again, or claim that it completed before the app reports "
+            "the result."
+            if trusted_activation or needs_confirmation
             else (
                 f"{label} is already running. Wait for its settlement before "
                 "saying it completed, say nothing further until that arrives, "
