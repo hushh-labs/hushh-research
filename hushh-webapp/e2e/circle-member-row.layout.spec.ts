@@ -653,7 +653,7 @@ test.describe("Circle detail responsive layout", () => {
         buttonVariants({ variant: "default", size: "default" }),
         CIRCLE_PROCEED_TO_SMS_CLASSNAME,
       );
-      const body = `<main data-flow style="max-width:960px;margin:32px auto;display:flex;flex-direction:column;gap:20px">
+      const body = `<main data-flow style="max-width:960px;margin:32px auto">
   <section data-members>
     <div style="margin-bottom:10px;color:var(--app-secondary-label);font-size:14px;font-weight:600">Members</div>
     <div style="border-radius:24px;background:var(--app-card-surface-default-solid);overflow:hidden">
@@ -662,7 +662,9 @@ test.describe("Circle detail responsive layout", () => {
       <div style="min-height:72px;padding:16px;border-top:1px solid var(--app-separator);color:var(--app-primary-label)">Rashid</div>
     </div>
   </section>
-  <button data-proceed class="${proceedClass}">Proceed to SMS</button>
+  <div data-proceed-row style="display:flex;justify-content:flex-end;margin-top:20px">
+    <button data-proceed class="${proceedClass}">Proceed to SMS</button>
+  </div>
 </main>`;
       await page.setViewportSize({ width, height: 844 });
       await page.goto(

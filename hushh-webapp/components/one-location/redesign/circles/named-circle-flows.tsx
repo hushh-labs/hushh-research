@@ -2761,14 +2761,19 @@ export function CircleDetailFlow({
           </section>
 
           {onProceedToSms && hasOtherMember ? (
-            <Button
-              type="button"
-              onClick={onProceedToSms}
-              className={CIRCLE_PROCEED_TO_SMS_CLASSNAME}
-              data-testid="one-location-proceed-to-sms"
+            <div
+              className="flex justify-end"
+              data-testid="one-location-proceed-to-sms-row"
             >
-              Proceed to SMS
-            </Button>
+              <Button
+                type="button"
+                onClick={onProceedToSms}
+                className={CIRCLE_PROCEED_TO_SMS_CLASSNAME}
+                data-testid="one-location-proceed-to-sms"
+              >
+                Proceed to SMS
+              </Button>
+            </div>
           ) : null}
 
           {/* A system Circle (today: SMS Contacts) is provisioned by the product
