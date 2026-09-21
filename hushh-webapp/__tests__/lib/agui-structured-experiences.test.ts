@@ -133,6 +133,24 @@ describe("AG-UI structured experience registry", () => {
       status: "revoked",
     });
   });
+  it("keeps per-field lifecycle status on restored request cards", () => {
+    const result = parseAgentActivityExperience("one.information_request_review.v1", {
+      direction: "outgoing",
+      phase: "submitted",
+      personName: "Alex Morgan",
+      purpose: "Complete payroll onboarding",
+      durationLabel: "30 days",
+      status: "pending",
+      fields: [
+        { label: "Work authorization", domain: "Identity", status: "granted" },
+        { label: "Tax identifier", domain: "Identity", status: "pending" },
+      ],
+    });
+    expect(result?.fields).toEqual([
+      { label: "Work authorization", domain: "Identity", sensitivity: "standard", status: "granted" },
+      { label: "Tax identifier", domain: "Identity", sensitivity: "standard", status: "pending" },
+    ]);
+  });
   it("accepts the versioned scope activity and normalizes its bounded fields", () => {
     expect(
       parseAgentActivityExperience("one.scope_discovery.v1", scopeResult),

@@ -299,6 +299,22 @@ function ScopeDiscoveryView({
   );
 }
 
+function informationRequestStatusLabel(
+  status: NonNullable<InformationRequestReviewExperience["fields"][number]["status"]>,
+): string {
+  return status === "pending"
+    ? "Pending"
+    : status === "granted"
+      ? "Granted"
+      : status === "denied"
+        ? "Declined"
+        : status === "cancelled"
+          ? "Withdrawn"
+          : status === "expired"
+            ? "Expired"
+            : "Revoked";
+}
+
 function InformationRequestReviewView({ experience }: { experience: InformationRequestReviewExperience }) {
   // Every field becomes a row in the one list every scope surface uses, so this
   // reads the same as Memory and the same as the pending-request card.
@@ -314,7 +330,10 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
     // exist. This stays one level until the experience carries `scopeRef`.
     pathSegments: [],
     domainLabel: domainLabelFor(field.domain),
-    badge: sensitivityLabel(field.sensitivity),
+    badge: [
+      sensitivityLabel(field.sensitivity),
+      field.status ? informationRequestStatusLabel(field.status) : null,
+    ].filter(Boolean).join(" · ") || undefined,
     searchText: `${field.label} ${field.domain || ""}`.toLowerCase(),
   }));
 

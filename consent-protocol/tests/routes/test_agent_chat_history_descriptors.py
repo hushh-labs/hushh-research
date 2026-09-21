@@ -134,6 +134,49 @@ def test_history_descriptor_restores_non_actionable_information_request_review()
     assert "must-not-be-retained" not in json.dumps(metadata)
 
 
+def test_history_descriptor_restores_safe_submitted_request_settlement() -> None:
+    metadata = _safe_agent_history_metadata(
+        _event(
+            {
+                "status": "succeeded",
+                "data": {
+                    "consentCard": {
+                        "schemaVersion": 1,
+                        "activityType": "one.information_request_review.v1",
+                        "direction": "outgoing",
+                        "phase": "submitted",
+                        "status": "pending",
+                        "personName": "Alex Morgan",
+                        "purpose": "Complete the onboarding review.",
+                        "durationLabel": "2 days",
+                        "subjectRef": "1234567890abcdef",
+                        "bundleId": "bundle_12345678",
+                        "requestId": None,
+                        "fields": [
+                            {
+                                "label": "Employment status",
+                                "domain": "Professional",
+                                "sensitivity": "standard",
+                                "status": "pending",
+                            }
+                        ],
+                    }
+                },
+            },
+            tool_name="run_app_action",
+        )
+    )
+
+    assert metadata is not None
+    content = metadata["structuredExperience"]["content"]
+    assert content["phase"] == "submitted"
+    assert content["status"] == "pending"
+    assert content["subjectRef"] == "1234567890abcdef"
+    assert content["bundleId"] == "bundle_12345678"
+    assert content["fields"][0]["status"] == "pending"
+    assert "schemaVersion" not in json.dumps(metadata)
+
+
 def test_history_descriptor_discards_invalid_catalog_metadata() -> None:
     metadata = _safe_agent_history_metadata(
         _event(

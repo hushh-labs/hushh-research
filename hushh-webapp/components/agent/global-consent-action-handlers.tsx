@@ -43,7 +43,10 @@ import { toast } from "sonner";
 
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
-import { names } from "@/lib/agent/action-directive-summary";
+import {
+  names,
+  requestDurationLabel,
+} from "@/lib/agent/action-directive-summary";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { useConsentActions } from "@/lib/consent/use-consent-actions";
 import { OneKycClientZkService } from "@/lib/services/one-kyc-client-zk-service";
@@ -105,13 +108,14 @@ export function GlobalConsentActionHandlers() {
         };
       }
 
+      let created: Awaited<ReturnType<typeof PersonProfileService.createInformationRequest>>;
       try {
         const connector = await OneKycClientZkService.ensureConnector({
           userId: user.uid,
           vaultKey,
           vaultOwnerToken,
         });
-        const created = await PersonProfileService.createInformationRequest({
+        created = await PersonProfileService.createInformationRequest({
           personRef,
           scopeRefs,
           purpose,
@@ -139,11 +143,44 @@ export function GlobalConsentActionHandlers() {
       }
 
       const who = String(slots?.displayName || "").trim();
+      const durationHours = Number(slots?.durationHours);
+      const fields = created.items.map((item) => ({
+        label: item.label,
+        domain: "Information",
+        sensitivity: item.sensitivity || "standard",
+        status: item.status,
+      }));
       const summary = who
         ? `Asked ${who} for ${names(slots?.labels)}.`
         : `Asked for ${names(slots?.labels)}.`;
       toast.success(summary);
-      return { status: "succeeded" as const, summary };
+      return {
+        status: "succeeded" as const,
+        summary,
+        // Display-only metadata carried through the encrypted AG-UI
+        // settlement. It contains no proposal handles, scope authority,
+        // credentials, or decrypted information.
+        data: {
+          consentCard: {
+            schemaVersion: 1,
+            activityType: "one.information_request_review.v1",
+            direction: "outgoing",
+            phase: "submitted",
+            status: "pending",
+            personName: who || "the selected person",
+            purpose,
+            durationLabel: requestDurationLabel(
+              Number.isFinite(durationHours) && durationHours > 0
+                ? Math.round(durationHours)
+                : 168,
+            ),
+            subjectRef: personRef,
+            bundleId: created.bundleId,
+            requestId: null,
+            fields,
+          },
+        },
+      };
     },
     // Not registered while signed out or locked, so the action drops out of
     // available_action_ids rather than being offered and then refused.

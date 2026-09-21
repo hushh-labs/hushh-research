@@ -54,6 +54,14 @@ type ReviewField = {
   sensitivity: ScopeDiscoverySensitivity;
 };
 
+export type InformationRequestItemStatus =
+  | "pending"
+  | "cancelled"
+  | "granted"
+  | "denied"
+  | "expired"
+  | "revoked";
+
 export type InformationRequestReviewExperience = {
   type: typeof INFORMATION_REQUEST_REVIEW_EXPERIENCE_TYPE;
   personName: string;
@@ -65,7 +73,7 @@ export type InformationRequestReviewExperience = {
   bundleId: string | null;
   requestId: string | null;
   status: "awaiting_review" | "pending" | "cancelled" | "granted" | "denied" | "expired" | "revoked";
-  fields: ReviewField[];
+  fields: Array<ReviewField & { status?: InformationRequestItemStatus }>;
 };
 
 export type KycReadinessExperience = {
@@ -207,6 +215,13 @@ function parseInformationRequestReview(content: unknown): InformationRequestRevi
   const safeSubjectRef = subjectRef && /^[A-Za-z0-9_-]{16,128}$/.test(subjectRef) ? subjectRef : null;
   const bundleId = boundedString(record.bundleId, 128);
   const requestId = boundedString(record.requestId, 128);
+  const fields = parseReviewFields(record.fields).map((field, index) => {
+    const raw = Array.isArray(record.fields) ? asRecord(record.fields[index]) : null;
+    const fieldStatus = boundedString(raw?.status, 32) as InformationRequestItemStatus | null;
+    return fieldStatus && ["pending", "cancelled", "granted", "denied", "expired", "revoked"].includes(fieldStatus)
+      ? { ...field, status: fieldStatus }
+      : field;
+  });
   return {
     type: INFORMATION_REQUEST_REVIEW_EXPERIENCE_TYPE,
     personName,
@@ -218,7 +233,7 @@ function parseInformationRequestReview(content: unknown): InformationRequestRevi
     bundleId: bundleId && /^[A-Za-z0-9_-]{8,128}$/.test(bundleId) ? bundleId : null,
     requestId: requestId && /^[A-Za-z0-9_-]{8,128}$/.test(requestId) ? requestId : null,
     status,
-    fields: parseReviewFields(record.fields),
+    fields,
   };
 }
 

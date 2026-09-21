@@ -463,11 +463,109 @@ def _safe_information_request_descriptor(
     return None
 
 
+def _safe_submitted_information_request_descriptor(
+    event: Any, selected_parts: list[Any] | None = None
+) -> dict[str, Any] | None:
+    """Restore a sent request from a browser settlement, never from authority.
+
+    The browser sends this allowlisted display descriptor as the result of the
+    already-authorized directive. It contains no proposal handle, scope
+    authority, connector, credential, or decrypted value. Current status is
+    deliberately not inferred from this historical event; the descriptor only
+    records the last safe status observed at submission time.
+    """
+    parts = (
+        selected_parts
+        if selected_parts is not None
+        else (getattr(getattr(event, "content", None), "parts", None) or [])
+    )
+    for part in parts:
+        function_response = getattr(part, "function_response", None)
+        if function_response is None or getattr(function_response, "name", "") != "run_app_action":
+            continue
+        response = _record(getattr(function_response, "response", None)) or {}
+        if response.get("status") != "succeeded":
+            continue
+        data = _record(response.get("data")) or {}
+        card = _record(data.get("consentCard")) or {}
+        if (
+            card.get("activityType") != "one.information_request_review.v1"
+            or card.get("direction") != "outgoing"
+            or card.get("phase") != "submitted"
+        ):
+            continue
+        person_name = _bounded_text(card.get("personName"), 120)
+        purpose = _bounded_text(card.get("purpose"), 500)
+        duration_label = _bounded_text(card.get("durationLabel"), 100)
+        status = _bounded_text(card.get("status"), 32)
+        if (
+            not person_name
+            or not purpose
+            or not duration_label
+            or status not in {"pending", "cancelled", "granted", "denied", "expired", "revoked"}
+        ):
+            continue
+        raw_fields = card.get("fields")
+        if not isinstance(raw_fields, list):
+            continue
+        fields: list[dict[str, Any]] = []
+        for raw_field in raw_fields[:50]:
+            field = _record(raw_field)
+            if not field:
+                continue
+            label = _bounded_text(field.get("label"), 120)
+            domain = _bounded_text(field.get("domain"), 80)
+            if not label or not domain:
+                continue
+            projected = {
+                "label": label,
+                "domain": domain,
+                "sensitivity": _bounded_text(field.get("sensitivity"), 32) or "standard",
+            }
+            field_status = _bounded_text(field.get("status"), 32)
+            if field_status in {
+                "pending",
+                "cancelled",
+                "granted",
+                "denied",
+                "expired",
+                "revoked",
+            }:
+                projected["status"] = field_status
+            fields.append(projected)
+        if not fields:
+            continue
+        content: dict[str, Any] = {
+            "direction": "outgoing",
+            "phase": "submitted",
+            "status": status,
+            "personName": person_name,
+            "purpose": purpose,
+            "durationLabel": duration_label,
+            "fields": fields,
+        }
+        for key, pattern in (
+            ("subjectRef", r"^[A-Za-z0-9_-]{16,128}$"),
+            ("bundleId", r"^[A-Za-z0-9_-]{8,128}$"),
+            ("requestId", r"^[A-Za-z0-9_-]{8,128}$"),
+        ):
+            value = _bounded_text(card.get(key), 128)
+            if value and re.fullmatch(pattern, value):
+                content[key] = value
+        return {
+            "activityType": "one.information_request_review.v1",
+            "content": content,
+        }
+    return None
+
+
 def _safe_agent_history_metadata(event: Any) -> dict[str, Any] | None:
     descriptors = []
     seen = set()
     for index, part in enumerate(getattr(getattr(event, "content", None), "parts", None) or []):
         descriptor = _safe_discovery_descriptor(event, [part])
+        if descriptor is None:
+            descriptor = _safe_submitted_information_request_descriptor(event, [part])
         if descriptor is None:
             descriptor = _safe_information_request_descriptor(event, [part])
         if descriptor is None:

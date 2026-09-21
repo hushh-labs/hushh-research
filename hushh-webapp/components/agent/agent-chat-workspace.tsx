@@ -4246,6 +4246,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               status: result.status,
               summary: result.resultSummary,
               actionId: result.actionId,
+              ...(result.actionId === "consent.request" && result.data
+                ? { data: result.data }
+                : {}),
             });
             return result;
           },
