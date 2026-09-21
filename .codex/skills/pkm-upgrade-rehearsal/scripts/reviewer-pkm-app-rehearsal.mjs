@@ -330,7 +330,11 @@ let freshSession;
 let firstVaultKey;
 let freshVaultKey;
 try {
-  firstSession = await openReviewerSession(browser, "/one/kai/import");
+  // Kai owns its stage query while the import route settles. The path remains
+  // stable, so allow only that route's query to change during admission.
+  firstSession = await openReviewerSession(browser, "/one/kai/import", {
+    allowQueryMutation: true,
+  });
   const firstVaultState = await firstSession.capture.vaultState();
   if (explicitOutputCrypto && explicitOutputIdentity) {
     firstVaultKey = explicitOutputCrypto.deriveVaultKeyForExplicitOutput(
@@ -366,7 +370,9 @@ try {
   await firstSession.context.close();
   firstSession = null;
 
-  freshSession = await openReviewerSession(browser, "/one/kai/portfolio");
+  // The portfolio URL is a compatibility redirect; the active dashboard owns
+  // the tab in the canonical One/Kai route.
+  freshSession = await openReviewerSession(browser, "/one/kai?tab=portfolio");
   const freshVaultState = await freshSession.capture.vaultState();
   if (explicitOutputCrypto && explicitOutputIdentity) {
     freshVaultKey = explicitOutputCrypto.deriveVaultKeyForExplicitOutput(

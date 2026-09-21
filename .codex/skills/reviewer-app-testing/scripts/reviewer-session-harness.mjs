@@ -352,10 +352,13 @@ export async function createReviewerSessionHarness({
     await assertVaultContinuity(page, href);
   }
 
-  async function openSession(browser, redirect) {
+  async function openSession(browser, redirect, { allowQueryMutation = false } = {}) {
     const maxAttempts = 3;
     const attemptTimeoutMs = Math.max(20_000, Math.floor(timeoutMs / maxAttempts));
     let lastError = null;
+    const redirectUrl = new URL(redirect, normalizedOrigin);
+    const expectedPath = redirectUrl.pathname;
+    const expectedHref = `${redirectUrl.pathname}${redirectUrl.search}`;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       const context = await browser.newContext({ baseURL: normalizedOrigin, viewport: { width: 1440, height: 900 } });
@@ -373,8 +376,15 @@ export async function createReviewerSessionHarness({
         // Unlock can finish before the login component's pending redirect.
         // Do not race that redirect with the first same-session navigation.
         await page.waitForFunction(
-          (target) => `${window.location.pathname}${window.location.search}` === target,
-          redirect,
+          ({ targetPath, targetHref, queryMayChange }) =>
+            queryMayChange
+              ? window.location.pathname === targetPath
+              : `${window.location.pathname}${window.location.search}` === targetHref,
+          {
+            targetPath: expectedPath,
+            targetHref: expectedHref,
+            queryMayChange: allowQueryMutation,
+          },
           { timeout: attemptTimeoutMs },
         );
         return { context, page, capture, readOnlyGuard };
