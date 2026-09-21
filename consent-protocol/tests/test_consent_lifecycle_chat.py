@@ -444,7 +444,15 @@ class TestRevokeAndCancelAreTargetable:
 
     @pytest.mark.asyncio
     async def test_cancel_without_a_handle_refreshes_the_newest_open_request(self):
-        state = _state()
+        state = {
+            **_state(),
+            action_tools._STATE_TYPED_CHAT_CONTEXT: True,
+            action_tools._STATE_VOICE_CONTEXT: {
+                "screen": "app",
+                "available_action_ids": [],
+                "executable_action_ids": [],
+            },
+        }
         sent = [
             {
                 "bundleId": "bundle_newest",
@@ -466,6 +474,15 @@ class TestRevokeAndCancelAreTargetable:
         assert result["directive"]["slots"]["bundleId"] == "bundle_newest"
         assert result["directive"]["slots"]["displayName"] == "Sarah Chen"
         list_outgoing.assert_awaited_once_with(requester_user_id="user_1")
+
+    def test_chat_lifecycle_actions_remain_reachable_without_screen_inventory(self):
+        for action_id in CONSENT_LIFECYCLE_IDS - {"consent.request"}:
+            entry = action_tools.get_action_gateway_action(action_id)
+            assert entry is not None
+            assert action_tools._reachability(entry, action_id, set()) == (
+                "on_screen",
+                None,
+            )
 
 
 class TestListPending:

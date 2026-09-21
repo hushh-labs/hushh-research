@@ -3048,6 +3048,10 @@ async def run_app_action(
 ) -> dict[str, Any]:
     """Run a governed app action by its exact action id.
 
+    For the exact follow-up phrases "cancel that request I just sent", "cancel
+    the request I just sent", or "withdraw that", One calls
+    ``consent.cancel_request`` with an empty slot object; this tool resolves the
+    newest open request and parks one confirmation directive.
     Call list_app_actions first unless the person's own words are already a
     close match to a visible label -- do not decide this by how confident it
     feels. Pass required inputs in slots (e.g. {"symbol": "NVDA"}). The app
@@ -3329,16 +3333,17 @@ async def run_app_action(
 
     available_action_ids = _available_action_ids(tool_context)
     executable_action_ids = _executable_action_ids(tool_context)
-    # Navigation actions are invocable from any screen by design. Every other
-    # action, including the former backend-direct compatibility set, must be
-    # declared by the current executable surface. The generated contract now
-    # routes governed mutations through the browser directive ledger, so a
-    # service helper must not make an off-screen local handler look reachable.
+    # Navigation actions and server-resolved session lifecycle actions are
+    # invocable from any screen by design. Other actions must be declared by
+    # the current executable surface. Consent deny/cancel/revoke remain out of
+    # the browser's direct tool inventory so this server gate can revalidate
+    # their opaque handles before staging the browser directive.
     if (
         available_action_ids is not None
         and clean_id not in available_action_ids
         and (executable_action_ids is None or clean_id not in executable_action_ids)
         and not is_navigation_action(entry)
+        and clean_id not in GLOBAL_SESSION_ACTION_IDS
     ):
         # A journey entry action is legitimately off-screen right now, but it is
         # not out of reach: start_app_goal navigates to its authored destination
@@ -3398,6 +3403,7 @@ async def run_app_action(
         and action_screens
         and current_screen not in action_screens
         and not is_navigation_action(entry)
+        and clean_id not in GLOBAL_SESSION_ACTION_IDS
     ):
         label = str(entry.get("label") or clean_id)
         where = sorted(action_screens)[0]

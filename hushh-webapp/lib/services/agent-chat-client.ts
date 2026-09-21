@@ -304,7 +304,12 @@ export async function streamAgentChat(input: {
   screenContext?: Record<string, unknown> | null;
   signal?: AbortSignal;
   handlers?: AgentChatStreamHandlers;
-}): Promise<{ conversationId: string | null; model: string | null; text: string }> {
+}): Promise<{
+  conversationId: string | null;
+  model: string | null;
+  text: string;
+  interrupted: boolean;
+}> {
   const timezone = resolveBrowserTimeZone();
   const threadId = input.conversationId || crypto.randomUUID();
   const handlers = input.handlers ?? {};
@@ -347,6 +352,8 @@ export async function streamAgentChat(input: {
   });
   let text = "";
   let failure: Error | null = null;
+  let interrupted = false;
+  let intentionallyStoppedAtConfirmation = false;
   let settleTerminalRun: (() => void) | null = null;
   const terminalRun = new Promise<void>((resolve) => {
     settleTerminalRun = resolve;
@@ -354,6 +361,17 @@ export async function streamAgentChat(input: {
   const finishTerminalRun = () => {
     settleTerminalRun?.();
     settleTerminalRun = null;
+  };
+  const stopAfterConfirmation = () => {
+    if (intentionallyStoppedAtConfirmation) return;
+    intentionallyStoppedAtConfirmation = true;
+    interrupted = true;
+    // A parked directive has no AG-UI interrupt to resume. The visible card
+    // owns the next step, so leaving the model run alive would let it repeat
+    // the action or append a second answer while the owner is deciding.
+    handlers.onInterrupt?.({ conversationId: threadId });
+    finishTerminalRun();
+    agent.abortRun();
   };
   const toolNames = new Map<string, string>();
   const toolArgs = new Map<string, Record<string, unknown>>();
@@ -484,6 +502,9 @@ export async function streamAgentChat(input: {
             resume: async () => undefined,
           },
         });
+        if (parkedRequiresConfirmation || parkedTrustedActivationRequired) {
+          stopAfterConfirmation();
+        }
       }
       const experience = parseAgentToolResultExperience(toolName, event.content);
       if (experience) {
@@ -547,6 +568,12 @@ export async function streamAgentChat(input: {
           if (actionEvent) {
             emittedStateDirectivePaths.add(op.path);
             handlers.onToolWaiting?.(actionEvent);
+            if (
+              actionEvent.requiresConfirmation ||
+              actionEvent.trustedActivationRequired
+            ) {
+              stopAfterConfirmation();
+            }
           }
         }
       }
@@ -556,18 +583,32 @@ export async function streamAgentChat(input: {
         for (const interrupt of params.interrupts) {
           if (interrupt.toolCallId) interruptsByToolCall.set(interrupt.toolCallId, interrupt.id);
         }
+        interrupted = true;
         handlers.onInterrupt?.({ conversationId: threadId });
+        // The visible confirmation card owns the next step. The resumable
+        // `agent` and subscriber stay alive through the directive's resume
+        // closure, but the initial turn must settle so the workspace stops
+        // showing an indefinite thinking state.
+        finishTerminalRun();
         return;
       }
       handlers.onComplete?.({ conversationId: threadId });
       finishTerminalRun();
     },
     onRunErrorEvent: ({ event }) => {
+      if (intentionallyStoppedAtConfirmation) {
+        finishTerminalRun();
+        return;
+      }
       failure = new Error(formatAgentChatErrorMessage(event.message || ""));
       handlers.onError?.(failure.message);
       finishTerminalRun();
     },
     onRunFailed: ({ error }) => {
+      if (intentionallyStoppedAtConfirmation) {
+        finishTerminalRun();
+        return;
+      }
       failure = new Error(formatAgentChatErrorMessage(error.message || ""));
       handlers.onError?.(failure.message);
       finishTerminalRun();
@@ -594,7 +635,7 @@ export async function streamAgentChat(input: {
     input.signal?.removeEventListener("abort", abort);
   }
   if (failure) throw failure;
-  return { conversationId: threadId, model: null, text };
+  return { conversationId: threadId, model: null, text, interrupted };
 }
 
 /**

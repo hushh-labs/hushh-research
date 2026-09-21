@@ -4548,6 +4548,26 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             if (streamAbortController.signal.aborted) return;
             setPendingSpecialistDirective(directive);
           },
+          onInterrupt: ({ conversationId: nextConversationId }) => {
+            if (streamAbortController.signal.aborted) return;
+            // AG-UI interrupts are the normal boundary for a visible action
+            // card. The card remains actionable, but the assistant turn has
+            // finished thinking until the owner confirms or cancels it.
+            flushAssistantDelta();
+            if (nextConversationId) {
+              updateConversationId(nextConversationId);
+            }
+            updateMessage(assistantMessageId, (message) => ({
+              ...message,
+              status: "done",
+              streamEvents: settleVisibleStreamEvents(
+                message.streamEvents,
+                "done",
+              ),
+            }));
+            setIsChatLoading(false);
+            setIsStreaming(false);
+          },
           onComplete: ({ conversationId: nextConversationId }) => {
             if (streamAbortController.signal.aborted) return;
             flushAssistantDelta();
@@ -4584,6 +4604,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       });
       if (streamAbortController.signal.aborted) {
         finishCanceledTurn();
+        return;
+      }
+      if (streamResult.interrupted) {
+        // The confirmation card is now the active surface. Do not append a
+        // fabricated fallback sentence or start background capture while the
+        // resumable action is waiting for the owner's tap.
         return;
       }
       flushAssistantDelta();

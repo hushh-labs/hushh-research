@@ -271,6 +271,9 @@ class TestAgentTreeShape:
             "close match to one of the visible labels" in ONE_IDENTITY_INSTRUCTION
         )
         assert "correlated app action settlement" in ONE_IDENTITY_INSTRUCTION
+        assert "Consent cancellation is an explicit exception" in ONE_IDENTITY_INSTRUCTION
+        assert "cancel that request I just sent" in ONE_IDENTITY_INSTRUCTION
+        assert "CONSENT CANCELLATION PRIORITY" in ONE_IDENTITY_INSTRUCTION
         assert "Conversation comes before workflow" in ONE_IDENTITY_INSTRUCTION
         assert "so what?" in ONE_IDENTITY_INSTRUCTION
         assert "Use your intelligence in the current turn" in ONE_IDENTITY_INSTRUCTION

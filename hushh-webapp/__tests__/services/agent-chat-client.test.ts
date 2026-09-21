@@ -4,18 +4,22 @@ const mockTransport = vi.hoisted(() => ({
   runAgent: vi.fn(),
   outcome: "success" as "success" | "interrupt",
   emitEvents: null as null | ((subscriber: Record<string, (input: any) => void>) => void),
+  aborted: false,
 }));
 
 vi.mock("@ag-ui/client", () => ({
   HttpAgent: class {
     constructor(public config: unknown) {}
-    abortRun() {}
+    abortRun() {
+      mockTransport.aborted = true;
+    }
     async runAgent(parameters: unknown, subscriber: Record<string, (input: any) => void>) {
       mockTransport.runAgent(parameters, this.config);
       subscriber.onRunStartedEvent?.({ event: { type: "RUN_STARTED" } });
       if (mockTransport.emitEvents) {
         mockTransport.emitEvents(subscriber);
       }
+      if (mockTransport.aborted) return;
       subscriber.onTextMessageContentEvent?.({
         event: { type: "TEXT_MESSAGE_CONTENT", messageId: "m1", delta: "Hello" },
       });
@@ -73,6 +77,7 @@ describe("AG-UI Agent One client", () => {
     mockTransport.runAgent.mockClear();
     mockTransport.outcome = "success";
     mockTransport.emitEvents = null;
+    mockTransport.aborted = false;
   });
 
   it("uses the canonical endpoint and official run fields", async () => {
@@ -94,7 +99,12 @@ describe("AG-UI Agent One client", () => {
       },
     });
 
-    expect(result).toEqual({ conversationId: "thread-1", model: null, text: "Hello" });
+    expect(result).toEqual({
+      conversationId: "thread-1",
+      model: null,
+      text: "Hello",
+      interrupted: false,
+    });
     expect(tokens).toEqual(["Hello"]);
     expect(experiences).toEqual(["one.scope_discovery.v1"]);
     expect(experienceIds).toEqual(["activity-1"]);
@@ -145,13 +155,13 @@ describe("AG-UI Agent One client", () => {
     ).toBe("One's conversation history is temporarily unavailable. Please try again.");
   });
 
-  it("keeps an interrupted HITL run open instead of reporting completion", async () => {
+  it("settles an interrupted HITL turn while preserving its resumable boundary", async () => {
     mockTransport.outcome = "interrupt";
     const controller = new AbortController();
     const onComplete = vi.fn();
     const onInterrupt = vi.fn(() => controller.abort());
 
-    await streamAgentChat({
+    const result = await streamAgentChat({
       userId: "user-1",
       message: "Request access",
       conversationId: "thread-hitl",
@@ -162,6 +172,7 @@ describe("AG-UI Agent One client", () => {
 
     expect(onInterrupt).toHaveBeenCalledWith({ conversationId: "thread-hitl" });
     expect(onComplete).not.toHaveBeenCalled();
+    expect(result.interrupted).toBe(true);
   });
 
   it("emits onSpecialistDirective when a pending directive arrives via state delta", async () => {
@@ -266,6 +277,49 @@ describe("AG-UI Agent One client", () => {
         scopeRefs: ["opaque_scope"],
       },
     });
+  });
+
+  it("settles a synthetic confirmation turn when the card is staged", async () => {
+    mockTransport.emitEvents = subscriber => {
+      subscriber.onToolCallStartEvent?.({
+        event: { toolCallId: "tool-confirm", toolCallName: "run_app_action" },
+      });
+      subscriber.onToolCallResultEvent?.({
+        event: {
+          toolCallId: "tool-confirm",
+          messageId: "tool-result",
+          content: JSON.stringify({
+            status: "confirm_pending",
+            directive: {
+              actionId: "consent.cancel_request",
+              slots: { bundleId: "opaque-bundle" },
+              needsConfirmation: true,
+            },
+          }),
+        },
+      });
+    };
+
+    const waiting = vi.fn();
+    const onInterrupt = vi.fn();
+    const onComplete = vi.fn();
+    const result = await streamAgentChat({
+      userId: "user-1",
+      message: "Cancel that request I just sent",
+      conversationId: "thread-confirm",
+      vaultOwnerToken: "owner-token",
+      handlers: { onToolWaiting: waiting, onInterrupt, onComplete },
+    });
+
+    expect(waiting).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionId: "consent.cancel_request",
+        requiresConfirmation: true,
+      }),
+    );
+    expect(onInterrupt).toHaveBeenCalledWith({ conversationId: "thread-confirm" });
+    expect(onComplete).not.toHaveBeenCalled();
+    expect(result.interrupted).toBe(true);
   });
 
   it("accepts only the consent proposal directive from a proposal result", async () => {
