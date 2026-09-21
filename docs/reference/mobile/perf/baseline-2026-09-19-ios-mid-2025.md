@@ -210,6 +210,37 @@ nothing. For those two gestures the symmetric instrument on iOS remains the
 screen-recording method in the charter; on Android HWUI covers all four
 (see the Android baseline).
 
+## Phase 3, night of 2026-09-21 (same lane, same phone)
+
+Landed and measured (Release, test mode off, certifying, runs AD and AE):
+
+| Gesture | Before | After | What landed |
+|---|---|---|---|
+| chat reply (`chat-stream-30s`) | one paint, worst 84 to 166 ms, 1 to 2 frames over 50, 65 to 92 ms/s | a real stream: 18.5 s, 1112 frames, p95 17, p99 19 to 23, worst 36, 0 over 50, **5.3 ms/s** (run AD); a five-second reply in run AE read p95 20.5, 0 over 50 | `fd31a0cf5` HushhStream, native byte-stream transport |
+| vault gate on the phone | passkey sheet at every cold launch, two minutes unless dismissed | passphrase form at once, unlock typed within seconds, no sheet (every section of AD and AE) | `dcd45695a` quick-unlock trust record |
+| keyboard rising (`chat-keyboard-show`) | not measured | one 65 to 68 ms frame, 67 to 91 ms/s | new gesture (`d95a0a2c4`) |
+| typing with the keyboard (`chat-keyboard-type`) | not measured | p95 21 to 23, worst 50 to 84, 51 to 75 ms/s | new gesture |
+| idle frames over 50 per section (kai / feed / connect / location / chat) | 6 / 3 / 1 / 2 / 5 (run AB) | 1 / 2 / 1 / 3 / 5 (run AE) | `25633ff80` idle clock |
+| feed flick, tab switch, pane, pager, map | 36 / 38 / 22 / 30 / 20 ms/s | 35 / 37 / 20 / 26 / 25 ms/s | unchanged, within their bands |
+
+Attribution (profiling build, run PROF-1, attributes only; rAF read 53 Hz
+under the profiling overhead):
+
+| Window | React commits | Commit time | Frames | Read |
+|---|---|---|---|---|
+| tab switch into Feed | 27 to 37 | 29 to 35 ms | first frame 26 to 30, worst 34 to 42 | Feed's mount is three dozen state updates, each forcing style and layout: fix the commit count (Track C3.2 first) |
+| tab switch into One | 9 to 12 | 15 to 17 ms | first frame 20 to 30, worst 29 to 36 | C3.3 |
+| tab switch into Connect | 15 to 19 | 19 to 33 ms | first frame 18 to 20, worst 29 to 46 | C3.1 |
+| feed flick (30 scroll windows) | median 0, max 7 | ~0 | p95 20, worst 51 | React is not in the flick; the cost is style, layout and paint (Track E goes to the Web Inspector Layout row) |
+| pager swipe (Finance, Location) | 2 | ~0 | worst 51 / 31 | same |
+| typing (one 2.4 s window) | 48 | 266 ms | p95 26, worst 106 | one heavy render per keystroke (the composer's value lives in the 7,000-line workspace's state): move it to a leaf |
+| reply stream | 23 | 142 ms | p95 17, worst 52 | ~6 ms per coalesced flush (markdown re-parse of the growing reply); the 52 ms frame is the settle |
+| the two unlock taps per section | 37 to 52 | 46 to 79 ms | worst 80 to 108, 4 to 7 frames over 50 | the vault-to-shell transition after unlock is commit-heavy; one-time per launch, worth a look after the tab switch |
+
+Ops note: the iPhone refuses a UI-automation session while asleep or
+locked at the far end of the Wi-Fi tunnel ("Timed out while enabling
+automation mode"); waking it is all it takes (bug log B42).
+
 ## Reading it
 
 - **Kai chart flick** is the surface furthest from the bar: p95 43 ms, 13
