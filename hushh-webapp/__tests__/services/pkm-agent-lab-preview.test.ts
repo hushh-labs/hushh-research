@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { getPkmAgentLabPersistableCards } from "@/lib/profile/pkm-agent-lab-capture";
 
 import {
   getPersistablePreviewCards,
@@ -39,5 +40,23 @@ describe("pkm agent lab preview persistence", () => {
     expect(cards.slice(0, 3).every(isDegradedPreviewCard)).toBe(true);
     expect(getPersistablePreviewCards(cards).map((card) => card.card_id)).toEqual(["verified"]);
     expect(getReviewRequiredPreviewCount(getPersistablePreviewCards(cards))).toBe(1);
+  });
+
+  it("keeps the legacy capture facade fail-closed for a degraded response", () => {
+    const response = {
+      agent_id: "agent",
+      agent_name: "agent",
+      model: "model",
+      used_fallback: true,
+      candidate_payload: {},
+      structure_decision: {},
+      preview_cards: [{
+        card_id: "fallback",
+        source_text: "synthetic",
+        write_mode: "can_save",
+      }],
+    };
+
+    expect(getPkmAgentLabPersistableCards(response)).toEqual([]);
   });
 });
