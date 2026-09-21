@@ -39,6 +39,7 @@ export type UnlockWarmResult = {
 };
 
 type WarmPriority =
+  | "chat"
   | "market"
   | "dashboard"
   | "analysis"
@@ -78,6 +79,7 @@ function resolveWarmPriority(routePath?: string | null): WarmPriority {
   const path = String(routePath || "")
     .trim()
     .toLowerCase();
+  if (path === ROUTES.HOME || path === "/chat") return "chat";
   if (!path) return "default";
   if (
     path === KAI_MARKET_PATH ||
@@ -410,11 +412,11 @@ export class UnlockWarmOrchestrator {
       warmPriority === "default";
     const shouldWarmConsents =
       warmPriority === "consents" || warmPriority === "default";
-    // The Consent Center's canonical summary/pending page cache is lightweight
-    // and must be ready after every successful unlock, regardless of the route
-    // that happened to unlock the vault. Legacy consent resources below remain
-    // route-prioritized because they are not used by the canonical screen.
-    const shouldWarmConsentCenter = Boolean(params.firebaseIdToken);
+    // The Consent Center's canonical summary/pending page cache belongs to the
+    // consent route. Root is the Chat workspace, so warming this database-heavy
+    // surface during Chat unlock only competes with the first agent turn.
+    const shouldWarmConsentCenter =
+      warmPriority === "consents" && Boolean(params.firebaseIdToken);
     const shouldWarmLocationState = warmPriority === "location";
     const shouldWarmVaultStatus =
       warmPriority === "consents" ||
@@ -716,7 +718,8 @@ export class UnlockWarmOrchestrator {
       // is a 31-query surface and competing with vault/profile bootstrap made
       // unlock needlessly contend for the small development/Cloud Run pool.
       // Requires a Firebase ID token (the consent center proxy is
-      // Firebase-authenticated).
+      // Firebase-authenticated), and is limited to the consent route so the
+      // canonical Chat entry remains responsive after unlock.
       if (shouldWarmConsentCenter && params.firebaseIdToken) {
         const idToken = params.firebaseIdToken;
         const summaryResult = await ConsentCenterService.getSummary({
