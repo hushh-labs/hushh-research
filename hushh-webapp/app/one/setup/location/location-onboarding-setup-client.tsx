@@ -3,24 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 
 import { OneLocationAgentPage } from "@/app/one/location/page";
-import dynamic from "next/dynamic";
-import { useOneVoiceLiveEnabled } from "@/lib/one-voice/readiness";
 import {
   SetupCapabilityLoading,
   useSetupCapabilityCoordinator,
 } from "@/components/onboarding/setup/setup-capability-coordinator";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
-
-const LocationSetupFlow = dynamic(
-  () =>
-    import("@/components/location/setup/location-setup-flow").then(
-      (module) => module.LocationSetupFlow,
-    ),
-  {
-    ssr: false,
-    loading: () => <SetupCapabilityLoading label="Preparing location setup…" />,
-  },
-);
 
 function LocationSetupReturn({ onReturn }: { onReturn: () => void }) {
   const returnedRef = useRef(false);
@@ -35,7 +22,6 @@ function LocationSetupReturn({ onReturn }: { onReturn: () => void }) {
 
 export function LocationOnboardingSetupClient() {
   const [ready, setReady] = useState(false);
-  const live = useOneVoiceLiveEnabled();
   const coordinator = useSetupCapabilityCoordinator({
     capabilityId: "location",
     isOperationallyReady: ready,
@@ -89,8 +75,10 @@ export function LocationOnboardingSetupClient() {
         .unwrap();
     },
   };
-  // One route, two trees: the voice-first setup when Live is on, the legacy
-  // flow otherwise. Both take the same coordinator-bound callbacks.
-  if (live) return <LocationSetupFlow mode="setup" {...flowProps} />;
+  // Root setup is deliberately pre-vault, so it must always use the canonical
+  // One Location journey that can stage its sensitive draft until the root
+  // wizard creates the vault. One Voice readiness selects the microphone and
+  // publisher owners in AgentOwnerGate; it must never swap this route's visual
+  // tree or introduce a vault-gated setup path here.
   return <OneLocationAgentPage mode="setup" {...flowProps} />;
 }

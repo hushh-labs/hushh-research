@@ -28,6 +28,22 @@ describe("Location setup route contract", () => {
     expect(adapter).not.toContain("<SetupCapabilityTerminalFooter");
   });
 
+  it("keeps One Voice readiness from replacing the canonical onboarding tree", () => {
+    const adapter = read(
+      "app/one/setup/location/location-onboarding-setup-client.tsx",
+    );
+
+    // Live readiness owns the global microphone/publisher runtime. It must not
+    // choose a second presentation here: root setup is pre-vault, while the
+    // server-progress LocationSetupFlow requires a vault owner token.
+    expect(adapter).toContain('<OneLocationAgentPage mode="setup"');
+    expect(adapter.match(/<OneLocationAgentPage/g)).toHaveLength(1);
+    expect(adapter).not.toContain("useOneVoiceLiveEnabled");
+    expect(adapter).not.toContain("LocationSetupFlow");
+    expect(adapter).not.toContain("next/dynamic");
+    expect(adapter).not.toMatch(/if\s*\(\s*live\s*\)/);
+  });
+
   it("keeps Location setup vault-free until the root setup completion", () => {
     const locationPage = read("app/one/location/page.tsx");
 
