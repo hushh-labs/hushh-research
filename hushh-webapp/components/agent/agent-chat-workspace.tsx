@@ -212,6 +212,7 @@ import { ApiService } from "@/lib/services/api-service";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
+import { useRootChatDeferredReady } from "@/lib/navigation/use-root-chat-deferred-ready";
 import { useAgentRuntimeStateOptional } from "@/lib/agent/agent-runtime-context";
 import {
   useOneConversationSession,
@@ -2027,6 +2028,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const voiceLevel = useAgentVoiceState((state) => state.level);
   const isToolWorking = activeFrontendToolCount > 0;
   const isPkmMemoryWorking = activePkmToolCount > 0;
+  const rootChatReady = useRootChatDeferredReady();
   const tokenIsFresh = !tokenExpiresAt || Date.now() < tokenExpiresAt;
   const agentVoiceEnabled = isAgentCommandEnabled();
   const abortAgentTurnWork = useCallback(() => {
@@ -3150,7 +3152,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   ]);
 
   useEffect(() => {
-    if (!user?.uid || !isVaultUnlocked) return;
+    if (!user?.uid || !isVaultUnlocked || !rootChatReady) return;
 
     let cancelled = false;
 
@@ -3356,7 +3358,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       window.removeEventListener(FCM_MESSAGE_EVENT, handleConsentMessage);
       window.removeEventListener(CONSENT_STATE_CHANGED_EVENT, handleConsentStateChanged);
     };
-  }, [getVaultOwnerToken, isVaultUnlocked, user?.uid]);
+  }, [getVaultOwnerToken, isVaultUnlocked, rootChatReady, user?.uid]);
 
   const appendDebugEvent = useCallback(
     (
