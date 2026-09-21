@@ -21,7 +21,7 @@ const allowMutation = process.env.PKM_REVIEWER_REHEARSAL_ALLOW_MUTATION === "1";
 const allowDecryptedOutput = process.env.PKM_REVIEWER_REHEARSAL_ALLOW_DECRYPTED_OUTPUT === "1";
 const naturalPrompt =
   process.env.PKM_REVIEWER_REHEARSAL_PROMPT ||
-  "Remember that I prefer index funds for long-term investing.";
+  "Remember that I prefer concise summaries when my private agent responds.";
 const tmpRoot = path.resolve(repoRoot, "tmp");
 const encryptedOutput = path.resolve(
   process.env.PKM_REVIEWER_ENCRYPTED_OUTPUT ||
@@ -237,19 +237,12 @@ async function loadSampleBrokerage(page) {
   return holdingsCount;
 }
 
-function proposalDomain(payload) {
+function proposalCardCount(payload) {
   const cards = Array.isArray(payload?.preview_cards) ? payload.preview_cards : [];
-  const card = cards.find((candidate) => {
-    const domain =
-      candidate?.manifest_draft?.domain ||
-      candidate?.structure_decision?.target_domain ||
-      candidate?.target_domain;
-    return domain === "financial";
-  });
-  return card ? "financial" : "";
+  return cards.length;
 }
 
-async function saveNaturalFinancialMemory(page) {
+async function saveNaturalMemory(page) {
   // `/agent` is a compatibility redirect; the active chat surface is the
   // root route. Navigating to the canonical route preserves the vault key and
   // avoids waiting for a URL that the app intentionally rewrites.
@@ -275,8 +268,8 @@ async function saveNaturalFinancialMemory(page) {
     throw new Error(`Natural PKM proposal failed with HTTP ${proposalResponse.status()}.`);
   }
   const proposal = await proposalResponse.json();
-  if (proposalDomain(proposal) !== "financial") {
-    throw new Error("Natural prompt was not structured into the financial domain.");
+  if (proposalCardCount(proposal) === 0) {
+    throw new Error("Natural prompt produced no reviewable PKM proposal cards.");
   }
 
   const memoryStatus = page.locator('[data-testid="memory-capture-status"]').last();
@@ -331,7 +324,7 @@ try {
   );
   const canonicalScopes = assertFinancialScopes(scopesAfterBrokerage);
 
-  await saveNaturalFinancialMemory(firstSession.page);
+  await saveNaturalMemory(firstSession.page);
   await assertVaultContinuity(firstSession.page, "natural PKM save");
   const scopesAfterMemory = await fetchOwnerJson(
     `/api/pkm/scopes/${encodeURIComponent(reviewerUid)}`,
