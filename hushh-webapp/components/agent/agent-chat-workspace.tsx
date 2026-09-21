@@ -5773,7 +5773,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 />
               ) : null}
 
-              {!isPopover &&
+              {// Hidden: listNudges() is surfacing non-actionable mail (an
+              // automated "Welcome back to One" send, a NoBroker listing) as
+              // if it needs a reply, so this card was showing up on the chat
+              // landing screen with nothing real waiting on the person. Off
+              // until that classification only returns genuine action items;
+              // state/hook below untouched, so re-enabling is a one-line
+              // condition change, not a rebuild.
+              false &&
+              !isPopover &&
               hasChatAccess &&
               !hasStartedConversation &&
               !gmailNudgeCardDismissed &&
