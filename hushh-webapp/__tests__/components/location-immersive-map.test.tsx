@@ -1257,26 +1257,40 @@ describe("LocationImmersiveMap demo experience", () => {
       animate: true,
     });
 
-    // The owner avatar is HTML, and it now owns the venue coordinate. Neither
-    // the old GPS point nor a duplicate green venue pin reaches the renderer.
-    const rendererCoordinates = mapHarness.map.addMarkers.mock.calls.flatMap(
+    // The owner avatar is HTML, and it now owns the venue coordinate. The old
+    // GPS point never reaches the renderer. Before the first camera report, a
+    // blue venue fallback may briefly protect compatibility renderers; once the
+    // avatar can project, that fallback is removed rather than becoming the old
+    // duplicate green place pin.
+    const rendererMarkers = mapHarness.map.addMarkers.mock.calls.flatMap(
       (call) =>
-        (call[0] as Array<{ coordinate: { lat: number; lng: number } }>) ?? [],
+        (call[0] as Array<{
+          coordinate: { lat: number; lng: number };
+          tintColor?: { r: number; g: number; b: number; a: number };
+        }>) ?? [],
     );
     expect(
-      rendererCoordinates.some(
+      rendererMarkers.some(
         (marker) =>
           marker.coordinate.lat === 37.776 &&
           marker.coordinate.lng === -122.418,
       ),
     ).toBe(false);
+    const venueFallbacks = rendererMarkers.filter(
+      (marker) =>
+        marker.coordinate.lat === 37.7775 &&
+        marker.coordinate.lng === -122.4172,
+    );
+    expect(venueFallbacks.length).toBeGreaterThan(0);
     expect(
-      rendererCoordinates.some(
+      venueFallbacks.every(
         (marker) =>
-          marker.coordinate.lat === 37.7775 &&
-          marker.coordinate.lng === -122.4172,
+          marker.tintColor?.r === 0 &&
+          marker.tintColor.g === 122 &&
+          marker.tintColor.b === 255,
       ),
-    ).toBe(false);
+    ).toBe(true);
+    expect(mapHarness.map.removeMarkers).toHaveBeenCalled();
     expect(mapHarness.map.addPolylines).not.toHaveBeenCalled();
 
     const legend = screen.getByTestId("one-location-nearby-search-area-legend");
@@ -1296,6 +1310,103 @@ describe("LocationImmersiveMap demo experience", () => {
       zoom: 15,
       animate: true,
     });
+  });
+
+  it("does not let a late entry GPS fix pan away from a restored check-in", async () => {
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    stubCheckInMapGeometry();
+
+    let resolveEntryCapture:
+      | ((point: {
+          latitude: number;
+          longitude: number;
+          accuracyM: number;
+          capturedAt: string;
+          sourcePlatform: "ios";
+        }) => void)
+      | undefined;
+    const entryCapture = new Promise<{
+      latitude: number;
+      longitude: number;
+      accuracyM: number;
+      capturedAt: string;
+      sourcePlatform: "ios";
+    }>((resolve) => {
+      resolveEntryCapture = resolve;
+    });
+    serviceHarness.captureCurrentPosition.mockReturnValueOnce(entryCapture);
+
+    seedConsentedRenderer();
+    render(<LocationImmersiveMap surface="check-in" />);
+    await waitFor(() => {
+      expect(serviceHarness.captureCurrentPosition).toHaveBeenCalled();
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+
+    fireEvent.click(screen.getByTestId("publish-nearby-state"));
+    await waitFor(() => {
+      expect(mapHarness.map.fitBounds).toHaveBeenCalled();
+    });
+    mapHarness.map.setCamera.mockClear();
+
+    await act(async () => {
+      resolveEntryCapture?.({
+        latitude: 37.776,
+        longitude: -122.418,
+        accuracyM: 12,
+        capturedAt: "2026-07-23T00:00:00.000Z",
+        sourcePlatform: "ios",
+      });
+      await entryCapture;
+      await Promise.resolve();
+    });
+
+    expect(mapHarness.map.setCamera).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        coordinate: { lat: 37.776, lng: -122.418 },
+      }),
+    );
+  });
+
+  it("keeps a blue venue fallback when camera projection is unavailable", async () => {
+    experienceHarness.demoMode = false;
+    experienceHarness.nearbyAvailable = true;
+    mapHarness.map.setOnBoundsChangedListener.mockRejectedValueOnce(
+      new Error("camera listeners unavailable"),
+    );
+
+    seedConsentedRenderer();
+    render(<LocationImmersiveMap surface="check-in" />);
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-ready",
+        "true",
+      );
+    });
+    mapHarness.map.addMarkers.mockClear();
+    fireEvent.click(screen.getByTestId("publish-nearby-state"));
+
+    await waitFor(() => {
+      const latest = mapHarness.map.addMarkers.mock.calls.at(-1)?.[0] as
+        | Array<{
+            coordinate: { lat: number; lng: number };
+            tintColor?: { r: number; g: number; b: number; a: number };
+          }>
+        | undefined;
+      expect(latest).toEqual([
+        expect.objectContaining({
+          coordinate: { lat: 37.7775, lng: -122.4172 },
+          tintColor: { r: 0, g: 122, b: 255, a: 255 },
+        }),
+      ]);
+    });
+    expect(
+      screen.queryByTestId("one-location-map-self-avatar"),
+    ).not.toBeInTheDocument();
   });
 
   it("renders the venue-anchored avatar without a fresh device fix", async () => {

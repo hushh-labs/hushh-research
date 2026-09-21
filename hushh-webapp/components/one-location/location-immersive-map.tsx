@@ -940,7 +940,15 @@ export function LocationImmersiveMap({
     nearbyConnectGenerationRef.current += 1;
     nearbyConnectInFlightRef.current = false;
     setNearbyConnectionBusyAlias(null);
-    setNearbyPresenceState({ presence: null, attendees: [] });
+    const emptyPresenceState: OneLocationNearbyPresenceState = {
+      presence: null,
+      attendees: [],
+    };
+    // Clear the synchronous race guard with the owner/session boundary too.
+    // Otherwise an old account's venue could suppress the new account's first
+    // legitimate camera focus until React commits the reset state.
+    nearbyPresenceStateRef.current = emptyPresenceState;
+    setNearbyPresenceState(emptyPresenceState);
   }, [auth.userId, demoMode, nearbyCheckInAvailable, vaultOwnerToken]);
 
   const captureCurrentLocation = useCallback(
@@ -997,6 +1005,11 @@ export function LocationImmersiveMap({
 
   const handleNearbyStateChange = useCallback(
     (next: OneLocationNearbyPresenceState) => {
+      // Keep the ref current in the same turn as the callback. The entry GPS
+      // request can already be in flight here, and waiting for the state-sync
+      // effect would leave a small window where its late result can still move
+      // the camera away from a venue that has just been restored.
+      nearbyPresenceStateRef.current = next;
       setNearbyPresenceState(next);
       if (!auth.userId) return;
       updateOneLocationControlState(auth.userId, (current) => ({
@@ -1012,7 +1025,11 @@ export function LocationImmersiveMap({
   const focusSelfPoint = useCallback(
     async (
       point: PlainLocationPoint,
-      options: { animate: boolean; select: boolean },
+      options: {
+        animate: boolean;
+        select: boolean;
+        moveCamera?: boolean;
+      },
     ) => {
       const currentLocation: RenderMarker = {
         key: "current-device-location",
@@ -1031,6 +1048,7 @@ export function LocationImmersiveMap({
           myLocationPoint: point,
         });
       }
+      if (options.moveCamera === false) return;
       await mapRef.current?.setCamera({
         coordinate: { lat: point.latitude, lng: point.longitude },
         zoom: zoomForAccuracy(point.accuracyM),
@@ -1498,17 +1516,38 @@ export function LocationImmersiveMap({
     const cachedPoint = readLocationWorkspaceMemory(
       auth.userId,
     ).myLocationPoint;
+    const shouldMoveCameraToDevice = () => {
+      if (!isCheckInSurface) return true;
+      const activePresence = nearbyPresenceStateRef.current.presence;
+      return !(
+        typeof activePresence?.placeLat === "number" &&
+        typeof activePresence.placeLng === "number" &&
+        Number.isFinite(activePresence.placeLat) &&
+        Number.isFinite(activePresence.placeLng)
+      );
+    };
 
     void (async () => {
       if (cachedPoint) {
         framedInitialMarkersRef.current = true;
-        await focusSelfPoint(cachedPoint, { animate: false, select: false });
+        await focusSelfPoint(cachedPoint, {
+          animate: false,
+          select: false,
+          moveCamera: shouldMoveCameraToDevice(),
+        });
       }
       try {
         const point = await captureCurrentLocation();
         if (cancelled) return;
         framedInitialMarkersRef.current = true;
-        await focusSelfPoint(point, { animate: true, select: false });
+        await focusSelfPoint(point, {
+          animate: true,
+          select: false,
+          // Presence and GPS load concurrently. If presence won the race, keep
+          // the freshly captured point as device state without letting its late
+          // completion pan away from the active venue.
+          moveCamera: shouldMoveCameraToDevice(),
+        });
       } catch {
         // Entry focus is best-effort. The explicit Locate control remains
         // available for denied permissions, disabled services, or timeouts.
@@ -1524,6 +1563,7 @@ export function LocationImmersiveMap({
     auth.userId,
     captureCurrentLocation,
     focusSelfPoint,
+    isCheckInSurface,
     mapReady,
     rendererReady,
   ]);
@@ -1687,10 +1727,30 @@ export function LocationImmersiveMap({
    */
   const selfPinDrawnAsAvatar = rendererReady && cameraReported;
 
-  /** What the renderer is asked to draw: everything except the owner's own pin -- always. */
+  /**
+   * What the native renderer is asked to draw.
+   *
+   * Normally the HTML avatar replaces the owner pin. An active check-in is the
+   * compatibility exception: if camera listeners never report, HTML cannot
+   * project the avatar, so keep one blue renderer pin at the venue rather than
+   * leaving a live check-in completely unmarked. It disappears as soon as the
+   * avatar can project. The ordinary GPS surface keeps its no-flash behavior.
+   */
   const rendererMarkers = useMemo(
-    () => visibleMarkers.filter((marker) => marker.kind !== "self"),
-    [visibleMarkers],
+    () =>
+      visibleMarkers.filter(
+        (marker) =>
+          marker.kind !== "self" ||
+          (isCheckInSurface &&
+            Boolean(displayedPlaceFocus?.active) &&
+            !selfPinDrawnAsAvatar),
+      ),
+    [
+      displayedPlaceFocus?.active,
+      isCheckInSurface,
+      selfPinDrawnAsAvatar,
+      visibleMarkers,
+    ],
   );
 
   /**
@@ -2142,12 +2202,19 @@ export function LocationImmersiveMap({
       }
       if (generation !== markerGenerationRef.current) return;
       const mapMarkers: Marker[] = rendererMarkers.map((marker) => {
+        const isActiveCheckInOwnerFallback =
+          marker.kind === "self" &&
+          isCheckInSurface &&
+          Boolean(displayedPlaceFocus?.active) &&
+          !selfPinDrawnAsAvatar;
         // Labels stay in the local HTML tray/search index. The native Google
         // renderer receives coordinates and a generic accessibility title,
         // never the private recipient name.
         const title =
           marker.kind === "self"
-            ? "Your location"
+            ? isActiveCheckInOwnerFallback
+              ? "Your check-in place"
+              : "Your location"
             : marker.kind === "place"
               ? // A public venue the owner picked, so its name may reach the
                 // renderer -- unlike a private recipient's label.
@@ -2169,7 +2236,9 @@ export function LocationImmersiveMap({
                 title,
                 snippet:
                   marker.kind === "self"
-                    ? "Your current location"
+                    ? isActiveCheckInOwnerFallback
+                      ? "Checked in here"
+                      : "Your current location"
                     : marker.kind === "place"
                       ? "Your check-in place"
                       : "Sharing privately now",
@@ -2179,13 +2248,11 @@ export function LocationImmersiveMap({
           // per-pin styling this bridge exposes -- `title` cannot carry it,
           // because the web renderer paints titles across the map as a glyph
           // (see above) -- so the colour is where staleness has to be said.
-          tintColor: isStaleAt(
-            marker.capturedAt,
-            freshnessSeconds,
-            staleClockMs,
-          )
-            ? STALE_TINT
-            : marker.tint,
+          tintColor:
+            !isActiveCheckInOwnerFallback &&
+            isStaleAt(marker.capturedAt, freshnessSeconds, staleClockMs)
+              ? STALE_TINT
+              : marker.tint,
           zIndex: marker.kind === "self" ? 10 : marker.kind === "place" ? 9 : 1,
         };
       });
@@ -2234,11 +2301,14 @@ export function LocationImmersiveMap({
   }, [
     clusteringActive,
     entryLocationSettled,
+    displayedPlaceFocus?.active,
+    isCheckInSurface,
     mapReady,
     rendererMarkers,
     visibleMarkers,
     freshnessSeconds,
     staleClockMs,
+    selfPinDrawnAsAvatar,
   ]);
 
   const acceptRenderer = useCallback(async () => {
