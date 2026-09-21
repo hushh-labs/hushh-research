@@ -75,7 +75,10 @@ async def test_gemini_validation_proves_generation_quota(monkeypatch: pytest.Mon
     assert call.kwargs["contents"] == "Reply OK."
     assert call.kwargs["config"].max_output_tokens == 4
     assert call.kwargs["config"].thinking_config.include_thoughts is False
-    assert getattr(call.kwargs["config"].thinking_config, "thinking_level", None) is None
+    # Gemini 3.x rejects MINIMAL; the shared provider adapter intentionally
+    # coerces this compatibility probe to the supported LOW level.
+    thinking_level = getattr(call.kwargs["config"].thinking_config, "thinking_level", None)
+    assert getattr(thinking_level, "value", thinking_level) == "LOW"
     assert call.kwargs["config"].temperature is None
 
 
