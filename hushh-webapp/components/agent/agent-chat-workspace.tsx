@@ -69,7 +69,10 @@ import { loadPkmAgentLabContext } from "@/lib/profile/pkm-agent-lab-capture";
 import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
 import { SecureCardAddForm } from "@/components/wallet/secure-card-add-form";
 import { SecureCardReveal } from "@/components/wallet/secure-card-reveal";
-import { detectLikelyPan } from "@/lib/wallet/pan-paste-guard";
+import {
+  detectLikelyPan,
+  redactLikelyPans,
+} from "@/lib/wallet/pan-paste-guard";
 import {
   WalletService,
   type WalletCardSecrets,
@@ -362,6 +365,7 @@ type AgentRunTurnOptions = {
   personSelectionHandle?: string;
   appendUserMessage?: boolean;
   replaceAssistantMessageId?: string | null;
+  deferPkmContext?: boolean;
 };
 
 type ConsentRequiredDirectivePayload = {
@@ -4337,6 +4341,24 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         return cachedContext;
       }
 
+      // Large pasted context is already in the user turn and is handled by the
+      // guarded background capture lane after the answer starts. Do not make a
+      // foreground paste wait for a full decrypted inventory to hydrate. A
+      // warm session cache is still useful, but it is not required for this
+      // explicitly deferred lane.
+      if (options.deferPkmContext) {
+        if (cachedContext?.text) {
+          void loadAgentPkmContext({
+            userId,
+            vaultOwnerToken: token,
+            vaultKey,
+            message: text,
+          }).catch(() => undefined);
+          return cachedContext;
+        }
+        return EMPTY_PKM_CONTEXT;
+      }
+
       // A warm cache returns immediately. A cold unlocked turn waits for the
       // local decrypted inventory instead of substituting metadata or sending
       // an empty prompt to One.
@@ -5023,20 +5045,29 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     void drainOperationQueue();
   };
 
-  const enqueuePrompt = (textInput: string, personSelectionHandle?: string) => {
+  const enqueuePrompt = (
+    textInput: string,
+    personSelectionHandle?: string,
+    options: Pick<AgentRunTurnOptions, "deferPkmContext"> = {},
+  ) => {
     const text = textInput.trim();
     if (!text) return;
     const prompt: QueuedAgentPrompt = {
       id: crypto.randomUUID(),
       text,
       createdAtMs: Date.now(),
+      deferPkmContext: options.deferPkmContext,
     };
     const operation: QueuedWorkspaceOperation = {
       id: prompt.id,
       prompt,
       run: async () => {
         if (hasChatAccess) {
-          await runAgentTurn(operation.prompt?.text ?? "", { source: "typed", personSelectionHandle });
+          await runAgentTurn(operation.prompt?.text ?? "", {
+            source: "typed",
+            personSelectionHandle,
+            deferPkmContext: operation.prompt?.deferPkmContext,
+          });
           return;
         }
         await runIntroTurn(operation.prompt?.text ?? "");
@@ -5160,7 +5191,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setInput("");
     setLongPromptAttachment(null);
     setComposerExpanded(false);
-    if (detectLikelyPan(text)) {
+    // A large paste is a dedicated browser-memory import lane. Redact payment
+    // card numbers before the text can enter Chat, history, telemetry, or the
+    // guarded background PKM proposal flow; ordinary typed PAN input remains a
+    // hard block and is routed to the secure card form.
+    const submittedText =
+      attachment && detectLikelyPan(text) ? redactLikelyPans(text) : text;
+    if (detectLikelyPan(submittedText)) {
       appendMessage({
         id: `msg-${Date.now()}-pan-blocked`,
         role: "assistant",
@@ -5181,7 +5218,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       await submitGmailKycDetails(text);
       return;
     }
-    enqueuePrompt(text);
+    enqueuePrompt(submittedText, undefined, {
+      deferPkmContext: attachment !== null,
+    });
   };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -5522,6 +5561,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         disabled={!canSend}
         aria-label="Send message"
         title="Send message"
+        onClick={(event) => {
+          // Keep the form path for keyboard/assistive submission, but do not
+          // rely on the wrapped shell/ripple button's native submit default.
+          // A real pointer click can otherwise release without dispatching
+          // submit while the control is visibly enabled.
+          event.preventDefault();
+          void submitComposerText();
+        }}
       >
         <Send className="h-4 w-4" />
       </ShellActionSurface>

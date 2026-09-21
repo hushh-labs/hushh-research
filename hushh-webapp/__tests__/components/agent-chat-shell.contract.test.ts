@@ -90,6 +90,8 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain("collapseComposer");
     expect(workspace).toContain("combineAttachmentAndComposerText");
     expect(workspace).toContain("await submitComposerText()");
+    expect(workspace).toContain("redactLikelyPans");
+    expect(workspace).toContain("const submittedText");
     expect(workspace).toContain('source: "agent_chat_auto_capture"');
     expect(workspace).toContain("captureEligiblePkmFactsInBackground({");
     expect(workspace).toContain("beforeEffect: guard.assertCurrent");
