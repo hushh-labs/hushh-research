@@ -3218,6 +3218,24 @@ async def run_app_action(
             ),
         }
 
+    if clean_id == "consent.cancel_request" and not any(
+        clean_slots.get(key) for key in ("request_id", "requestId")
+    ):
+        # The generated action intentionally has no required input for the
+        # common phrase "cancel that request I just sent". Refresh the
+        # requester-owned projection here so the model does not need a
+        # separate listing turn before the app can stage its confirmation.
+        # The service still returns only safe handles to the model and the
+        # directive expands the newest handle server-side.
+        outgoing = await list_my_outgoing_information_requests(tool_context)
+        if outgoing.get("status") != "ok":
+            return outgoing
+        if not outgoing.get("requests"):
+            return {
+                "status": "no_request_to_cancel",
+                "message": "There is no open information request from you to cancel.",
+            }
+
     onboarding = context.get("onboarding") if isinstance(context, dict) else {}
     onboarding = onboarding if isinstance(onboarding, dict) else {}
     if clean_id == "onboarding.claim_one" and (

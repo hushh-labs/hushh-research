@@ -442,6 +442,31 @@ class TestRevokeAndCancelAreTargetable:
         assert (await list_active_grants(_ctx({})))["status"] == "blocked"
         assert (await list_my_outgoing_information_requests(_ctx({})))["status"] == "blocked"
 
+    @pytest.mark.asyncio
+    async def test_cancel_without_a_handle_refreshes_the_newest_open_request(self):
+        state = _state()
+        sent = [
+            {
+                "bundleId": "bundle_newest",
+                "personRef": PERSON_REF,
+                "displayName": "Sarah Chen",
+                "purpose": "Checking references",
+                "sentAt": "2026-09-21",
+            }
+        ]
+        with (
+            _auth(),
+            patch.object(
+                InformationRequestService, "list_outgoing", new=AsyncMock(return_value=sent)
+            ) as list_outgoing,
+        ):
+            result = await action_tools.run_app_action("consent.cancel_request", {}, _ctx(state))
+
+        assert result["status"] == "confirm_pending"
+        assert result["directive"]["slots"]["bundleId"] == "bundle_newest"
+        assert result["directive"]["slots"]["displayName"] == "Sarah Chen"
+        list_outgoing.assert_awaited_once_with(requester_user_id="user_1")
+
 
 class TestListPending:
     @pytest.mark.asyncio
