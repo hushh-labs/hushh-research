@@ -291,6 +291,19 @@ class TestAgentTreeShape:
             "Whenever the person's own words are not a close match to one of "
             "the visible labels, call list_app_actions" in ONE_IDENTITY_INSTRUCTION
         )
+        # Requestable-information follow-ups must remain tool-backed even when
+        # the model believes it already knows the person's catalog.
+        assert "Requestable-information discovery has a mandatory tool boundary" in (
+            ONE_IDENTITY_INSTRUCTION
+        )
+        assert (
+            'Follow-ups such as "list the fields", "what can I request", '
+            '"check financial information"' in ONE_IDENTITY_INSTRUCTION
+        )
+        assert (
+            "Never answer this intent from memory, prior prose, PKM context, "
+            "cached labels, or guessed fields" in ONE_IDENTITY_INSTRUCTION
+        )
 
     def test_identity_instruction_carries_persona_grounding(self):
         # Durable north-star + principle grounding is folded into the shared
