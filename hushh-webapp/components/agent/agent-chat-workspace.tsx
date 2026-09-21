@@ -133,6 +133,7 @@ import {
 import {
   addToPKM,
   clearAgentPkmContext,
+  getPkmConfirmationCards,
   getPkmAutoSaveCards,
   loadAgentPkmContext,
   peekAgentPkmContext,
@@ -3780,8 +3781,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           );
           // A malformed/degraded proposal cannot authorize automatic effects.
           const degraded = prepared.previews.some((preview) => preview.error || preview.used_fallback);
+          const reviewRequired =
+            needsAttention ||
+            degraded ||
+            getPkmConfirmationCards(prepared.cards).length > 0;
           const cards = degraded ? [] : getPkmAutoSaveCards(prepared.cards);
-          if (!cards.length) return settle({ phase: needsAttention || degraded ? "review" : "skipped", saved: 0 });
+          if (!cards.length) return settle({ phase: reviewRequired ? "review" : "skipped", saved: 0 });
           settle({ phase: "saving", saved: 0 });
           const result = await addToPKM({
             userId, cards, sourceMessage: params.sourceMessage, vaultKey, vaultOwnerToken: token,
@@ -3801,7 +3806,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             saved_count_bucket: toPkmFactCountBucket(result.saved), failed_count_bucket: toPkmFactCountBucket(result.failed),
             has_active_recipients: false,
           });
-          return settle({ phase: result.saved > 0 ? (result.failed || needsAttention ? "partial" : "saved") : "failed", saved: result.saved });
+          return settle({ phase: result.saved > 0 ? (result.failed || reviewRequired ? "partial" : "saved") : "failed", saved: result.saved });
         } catch {
           return settle({ phase: "failed", saved: 0 });
         } finally {

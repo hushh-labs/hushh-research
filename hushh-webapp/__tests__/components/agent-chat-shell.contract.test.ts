@@ -99,7 +99,9 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).not.toContain("Review for Memory");
     expect(workspace).not.toContain("Send as chat");
     expect(workspace).not.toContain("AgentPkmReviewPanel");
-    expect(workspace).not.toContain("getPkmConfirmationCards");
+    expect(workspace).toContain("getPkmConfirmationCards");
+    expect(workspace).toContain("const reviewRequired =");
+    expect(workspace).toContain('phase: reviewRequired ? "review" : "skipped"');
   });
 
   it("keeps active assistant streams full-width and errors compact", () => {
