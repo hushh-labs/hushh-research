@@ -1063,12 +1063,8 @@ final class AppUITests: XCTestCase {
 
         perfTapNav(app, label: "Chat")
         perfSettle(2.5)
-        perfGesture("chat-stream-30s", rep: 0) {
-            if perfSendChatPrompt(app, webView: webView) {
-                perfSettle(30)
-            } else {
-                NSLog("PERF_SKIPPED name=chat-stream-30s reason=composer_not_found")
-            }
+        if !perfChatExchange(app, streamSeconds: 30) {
+            NSLog("PERF_SKIPPED name=chat-stream-30s reason=composer_not_found")
         }
 
         perfSettle(12) // let the probe write its idle export
@@ -1235,15 +1231,11 @@ final class AppUITests: XCTestCase {
         }
 
         if section == "all" || section == "chat" {
-            let (app, webView) = try launchAttached(route: "/")
+            let (app, _) = try launchAttached(route: "/")
             perfSettle(3)
             NSLog("PERF_APP_READY route=/")
-            perfGesture("chat-stream-30s", rep: 0) {
-                if perfSendChatPrompt(app, webView: webView) {
-                    perfSettle(30)
-                } else {
-                    NSLog("PERF_SKIPPED name=chat-stream-30s reason=composer_not_found")
-                }
+            if !perfChatExchange(app, streamSeconds: 30) {
+                NSLog("PERF_SKIPPED name=chat-stream-30s reason=composer_not_found")
             }
             perfSettle(12)
             NSLog("PERF_DONE route=/")
@@ -1603,19 +1595,55 @@ final class AppUITests: XCTestCase {
     /// The composer lives on the canonical Chat route ("/"), not on /one:
     /// `<textarea aria-label="Message One">` with a `Send message` button.
     /// The caller puts the app on that route first.
-    private func perfSendChatPrompt(_ app: XCUIApplication, webView: XCUIElement) -> Bool {
+    /// The chat exchange as a person does it, with the native keyboard in
+    /// the loop (founder ask, 2026-09-21): tap the composer and let the
+    /// keyboard rise, type the prompt through it, send, let the reply
+    /// stream, then dismiss the keyboard. Each step is its own gesture so
+    /// the frames the keyboard's rise, the typing and its dismissal cost are
+    /// read apart from the reply itself.
+    private func perfChatExchange(_ app: XCUIApplication, streamSeconds: TimeInterval) -> Bool {
         let composer = app.webViews.descendants(matching: .any)
             .matching(NSPredicate(format: "label == %@", "Message One")).firstMatch
         guard composer.waitForExistence(timeout: 20) else { return false }
-        composer.tap()
-        perfSettle(0.5)
-        composer.typeText("Summarize my week in three short bullet points.")
-        perfSettle(0.5)
-        let send = app.webViews.buttons.matching(NSPredicate(format: "label == %@", "Send message")).firstMatch
-        if send.exists, send.isHittable {
-            send.tap()
-        } else {
-            composer.typeText("\n")
+
+        perfGesture("chat-keyboard-show", rep: 0) {
+            composer.tap()
+            let keyboard = app.keyboards.firstMatch
+            let shown = keyboard.waitForExistence(timeout: 3)
+            NSLog("PERF_KEYBOARD shown=\(shown ? 1 : 0)")
+            perfSettle(1.2)
+        }
+
+        perfGesture("chat-keyboard-type", rep: 0) {
+            composer.typeText("Summarize my week in three short bullet points.")
+            perfSettle(0.8)
+        }
+
+        perfGesture("chat-stream-30s", rep: 0) {
+            let send = app.webViews.buttons.matching(NSPredicate(format: "label == %@", "Send message")).firstMatch
+            if send.exists, send.isHittable {
+                send.tap()
+            } else {
+                composer.typeText("\n")
+            }
+            perfSettle(streamSeconds)
+        }
+
+        perfGesture("chat-keyboard-dismiss", rep: 0) {
+            // A tap on the transcript, above the composer, is how a person
+            // puts the keyboard away here; fall back to the keyboard's own
+            // dismiss control when the tap does not take it down.
+            let keyboard = app.keyboards.firstMatch
+            if keyboard.exists {
+                app.webViews.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap()
+                perfSettle(0.8)
+                if keyboard.exists {
+                    let dismiss = app.keyboards.buttons.matching(NSPredicate(format: "label IN %@", ["Hide keyboard", "Dismiss", "Done"])).firstMatch
+                    if dismiss.exists { dismiss.tap() }
+                }
+            }
+            perfSettle(1.2)
+            NSLog("PERF_KEYBOARD dismissed=\(app.keyboards.firstMatch.exists ? 0 : 1)")
         }
         return true
     }
