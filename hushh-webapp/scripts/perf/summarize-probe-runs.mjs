@@ -107,12 +107,39 @@ const hz = runs[0]?.data.raf_hz ?? null;
 // A run certifies only when all three hold: real hardware, a Release build,
 // and the test-mode bridge off. The XCUITest card always has the bridge on.
 const simulator = tier.includes("sim");
-const certifies = !simulator && configuration === "Release" && !testMode;
+// A `next build --profile` bundle reports React commits; it attributes and
+// never certifies (the profiling build adds work of its own).
+const reactProfiling = runs.some((r) => r.data.react_profiling === true);
+const certifies = !simulator && configuration === "Release" && !testMode && !reactProfiling;
 const laneSentence = certifies
   ? "Device run, Release, test mode off: certifying."
   : simulator
     ? "**Simulator run: attribution only, certifies nothing.**"
-    : `**Device run, ${configuration}${testMode ? " + test mode" : ""}: attribution only, certifies nothing.**`;
+    : reactProfiling
+      ? `**Device run, ${configuration}, React profiling build: attribution only, certifies nothing.**`
+      : `**Device run, ${configuration}${testMode ? " + test mode" : ""}: attribution only, certifies nothing.**`;
+
+// Route-enter attribution: every window that carried a route change, with the
+// destination's first commit and first frame, and the commits inside the
+// window (profiling build) or just the frame numbers (any build).
+const routeEnterRows = [];
+for (const [name, ws] of byGesture.entries()) {
+  for (const w of ws) {
+    if (!w.route_enter) continue;
+    const commits = w.commits ?? { count: 0, total_ms: 0, max_ms: 0, top: [] };
+    routeEnterRows.push({
+      gesture: name,
+      route: w.route_enter.route,
+      first_commit_ms: w.route_enter.first_commit_ms,
+      first_frame_ms: w.route_enter.first_frame_ms,
+      window_max_ms: w.max_ms,
+      commits: commits.count,
+      commits_total_ms: commits.total_ms,
+      top_commits: (commits.top ?? []).map((c) => `${c.actual_ms} (${c.phase})`).join(", "),
+    });
+  }
+}
+routeEnterRows.sort((a, b) => (b.first_frame_ms ?? 0) - (a.first_frame_ms ?? 0));
 const verdict = (r) => (r.over_50_count > 0 || (r.hitch_ms_per_s_median ?? 0) >= 10 ? "critical" : (r.hitch_ms_per_s_median ?? 0) >= 5 || (hz && r.p95_ms_median > hz.budget_ms) ? "warning" : "good");
 
 const summary = {
@@ -124,6 +151,8 @@ const summary = {
   runs: runs.map((r) => ({ run_id: r.data.run_id, windows: r.data.windows.length, hud: r.data.hud })),
   gestures: rows.map((r) => ({ ...r, verdict: verdict(r) })),
   idle_by_route: idleRows,
+  react_profiling: reactProfiling,
+  route_enter: routeEnterRows,
 };
 
 const md = [
@@ -141,6 +170,19 @@ const md = [
   "|---|---|---|---|---|",
   ...idleRows.map((r) => `| ${r.route} | ${r.frames} | ${r.p95_ms} | ${r.max_ms} | ${r.over_50_count} |`),
   "",
+  ...(routeEnterRows.length
+    ? [
+        `Route enter attribution (${reactProfiling ? "React profiling build: commits are real" : "no profiling build: commit columns empty"}):`,
+        "",
+        "| Gesture | Route | First commit ms | First frame ms | Worst frame ms | Commits | Commits total ms | Top commits |",
+        "|---|---|---|---|---|---|---|---|",
+        ...routeEnterRows.map(
+          (r) =>
+            `| ${r.gesture} | ${r.route} | ${r.first_commit_ms ?? "-"} | ${r.first_frame_ms ?? "-"} | ${r.window_max_ms} | ${r.commits} | ${r.commits_total_ms} | ${r.top_commits || "-"} |`,
+        ),
+        "",
+      ]
+    : []),
 ].join("\n");
 
 if (jsonOut) fs.writeFileSync(jsonOut, `${JSON.stringify(summary, null, 2)}\n`);

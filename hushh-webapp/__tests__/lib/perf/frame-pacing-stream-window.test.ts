@@ -12,6 +12,7 @@ vi.mock("@capacitor/filesystem", () => ({
 }));
 
 import { startFramePacingProbe } from "@/lib/perf/frame-pacing";
+import { hasRenderCommitSink, reportRenderCommit } from "@/lib/perf/render-commit-sink";
 
 type Tick = (now: number) => void;
 
@@ -72,6 +73,69 @@ describe("frame pacing probe stream window", () => {
     windows = probe.export().windows;
     expect(windows).toHaveLength(1);
     expect(windows[0]?.duration_ms).toBe(closedAt);
+    probe.stop();
+  });
+
+  it("attributes React commits to the open window, the idle bucket, and the route enter", () => {
+    expect(hasRenderCommitSink()).toBe(false);
+    const probe = startFramePacingProbe({ hud: false });
+    expect(hasRenderCommitSink()).toBe(true);
+    for (let i = 0; i < 70; i += 1) frame();
+
+    // Idle: a commit with no window open lands in the route's idle bucket.
+    reportRenderCommit("update", 4, 6, now);
+    let exported = probe.export();
+    expect(exported.react_profiling).toBe(true);
+    expect(exported.idle_by_route[0]?.commits.count).toBe(1);
+
+    // A tap opens a window; commits inside it are counted, top 3 kept by size.
+    // jsdom has no PointerEvent, so the probe listened for touchstart.
+    document.dispatchEvent(new Event("touchstart", { bubbles: true }));
+    frame();
+    for (const ms of [3, 40, 12, 25]) reportRenderCommit("update", ms, ms * 2, now);
+    exported = probe.export();
+    const tapWindow = exported.windows[0];
+    expect(tapWindow?.commits.count).toBe(4);
+    expect(tapWindow?.commits.max_ms).toBe(40);
+    expect(tapWindow?.commits.total_ms).toBe(80);
+    expect(tapWindow?.commits.top.map((c) => c.actual_ms)).toEqual([40, 25, 12]);
+
+    // The route changes: the last commit is the destination's first commit,
+    // and two frames later the first-frame time is known.
+    reportRenderCommit("update", 31, 60, now);
+    probe.setRoute("/one/feed", "");
+    frame();
+    frame(20);
+    exported = probe.export();
+    expect(exported.windows[0]?.kind).toBe("tap→route");
+    expect(exported.windows[0]?.route_enter).toEqual({
+      route: "/one/feed",
+      first_commit_ms: 31,
+      first_frame_ms: expect.any(Number),
+    });
+    expect(exported.windows[0]?.route_enter?.first_frame_ms).toBeGreaterThan(0);
+
+    probe.stop();
+    expect(hasRenderCommitSink()).toBe(false);
+  });
+
+  it("keeps a type window open while keyboard input keeps coming", () => {
+    const probe = startFramePacingProbe({ hud: false });
+    for (let i = 0; i < 70; i += 1) frame();
+    document.dispatchEvent(new Event("input", { bubbles: true }));
+    for (let i = 0; i < 10; i += 1) frame();
+    document.dispatchEvent(new Event("keydown", { bubbles: true }));
+    for (let i = 0; i < 10; i += 1) frame();
+    let windows = probe.export().windows;
+    expect(windows).toHaveLength(1);
+    expect(windows[0]?.kind).toBe("type");
+    // 600 ms without input closes it.
+    for (let i = 0; i < 45; i += 1) frame();
+    const closed = probe.export().windows[0]?.duration_ms ?? 0;
+    for (let i = 0; i < 10; i += 1) frame();
+    windows = probe.export().windows;
+    expect(windows[0]?.duration_ms).toBe(closed);
+    expect(windows[0]?.frames).toBeGreaterThan(20);
     probe.stop();
   });
 

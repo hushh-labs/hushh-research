@@ -99,6 +99,7 @@ import { NativeTestBootstrap } from "@/components/app-ui/native-test-bootstrap";
 import { NativeTestRouteStatus } from "@/components/app-ui/native-test-route-status";
 import { InteractionRuntime } from "@/components/app-ui/interaction-runtime";
 import { RenderPerfProbe } from "@/components/app-ui/render-perf-probe";
+import { RenderPerfProfiler } from "@/components/app-ui/render-perf-profiler";
 import {
   acknowledgeInternalAppNavigation,
   consumePendingInternalAppNavigation,
@@ -830,7 +831,9 @@ export function Providers({ children }: ProvidersProps) {
               the root Chat workspace and /one. Route-local boundaries cannot catch a hook in
               the provider that owns them. */}
           <Suspense fallback={null}>
-            <AppShellFrame>{children}</AppShellFrame>
+            <RenderPerfProfiler>
+              <AppShellFrame>{children}</AppShellFrame>
+            </RenderPerfProfiler>
           </Suspense>
         </AuthProvider>
         <Toaster

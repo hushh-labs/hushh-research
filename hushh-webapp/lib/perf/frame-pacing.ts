@@ -15,6 +15,7 @@
  */
 
 import { Capacitor } from "@capacitor/core";
+import { type RenderCommit, setRenderCommitSink } from "@/lib/perf/render-commit-sink";
 
 import {
   FrameAccumulator,
@@ -35,7 +36,9 @@ export type GestureKind =
   | "bottom-nav"
   | "top-tabs"
   | "scroll"
-  | "tap";
+  | "tap"
+  /** Keyboard input: opened by `input`/`keydown`, closed after TYPE_QUIET_MS without one. */
+  | "type";
 
 type WindowKind = GestureKind | `${GestureKind}→route` | "scroll:programmatic" | "stream";
 
@@ -63,6 +66,10 @@ const GESTURE_TARGETS: ReadonlyArray<readonly [string, GestureKind]> = [
 
 const SCROLL_QUIET_MS = 160;
 const POINTER_SETTLE_MS = 900;
+// Typing on the native keyboard reaches the page as input events only (no
+// pointer event, the keys are native); a window stays open while they keep
+// coming and closes this long after the last one.
+const TYPE_QUIET_MS = 600;
 // A tap on a tab or nav item is followed by a route change that a cold dev
 // server can take seconds to serve; keep those windows open long enough for
 // the change to attach, so "tap to settled" includes the destination paint.
@@ -95,6 +102,54 @@ type ProbeWindow = {
   loaf: LoafSummary | null;
   /** Largest duration per interaction id, for an INP-style value. */
   interactionMax: Map<number, number>;
+  /** React commits inside the window (profiling build only; see render-commit-sink). */
+  commits: CommitAccumulator;
+  /** Set when the window carried a route change: the destination's first commit and first frame. */
+  routeEnter: RouteEnterReport | null;
+};
+
+/** Top-N by actual duration plus totals; bounded so a long window stays small. */
+class CommitAccumulator {
+  count = 0;
+  totalMs = 0;
+  maxMs = 0;
+  top: RenderCommit[] = [];
+
+  add(commit: RenderCommit): void {
+    this.count += 1;
+    this.totalMs += commit.actual_ms;
+    if (commit.actual_ms > this.maxMs) this.maxMs = commit.actual_ms;
+    const smallest = this.top[this.top.length - 1];
+    if (this.top.length < 3 || !smallest || commit.actual_ms > smallest.actual_ms) {
+      this.top.push(commit);
+      this.top.sort((a, b) => b.actual_ms - a.actual_ms);
+      if (this.top.length > 3) this.top.length = 3;
+    }
+  }
+
+  summary(): CommitSummary {
+    return {
+      count: this.count,
+      total_ms: round(this.totalMs),
+      max_ms: round(this.maxMs),
+      top: this.top.map((c) => ({ phase: c.phase, actual_ms: round(c.actual_ms), base_ms: round(c.base_ms), at_ms: round(c.at_ms) })),
+    };
+  }
+}
+
+export type CommitSummary = {
+  count: number;
+  total_ms: number;
+  max_ms: number;
+  top: RenderCommit[];
+};
+
+export type RouteEnterReport = {
+  route: string;
+  /** actualDuration of the commit that rendered the destination (the last commit before the route change was observed). */
+  first_commit_ms: number | null;
+  /** Route change observed → second animation frame painted. */
+  first_frame_ms: number | null;
 };
 
 export type ProbeWindowReport = FrameWindowStats & {
@@ -109,6 +164,8 @@ export type ProbeWindowReport = FrameWindowStats & {
   event_timing: EventTimingSummary | null;
   longtask: LongTaskSummary | null;
   loaf: LoafSummary | null;
+  commits: CommitSummary;
+  route_enter: RouteEnterReport | null;
 };
 
 export type ProbeExport = {
@@ -128,8 +185,10 @@ export type ProbeExport = {
   raf_hz: { raw: number; nominal: NominalHz; budget_ms: number; samples: number };
   hud: boolean;
   windows: ProbeWindowReport[];
-  idle_by_route: Array<FrameWindowStats & { route: string; duration_ms: number }>;
+  idle_by_route: Array<FrameWindowStats & { route: string; duration_ms: number; commits: CommitSummary }>;
   attribution: { loaf_top_scripts: Array<{ source: string; blocking_ms: number }> };
+  /** True once React reported a commit: a `next build --profile` bundle (attribution only, never certifies). */
+  react_profiling: boolean;
 };
 
 export type FramePacingProbe = {
@@ -195,7 +254,10 @@ export function startFramePacingProbe(options: { hud: boolean }): FramePacingPro
   const startedAt = Date.now();
   const runId = randomRunId();
   const windows: ProbeWindow[] = [];
-  const idle = new Map<string, { acc: FrameAccumulator; durationMs: number }>();
+  const idle = new Map<string, { acc: FrameAccumulator; durationMs: number; commits: CommitAccumulator }>();
+  let reactProfiling = false;
+  let lastCommit: RenderCommit | null = null;
+  let routeEnterFrame: number | null = null;
   const loafScripts = new Map<string, number>();
 
   let route = normalizeRoute(window.location.pathname);
@@ -212,6 +274,7 @@ export function startFramePacingProbe(options: { hud: boolean }): FramePacingPro
   let lastFrameAt = 0;
   let frameIndex = 0;
   let lastScrollAt = 0;
+  let lastInputAt = 0;
   let pointerUpAt: number | null = null;
   let routeChangedAt: number | null = null;
   let rafHandle = 0;
@@ -224,11 +287,22 @@ export function startFramePacingProbe(options: { hud: boolean }): FramePacingPro
   const idleFor = (key: string) => {
     let entry = idle.get(key);
     if (!entry) {
-      entry = { acc: new FrameAccumulator(), durationMs: 0 };
+      entry = { acc: new FrameAccumulator(), durationMs: 0, commits: new CommitAccumulator() };
       idle.set(key, entry);
     }
     return entry;
   };
+
+  // React commits (profiling build only): into the open window, else the
+  // route's idle bucket. The last one is the destination's first commit when
+  // a route change is observed right after it.
+  setRenderCommitSink((commit) => {
+    if (stopped) return;
+    reactProfiling = true;
+    lastCommit = commit;
+    if (current) current.commits.add(commit);
+    else idleFor(`idle:${route}`).commits.add(commit);
+  });
 
   const closeWindow = (now: number) => {
     if (!current) return;
@@ -257,6 +331,8 @@ export function startFramePacingProbe(options: { hud: boolean }): FramePacingPro
       longtask: null,
       loaf: null,
       interactionMax: new Map(),
+      commits: new CommitAccumulator(),
+      routeEnter: null,
     };
     windows.push(current);
   };
@@ -294,9 +370,11 @@ export function startFramePacingProbe(options: { hud: boolean }): FramePacingPro
           pointerUpAt !== null && now - pointerUpAt >= settleMs && sinceScroll >= SCROLL_QUIET_MS;
         const routeSettled = routeChangedAt !== null && now - routeChangedAt >= ROUTE_SETTLE_MS;
         const programmatic = current.kind === "scroll:programmatic" && sinceScroll >= SCROLL_QUIET_MS;
+        const typingDone = current.kind === "type" && now - lastInputAt >= TYPE_QUIET_MS;
         if (
           (settled && (routeChangedAt === null || routeSettled)) ||
           programmatic ||
+          typingDone ||
           now - current.startPerf >= WINDOW_CAP_MS
         ) {
           closeWindow(now);
@@ -324,6 +402,10 @@ export function startFramePacingProbe(options: { hud: boolean }): FramePacingPro
     lastScrollAt = performance.now();
     if (!current) openWindow("scroll:programmatic", lastScrollAt);
   };
+  const onInput = () => {
+    lastInputAt = performance.now();
+    if (!current) openWindow("type", lastInputAt);
+  };
 
   const supportsPointer = typeof window.PointerEvent === "function";
   const downEvent = supportsPointer ? "pointerdown" : "touchstart";
@@ -333,6 +415,8 @@ export function startFramePacingProbe(options: { hud: boolean }): FramePacingPro
     document.addEventListener(name, onPointerUp, { capture: true, passive: true });
   }
   document.addEventListener("scroll", onScroll, { capture: true, passive: true });
+  document.addEventListener("input", onInput, { capture: true, passive: true });
+  document.addEventListener("keydown", onInput, { capture: true, passive: true });
 
   // Observers where the engine has them. Safari: none of these before 26.2.
   const supported = (typeof PerformanceObserver !== "undefined" && PerformanceObserver.supportedEntryTypes) || [];
@@ -411,12 +495,15 @@ export function startFramePacingProbe(options: { hud: boolean }): FramePacingPro
         event_timing: w.events,
         longtask: w.longtask,
         loaf: w.loaf,
+        commits: w.commits.summary(),
+        route_enter: w.routeEnter,
       };
     });
     const idleReports = Array.from(idle.entries()).map(([key, entry]) => ({
       route: key,
       duration_ms: round(entry.durationMs),
       ...entry.acc.summary(entry.durationMs),
+      commits: entry.commits.summary(),
     }));
     const topScripts = Array.from(loafScripts.entries())
       .sort((a, b) => b[1] - a[1])
@@ -445,6 +532,7 @@ export function startFramePacingProbe(options: { hud: boolean }): FramePacingPro
       windows: reports,
       idle_by_route: idleReports,
       attribution: { loaf_top_scripts: topScripts },
+      react_profiling: reactProfiling,
     };
   };
 
@@ -521,19 +609,51 @@ export function startFramePacingProbe(options: { hud: boolean }): FramePacingPro
       if (nextRoute === route && nextVariant === routeVariant) return;
       route = nextRoute;
       routeVariant = nextVariant;
+      const enteredAt = performance.now();
+      if (typeof performance.mark === "function") performance.mark("hushh:route-enter");
       if (current && !current.kind.endsWith("→route") && current.kind !== "scroll:programmatic") {
         current.kind = `${current.kind as GestureKind}→route`;
-        routeChangedAt = performance.now();
+        routeChangedAt = enteredAt;
+        // The Profiler commit that rendered the destination has already been
+        // reported (commit phase precedes the pathname effect that calls us).
+        const window_ = current;
+        window_.routeEnter = {
+          route: nextRoute,
+          first_commit_ms: lastCommit ? round(lastCommit.actual_ms) : null,
+          first_frame_ms: null,
+        };
+        if (routeEnterFrame !== null) window.cancelAnimationFrame(routeEnterFrame);
+        // Two frames: the first rAF runs before the paint of the frame that
+        // follows the commit, the second after it has been shown.
+        routeEnterFrame = window.requestAnimationFrame(() => {
+          routeEnterFrame = window.requestAnimationFrame(() => {
+            routeEnterFrame = null;
+            const firstFrameMs = round(performance.now() - enteredAt);
+            window_.routeEnter = { ...(window_.routeEnter as RouteEnterReport), first_frame_ms: firstFrameMs };
+            if (typeof performance.mark === "function") {
+              performance.mark("hushh:route-first-frame");
+              try {
+                performance.measure("hushh:route-enter→first-frame", "hushh:route-enter", "hushh:route-first-frame");
+              } catch {
+                // A mark cleared by someone else; the JSON carries the number anyway.
+              }
+            }
+          });
+        });
       }
     },
     scenario: (name) => window.__hushhPerf?.scenario(name),
     export: () => snapshot(),
     stop: () => {
       stopped = true;
+      setRenderCommitSink(null);
+      if (routeEnterFrame !== null) window.cancelAnimationFrame(routeEnterFrame);
       window.cancelAnimationFrame(rafHandle);
       document.removeEventListener(downEvent, onPointerDown, { capture: true });
       for (const name of upEvents) document.removeEventListener(name, onPointerUp, { capture: true });
       document.removeEventListener("scroll", onScroll, { capture: true });
+      document.removeEventListener("input", onInput, { capture: true });
+      document.removeEventListener("keydown", onInput, { capture: true });
       document.removeEventListener("visibilitychange", onVisibility);
       for (const observer of observers) observer.disconnect();
       if (exportTimer !== null) window.clearInterval(exportTimer);
