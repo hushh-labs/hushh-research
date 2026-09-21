@@ -586,7 +586,7 @@ export default function GmailReceiptsPage({
       pendingSyncFeedbackRef.current = false;
       const feedback = resolveGmailSyncFeedback(status);
       if (feedback.kind === "success") {
-        trackEvent("gmail_sync_requested", { action: "queue", result: "success" });
+        trackEvent("gmail_sync_requested", { action: "manual", result: "success" });
         trackEvent("one_gmail_receipt_synced", { result: "success" });
         toast.success("Receipts updated");
       } else if (feedback.kind === "error") {
@@ -966,7 +966,7 @@ export default function GmailReceiptsPage({
             (provider) => provider.providerId === "google.com",
           ) ?? false;
 
-        trackEvent("gmail_connect_started", { action: "read" });
+        trackEvent("gmail_connect_started", { action: "incremental" });
         trackEvent("one_gmail_connected", { result: "success" });
         const payload = await GmailReceiptsService.startConnect({
           idToken,
@@ -1254,12 +1254,12 @@ export default function GmailReceiptsPage({
     : null;
   const statusToneClassName =
     statusSummary.tone === "success"
-      ? "border-emerald-500/18 bg-emerald-500/[0.05]"
+      ? "border-emerald-500/20 bg-gradient-to-br from-emerald-500/[0.07] via-emerald-500/[0.03] to-transparent shadow-[inset_0_1px_0_rgba(255,255,255,0.25)] dark:shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]"
       : statusSummary.tone === "error"
-        ? "border-rose-500/22 bg-rose-500/[0.06]"
+        ? "border-rose-500/22 bg-gradient-to-br from-rose-500/[0.07] via-rose-500/[0.03] to-transparent shadow-[inset_0_1px_0_rgba(255,255,255,0.25)]"
         : statusSummary.tone === "loading"
-          ? "border-accent-border bg-accent-surface"
-          : "border-border/60 bg-background/68";
+          ? "border-accent-border bg-gradient-to-br from-accent-surface via-accent-surface/60 to-transparent"
+          : "border-border/60 bg-gradient-to-br from-background/80 to-background/50";
   const receiptsVoiceSurfaceMetadata = useMemo(() => {
     const receiptsWorkspaceForVoice =
       journeyVariant === "onboarding" ||
@@ -1880,31 +1880,31 @@ export default function GmailReceiptsPage({
                   </div>
                 </div>
               ) : (
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1 space-y-1.5">
+                <div className="space-y-1.5">
+                  <div className="flex items-baseline justify-between gap-3">
                     <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
                       Status
                     </p>
-                    <h2 className="text-lg font-semibold tracking-tight text-foreground">
-                      {statusSummary.title}
-                    </h2>
-                    {statusSummary.detail &&
-                    (!isConnected ||
-                      !statusSummary.detail.startsWith("Connected to")) ? (
-                      <p className="break-words text-sm text-muted-foreground">
-                        {statusSummary.detail}
-                      </p>
-                    ) : null}
-                    {statusSummary.helper ? (
-                      <p className="break-words text-xs text-muted-foreground">
-                        {statusSummary.helper}
-                      </p>
+                    {shouldShowReceiptCount ? (
+                      <Badge variant="secondary" className="shrink-0 text-xs font-semibold px-2.5 py-0.5 rounded-full">
+                        {total} receipt{total === 1 ? "" : "s"}
+                      </Badge>
                     ) : null}
                   </div>
-                  {shouldShowReceiptCount ? (
-                    <Badge variant="secondary" className="shrink-0">
-                      {total} receipt{total === 1 ? "" : "s"}
-                    </Badge>
+                  <h2 className="text-lg font-semibold tracking-tight text-foreground pt-0.5">
+                    {statusSummary.title}
+                  </h2>
+                  {statusSummary.detail &&
+                  (!isConnected ||
+                    !statusSummary.detail.startsWith("Connected to")) ? (
+                    <p className="break-words text-sm text-muted-foreground">
+                      {statusSummary.detail}
+                    </p>
+                  ) : null}
+                  {statusSummary.helper ? (
+                    <p className="break-words text-xs text-muted-foreground">
+                      {statusSummary.helper}
+                    </p>
                   ) : null}
                 </div>
               )}
@@ -1978,7 +1978,7 @@ export default function GmailReceiptsPage({
                       effect="fade"
                       onClick={() => setShowDisconnectConfirm(true)}
                       disabled={gmailActionBusy !== null}
-                      className="h-12 w-full px-8 text-base sm:w-auto"
+                      className="h-12 w-full px-4 text-xs font-normal text-muted-foreground hover:bg-transparent hover:text-destructive hover:underline sm:w-auto"
                       data-voice-control-id="disconnect_gmail"
                       data-voice-label="Disconnect Gmail"
                       data-voice-purpose="disconnects Gmail sync while keeping stored receipts available."
@@ -1998,7 +1998,7 @@ export default function GmailReceiptsPage({
               journeyVariant === "workspace" &&
               workspace === "overview" &&
               !loadingStatus ? (
-                <div className="flex flex-col gap-2 pt-2 sm:flex-row">
+                <div className="flex flex-col items-center gap-2 pt-2 sm:flex-row">
                   <Button
                     type="button"
                     variant="muted"
@@ -2011,14 +2011,14 @@ export default function GmailReceiptsPage({
                   </Button>
                   <Button
                     type="button"
-                    variant="destructive"
+                    variant="none"
                     effect="fade"
                     onClick={() => setShowDisconnectConfirm(true)}
                     disabled={gmailActionBusy !== null}
-                    className="w-full sm:w-auto"
+                    className="w-full text-xs font-normal text-muted-foreground hover:bg-transparent hover:text-destructive hover:underline sm:w-auto"
                   >
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    Disconnect Gmail
+                    <Trash2 className="mr-2 h-3.5 w-3.5" />
+                    Disconnect Mail
                   </Button>
                 </div>
               ) : null}
@@ -2051,13 +2051,13 @@ export default function GmailReceiptsPage({
           ) : null}
 
           {isConnected && workspace === "overview" ? (
-            <SurfaceInset className="space-y-3 px-4 py-4 text-sm sm:px-5 sm:py-5">
+            <SurfaceInset className="space-y-3.5 px-4 py-4 text-sm sm:px-5 sm:py-5">
               <div className="flex items-start gap-3">
-                <div className="rounded-xl bg-primary/10 p-2 text-primary">
+                <div className="rounded-xl bg-indigo-500/10 p-2.5 text-indigo-600 dark:bg-indigo-400/15 dark:text-indigo-400 shrink-0">
                   <PenLine className="h-5 w-5" />
                 </div>
-                <div className="space-y-1">
-                  <p className="font-medium text-foreground">Draft with One</p>
+                <div className="space-y-1.5">
+                  <p className="font-medium text-foreground pb-0.5">Draft with One</p>
                   <p className="text-sm leading-6 text-muted-foreground">
                     Ask One to write, reply to or follow up on an email. Every
                     draft stays editable and needs your Send email click.
@@ -2071,13 +2071,13 @@ export default function GmailReceiptsPage({
           ) : null}
 
           {isConnected && workspace === "overview" ? (
-            <SurfaceInset className="space-y-3 px-4 py-4 text-sm sm:px-5 sm:py-5">
+            <SurfaceInset className="space-y-3.5 px-4 py-4 text-sm sm:px-5 sm:py-5">
               <div className="flex items-start gap-3">
-                <div className="rounded-xl bg-primary/10 p-2 text-primary">
+                <div className="rounded-xl bg-emerald-500/10 p-2.5 text-emerald-600 dark:bg-emerald-400/15 dark:text-emerald-400 shrink-0">
                   <ShieldCheck className="h-5 w-5" />
                 </div>
-                <div className="space-y-1">
-                  <p className="font-medium text-foreground">KYC requests</p>
+                <div className="space-y-1.5">
+                  <p className="font-medium text-foreground pb-0.5">KYC requests</p>
                   <p className="text-sm leading-6 text-muted-foreground">
                     Import private KYC details, find new unread requests, and
                     approve every reply.
@@ -2096,13 +2096,13 @@ export default function GmailReceiptsPage({
           ) : null}
 
           {isConnected && workspace === "overview" ? (
-            <SurfaceInset className="space-y-3 px-4 py-4 text-sm sm:px-5 sm:py-5">
+            <SurfaceInset className="space-y-3.5 px-4 py-4 text-sm sm:px-5 sm:py-5">
               <div className="flex items-start gap-3">
-                <div className="rounded-xl bg-primary/10 p-2 text-primary">
+                <div className="rounded-xl bg-amber-500/10 p-2.5 text-amber-600 dark:bg-amber-400/15 dark:text-amber-400 shrink-0">
                   <ShoppingBag className="h-5 w-5" />
                 </div>
-                <div className="space-y-1">
-                  <p className="font-medium text-foreground">Receipts</p>
+                <div className="space-y-1.5">
+                  <p className="font-medium text-foreground pb-0.5">Receipts</p>
                   <p className="text-sm leading-6 text-muted-foreground">
                     Sync purchase emails and keep shopping insights private.
                   </p>
