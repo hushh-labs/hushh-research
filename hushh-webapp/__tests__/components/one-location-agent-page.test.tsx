@@ -2270,7 +2270,7 @@ describe("OneLocationAgentPage", () => {
       "[&_[data-slot=page-header-row]]:!items-center",
     );
     expect(heading).toHaveClass("ui-text-agent-title");
-    expect(screen.getByTestId("one-location-header-icon")).toBeTruthy();
+    expect(screen.queryByTestId("one-location-header-icon")).toBeNull();
     expect(
       headerRow?.contains(
         screen.getByRole("switch", { name: "Turn location on" }),

@@ -15,6 +15,7 @@ import {
   CIRCLE_DETAIL_HEADER_COPY_CLASSNAME,
   CIRCLE_MEMBERS_CARD_SCROLL_CLASSNAME,
   CIRCLE_MEMBERS_CARD_SHELL_CLASSNAME,
+  CIRCLE_LEAVE_ACTION_CLASSNAME,
   CIRCLE_PROCEED_TO_SMS_CLASSNAME,
   CIRCLE_MEMBER_ACTION_CLASSNAME,
   CIRCLE_MEMBER_ACTION_COPY_CLASSNAME,
@@ -31,6 +32,7 @@ import {
   CIRCLE_MEMBER_SECONDARY_CLASSNAME,
   CIRCLE_MEMBER_TRAILING_CLASSNAME,
 } from "../components/one-location/redesign/circles/circle-member-row-layout";
+import { CARD_SURFACE } from "../lib/morphy-ux/tokens/surfaces";
 import { buttonVariants } from "../lib/ui/button-variants";
 import { cn } from "../lib/utils";
 
@@ -341,7 +343,9 @@ const CANDIDATES = [
   ...CIRCLE_DETAIL_HEADER_COPY_CLASSNAME.split(/\s+/),
   ...CIRCLE_MEMBERS_CARD_SHELL_CLASSNAME.split(/\s+/),
   ...CIRCLE_MEMBERS_CARD_SCROLL_CLASSNAME.split(/\s+/),
+  ...CIRCLE_LEAVE_ACTION_CLASSNAME.split(/\s+/),
   ...CIRCLE_PROCEED_TO_SMS_CLASSNAME.split(/\s+/),
+  ...CARD_SURFACE.split(/\s+/),
   "flex",
   "items-start",
   "items-center",
@@ -645,6 +649,61 @@ test.describe("Circle roster row", () => {
 });
 
 test.describe("Circle detail responsive layout", () => {
+  for (const width of WIDTHS) {
+    test(`keeps Leave circle responsive and trailing-aligned at ${width}px`, async ({
+      page,
+    }, testInfo) => {
+      const leaveClass = cn(
+        buttonVariants({ variant: "ghost", size: "default" }),
+        CARD_SURFACE,
+        CIRCLE_LEAVE_ACTION_CLASSNAME,
+      );
+      const body = `<main data-flow style="max-width:700px;margin:32px auto">
+  <header style="margin-bottom:20px"><h1 class="ui-text-page-title">Business</h1><p style="color:var(--app-secondary-label)">5 people</p></header>
+  <section data-members style="border-radius:24px;background:var(--app-card-surface-default-solid);overflow:hidden">
+    <div style="min-height:72px;padding:16px;color:var(--app-primary-label)">Manish Sainani · Owner</div>
+    <div style="min-height:72px;padding:16px;border-top:1px solid var(--app-separator);color:var(--app-primary-label)">Jhumma Kumari · Connected</div>
+    <div style="min-height:72px;padding:16px;border-top:1px solid var(--app-separator);color:var(--app-primary-label)">Neelesh Meena · You</div>
+  </section>
+  <div data-leave-row style="display:flex;justify-content:flex-end;margin-top:20px">
+    <button data-leave class="${leaveClass}">
+      <svg data-leave-icon aria-hidden="true" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 5H5v14h4M14 8l4 4-4 4M8 12h10"/></svg>
+      <span>Leave circle</span>
+    </button>
+  </div>
+</main>`;
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto(await buildFixture("circle-leave-action", body, CANDIDATES));
+
+      const [flow, members, leave] = await Promise.all([
+        boxesOf(page, "[data-flow]"),
+        boxesOf(page, "[data-members]"),
+        boxesOf(page, "[data-leave]"),
+      ]);
+
+      expect(leave[0].top).toBeGreaterThanOrEqual(members[0].bottom);
+      expect(Math.abs(leave[0].right - flow[0].right)).toBeLessThanOrEqual(1);
+      expect(leave[0].width).toBeLessThanOrEqual(320);
+      expect(leave[0].height).toBe(44);
+      await expect(page.locator("[data-leave-icon]")).toHaveCSS(
+        "fill",
+        "none",
+      );
+
+      const evidenceDir = process.env.CIRCLE_LEAVE_EVIDENCE_DIR;
+      if (evidenceDir && (width === 393 || width === 1440)) {
+        fs.mkdirSync(evidenceDir, { recursive: true });
+        await page.screenshot({
+          path: path.join(
+            evidenceDir,
+            `circle-leave-${width}-${testInfo.project.name}.png`,
+          ),
+          fullPage: true,
+        });
+      }
+    });
+  }
+
   for (const width of WIDTHS) {
     test(`places Proceed to SMS after the roster and against its right edge at ${width}px`, async ({
       page,
