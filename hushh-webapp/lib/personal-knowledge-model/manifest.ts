@@ -103,6 +103,8 @@ export type DomainManifest = {
 const ENTITY_MAP_KEY = "entities";
 /** One representative subtree standing for every entry of an `entities` map. */
 const ENTITY_COLLECTION_SEGMENT = "_entities";
+/** The Financial contract stores one analysis-history array per ticker. */
+const ANALYSIS_HISTORY_MAP_KEY = "analysis_history";
 
 function normalizePathSegment(segment: string): string {
   const normalized = String(segment).trim().toLowerCase();
@@ -360,21 +362,34 @@ function walkValue(
 
   const record = value as Record<string, unknown>;
   // An `entities` map is a homogeneous collection keyed by entity id -- the
-  // same shape as an array, just keyed. Walking each key made the manifest grow
-  // with the DATA rather than the SHAPE: a portfolio of a hundred holdings
-  // emitted a hundred near-identical subtrees, pushed the path list past the
-  // server's 1000-path cap, and the save died with a 422 that got surfaced as
-  // "Backend returned failure on store". It also wrote every ticker the person
-  // owns into the manifest, which is holdings data sitting in a structure
-  // descriptor. Collapse to one representative subtree, exactly as arrays do.
-  if (path[path.length - 1] === ENTITY_MAP_KEY) {
-    for (const childValue of Object.values(record)) {
-      if (childValue !== undefined) {
-        walkValue(childValue, [...path, ENTITY_COLLECTION_SEGMENT], descriptors, [
-          ...displayPath,
-          ENTITY_COLLECTION_SEGMENT,
-        ]);
+  // same shape as an array, just keyed. Financial analysis history has the
+  // same shape one level earlier: its ticker keys each contain an array of
+  // history entries, alongside a domain_intent metadata object. Walking each
+  // key made the manifest grow with the DATA rather than the SHAPE: a real
+  // reviewer portfolio emitted 1,043 paths, pushed the request past the
+  // server's 1000-path cap, and the save died with a 422. Collapse only the
+  // collection entries and continue walking metadata siblings normally.
+  const mapKey = path[path.length - 1];
+  const isAnalysisHistoryMap =
+    mapKey === ANALYSIS_HISTORY_MAP_KEY &&
+    Object.values(record).some((childValue) => Array.isArray(childValue));
+  if (mapKey === ENTITY_MAP_KEY || isAnalysisHistoryMap) {
+    for (const [rawKey, childValue] of Object.entries(record)) {
+      if (childValue === undefined || rawKey.trim().startsWith("_")) continue;
+      // `domain_intent` is metadata on the analysis-history map, not an
+      // entity. Keep its authored path so it remains available to internal
+      // reconciliation while ticker entries share one safe descriptor tree.
+      if (isAnalysisHistoryMap && !Array.isArray(childValue)) {
+        const normalizedKey = normalizePathSegment(rawKey);
+        if (normalizedKey) {
+          walkValue(childValue, [...path, normalizedKey], descriptors, [...displayPath, rawKey]);
+        }
+        continue;
       }
+      walkValue(childValue, [...path, ENTITY_COLLECTION_SEGMENT], descriptors, [
+        ...displayPath,
+        ENTITY_COLLECTION_SEGMENT,
+      ]);
     }
     return;
   }

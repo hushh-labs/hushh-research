@@ -206,7 +206,10 @@ async function boundedResponseError(response) {
 
 async function loadSampleBrokerage(page) {
   await navigateInApp(page, "/one/kai/import");
-  const loadButton = page.getByRole("button", { name: /^Load Sample Brokerage$/i });
+  // SettingsRow exposes the title and supporting description as one accessible
+  // name. Use the route's stable test contract instead of an exact role-name
+  // match so the rehearsal follows the current shared settings-row primitive.
+  const loadButton = page.getByTestId("portfolio-import-load-sample");
   await loadButton.waitFor({ state: "visible", timeout: timeoutMs });
   await loadButton.click();
   await page.getByRole("heading", { name: /review portfolio/i }).waitFor({
