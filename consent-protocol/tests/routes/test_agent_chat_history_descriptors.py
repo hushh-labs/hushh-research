@@ -232,13 +232,42 @@ def test_history_preserves_distinct_cards_and_deduplicates_same_invocation():
     second = _event({**result, "domainFilter": "professional"})
     first.content.parts[0].function_response.id = "invocation-a"
     second.content.parts[0].function_response.id = "invocation-b"
+    second.id = "event-discovery-2"
     first.content.parts += second.content.parts * 2
     metadata = _safe_agent_history_metadata(first)
     assert [card["id"] for card in metadata["structuredExperiences"]] == [
-        "invocation-a",
-        "invocation-b",
+        "event-discovery-1:invocation-a",
+        "event-discovery-1:invocation-b",
     ]
     assert metadata["structuredExperiences"][1]["content"]["domainFilter"] == "professional"
+
+
+def test_history_card_identity_is_scoped_to_its_turn():
+    first = _event(
+        {
+            "status": "ok",
+            "person": {"displayName": "Alex Morgan", "profilePath": "/people/1234567890abcdef"},
+            "requestableScopes": [],
+        }
+    )
+    second = _event(
+        {
+            "status": "ok",
+            "person": {"displayName": "Alex Morgan", "profilePath": "/people/1234567890abcdef"},
+            "requestableScopes": [],
+        }
+    )
+    first.content.parts[0].function_response.id = "reused-invocation"
+    second.content.parts[0].function_response.id = "reused-invocation"
+    second.id = "event-discovery-2"
+
+    first_metadata = _safe_agent_history_metadata(first)
+    second_metadata = _safe_agent_history_metadata(second)
+
+    assert first_metadata["structuredExperiences"][0]["id"] == "event-discovery-1:reused-invocation"
+    assert (
+        second_metadata["structuredExperiences"][0]["id"] == "event-discovery-2:reused-invocation"
+    )
 
 
 def test_history_answer_does_not_include_provider_thinking():

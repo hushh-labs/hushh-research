@@ -573,6 +573,11 @@ def _safe_submitted_information_request_descriptor(
 def _safe_agent_history_metadata(event: Any) -> dict[str, Any] | None:
     descriptors = []
     seen = set()
+    event_identity = (
+        _bounded_text(getattr(event, "id", None), 128)
+        or _bounded_text(getattr(event, "invocation_id", None), 128)
+        or "event"
+    )
     for index, part in enumerate(getattr(getattr(event, "content", None), "parts", None) or []):
         descriptor = _safe_discovery_descriptor(event, [part])
         if descriptor is None:
@@ -581,9 +586,10 @@ def _safe_agent_history_metadata(event: Any) -> dict[str, Any] | None:
             descriptor = _safe_information_request_descriptor(event, [part])
         if descriptor is None:
             continue
-        card_id = str(
-            getattr(getattr(part, "function_response", None), "id", "") or f"{event.id}:{index}"
+        invocation_identity = _bounded_text(
+            getattr(getattr(part, "function_response", None), "id", None), 128
         )
+        card_id = f"{event_identity}:{invocation_identity or index}"
         if card_id in seen:
             continue
         seen.add(card_id)
