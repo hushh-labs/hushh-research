@@ -751,6 +751,24 @@ class TestPropose:
                 )
         assert error.value.candidates_complete is False
 
+    def test_directory_fallback_preserves_all_normalized_name_tokens(self):
+        calls = []
+
+        class Directory:
+            def search_directory(self, user_id, *, query, page, limit):
+                calls.append((user_id, query, page, limit))
+                return {"items": [], "hasMore": False}
+
+        candidates, complete = action_tools._directory_candidates(
+            Directory(), "owner-a", "  Kushal-Trivedi  "
+        )
+
+        assert candidates == []
+        assert complete is True
+        assert calls == [
+            ("owner-a", "kushal trivedi", 1, action_tools._DIRECTORY_RESOLVE_PAGE_SIZE)
+        ]
+
     @pytest.mark.asyncio
     async def test_proposal_requires_narrowing_when_more_than_fifty_fields_match(self):
         context = _ctx(_state())

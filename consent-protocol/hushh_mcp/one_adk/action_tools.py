@@ -104,6 +104,7 @@ from hushh_mcp.services.one_location_nearby_presence_service import (
     NearbyPresenceError,
     OneLocationNearbyPresenceService,
 )
+from hushh_mcp.services.people_search_sql import normalize_directory_name
 from hushh_mcp.services.person_profile_service import (
     PersonProfileNotFoundError,
     PersonProfileService,
@@ -2147,7 +2148,12 @@ def _directory_candidates(
     connections_service: ConnectionsService, user_id: str, spoken_name: str
 ) -> tuple[list[dict[str, Any]], bool]:
     """Page the server-owned directory for one spoken name, exactly as connect.send_request does."""
-    search_term = max(spoken_name.split() or [spoken_name], key=len)
+    # Preserve every name token.  The directory service ranks and filters the
+    # complete query before pagination; reducing "Kushal Trivedi" to the
+    # longest token can pull in a different Kushal and make the fallback
+    # disagree with the connection resolver.  Fold the same supported
+    # separators as the canonical SQL/fallback directory implementation.
+    search_term = normalize_directory_name(spoken_name)
     candidates: list[dict[str, Any]] = []
     page = 1
     while page <= _DIRECTORY_RESOLVE_MAX_PAGES:

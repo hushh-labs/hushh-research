@@ -559,7 +559,11 @@ class ConnectionsService:
 
     # ---- Resolution ----
     def _resolve_query(self, owner_user_id: str, query: str) -> str:
-        needle = " ".join((query or "").strip().lower().split())
+        # The directory implementation and the in-memory fallback both fold
+        # supported name separators before matching. Keep the query identical
+        # when this service delegates to either path; otherwise punctuation or
+        # repeated whitespace changes which person is discoverable.
+        needle = normalize_directory_name(query or "")
         if not needle:
             raise ConnectionsError(
                 "CONNECTION_QUERY_EMPTY", "No name given to look up.", status_code=422
