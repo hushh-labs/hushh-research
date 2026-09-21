@@ -124,6 +124,71 @@ async def test_profile_catalog_pages_all_fields_and_resets_when_authority_change
 
 
 @pytest.mark.asyncio
+async def test_profile_compatibility_catalog_walks_beyond_five_hundred_entries(monkeypatch):
+    from hushh_mcp.services.person_profile_service import _scope_ref
+
+    person_ref = "11111111-1111-4111-8111-111111111111"
+    entries = [
+        {
+            "scope": f"attr.financial.fixture_{index:04d}",
+            "domain": "financial",
+            "label": f"Fixture {index}",
+        }
+        for index in range(600)
+    ] + [{"scope": "attr.professional.job", "domain": "professional", "label": "Test employer"}]
+
+    class _PagedConnections:
+        def get_information_scope_catalog(
+            self, _viewer, _subject, *, page=1, limit=100, catalog_revision=""
+        ):
+            revision = "stable-revision"
+            if catalog_revision and catalog_revision != revision:
+                page = 1
+            start = (page - 1) * limit
+            items = entries[start : start + limit]
+            has_more = start + len(items) < len(entries)
+            return {
+                "items": items,
+                "catalogRevision": revision,
+                "hasMore": has_more,
+                "nextPage": page + 1 if has_more else None,
+            }
+
+    service = PersonProfileService(connections=_PagedConnections(), consent_db=_Consent())
+    monkeypatch.setattr(
+        service,
+        "_profile_row",
+        lambda _ref: {
+            "user_id": "subject",
+            "public_person_ref": person_ref,
+            "display_name": "Fixture Person",
+        },
+    )
+    monkeypatch.setattr(service, "_execute_one", lambda *_args: {"public_person_ref": "viewer-ref"})
+
+    page = await service.get_viewer_profile(
+        viewer_user_id="viewer", public_person_ref=person_ref, catalog_page=1
+    )
+
+    assert page["scopeCatalog"]["totalCount"] == 601
+    professional = _scope_ref(person_ref, "attr.professional.job")
+    assert professional not in {item["scopeRef"] for item in page["requestableScopes"]}
+    tail_page = await service.get_viewer_profile(
+        viewer_user_id="viewer",
+        public_person_ref=person_ref,
+        catalog_page=7,
+        catalog_revision=page["scopeCatalog"]["catalogRevision"],
+    )
+    assert professional in {item["scopeRef"] for item in tail_page["requestableScopes"]}
+    assert (
+        service.resolve_scope_refs(
+            viewer_user_id="viewer", public_person_ref=person_ref, scope_refs=[professional]
+        )[1][0]["scopeRef"]
+        == professional
+    )
+
+
+@pytest.mark.asyncio
 async def test_viewer_profile_exposes_opaque_scope_metadata_without_raw_scope() -> None:
     rows = iter(
         [

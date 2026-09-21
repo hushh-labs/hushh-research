@@ -117,20 +117,7 @@ class PersonProfileService:
         if not subject_user_id or subject_user_id == viewer_user_id:
             raise PersonProfileNotFoundError("Person profile was not found.")
         requested = {str(value or "").strip() for value in scope_refs if str(value or "").strip()}
-        exact_catalog_loader = getattr(
-            self._connections, "get_exact_requestable_scope_entries", None
-        )
-        if exact_catalog_loader is not None:
-            catalog_items = exact_catalog_loader(viewer_user_id, subject_user_id)
-        else:
-            # Compatibility for narrow test doubles and older adapters. The
-            # production ConnectionsService owns the uncapped exact path.
-            catalog_items = (
-                self._connections.get_information_scope_catalog(
-                    viewer_user_id, subject_user_id, limit=500
-                ).get("items")
-                or []
-            )
+        catalog_items = self._requestable_scope_entries(viewer_user_id, subject_user_id)
         resolved: dict[str, dict[str, Any]] = {}
         for item in catalog_items:
             scope = str(item.get("scope") or "").strip()
@@ -190,6 +177,66 @@ class PersonProfileService:
         """Return the viewer-relative relationship without exposing internal IDs to clients."""
         return self._relationship(viewer_user_id, subject_user_id)
 
+    def _requestable_scope_entries(
+        self, viewer_user_id: str, subject_user_id: str
+    ) -> list[dict[str, Any]]:
+        """Load the complete current requestable catalog for one subject.
+
+        The production adapter exposes an uncapped exact loader. Older adapters
+        and narrow test doubles expose only the paged catalog endpoint, so walk
+        that endpoint instead of silently stopping at its historical 500-item
+        compatibility limit. A revision change restarts once; a second change
+        fails closed rather than returning a mixed catalog.
+        """
+        exact_catalog_loader = getattr(
+            self._connections, "get_exact_requestable_scope_entries", None
+        )
+        if exact_catalog_loader is not None:
+            return list(exact_catalog_loader(viewer_user_id, subject_user_id) or [])
+
+        page = 1
+        catalog_revision = ""
+        restarted = False
+        entries: list[dict[str, Any]] = []
+        seen_scopes: set[str] = set()
+        for _ in range(1000):
+            catalog = self._connections.get_information_scope_catalog(
+                viewer_user_id,
+                subject_user_id,
+                page=page,
+                limit=100,
+                catalog_revision=catalog_revision,
+            )
+            next_revision = str(catalog.get("catalogRevision") or "")
+            if catalog_revision and next_revision and next_revision != catalog_revision:
+                if restarted:
+                    raise ValueError("The information catalog changed while it was loading.")
+                restarted = True
+                page = 1
+                catalog_revision = ""
+                entries = []
+                seen_scopes.clear()
+                continue
+            catalog_revision = next_revision or catalog_revision
+            for item in catalog.get("items") or []:
+                if not isinstance(item, dict):
+                    continue
+                scope = str(item.get("scope") or "").strip()
+                if scope and scope not in seen_scopes:
+                    seen_scopes.add(scope)
+                    entries.append(item)
+            if not catalog.get("hasMore"):
+                return entries
+            try:
+                next_page = int(catalog.get("nextPage") or 0)
+            except (TypeError, ValueError):
+                next_page = 0
+            if next_page <= page:
+                raise ValueError("The information catalog returned invalid pagination.")
+            page = next_page
+
+        raise ValueError("The information catalog is too large to load safely.")
+
     async def get_viewer_profile(
         self,
         *,
@@ -205,21 +252,9 @@ class PersonProfileService:
         if not subject_user_id or subject_user_id == viewer_user_id:
             raise PersonProfileNotFoundError("Person profile was not found.")
 
-        exact_catalog_loader = getattr(
-            self._connections, "get_exact_requestable_scope_entries", None
+        scope_items = await asyncio.to_thread(
+            self._requestable_scope_entries, viewer_user_id, subject_user_id
         )
-        if exact_catalog_loader is not None:
-            scope_items = await asyncio.to_thread(
-                exact_catalog_loader, viewer_user_id, subject_user_id
-            )
-        else:
-            scope_catalog = await asyncio.to_thread(
-                self._connections.get_information_scope_catalog,
-                viewer_user_id,
-                subject_user_id,
-                limit=500,
-            )
-            scope_items = scope_catalog.get("items") or []
         scopes = []
         scope_by_name: dict[str, dict[str, Any]] = {}
         for item in scope_items:
