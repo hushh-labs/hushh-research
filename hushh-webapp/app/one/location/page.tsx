@@ -16108,7 +16108,7 @@ export function OneLocationAgentPageContent({
   );
 }
 
-/** Legacy Location hub (bounded command runtime). Retired once Live is on everywhere. */
+/** Canonical Location hub and root-setup onboarding surface. */
 export function OneLocationAgentPage({
   mode = "workspace",
   surface = "hub",
