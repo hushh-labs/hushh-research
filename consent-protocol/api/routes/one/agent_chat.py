@@ -100,7 +100,17 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         STATE_TIMEZONE: str(forwarded.get("timezone") or "")[:64],
         # This is only an untrusted selection request. The resolver validates
         # it against owner/thread-bound server-issued choices before any read.
-        "hussh:requested_person_selection": str(forwarded.get("personSelectionHandle") or "")[:64],
+        # A picker handle is an untrusted, current-turn admission request. The
+        # ADK temp prefix keeps it out of persisted conversation state so an
+        # expired selection cannot block or redirect a later typed prompt.
+        "temp:hussh:requested_person_selection": str(
+            forwarded.get("personSelectionHandle") or ""
+        )[:64],
+        # Typed chat carries the current screen snapshot in this request. It
+        # must not inherit a stale live-voice publication that is still marked
+        # as settling; that would suppress the consent confirmation card even
+        # while the current browser frame is idle.
+        "hussh:typed_chat_context": True,
         STATE_SCREEN: str(screen_context.get("screen") or "")[:64],
         STATE_VOICE_CONTEXT: screen_context,
         STATE_PKM_CONTEXT: store_request_secret(str(forwarded.get("pkmContext") or "")[:20000]),

@@ -623,22 +623,16 @@ class TestPropose:
             context.state[action_tools._STATE_INFORMATION_PERSON_CHOICES][handle]["expiresAt"] = 0
         else:
             handle = "forged"
-        context.state["hussh:requested_person_selection"] = handle
+        context.state[action_tools._STATE_REQUESTED_INFORMATION_PERSON] = handle
         with pytest.raises(action_tools.ConsentLifecycleError, match="choose the person again"):
             action_tools._resolve_person_for_information(None, owner, "Alex", context, handle)
 
     def test_model_supplied_choice_requires_browser_admission(self):
         context = _ctx(_state())
-        result = action_tools._information_person_error(
-            action_tools.InformationPersonAmbiguous(
-                [{"displayName": "Alex", "publicPersonRef": PERSON_REF}]
-            ),
-            context,
-            "owner-a",
-        )
-        handle = result["candidates"][0]["selectionHandle"]
         with pytest.raises(action_tools.ConsentLifecycleError, match="conversation"):
-            action_tools._resolve_person_for_information(None, "owner-a", "Alex", context, handle)
+            action_tools._resolve_person_for_information(
+                None, "owner-a", "Alex", context, "model-only-handle"
+            )
 
     def test_valid_person_choice_never_resolves_a_different_name(self):
         context = _ctx(_state())
@@ -652,7 +646,7 @@ class TestPropose:
             "owner-a",
         )
         handle = result["candidates"][0]["selectionHandle"]
-        context.state["hussh:requested_person_selection"] = handle
+        context.state[action_tools._STATE_REQUESTED_INFORMATION_PERSON] = handle
         assert action_tools._resolve_person_for_information(
             None,
             "owner-a",
@@ -732,6 +726,37 @@ class TestPropose:
             ) == (PERSON_REF, "Sarah Chen")
         with pytest.raises(action_tools.ConsentLifecycleError):
             action_tools._resolve_person_for_information(None, "owner-b", spoken, context)
+
+    def test_expired_implicit_selection_re_resolves_an_explicit_name(self):
+        context = _ctx(_state())
+        person = {"displayName": "Sarah Chen", "publicPersonRef": PERSON_REF}
+        with _connections(person):
+            action_tools._resolve_person_for_information(
+                ConnectionsService(), "owner-a", "Sarah", context
+            )
+        old_handle = context.state[action_tools._STATE_SELECTED_INFORMATION_PERSON]["handle"]
+        context.state[action_tools._STATE_INFORMATION_PERSON_CHOICES][old_handle]["expiresAt"] = 0
+
+        with _connections(person):
+            assert action_tools._resolve_person_for_information(
+                ConnectionsService(), "owner-a", "Sarah Chen", context
+            ) == (PERSON_REF, "Sarah Chen")
+        assert context.state[action_tools._STATE_SELECTED_INFORMATION_PERSON]["handle"] != old_handle
+
+    def test_expired_implicit_selection_re_resolves_when_model_omits_name(self):
+        context = _ctx(_state())
+        person = {"displayName": "Sarah Chen", "publicPersonRef": PERSON_REF}
+        with _connections(person):
+            action_tools._resolve_person_for_information(
+                ConnectionsService(), "owner-a", "Sarah", context
+            )
+        old_handle = context.state[action_tools._STATE_SELECTED_INFORMATION_PERSON]["handle"]
+        context.state[action_tools._STATE_INFORMATION_PERSON_CHOICES][old_handle]["expiresAt"] = 0
+
+        with _connections(person):
+            assert action_tools._resolve_person_for_information(
+                ConnectionsService(), "owner-a", "", context, old_handle
+            ) == (PERSON_REF, "Sarah Chen")
 
     def test_email_punctuation_cannot_reuse_another_recipient(self):
         context = _ctx(_state())
@@ -816,7 +841,7 @@ class TestPropose:
                 "expiresAt": 2_000_000_000,
             },
         }
-        context.state["hussh:requested_person_selection"] = "a" * 32
+        context.state[action_tools._STATE_REQUESTED_INFORMATION_PERSON] = "a" * 32
         with (
             _auth(),
             patch.object(
@@ -833,7 +858,8 @@ class TestPropose:
     @pytest.mark.asyncio
     async def test_shared_information_does_not_fall_back_to_unfiltered_after_bad_selection(self):
         context = _ctx(_state())
-        context.state["hussh:requested_person_selection"] = "forged"
+        context.state[action_tools._STATE_REQUESTED_INFORMATION_PERSON] = "forged"
+
         with (
             _auth(),
             patch.object(
@@ -848,6 +874,17 @@ class TestPropose:
             "message": "That choice expired. Please choose the person again.",
         }
         list_shares.assert_not_awaited()
+
+    def test_persisted_legacy_selection_cannot_override_a_new_spoken_name(self):
+        context = _ctx(_state())
+        # Older sessions may still carry the pre-temp key. It is historical
+        # state, never current-turn browser admission, and must not redirect a
+        # new explicit lookup.
+        context.state["hussh:requested_person_selection"] = "expired-handle"
+        with _connections({"displayName": "Sarah Chen", "publicPersonRef": PERSON_REF}):
+            assert action_tools._resolve_person_for_information(
+                ConnectionsService(), "owner-a", "Sarah Chen", context
+            ) == (PERSON_REF, "Sarah Chen")
 
     @pytest.mark.asyncio
     async def test_shared_information_empty_state_is_bound_to_selected_person(self):

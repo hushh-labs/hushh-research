@@ -129,6 +129,11 @@ _STATE_PENDING_DIRECTIVE = "hussh:pending_directive"
 _STATE_PENDING_TOOL_TRACE = "hussh:tool_trace"
 _STATE_SCREEN = "hussh:screen"
 _STATE_VOICE_CONTEXT = "hussh:voice_context"
+# Typed chat carries a complete, request-authenticated screen snapshot on
+# every turn. Keep it authoritative for that chat session so an older live
+# socket publication cannot make a consent card wait forever. This is a
+# non-sensitive transport marker, not a credential or user data.
+_STATE_TYPED_CHAT_CONTEXT = "hussh:typed_chat_context"
 _STATE_GOAL_RUN = "hussh:goal_run"
 _STATE_USER_ID = "hussh:user_id"
 _STATE_CONSENT_TOKEN = "hussh:consent_token"  # noqa: S105
@@ -220,11 +225,17 @@ def _agent_context(tool_context: ToolContext) -> Any:
     latest browser publication keyed by this task, then fall back to session
     state when no newer context is available.
     """
+    state = getattr(tool_context, "state", None)
+    state_getter = getattr(state, "get", None)
+    current = state_getter(_STATE_VOICE_CONTEXT) if callable(state_getter) else None
+    if callable(state_getter) and state_getter(_STATE_TYPED_CHAT_CONTEXT) is True:
+        return current
+
     session_id = getattr(getattr(tool_context, "session", None), "id", None)
     published = read_agent_task_context(session_id) if session_id else None
     if isinstance(published, dict):
         return published
-    return tool_context.state.get(_STATE_VOICE_CONTEXT)
+    return current
 
 
 def _available_action_ids(tool_context: ToolContext) -> set[str] | None:
@@ -391,6 +402,11 @@ BACKEND_DIRECT_VERBAL_CONFIRMATION_IDS: frozenset[str] = frozenset(
 _STATE_INFORMATION_REQUEST_PROPOSALS = "hussh:information_request_proposals"
 _STATE_INFORMATION_PERSON_CHOICES = "hussh:information_person_choices"
 _STATE_SELECTED_INFORMATION_PERSON = "hussh:selected_information_person"
+# A picker handle belongs to one incoming turn.  Keeping it under ADK's
+# temporary-state prefix prevents an old browser selection from surviving into
+# a later typed prompt while still making it available to every tool in the
+# current invocation.
+_STATE_REQUESTED_INFORMATION_PERSON = "temp:hussh:requested_person_selection"
 
 
 class InformationPersonAmbiguous(ConsentLifecycleError):
@@ -2059,7 +2075,7 @@ async def list_information_shared_with_me(
         if (
             str(person or "").strip()
             or tool_context.state.get(_STATE_SELECTED_INFORMATION_PERSON)
-            or tool_context.state.get("hussh:requested_person_selection")
+            or tool_context.state.get(_STATE_REQUESTED_INFORMATION_PERSON)
         ):
             selected_person_ref, selected_person_name = await asyncio.to_thread(
                 _resolve_person_for_information,
@@ -2179,12 +2195,23 @@ def _resolve_person_for_information(
     """
     spoken = str(spoken or "").strip()
     confirm_changed_person = False
+    retained_selection = False
     if tool_context:
-        requested = str(tool_context.state.get("hussh:requested_person_selection") or "")
-        # An explicit browser selection outranks any model-generated argument.
-        selection_handle = requested or selection_handle
+        requested = str(
+            tool_context.state.get(_STATE_REQUESTED_INFORMATION_PERSON) or ""
+        )
+        # Only the temp-prefixed value was admitted by the browser for this
+        # turn.  ``selection_handle`` is model-visible tool input and must
+        # never become identity authority; an echoed old handle otherwise
+        # revives the stale-selection failure on an otherwise valid name.
+        model_selection_handle = str(selection_handle or "")
+        selection_handle = requested
+        selected = tool_context.state.get(_STATE_SELECTED_INFORMATION_PERSON)
+        if model_selection_handle and not requested and not isinstance(selected, dict):
+            raise ConsentLifecycleError(
+                "PERSON_REQUIRED", "Choose a person in the conversation before we continue."
+            )
         if not selection_handle:
-            selected = tool_context.state.get(_STATE_SELECTED_INFORMATION_PERSON)
             if isinstance(selected, dict):
                 # Email punctuation is identity-bearing, not a name separator.
                 # Distinct addresses must take the authorized exact-lookup path.
@@ -2206,9 +2233,10 @@ def _resolve_person_for_information(
                     confirm_changed_person = True
                 else:
                     selection_handle = str(selected.get("handle") or "")
+                    retained_selection = bool(selection_handle)
     if selection_handle:
         requested_handle = (
-            str(tool_context.state.get("hussh:requested_person_selection") or "")
+            str(tool_context.state.get(_STATE_REQUESTED_INFORMATION_PERSON) or "")
             if tool_context
             else ""
         )
@@ -2231,23 +2259,42 @@ def _resolve_person_for_information(
             or choice.get("owner") != user_id
             or not session_id
             or choice.get("session") != session_id
-            or float(choice.get("expiresAt") or 0) <= time.time()
         ):
             raise ConsentLifecycleError(
                 "PERSON_REQUIRED", "That choice expired. Please choose the person again."
             )
-        # The handle fixes identity; the profile service rechecks current authority.
-        previous = tool_context.state.get(_STATE_SELECTED_INFORMATION_PERSON)
-        tool_context.state[_STATE_SELECTED_INFORMATION_PERSON] = {
-            "handle": selection_handle,
-            "displayName": choice["displayName"],
-            "spoken": (
-                previous.get("spoken", "")
-                if isinstance(previous, dict) and previous.get("handle") == selection_handle
-                else ""
-            ),
-        }
-        return str(choice["personRef"]), str(choice["displayName"])
+        if float(choice.get("expiresAt") or 0) <= time.time():
+            if retained_selection:
+                # A persisted conversational selection is a convenience, not
+                # identity authority. Discard only the stale retention and
+                # resolve the explicit utterance (or its retained display
+                # name when the model omitted the redundant person argument)
+                # through the current owner-scoped connection/directory
+                # contract.
+                retained_person = selected if isinstance(selected, dict) else {}
+                spoken = spoken or str(retained_person.get("displayName") or "").strip()
+                # ADK's State intentionally exposes assignment rather than
+                # dict deletion so this delta is persisted safely by the
+                # session service.
+                tool_context.state[_STATE_SELECTED_INFORMATION_PERSON] = None
+                selection_handle = ""
+            else:
+                raise ConsentLifecycleError(
+                    "PERSON_REQUIRED", "That choice expired. Please choose the person again."
+                )
+        if selection_handle:
+            # The handle fixes identity; the profile service rechecks current authority.
+            previous = tool_context.state.get(_STATE_SELECTED_INFORMATION_PERSON)
+            tool_context.state[_STATE_SELECTED_INFORMATION_PERSON] = {
+                "handle": selection_handle,
+                "displayName": choice["displayName"],
+                "spoken": (
+                    previous.get("spoken", "")
+                    if isinstance(previous, dict) and previous.get("handle") == selection_handle
+                    else ""
+                ),
+            }
+            return str(choice["personRef"]), str(choice["displayName"])
     if not spoken:
         raise ConsentLifecycleError("PERSON_REQUIRED", "Say whose information you mean.")
     connections = connections_service.list_connections(user_id=user_id)

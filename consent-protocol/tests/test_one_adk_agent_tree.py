@@ -30,6 +30,7 @@ from hushh_mcp.one_adk.action_tools import (
     _STATE_PENDING_TOOL_TRACE,
     _STATE_SCREEN,
     _STATE_TIMEZONE,
+    _STATE_TYPED_CHAT_CONTEXT,
     _STATE_USER_ID,
     BACKEND_DIRECT_ACTION_IDS,
     BACKEND_DIRECT_WHEN_PERSON_NAMED_ACTION_IDS,
@@ -510,8 +511,9 @@ class TestAgentTreeShape:
             _tree.build_one_live_runner(runtime_mode="byok", runtime_credential="unused")
 
 
-def _tool_context(state: dict) -> SimpleNamespace:
-    return SimpleNamespace(state=state)
+def _tool_context(state: dict, *, session_id: str | None = None) -> SimpleNamespace:
+    session = SimpleNamespace(id=session_id) if session_id else None
+    return SimpleNamespace(state=state, session=session)
 
 
 class TestSpecialistTurn:
@@ -1212,6 +1214,33 @@ class TestRunAppAction:
         result = await run_app_action("analysis.start", {"symbol": "NVDA"}, _tool_context(state))
         assert result["status"] == "settling"
         assert not any(k.startswith(f"{_STATE_PENDING_DIRECTIVE}:") for k in state)
+
+    @pytest.mark.asyncio
+    async def test_typed_chat_uses_current_context_over_stale_live_publication(self):
+        state = {
+            _STATE_TYPED_CHAT_CONTEXT: True,
+            "hussh:voice_context": {
+                "available_action_ids": ["analysis.start"],
+                "pending_settlement": False,
+            },
+        }
+        session_id = "typed_chat_context_test"
+        publish_live_voice_context(
+            session_id,
+            {
+                "available_action_ids": ["analysis.start"],
+                "pending_settlement": True,
+            },
+        )
+        try:
+            result = await run_app_action(
+                "analysis.start",
+                {"symbol": "NVDA"},
+                _tool_context(state, session_id=session_id),
+            )
+        finally:
+            clear_live_voice_context(session_id)
+        assert result["status"] == "ready_to_run"
 
     @pytest.mark.asyncio
     async def test_context_pending_marker_reports_recoverable_not_ready(self):

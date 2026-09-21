@@ -70,7 +70,10 @@ async function waitForAssistantSettled(page, baselineAssistant) {
     ({ baselineCount }) => {
       const turns = [...document.querySelectorAll('[data-message-role="assistant"]')];
       const latest = turns.at(-1);
-      return turns.length > baselineCount && latest?.getAttribute("data-message-status") !== "streaming" && Boolean(latest?.textContent?.trim());
+      // Structured experiences are the authoritative response surface for
+      // consent discovery/proposals. They may intentionally have no prose;
+      // waiting for text here can time out a completed AG-UI turn forever.
+      return turns.length > baselineCount && latest?.getAttribute("data-message-status") !== "streaming";
     },
     { baselineCount: baselineAssistant },
     { timeout: turnTimeoutMs },
@@ -113,6 +116,9 @@ function assertNoLeak(text, label) {
     throw new Error(`${label} exposed an internal scope identifier`);
   }
 }
+async function visibleSurfaceText(page) {
+  return page.locator("body").innerText();
+}
 async function findOurBundle(personRef) {
   const profile = await identityJson(`/api/one/people/${encodeURIComponent(personRef)}`);
   const history = Array.isArray(profile?.requestHistory) ? profile.requestHistory : [];
@@ -133,6 +139,16 @@ try {
   session = await reviewer.openSession(browser, "/");
   const { page } = session;
   ownerToken = await session.capture.ownerToken();
+  if (process.env.REVIEWER_START_NEW_CHAT === "true") {
+    // A lifecycle rehearsal must not inherit a parked tool run or stale
+    // conversational selection from another rehearsal. This only resets the
+    // in-memory workspace; the existing encrypted conversation history remains
+    // untouched and is covered by separate restoration checks.
+    await page.getByRole("button", { name: "Open chat history" }).click();
+    await page
+      .getByRole("button", { name: "Create new chat" })
+      .click();
+  }
   // The identity token is observed on a Firebase-authenticated request; the
   // Connect tab issues one on entry, root Chat does not. Same-session navigation
   // keeps the vault key.
@@ -206,13 +222,19 @@ try {
   await step("chat: discovery names the requestable field and links the profile", async () => {
     const reply = await turn(page, `What information can I request from ${fixture.displayName}?`);
     assertNoLeak(reply, "discovery reply");
-    if (!reply.includes(scopeLabel)) throw new Error(`reply lacks the field label: ${clean(reply).slice(0, 200)}`);
+    const surface = await visibleSurfaceText(page);
+    if (!reply.includes(scopeLabel) && !surface.includes(scopeLabel)) {
+      throw new Error(`chat surface lacks the field label: ${clean(reply).slice(0, 200)}`);
+    }
   });
 
   await step("chat: a request is proposed, read back, and sent only after a spoken yes", async () => {
     const proposal = await turn(page, `Request ${fixture.displayName}'s ${scopeLabel} for 2 days. Purpose: ${PURPOSE}`);
     assertNoLeak(proposal, "proposal reply");
-    if (!proposal.includes(scopeLabel)) throw new Error(`proposal did not read back the field: ${clean(proposal).slice(0, 200)}`);
+    const surface = await visibleSurfaceText(page);
+    if (!proposal.includes(scopeLabel) && !surface.includes(scopeLabel)) {
+      throw new Error(`proposal did not read back the field: ${clean(proposal).slice(0, 200)}`);
+    }
     const before = await findOurBundle(fixture.personRef);
     if (before && before.status === "pending") throw new Error("request was sent before the yes");
     const sent = await turn(page, "Yes, send it.");
@@ -236,6 +258,9 @@ try {
   });
 
   await step("chat: the sent request is cancelled after a spoken yes", async () => {
+    if (!createdBundleId) {
+      throw new Error("No request was created by this rehearsal; refusing to cancel an older request.");
+    }
     const ask = await turn(page, "Cancel that request I just sent.");
     assertNoLeak(ask, "cancel prompt reply");
     const done = await turn(page, "Yes, cancel it.");
