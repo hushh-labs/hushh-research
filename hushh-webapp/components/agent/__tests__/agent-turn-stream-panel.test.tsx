@@ -260,7 +260,7 @@ describe("AgentTurnStreamPanel", () => {
 
     expect(
       screen.getByRole("region", { name: "Information available from Alex Morgan" }),
-    ).toBeInTheDocument();
+    ).toHaveAttribute("data-experience-type", "one.scope_discovery.v1");
     fireEvent.click(await screen.findByRole("button", { name: "Open Identity" }));
     expect(screen.getByText("Employment status")).toBeInTheDocument();
     fireEvent.click(screen.getByTestId("scope-discovery-scopes-back"));

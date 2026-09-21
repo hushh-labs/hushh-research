@@ -45,7 +45,7 @@ export function AgentStructuredExperienceView({
   const selectPerson = useContext(AgentPersonSelectionContext);
   switch (experience.type) {
     case "one.person_selection.v1":
-      return <ExperienceShell label="Choose a person" title="Who do you mean?"
+      return <ExperienceShell experienceType={experience.type} label="Choose a person" title="Who do you mean?"
         summary="Choose the right person before we check what you can ask for." icon={<UserRound className="size-5" />}>
         <div className="flex flex-col gap-2">
           {experience.candidates.map((candidate) => <div key={candidate.selectionHandle} className="flex items-center gap-2">
@@ -79,12 +79,14 @@ export function AgentStructuredExperienceView({
 }
 
 function ExperienceShell({
+  experienceType,
   label,
   title,
   summary,
   icon,
   children,
 }: {
+  experienceType: AgentStructuredExperience["type"];
   label: string;
   title: string;
   summary: string;
@@ -92,7 +94,7 @@ function ExperienceShell({
   children: ReactNode;
 }) {
   return (
-    <section className="overflow-hidden rounded-[24px] bg-[linear-gradient(145deg,var(--app-accent-surface),color-mix(in_srgb,var(--background)_94%,var(--app-accent-soft)))] shadow-[0_18px_55px_-38px_var(--app-accent-deep)]">
+    <section data-experience-type={experienceType} className="overflow-hidden rounded-[24px] bg-[linear-gradient(145deg,var(--app-accent-surface),color-mix(in_srgb,var(--background)_94%,var(--app-accent-soft)))] shadow-[0_18px_55px_-38px_var(--app-accent-deep)]">
       <header className="flex items-start gap-3 px-4 pb-4 pt-4 sm:px-5 sm:pt-5">
         <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[14px] bg-accent-strong text-white shadow-sm">
           {icon}
@@ -229,6 +231,7 @@ function ScopeDiscoveryView({
   return (
     <section
       aria-label={`Information available from ${experience.person.displayName}`}
+      data-experience-type={experience.type}
       className="space-y-4"
     >
       <header className="flex items-start gap-3 px-1">
@@ -429,6 +432,7 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
 
   return (
     <ExperienceShell
+      experienceType={experience.type}
       label={label}
       title={title}
       summary={`${items.length} ${items.length === 1 ? "thing" : "things"} · ${experience.durationLabel}`}
@@ -457,7 +461,7 @@ const KYC_STATUS_LABEL: Record<KycReadinessExperience["items"][number]["status"]
 
 function KycReadinessView({ experience }: { experience: KycReadinessExperience }) {
   return (
-    <ExperienceShell label="Readiness" title={experience.workflowName} summary={experience.summary} icon={<FileCheck2 className="h-5 w-5" aria-hidden="true" />}>
+    <ExperienceShell experienceType={experience.type} label="Readiness" title={experience.workflowName} summary={experience.summary} icon={<FileCheck2 className="h-5 w-5" aria-hidden="true" />}>
       <p className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">For {experience.subjectName}</p>
       <ul className="divide-y divide-border/35">
         {experience.items.map((item) => (
@@ -476,7 +480,7 @@ function MemoryImportReviewView({ experience }: { experience: MemoryImportReview
   const complete = experience.sourceBlockCount === experience.accountedBlockCount && !experience.presentationIncomplete;
   const total = experience.groups.reduce((count, group) => count + group.candidates.length, 0);
   return (
-    <ExperienceShell label="Memory review" title={`${total} memories ready to review`} summary={`${experience.accountedBlockCount} of ${experience.sourceBlockCount} source sections accounted for`} icon={<FolderLock className="h-5 w-5" aria-hidden="true" />}>
+    <ExperienceShell experienceType={experience.type} label="Memory review" title={`${total} memories ready to review`} summary={`${experience.accountedBlockCount} of ${experience.sourceBlockCount} source sections accounted for`} icon={<FolderLock className="h-5 w-5" aria-hidden="true" />}>
       <p className={complete ? "mb-3 flex items-center gap-2 text-xs font-semibold text-emerald-600" : "mb-3 flex items-center gap-2 text-xs font-semibold text-destructive"}>{complete ? <Check className="h-4 w-4" /> : <CircleAlert className="h-4 w-4" />}{complete ? "Complete coverage" : "Review required before saving"}</p>
       <div className="space-y-4">
         {experience.groups.map((group) => <section key={group.domain}><h4 className="ui-text-section-label text-muted-foreground">{group.domain}</h4><ul className="mt-1 divide-y divide-border/35">{group.candidates.map((candidate) => <li key={candidate.candidateRef} className="py-2.5"><div className="flex items-start justify-between gap-3"><div><p className="text-sm font-medium text-foreground">{candidate.label}</p><p className="mt-0.5 text-xs leading-5 text-muted-foreground">{candidate.preview}</p></div><span className="shrink-0 text-[11px] font-semibold text-accent-strong">{candidate.sharingPosture.replace("_", " ")}</span></div></li>)}</ul></section>)}
@@ -487,7 +491,7 @@ function MemoryImportReviewView({ experience }: { experience: MemoryImportReview
 
 function EvidenceBriefView({ experience }: { experience: EvidenceBriefExperience }) {
   return (
-    <ExperienceShell label={`${experience.confidence} confidence`} title={experience.title} summary={experience.summary} icon={<Link2 className="h-5 w-5" aria-hidden="true" />}>
+    <ExperienceShell experienceType={experience.type} label={`${experience.confidence} confidence`} title={experience.title} summary={experience.summary} icon={<Link2 className="h-5 w-5" aria-hidden="true" />}>
       <ul className="space-y-3">{experience.findings.map((finding) => <li key={finding.label}><p className="text-sm font-semibold text-foreground">{finding.label}</p><p className="mt-0.5 text-sm leading-5 text-muted-foreground">{finding.detail}</p></li>)}</ul>
       {experience.sources.length ? <div className="mt-4 flex flex-wrap gap-2">{experience.sources.map((source) => <a key={source.url} href={source.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-full bg-accent-surface px-3 py-1.5 text-xs font-semibold text-accent-strong hover:bg-accent-soft">{source.label}<ArrowUpRight className="h-3 w-3" /></a>)}</div> : null}
       {experience.unresolved.length ? <div className="mt-4"><p className="ui-text-section-label text-muted-foreground">Still unresolved</p><ul className="mt-1 space-y-1 text-xs leading-5 text-muted-foreground">{experience.unresolved.map((item) => <li key={item}>• {item}</li>)}</ul></div> : null}
