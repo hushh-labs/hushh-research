@@ -2072,6 +2072,11 @@ async def list_information_shared_with_me(
             requester_user_id=user_id,
             person_ref=selected_person_ref,
         )
+        empty_message = (
+            f"{selected_person_name} has not shared any information with you yet."
+            if selected_person_name
+            else "No connections have shared information with you yet."
+        )
         return {
             "status": "ok",
             **(
@@ -2090,7 +2095,7 @@ async def list_information_shared_with_me(
                 + "Values stay end-to-end encrypted; point them to the profilePath link "
                 "where their browser automatically decrypts and displays the records using their vault key."
                 if shares
-                else "No connections have shared information with you yet."
+                else empty_message
             ),
         }
     except ConsentLifecycleError as exc:

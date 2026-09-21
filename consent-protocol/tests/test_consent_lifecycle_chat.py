@@ -850,6 +850,24 @@ class TestPropose:
         list_shares.assert_not_awaited()
 
     @pytest.mark.asyncio
+    async def test_shared_information_empty_state_is_bound_to_selected_person(self):
+        context = _ctx(_state())
+        action_tools._remember_information_person(
+            context, "user_1", PERSON_REF, "Sarah Chen", "Sarah"
+        )
+        with (
+            _auth(),
+            patch.object(
+                InformationRequestService,
+                "list_granted_shares",
+                new=AsyncMock(return_value=[]),
+            ),
+        ):
+            result = await list_information_shared_with_me(context)
+
+        assert result["nextStep"] == "Sarah Chen has not shared any information with you yet."
+
+    @pytest.mark.asyncio
     async def test_short_purpose_and_bad_duration_are_asked_back(self):
         with (
             _auth(),
