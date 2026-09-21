@@ -328,6 +328,25 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
       : experience.direction === "outgoing"
         ? `Request sent to ${experience.personName}`
         : `Information request involving ${experience.personName}`;
+  const statusText = experience.phase === "historical"
+    ? "Historical preview · current status was not checked"
+    : experience.status === "awaiting_review"
+      ? "Not sent yet"
+      : experience.direction === "incoming" && experience.status === "pending"
+        ? "Waiting for your decision"
+        : experience.direction === "outgoing" && experience.status === "pending"
+          ? "Waiting for their decision"
+          : experience.status === "granted"
+            ? "Access granted"
+            : experience.status === "denied"
+              ? "Request declined"
+              : experience.status === "cancelled"
+                ? "Request withdrawn"
+                : experience.status === "expired"
+                  ? "Request expired"
+                  : experience.status === "revoked"
+                    ? "Access revoked"
+                    : "Status unavailable";
 
   return (
     <ExperienceShell
@@ -337,6 +356,7 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
       icon={<ShieldCheck className="h-5 w-5" aria-hidden="true" />}
     >
       <p className="text-sm leading-6 text-foreground">{experience.purpose}</p>
+      <p role="status" className="mt-2 text-xs font-medium text-muted-foreground">{statusText}</p>
       <div className="mt-3">
         <ConsentScopeList
           items={items}
