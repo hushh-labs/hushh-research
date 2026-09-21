@@ -80,9 +80,40 @@ engine, and `SwipeViews` as the only pager.
 `hushh-webapp/lib/perf/frame-pacing.ts`, mounted by `hushh-webapp/components/app-ui/render-perf-probe.tsx`
 and inert unless asked for. It records the interval between animation frames
 and buckets them by gesture (sheet, drawer, pager, bottom nav, top tabs,
-scroll, tap; a tap that changes route becomes `kind→route`) and by route.
-Output has no personal information: no text, no element content, no full
-URLs, no identifiers.
+scroll, tap; a tap that changes route becomes `kind→route`; `type` while
+keyboard input keeps coming; `viewport` when the visual viewport resizes,
+which is the keyboard rising or falling with no pointer window open;
+`stream` while an assistant reply carries `data-agent-streaming`) and by
+route. Output has no personal information: no text, no element content, no
+full URLs, no identifiers.
+
+**React commit attribution.** A `Profiler` around the shell
+(`hushh-webapp/components/app-ui/render-perf-profiler.tsx`) hands every commit
+to the probe through `hushh-webapp/lib/perf/render-commit-sink.ts`. Production
+React never calls it; `npm run cap:build:profile` (`next build --profile`)
+aliases react-dom to its profiling build for attribution runs, which the
+summary marks as such and never certifies. Each window then carries
+`commits` (count, total, max, top three) and a window that crossed a route
+change carries `route_enter` (the destination's first commit and its first
+frame, also left as the `hushh:route-enter` and `hushh:route-first-frame`
+performance marks for Web Inspector); the summariser prints the route-enter
+attribution table. First reading (simulator, attribution only): a tab switch
+to `/one` ran 11 commits totalling 13 ms inside a window whose worst frame
+was 81 ms; `/one/feed` 38 commits, `/one/connect` 51. The first frame is not
+one render; it is many small state updates after mount, each forcing style
+and layout.
+
+**The idle clock.** Periodic work at rest goes through
+`hushh-webapp/lib/perf/idle-scheduler.ts` (`registerPeriodicTask`, and
+`useCoarseClock` / `usePeriodicTask` in `lib/perf/use-periodic-task.ts`): a
+task with interval N runs at multiples of N on the wall clock, so every task
+sharing an interval shares one wake; the wake runs after an animation frame
+and a macrotask, never while the document is hidden, and catches up on
+return. The feed's three 45 s pollers, the consent reconciles, the Puppy
+link poll, the location map's marker and share-count refreshes, the visible
+grant refresh and the 30 s and 15 s clocks ride it. The
+`interval-state-tick` rule flags a private `setInterval` that only does
+`setX(Date.now())`.
 
 Switch it on with `?perf=1` (or `?perf=hud` for an on-screen readout) on any
 URL; the session remembers it. Inside the iOS shell, launch with the
@@ -136,13 +167,15 @@ where the composer mounts), sends a fixed prompt and holds a 30 s window
 named `chat-stream-30s`.
 The Release build sets `ENABLE_TESTABILITY=YES` because the scheme's
 unit-test target does `@testable import App`; it keeps `-O`.
-The unlock step closes the system passkey sheet that iOS shows at every
-cold launch on a phone without a passkey, retypes after a mismatch, and
+The unlock step closes the system passkey sheet if it appears (the gate no
+longer starts the passkey by itself on a device where it has not yet
+succeeded, so on a fresh phone it does not), retypes after a mismatch, and
 the card deletes the run's `.xcresult` bundles as soon as the test exits
-(XCTest records typed strings in them). On the phone, chat does not
-stream (`CapacitorHttp` returns the body whole), so the `chat-stream-30s`
-gesture measures one paint of the whole reply plus its auto-scroll, not a
-stream; bug log B39.
+(XCTest records typed strings in them). The chat section is a keyboard
+exchange in four named gestures: `chat-keyboard-show` (composer tap, the
+keyboard's presence asserted), `chat-keyboard-type` (the prompt typed
+through the keyboard), `chat-stream-30s` (send and the reply, a real
+stream since HushhStream, bug log B39) and `chat-keyboard-dismiss`.
 
 ### Android
 
