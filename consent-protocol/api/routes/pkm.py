@@ -43,6 +43,7 @@ from api.routes.pkm_routes_shared import (
     UpdateUpgradeRunRequest,
     UpdateUpgradeStepRequest,
     UserScopesResponse,
+    _UserId,
     _validated_segment_ids,
 )
 from api.routes.pkm_routes_shared import (
@@ -311,7 +312,7 @@ async def get_device_sync_events(
 
 @router.post("/reconcile/{user_id}", response_model=ReconcilePkmResponse)
 async def reconcile_pkm_index(
-    user_id: str,
+    user_id: _UserId,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     return await _reconcile_pkm_index(user_id, token_data)
@@ -319,7 +320,7 @@ async def reconcile_pkm_index(
 
 @router.get("/metadata/{user_id}", response_model=PersonalKnowledgeModelMetadataResponse)
 async def get_metadata(
-    user_id: str,
+    user_id: _UserId,
     token_data: dict = Depends(require_pkm_metadata_access),
 ):
     return await _get_metadata(user_id, token_data)
@@ -327,7 +328,7 @@ async def get_metadata(
 
 @router.get("/upgrade/status/{user_id}", response_model=PkmUpgradeStatusResponse)
 async def get_upgrade_status(
-    user_id: str,
+    user_id: _UserId,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     return await _get_upgrade_status(user_id, token_data)
@@ -387,7 +388,7 @@ async def get_domain_registry(
 
 @router.get("/scopes/{user_id}", response_model=UserScopesResponse)
 async def get_user_scopes(
-    user_id: str,
+    user_id: _UserId,
     token_data: dict = Depends(require_vault_owner_token),
 ):
     return await _get_user_scopes(user_id, token_data)

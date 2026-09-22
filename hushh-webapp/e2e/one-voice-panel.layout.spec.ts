@@ -78,6 +78,7 @@ function stringConstant(
 
 type Source = {
   panelClass: string;
+  clearButtonClass: string;
   dockClass: string;
   dockWidthClass: string;
   primaryClass: string;
@@ -129,6 +130,11 @@ function extractSource(): Source {
       "One Voice panel classes",
       VOICE_PANEL_PATH,
     )[1],
+    clearButtonClass: stringConstant(
+      panel,
+      "CLEAR_ACTION_BUTTON",
+      VOICE_PANEL_PATH,
+    ),
     dockClass: required(
       control,
       /<div\s+data-testid="one-voice-agent-bar"[\s\S]*?className=\{cn\(\s*"([^"]+)"/,
@@ -179,6 +185,8 @@ const FIXTURE_CLASSES = [
   "truncate text-[13px] font-medium",
   "space-y-3 text-sm leading-6",
   "min-w-0 break-words",
+  // The panel toolbar row that carries the Clear chat view control.
+  "flex min-h-11 items-center justify-between gap-2 text-[12px]",
 ].join(" ");
 
 let fixtureUrl: Promise<string> | null = null;
@@ -227,6 +235,7 @@ async function buildFixture(): Promise<string> {
         SOURCE.iconButtonClass,
         SOURCE.toggleButtonClass,
         SOURCE.toggleIconClass,
+        SOURCE.clearButtonClass,
         FIXTURE_CLASSES,
       ]
         .join(" ")
@@ -260,7 +269,8 @@ const transcript = ${JSON.stringify(transcript)};
 const root = document.getElementById("fixture-root");
 let stopCalls = 0;
 function render(expanded) {
-  const panel = expanded ? '<section role="region" aria-label="One conversation" data-testid="one-voice-panel" class="' + source.panelClass + '"><div data-testid="one-voice-transcript" class="space-y-3 text-sm leading-6">' + transcript + '</div></section>' : '';
+  const toolbar = '<div data-testid="one-voice-panel-toolbar" class="flex min-h-11 items-center justify-between gap-2"><p data-testid="one-voice-clear-status" class="text-[12px]"></p><button type="button" data-testid="one-voice-clear-history" aria-label="Clear chat view" class="' + source.clearButtonClass + '">Clear chat view</button></div>';
+  const panel = expanded ? '<section role="region" aria-label="One conversation" data-testid="one-voice-panel" class="' + source.panelClass + '">' + toolbar + '<div data-testid="one-voice-transcript" class="space-y-3 text-sm leading-6">' + transcript + '</div></section>' : '';
   const toggleLabel = expanded ? source.minimizeLabel : source.expandLabel;
   const toggleAria = expanded ? source.minimizeAriaLabel : source.expandAriaLabel;
   root.innerHTML = '<div data-testid="fixture-one-voice-stack" class="flex flex-col items-center gap-2">' + panel +
@@ -348,7 +358,7 @@ test.describe("One Live Voice panel minimization layout", () => {
   for (const viewport of VIEWPORTS) {
     test(`${viewport.name}: bounded, non-overlapping dock minimizes and restores`, async ({
       page,
-    }) => {
+    }, testInfo) => {
       await openFixture(page, viewport.width, viewport.height);
 
       const panel = page.getByTestId("one-voice-panel");
@@ -404,8 +414,38 @@ test.describe("One Live Voice panel minimization layout", () => {
         open.stop.left + BOUNDARY_TOLERANCE_PX,
       );
 
+      // The Clear chat view control lives in the panel header. It must meet
+      // the same 44px floor as the dock controls and stay inside the panel's
+      // bounds at every supported width, or it is unusable on a phone.
+      const clear = page.getByTestId("one-voice-clear-history");
+      await expect(clear).toBeVisible();
+      await expect(clear).toHaveAccessibleName("Clear chat view");
+      const clearBox = await clear.boundingBox();
+      if (!clearBox) throw new Error("clear control missing");
+      expect(clearBox.height).toBeGreaterThanOrEqual(MIN_TOUCH_TARGET_PX);
+      expect(clearBox.width).toBeGreaterThanOrEqual(MIN_TOUCH_TARGET_PX);
+      expect(clearBox.x).toBeGreaterThanOrEqual(
+        open.panel.left - BOUNDARY_TOLERANCE_PX,
+      );
+      expect(clearBox.x + clearBox.width).toBeLessThanOrEqual(
+        open.panel.right + BOUNDARY_TOLERANCE_PX,
+      );
+      // It is a view control, so it must never sit in the dock beside Stop.
+      expect(clearBox.y + clearBox.height).toBeLessThanOrEqual(
+        open.dock.top + BOUNDARY_TOLERANCE_PX,
+      );
+      await page.screenshot({
+        path: testInfo.outputPath(`one-voice-clear-${viewport.name}-before.png`),
+      });
+
       await toggle.click();
       await expect(panel).toHaveCount(0);
+      // Minimizing takes the panel's own controls with it: no orphaned Clear
+      // button may keep intercepting taps over the page.
+      await expect(clear).toHaveCount(0);
+      await page.screenshot({
+        path: testInfo.outputPath(`one-voice-clear-${viewport.name}-after.png`),
+      });
       await expect(dock).toHaveAttribute("data-voice-panel", "collapsed");
       await expect(toggle).toHaveAccessibleName(SOURCE.expandAriaLabel);
       await expect(toggle).toHaveText(SOURCE.expandLabel);

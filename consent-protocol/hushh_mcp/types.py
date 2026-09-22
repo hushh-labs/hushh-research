@@ -33,6 +33,12 @@ class TrustLink(BaseModel):
     from_agent: AgentID
     to_agent: AgentID
     scope: ConsentScope
+    # The authority the owner actually delegated. Every dynamic `attr.*` scope
+    # resolves to the same `PKM_READ` enum, so `scope` alone cannot tell
+    # `attr.food.recipes.*` from `attr.financial.*`. This field carries the
+    # verbatim string and is covered by the signature. Empty on links minted
+    # before it existed, which keep their original signed form.
+    scope_str: str = ""
     created_at: int
     expires_at: int
     signed_by_user: UserID
