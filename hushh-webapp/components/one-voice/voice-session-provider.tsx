@@ -1328,6 +1328,12 @@ export function VoiceSessionProvider({
     [dispatch, readState],
   );
 
+  const clearView = useCallback(() => {
+    // Nothing is sent and no session lifecycle is touched: the relay, the mic
+    // and One's own conversation context carry on unchanged.
+    dispatch({ type: "clear_view" });
+  }, [dispatch]);
+
   const reportClientStep = useCallback(
     (
       stepId: string,
@@ -1353,6 +1359,7 @@ export function VoiceSessionProvider({
       confirmPending,
       cancelPending,
       chooseCandidate,
+      clearView,
       reportClientStep,
     }),
     [
@@ -1366,6 +1373,7 @@ export function VoiceSessionProvider({
       confirmPending,
       cancelPending,
       chooseCandidate,
+      clearView,
       reportClientStep,
     ],
   );

@@ -66,6 +66,7 @@ function makeSession(): VoiceSessionController {
     confirmPending: vi.fn(async () => undefined),
     cancelPending: vi.fn(),
     chooseCandidate: vi.fn(),
+    clearView: vi.fn(),
     reportClientStep: vi.fn(),
   };
 }
