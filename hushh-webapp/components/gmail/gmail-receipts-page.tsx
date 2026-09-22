@@ -2058,11 +2058,11 @@ export default function GmailReceiptsPage({
                   </p>
                 </div>
               </div>
-              <div className="flex justify-center w-full pt-1">
+              <div className="flex justify-start w-full">
                 <AskOneButton
                   onClick={handleOpenOneChat}
                   showIcon={false}
-                  className="w-full h-10 justify-center text-center text-xs font-semibold rounded-full"
+                  className="w-36 h-9 justify-center text-xs font-semibold rounded-full"
                 >
                   Chat with One
                 </AskOneButton>
@@ -2083,12 +2083,12 @@ export default function GmailReceiptsPage({
                   </p>
                 </div>
               </div>
-              <div className="flex justify-center w-full pt-1">
+              <div className="flex justify-start w-full">
                 <Button
                   type="button"
                   variant="muted"
                   onClick={() => setWorkspace("kyc")}
-                  className="w-full h-10 justify-center text-center text-xs font-semibold rounded-full"
+                  className="w-36 h-9 justify-center text-xs font-semibold rounded-full"
                 >
                   Open KYC
                 </Button>
@@ -2109,12 +2109,12 @@ export default function GmailReceiptsPage({
                   </p>
                 </div>
               </div>
-              <div className="flex justify-center w-full pt-1">
+              <div className="flex justify-start w-full">
                 <Button
                   type="button"
                   variant="muted"
                   onClick={() => setWorkspace("receipts")}
-                  className="w-full h-10 justify-center text-center text-xs font-semibold rounded-full"
+                  className="w-36 h-9 justify-center text-xs font-semibold rounded-full"
                 >
                   Open receipts
                 </Button>
