@@ -96,6 +96,7 @@ import {
 } from "@/lib/services/connections-service";
 import { relationshipCta } from "@/lib/connections/relationship-label";
 import { TOP_SHELL_TAB_REGISTRY } from "@/lib/navigation/top-shell-tabs";
+import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 import {
   VOICE_CONFIRM_DATA_KEY,
   VOICE_DISAMBIGUATION_DATA_KEY,
@@ -493,6 +494,16 @@ export default function ConnectPageClient() {
    */
   const surface: ConnectSurface = readConnectSurface(
     searchParams.get(CONNECT_SURFACE_PARAM),
+  );
+  // A settled swipe between Connections and Circles commits the same route
+  // the tab pill pushes, so swiping and tapping stay one navigation.
+  const commitSurface = useCallback(
+    (value: string) => {
+      if (value === surface) return;
+      const target = CONNECT_SURFACE_TAB_DEFINITION.tabs.find((tab) => tab.value === value);
+      if (target) router.push(target.href, { scroll: false });
+    },
+    [router, surface],
   );
   /** Which Circle flow, if any, the URL is asking for. Part of the scroll key
    *  below, because opening one is a new screen even though the path is not. */
@@ -2630,18 +2641,19 @@ export default function ConnectPageClient() {
                     />
                   </div>
 
-                  {surface === "circles" ? (
-                    <ConnectCirclesTab
-                      onStateChange={setCirclesState}
-                      currentUserId={user?.uid ?? null}
-                      // The roster's Connect opens the SAME capability review the
-                      // directory opens, rather than sending outright.
-                      onRequestConnection={sendConnectRequest}
-                      onCancelConnectionRequest={cancelConnectionRequest}
-                      refreshToken={circleRefreshToken}
-                    />
-                  ) : (
-                    <>
+                  {/* Both surfaces live in one pager so the tab strip above is
+                      swipeable, the way Finance and Consent are; a swipe commits the
+                      same route the tab pill pushes. */}
+                  <SwipeViews
+                    tabSetId={CONNECT_SURFACE_TAB_DEFINITION.id}
+                    activeValue={surface}
+                    options={CONNECT_SURFACE_TAB_DEFINITION.tabs}
+                    onSelectionCommit={commitSurface}
+                    panelInset="none"
+                    viewportMinHeight="0px"
+                    heightMode="active"
+                  >
+                    <div data-connect-surface="all">
                       {tab === "nearby" ? (
                         <div className="space-y-3">
                           <div className="px-1">{directorySelector}</div>
@@ -3412,8 +3424,19 @@ export default function ConnectPageClient() {
                           </div>
                         </div>
                       )}
-                    </>
-                  )}
+                    </div>
+                    <div data-connect-surface="circles">
+                    <ConnectCirclesTab
+                      onStateChange={setCirclesState}
+                      currentUserId={user?.uid ?? null}
+                      // The roster's Connect opens the SAME capability review the
+                      // directory opens, rather than sending outright.
+                      onRequestConnection={sendConnectRequest}
+                      onCancelConnectionRequest={cancelConnectionRequest}
+                      refreshToken={circleRefreshToken}
+                    />
+                    </div>
+                  </SwipeViews>
                 </div>
               </SurfaceStack>
             </AppPageContentRegion>
