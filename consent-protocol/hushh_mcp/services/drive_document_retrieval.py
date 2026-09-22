@@ -18,7 +18,10 @@ from sqlalchemy import text
 
 from hushh_mcp.services.document_index_service import DocumentChunkCipher
 from hushh_mcp.services.drive_document_processor import IsolatedDocumentEmbedding
-from hushh_mcp.services.drive_document_store import DriveDocumentStore
+from hushh_mcp.services.drive_document_store import (
+    PROCESSING_DISCLOSURE_VERSION,
+    DriveDocumentStore,
+)
 from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
 from hushh_mcp.services.google_drive_adapter import DriveReadError, GoogleDriveAdapter
 
@@ -30,6 +33,9 @@ READABLE = ("ready", "stale", "failed_retryable", "fetching", "parsing", "indexi
 
 
 class DriveRetrievalStore(DriveDocumentStore):
+    feature = "google_drive_chat_reads"
+    background = False
+
     async def snapshot(
         self, *, user_id: str, generation: int, document_id: str | None = None
     ) -> list[dict]:
@@ -41,12 +47,14 @@ class DriveRetrievalStore(DriveDocumentStore):
 
         def operation(connection):
             self._active(connection, user_id, generation)
-            self._selection_policy(connection, user_id, feature="google_drive_chat_reads")
+            self._selection_policy(connection, user_id, feature=self.feature)
             params = {
                 "user": user_id,
                 "generation": generation,
                 "document": document_id,
                 "limit": MAX_CANDIDATES + 1,
+                "background": self.background,
+                "disclosure": PROCESSING_DISCLOSURE_VERSION,
             }
             eligible = """
                 FROM connected_documents d JOIN document_chunks c
@@ -54,6 +62,8 @@ class DriveRetrievalStore(DriveDocumentStore):
                 WHERE d.user_id=:user AND d.connection_generation=:generation
                   AND d.status IN ('ready','stale','failed_retryable','fetching','parsing','indexing')
                   AND (CAST(:document AS uuid) IS NULL OR d.document_id=CAST(:document AS uuid))
+                  AND (:background=FALSE OR (d.status='ready' AND d.processing_enabled
+                    AND d.processing_disclosure_version=:disclosure))
                 ORDER BY d.document_id,c.ordinal LIMIT :limit
             """
             # Check ciphertext lengths BEFORE fetching/decrypting their bytes.
@@ -82,7 +92,9 @@ class DriveRetrievalStore(DriveDocumentStore):
                 SELECT EXISTS (SELECT 1 FROM connected_documents
                  WHERE user_id=:user AND connection_generation=:generation
                    AND (CAST(:document AS uuid) IS NULL OR document_id=CAST(:document AS uuid))
-                   AND (active_version IS NULL OR status NOT IN ('ready','stale','failed_retryable','fetching','parsing','indexing')))
+                   AND (:background=FALSE OR (processing_enabled AND processing_disclosure_version=:disclosure))
+                   AND (active_version IS NULL OR (:background=TRUE AND status<>'ready')
+                     OR status NOT IN ('ready','stale','failed_retryable','fetching','parsing','indexing')))
             """),
                 params,
             ).scalar_one()
@@ -104,7 +116,7 @@ class DriveRetrievalStore(DriveDocumentStore):
     async def require_current(self, *, user_id: str, generation: int, rows: list[dict]) -> None:
         def operation(connection):
             self._active(connection, user_id, generation)
-            self._selection_policy(connection, user_id, feature="google_drive_chat_reads")
+            self._selection_policy(connection, user_id, feature=self.feature)
             checked = set()
             for old in rows:
                 if old["document_id"] in checked:
@@ -120,6 +132,12 @@ class DriveRetrievalStore(DriveDocumentStore):
                 if (
                     not row
                     or row["status"] not in READABLE
+                    or self.background
+                    and (
+                        row["status"] != "ready"
+                        or not row["processing_enabled"]
+                        or row["processing_disclosure_version"] != PROCESSING_DISCLOSURE_VERSION
+                    )
                     or any(
                         row[key] != old[key]
                         for key in (
@@ -133,6 +151,11 @@ class DriveRetrievalStore(DriveDocumentStore):
                     raise DriveReadError("source_changed")
 
         await self._transaction(operation)
+
+
+class DriveSuggestionRetrievalStore(DriveRetrievalStore):
+    feature = "drive_document_sharing"
+    background = True
 
 
 class DriveDocumentReader:

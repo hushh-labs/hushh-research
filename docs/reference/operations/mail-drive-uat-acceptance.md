@@ -85,7 +85,7 @@ parsing, embeddings and document access control remain outside Google AI service
   conversation, citations include bounded page numbers, and raw document tool results never
   enter durable history. Registered real-SDK dispatch tests use synthetic model boundaries;
   no authenticated Drive Q&A acceptance is claimed.
-- Sharing-domain checkpoint (not yet exposed through routes/Consent Center): encrypted
+- Sharing-domain checkpoint (not yet exposed through Consent Center): encrypted
   requests, source-bound reviews, atomic one-use confirmation claims and per-file pending
   operations in migrations 231/232. Requests reveal no private suggestions to the recipient.
   The separate fixed Google permission adapter permits only individual Viewer creation and
@@ -102,13 +102,43 @@ parsing, embeddings and document access control remain outside Google AI service
   explicitly disclose removal of the current matching direct ACL, not promise detection of
   an indistinguishable external delete/recreate. Other inherited/group access may remain.
   Grant/revoke outcome events are independent; delivery into Feed/push remains unimplemented.
+- Sharing-route checkpoint: authenticated request, private review, exact approval, decline,
+  cancellation, delivery status and fresh revocation endpoints. B's request requires a recent
+  verified Google Firebase identity matching the Vault Owner, not a Drive connection. All
+  responses, including errors, are private/no-store. Validation never echoes private input;
+  authority is freshly rechecked before release. Approval returns pending, not provider success.
+- Background suggestion checkpoint: migration 233 adds bounded preparation retries and
+  fair metadata-only worker scan cursors. Only selected, ready files with current background
+  consent enter the tool-less authored suggestion stage. Every observed source, including
+  unselected inputs, is version/consent-fenced under publication locks; lease expiry is checked
+  again after lock waits. B sees no candidate names or coverage. Three failed attempts require
+  explicit owner refresh. Empty/partial coverage is not a complete-coverage claim.
+- Finite permission and suggestion worker entrypoints now exist. They use durable job authority,
+  not stored owner tokens. Concurrent workers cannot redispatch an uncertain Google write;
+  existing receipts are reconciled using reads. These workers are not deployed or scheduled.
+- Account-lifecycle checkpoint: migration 234 separates owner-only removal contexts from
+  private requests, including a migration-first compatibility trigger. Both account reset
+  and deletion call transactional connector/Drive cleanup. B's request, app identity, review
+  and full ACL snapshots are erased while A's minimal encrypted removal evidence remains
+  discoverable. A's reset preserves revoked monotonic counters; full erasure removes credentials
+  and receipts. An uncertain dispatched write leaves only an ownerless keyed-file safety fence,
+  without automatic expiry or retry. It requires Google-side management, not a new automatic
+  grant. File-lock-key rotation must preserve these fences. No Google permission is removed
+  by account cleanup itself, and this mechanism is not a legal retention-policy claim.
 
 Latest integrated local evidence (2026-09-23): 543 focused backend tests passed, including
 real disposable PostgreSQL concurrency and synthetic Google/Firebase boundaries; 110 web
 tests, typecheck, and 24 mounted Chromium/WebKit checks passed. These are not native artifacts,
 live malware-scanner/model capacity evidence, authenticated A/B acceptance or a UAT release.
-Sharing/revocation routes, background suggestion orchestration, Consent Center/notification
-delivery and account-reset/erasure integration remain required before exposing this domain.
+The subsequent route/suggestion/worker/account-cleanup checkpoint passed 282 focused tests,
+including real PostgreSQL lease-expiry, queue-fairness and concurrent scan tests. Thirteen
+erasure tests exercise the actual migration-201 identity guard, late results, revocation after
+recipient erasure, migration-first writes and rollback. Canonical Mypy passed for
+156 source files. The prior CI head passed web, native Xcode and integration gates but failed
+two obsolete specialist/identity assertions; corrected focused tests pass locally and need
+new-head CI. This is not evidence of native Drive feature completion.
+Consent Center/notification delivery, native recovery, deployed worker isolation/configuration
+and authenticated A/B acceptance remain required before exposing this domain.
 
 Focused automated coverage includes a disposable socket-only PostgreSQL cluster (or the
 existing explicitly test-only CI PostgreSQL service), real concurrent claim/refresh tests,

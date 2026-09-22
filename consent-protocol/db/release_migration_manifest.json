@@ -204,7 +204,9 @@
     "229_drive_document_chunks.sql",
     "230_drive_processing_consent.sql",
     "231_document_review_authority.sql",
-    "232_drive_document_sharing.sql"
+    "232_drive_document_sharing.sql",
+    "233_drive_suggestion_preparation.sql",
+    "234_drive_permission_management_retention.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -397,10 +399,14 @@
       "229_drive_document_chunks.sql",
       "230_drive_processing_consent.sql",
       "231_document_review_authority.sql",
-      "232_drive_document_sharing.sql"
+      "232_drive_document_sharing.sql",
+      "233_drive_suggestion_preparation.sql",
+      "234_drive_permission_management_retention.sql"
     ]
   },
   "rollback_migrations": {
+    "234_drive_permission_management_retention.sql": "rollback/234_drive_permission_management_retention.rollback.sql",
+    "233_drive_suggestion_preparation.sql": "rollback/233_drive_suggestion_preparation.rollback.sql",
     "232_drive_document_sharing.sql": "rollback/232_drive_document_sharing.rollback.sql",
     "231_document_review_authority.sql": "rollback/231_document_review_authority.rollback.sql",
     "230_drive_processing_consent.sql": "rollback/230_drive_processing_consent.rollback.sql",

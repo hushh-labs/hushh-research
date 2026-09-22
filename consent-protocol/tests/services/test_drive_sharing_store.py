@@ -59,6 +59,10 @@ async def sharing(documents, monkeypatch):
             "231_document_review_authority.sql",
             "232_drive_document_sharing.sql",
             "232_drive_document_sharing.sql",
+            "233_drive_suggestion_preparation.sql",
+            "233_drive_suggestion_preparation.sql",
+            "234_drive_permission_management_retention.sql",
+            "234_drive_permission_management_retention.sql",
         ):
             connection.execute(text((MIGRATIONS / name).read_text()))
         connection.commit()
@@ -129,6 +133,11 @@ async def approve(sharing, prepared, ids, **changes):
 
 def rows(sharing, table):
     assert table in {
+        "drive_share_management_contexts",
+        "drive_share_file_claims",
+        "connected_documents",
+        "external_connector_oauth_attempts",
+        "user_external_connector_connections",
         "drive_share_requests",
         "drive_share_reviews",
         "drive_share_events",

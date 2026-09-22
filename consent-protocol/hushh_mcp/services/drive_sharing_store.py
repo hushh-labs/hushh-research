@@ -104,6 +104,23 @@ class DriveSharingStore(DriveDocumentStore):
         return self._request(connection, user_id, request_id)
 
     @staticmethod
+    def _owner_gate(connection, user_id):
+        lock_connection_graph_users(connection, user_ids=[user_id])
+
+    def _management_context(self, connection, user_id, request_id):
+        row = self._row(
+            connection,
+            """
+            SELECT * FROM drive_share_management_contexts
+            WHERE request_id=:id AND user_id=:user FOR UPDATE
+        """,
+            {"id": str(UUID(str(request_id))), "user": user_id},
+        )
+        if not row:
+            raise DriveSharingError("request_unavailable")
+        return row
+
+    @staticmethod
     def _event(connection, request, user_id, event_type):
         connection.execute(
             text("""
@@ -124,6 +141,10 @@ class DriveSharingStore(DriveDocumentStore):
     def _summary(row, *, recipient=False):
         # No matches, counts, filenames or private failure details for B.
         state = row["status"]
+        if state in {"pending", "preparing", "review_ready"} and row["expires_at"] <= datetime.now(
+            UTC
+        ):
+            state = "expired"
         if recipient and state in {"preparing", "review_ready"}:
             state = "pending"
         return {"requestId": str(row["request_id"]), "status": state, "revision": row["revision"]}
@@ -215,6 +236,13 @@ class DriveSharingStore(DriveDocumentStore):
                 if not row or row["request_digest"] != digest or row["user_id"] != owner_user_id:
                     raise DriveSharingError("request_changed")
             else:
+                connection.execute(
+                    text("""
+                    INSERT INTO drive_share_management_contexts(request_id,user_id)
+                    VALUES (:id,:user) ON CONFLICT (request_id) DO NOTHING
+                """),
+                    {"id": request_id, "user": owner_user_id},
+                )
                 self._event(connection, row, owner_user_id, "document_share_request")
             return self._summary(row, recipient=True)
 
@@ -276,6 +304,8 @@ class DriveSharingStore(DriveDocumentStore):
         document_ids: list[str],
         observed_sources: list[ReviewedSource],
         coverage: dict,
+        preparation_lease_id: str | None = None,
+        read_sources: list[ReviewedSource] | None = None,
     ) -> dict:
         """Called only after a tool-less suggestion pass; never shares automatically.
 
@@ -298,6 +328,35 @@ class DriveSharingStore(DriveDocumentStore):
                 or row["expires_at"] <= now
             ):
                 raise DriveSharingError("request_changed")
+            if row["status"] == "preparing" or preparation_lease_id is not None:
+                if (
+                    row["status"] != "preparing"
+                    or str(row["preparation_lease_id"]) != preparation_lease_id
+                    or row["preparation_lease_expires_at"] is None
+                    or row["preparation_lease_expires_at"] <= now
+                ):
+                    raise DriveSharingError("preparation_superseded")
+                # Coverage/gaps derive from every model input, including
+                # documents the model did not suggest. Fence the entire read
+                # set in this same publication transaction, even for no matches.
+                if not read_sources or len({item.document_id for item in read_sources}) != len(
+                    read_sources
+                ):
+                    raise DriveSharingError("source_changed")
+                read_ids = [str(item.document_id) for item in read_sources]
+                if set(document_ids) - set(read_ids):
+                    raise DriveSharingError("source_changed")
+                current_reads = self._sources(
+                    connection, user_id=user_id, generation=generation, document_ids=read_ids
+                )
+                if sorted(
+                    [item.model_dump(mode="json") for item in read_sources],
+                    key=lambda item: item["document_id"],
+                ) != sorted(
+                    [self._source_terms(item) for item in current_reads],
+                    key=lambda item: item["document_id"],
+                ):
+                    raise DriveSharingError("source_changed")
             sources = (
                 self._sources(
                     connection, user_id=user_id, generation=generation, document_ids=document_ids
@@ -314,6 +373,13 @@ class DriveSharingStore(DriveDocumentStore):
             )
             if observed != actual:
                 raise DriveSharingError("source_changed")
+            # Row locks can wait beyond the caller's asyncio deadline. The
+            # synchronous transaction must fence expiry after those waits.
+            now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
+            if row["expires_at"] <= now:
+                raise DriveSharingError("request_changed")
+            if preparation_lease_id is not None and row["preparation_lease_expires_at"] <= now:
+                raise DriveSharingError("preparation_superseded")
             revision = row["revision"] + 1
             terms = (
                 SharingApproval.model_validate(
@@ -520,7 +586,21 @@ class DriveSharingStore(DriveDocumentStore):
                 {"id": str(UUID(request_id)), "user": user_id},
             )
             if not row:
-                raise DriveSharingError("request_unavailable")
+                context = self._row(
+                    connection,
+                    """
+                    SELECT request_id,revocation_revision FROM drive_share_management_contexts
+                    WHERE request_id=:id AND user_id=:user AND private_request_erased_at IS NOT NULL
+                """,
+                    {"id": str(UUID(request_id)), "user": user_id},
+                )
+                if not context:
+                    raise DriveSharingError("request_unavailable")
+                return {
+                    "requestId": request_id,
+                    "status": "management_only",
+                    "revision": context["revocation_revision"],
+                }
             return self._summary(row, recipient=row["recipient_user_id"] == user_id)
 
         return cast(dict, await self._transaction(operation))
@@ -559,6 +639,7 @@ class DriveSharingStore(DriveDocumentStore):
                 "files": [],
                 "coverage": None,
                 "canApprove": False,
+                "preparationError": row.get("preparation_error_code"),
             }
             if review:
                 payload = self.sharing_cipher.open(

@@ -1,0 +1,284 @@
+"""Real route admission with synthetic identity/service boundaries."""
+
+from datetime import UTC, datetime
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
+from uuid import uuid4
+
+import pytest
+from fastapi import FastAPI, HTTPException
+from fastapi.testclient import TestClient
+
+from api.middleware import require_firebase_auth_read_only, require_vault_owner_token
+from api.routes import drive_sharing as routes
+from hushh_mcp.services.drive_sharing_contract import DriveSharingError
+
+BASE = "/api/connectors/google_drive/sharing/requests"
+REQUEST_ID = str(uuid4())
+
+
+@pytest.fixture
+def setup(monkeypatch):
+    app = FastAPI()
+    app.include_router(routes.router)
+    service = SimpleNamespace(
+        **{
+            name: AsyncMock(return_value={"status": "pending"})
+            for name in (
+                "create",
+                "list_requests",
+                "status",
+                "review",
+                "delivery",
+                "approve",
+                "decide",
+                "retry_preparation",
+                "prepare_revocation",
+                "revoke",
+            )
+        }
+    )
+    monkeypatch.setattr(routes, "_service", lambda: service)
+    current = AsyncMock(return_value={"user_id": "recipient"})
+    # FastAPI retains the original dependency; this replaces only the fresh
+    # post-await revalidation call, not the initial route admission.
+    monkeypatch.setattr(routes, "require_vault_owner_token", current)
+    return TestClient(app), app, service, current
+
+
+def unlock(app, uid="recipient"):
+    app.dependency_overrides[require_vault_owner_token] = lambda: {
+        "user_id": uid,
+        "token": "synthetic-owner",
+    }
+
+
+@pytest.mark.parametrize(
+    "method,suffix,body",
+    [
+        ("get", "", None),
+        ("get", f"/{REQUEST_ID}", None),
+        ("get", f"/{REQUEST_ID}/review", None),
+        ("get", f"/{REQUEST_ID}/delivery", None),
+        (
+            "post",
+            "",
+            {
+                "ownerUserId": "owner",
+                "clientRequestId": str(uuid4()),
+                "purpose": {"purpose": "Statements"},
+            },
+        ),
+        (
+            "post",
+            f"/{REQUEST_ID}/approve",
+            {
+                "revision": 1,
+                "reviewDigest": "a" * 64,
+                "documentIds": [str(uuid4())],
+                "confirmed": True,
+            },
+        ),
+        ("post", f"/{REQUEST_ID}/decline", {"revision": 0}),
+        ("post", f"/{REQUEST_ID}/cancel", {"revision": 0}),
+        ("post", f"/{REQUEST_ID}/review/refresh", {"revision": 0}),
+        ("post", f"/{REQUEST_ID}/revocation/prepare", None),
+        (
+            "post",
+            f"/{REQUEST_ID}/revocation/confirm",
+            {
+                "revision": 1,
+                "directiveId": "synthetic-directive",
+                "reviewDigest": "a" * 64,
+                "grantIds": [str(uuid4())],
+                "confirmed": True,
+            },
+        ),
+    ],
+)
+def test_every_route_requires_owner(setup, method, suffix, body):
+    client, _, service, _ = setup
+    response = client.request(method, BASE + suffix, json=body)
+    assert response.status_code == 401
+    assert "no-store" in response.headers["Cache-Control"]
+    assert all(not value.called for value in vars(service).values())
+
+
+def test_review_is_owner_derived_no_store_and_authority_rechecked(setup):
+    client, app, service, current = setup
+    unlock(app)
+    service.review.return_value = {"files": [{"name": "private-name"}]}
+    response = client.get(BASE + f"/{REQUEST_ID}/review")
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "private, no-store"
+    service.review.assert_awaited_once_with(user_id="recipient", request_id=REQUEST_ID)
+    assert current.await_count == 2
+    assert all(
+        call.kwargs == {"authorization": "Bearer synthetic-owner", "hushh_consent": None}
+        for call in current.await_args_list
+    )
+
+
+def test_late_owner_revocation_releases_no_private_result(setup):
+    client, app, service, current = setup
+    unlock(app)
+    service.review.return_value = {"files": [{"name": "private-name"}]}
+    current.side_effect = [{"user_id": "recipient"}, HTTPException(401, "Owner revoked")]
+    response = client.get(BASE + f"/{REQUEST_ID}/review")
+    assert response.status_code == 401 and "private-name" not in response.text
+    assert "no-store" in response.headers["Cache-Control"]
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"email": "injected@example.invalid"},
+        {"role": "owner"},
+        {"generation": 9},
+        {"user_id": "other"},
+        {"confirmed": 1},
+        {"confirmed": "true"},
+    ],
+)
+def test_approval_does_not_accept_client_authority(setup, change):
+    client, app, service, _ = setup
+    unlock(app)
+    body = {
+        "revision": 1,
+        "reviewDigest": "a" * 64,
+        "documentIds": [str(uuid4())],
+        "confirmed": True,
+    }
+    response = client.post(BASE + f"/{REQUEST_ID}/approve", json={**body, **change})
+    assert response.status_code == 422
+    assert "no-store" in response.headers["Cache-Control"]
+    service.approve.assert_not_called()
+
+
+def test_validation_never_echoes_private_payload(setup):
+    client, app, _, _ = setup
+    unlock(app)
+    response = client.post(
+        BASE + f"/{REQUEST_ID}/approve",
+        json={
+            "revision": "private-value-accidentally-pasted",
+            "reviewDigest": "a" * 64,
+            "documentIds": [str(uuid4())],
+            "confirmed": True,
+        },
+    )
+    assert response.status_code == 422
+    assert "private-value-accidentally-pasted" not in response.text
+
+
+def test_approval_only_acknowledges_pending_work(setup):
+    client, app, service, _ = setup
+    unlock(app)
+    service.approve.return_value = {"status": "approved", "sharingStatus": "pending"}
+    response = client.post(
+        BASE + f"/{REQUEST_ID}/approve",
+        json={
+            "revision": 1,
+            "reviewDigest": "a" * 64,
+            "documentIds": [str(uuid4())],
+            "confirmed": True,
+        },
+    )
+    assert response.status_code == 202
+    assert response.json() == {"status": "approved", "sharingStatus": "pending"}
+
+
+@pytest.mark.parametrize(
+    "error", [RuntimeError("secret-provider-body"), DriveSharingError("secret-provider-body")]
+)
+def test_unknown_errors_are_redacted(setup, error):
+    client, app, service, _ = setup
+    unlock(app)
+    service.review.side_effect = error
+    response = client.get(BASE + f"/{REQUEST_ID}/review")
+    assert response.status_code == 503 and "secret-provider-body" not in response.text
+    assert "no-store" in response.headers["Cache-Control"]
+
+
+def google_identity(monkeypatch, app, *, firebase_uid="recipient", changes=None):
+    app.dependency_overrides[require_firebase_auth_read_only] = lambda: firebase_uid
+    claims = {
+        "uid": "recipient",
+        "email": "recipient@example.invalid",
+        "email_verified": True,
+        "auth_time": datetime.now(UTC).timestamp(),
+        "firebase": {"sign_in_provider": "google.com", "identities": {"google.com": ["12345"]}},
+        **(changes or {}),
+    }
+    app_marker = object()
+    monkeypatch.setattr(routes, "get_firebase_auth_app", lambda: app_marker)
+    verifier = Mock(return_value=claims)
+    monkeypatch.setattr(routes.firebase_auth, "verify_id_token", verifier)
+    monkeypatch.setattr(
+        routes.firebase_auth,
+        "get_user",
+        Mock(
+            return_value=SimpleNamespace(
+                disabled=False,
+                provider_data=[
+                    SimpleNamespace(
+                        provider_id="google.com", uid="12345", email="recipient@example.invalid"
+                    )
+                ],
+            )
+        ),
+    )
+    return verifier, app_marker
+
+
+def create_body():
+    return {
+        "ownerUserId": "owner",
+        "clientRequestId": str(uuid4()),
+        "purpose": {"purpose": "Statements"},
+    }
+
+
+def test_request_uses_fresh_verified_google_identity_not_drive_connection(setup, monkeypatch):
+    client, app, service, _ = setup
+    unlock(app)
+    verifier, marker = google_identity(monkeypatch, app)
+    response = client.post(
+        BASE, json=create_body(), headers={"Authorization": "Bearer synthetic-firebase"}
+    )
+    assert response.status_code == 202
+    recipient = service.create.await_args.kwargs["recipient"]
+    assert recipient.user_id == "recipient" and recipient.subject == "12345"
+    verifier.assert_called_once_with("synthetic-firebase", app=marker, check_revoked=False)
+
+
+def test_crossed_firebase_and_vault_owners_fail_before_provider_lookup(setup, monkeypatch):
+    client, app, service, _ = setup
+    unlock(app)
+    verifier, _ = google_identity(monkeypatch, app, firebase_uid="attacker")
+    response = client.post(
+        BASE, json=create_body(), headers={"Authorization": "Bearer synthetic-firebase"}
+    )
+    assert response.status_code == 403
+    verifier.assert_not_called()
+    service.create.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"auth_time": 1},
+        {"email_verified": False},
+        {"email": "attacker@example.invalid"},
+        {"firebase": {"sign_in_provider": "password"}},
+    ],
+)
+def test_non_google_stale_or_substituted_identity_cannot_request(setup, monkeypatch, changes):
+    client, app, service, _ = setup
+    unlock(app)
+    google_identity(monkeypatch, app, changes=changes)
+    response = client.post(
+        BASE, json=create_body(), headers={"Authorization": "Bearer synthetic-firebase"}
+    )
+    assert response.status_code == 409
+    service.create.assert_not_called()

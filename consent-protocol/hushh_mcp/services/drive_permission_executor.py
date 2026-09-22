@@ -7,6 +7,7 @@ from dataclasses import asdict
 
 from firebase_admin import auth as firebase_auth
 
+from api.utils.firebase_admin import get_firebase_auth_app
 from hushh_mcp.services.drive_permission_store import DrivePermissionStore
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
@@ -20,7 +21,10 @@ from hushh_mcp.services.google_drive_permission_adapter import (
 async def require_recipient_identity(recipient: dict) -> None:
     """Recheck the same verified Google provider identity, not primary/cache email."""
     try:
-        user = await asyncio.to_thread(firebase_auth.get_user, recipient["user_id"])
+        async with asyncio.timeout(6):
+            user = await asyncio.to_thread(
+                firebase_auth.get_user, recipient["user_id"], app=get_firebase_auth_app()
+            )
         candidates = [item for item in user.provider_data if item.provider_id == "google.com"]
         if (
             user.disabled

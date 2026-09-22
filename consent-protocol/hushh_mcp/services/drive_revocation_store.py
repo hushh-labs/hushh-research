@@ -28,11 +28,12 @@ REVOCATION_ACTION = {
 
 class DriveRevocationStore(DrivePermissionStore):
     def _management(self, connection, user_id, generation, request_id):
-        self._participant_gate(connection, user_id, request_id)
+        self._owner_gate(connection, user_id)
+        context = self._management_context(connection, user_id, request_id)
         self._active(connection, user_id, generation)
         # New grants may be disabled while an owner still removes recorded ACLs.
         self._selection_policy(connection, user_id, feature="google_drive_connection")
-        return self._request(connection, user_id, request_id)
+        return context
 
     def _receipt(self, row):
         if not row.get("receipt_envelope"):
@@ -128,7 +129,7 @@ class DriveRevocationStore(DrivePermissionStore):
             revision = request["revocation_revision"] + 1
             connection.execute(
                 text("""
-                UPDATE drive_share_requests SET revocation_revision=:revision WHERE request_id=:request
+                UPDATE drive_share_management_contexts SET revocation_revision=:revision WHERE request_id=:request
             """),
                 {"revision": revision, "request": request_id},
             )

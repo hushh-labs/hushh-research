@@ -1,8 +1,9 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 232,
+  "expected_migration_version": 234,
   "migration_version_policy": "exact",
   "required_functions": [
+    "ensure_drive_share_management_context",
     "invalidate_selected_drive_documents",
     "resolve_feed_counterpart_user_id",
     "populate_feed_counterpart_identity",
@@ -598,6 +599,14 @@
     "drive_share_file_claims": [
       "file_lock_hmac",
       "operation_id",
+      "erased_at",
+      "created_at"
+    ],
+    "drive_share_management_contexts": [
+      "request_id",
+      "user_id",
+      "revocation_revision",
+      "private_request_erased_at",
       "created_at"
     ],
     "drive_share_permission_operations": [
@@ -611,6 +620,7 @@
       "file_lock_hmac",
       "kind",
       "parent_operation_id",
+      "worker_inspected_at",
       "plan_envelope",
       "receipt_envelope",
       "state",
@@ -636,6 +646,10 @@
       "approval_invalidated_at",
       "preparation_lease_id",
       "preparation_lease_expires_at",
+      "preparation_attempts",
+      "preparation_next_at",
+      "preparation_inspected_at",
+      "preparation_error_code",
       "created_at",
       "updated_at",
       "expires_at"

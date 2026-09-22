@@ -14,6 +14,24 @@ from hushh_mcp.services.google_drive_adapter import DriveReadError
 
 
 class DrivePermissionStore(DriveSharingStore):
+    def _settlement_gate(self, connection, user_id, request_id):
+        # Live private requests can publish a recipient event. Acquire both
+        # graph gates before context/operation locks, including 201's insert
+        # guard, so B cleanup never waits on us while we wait on B.
+        from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
+
+        private = self._row(
+            connection,
+            """
+            SELECT recipient_user_id FROM drive_share_requests WHERE request_id=:id AND user_id=:user
+        """,
+            {"id": request_id, "user": user_id},
+        )
+        lock_connection_graph_users(
+            connection, user_ids=[user_id, private["recipient_user_id"]] if private else [user_id]
+        )
+        return self._management_context(connection, user_id, request_id)
+
     def _permission(self, connection, user_id, operation_id, *, lock=False):
         sql = (
             "SELECT * FROM drive_share_permission_operations WHERE user_id=:user AND operation_id=:id FOR UPDATE"
@@ -39,9 +57,11 @@ class DrivePermissionStore(DriveSharingStore):
         self._active(connection, initial["user_id"], initial["connection_generation"])
         self._selection_policy(connection, initial["user_id"], feature="drive_document_sharing")
         request = self._related_request(connection, initial["user_id"], str(initial["request_id"]))
+        context = self._management_context(connection, initial["user_id"], initial["request_id"])
         now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
         if (
-            request["status"] not in {"approved", "partial"}
+            context["private_request_erased_at"] is not None
+            or request["status"] not in {"approved", "partial"}
             or request["approval_invalidated_at"] is not None
             or request["revision"] != initial["review_revision"]
             or request["expires_at"] <= now
@@ -102,6 +122,15 @@ class DrivePermissionStore(DriveSharingStore):
                 {"lock": row["file_lock_hmac"], "id": operation_id},
             )
             if not claimed:
+                fence = self._row(
+                    connection,
+                    """
+                    SELECT operation_id,erased_at FROM drive_share_file_claims WHERE file_lock_hmac=:lock
+                """,
+                    {"lock": row["file_lock_hmac"]},
+                )
+                if fence and fence["operation_id"] is None and fence["erased_at"] is not None:
+                    raise DriveSharingError("permission_requires_google_management")
                 return None
             return self._row(
                 connection,
@@ -115,19 +144,26 @@ class DrivePermissionStore(DriveSharingStore):
 
         try:
             return cast(dict | None, await self._transaction(operation))
-        except DriveReadError:
-            await self.retire_undispatched(user_id=user_id, operation_id=operation_id)
+        except DriveReadError as error:
+            await self.retire_undispatched(
+                user_id=user_id,
+                operation_id=operation_id,
+                safe_error_code="permission_requires_google_management"
+                if str(error) == "permission_requires_google_management"
+                else "approval_superseded",
+            )
             raise
 
-    async def retire_undispatched(self, *, user_id, operation_id):
+    async def retire_undispatched(
+        self, *, user_id, operation_id, safe_error_code="approval_superseded"
+    ):
         """Only an expired, provably unposted claim can be released without Google."""
 
         def operation(connection):
             initial = self._permission(connection, user_id, operation_id)
             if not initial:
                 return
-            self._participant_gate(connection, user_id, str(initial["request_id"]))
-            self._request(connection, user_id, str(initial["request_id"]))
+            self._settlement_gate(connection, user_id, initial["request_id"])
             row = self._permission(connection, user_id, operation_id, lock=True)
             now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
             if (
@@ -141,10 +177,10 @@ class DrivePermissionStore(DriveSharingStore):
             connection.execute(
                 text("""
                 UPDATE drive_share_permission_operations SET state='not_dispatched',
-                  safe_error_code='approval_superseded',settled_at=clock_timestamp(),updated_at=clock_timestamp()
+                  safe_error_code=:code,settled_at=clock_timestamp(),updated_at=clock_timestamp()
                 WHERE operation_id=:id
             """),
-                {"id": operation_id},
+                {"id": operation_id, "code": safe_error_code},
             )
             connection.execute(
                 text("DELETE FROM drive_share_file_claims WHERE operation_id=:id"),
@@ -182,10 +218,10 @@ class DrivePermissionStore(DriveSharingStore):
             initial = self._permission(connection, user_id, operation_id)
             if not initial or initial["state"] not in {"dispatching", "unknown"}:
                 return None
-            self._participant_gate(connection, user_id, str(initial["request_id"]))
+            self._owner_gate(connection, user_id)
             self._active(connection, user_id, generation)
             self._selection_policy(connection, user_id, feature="google_drive_connection")
-            self._request(connection, user_id, str(initial["request_id"]))
+            self._management_context(connection, user_id, initial["request_id"])
             row = self._permission(connection, user_id, operation_id, lock=True)
             now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
             if (
@@ -222,9 +258,10 @@ class DrivePermissionStore(DriveSharingStore):
 
     async def require_reconciliation_current(self, job):
         def operation(connection):
-            self._participant_gate(connection, job["user_id"], str(job["request_id"]))
+            self._owner_gate(connection, job["user_id"])
             self._active(connection, job["user_id"], job["reconciliation_generation"])
             self._selection_policy(connection, job["user_id"], feature="google_drive_connection")
+            self._management_context(connection, job["user_id"], job["request_id"])
             row = self._permission(connection, job["user_id"], str(job["operation_id"]), lock=True)
             now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
             if (
@@ -242,8 +279,14 @@ class DrivePermissionStore(DriveSharingStore):
             row = self._current(connection, job)
             if row["state"] != "queued":
                 raise DriveSharingError("permission_job_superseded")
+            context = self._management_context(connection, job["user_id"], job["request_id"])
+            receipt = {"before": before, "issuer": issuer}
+            if context["private_request_erased_at"] is not None:
+                from hushh_mcp.services.drive_sharing_retention import minimal_receipt
+
+                receipt = minimal_receipt(receipt)
             envelope = self.sharing_cipher.seal(
-                {"before": before, "issuer": issuer},
+                receipt,
                 user_id=job["user_id"],
                 resource_id=str(job["operation_id"]),
                 purpose="permission-receipt",
@@ -276,8 +319,7 @@ class DrivePermissionStore(DriveSharingStore):
             # Do NOT check connection/selection/feature here: late successes and
             # uncertain outcomes must survive disconnect or execution disablement.
             # Match dispatch lock order and serialize aggregate batch settlement.
-            self._participant_gate(connection, job["user_id"], str(job["request_id"]))
-            self._request(connection, job["user_id"], str(job["request_id"]))
+            context = self._settlement_gate(connection, job["user_id"], job["request_id"])
             row = self._permission(connection, job["user_id"], str(job["operation_id"]), lock=True)
             if (
                 not row
@@ -299,8 +341,13 @@ class DrivePermissionStore(DriveSharingStore):
                 if row["receipt_envelope"]
                 else {}
             )
+            receipt = {**prior, **evidence}
+            if context["private_request_erased_at"] is not None:
+                from hushh_mcp.services.drive_sharing_retention import minimal_receipt
+
+                receipt = minimal_receipt(receipt)
             envelope = self.sharing_cipher.seal(
-                {**prior, **evidence},
+                receipt,
                 user_id=job["user_id"],
                 resource_id=str(job["operation_id"]),
                 purpose="permission-receipt",
@@ -323,11 +370,16 @@ class DrivePermissionStore(DriveSharingStore):
                     text("DELETE FROM drive_share_file_claims WHERE operation_id=:id"),
                     {"id": job["operation_id"]},
                 )
-            self._finish_batch(connection, job, safe_error_code=safe_error_code)
+            self._finish_batch(connection, row, safe_error_code=safe_error_code)
 
         await self._transaction(operation)
 
     def _finish_batch(self, connection, job, *, safe_error_code=None):
+        context = self._management_context(connection, job["user_id"], job["request_id"])
+        if context["private_request_erased_at"] is not None:
+            # The owner's receipt remains manageable. No erased request,
+            # recipient link or private notification may be reconstructed.
+            return
         if job["kind"] == "revoke":
             # Revocation outcomes are independent of the original sharing
             # result. A removed direct ACL does not prove all access ended.

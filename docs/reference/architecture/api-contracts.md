@@ -1067,6 +1067,48 @@ paths. Tool execution closes before external Mail data enters the model and rema
 closed for the rest of that SDK invocation. A new user turn starts a new invocation.
 These controls are automated-test evidence, not authenticated provider/UAT acceptance.
 
+### Exact-file Drive sharing (default-off)
+
+All routes below use `/api/connectors/google_drive/sharing` and require a current Vault
+Owner. Responses and validation failures are private/no-store; provider payloads, file IDs,
+tokens, subjects and endpoints are not returned. Mutations derive owner/generation server-side.
+
+| Method / suffix | Authority and result |
+| --- | --- |
+| `POST /requests` | B's recent verified Google Firebase identity must match B's Vault Owner; an active A/B connection is required. Accepts an opaque client request ID, A's ID and purpose/period. B need not connect Drive. |
+| `GET /requests` | Participant-scoped incoming/outgoing metadata, bounded pagination; never private candidates. |
+| `GET /requests/{id}` | Participant-only generic status. Preparation and private review remain pending to B. |
+| `GET /requests/{id}/review` | A-only current private review; exact documents, coverage, recipient and review digest. |
+| `POST /requests/{id}/review/refresh` | A's current revision cancels unused review authority and queues preparation again. |
+| `POST /requests/{id}/approve` | A's exact revision, digest, document IDs and strict `confirmed=true`; atomically claims confirmation and records work. HTTP 202 means pending, not shared. |
+| `POST /requests/{id}/decline` | A's revision-bound decision; no provider call. |
+| `POST /requests/{id}/cancel` | B's revision-bound cancellation before approval; no provider call. |
+| `GET /requests/{id}/delivery` | Recorded per-file outcomes. B's current verified Google identity is revalidated; only successfully delivered originals have links. These are not live ACL guarantees. |
+| `POST /requests/{id}/revocation/prepare` | A's fresh review of recorded Hussh-managed direct Viewer grants under the current matching Google account. |
+| `POST /requests/{id}/revocation/confirm` | Exact revocation revision, directive, digest, grant IDs and strict confirmation; queues removal, never adopts pre-existing grants. |
+
+Background suggestions require current durable per-file processing consent and a short-lived
+request lease. The authored interpreter has no tools, owner session or permission authority.
+It may propose only observed document/source references, and every read input is checked again
+under publication locks, including when no file is suggested. Fixed finite workers process
+queued approvals; timeout outcomes reconcile with reads, never blind mutation retries.
+
+Disconnect disables One and deletes its index, not existing Google sharing. Encrypted management
+receipts remain for separate removal. Google originals remain in A's Drive and later edits remain
+visible until access is removed; unrelated inherited/group access can remain. UI, notification,
+deployed worker isolation and authenticated A/B acceptance are still
+release prerequisites. No production flag is enabled by these source changes.
+
+Migration 234 separates A's minimal removal receipts from B's removable private request.
+Account reset/erasure removes request narratives, reviews, B's app identity and raw ACL snapshots;
+only encrypted facts necessary for A to inspect/remove recorded Google permissions remain.
+Owner-only management entries remain discoverable after that cleanup. A's own erasure removes
+credentials, index and receipts; reset retains only revoked monotonic generation/version counters.
+An uncertain already-dispatched write leaves an ownerless keyed file fence, never an automatic
+retry or age-based permission release. That file requires management in Google. The fence keeps
+no raw file ID, user ID or recipient and must survive file-lock-key rotation; it is not a claim
+that account erasure revoked external access or established a legal retention policy.
+
 ## External Developer API
 
 ### Consent Flow

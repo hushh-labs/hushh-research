@@ -146,6 +146,7 @@ from api.routes import (  # noqa: E402
     db_proxy,
     debug_firebase,
     developer,
+    drive_sharing,
     external_connectors,
     health,
     hushh_tech,
@@ -306,6 +307,7 @@ app.include_router(connected_systems.router)
 
 # External MCP connector routes (/api/connectors/...)
 app.include_router(external_connectors.router)
+app.include_router(drive_sharing.router)
 
 # Consent management routes (/api/consent/...)
 app.include_router(consent.router)

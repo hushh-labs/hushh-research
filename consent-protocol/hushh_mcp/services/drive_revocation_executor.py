@@ -2,7 +2,10 @@
 
 import asyncio
 
-from hushh_mcp.services.drive_permission_executor import DrivePermissionExecutor, verified_issuer
+from hushh_mcp.services.drive_permission_executor import (
+    DrivePermissionExecutor,
+    verified_issuer,
+)
 from hushh_mcp.services.drive_revocation_store import DriveRevocationStore
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 from hushh_mcp.services.google_drive_adapter import DriveReadError
