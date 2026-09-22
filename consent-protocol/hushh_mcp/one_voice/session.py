@@ -58,7 +58,13 @@ _NOT_SUCCESS = {
 # ``scope_review_required`` is the same shape for a confirmed accept: the
 # review screen is open and nothing has been accepted yet.
 _AWAITING_DEVICE = frozenset(
-    {protocol.LOCATION_UPDATES_PENDING, "scope_review_required", protocol.SOS_GRANTS_CREATED}
+    {
+        protocol.LOCATION_UPDATES_PENDING,
+        "scope_review_required",
+        protocol.SOS_GRANTS_CREATED,
+        protocol.RESET_STEP_ISSUED,
+        protocol.DELETE_STEP_ISSUED,
+    }
 )
 
 
@@ -635,6 +641,9 @@ class VoiceSession:
         if step.get("purpose") == "sos" and step.get("kind") == "publish_location_envelopes":
             await self._settle_sos_publish_step(step, frame)
             return
+        if step.get("kind") == "account_lifecycle":
+            await self._settle_account_lifecycle_step(step, frame)
+            return
         event: dict[str, Any] = {
             "kind": "client_step",
             "step": step.get("kind"),
@@ -680,6 +689,64 @@ class VoiceSession:
             pending=pending if isinstance(pending, PendingAction) else None,
         )
         ok = report.status in {"sos_sent", "sos_partial"}
+        await self._after_execution(
+            settled, source="device", ok=ok, call_id=str(step.get("call_id") or "") or None
+        )
+        if ok:
+            self.turn.ok_results += 1
+            self._last_turn_ok = True
+
+    async def _settle_account_lifecycle_step(
+        self, step: dict[str, Any], frame: protocol.ClientStepResultFrame
+    ) -> None:
+        """Final outcome of a reset or deletion this session armed.
+
+        The device only says what its lifecycle flow reported; whether the
+        account was reset or deleted is decided by ``report_account_lifecycle``
+        from the server (the ``vault_keys`` stamp, or the tombstone). The raw
+        client payload never reaches the model, and the step record -- not the
+        frame -- names the operation and the owner, so a report cannot be
+        redirected. The card resolves a second time with the verified outcome
+        so the client can replace "resetting"/"deleting" with what happened.
+        """
+        payload = frame.payload if isinstance(frame.payload, dict) else {}
+        client_status = str(payload.get("outcome") or "").strip().lower()
+        if frame.status != "ok" and client_status in {"", "reset", "deleted"}:
+            client_status = "unknown"
+        if client_status not in {
+            "reset",
+            "not_reset",
+            "deleted",
+            "needs_unlock",
+            "auth_failed",
+            "blocked_external",
+            "failed",
+            "unknown",
+        }:
+            client_status = "unknown"
+        outcome = await self.executor.call(
+            self.ctx,
+            "report_account_lifecycle",
+            {
+                "operation": str(step.get("operation") or ""),
+                "client_status": client_status,
+                "issued_at_ms": int(step.get("issued_at_ms") or 0),
+            },
+        )
+        report = outcome.result
+        public = report.public()
+        public["device_step"] = {
+            "status": frame.status,
+            "late": self.clock() > float(step.get("expires_at") or 0),
+        }
+        report = report.model_copy(update={"device_step": public["device_step"]})
+        pending = step.get("pending")
+        settled = ToolCallOutcome(
+            result=report,
+            spec=outcome.spec,
+            pending=pending if isinstance(pending, PendingAction) else None,
+        )
+        ok = report.status in {"account_reset", "account_deleted"}
         await self._after_execution(
             settled, source="device", ok=ok, call_id=str(step.get("call_id") or "") or None
         )
