@@ -170,7 +170,7 @@ describe("OneVoiceControl", () => {
     expect(useAgentVoiceState.getState().active).toBe(true);
   });
 
-  it("docks the conversation panel above the pill and collapses to a one-line status", () => {
+  it("minimizes the conversation without stopping it, retains its status, and restores it", () => {
     render(<OneVoiceControl layout="slot" />);
     connect();
     expect(screen.queryByTestId("one-voice-panel")).toBeNull();
@@ -195,12 +195,30 @@ describe("OneVoiceControl", () => {
     expect(dock).toHaveAttribute("data-voice-panel", "open");
     expect(screen.queryByTestId("one-voice-status-line")).toBeNull();
 
-    fireEvent.click(screen.getByTestId("one-voice-toggle-panel"));
+    const toggle = screen.getByTestId("one-voice-toggle-panel");
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(toggle).toHaveAccessibleName("Minimize voice panel");
+    expect(toggle).toHaveTextContent("Minimize");
+    fireEvent.click(toggle);
     expect(screen.queryByTestId("one-voice-panel")).toBeNull();
     expect(dock).toHaveAttribute("data-voice-panel", "collapsed");
     expect(screen.getByTestId("one-voice-status-line")).toHaveTextContent(
       "You said: Share with Priya",
     );
+    expect(harness.session!.stop).not.toHaveBeenCalled();
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(toggle).toHaveAccessibleName("Expand voice panel");
+    expect(toggle).toHaveTextContent("Expand");
+
+    fireEvent.click(toggle);
+    expect(screen.getByTestId("one-voice-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("one-voice-transcript-line")).toHaveTextContent(
+      "Share with Priya",
+    );
+    expect(harness.session!.stop).not.toHaveBeenCalled();
+
+    fireEvent.click(toggle);
+    expect(screen.queryByTestId("one-voice-panel")).toBeNull();
 
     // A pending action reopens the panel and focuses the card.
     act(() => {
