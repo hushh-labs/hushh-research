@@ -316,9 +316,7 @@ export function CalendarAgentPage({
       : status?.status === "needs_reauth"
         ? "Reconnect needed"
         : "Not connected";
-  const permissionLabel = needsSchedulingReconnect
-    ? "View events and availability. Enable scheduling only when you want One to propose meeting changes."
-    : "View availability and manage meetings after confirmation";
+  const permissionLabel = "View availability and manage meetings with One.";
   const connectLabel =
     status?.status === "needs_reauth"
       ? "Reconnect Calendar"
@@ -393,35 +391,30 @@ export function CalendarAgentPage({
                   </p>
                 </div>
 
-                {/* Actions */}
+                {/* Actions: Two buttons (Try Calendar Agent & Disconnect) */}
                 <div className="flex flex-col items-center gap-2.5 w-full pt-1">
                   <AskOneButton
                     disabled={busy}
-                    onClick={() => openChat("Summarize my calendar events")}
-                    // Full width at every size: this card is a centred column,
-                    // not a page whose actions sit inline.
+                    onClick={() => {
+                      if (needsSchedulingReconnect) {
+                        void connect("manage");
+                      } else {
+                        openChat("Summarize my calendar events and help me plan meetings");
+                      }
+                    }}
                     className="sm:w-full"
                   >
                     Try Calendar Agent with One
                   </AskOneButton>
-                  {needsSchedulingReconnect ? (
-                    <Button
-                      variant="muted"
-                      disabled={busy}
-                      onClick={() => void connect("manage")}
-                      className="w-full justify-center"
-                    >
-                      Enable scheduling
-                    </Button>
-                  ) : null}
-                  <button
+                  <Button
                     type="button"
-                    className="text-xs font-medium text-muted-foreground transition-colors hover:text-destructive focus-visible:outline-none"
+                    variant="muted"
                     disabled={busy}
                     onClick={() => setDisconnectConfirmOpen(true)}
+                    className="w-full justify-center text-xs font-semibold"
                   >
                     Disconnect Calendar
-                  </button>
+                  </Button>
                 </div>
               </div>
             ) : shouldShowSetup ? (
@@ -429,7 +422,7 @@ export function CalendarAgentPage({
                 <div className="flex flex-col items-center justify-center text-center space-y-3 w-full">
                   <Button
                     disabled={busy}
-                    onClick={() => void connect("read")}
+                    onClick={() => void connect("manage")}
                     className="w-full justify-center h-11 text-base font-semibold shadow-sm"
                     data-voice-control-id="open_calendar_connector"
                     data-voice-action-id={
@@ -438,7 +431,7 @@ export function CalendarAgentPage({
                         : undefined
                     }
                     data-voice-label="Connect Calendar"
-                    data-voice-purpose="starts read-only Google Calendar authorization from this Calendar agent."
+                    data-voice-purpose="starts Google Calendar authorization from this Calendar agent."
                   >
                     {connectLabel}
                   </Button>
@@ -451,7 +444,7 @@ export function CalendarAgentPage({
               <div className="flex flex-col items-center gap-2 border-t border-border/60 pt-4">
                 <Button
                   disabled={busy}
-                  onClick={() => void connect("read")}
+                  onClick={() => void connect("manage")}
                   className="w-full justify-center"
                   data-voice-control-id="open_calendar_connector"
                   data-voice-action-id={
@@ -460,7 +453,7 @@ export function CalendarAgentPage({
                       : undefined
                   }
                   data-voice-label="Connect Calendar"
-                  data-voice-purpose="starts read-only Google Calendar authorization from this Calendar agent."
+                  data-voice-purpose="starts Google Calendar authorization from this Calendar agent."
                 >
                   {connectLabel}
                 </Button>
