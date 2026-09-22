@@ -101,6 +101,7 @@ export function SosPanel({
   const [customMessage, setCustomMessage] = useState("");
   const [quickMessage, setQuickMessage] = useState<SmsQuickMessage | null>(null);
   const [holdTarget, setHoldTarget] = useState<"sms" | "composer" | null>(null);
+  const [tapCountdownActive, setTapCountdownActive] = useState(false);
   const [stopConfirmOpen, setStopConfirmOpen] = useState(false);
 
   /**
@@ -117,6 +118,11 @@ export function SosPanel({
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const frameRef = useRef<number | null>(null);
   const holdStartedAtRef = useRef(0);
+  const holdTargetRef = useRef<"sms" | "composer" | null>(null);
+  const countdownModeRef = useRef<"hold" | "tap" | null>(null);
+  const tapCountdownRef = useRef(false);
+  const suppressSendClickRef = useRef(false);
+  const suppressClickTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const firedRef = useRef(false);
   const observedBusyRef = useRef(false);
 
@@ -157,7 +163,11 @@ export function SosPanel({
     timeoutRef.current = null;
     frameRef.current = null;
     holdStartedAtRef.current = 0;
+    holdTargetRef.current = null;
+    countdownModeRef.current = null;
+    tapCountdownRef.current = false;
     setHoldTarget(null);
+    setTapCountdownActive(false);
     if (resetProgress && !firedRef.current) setProgress(0);
   }, []);
 
@@ -200,6 +210,18 @@ export function SosPanel({
   }, [clearHold, disabled, onTrigger, readyRecipients.length, selectedMessage]);
 
   const completeHold = useCallback(() => {
+    // A browser emits click after pointerup/Space keyup. A completed hold has
+    // already sent, so that trailing click must not arm a second countdown.
+    if (countdownModeRef.current === "hold" && holdTargetRef.current === "composer") {
+      suppressSendClickRef.current = true;
+      // Touch browsers may synthesize click after pointerup rather than in the
+      // same task. Keep the guard briefly, then let a later deliberate tap in.
+      if (suppressClickTimeoutRef.current) clearTimeout(suppressClickTimeoutRef.current);
+      suppressClickTimeoutRef.current = setTimeout(() => {
+        suppressSendClickRef.current = false;
+        suppressClickTimeoutRef.current = null;
+      }, 750);
+    }
     fireTrigger();
   }, [fireTrigger]);
 
@@ -213,15 +235,44 @@ export function SosPanel({
   }, []);
 
   const startHold = useCallback((target: "sms" | "composer") => {
-    if (disabled || holdStartedAtRef.current || firedRef.current) return;
+    if (disabled || holdStartedAtRef.current || firedRef.current || tapCountdownRef.current) return;
     holdStartedAtRef.current = performance.now();
+    holdTargetRef.current = target;
+    countdownModeRef.current = "hold";
     setHoldTarget(target);
     setProgress(0);
     frameRef.current = requestAnimationFrame(updateProgress);
     timeoutRef.current = setTimeout(completeHold, HOLD_DURATION_MS);
   }, [completeHold, disabled, updateProgress]);
 
+  const startTapCountdown = useCallback(() => {
+    if (disabled || !customMessage.trim() || holdStartedAtRef.current || firedRef.current) return;
+    tapCountdownRef.current = true;
+    countdownModeRef.current = "tap";
+    holdTargetRef.current = "composer";
+    holdStartedAtRef.current = performance.now();
+    setTapCountdownActive(true);
+    setHoldTarget("composer");
+    setProgress(0);
+    frameRef.current = requestAnimationFrame(updateProgress);
+    timeoutRef.current = setTimeout(completeHold, HOLD_DURATION_MS);
+  }, [completeHold, customMessage, disabled, updateProgress]);
+
   const cancelHold = useCallback(() => clearHold(true), [clearHold]);
+
+  const handleSendClick = () => {
+    if (suppressSendClickRef.current) {
+      suppressSendClickRef.current = false;
+      if (suppressClickTimeoutRef.current) clearTimeout(suppressClickTimeoutRef.current);
+      suppressClickTimeoutRef.current = null;
+      return;
+    }
+    if (tapCountdownRef.current) {
+      cancelHold();
+      return;
+    }
+    startTapCountdown();
+  };
 
   useEffect(() => {
     const onWindowBlur = () => cancelHold();
@@ -234,6 +285,7 @@ export function SosPanel({
       window.removeEventListener("blur", onWindowBlur);
       document.removeEventListener("visibilitychange", onVisibility);
       clearHold();
+      if (suppressClickTimeoutRef.current) clearTimeout(suppressClickTimeoutRef.current);
     };
   }, [cancelHold, clearHold]);
 
@@ -246,11 +298,16 @@ export function SosPanel({
     }
   }, [active, busy]);
 
+  useEffect(() => {
+    if (disabled) cancelHold();
+  }, [cancelHold, disabled]);
+
   const handlePointerDown = (
     event: PointerEvent<HTMLButtonElement>,
     target: "sms" | "composer",
   ) => {
     if (event.button > 0) return;
+    if (tapCountdownRef.current) return;
     event.currentTarget.setPointerCapture?.(event.pointerId);
     startHold(target);
   };
@@ -265,6 +322,7 @@ export function SosPanel({
   // type), so the ring cannot be reset by anything short of an actual
   // pointerup/pointercancel/blur.
   const handlePointerLeave = (event: PointerEvent<HTMLButtonElement>) => {
+    if (tapCountdownRef.current) return;
     if (event.currentTarget.hasPointerCapture?.(event.pointerId)) return;
     cancelHold();
   };
@@ -273,7 +331,7 @@ export function SosPanel({
     if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
-    cancelHold();
+    if (!tapCountdownRef.current) cancelHold();
   };
 
   const handleKeyDown = (
@@ -289,7 +347,7 @@ export function SosPanel({
   const handleKeyUp = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (event.key === " " || event.key === "Enter") {
       event.preventDefault();
-      cancelHold();
+      if (!tapCountdownRef.current) cancelHold();
     }
   };
 
@@ -474,8 +532,11 @@ export function SosPanel({
                 type="button"
                 data-testid="sos-send-custom-message"
                 disabled={disabled || !customMessage.trim()}
-                aria-label="Press and hold Send for two seconds to send your custom message and live location"
+                aria-label={tapCountdownActive
+                  ? "Cancel pending Save My Soul alert"
+                  : "Send custom message: tap for a two-second countdown or hold for two seconds"}
                 aria-describedby={customMessageLimitExceeded ? "sos-short-message-error" : "sos-send-hint"}
+                onClick={handleSendClick}
                 onPointerDown={(event) => handlePointerDown(event, "composer")}
                 onPointerUp={handlePointerEnd}
                 onPointerCancel={handlePointerEnd}
@@ -485,7 +546,11 @@ export function SosPanel({
                 onContextMenu={(event) => event.preventDefault()}
                 className="ui-text-button-label relative flex h-11 min-w-[72px] touch-none select-none items-center justify-center overflow-hidden rounded-[calc(var(--app-input-radius)-6px)] bg-[color:var(--app-destructive)] px-3 text-[color:var(--app-destructive-fg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:bg-[color:var(--sos-control-surface-hover)] disabled:text-[color:var(--sos-label)]"
               >
-                {holdTarget === "composer" && isHolding ? `${remainingSeconds}s` : "Send"}
+                {tapCountdownActive
+                  ? "Cancel"
+                  : holdTarget === "composer" && isHolding
+                    ? `${remainingSeconds}s`
+                    : "Send"}
               </button>
             </div>
             <div className="mt-1 flex min-h-5 items-baseline justify-between gap-3">
@@ -500,7 +565,9 @@ export function SosPanel({
                 </HelperText>
               ) : (
                 <HelperText id="sos-send-hint" as="p" className="text-[color:var(--sos-label)]">
-                  Type, then hold Send for 2 seconds
+                  {tapCountdownActive
+                    ? `Sending in ${remainingSeconds}s · Tap Cancel`
+                    : "Tap Send (2s delay) or hold 2s"}
                 </HelperText>
               )}
               <HelperText

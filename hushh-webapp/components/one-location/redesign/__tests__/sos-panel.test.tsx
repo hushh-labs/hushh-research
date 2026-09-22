@@ -265,7 +265,7 @@ describe("SosPanel", () => {
     expect(onTrigger).toHaveBeenCalledWith("Meet me by the north entrance.");
   });
 
-  it("does not send a custom message on a tap or an interrupted hold", () => {
+  it("starts a two-second countdown on Send tap, then sends without the circle", () => {
     const onTrigger = vi.fn();
     render(<SosPanel {...baseProps} onTrigger={onTrigger} />);
     fireEvent.change(screen.getByRole("textbox", { name: "Or write your own" }), {
@@ -274,11 +274,90 @@ describe("SosPanel", () => {
     const send = screen.getByTestId("sos-send-custom-message");
 
     fireEvent.click(send);
+    expect(send).toHaveTextContent("Cancel");
+    expect(screen.getByText(/Sending in .* Tap Cancel/)).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(1_999));
+    expect(onTrigger).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(1));
+    expect(onTrigger).toHaveBeenCalledTimes(1);
+    expect(onTrigger).toHaveBeenCalledWith("Help me");
+  });
+
+  it("lets the user cancel a tapped Send before the countdown finishes", () => {
+    const onTrigger = vi.fn();
+    render(<SosPanel {...baseProps} onTrigger={onTrigger} />);
+    fireEvent.change(screen.getByRole("textbox", { name: "Or write your own" }), {
+      target: { value: "Help me" },
+    });
+    const send = screen.getByTestId("sos-send-custom-message");
+
+    fireEvent.click(send);
+    act(() => vi.advanceTimersByTime(1_000));
+    fireEvent.click(send);
+    expect(send).toHaveTextContent("Send");
+    act(() => vi.advanceTimersByTime(2_000));
+    expect(onTrigger).not.toHaveBeenCalled();
+  });
+
+  it("cancels a tapped Send when its message changes", () => {
+    const onTrigger = vi.fn();
+    render(<SosPanel {...baseProps} onTrigger={onTrigger} />);
+    const composer = screen.getByRole("textbox", { name: "Or write your own" });
+    fireEvent.change(composer, { target: { value: "First message" } });
+    const send = screen.getByTestId("sos-send-custom-message");
+
+    fireEvent.click(send);
+    act(() => vi.advanceTimersByTime(1_000));
+    fireEvent.change(composer, { target: { value: "Changed message" } });
+    act(() => vi.advanceTimersByTime(2_000));
+
+    expect(onTrigger).not.toHaveBeenCalled();
+    expect(send).toHaveTextContent("Send");
+  });
+
+  it("cancels a tapped Send if the alert becomes unavailable", () => {
+    const onTrigger = vi.fn();
+    const { rerender } = render(<SosPanel {...baseProps} onTrigger={onTrigger} />);
+    fireEvent.change(screen.getByRole("textbox", { name: "Or write your own" }), {
+      target: { value: "Help me" },
+    });
+    fireEvent.click(screen.getByTestId("sos-send-custom-message"));
+
+    rerender(<SosPanel {...baseProps} onTrigger={onTrigger} busy />);
+    act(() => vi.advanceTimersByTime(2_000));
+    expect(onTrigger).not.toHaveBeenCalled();
+  });
+
+  it("does not send after an interrupted hold without a tap", () => {
+    const onTrigger = vi.fn();
+    render(<SosPanel {...baseProps} onTrigger={onTrigger} />);
+    fireEvent.change(screen.getByRole("textbox", { name: "Or write your own" }), {
+      target: { value: "Help me" },
+    });
+    const send = screen.getByTestId("sos-send-custom-message");
+
     fireEvent.pointerDown(send, { button: 0, pointerId: 1 });
     act(() => vi.advanceTimersByTime(1_500));
     fireEvent.pointerUp(send, { pointerId: 1 });
     act(() => vi.advanceTimersByTime(1_000));
     expect(onTrigger).not.toHaveBeenCalled();
+  });
+
+  it("does not send twice when click follows a completed Send hold", () => {
+    const onTrigger = vi.fn();
+    render(<SosPanel {...baseProps} onTrigger={onTrigger} />);
+    fireEvent.change(screen.getByRole("textbox", { name: "Or write your own" }), {
+      target: { value: "Help me" },
+    });
+    const send = screen.getByTestId("sos-send-custom-message");
+
+    fireEvent.pointerDown(send, { button: 0, pointerId: 1 });
+    act(() => vi.advanceTimersByTime(2_000));
+    fireEvent.pointerUp(send, { pointerId: 1 });
+    fireEvent.click(send);
+    act(() => vi.advanceTimersByTime(2_000));
+
+    expect(onTrigger).toHaveBeenCalledTimes(1);
   });
 
   it("supports a two-second keyboard hold on Send", () => {
