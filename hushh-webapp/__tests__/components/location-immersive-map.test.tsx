@@ -1257,11 +1257,9 @@ describe("LocationImmersiveMap demo experience", () => {
       animate: true,
     });
 
-    // The owner avatar is HTML, and it now owns the venue coordinate. The old
-    // GPS point never reaches the renderer. Before the first camera report, a
-    // blue venue fallback may briefly protect compatibility renderers; once the
-    // avatar can project, that fallback is removed rather than becoming the old
-    // duplicate green place pin.
+    // The owner avatar is HTML, and it now owns the venue coordinate. Neither
+    // the old GPS point nor the venue is ever handed to the native renderer as
+    // a generic pin, including before the first camera projection report.
     const rendererMarkers = mapHarness.map.addMarkers.mock.calls.flatMap(
       (call) =>
         (call[0] as Array<{
@@ -1276,21 +1274,13 @@ describe("LocationImmersiveMap demo experience", () => {
           marker.coordinate.lng === -122.418,
       ),
     ).toBe(false);
-    const venueFallbacks = rendererMarkers.filter(
-      (marker) =>
-        marker.coordinate.lat === 37.7775 &&
-        marker.coordinate.lng === -122.4172,
-    );
-    expect(venueFallbacks.length).toBeGreaterThan(0);
     expect(
-      venueFallbacks.every(
+      rendererMarkers.some(
         (marker) =>
-          marker.tintColor?.r === 0 &&
-          marker.tintColor.g === 122 &&
-          marker.tintColor.b === 255,
+          marker.coordinate.lat === 37.7775 &&
+          marker.coordinate.lng === -122.4172,
       ),
-    ).toBe(true);
-    expect(mapHarness.map.removeMarkers).toHaveBeenCalled();
+    ).toBe(false);
     expect(mapHarness.map.addPolylines).not.toHaveBeenCalled();
 
     const legend = screen.getByTestId("one-location-nearby-search-area-legend");
@@ -1372,7 +1362,7 @@ describe("LocationImmersiveMap demo experience", () => {
     );
   });
 
-  it("keeps a blue venue fallback when camera projection is unavailable", async () => {
+  it("never substitutes a generic venue pin when camera projection is unavailable", async () => {
     experienceHarness.demoMode = false;
     experienceHarness.nearbyAvailable = true;
     mapHarness.map.setOnBoundsChangedListener.mockRejectedValueOnce(
@@ -1391,19 +1381,11 @@ describe("LocationImmersiveMap demo experience", () => {
     fireEvent.click(screen.getByTestId("publish-nearby-state"));
 
     await waitFor(() => {
-      const latest = mapHarness.map.addMarkers.mock.calls.at(-1)?.[0] as
-        | Array<{
-            coordinate: { lat: number; lng: number };
-            tintColor?: { r: number; g: number; b: number; a: number };
-          }>
-        | undefined;
-      expect(latest).toEqual([
-        expect.objectContaining({
-          coordinate: { lat: 37.7775, lng: -122.4172 },
-          tintColor: { r: 0, g: 122, b: 255, a: 255 },
-        }),
-      ]);
+      expect(
+        screen.getByTestId("one-location-map-locate"),
+      ).toHaveAccessibleName("Show my check-in place");
     });
+    expect(mapHarness.map.addMarkers).not.toHaveBeenCalled();
     expect(
       screen.queryByTestId("one-location-map-self-avatar"),
     ).not.toBeInTheDocument();

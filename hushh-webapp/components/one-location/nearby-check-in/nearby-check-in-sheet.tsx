@@ -184,6 +184,13 @@ const EMPTY_NEARBY_STATE: OneLocationNearbyPresenceState = {
 
 type LocationRecovery = "app-settings" | "location-settings" | null;
 type PresenceLoadResult = OneLocationNearbyPresenceState | "error" | null;
+type ConfirmedPlaceAnchor = {
+  placeId: string | null;
+  placeLabel: string | null;
+  checkedInAt: string | null;
+  latitude: number;
+  longitude: number;
+};
 
 /**
  * How the point driving the place list was obtained. A degraded fix still
@@ -372,6 +379,123 @@ function placePoint(
     return null;
   }
   return { latitude: place.latitude, longitude: place.longitude };
+}
+
+function presenceHasPlacePoint(
+  presence: OneLocationNearbyPresenceState["presence"],
+): boolean {
+  return (
+    !!presence &&
+    typeof presence.placeLat === "number" &&
+    typeof presence.placeLng === "number" &&
+    Number.isFinite(presence.placeLat) &&
+    Number.isFinite(presence.placeLng)
+  );
+}
+
+function confirmedAnchorFromPresence(
+  presence: OneLocationNearbyPresenceState["presence"],
+): ConfirmedPlaceAnchor | null {
+  if (!presenceHasPlacePoint(presence) || !presence) return null;
+  return {
+    placeId: presence.placeId?.trim() || null,
+    placeLabel: presence.placeLabel?.trim() || null,
+    checkedInAt: presence.checkedInAt || null,
+    latitude: presence.placeLat!,
+    longitude: presence.placeLng!,
+  };
+}
+
+function confirmedAnchorFromPlace(
+  place: OneLocationNearbyPlaceSuggestion,
+): ConfirmedPlaceAnchor | null {
+  const point = placePoint(place);
+  if (!point) return null;
+  return {
+    placeId: place.placeId?.trim() || null,
+    placeLabel: place.name?.trim() || place.text?.trim() || null,
+    checkedInAt: null,
+    latitude: point.latitude,
+    longitude: point.longitude,
+  };
+}
+
+function presenceMatchesConfirmedAnchor(
+  presence: OneLocationNearbyPresenceState["presence"],
+  anchor: ConfirmedPlaceAnchor,
+): boolean {
+  if (!presence) return false;
+  if (
+    anchor.checkedInAt &&
+    presence.checkedInAt &&
+    anchor.checkedInAt !== presence.checkedInAt
+  ) {
+    return false;
+  }
+  const presencePlaceId = presence.placeId?.trim();
+  if (presencePlaceId && anchor.placeId) {
+    return presencePlaceId === anchor.placeId;
+  }
+  const presenceLabel = presence.placeLabel?.trim();
+  if (presenceLabel && anchor.placeLabel) {
+    return presenceLabel === anchor.placeLabel;
+  }
+  return false;
+}
+
+function withPreservedConfirmedAnchor(
+  state: OneLocationNearbyPresenceState,
+  anchor: ConfirmedPlaceAnchor | null,
+): OneLocationNearbyPresenceState {
+  const presence = state.presence;
+  if (!presence || !anchor || presenceHasPlacePoint(presence)) return state;
+  if (!presenceMatchesConfirmedAnchor(presence, anchor)) return state;
+  return {
+    ...state,
+    presence: {
+      ...presence,
+      placeId: presence.placeId || anchor.placeId || undefined,
+      placeLabel: presence.placeLabel?.trim() || anchor.placeLabel || undefined,
+      placeLat: anchor.latitude,
+      placeLng: anchor.longitude,
+    },
+  };
+}
+
+/**
+ * Keep the confirmed public venue authoritative even while deployments roll.
+ *
+ * Current servers echo the encrypted venue anchor in the successful check-in
+ * response. If a web deployment reaches an older API instance during a rolling
+ * release, that response can still say "active" without the optional
+ * coordinates. Publishing it verbatim briefly leaves the map in selection
+ * mode: the avatar stays at the device fix and the candidate place pin remains.
+ * The owner has just confirmed this exact provider result, so use its public
+ * coordinates as the response-local anchor until the next server read returns
+ * the canonical values. This never substitutes the owner's private GPS point.
+ */
+function withConfirmedPlaceAnchor(
+  state: OneLocationNearbyPresenceState,
+  place: OneLocationNearbyPlaceSuggestion,
+): OneLocationNearbyPresenceState {
+  const presence = state.presence;
+  if (!presence) return state;
+  if (presenceHasPlacePoint(presence)) {
+    return state;
+  }
+  const anchor = confirmedAnchorFromPlace(place);
+  if (!anchor) return state;
+  return {
+    ...state,
+    presence: {
+      ...presence,
+      placeId: presence.placeId || anchor.placeId || undefined,
+      placeLabel:
+        presence.placeLabel?.trim() || anchor.placeLabel || undefined,
+      placeLat: anchor.latitude,
+      placeLng: anchor.longitude,
+    },
+  };
 }
 
 /** Straight-line metres between two points. */
@@ -624,6 +748,7 @@ export function NearbyCheckInSheet({
   const mutationInFlightRef = useRef(false);
   const searchGenerationRef = useRef(0);
   const placeFocusGenerationRef = useRef(0);
+  const confirmedPlaceAnchorRef = useRef<ConfirmedPlaceAnchor | null>(null);
   /**
    * Best fix seen this session. Reused when a refresh fails so a transient
    * geolocation hiccup degrades the drawer instead of emptying it.
@@ -785,8 +910,15 @@ export function NearbyCheckInSheet({
 
   const publishState = useCallback(
     (next: OneLocationNearbyPresenceState) => {
-      setState(next);
-      onStateChange?.(next);
+      const nextWithAnchor = withPreservedConfirmedAnchor(
+        next,
+        confirmedPlaceAnchorRef.current,
+      );
+      confirmedPlaceAnchorRef.current = confirmedAnchorFromPresence(
+        nextWithAnchor.presence,
+      );
+      setState(nextWithAnchor);
+      onStateChange?.(nextWithAnchor);
     },
     [onStateChange],
   );
@@ -1639,7 +1771,7 @@ export function NearbyCheckInSheet({
             allowConnectionRequests,
           }),
       });
-      const next = completed.state;
+      const next = withConfirmedPlaceAnchor(completed.state, selectedPlace);
       if (
         ownerEpochRef.current !== expectedOwnerEpoch ||
         presenceMutationGenerationRef.current !== generation
