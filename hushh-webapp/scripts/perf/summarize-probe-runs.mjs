@@ -154,6 +154,22 @@ for (const [name, ws] of byGesture.entries()) {
   }
 }
 routeEnterRows.sort((a, b) => (b.first_frame_ms ?? 0) - (a.first_frame_ms ?? 0));
+
+// One row per stalled window: the worst frames with their offsets, the
+// longest event-timing entries by name, the element count. This is what
+// tells a React commit from a style pass from an event handler.
+const stallRows = [];
+for (const w of windows) {
+  if (!(w.over_50_count > 0) || !Array.isArray(w.worst_frames) || w.worst_frames.length === 0) continue;
+  const gesture = gestures.find((g) => w.start_epoch_ms >= g.start - 300 && w.start_epoch_ms <= g.end + 300);
+  const worst = w.worst_frames.map((f) => `${f.gap_ms} ms @ ${f.at_ms} ms`).join(", ");
+  const top = w.event_timing?.top ?? [];
+  const event = top.length
+    ? top.map((e) => `${e.name} ${e.duration_ms} ms (handler ${e.processing_ms}) @ ${e.at_ms} ms`).join(", ")
+    : "-";
+  const commits = w.commits?.count ? `${w.commits.count} / ${w.commits.total_ms} ms (max ${w.commits.max_ms})` : "0";
+  stallRows.push({ gesture: gesture?.name ?? "(none)", kind: w.kind, worst, event, dom_nodes: w.dom_nodes ?? null, commits });
+}
 const verdict = (r) => (r.over_50_count > 0 || (r.hitch_ms_per_s_median ?? 0) >= 10 ? "critical" : (r.hitch_ms_per_s_median ?? 0) >= 5 || (hz && r.p95_ms_median > hz.budget_ms) ? "warning" : "good");
 
 const summary = {
@@ -168,6 +184,7 @@ const summary = {
   react_profiling: reactProfiling,
   route_enter: routeEnterRows,
   keyboard_geometry: keyboardGeometry,
+  stalls: stallRows,
 };
 
 const md = [
@@ -185,6 +202,19 @@ const md = [
   "|---|---|---|---|---|",
   ...idleRows.map((r) => `| ${r.route} | ${r.frames} | ${r.p95_ms} | ${r.max_ms} | ${r.over_50_count} |`),
   "",
+  ...(stallRows.length
+    ? [
+        "Stalls (windows with a frame over 50 ms): where the worst frame sits, the longest event handler, the document's size.",
+        "",
+        "| Gesture | Kind | Worst frame | Longest event | Elements | Commits |",
+        "|---|---|---|---|---|---|",
+        ...stallRows.map(
+          (r) =>
+            `| ${r.gesture} | ${r.kind} | ${r.worst} | ${r.event} | ${r.dom_nodes ?? "-"} | ${r.commits} |`,
+        ),
+        "",
+      ]
+    : []),
   ...(keyboardGeometry.length
     ? [
         "Keyboard (settled, points): composer field bottom to keyboard top.",

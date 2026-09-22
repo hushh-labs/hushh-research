@@ -183,6 +183,15 @@ bottom edge and the keyboard's top edge and the summary carries the gap in
 points (`keyboard_geometry`). The composer belongs just above the keyboard's
 edge; on the phone it once sat 138 pt above it (bug log B44).
 
+Every window also keeps its three longest frames with their offset from the
+window's start, the three longest Event Timing entries by name (with the
+handler's own processing time), and the document's element count at close.
+The summary prints these as a "Stalls" table for every window with a frame
+over 50 ms: it is what tells a React commit from a style pass from an event
+handler from a stall the page did not cause (a 614-element document cannot
+spend 80 ms in a style pass; a frame with no event and no commit under it
+is the system, or a layout the size of the change explains).
+
 On a native shell the keyboard never resizes the WebView, so the root chat
 composer lifts itself: `--kb-height` lands once at `keyboardWillShow` with
 the keyboard's final height, and the composer form moves on the CSS

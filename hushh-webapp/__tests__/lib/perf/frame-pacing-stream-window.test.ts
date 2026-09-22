@@ -139,6 +139,25 @@ describe("frame pacing probe stream window", () => {
     probe.stop();
   });
 
+  it("places the worst frames inside the window and counts the document at close", () => {
+    document.body.innerHTML = "<main><p>one</p><p>two</p></main>";
+    const probe = startFramePacingProbe({ hud: false });
+    for (let i = 0; i < 70; i += 1) frame();
+    document.dispatchEvent(new Event("input", { bubbles: true }));
+    frame();
+    frame(90); // one stall, 106.7 ms after the window opened (16.7 + 90)
+    for (let i = 0; i < 5; i += 1) frame();
+    frame(40);
+    for (let i = 0; i < 45; i += 1) frame();
+    const [w] = probe.export().windows;
+    expect(w?.over_50_count).toBe(1);
+    expect(w?.worst_frames[0]).toEqual({ gap_ms: 90, at_ms: 106.7 });
+    expect(w?.worst_frames[1]?.gap_ms).toBe(40);
+    expect(w?.worst_frames.length).toBeLessThanOrEqual(3);
+    expect(w?.dom_nodes).toBe(document.getElementsByTagName("*").length);
+    probe.stop();
+  });
+
   it("does not open a stream window without the marker", () => {
     const probe = startFramePacingProbe({ hud: false });
     for (let i = 0; i < 120; i += 1) frame();

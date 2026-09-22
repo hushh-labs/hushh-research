@@ -88,7 +88,19 @@ const BOOT_PROBE_MS = 1000;
 const ROUTE_ID_SEGMENT = /^[A-Za-z0-9_-]{16,}$/;
 const ROUTE_VARIANT_KEYS = ["tab", "profile_pane", "action", "demo"] as const;
 
-type EventTimingSummary = { count: number; max_ms: number; over_100_count: number; inp_ms: number };
+type EventTimingEntry = { name: string; duration_ms: number; processing_ms: number; at_ms: number };
+type EventTimingSummary = {
+  count: number;
+  max_ms: number;
+  over_100_count: number;
+  inp_ms: number;
+  /** The longest entries by duration, with the event's name and its offset in the window. */
+  top: EventTimingEntry[];
+};
+/** One of the longest frames in a window: its gap and where in the window it ended. */
+type WorstFrame = { gap_ms: number; at_ms: number };
+const WORST_FRAMES_KEPT = 3;
+const EVENT_ENTRIES_KEPT = 3;
 type LongTaskSummary = { count: number; total_ms: number };
 type LoafSummary = { count: number; blocking_ms: number };
 
@@ -112,7 +124,17 @@ type ProbeWindow = {
   commits: CommitAccumulator;
   /** Set when the window carried a route change: the destination's first commit and first frame. */
   routeEnter: RouteEnterReport | null;
+  /** The longest frames, so a single stall can be placed inside the window. */
+  worst: WorstFrame[];
+  /** Elements in the document when the window closed: the size of a whole-document style pass. */
+  domNodes: number | null;
 };
+
+function keepTop<T>(list: T[], item: T, limit: number, value: (item: T) => number): void {
+  list.push(item);
+  list.sort((a, b) => value(b) - value(a));
+  if (list.length > limit) list.length = limit;
+}
 
 /** Top-N by actual duration plus totals; bounded so a long window stays small. */
 class CommitAccumulator {
@@ -172,6 +194,8 @@ export type ProbeWindowReport = FrameWindowStats & {
   loaf: LoafSummary | null;
   commits: CommitSummary;
   route_enter: RouteEnterReport | null;
+  worst_frames: WorstFrame[];
+  dom_nodes: number | null;
 };
 
 export type ProbeExport = {
@@ -315,6 +339,9 @@ export function startFramePacingProbe(options: { hud: boolean }): FramePacingPro
     if (!current) return;
     current.endPerf = now;
     current.endEpoch = Date.now();
+    // Read after the gesture, never inside it: a live collection's length
+    // walks the tree once.
+    current.domNodes = document.getElementsByTagName("*").length;
     current = null;
     pointerUpAt = null;
     routeChangedAt = null;
@@ -340,6 +367,8 @@ export function startFramePacingProbe(options: { hud: boolean }): FramePacingPro
       interactionMax: new Map(),
       commits: new CommitAccumulator(),
       routeEnter: null,
+      worst: [],
+      domNodes: null,
     };
     windows.push(current);
   };
@@ -371,6 +400,9 @@ export function startFramePacingProbe(options: { hud: boolean }): FramePacingPro
       const delta = now - lastFrameAt;
       if (current) {
         current.acc.add(delta, budgetMs);
+        if (delta > budgetMs) {
+          keepTop(current.worst, { gap_ms: round(delta), at_ms: round(now - current.startPerf) }, WORST_FRAMES_KEPT, (f) => f.gap_ms);
+        }
         const sinceScroll = now - lastScrollAt;
         const settleMs = NAVIGATION_KINDS.has(current.kind) ? NAV_SETTLE_MS : POINTER_SETTLE_MS;
         const settled =
@@ -449,12 +481,24 @@ export function startFramePacingProbe(options: { hud: boolean }): FramePacingPro
     "event",
     (entries) => {
       if (!current) return;
-      const summary = (current.events ??= { count: 0, max_ms: 0, over_100_count: 0, inp_ms: 0 });
+      const summary = (current.events ??= { count: 0, max_ms: 0, over_100_count: 0, inp_ms: 0, top: [] });
       for (const entry of entries) {
         const duration = entry.duration;
         summary.count += 1;
         if (duration > summary.max_ms) summary.max_ms = round(duration);
         if (duration > 100) summary.over_100_count += 1;
+        const timing = entry as PerformanceEntry & { processingStart?: number; processingEnd?: number };
+        keepTop(
+          summary.top,
+          {
+            name: entry.name,
+            duration_ms: round(duration),
+            processing_ms: round((timing.processingEnd ?? 0) - (timing.processingStart ?? 0)),
+            at_ms: round(entry.startTime - current.startPerf),
+          },
+          EVENT_ENTRIES_KEPT,
+          (item) => item.duration_ms,
+        );
         const interactionId = (entry as PerformanceEntry & { interactionId?: number }).interactionId;
         if (interactionId) {
           const previous = current.interactionMax.get(interactionId) ?? 0;
@@ -511,6 +555,8 @@ export function startFramePacingProbe(options: { hud: boolean }): FramePacingPro
         loaf: w.loaf,
         commits: w.commits.summary(),
         route_enter: w.routeEnter,
+        worst_frames: w.worst,
+        dom_nodes: w.domNodes,
       };
     });
     const idleReports = Array.from(idle.entries()).map(([key, entry]) => ({
