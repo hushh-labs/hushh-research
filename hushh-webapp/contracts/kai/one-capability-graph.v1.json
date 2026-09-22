@@ -17800,6 +17800,159 @@
     },
     {
       "aliases": [
+        "Reset account",
+        "reset my account",
+        "reset my hussh account"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "explicit_user_confirmation"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "explicit_user_confirmation"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "profile.reset_account",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Resets the person's own Hussh account after a tap confirmation: keeps sign-in and vault, clears personal setup and data, and restarts onboarding. Not a deletion.",
+      "execution": {
+        "binding_ref": "render:profile.reset_account",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "voice_tool",
+          "status": "wired",
+          "target": "profile.reset_account"
+        }
+      },
+      "goal_id": "goal.profile.reset_account",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Reset account",
+      "navigation": {
+        "fallback": "profile.reset_account",
+        "routes": [
+          "/one/profile"
+        ],
+        "screens": [
+          "profile_account"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "explicit_user_confirmation"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "reset account",
+        "start account over"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Open privacy settings",
         "privacy settings",
         "show my privacy settings"
@@ -38088,7 +38241,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "7f29fe3245466b2f381fdf881df299ec7aa1b4483e54d2df406ab41b40d35e3d",
+      "projection_digest": "4ecf76a7bf94b30030c430658887c383ea46110ee066fa836aaea3e06f5a9011",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -38107,7 +38260,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "fc844f2d3e1b73763155fb0708676c62639bbf7115be9f5405553580f01894ba"
       },
-      "source_revision": "97a45a3fba9e3584",
+      "source_revision": "c2e7e299b49c5228",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -39625,7 +39778,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "97a45a3fba9e3584",
+    "source_revision": "c2e7e299b49c5228",
     "web": {
       "actions": [
         {
@@ -39668,7 +39821,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "421f4085eaec8fe1d2313a84aca8491760db385540d3b3f8f25a4d1c407b0dc9",
+      "projection_digest": "a702fbb5f99b3d790a70fceadacb55b923cdc5b833cdaae863b53512fc724997",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -39687,7 +39840,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "fc844f2d3e1b73763155fb0708676c62639bbf7115be9f5405553580f01894ba"
       },
-      "source_revision": "97a45a3fba9e3584",
+      "source_revision": "c2e7e299b49c5228",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -41244,7 +41397,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "97a45a3fba9e3584",
+  "revision": "c2e7e299b49c5228",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -42116,6 +42269,7 @@
         "help.open_examples",
         "profile.delete_account",
         "profile.marketplace_visibility.toggle",
+        "profile.reset_account",
         "profile.set_contact_discoverable",
         "profile.sign_out",
         "profile.support.submit_message",
@@ -42161,6 +42315,7 @@
         "help.open_examples",
         "profile.delete_account",
         "profile.marketplace_visibility.toggle",
+        "profile.reset_account",
         "profile.set_contact_discoverable",
         "profile.sign_out",
         "profile.support.submit_message",
@@ -42188,6 +42343,7 @@
         "help.open_examples",
         "profile.delete_account",
         "profile.marketplace_visibility.toggle",
+        "profile.reset_account",
         "profile.set_contact_discoverable",
         "profile.sign_out",
         "profile.support.submit_message",
@@ -42939,10 +43095,15 @@
     }
   ],
   "semantic_diff": {
-    "added": [],
+    "added": [
+      "actions:profile.reset_account"
+    ],
     "breaking": [],
     "changed": [
-      "actions:consent.cancel_request"
+      "actions:consent.cancel_request",
+      "screens:screen:/one/profile",
+      "screens:screen:/one/profile/account",
+      "screens:screen:/one/profile/account/phone"
     ],
     "compatible": [
       "actions:consent.cancel_request"
@@ -45395,18 +45556,18 @@
     "capability_graph_evolution": "0a9b96bfc6b080a4e6d0922e7b91cbd5edc6bcf55b7a6301c6184e89df23c09a",
     "capability_runtime_compiler": "9a0b0b573b4e3ae42d2a49ce15f93a7cce70e5dc4046dea14922d7cd6ace9078",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "120fc6f7446e860d47bcae8674593ef62a91e4739a10c5c23ec5a5c7ea12a684",
+    "kai_action_gateway": "f64403d3031e97fd519101bf242c5072cc94d592a44197277cb1870324990160",
     "location_agent_manifest": "25952f13232f1d1adb7664da7c037b59cef093a1389caeb46af3d2771a12ff07",
     "location_knowledge_package": "054141b4aaf04ef13ce9bd139a1044287be8703c1e65015cc338a970d4fa51ed",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
     "product_agent_registry": "7040830fdc6c2fed322258b6be748b67b7015acddddd0854890cabf17f65cb85",
-    "route_orchestration_index": "ace26ca01a2bb5d5be3b1195a8305bb10324025181e0b3276d062b060e05ce54",
+    "route_orchestration_index": "ab7e206f2ffbfe0dfab96a5462fdfb31a9af1af437ac2732a9567579805faa41",
     "service_knowledge_packages": "fc844f2d3e1b73763155fb0708676c62639bbf7115be9f5405553580f01894ba"
   },
-  "source_revision": "97a45a3fba9e3584",
+  "source_revision": "c2e7e299b49c5228",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "97a45a3fba9e3584",
+    "current_graph_revision": "c2e7e299b49c5228",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {

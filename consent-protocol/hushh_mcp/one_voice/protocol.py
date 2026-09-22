@@ -28,6 +28,12 @@ LOCATION_UPDATES_PENDING = _LOCATION_UPDATES_PENDING
 # Interim status of an armed Save My Soul alert: grants exist, the device has
 # not published a position yet, and nobody has been reached.
 SOS_GRANTS_CREATED = "sos_grants_created"
+# Interim status of an account reset / deletion the person tapped: the device
+# is running the lifecycle flow and the server has verified nothing yet.
+RESET_STEP_ISSUED = "reset_step_issued"
+DELETE_STEP_ISSUED = "delete_step_issued"
+ACCOUNT_LIFECYCLE_STEP_KIND = "account_lifecycle"
+ACCOUNT_LIFECYCLE_REPORT_TOOL = "report_account_lifecycle"
 # Statuses whose ``tool.result`` frame carries ``ok: false``.
 NOT_OK_STATUSES = frozenset(
     {
@@ -38,6 +44,8 @@ NOT_OK_STATUSES = frozenset(
         "scope_review_required",
         LOCATION_UPDATES_PENDING,
         SOS_GRANTS_CREATED,
+        RESET_STEP_ISSUED,
+        DELETE_STEP_ISSUED,
     }
 )
 

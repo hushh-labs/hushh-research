@@ -37,6 +37,7 @@ import { ConsentNotificationProvider } from "@/components/consent/notification-p
 import { GlobalVoiceActionHandlers } from "@/components/agent/global-voice-action-handlers";
 import { ProfileIdentityVoiceRefresh } from "@/components/profile/profile-identity-voice-refresh";
 import { GlobalConsentActionHandlers } from "@/components/agent/global-consent-action-handlers";
+import { AccountLifecycleStepBridge } from "@/components/profile/account-lifecycle-step-bridge";
 import { ConsentSheetProvider } from "@/components/consent/consent-sheet-controller";
 import { resolveTopShellRouteProfile } from "@/components/app-ui/top-shell-metrics";
 import { resolveAppRouteLayout } from "@/lib/navigation/app-route-layout";
@@ -795,6 +796,10 @@ function AppShellFrame({ children }: ProvidersProps) {
                 and took the whole app down with it.
               */}
               <GlobalConsentActionHandlers />
+              {/* A voice-armed account reset or deletion runs its device half
+                  here: it needs the vault-owner token this provider holds and
+                  must work from Home, not only with Profile mounted. */}
+              <AccountLifecycleStepBridge />
             </AgentRuntimeStateProvider>
           </OneLocationInteractionSurfaceProvider>
         </VaultProvider>

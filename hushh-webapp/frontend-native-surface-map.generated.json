@@ -4938,6 +4938,7 @@
         "help.open_examples",
         "profile.delete_account",
         "profile.marketplace_visibility.toggle",
+        "profile.reset_account",
         "profile.set_contact_discoverable",
         "profile.sign_out",
         "profile.support.submit_message",
@@ -9576,5 +9577,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "2710e13385fef68b0853991500515ba3da52a8c2791d61e93502ecf32fc1bd54"
+  "content_sha256": "cd29f3fedd4a1237b8ae5b02821bfc43653ddaae314ff44fa8abd72cc3512561"
 }
