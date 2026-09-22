@@ -61,6 +61,7 @@ let session;
 let ownerToken = "";
 let identityToken = "";
 let createdBundleId = "";
+let createdRequestIds = [];
 let allowCreate = false;
 let allowCancel = false;
 let mutationFailure = null;
@@ -325,10 +326,11 @@ try {
     const responseBundleId = clean(createdPayload?.bundleId || createdPayload?.bundle_id);
     requireEvidence(Boolean(responseBundleId), "CREATED_REQUEST_ID_MISSING");
     createdBundleId = responseBundleId;
-    assertRequestState(await ownerJson(`/api/one/information-requests/${encodeURIComponent(createdBundleId)}`), {
+    const pending = assertRequestState(await ownerJson(`/api/one/information-requests/${encodeURIComponent(createdBundleId)}`), {
       bundleId: createdBundleId, personRef, purpose: PURPOSE, durationSeconds: 172800,
       scopeRefs: [scopeRef], status: "pending",
     });
+    createdRequestIds = pending.items.map(item => item.requestId);
     await page.getByTestId("specialist-directive-card").waitFor({ state: "hidden", timeout: turnTimeoutMs });
     await verifyAllStartedStreams(page);
     return "exact new request is pending";
@@ -364,7 +366,7 @@ try {
     }
     assertRequestState(await ownerJson(`/api/one/information-requests/${encodeURIComponent(createdBundleId)}`), {
       bundleId: createdBundleId, personRef, purpose: PURPOSE, durationSeconds: 172800,
-      scopeRefs: [scopeRef], status: "cancelled",
+      scopeRefs: [scopeRef], requestIds: createdRequestIds, status: "cancelled",
     });
     await page.getByTestId("specialist-directive-card").waitFor({ state: "hidden", timeout: turnTimeoutMs });
     await verifyAllStartedStreams(page);

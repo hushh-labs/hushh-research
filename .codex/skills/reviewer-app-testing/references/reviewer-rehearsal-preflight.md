@@ -183,3 +183,24 @@ that expectation. This check does not independently prove the entire encrypted
 envelope's authority or absence of information outside the displayed projection;
 those remain separate export-integrity and scope-isolation requirements.
 This proves the specified retained grant, not fresh submission or Chat restoration.
+
+### Fresh Profile consent loop
+
+`verify-reviewer-consent-profile.mjs` requires mutation authorization, explicit
+primary **information owner** and counterpart **requester** UIDs, the owner's
+`REVIEWER_PERSON_REF`, `REVIEWER_CONSENT_SCOPE_REF`, and exact synthetic rendered
+domain JSON in `REVIEWER_EXPECTED_PAYLOAD_JSON`. Keep these inputs memory-only.
+It verifies the owner UID/public-reference binding through the requester's
+authorized connection projection before submitting anything. Missing connections
+or connector readiness are blockers, not permission to create relationships or
+rewrite connector records.
+
+This runner composes the harness's optional `admitMutation` policy. The policy
+is installed before navigation in every context and retry; explicit mutation
+authorization remains required. Only the exact reviewed request and its bound
+approval are admitted during their respective actions. Unrelated writes fail
+the run. The runner proves a visible vault challenge, fresh pending/granted
+request identity, 24-hour approval and grant duration, exact browser-local domain
+readback, and separate cold re-unlock. It retains the request/grant and reports
+only sanitized outcomes. It does not by itself prove Chat restoration, complete
+export isolation, or the full multi-account acceptance matrix.

@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { spawnSync } from "node:child_process";
+import path from "node:path";
 import {
   assertRequestDraft, assertRequestState, assertStreamProof,
   createDraftAdmission, safeFailureCode, matchesExpectedJson, assertConfirmationReview, assertAllStreamProofs,
+  matchesOwnerBinding, assertGrantTiming,
 } from "../../../.codex/skills/reviewer-app-testing/scripts/consent-rehearsal-contract.mjs";
 import { installConsentStreamProbe } from "../../../.codex/skills/reviewer-app-testing/scripts/consent-rehearsal-stream-probe.mjs";
 
@@ -15,7 +18,57 @@ const payload = () => ({
   items: [{ requestId: "fresh-item", scopeRef: "selected-scope", status: "pending" }],
 });
 
+describe("Profile rehearsal startup safety", () => {
+  it.each([
+    [{ REVIEWER_ALLOW_SHARED_MUTATIONS: "false" }, "MUTATION_AUTHORITY_REQUIRED"],
+    [{ REVIEWER_ALLOW_SHARED_MUTATIONS: "true" }, "EXPLICIT_PAIR_AND_SCOPE_REQUIRED"],
+    [{ REVIEWER_ALLOW_SHARED_MUTATIONS: "true", REVIEWER_UID: "synthetic-owner", REVIEWER_COUNTERPART_UID: "synthetic-requester",
+      REVIEWER_PERSON_REF: "synthetic-person", REVIEWER_CONSENT_SCOPE_REF: "synthetic-scope", REVIEWER_EXPECTED_PAYLOAD_JSON: "{}" }, "EXACT_SYNTHETIC_PAYLOAD_REQUIRED"],
+    [{ REVIEWER_ALLOW_SHARED_MUTATIONS: "true", REVIEWER_UID: "synthetic-owner", REVIEWER_COUNTERPART_UID: "synthetic-requester",
+      REVIEWER_PERSON_REF: "synthetic-person", REVIEWER_CONSENT_SCOPE_REF: "synthetic-scope", REVIEWER_EXPECTED_PAYLOAD_JSON: "invalid-private-sentinel" }, "REHEARSAL_UNEXPECTED_FAILURE"],
+  ])("fails closed before authentication and emits only safe diagnostics", (env, code) => {
+    const script = path.resolve(process.cwd(), "../.codex/skills/reviewer-app-testing/scripts/verify-reviewer-consent-profile.mjs");
+    const result = spawnSync(process.execPath, [script], {
+      env, encoding: "utf8", timeout: 10000,
+    });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toBe("");
+    expect(JSON.parse(result.stdout)).toEqual({ passed: false, phase: "preflight", code, createdRequestRetained: false });
+    expect(result.stdout).not.toContain("private-sentinel");
+  });
+});
+
 describe("consent rehearsal evidence", () => {
+  it("binds public references to the exact authorized UID, never first candidate or name", () => {
+    const rows = [{ userId: "other", publicPersonRef: "other-ref" }, { userId: "owner", publicPersonRef: "owner-ref" }];
+    expect(matchesOwnerBinding(rows, "owner", "owner-ref")).toBe(true);
+    expect(matchesOwnerBinding(rows, "missing", "owner-ref")).toBe(false);
+    expect(() => matchesOwnerBinding(rows, "owner", "other-ref")).toThrow("OWNER_REFERENCE_MISMATCH");
+    expect(() => matchesOwnerBinding([...rows, rows[1]], "owner", "owner-ref")).toThrow("OWNER_BINDING_AMBIGUOUS");
+  });
+  it("binds exact envelope expiry while allowing server issuance processing latency", () => {
+    const start = 1_000_000, end = start + 30_000, expiry = start + 86_400_000;
+    expect(() => assertGrantTiming({ issuedAt: end, expiresAt: expiry }, expiry, start, end)).not.toThrow();
+    expect(() => assertGrantTiming({ issuedAt: end, expiresAt: start + 3_600_000 }, expiry, start, end)).toThrow("GRANT_DURATION_MISMATCH");
+    expect(() => assertGrantTiming({ issuedAt: start - 120_000, expiresAt: expiry }, expiry, start, end)).toThrow("GRANT_ISSUANCE_TIME_MISMATCH");
+  });
+  it("binds confirmation to the selected duration without substring matches", () => {
+    const review = { displayName: "Synthetic Owner", scopeLabel: "Synthetic Field", purpose: "Synthetic purpose", durationSeconds: 86400 };
+    for (const duration of ["24 hours", "1 day"]) {
+      expect(() => assertConfirmationReview(`Synthetic Owner: Synthetic Field for ${duration}`, "Synthetic purpose", review)).not.toThrow();
+    }
+    for (const duration of ["48 hours", "124 hours", "11 days"]) {
+      expect(() => assertConfirmationReview(`Synthetic Owner: Synthetic Field for ${duration}`, "Synthetic purpose", review)).toThrow("CONFIRMATION_REVIEW_INCOMPLETE");
+    }
+  });
+
+  it("pins item identities across lifecycle reads", () => {
+    const state = payload();
+    const binding = { ...expected, requestIds: ["fresh-item"] };
+    expect(() => assertRequestState({ ok: true, payload: state }, binding)).not.toThrow();
+    state.items[0]!.requestId = "historical-item";
+    expect(() => assertRequestState({ ok: true, payload: state }, binding)).toThrow("REQUEST_ITEM_ID_MISMATCH");
+  });
   it("rejects an execution continuation error after an otherwise valid parked confirmation", () => {
     const parked = { httpOk: true, settled: true, finished: false, runError: false,
       malformed: false, aborted: true, parkedActions: ["consent.request"] };

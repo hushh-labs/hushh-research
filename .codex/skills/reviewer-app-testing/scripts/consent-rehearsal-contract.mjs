@@ -27,6 +27,22 @@ export function safeFailureCode(error) {
   return error instanceof ConsentRehearsalFailure ? error.code : "REHEARSAL_UNEXPECTED_FAILURE";
 }
 
+export function matchesOwnerBinding(items, ownerUid, ownerRef) {
+  requireEvidence(Array.isArray(items), "OWNER_BINDING_UNAVAILABLE");
+  const selected = items.filter(item => item.userId === ownerUid);
+  requireEvidence(selected.length <= 1, "OWNER_BINDING_AMBIGUOUS");
+  if (!selected.length) return false;
+  requireEvidence(selected[0].publicPersonRef === ownerRef, "OWNER_REFERENCE_MISMATCH");
+  return true;
+}
+
+export function assertGrantTiming(grant, expiry, startedAt, completedAt) {
+  requireEvidence(Number.isFinite(expiry) && grant.expiresAt === expiry, "GRANT_DURATION_MISMATCH");
+  requireEvidence(Number.isFinite(grant.issuedAt) && grant.issuedAt >= startedAt - 60000
+    && grant.issuedAt <= completedAt + 60000 && grant.issuedAt < grant.expiresAt,
+  "GRANT_ISSUANCE_TIME_MISMATCH");
+}
+
 export function assertRequestDraft(draft, expected) {
   requireEvidence(draft?.person_ref === expected.personRef, "DRAFT_RECIPIENT_MISMATCH");
   requireEvidence(draft.purpose === expected.purpose, "DRAFT_RUN_MISMATCH");
@@ -53,8 +69,14 @@ export function createDraftAdmission(expected) {
 }
 
 export function assertConfirmationReview(summary, currentStructuredText, expected) {
+  const hours = (expected.durationSeconds ?? 172800) / 3600;
+  requireEvidence(Number.isInteger(hours) && hours > 0 && hours <= 720,
+    "CONFIRMATION_DURATION_INVALID");
+  const durations = [`${hours}\\s+hours?`];
+  if (hours % 24 === 0) durations.push(`${hours / 24}\\s+days?`);
+  const durationPattern = new RegExp(`\\b(?:${durations.join("|")})\\b`, "i");
   requireEvidence(summary.includes(expected.displayName) && summary.includes(expected.scopeLabel) &&
-    /48 hours|2 days/.test(summary), "CONFIRMATION_REVIEW_INCOMPLETE");
+    durationPattern.test(summary), "CONFIRMATION_REVIEW_INCOMPLETE");
   requireEvidence(summary.includes(expected.purpose) || currentStructuredText.includes(expected.purpose),
     "CONFIRMATION_PURPOSE_MISSING");
 }
@@ -87,6 +109,10 @@ export function assertRequestState(result, expected) {
   requireEvidence(new Set(items.map(item => item.requestId)).size === items.length &&
     items.every(item => typeof item.requestId === "string" && item.requestId.length > 0),
   "REQUEST_ITEM_ID_MISSING");
+  if (expected.requestIds) {
+    requireEvidence(JSON.stringify(items.map(item => item.requestId).sort()) ===
+      JSON.stringify([...expected.requestIds].sort()), "REQUEST_ITEM_ID_MISMATCH");
+  }
   const actual = items.map(item => item.scopeRef).sort();
   requireEvidence(JSON.stringify(actual) === JSON.stringify([...expected.scopeRefs].sort()),
     "REQUEST_FIELDS_MISMATCH");
