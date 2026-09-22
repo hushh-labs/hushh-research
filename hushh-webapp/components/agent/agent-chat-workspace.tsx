@@ -1533,10 +1533,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const pathname = usePathname();
   const isCanonicalChatRoute = pathname === ROUTES.HOME;
   const searchParams = useSearchParams();
-  // The workspace is now the canonical full-page chat surface. Keep this
-  // compatibility guard for the proactive-card contract while there is no
-  // popover mount in the current route topology.
-  const isPopover = false;
   const localCrmEnabled = isLocalCrmBuildEnabled();
   const { user, loading: authLoading, phoneNumber } = useAuth();
   const {
