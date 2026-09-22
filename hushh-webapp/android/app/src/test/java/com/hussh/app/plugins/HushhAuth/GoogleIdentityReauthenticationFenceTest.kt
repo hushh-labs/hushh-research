@@ -48,4 +48,30 @@ class GoogleIdentityReauthenticationFenceTest {
         assertFalse(next.settled)
         assertEquals(0, next.phase)
     }
+
+    @Test fun driveReturnAcceptsOnlyTheOriginalOwnerAndAttempt() {
+        val fence = NativeDriveAuthorizationFence("owner", "attempt_123456789012", 120_000)
+        assertEquals(
+            NativeDriveAuthorizationFence.Claim.STALE,
+            fence.claim("other_123456789012", "owner", true, 101)
+        )
+        assertFalse(fence.settled)
+        assertEquals(
+            NativeDriveAuthorizationFence.Claim.ACCEPTED,
+            fence.claim("attempt_123456789012", "owner", true, 101)
+        )
+        assertTrue(fence.settle())
+        assertEquals(
+            NativeDriveAuthorizationFence.Claim.IGNORED,
+            fence.claim("attempt_123456789012", "owner", true, 101)
+        )
+    }
+
+    @Test fun driveReturnQuarantinesATimedOutProviderUntilItDrains() {
+        val fence = NativeDriveAuthorizationFence("owner", "attempt_123456789012", 120_000)
+        assertTrue(fence.settle())
+        assertFalse(fence.canRelease)
+        assertTrue(fence.drainProvider())
+        assertTrue(fence.canRelease)
+    }
 }

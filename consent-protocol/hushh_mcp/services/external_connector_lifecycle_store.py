@@ -102,7 +102,9 @@ class ExternalConnectorLifecycleStore:
                 text("""
                 WITH expired AS (
                   SELECT attempt_id FROM external_connector_oauth_attempts
-                  WHERE expires_at <= clock_timestamp()
+                  WHERE (expires_at <= clock_timestamp()
+                     OR (pending_credential_expires_at <= clock_timestamp()
+                         AND pending_credential_ciphertext IS NOT NULL))
                     AND (code_verifier_ciphertext <> '' OR pending_credential_ciphertext IS NOT NULL)
                   ORDER BY expires_at LIMIT 100 FOR UPDATE SKIP LOCKED
                 ) UPDATE external_connector_oauth_attempts a
@@ -271,6 +273,33 @@ class ExternalConnectorLifecycleStore:
             )
 
         return await self._transaction(stage)
+
+    async def pending_native(self, *, user_id: str, connector_id: str) -> dict[str, Any] | None:
+        """Owner-only restart recovery metadata; never return pending credentials."""
+        await self.purge_expired()
+        return await self._transaction(
+            lambda connection: self._row(
+                connection,
+                """
+                SELECT a.attempt_id, a.expires_at
+                FROM external_connector_oauth_attempts a
+                JOIN user_external_connector_connections c
+                  ON c.user_id=a.user_id AND c.connector_id=a.connector_id
+                 AND c.pending_attempt_id=a.attempt_id
+                 AND c.connection_generation=a.connection_generation
+                WHERE a.user_id=:user_id AND a.connector_id=:connector_id
+                  AND a.flow='native' AND a.attempt_version=2
+                  AND a.invalidated_at IS NULL AND a.completed_at IS NULL
+                  AND a.claimed_at IS NOT NULL
+                  AND a.pending_credential_ciphertext IS NOT NULL
+                  AND a.pending_credential_iv IS NOT NULL
+                  AND a.expires_at>clock_timestamp()
+                  AND a.pending_credential_expires_at>clock_timestamp()
+                LIMIT 1
+                """,
+                {"user_id": user_id, "connector_id": connector_id},
+            )
+        )
 
     async def cancel_native(self, *, attempt_id: str) -> bool:
         def cancel(connection: Any) -> bool:

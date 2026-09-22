@@ -274,6 +274,56 @@ async def test_expiry_and_native_finalization_require_pending_credentials(lifecy
 
 
 @pytest.mark.asyncio
+async def test_pending_native_recovery_is_current_owner_only_and_scrubs_expiry(lifecycle):
+    await start(lifecycle, flow="native")
+    assert await lifecycle.claim_attempt(attempt_id="attempt-a", user_id=None)
+    assert await lifecycle.pending_native(user_id="owner", connector_id="drive") is None
+    assert await lifecycle.pending_native(user_id="other-owner", connector_id="drive") is None
+    assert await lifecycle.pending_native(user_id="owner", connector_id="wrong-connector") is None
+
+    expiry = datetime.now(UTC) + timedelta(minutes=5)
+    assert await lifecycle.stage_native(
+        attempt_id="attempt-a", ciphertext="sealed", iv="iv", expires_at=expiry
+    )
+    pending = await lifecycle.pending_native(user_id="owner", connector_id="drive")
+    assert set(pending or {}) == {"attempt_id", "expires_at"}
+    assert pending and pending["attempt_id"] == "attempt-a"
+
+    await start(lifecycle, "attempt-b", flow="native")
+    assert await lifecycle.pending_native(user_id="owner", connector_id="drive") is None
+    assert await lifecycle.claim_attempt(attempt_id="attempt-b", user_id=None)
+    assert await lifecycle.stage_native(
+        attempt_id="attempt-b", ciphertext="new-sealed", iv="new-iv", expires_at=expiry
+    )
+    assert (await lifecycle.pending_native(user_id="owner", connector_id="drive"))[
+        "attempt_id"
+    ] == "attempt-b"
+
+    sql(
+        lifecycle,
+        """
+        UPDATE external_connector_oauth_attempts
+        SET pending_credential_expires_at = clock_timestamp() - interval '1 second'
+        WHERE attempt_id = 'attempt-b'
+        """,
+    )
+    assert await lifecycle.pending_native(user_id="owner", connector_id="drive") is None
+    with lifecycle.db.engine.connect() as connection:
+        row = (
+            connection.execute(
+                text(
+                    "SELECT pending_credential_ciphertext, pending_credential_iv "
+                    "FROM external_connector_oauth_attempts WHERE attempt_id = 'attempt-b'"
+                )
+            )
+            .mappings()
+            .one()
+        )
+    assert row["pending_credential_ciphertext"] is None
+    assert row["pending_credential_iv"] is None
+
+
+@pytest.mark.asyncio
 async def test_native_finalize_once_and_web_attempt_cannot_use_unauthenticated_callback(lifecycle):
     await start(lifecycle)
     assert await lifecycle.claim_attempt(attempt_id="attempt-a", user_id=None) is None

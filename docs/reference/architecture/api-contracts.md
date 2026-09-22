@@ -988,6 +988,7 @@ routes remain default-off and do **not** enable chat reads or indexing.
 | `POST /api/connectors/oauth/complete` | Vault Owner | Existing owner completion remains compatible. Drive uses atomic single-use claims and verified Google identity/scopes. |
 | `POST /api/connectors/oauth/complete/web` | Verified Firebase identity matching an existing unexpired Vault-authorized Drive attempt | Requires `code`, signed `state` and matching opaque `attemptId` before exchange. Popup-only completion exception; no opener Vault Owner token transfer. |
 | `GET /api/connectors/oauth/native/callback` | Signed state + atomic native attempt claim | Backend code exchange; encrypted pending credentials only. Fixed `hushh://connectors/return` handoff contains only opaque attempt/outcome. Invalid state has no redirect. |
+| `GET /api/connectors/oauth/native/pending` | Original Vault Owner | Returns only the current opaque staged native `attemptId` and expiry for restart recovery. It never returns provider credentials, codes, tokens, subjects, or callback data. |
 | `POST /api/connectors/oauth/native/finalize` | Original Vault Owner | Accepts `attemptId`; checks expiry, generation, client/redirect configuration and current cohort admission before activation. |
 | `POST /api/connectors/google_drive/disconnect` | Vault Owner; remains available when rollout is off | Immediately disables local execution, invalidates attempts, clears credentials, then makes a bounded in-memory provider revocation attempt. Reports `revocationOutcome`; no background retry is promised. |
 | `POST /api/connectors/google_drive/picker/session` | Vault Owner + Picker cohort/flag | Exact registered web `origin`; verifies authenticated Drive About and fixed selected-file policy, then returns a ten-minute opaque selection session and the minimum short-lived Google access credential for the official Picker. Backend and web proxy both set `no-store`. No refresh token. |
@@ -1027,6 +1028,14 @@ does not require an opener vault key; Firebase identity and the prior attempt au
 server completion. Other management routes retain their vault gates. The official web Picker
 receives an in-memory short-lived token only, and selection needs a separate explicit owner
 confirmation. Blocked popups remain in chat; no unencrypted full-page recovery is used.
+
+Native Drive uses the same registered backend HTTPS callback, followed only by the
+opaque `hushh://connectors/return` handoff. iOS presents it through
+`ASWebAuthenticationSession`; Android uses Auth Tab with the documented Custom Tabs
+fallback. The app validates the fixed Google authorization origin and the opaque result,
+keeps browser/auth interactions single-flight, and reconciles staged state only after the
+original Vault Owner is current. The native return never replaces chat navigation or exposes
+an OAuth code, state, provider identity, token, or selected file identifier to JavaScript.
 
 Release prerequisites still include native Picker, encrypted full-page recovery, ingestion/index/search/grants,
 scheduled retention, and OAuth callback ingress-log routing evidence. Native Picker requires a

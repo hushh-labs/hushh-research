@@ -98,6 +98,15 @@ class FinalizeNativeRequest(BaseModel):
     attemptId: str = Field(min_length=16, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
 
 
+class PendingNativeAttempt(BaseModel):
+    attemptId: str
+    expiresAt: str
+
+
+class PendingNativeResponse(BaseModel):
+    pending: PendingNativeAttempt | None
+
+
 class PickerSessionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     origin: str = Field(min_length=1, max_length=2048)
@@ -420,6 +429,20 @@ async def native_oauth_callback(
         status_code=303,
         headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"},
     )
+
+
+@router.get("/oauth/native/pending", response_model=PendingNativeResponse)
+async def pending_native(response: Response, token_data: dict = Depends(require_vault_owner_token)):
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        pending = (
+            await get_external_connector_oauth_service()
+            .drive()
+            .pending_native(user_id=_user_id(token_data))
+        )
+        return {"pending": pending}
+    except (DriveOAuthError, ConnectorLifecycleError) as error:
+        raise _oauth_error(error) from None
 
 
 @router.post("/oauth/native/finalize", response_model=ConnectResultResponse)

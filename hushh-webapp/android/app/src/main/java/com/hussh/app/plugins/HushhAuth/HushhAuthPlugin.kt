@@ -1,6 +1,7 @@
 package com.hussh.app.plugins.HushhAuth
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -8,6 +9,7 @@ import android.util.Base64
 import android.util.Log
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.browser.auth.AuthTabIntent
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.getcapacitor.JSObject
@@ -59,6 +61,7 @@ class HushhAuthPlugin : Plugin() {
     }
 
     private val TAG = "HushhAuth"
+    private val DRIVE_AUTH_FALLBACK_GRACE_MS = 750L
     private lateinit var googleSignInClient: GoogleSignInClient
     private var pendingCall: PluginCall? = null
     private var pendingGmailConnectCall: PluginCall? = null
@@ -67,7 +70,9 @@ class HushhAuthPlugin : Plugin() {
     private lateinit var gmailConnectLauncher: ActivityResultLauncher<Intent>
     private lateinit var calendarConnectLauncher: ActivityResultLauncher<Intent>
     private lateinit var identityLauncher: ActivityResultLauncher<Intent>
+    private lateinit var driveAuthorizationLauncher: ActivityResultLauncher<Intent>
     private val identityHandler = Handler(Looper.getMainLooper())
+    private val driveAuthorizationHandler = Handler(Looper.getMainLooper())
     private class IdentityReauthentication(
         val call: PluginCall,
         val user: FirebaseUser,
@@ -76,6 +81,15 @@ class HushhAuthPlugin : Plugin() {
         val fence = GoogleIdentityReauthenticationFence(user.uid, SystemClock.elapsedRealtime())
     }
     private var identityReauthentication: IdentityReauthentication? = null
+    private class DriveAuthorization(
+        val call: PluginCall,
+        val user: FirebaseUser,
+        val fence: NativeDriveAuthorizationFence
+    ) {
+        var timeout: Runnable? = null
+        var fallbackCancellation: Runnable? = null
+    }
+    private var driveAuthorization: DriveAuthorization? = null
 
     // Current user data
     private var currentIdToken: String? = null
@@ -119,6 +133,9 @@ class HushhAuthPlugin : Plugin() {
         identityLauncher = activity.registerForActivityResult(
             ActivityResultContracts.StartActivityForResult()
         ) { result -> handleIdentityResult(result.data) }
+        driveAuthorizationLauncher = AuthTabIntent.registerActivityResultLauncher(activity) { result ->
+            handleDriveAuthorizationResult(result.resultCode, result.resultUri)
+        }
     }
 
     /**
@@ -405,10 +422,192 @@ class HushhAuthPlugin : Plugin() {
         }
     }
 
+    // ==================== Native Drive OAuth ====================
+
+    @PluginMethod
+    fun connectDrive(call: PluginCall) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            activity.runOnUiThread { connectDrive(call) }
+            return
+        }
+        if (driveAuthorization != null || identityReauthentication != null || pendingCall != null ||
+            pendingGmailConnectCall != null || pendingCalendarConnectCall != null
+        ) {
+            call.reject("Another identity action is already in progress.", "identity_busy")
+            return
+        }
+        val authorizeUri = call.getString("authorizeUrl")?.let(Uri::parse)
+        val attemptId = call.getString("attemptId")
+        val expectedUserId = call.getString("expectedUserId")
+        val expiresAt = call.getDouble("expiresAt")?.toLong()
+        val user = firebaseAuth.currentUser
+        val now = System.currentTimeMillis()
+        if (authorizeUri == null || !isTrustedDriveAuthorizeUri(authorizeUri) ||
+            attemptId.isNullOrBlank() || !isOpaqueDriveAttemptId(attemptId) ||
+            expectedUserId.isNullOrBlank() || user == null || user.uid != expectedUserId ||
+            expiresAt == null || expiresAt <= now || expiresAt > now + 11 * 60_000L
+        ) {
+            call.reject("Drive connection is unavailable.", "drive_connection_unavailable")
+            return
+        }
+
+        val operation = DriveAuthorization(
+            call,
+            user,
+            NativeDriveAuthorizationFence(expectedUserId, attemptId, expiresAt)
+        )
+        driveAuthorization = operation
+        val timeout = Runnable {
+            finishDriveAuthorization(operation, "failed", drainProvider = false)
+        }
+        operation.timeout = timeout
+        driveAuthorizationHandler.postDelayed(timeout, maxOf(0L, expiresAt - now))
+        try {
+            AuthTabIntent.Builder().build().launch(
+                driveAuthorizationLauncher,
+                authorizeUri,
+                "hushh"
+            )
+        } catch (_: Exception) {
+            finishDriveAuthorization(operation, "failed", drainProvider = true)
+        }
+    }
+
+    override fun handleOnNewIntent(intent: Intent) {
+        super.handleOnNewIntent(intent)
+        val operation = driveAuthorization ?: return
+        val result = parseNativeDriveReturn(intent.data) ?: return
+        if (operation.fence.settled) {
+            operation.fence.drainProvider()
+            if (operation.fence.canRelease && driveAuthorization === operation) {
+                driveAuthorization = null
+            }
+            return
+        }
+        // A stale custom scheme can arrive from an older browser tab. It must
+        // not drain or terminate the current attempt; wait for its own return
+        // (or the bounded fallback cancellation/deadline).
+        if (
+            claimDriveAuthorization(operation, result.first) !=
+                NativeDriveAuthorizationFence.Claim.ACCEPTED
+        ) return
+        operation.fallbackCancellation?.let(driveAuthorizationHandler::removeCallbacks)
+        operation.fallbackCancellation = null
+        if (!operation.fence.drainProvider()) return
+        finishDriveAuthorization(operation, result.second, drainProvider = false)
+    }
+
+    private fun handleDriveAuthorizationResult(resultCode: Int, resultUri: Uri?) {
+        val operation = driveAuthorization ?: return
+        // Browser 1.9.0 automatically falls back to Custom Tabs on older
+        // browsers. That fallback returns RESULT_CANCELED when its tab closes,
+        // while its real custom-scheme completion arrives through
+        // handleOnNewIntent. Give that intent a short turn before declaring a
+        // user cancellation; otherwise a valid staged grant is stranded.
+        if (resultCode == AuthTabIntent.RESULT_CANCELED) {
+            scheduleDriveFallbackCancellation(operation)
+            return
+        }
+        if (operation.fence.settled) {
+            operation.fence.drainProvider()
+            if (operation.fence.canRelease && driveAuthorization === operation) {
+                driveAuthorization = null
+            }
+            return
+        }
+        if (resultCode != AuthTabIntent.RESULT_OK) {
+            if (!operation.fence.drainProvider()) return
+            finishDriveAuthorization(
+                operation,
+                "failed",
+                drainProvider = false
+            )
+            return
+        }
+        val result = parseNativeDriveReturn(resultUri)
+        if (result == null) {
+            if (!operation.fence.drainProvider()) return
+            finishDriveAuthorization(operation, "failed", drainProvider = false)
+            return
+        }
+        if (
+            claimDriveAuthorization(operation, result.first) !=
+                NativeDriveAuthorizationFence.Claim.ACCEPTED
+        ) return
+        if (!operation.fence.drainProvider()) return
+        finishDriveAuthorization(operation, result.second, drainProvider = false)
+    }
+
+    private fun scheduleDriveFallbackCancellation(operation: DriveAuthorization) {
+        if (operation.fence.settled || operation.fallbackCancellation != null) return
+        val cancellation = Runnable {
+            operation.fallbackCancellation = null
+            if (driveAuthorization !== operation || operation.fence.settled) return@Runnable
+            finishDriveAuthorization(operation, "cancelled", drainProvider = true)
+        }
+        operation.fallbackCancellation = cancellation
+        driveAuthorizationHandler.postDelayed(cancellation, DRIVE_AUTH_FALLBACK_GRACE_MS)
+    }
+
+    private fun isTrustedDriveAuthorizeUri(uri: Uri): Boolean =
+        uri.scheme == "https" && uri.host == "accounts.google.com" &&
+            uri.path == "/o/oauth2/v2/auth" && uri.userInfo == null && uri.port == -1 &&
+            uri.fragment == null
+
+    private fun isOpaqueDriveAttemptId(value: String): Boolean =
+        value.matches(Regex("^[A-Za-z0-9_-]{16,128}$"))
+
+    private fun parseNativeDriveReturn(uri: Uri?): Pair<String, String>? {
+        if (uri?.scheme != "hushh" || uri.host != "connectors" || uri.path != "/return" ||
+            uri.userInfo != null || uri.port != -1 || uri.fragment != null ||
+            uri.queryParameterNames != setOf("attemptId", "outcome")
+        ) return null
+        val attemptIds = uri.getQueryParameters("attemptId")
+        val outcomes = uri.getQueryParameters("outcome")
+        val attemptId = attemptIds.singleOrNull()
+        val outcome = outcomes.singleOrNull()
+        if (attemptId == null || !isOpaqueDriveAttemptId(attemptId) ||
+            outcome !in setOf("ready", "cancelled", "failed")
+        ) return null
+        return attemptId to outcome
+    }
+
+    private fun claimDriveAuthorization(
+        operation: DriveAuthorization,
+        attemptId: String
+    ): NativeDriveAuthorizationFence.Claim {
+        if (driveAuthorization !== operation) return NativeDriveAuthorizationFence.Claim.IGNORED
+        val user = firebaseAuth.currentUser
+        return operation.fence.claim(
+            attemptId,
+            user?.uid,
+            user === operation.user,
+            System.currentTimeMillis()
+        )
+    }
+
+    private fun finishDriveAuthorization(
+        operation: DriveAuthorization,
+        outcome: String,
+        drainProvider: Boolean
+    ) {
+        if (drainProvider) operation.fence.drainProvider()
+        if (!operation.fence.settle()) return
+        operation.timeout?.let(driveAuthorizationHandler::removeCallbacks)
+        operation.fallbackCancellation?.let(driveAuthorizationHandler::removeCallbacks)
+        operation.fallbackCancellation = null
+        if (operation.fence.canRelease && driveAuthorization === operation) {
+            driveAuthorization = null
+        }
+        operation.call.resolve(
+            JSObject().put("attemptId", operation.fence.expectedAttemptId).put("outcome", outcome)
+        )
+    }
+
     // ==================== Fresh same-user Google proof ====================
 
     private fun rejectWhileVerifyingIdentity(call: PluginCall): Boolean {
-        if (identityReauthentication == null && pendingCall == null &&
+        if (driveAuthorization == null && identityReauthentication == null && pendingCall == null &&
             pendingGmailConnectCall == null && pendingCalendarConnectCall == null
         ) return false
         call.reject("Identity verification is already in progress.", "identity_busy")
@@ -418,7 +617,7 @@ class HushhAuthPlugin : Plugin() {
     @PluginMethod
     fun reauthenticateGoogleIdentity(call: PluginCall) {
         activity.runOnUiThread {
-            if (identityReauthentication != null || pendingCall != null ||
+            if (driveAuthorization != null || identityReauthentication != null || pendingCall != null ||
                 pendingGmailConnectCall != null || pendingCalendarConnectCall != null
             ) {
                 call.reject("Identity verification is already in progress.", "identity_busy")
@@ -525,7 +724,9 @@ class HushhAuthPlugin : Plugin() {
 
     override fun handleOnDestroy() {
         identityReauthentication?.let { finishIdentity(it, "session_changed") }
+        driveAuthorization?.let { finishDriveAuthorization(it, "failed", drainProvider = false) }
         identityHandler.removeCallbacksAndMessages(null)
+        driveAuthorizationHandler.removeCallbacksAndMessages(null)
         super.handleOnDestroy()
     }
 
@@ -538,6 +739,7 @@ class HushhAuthPlugin : Plugin() {
             return
         }
         identityReauthentication?.let { finishIdentity(it, "session_changed") }
+        driveAuthorization?.let { finishDriveAuthorization(it, "failed", drainProvider = false) }
         Log.d(TAG, "🤖 [HushhAuth] signOut() called")
 
         // Sign out from Firebase

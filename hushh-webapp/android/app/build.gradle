@@ -109,6 +109,10 @@ dependencies {
     // Biometric Authentication
     implementation "androidx.biometric:biometric:1.1.0"
 
+    // Auth Tab provides a constrained OAuth browser surface and falls back to
+    // Custom Tabs on browsers that do not support Auth Tab.
+    implementation "androidx.browser:browser:1.9.0"
+
     // Credential Manager / Passkeys
     implementation "androidx.credentials:credentials:1.5.0"
     implementation "androidx.credentials:credentials-play-services-auth:1.5.0"

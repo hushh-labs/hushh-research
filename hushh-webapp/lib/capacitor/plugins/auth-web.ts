@@ -82,9 +82,7 @@ export class HushhAuthWeb implements HushhAuthPlugin {
     serverClientId: string;
     purpose: "read" | "send";
   }): Promise<{ serverAuthCode: string }> {
-    throw new Error(
-      "Native Mail consent is only available in the mobile app.",
-    );
+    throw new Error("Native Mail consent is only available in the mobile app.");
   }
 
   async connectCalendar(_options: {
@@ -93,6 +91,20 @@ export class HushhAuthWeb implements HushhAuthPlugin {
   }): Promise<{ serverAuthCode: string }> {
     throw new Error(
       "Native Calendar consent is only available in the mobile app.",
+    );
+  }
+
+  async connectDrive(_options: {
+    authorizeUrl: string;
+    attemptId: string;
+    expiresAt: number;
+    expectedUserId: string;
+  }): Promise<{
+    attemptId: string;
+    outcome: "ready" | "cancelled" | "failed";
+  }> {
+    throw new Error(
+      "Native Drive consent is only available in the mobile app.",
     );
   }
 

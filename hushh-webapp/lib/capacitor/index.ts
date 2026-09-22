@@ -120,6 +120,21 @@ export interface HushhAuthPlugin {
   }>;
 
   /**
+   * Opens the server-authored Drive authorization URL in a native browser
+   * surface. The backend receives the provider callback and the bridge returns
+   * only the opaque attempt reference and terminal outcome.
+   */
+  connectDrive(options: {
+    authorizeUrl: string;
+    attemptId: string;
+    expiresAt: number;
+    expectedUserId: string;
+  }): Promise<{
+    attemptId: string;
+    outcome: "ready" | "cancelled" | "failed";
+  }>;
+
+  /**
    * Sign in with Apple using native iOS AuthenticationServices or Firebase OAuthProvider
    *
    * iOS: Uses ASAuthorizationController (native Apple Sign-In sheet)
@@ -254,7 +269,10 @@ export interface HushhConsentPlugin {
   }): Promise<{ published: boolean }>;
 
   /** Clear the shared iMessage session when the vault locks or user signs out. */
-  clearIMessageSession(): Promise<{ cleared: boolean; sessionGeneration: number }>;
+  clearIMessageSession(): Promise<{
+    cleared: boolean;
+    sessionGeneration: number;
+  }>;
 
   getPending(options: {
     userId: string;

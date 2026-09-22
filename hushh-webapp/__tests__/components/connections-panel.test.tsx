@@ -15,6 +15,15 @@ const state = vi.hoisted(() => ({
   remove: vi.fn(),
   session: vi.fn(),
   pick: vi.fn(),
+  native: false,
+  nativeDrive: vi.fn(),
+  nativeStart: vi.fn(),
+  nativePending: vi.fn(),
+  nativeFinalize: vi.fn(),
+  nativeCallback: vi.fn(),
+}));
+vi.mock("@capacitor/core", () => ({
+  Capacitor: { isNativePlatform: () => state.native },
 }));
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({
@@ -24,7 +33,9 @@ vi.mock("@/hooks/use-auth", () => ({
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({ vaultOwnerToken: state.token }),
 }));
-vi.mock("@/lib/capacitor", () => ({ HushhAuth: {} }));
+vi.mock("@/lib/capacitor", () => ({
+  HushhAuth: { connectDrive: state.nativeDrive },
+}));
 vi.mock("@/lib/profile/gmail-connector-store", () => ({
   useGmailConnectorStatus: () => ({
     status: { connected: true, google_email: "mail@example.invalid" },
@@ -39,6 +50,10 @@ vi.mock("@/lib/services/external-connector-service", () => ({
     documents: state.documents,
     removeDocument: state.remove,
     pickerSession: state.session,
+    startOAuthConnect: state.nativeStart,
+    pendingNative: state.nativePending,
+    finalizeNative: state.nativeFinalize,
+    nativeDriveOAuthCallbackUri: state.nativeCallback,
   },
 }));
 vi.mock("@/lib/services/google-drive-picker-service", () => ({
@@ -77,6 +92,7 @@ describe("Connections owner and mutation fences", () => {
     vi.resetAllMocks();
     state.uid = "owner-a";
     state.token = "vault-a";
+    state.native = false;
     state.overview.mockResolvedValue(overview());
     state.documents.mockResolvedValue([]);
     state.remove.mockResolvedValue(undefined);
@@ -86,6 +102,19 @@ describe("Connections owner and mutation fences", () => {
       accessToken: "ephemeral",
     }));
     state.pick.mockResolvedValue([]);
+    state.nativeDrive.mockReset();
+    state.nativeStart.mockReset();
+    state.nativePending.mockReset();
+    state.nativeFinalize.mockReset();
+    state.nativeCallback.mockReset();
+    state.nativePending.mockResolvedValue(null);
+    state.nativeFinalize.mockResolvedValue({
+      connectorId: "google_drive",
+      status: "connected",
+    });
+    state.nativeCallback.mockReturnValue(
+      "https://api.example.invalid/api/connectors/oauth/native/callback",
+    );
   });
   afterEach(cleanup);
   it("cannot resurrect a removed document from an earlier same-owner read", async () => {
@@ -203,5 +232,122 @@ describe("Connections owner and mutation fences", () => {
     });
     await screen.findByRole("region", { name: "Confirm selected files" });
     expect(state.overview).toHaveBeenLastCalledWith("vault-renewed");
+  });
+
+  it("finalizes a ready native Drive return with a renewed Vault Owner token", async () => {
+    state.native = true;
+    state.overview.mockResolvedValue({
+      ...overview(),
+      connectors: [
+        {
+          connectorId: "google_drive",
+          status: "not_connected",
+          available: true,
+          accountLabel: "Only files you choose",
+        },
+      ],
+    });
+    state.nativeStart.mockResolvedValue({
+      attemptId: "attempt_123456789012",
+      connectorId: "google_drive",
+      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=test",
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+    let resolveBridge!: (value: unknown) => void;
+    state.nativeDrive.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveBridge = resolve;
+        }),
+    );
+    const p = props();
+    const view = render(<ConnectorsPanel {...p} />);
+    const connect = await screen.findByRole("button", {
+      name: "Connect Drive",
+    });
+    await waitFor(() => expect(connect).toBeEnabled());
+    fireEvent.click(connect);
+    await waitFor(() => expect(state.nativeDrive).toHaveBeenCalledTimes(1));
+
+    state.token = "vault-renewed";
+    state.nativePending.mockResolvedValue({
+      attemptId: "attempt_123456789012",
+      expiresAt: new Date(Date.now() + 30_000).toISOString(),
+    });
+    view.rerender(<ConnectorsPanel {...p} />);
+    await act(async () => {
+      resolveBridge({ attemptId: "attempt_123456789012", outcome: "ready" });
+    });
+
+    await waitFor(() =>
+      expect(state.nativeFinalize).toHaveBeenCalledWith(
+        expect.objectContaining({
+          vaultOwnerToken: "vault-renewed",
+          attemptId: "attempt_123456789012",
+        }),
+      ),
+    );
+  });
+
+  it("reconciles a restart-safe native return and never exposes native Picker controls", async () => {
+    state.native = true;
+    state.nativePending.mockResolvedValue(null);
+    const p = props();
+    render(<ConnectorsPanel {...p} />);
+    expect(await screen.findByText("drive@example.invalid")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "Choose files" })).toBeNull();
+
+    state.nativePending.mockResolvedValue({
+      attemptId: "attempt_123456789012",
+      expiresAt: new Date(Date.now() + 30_000).toISOString(),
+    });
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("hushh:native-connector-return", {
+          detail: { attemptId: "attempt_123456789012", outcome: "ready" },
+        }),
+      );
+    });
+    await waitFor(() =>
+      expect(state.nativeFinalize).toHaveBeenCalledWith(
+        expect.objectContaining({ attemptId: "attempt_123456789012" }),
+      ),
+    );
+  });
+
+  it("keeps a cancelled native Drive attempt disconnected when no pending credential exists", async () => {
+    state.native = true;
+    state.overview.mockResolvedValue({
+      ...overview(),
+      connectors: [
+        {
+          connectorId: "google_drive",
+          status: "not_connected",
+          available: true,
+          accountLabel: "Only files you choose",
+        },
+      ],
+    });
+    state.nativeStart.mockResolvedValue({
+      attemptId: "attempt_123456789012",
+      connectorId: "google_drive",
+      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=test",
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+    state.nativeDrive.mockResolvedValue({
+      attemptId: "attempt_123456789012",
+      outcome: "cancelled",
+    });
+    render(<ConnectorsPanel {...props()} />);
+    const connect = await screen.findByRole("button", {
+      name: "Connect Drive",
+    });
+    await waitFor(() => expect(connect).toBeEnabled());
+    fireEvent.click(connect);
+    await screen.findByText(
+      "Drive connection was cancelled. Your chat and draft stay here.",
+    );
+    await waitFor(() => expect(state.nativePending).toHaveBeenCalled());
+    expect(state.nativeFinalize).not.toHaveBeenCalled();
   });
 });

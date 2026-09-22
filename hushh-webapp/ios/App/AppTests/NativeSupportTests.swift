@@ -46,6 +46,36 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertEqual(next.phase, 0)
     }
 
+    func testNativeDriveReturnFenceAcceptsOnlyItsCurrentOwnerAndAttempt() {
+        let fence = NativeDriveAuthorizationFence(
+            expectedUserID: "owner", expectedAttemptID: "attempt_123456789012", expiresAtMilliseconds: 120_000
+        )
+        XCTAssertEqual(
+            fence.claim(attemptID: "other_123456789012", userID: "owner", sameSession: true, now: 101),
+            .stale
+        )
+        XCTAssertFalse(fence.settled)
+        XCTAssertEqual(
+            fence.claim(attemptID: "attempt_123456789012", userID: "owner", sameSession: true, now: 101),
+            .accepted
+        )
+        XCTAssertTrue(fence.settle())
+        XCTAssertEqual(
+            fence.claim(attemptID: "attempt_123456789012", userID: "owner", sameSession: true, now: 101),
+            .ignored
+        )
+    }
+
+    func testNativeDriveReturnFenceQuarantinesTimedOutProviderUntilItDrains() {
+        let fence = NativeDriveAuthorizationFence(
+            expectedUserID: "owner", expectedAttemptID: "attempt_123456789012", expiresAtMilliseconds: 120_000
+        )
+        XCTAssertTrue(fence.settle())
+        XCTAssertFalse(fence.canRelease)
+        XCTAssertTrue(fence.drainProvider())
+        XCTAssertTrue(fence.canRelease)
+    }
+
     func testNativeTestConfigurationParsesArguments() {
         let config = NativeTestConfiguration(arguments: [
             "App",

@@ -352,6 +352,14 @@ class ExternalConnectorGoogleOAuth:
             raise DriveOAuthError("attempt_unavailable", status_code=409)
         return {"attemptId": attempt["attempt_id"], "outcome": "ready"}
 
+    async def pending_native(self, *, user_id: str) -> dict[str, str] | None:
+        if not connector_feature_enabled("google_drive_connection", user_id):
+            return None
+        attempt = await self.lifecycle.pending_native(user_id=user_id, connector_id=CONNECTOR_ID)
+        if not attempt:
+            return None
+        return {"attemptId": attempt["attempt_id"], "expiresAt": attempt["expires_at"].isoformat()}
+
     async def finalize_native(self, *, attempt_id: str, user_id: str) -> dict[str, str]:
         connector, client_id, _ = await self._configuration()
 

@@ -1,3 +1,4 @@
+import { BACKEND_URL } from "@/lib/config";
 import { ApiService } from "@/lib/services/api-service";
 
 export type ExternalConnectorAuthStyle = "api_key" | "oauth";
@@ -47,6 +48,20 @@ export type DriveDocument = {
   status: string;
   backgroundProcessing?: boolean;
 };
+
+export type NativeDriveOAuthOutcome = "ready" | "cancelled" | "failed";
+
+export type NativeDriveOAuthReturn = {
+  attemptId: string;
+  outcome: NativeDriveOAuthOutcome;
+};
+
+export type PendingNativeDriveAttempt = {
+  attemptId: string;
+  expiresAt: string;
+};
+
+export type ConnectorEffectGuard = () => boolean;
 /** Never persist this response, put it in React state, or send it through messages. */
 export type DrivePickerSession = {
   sessionId: string;
@@ -60,6 +75,31 @@ export type DrivePickerSession = {
 
 function authHeaders(vaultOwnerToken: string): HeadersInit {
   return ApiService.getAuthHeaders(vaultOwnerToken);
+}
+
+/**
+ * Native Google OAuth must return to the registered HTTPS backend callback.
+ * It must never use the Capacitor origin or the web proxy, which would follow
+ * the backend's custom-scheme handoff and turn it into a JSON response.
+ */
+export function nativeDriveOAuthCallbackUri(): string {
+  let backend: URL;
+  try {
+    backend = new URL(BACKEND_URL);
+  } catch {
+    throw new Error("Native Drive connection is unavailable in this build.");
+  }
+  if (
+    backend.protocol !== "https:" ||
+    backend.username ||
+    backend.password ||
+    backend.pathname !== "/" ||
+    backend.search ||
+    backend.hash
+  ) {
+    throw new Error("Native Drive connection is unavailable in this build.");
+  }
+  return new URL("/api/connectors/oauth/native/callback", backend).toString();
 }
 
 async function readJsonOrThrow<T>(response: Response): Promise<T> {
@@ -86,6 +126,10 @@ async function readJsonOrThrow<T>(response: Response): Promise<T> {
 
 /** Typed transport for /api/connectors. Components never call fetch directly. */
 export class ExternalConnectorService {
+  static nativeDriveOAuthCallbackUri(): string {
+    return nativeDriveOAuthCallbackUri();
+  }
+
   static async list(
     vaultOwnerToken: string,
   ): Promise<ExternalConnectorSummary[]> {
@@ -134,6 +178,8 @@ export class ExternalConnectorService {
     vaultOwnerToken: string;
     connectorId: string;
     redirectUri: string;
+    flow?: "web" | "native";
+    isEffectCurrent?: ConnectorEffectGuard;
   }): Promise<{
     authorizeUrl: string;
     expiresAt: string;
@@ -148,10 +194,51 @@ export class ExternalConnectorService {
           ...authHeaders(input.vaultOwnerToken),
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ redirectUri: input.redirectUri }),
+        body: JSON.stringify({
+          redirectUri: input.redirectUri,
+          flow: input.flow ?? "web",
+        }),
+        isEffectCurrent: input.isEffectCurrent,
       },
     );
     return readJsonOrThrow(response);
+  }
+
+  static async pendingNative(input: {
+    vaultOwnerToken: string;
+    isEffectCurrent?: ConnectorEffectGuard;
+  }): Promise<PendingNativeDriveAttempt | null> {
+    const response = await ApiService.apiFetch(
+      "/api/connectors/oauth/native/pending",
+      {
+        method: "GET",
+        cache: "no-store",
+        headers: authHeaders(input.vaultOwnerToken),
+        isEffectCurrent: input.isEffectCurrent,
+      },
+    );
+    const payload = await readJsonOrThrow<{
+      pending?: PendingNativeDriveAttempt | null;
+    }>(response);
+    return payload.pending ?? null;
+  }
+
+  static async finalizeNative(input: {
+    vaultOwnerToken: string;
+    attemptId: string;
+    isEffectCurrent?: ConnectorEffectGuard;
+  }): Promise<{ status: string; connectorId: string }> {
+    return readJsonOrThrow(
+      await ApiService.apiFetch("/api/connectors/oauth/native/finalize", {
+        method: "POST",
+        headers: {
+          ...authHeaders(input.vaultOwnerToken),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ attemptId: input.attemptId }),
+        isEffectCurrent: input.isEffectCurrent,
+      }),
+    );
   }
 
   static async completeOAuthConnect(input: {

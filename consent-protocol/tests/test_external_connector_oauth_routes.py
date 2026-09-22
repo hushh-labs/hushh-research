@@ -21,6 +21,7 @@ def route_client(monkeypatch):
         complete_native=AsyncMock(
             return_value={"attemptId": "synthetic-attempt", "outcome": "ready"}
         ),
+        pending_native=AsyncMock(return_value=None),
         lifecycle=SimpleNamespace(cancel_native=AsyncMock(return_value=True)),
     )
 
@@ -251,6 +252,25 @@ def test_native_cancel_invalidates_attempt_without_a_token_exchange(route_client
     assert parse_qs(urlparse(response.headers["location"]).query)["outcome"] == ["cancelled"]
     drive.lifecycle.cancel_native.assert_awaited_once_with(attempt_id="synthetic-attempt")
     drive.complete_native.assert_not_called()
+
+
+def test_pending_native_recovery_is_owner_protected_and_redacted(route_client):
+    client, app, drive = route_client
+    assert client.get("/api/connectors/oauth/native/pending").status_code == 401
+
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "verified-owner"}
+    drive.pending_native.return_value = {
+        "attemptId": "synthetic-attempt",
+        "expiresAt": "2026-09-23T12:00:00+00:00",
+    }
+    response = client.get("/api/connectors/oauth/native/pending")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert response.json() == {"pending": drive.pending_native.return_value}
+    drive.pending_native.assert_awaited_once_with(user_id="verified-owner")
+    assert "credential" not in response.text
+    assert "token" not in response.text
 
 
 def test_status_requires_vault_owner(route_client):

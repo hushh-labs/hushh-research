@@ -654,6 +654,10 @@ jobs:
           distribution: temurin
           java-version: "21"
 
+      # ubuntu-latest no longer guarantees command-line tools on PATH. Install
+      # them explicitly before the compile-only lane invokes sdkmanager.
+      - uses: android-actions/setup-android@v3
+
       - uses: actions/setup-node@v6
         with:
           node-version: "22"

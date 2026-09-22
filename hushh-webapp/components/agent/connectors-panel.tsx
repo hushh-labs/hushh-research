@@ -13,6 +13,10 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { HushhAuth } from "@/lib/capacitor";
+import {
+  NATIVE_CONNECTOR_RETURN_EVENT,
+  type NativeConnectorReturn,
+} from "@/lib/navigation/use-deep-link-return";
 import { ROUTES } from "@/lib/navigation/routes";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
 import {
@@ -106,6 +110,13 @@ function OwnerConnectorsPanel({
     currentToken.current = vaultOwnerToken;
   }, [vaultOwnerToken]);
   const driveLock = useRef(false);
+  // Native browser returns and Vault Owner token renewal can overlap the
+  // existing Drive mutation. Keep only opaque attempt metadata in memory and
+  // drain it after that mutation releases the single-flight lock.
+  const queuedNativeReconcile = useRef<{
+    expectedAttemptId?: string;
+  } | null>(null);
+  const drainNativeReconcile = useRef<() => void>(() => undefined);
   const mailLock = useRef(false);
   const chooseRef = useRef<HTMLButtonElement>(null);
   const pendingRef = useRef<HTMLElement>(null);
@@ -232,37 +243,190 @@ function OwnerConnectorsPanel({
     return () => cancelAnimationFrame(frame);
   }, [driveBusy, pending]);
 
-  const runDrive = async (
-    action: (token: string, signal: AbortSignal) => Promise<void>,
-  ) => {
-    const token = vaultOwnerToken;
-    const signal = controller.current?.signal;
-    if (!token || !signal || signal.aborted || driveLock.current) return;
-    // Retire reads taken before this operation. Late GETs cannot resurrect
-    // removed documents or a connection which has just been disconnected.
-    overviewRead.current++;
-    documentRead.current++;
-    driveLock.current = true;
-    setDriveBusy(true);
-    setDriveMessage("");
-    try {
-      await action(token, signal);
-    } catch {
-      if (!signal.aborted)
-        setDriveMessage(
-          "Drive could not finish this action. Check the connection and try again.",
-        );
-    } finally {
-      driveLock.current = false;
-      if (!signal.aborted) {
-        setDriveBusy(false);
-        setLoading(false);
+  const runDrive = useCallback(
+    async (
+      action: (token: string, signal: AbortSignal) => Promise<void>,
+      options: { clearMessage?: boolean } = {},
+    ) => {
+      const token = vaultOwnerToken;
+      const signal = controller.current?.signal;
+      if (!token || !signal || signal.aborted || driveLock.current) return;
+      // Retire reads taken before this operation. Late GETs cannot resurrect
+      // removed documents or a connection which has just been disconnected.
+      overviewRead.current++;
+      documentRead.current++;
+      driveLock.current = true;
+      setDriveBusy(true);
+      if (options.clearMessage !== false) setDriveMessage("");
+      try {
+        await action(token, signal);
+      } catch {
+        if (!signal.aborted)
+          setDriveMessage(
+            "Drive could not finish this action. Check the connection and try again.",
+          );
+      } finally {
+        driveLock.current = false;
+        if (queuedNativeReconcile.current)
+          queueMicrotask(() => drainNativeReconcile.current());
+        if (!signal.aborted) {
+          setDriveBusy(false);
+          setLoading(false);
+        }
       }
-    }
-  };
-  const startDrive = () => {
-    if (!vaultOwnerToken || driveLock.current || Capacitor.isNativePlatform())
+    },
+    [vaultOwnerToken],
+  );
+
+  const finalizeNativeDrive = useCallback(
+    async (
+      token: string,
+      signal: AbortSignal,
+      expectedAttemptId?: string,
+    ): Promise<boolean> => {
+      const isEffectCurrent = () =>
+        !signal.aborted && currentToken.current === token;
+      const pending = await ExternalConnectorService.pendingNative({
+        vaultOwnerToken: token,
+        isEffectCurrent,
+      });
+      if (!isEffectCurrent()) return false;
+      if (
+        !pending ||
+        (expectedAttemptId && pending.attemptId !== expectedAttemptId)
+      ) {
+        // A recovery poll itself is a Drive operation and retires any older
+        // overview read. Restore the authoritative connection status even
+        // when there was no staged credential to finalize.
+        await refresh(signal);
+        return false;
+      }
+      await ExternalConnectorService.finalizeNative({
+        vaultOwnerToken: token,
+        attemptId: pending.attemptId,
+        isEffectCurrent,
+      });
+      if (!isEffectCurrent()) return false;
+      return await refresh(signal);
+    },
+    [refresh],
+  );
+
+  const drainQueuedNativeReconcile = useCallback(() => {
+    if (
+      !open ||
+      !vaultOwnerToken ||
+      !Capacitor.isNativePlatform() ||
+      driveLock.current
+    )
       return;
+    const queued = queuedNativeReconcile.current;
+    if (!queued) return;
+    queuedNativeReconcile.current = null;
+    void runDrive(
+      async (token, signal) => {
+        const finalized = await finalizeNativeDrive(
+          token,
+          signal,
+          queued.expectedAttemptId,
+        );
+        if (finalized && !signal.aborted)
+          setDriveMessage(
+            "Drive connected. Choose files from a browser to authorize them.",
+          );
+      },
+      { clearMessage: false },
+    );
+  }, [finalizeNativeDrive, open, runDrive, vaultOwnerToken]);
+
+  useLayoutEffect(() => {
+    drainNativeReconcile.current = drainQueuedNativeReconcile;
+    return () => {
+      drainNativeReconcile.current = () => undefined;
+    };
+  }, [drainQueuedNativeReconcile]);
+
+  const queueNativeReconcile = useCallback(
+    (expectedAttemptId?: string) => {
+      const queued = queuedNativeReconcile.current;
+      // A completed callback is more specific than startup recovery. Never
+      // replace a callback attempt with a generic poll while it is queued.
+      if (!queued || expectedAttemptId)
+        queuedNativeReconcile.current = { expectedAttemptId };
+      drainQueuedNativeReconcile();
+    },
+    [drainQueuedNativeReconcile],
+  );
+
+  const startDrive = () => {
+    if (!vaultOwnerToken || driveLock.current) return;
+    if (Capacitor.isNativePlatform()) {
+      void runDrive(async (token, signal) => {
+        const isEffectCurrent = () =>
+          !signal.aborted && currentToken.current === token;
+        if (!user?.uid) throw new Error("native_owner_unavailable");
+        const start = await ExternalConnectorService.startOAuthConnect({
+          vaultOwnerToken: token,
+          connectorId: "google_drive",
+          redirectUri: ExternalConnectorService.nativeDriveOAuthCallbackUri(),
+          flow: "native",
+          isEffectCurrent,
+        });
+        const expiresAt = Date.parse(start.expiresAt);
+        if (
+          !isEffectCurrent() ||
+          !start.attemptId ||
+          start.connectorId !== "google_drive" ||
+          !Number.isFinite(expiresAt) ||
+          expiresAt <= Date.now()
+        ) {
+          throw new Error("invalid_start");
+        }
+        const result = await HushhAuth.connectDrive({
+          authorizeUrl: start.authorizeUrl,
+          attemptId: start.attemptId,
+          expiresAt,
+          expectedUserId: user.uid,
+        });
+        if (!isEffectCurrent()) return;
+        if (result.attemptId !== start.attemptId) {
+          // A stale custom-scheme return must not terminate a newer native
+          // operation. The exact current attempt remains recoverable through
+          // the owner-only pending endpoint after this lock releases.
+          queueNativeReconcile(start.attemptId);
+          setDriveMessage("Drive could not finish connecting. Try again.");
+          return;
+        }
+        if (result.outcome !== "ready") {
+          // Older Android browsers can deliver their Custom Tabs return just
+          // after RESULT_CANCELED. Reconcile the exact attempt after the
+          // native operation releases its lock before treating it as terminal.
+          queueNativeReconcile(start.attemptId);
+          await refresh(signal);
+          if (!signal.aborted) {
+            setDriveMessage(
+              result.outcome === "cancelled"
+                ? "Drive connection was cancelled. Your chat and draft stay here."
+                : "Drive could not finish connecting. Try again.",
+            );
+          }
+          return;
+        }
+        const finalized = await finalizeNativeDrive(
+          token,
+          signal,
+          start.attemptId,
+        );
+        if (!signal.aborted) {
+          setDriveMessage(
+            finalized
+              ? "Drive connected. Choose files from a browser to authorize them."
+              : "Drive authorization is still settling. Reopen Connections to check it.",
+          );
+        }
+      });
+      return;
+    }
     const popup = openDriveOAuthPopup();
     if (!popup) {
       setDriveMessage(
@@ -278,6 +442,7 @@ function OwnerConnectorsPanel({
           vaultOwnerToken: token,
           connectorId: "google_drive",
           redirectUri: `${window.location.origin}${ROUTES.PROFILE_CONNECTOR_OAUTH_RETURN}`,
+          flow: "web",
         });
         if (signal.aborted) return;
         if (!start.attemptId || start.connectorId !== "google_drive")
@@ -299,6 +464,23 @@ function OwnerConnectorsPanel({
       }
     });
   };
+  useEffect(() => {
+    if (!open || !vaultOwnerToken || !Capacitor.isNativePlatform()) return;
+    const handleReturn = (event: Event) => {
+      const result = (event as CustomEvent<NativeConnectorReturn>).detail;
+      if (!result) return;
+      if (result.outcome === "ready") queueNativeReconcile(result.attemptId);
+      else if (result.outcome === "cancelled")
+        setDriveMessage(
+          "Drive connection was cancelled. Your chat and draft stay here.",
+        );
+      else setDriveMessage("Drive could not finish connecting. Try again.");
+    };
+    window.addEventListener(NATIVE_CONNECTOR_RETURN_EVENT, handleReturn);
+    queueNativeReconcile();
+    return () =>
+      window.removeEventListener(NATIVE_CONNECTOR_RETURN_EVENT, handleReturn);
+  }, [open, queueNativeReconcile, vaultOwnerToken]);
   const chooseFiles = () =>
     void runDrive(async (token, signal) => {
       const session = await ExternalConnectorService.pickerSession(
@@ -421,8 +603,7 @@ function OwnerConnectorsPanel({
   const canConnectDrive =
     statusChecked &&
     drive?.available !== false &&
-    overview?.features.google_drive_connection === true &&
-    !Capacitor.isNativePlatform();
+    overview?.features.google_drive_connection === true;
   const canPick =
     drive?.available !== false &&
     !Capacitor.isNativePlatform() &&

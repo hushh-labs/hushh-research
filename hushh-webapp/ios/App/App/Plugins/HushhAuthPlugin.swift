@@ -41,6 +41,44 @@ final class GoogleIdentityReauthenticationFence {
     }
 }
 
+/// Single-use metadata fence for the Drive system-browser return. It contains
+/// no provider credential, OAuth code, state, or persisted attempt material.
+final class NativeDriveAuthorizationFence {
+    enum Claim { case accepted, ignored, stale }
+    let expectedUserID: String
+    let expectedAttemptID: String
+    let deadline: TimeInterval
+    private(set) var settled = false
+    private(set) var providerOutstanding = true
+    var canRelease: Bool { settled && !providerOutstanding }
+
+    init(expectedUserID: String, expectedAttemptID: String, expiresAtMilliseconds: Double) {
+        self.expectedUserID = expectedUserID
+        self.expectedAttemptID = expectedAttemptID
+        deadline = expiresAtMilliseconds / 1_000
+    }
+
+    func claim(attemptID: String?, userID: String?, sameSession: Bool, now: TimeInterval) -> Claim {
+        guard !settled else { return .ignored }
+        guard sameSession, userID == expectedUserID, attemptID == expectedAttemptID, now < deadline else {
+            return .stale
+        }
+        return .accepted
+    }
+
+    @discardableResult func settle() -> Bool {
+        guard !settled else { return false }
+        settled = true
+        return true
+    }
+
+    @discardableResult func drainProvider() -> Bool {
+        guard providerOutstanding else { return false }
+        providerOutstanding = false
+        return true
+    }
+}
+
 /**
  * HushhAuthPlugin - Native iOS Authentication (Capacitor 8)
  *
@@ -82,6 +120,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "reauthenticateGoogleIdentity", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "connectGmail", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "connectCalendar", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "connectDrive", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "signInWithApple", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "signOut", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getIdToken", returnType: CAPPluginReturnPromise),
@@ -110,6 +149,31 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
     private var identityReauthentication: IdentityReauthentication?
+    private final class DriveAuthorization: NSObject, ASWebAuthenticationPresentationContextProviding {
+        let call: CAPPluginCall
+        let user: FirebaseAuth.User
+        let fence: NativeDriveAuthorizationFence
+        weak var presenter: UIViewController?
+        var session: ASWebAuthenticationSession?
+        var timeout: DispatchWorkItem?
+
+        init(call: CAPPluginCall, user: FirebaseAuth.User, attemptID: String,
+             expiresAtMilliseconds: Double, presenter: UIViewController) {
+            self.call = call
+            self.user = user
+            self.presenter = presenter
+            fence = NativeDriveAuthorizationFence(
+                expectedUserID: user.uid,
+                expectedAttemptID: attemptID,
+                expiresAtMilliseconds: expiresAtMilliseconds
+            )
+        }
+
+        func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+            presenter?.view.window ?? UIWindow()
+        }
+    }
+    private var driveAuthorization: DriveAuthorization?
 
     // Apple Sign-In properties
     private var currentNonce: String?
@@ -335,7 +399,8 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
             DispatchQueue.main.async { self.signIn(call) }
             return
         }
-        guard identityReauthentication == nil, !googleInteractiveInFlight, appleSignInCall == nil else {
+        guard driveAuthorization == nil, identityReauthentication == nil,
+              !googleInteractiveInFlight, appleSignInCall == nil else {
             call.reject("Identity verification is already in progress.", "identity_busy")
             return
         }
@@ -462,7 +527,8 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
             DispatchQueue.main.async { self.connectGmail(call) }
             return
         }
-        guard identityReauthentication == nil, !googleInteractiveInFlight, appleSignInCall == nil else {
+        guard driveAuthorization == nil, identityReauthentication == nil,
+              !googleInteractiveInFlight, appleSignInCall == nil else {
             call.reject("Identity verification is already in progress.", "identity_busy")
             return
         }
@@ -535,7 +601,8 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
             DispatchQueue.main.async { self.connectCalendar(call) }
             return
         }
-        guard identityReauthentication == nil, !googleInteractiveInFlight, appleSignInCall == nil else {
+        guard driveAuthorization == nil, identityReauthentication == nil,
+              !googleInteractiveInFlight, appleSignInCall == nil else {
             call.reject("Identity verification is already in progress.", "identity_busy")
             return
         }
@@ -595,6 +662,143 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
     
+    // MARK: - Native Drive OAuth
+    @objc func connectDrive(_ call: CAPPluginCall) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { self.connectDrive(call) }
+            return
+        }
+        guard driveAuthorization == nil, identityReauthentication == nil,
+              !googleInteractiveInFlight, appleSignInCall == nil else {
+            call.reject("Another identity action is already in progress.", "identity_busy")
+            return
+        }
+        guard let authorizeURL = call.getString("authorizeUrl").flatMap(URL.init(string:)),
+              isTrustedDriveAuthorizeURL(authorizeURL),
+              let attemptID = call.getString("attemptId"), isOpaqueDriveAttemptID(attemptID),
+              let expectedUserID = call.getString("expectedUserId"), !expectedUserID.isEmpty,
+              let expiresAt = call.getDouble("expiresAt"),
+              expiresAt > Date().timeIntervalSince1970 * 1_000,
+              expiresAt <= Date().timeIntervalSince1970 * 1_000 + 11 * 60 * 1_000,
+              let user = Auth.auth().currentUser, user.uid == expectedUserID,
+              let presenter = bridge?.viewController else {
+            call.reject("Drive connection is unavailable.", "drive_connection_unavailable")
+            return
+        }
+
+        let operation = DriveAuthorization(
+            call: call, user: user, attemptID: attemptID,
+            expiresAtMilliseconds: expiresAt, presenter: presenter
+        )
+        driveAuthorization = operation
+        let timeout = DispatchWorkItem { [weak self, weak operation] in
+            guard let self, let operation else { return }
+            self.settleDriveAuthorization(operation, outcome: "failed", drainProvider: false)
+        }
+        operation.timeout = timeout
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + max(0, expiresAt / 1_000 - Date().timeIntervalSince1970),
+            execute: timeout
+        )
+
+        let session = ASWebAuthenticationSession(
+            url: authorizeURL,
+            callbackURLScheme: "hushh"
+        ) { [weak self, weak operation] callbackURL, error in
+            DispatchQueue.main.async {
+                guard let self, let operation else { return }
+                guard operation.fence.drainProvider() else { return }
+                if operation.fence.settled {
+                    if operation.fence.canRelease, self.driveAuthorization === operation {
+                        self.driveAuthorization = nil
+                    }
+                    return
+                }
+                guard error == nil else {
+                    let outcome: String
+                    if let authError = error as? ASWebAuthenticationSessionError,
+                       authError.code == .canceledLogin {
+                        outcome = "cancelled"
+                    } else {
+                        outcome = "failed"
+                    }
+                    self.settleDriveAuthorization(operation, outcome: outcome, drainProvider: false)
+                    return
+                }
+                let result = callbackURL.flatMap(self.parseNativeDriveReturn)
+                guard let result else {
+                    self.settleDriveAuthorization(operation, outcome: "failed", drainProvider: false)
+                    return
+                }
+                guard self.claimDriveAuthorization(operation, attemptID: result.attemptId) == .accepted else {
+                    self.settleDriveAuthorization(operation, outcome: "failed", drainProvider: false)
+                    return
+                }
+                self.settleDriveAuthorization(operation, outcome: result.outcome, drainProvider: false)
+            }
+        }
+        operation.session = session
+        session.presentationContextProvider = operation
+        if !session.start() {
+            settleDriveAuthorization(operation, outcome: "failed", drainProvider: true)
+        }
+    }
+
+    private func isTrustedDriveAuthorizeURL(_ url: URL) -> Bool {
+        url.scheme == "https" && url.host == "accounts.google.com" &&
+            url.path == "/o/oauth2/v2/auth" && url.user == nil &&
+            url.password == nil && url.port == nil && url.fragment == nil
+    }
+
+    private func isOpaqueDriveAttemptID(_ value: String) -> Bool {
+        value.range(of: "^[A-Za-z0-9_-]{16,128}$", options: .regularExpression) != nil
+    }
+
+    private func parseNativeDriveReturn(_ url: URL) -> (attemptId: String, outcome: String)? {
+        guard url.scheme == "hushh", url.host == "connectors", url.path == "/return",
+              url.user == nil, url.password == nil, url.port == nil, url.fragment == nil,
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let items = components.queryItems, items.count == 2 else {
+            return nil
+        }
+        let attempts = items.filter { $0.name == "attemptId" }.compactMap(\.value)
+        let outcomes = items.filter { $0.name == "outcome" }.compactMap(\.value)
+        guard attempts.count == 1, outcomes.count == 1, isOpaqueDriveAttemptID(attempts[0]),
+              ["ready", "cancelled", "failed"].contains(outcomes[0]) else {
+            return nil
+        }
+        return (attempts[0], outcomes[0])
+    }
+
+    private func claimDriveAuthorization(
+        _ operation: DriveAuthorization, attemptID: String
+    ) -> NativeDriveAuthorizationFence.Claim {
+        guard driveAuthorization === operation else { return .ignored }
+        let user = Auth.auth().currentUser
+        return operation.fence.claim(
+            attemptID: attemptID,
+            userID: user?.uid,
+            sameSession: user === operation.user,
+            now: Date().timeIntervalSince1970
+        )
+    }
+
+    private func settleDriveAuthorization(
+        _ operation: DriveAuthorization, outcome: String, drainProvider: Bool
+    ) {
+        if drainProvider { _ = operation.fence.drainProvider() }
+        guard operation.fence.settle() else { return }
+        operation.timeout?.cancel()
+        if outcome == "failed" { operation.session?.cancel() }
+        if operation.fence.canRelease, driveAuthorization === operation {
+            driveAuthorization = nil
+        }
+        operation.call.resolve([
+            "attemptId": operation.fence.expectedAttemptID,
+            "outcome": outcome
+        ])
+    }
+
     // MARK: - Fresh same-user Google proof
     @objc func reauthenticateGoogleIdentity(_ call: CAPPluginCall) {
         DispatchQueue.main.async { [weak self] in
@@ -603,7 +807,8 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
     }
 
     private func startIdentityReauthentication(_ call: CAPPluginCall) {
-        guard identityReauthentication == nil, !googleInteractiveInFlight, appleSignInCall == nil else {
+        guard driveAuthorization == nil, identityReauthentication == nil,
+              !googleInteractiveInFlight, appleSignInCall == nil else {
             call.reject("Identity verification is already in progress.", "identity_busy")
             return
         }
@@ -707,6 +912,9 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         if let operation = identityReauthentication { finishIdentity(operation, code: "session_changed") }
+        if let operation = driveAuthorization {
+            settleDriveAuthorization(operation, outcome: "failed", drainProvider: false)
+        }
         print("🤖 [\(TAG)] signOut() called")
         
         // Sign out from Firebase
@@ -855,7 +1063,8 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
             DispatchQueue.main.async { self.signInWithApple(call) }
             return
         }
-        guard identityReauthentication == nil, !googleInteractiveInFlight, appleSignInCall == nil else {
+        guard driveAuthorization == nil, identityReauthentication == nil,
+              !googleInteractiveInFlight, appleSignInCall == nil else {
             call.reject("Identity verification is already in progress.", "identity_busy")
             return
         }
