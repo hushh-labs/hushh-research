@@ -113,7 +113,8 @@ export function bootRateHz(intervalsMs: readonly number[]): number | null {
   if (usable.length < 10) return null;
   const sorted = [...usable].sort((a, b) => a - b);
   const mid = Math.floor(sorted.length / 2);
-  const median = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  const upper = sorted[mid] ?? 0;
+  const median = sorted.length % 2 ? upper : ((sorted[mid - 1] ?? upper) + upper) / 2;
   return 1000 / median;
 }
 
