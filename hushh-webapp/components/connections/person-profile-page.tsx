@@ -345,6 +345,23 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     [allScopes, selectedScopeRefs, grantedScopeRefs],
   );
 
+  const openRequestReview = () => {
+    if (!selectedScopes.length) {
+      toast.error("Choose at least one thing before reviewing the request.");
+      return false;
+    }
+    if (!isVaultUnlocked) {
+      toast.error("Unlock your vault before requesting information.");
+      return false;
+    }
+    if (!request.available) {
+      toast.error("Your vault is still getting ready. Try again in a moment.");
+      return false;
+    }
+    setReviewOpen(true);
+    return true;
+  };
+
   const submitRequest = async () => {
     const sent = await request.submit({ scopeRefs: selectedScopes.map(scope => scope.scopeRef), purpose, durationHours });
     if (sent) {
@@ -636,14 +653,9 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     };
   }, { enabled: viewerProfile?.relationship.status === "connected" });
   useLocalOnboardingActionHandler("people.profile.review_information_request", async () => {
-    if (!selectedScopeRefs.size) {
-      return { status: "blocked", summary: "Choose at least one thing before reviewing the request." };
-    }
-    if (!isVaultUnlocked) {
-      return { status: "blocked", summary: "Unlock the vault before reviewing an information request." };
-    }
-    setReviewOpen(true);
-    return { status: "succeeded", summary: "Information request review opened." };
+    return openRequestReview()
+      ? { status: "succeeded", summary: "Information request review opened." }
+      : { status: "blocked", summary: "The request review is not ready yet." };
   }, { enabled: Boolean(viewerProfile) });
   useLocalOnboardingActionHandler("people.profile.manage_consent", async () => {
     router.push(ROUTES.CONSENTS);
@@ -1106,13 +1118,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                     variant="blue-gradient"
                     effect="fill"
                     disabled={!selectedScopes.length}
-                    onClick={() => {
-                      if (!isVaultUnlocked) {
-                        toast.error("Unlock your vault before requesting information.");
-                        return;
-                      }
-                      setReviewOpen(true);
-                    }}
+                    onClick={openRequestReview}
                     data-voice-control-id="person-profile-review-information"
                   >
                     Review request{selectedScopes.length ? ` (${selectedScopes.length})` : ""}

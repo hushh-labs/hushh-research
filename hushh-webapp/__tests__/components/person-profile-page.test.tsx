@@ -96,7 +96,13 @@ vi.mock("@/lib/morphy-ux/button", () => ({
 }));
 
 vi.mock("@/components/ui/dialog", () => ({
-  Dialog: ({ children }: { children: ReactNode }) => <>{children}</>,
+  Dialog: ({
+    children,
+    open,
+  }: {
+    children: ReactNode;
+    open?: boolean;
+  }) => (open === false ? null : <>{children}</>),
   DialogContent: ({ children }: { children: ReactNode }) => <section>{children}</section>,
   DialogDescription: ({ children }: { children: ReactNode }) => <p>{children}</p>,
   DialogFooter: ({ children }: { children: ReactNode }) => <footer>{children}</footer>,
@@ -361,6 +367,39 @@ describe("PersonProfilePage native profile route", () => {
       reviewButton.compareDocumentPosition(historyHeading) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+  });
+
+  it("does not open an unusable review dialog while the vault token is still loading", async () => {
+    mocks.user = {
+      uid: "viewer",
+      getIdToken: vi.fn().mockResolvedValue("viewer-token"),
+    };
+    mocks.getViewer.mockResolvedValue(viewerProfile());
+
+    render(
+      <PersonProfilePage
+        personRef="actual-public-ref"
+        initialProfile={{
+          personRef: "actual-public-ref",
+          displayName: "Actual Person",
+          photoUrl: null,
+          verifiedRole: null,
+        }}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open Financial" }));
+    fireEvent.click(screen.getByRole("button", { name: /Risk profile/ }));
+    const reviewButton = await screen.findByRole("button", {
+      name: "Review request (1)",
+    });
+    fireEvent.click(reviewButton);
+
+    expect(screen.queryByRole("button", { name: "Send request" })).not.toBeInTheDocument();
+    const { toast } = await import("sonner");
+    expect(toast.error).toHaveBeenCalledWith(
+      "Your vault is still getting ready. Try again in a moment.",
+    );
   });
 });
 
