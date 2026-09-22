@@ -38240,7 +38240,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "56c2b5da1a79949e565ebda2d6d5757b8edef60490e404ea1547567e8eec96ae",
+      "projection_digest": "29c3fc15a6172e8c3381e4d2ab4af2a57da62b7b96fc26d913e3d2ac93fa54a9",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -38259,7 +38259,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "fc844f2d3e1b73763155fb0708676c62639bbf7115be9f5405553580f01894ba"
       },
-      "source_revision": "9f7152b5653d9cca",
+      "source_revision": "525e1bea6e22f1da",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -39777,7 +39777,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "9f7152b5653d9cca",
+    "source_revision": "525e1bea6e22f1da",
     "web": {
       "actions": [
         {
@@ -39820,7 +39820,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "2662442319b67e8bbcf3205b86abf056fe62224531666992802276b4fe78c956",
+      "projection_digest": "adbabea0dc97158ef28e03254916bccc7c22f50bf6d4674dd1d073f27a857e84",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -39839,7 +39839,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "fc844f2d3e1b73763155fb0708676c62639bbf7115be9f5405553580f01894ba"
       },
-      "source_revision": "9f7152b5653d9cca",
+      "source_revision": "525e1bea6e22f1da",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -41396,7 +41396,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "9f7152b5653d9cca",
+  "revision": "525e1bea6e22f1da",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -42268,6 +42268,7 @@
         "help.open_examples",
         "profile.delete_account",
         "profile.marketplace_visibility.toggle",
+        "profile.reset_account",
         "profile.set_contact_discoverable",
         "profile.sign_out",
         "profile.support.submit_message",
@@ -42313,6 +42314,7 @@
         "help.open_examples",
         "profile.delete_account",
         "profile.marketplace_visibility.toggle",
+        "profile.reset_account",
         "profile.set_contact_discoverable",
         "profile.sign_out",
         "profile.support.submit_message",
@@ -42340,6 +42342,7 @@
         "help.open_examples",
         "profile.delete_account",
         "profile.marketplace_visibility.toggle",
+        "profile.reset_account",
         "profile.set_contact_discoverable",
         "profile.sign_out",
         "profile.support.submit_message",
@@ -43104,7 +43107,11 @@
       "actions:profile.reset_account"
     ],
     "breaking": [],
-    "changed": [],
+    "changed": [
+      "screens:screen:/one/profile",
+      "screens:screen:/one/profile/account",
+      "screens:screen:/one/profile/account/phone"
+    ],
     "compatible": [],
     "deprecated": [],
     "from_revision": "771cbd282b3b3c1a",
@@ -45558,12 +45565,12 @@
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
     "product_agent_registry": "b865a980c4ff47ff91b316a238af7c70cfe01a3a79459199603791428b46a7d4",
-    "route_orchestration_index": "e2bf3a298f738a977174792714f45e872474f65e40427b820ac509a42799ee37",
+    "route_orchestration_index": "825c165d36c9a42c546bbaaaa2a6b3f52a4f831251ef82d09ec6ca75e120168b",
     "service_knowledge_packages": "fc844f2d3e1b73763155fb0708676c62639bbf7115be9f5405553580f01894ba"
   },
-  "source_revision": "9f7152b5653d9cca",
+  "source_revision": "525e1bea6e22f1da",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "9f7152b5653d9cca",
+    "current_graph_revision": "525e1bea6e22f1da",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
