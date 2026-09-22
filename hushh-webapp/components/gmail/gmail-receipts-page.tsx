@@ -2046,13 +2046,13 @@ export default function GmailReceiptsPage({
           ) : null}
 
           {isConnected && workspace === "overview" ? (
-            <SurfaceInset className="space-y-3 px-4 py-4 text-sm sm:px-5 sm:py-5">
+            <SurfaceInset className="space-y-3.5 px-4 py-4 text-sm sm:px-5 sm:py-5">
               <div className="flex items-start gap-3">
-                <div className="rounded-xl bg-primary/10 p-2 text-primary">
+                <div className="rounded-xl bg-indigo-500/10 p-2.5 text-indigo-600 dark:bg-indigo-400/15 dark:text-indigo-400 shrink-0">
                   <PenLine className="h-5 w-5" />
                 </div>
-                <div className="space-y-1">
-                  <p className="font-medium text-foreground">Draft with One</p>
+                <div className="space-y-1.5">
+                  <p className="font-medium text-foreground pb-0.5">Draft with One</p>
                   <p className="text-sm leading-6 text-muted-foreground">
                     Ask One to write, reply to, or follow up on a message. You&apos;ll
                     always have the final say — nothing sends until you tap Send.
@@ -2066,13 +2066,13 @@ export default function GmailReceiptsPage({
           ) : null}
 
           {isConnected && workspace === "overview" ? (
-            <SurfaceInset className="space-y-3 px-4 py-4 text-sm sm:px-5 sm:py-5">
+            <SurfaceInset className="space-y-3.5 px-4 py-4 text-sm sm:px-5 sm:py-5">
               <div className="flex items-start gap-3">
-                <div className="rounded-xl bg-primary/10 p-2 text-primary">
+                <div className="rounded-xl bg-emerald-500/10 p-2.5 text-emerald-600 dark:bg-emerald-400/15 dark:text-emerald-400 shrink-0">
                   <ShieldCheck className="h-5 w-5" />
                 </div>
-                <div className="space-y-1">
-                  <p className="font-medium text-foreground">KYC requests</p>
+                <div className="space-y-1.5">
+                  <p className="font-medium text-foreground pb-0.5">KYC requests</p>
                   <p className="text-sm leading-6 text-muted-foreground">
                     Add your KYC details, catch new requests, and approve every
                     reply before it&apos;s sent.
@@ -2091,13 +2091,13 @@ export default function GmailReceiptsPage({
           ) : null}
 
           {isConnected && workspace === "overview" ? (
-            <SurfaceInset className="space-y-3 px-4 py-4 text-sm sm:px-5 sm:py-5">
+            <SurfaceInset className="space-y-3.5 px-4 py-4 text-sm sm:px-5 sm:py-5">
               <div className="flex items-start gap-3">
-                <div className="rounded-xl bg-primary/10 p-2 text-primary">
+                <div className="rounded-xl bg-amber-500/10 p-2.5 text-amber-600 dark:bg-amber-400/15 dark:text-amber-400 shrink-0">
                   <ShoppingBag className="h-5 w-5" />
                 </div>
-                <div className="space-y-1">
-                  <p className="font-medium text-foreground">Receipts</p>
+                <div className="space-y-1.5">
+                  <p className="font-medium text-foreground pb-0.5">Receipts</p>
                   <p className="text-sm leading-6 text-muted-foreground">
                     Sync your purchase emails and keep shopping insights private.
                   </p>
