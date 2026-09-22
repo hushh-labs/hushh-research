@@ -126,10 +126,17 @@ RUN_START_MS="$(( $(date +%s) * 1000 ))"
 # PERF_ROUTES overrides the selection for a narrower sweep.
 PERF_ROUTE_LIST="${PERF_ROUTES:-}"
 if [ "${PERF_SECTION:-}" = "routes" ] && [ -z "$PERF_ROUTE_LIST" ]; then
-  PERF_ROUTE_LIST="$(node -e '
-    const inv = require("./native-route-inventory.json");
+  # Absolute path: the card has already cd'd into ios/App by this point.
+  PERF_ROUTE_LIST="$(WEB_DIR="$WEB_DIR" node -e '
+    const inv = require(require("path").join(process.env.WEB_DIR, "native-route-inventory.json"));
     const routes = inv.routes
       .filter((r) => String(r.classification || "").startsWith("native-required"))
+      // Signed-in surfaces only. A signed-out route (/logout) ends the
+      // reviewer session for every launch after it, which turned the first
+      // sweep back half into a wall of false "unreachable" results; OAuth
+      // callback routes need a provider round-trip to mean anything.
+      .filter((r) => r.expectedAuth === "authenticated" && r.autoReviewerLogin === true)
+      .filter((r) => !String(r.classification || "").endsWith("-callback"))
       .map((r) => r.route)
       // A route carrying a path parameter needs a real id to mean anything;
       // the sweep measures the static surfaces and says so.

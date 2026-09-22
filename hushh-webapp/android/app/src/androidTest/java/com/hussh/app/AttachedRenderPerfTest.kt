@@ -173,15 +173,19 @@ class AttachedRenderPerfTest {
 
     /** Threads and X on the same phone, same flick, HWUI numbers only. */
     private fun thirdPartyFeedFlick(name: String, otherPkg: String) {
-        val intent = target.packageManager.getLaunchIntentForPackage(otherPkg)
-        if (intent == null) {
+        // Through the shell, not our own PackageManager: since Android 11 an
+        // app sees only the packages its manifest declares in <queries>, and
+        // ours declares an SMS intent only, so Threads and X read as "not
+        // installed" to the app while sitting on the phone. The shell is not
+        // subject to package visibility.
+        val installed = device.executeShellCommand("pm path $otherPkg").contains("package:")
+        if (!installed) {
             log("PERF_SKIPPED name=$name-feed-flick reason=not_installed")
             return
         }
         device.executeShellCommand("am force-stop $otherPkg")
         settle(800)
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        target.startActivity(intent)
+        device.executeShellCommand("monkey -p $otherPkg -c android.intent.category.LAUNCHER 1")
         if (!device.wait(Until.hasObject(By.pkg(otherPkg).depth(0)), 30_000)) {
             log("PERF_SKIPPED name=$name-feed-flick reason=did_not_launch")
             return
@@ -282,7 +286,7 @@ class AttachedRenderPerfTest {
             // page can go stale (no tab buttons visible to it although the
             // shell is up); the field staying gone for four seconds with the
             // app in front and no mismatch banner is the unlock.
-            if (attempts > 0 && field == null && device.currentPackageName == pkg &&
+            if (attempts > 0 && findLabelledPassphraseField() == null && device.currentPackageName == pkg &&
                 device.findObject(By.textContains("did not match")) == null
             ) {
                 if (fieldGoneSince == 0L) fieldGoneSince = System.currentTimeMillis()
@@ -357,9 +361,19 @@ class AttachedRenderPerfTest {
     }
 
     private fun findPassphraseField(): UiObject2? =
+        findLabelledPassphraseField()
+            ?: device.findObject(By.clazz("android.widget.EditText").pkg(pkg))
+
+    /**
+     * The vault field by its own label only. The bare-EditText fallback above
+     * is right for finding somewhere to type, and wrong for deciding the gate
+     * is still up: feed and location carry an input of their own (the agent
+     * bar), so after a successful unlock that fallback kept "finding a
+     * passphrase field" and the lane waited out 240 s on an unlocked app.
+     */
+    private fun findLabelledPassphraseField(): UiObject2? =
         device.findObject(By.desc("Vault passphrase"))
             ?: device.findObject(By.hint("Enter passphrase"))
-            ?: device.findObject(By.clazz("android.widget.EditText").pkg(pkg))
 
     private fun signedInBarPresent(): Boolean =
         device.wait(Until.hasObject(By.text("One").clazz("android.widget.RadioButton")), 500)

@@ -1173,7 +1173,7 @@ final class AppUITests: XCTestCase {
         NSLog("PERF_LANE certifies=\(release) simulator=false test_mode=false")
         #endif
 
-        func launchAttached(route: String?) throws -> (XCUIApplication, XCUIElement) {
+        func launchAttached(route: String?, shellOptional: Bool = false, failHard: Bool = true, unlockTimeout: TimeInterval = 240) throws -> (XCUIApplication, XCUIElement) {
             let app = XCUIApplication()
             var arguments = ["-CapacitorStorage.hushh_perf_probe", "1"]
             if let route {
@@ -1190,7 +1190,7 @@ final class AppUITests: XCTestCase {
             app.launch()
             let webView = app.webViews.firstMatch
             XCTAssertTrue(webView.waitForExistence(timeout: 30), "WebView unavailable")
-            try perfUnlockVault(app, passphrase: passphrase, timeout: 240)
+            try perfUnlockVault(app, passphrase: passphrase, timeout: unlockTimeout, shellOptional: shellOptional, failHard: failHard)
             return (app, webView)
         }
 
@@ -1364,7 +1364,14 @@ final class AppUITests: XCTestCase {
                 NSLog("PERF_SKIPPED name=routes reason=no_route_list")
             }
             for route in list {
-                let (app, _) = try launchAttached(route: route)
+                let app: XCUIApplication
+                do {
+                    (app, _) = try launchAttached(route: route, shellOptional: true, failHard: false, unlockTimeout: 90)
+                } catch let unreachable as PerfRouteUnreachable {
+                    NSLog("PERF_ROUTE_UNREACHABLE route=\(route) reason=\(unreachable.reason)")
+                    XCUIApplication().terminate()
+                    continue
+                }
                 NSLog("PERF_APP_READY route=\(route)")
                 // The probe keys its idle bucket on the route it settled on,
                 // so a redirect (locked vault, missing prerequisite) is
@@ -1517,7 +1524,25 @@ final class AppUITests: XCTestCase {
     /// is the default, type the passphrase, tap Unlock, wait for the signed-in
     /// bottom bar. With no passphrase configured (or a sign-in screen) it waits
     /// for the person holding the phone. The passphrase is never logged.
-    private func perfUnlockVault(_ app: XCUIApplication, passphrase: String, timeout: TimeInterval) throws {
+    /// Thrown instead of an XCTFail when a caller sweeping many routes wants
+    /// to record one unreachable route and carry on.
+    struct PerfRouteUnreachable: Error { let reason: String }
+
+    /// `shellOptional`: the bottom bar's "One" tab is the usual sign that the
+    /// app is signed in and unlocked, but a route that hides the shell (an
+    /// import flow, a full-screen setup step) never shows it, and waiting for
+    /// it there only burns the timeout. With this set, a submitted passphrase
+    /// whose field has stayed gone for four seconds, with no mismatch banner,
+    /// also counts, which is the signal the Android lane uses for the same
+    /// reason. `failHard: false` throws PerfRouteUnreachable instead of
+    /// failing the whole test.
+    private func perfUnlockVault(
+        _ app: XCUIApplication,
+        passphrase: String,
+        timeout: TimeInterval,
+        shellOptional: Bool = false,
+        failHard: Bool = true
+    ) throws {
         // The clock starts when the passphrase field is on screen: a cold
         // launch can spend two minutes behind the system passkey sheet first.
         var deadline = Date().addingTimeInterval(timeout)
@@ -1525,9 +1550,26 @@ final class AppUITests: XCTestCase {
         var attempts = 0
         var announced = false
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        var fieldGoneSince: Date?
         while Date() < deadline {
             if perfLabelExists(app, "One") {
                 return
+            }
+            if shellOptional && attempts > 0 {
+                let gateField = app.webViews.secureTextFields.matching(NSPredicate(format: "label == %@ OR placeholderValue == %@", "Vault passphrase", "Enter passphrase")).firstMatch
+                let rejected = app.webViews.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "did not match")).firstMatch.exists
+                if !gateField.exists && !rejected {
+                    if let since = fieldGoneSince {
+                        if Date().timeIntervalSince(since) >= 4 {
+                            NSLog("PERF_UNLOCK ready=field-gone")
+                            return
+                        }
+                    } else {
+                        fieldGoneSince = Date()
+                    }
+                } else {
+                    fieldGoneSince = nil
+                }
             }
             // The vault gate opens the passkey flow at launch; with no passkey
             // on this phone iOS shows its "Scan QR Code" sheet over the app and
@@ -1594,6 +1636,9 @@ final class AppUITests: XCTestCase {
                 announced = true
             }
             perfSettle(1.0)
+        }
+        if !failHard {
+            throw PerfRouteUnreachable(reason: "not signed in and unlocked within \(Int(timeout)) s")
         }
         XCTFail("The app was not signed in and unlocked within \(Int(timeout)) s.")
         throw XCTSkip("unlock timeout")
