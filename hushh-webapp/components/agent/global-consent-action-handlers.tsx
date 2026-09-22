@@ -148,6 +148,7 @@ export function GlobalConsentActionHandlers() {
         label: item.label,
         domain: "Information",
         sensitivity: item.sensitivity || "standard",
+        requestId: item.requestId,
         status: item.status,
       }));
       const summary = who

@@ -1,18 +1,18 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ScopeDiscoveryExperience } from "@/lib/agent/agui-structured-experiences";
+import type { InformationRequestReviewExperience, ScopeDiscoveryExperience } from "@/lib/agent/agui-structured-experiences";
 import type { ViewerPersonProfile } from "@/lib/services/person-profile-service";
 
 const mocks = vi.hoisted(() => ({
   user: { uid: "reviewer-a", getIdToken: vi.fn(async () => "test-token") },
-  unlocked: true, getViewer: vi.fn(), create: vi.fn(),
+  unlocked: true, getViewer: vi.fn(), create: vi.fn(), getInformationRequest: vi.fn(),
 }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: mocks.user }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ isVaultUnlocked: mocks.unlocked, vaultKey: "test-key", vaultOwnerToken: "test-owner-token" }) }));
 vi.mock("@/lib/services/person-profile-service", async importOriginal => ({
   ...await importOriginal<object>(),
-  PersonProfileService: { getViewer: mocks.getViewer, createInformationRequest: mocks.create },
+  PersonProfileService: { getViewer: mocks.getViewer, createInformationRequest: mocks.create, getInformationRequest: mocks.getInformationRequest },
 }));
 vi.mock("@/lib/services/one-kyc-client-zk-service", () => ({ OneKycClientZkService: { ensureConnector: async () => ({ connector_key_id: "test-connector" }) } }));
 vi.mock("@/lib/morphy-ux/button", () => ({ Button: ({ children, ...props }: { children: ReactNode }) => <button {...props}>{children}</button> }));
@@ -51,6 +51,7 @@ describe("current-authority inline Chat catalog", () => {
     mocks.getViewer.mockResolvedValue(page(1));
     mocks.create.mockReset();
     mocks.create.mockResolvedValue({ bundleId: "test-bundle" });
+    mocks.getInformationRequest.mockReset();
   });
   afterEach(cleanup);
 
@@ -101,6 +102,40 @@ describe("current-authority inline Chat catalog", () => {
     render(<AgentStructuredExperienceView experience={legacy} />);
     expect(await screen.findByText("This saved card cannot be used to make a request. Ask One to check again.")).toBeInTheDocument();
     expect(mocks.getViewer).not.toHaveBeenCalled();
+  });
+
+  it("reconciles restored item status by request identity, not duplicate labels", async () => {
+    const restored: InformationRequestReviewExperience = {
+      type: "one.information_request_review.v1",
+      personName: "Synthetic Recipient",
+      purpose: "Compare two independently requested records.",
+      durationLabel: "2 days",
+      direction: "outgoing",
+      phase: "submitted",
+      subjectRef: person,
+      bundleId: "bundle_12345678",
+      requestId: null,
+      status: "mixed",
+      fields: [
+        { label: "Same label", domain: "Financial", requestId: "request_12345678", sensitivity: "standard" },
+        { label: "Same label", domain: "Financial", requestId: "request_22345678", sensitivity: "standard" },
+      ],
+    };
+    mocks.getInformationRequest.mockResolvedValue({
+      bundleId: "bundle_12345678",
+      personRef: person,
+      purpose: restored.purpose,
+      durationSeconds: 172800,
+      cancelled: false,
+      items: [
+        { requestId: "request_12345678", scopeRef: "scope-1", label: "Same label", sensitivity: "standard", status: "denied" },
+        { requestId: "request_22345678", scopeRef: "scope-2", label: "Same label", sensitivity: "standard", status: "granted" },
+      ],
+    });
+    render(<AgentStructuredExperienceView experience={restored} />);
+    await waitFor(() => expect(mocks.getInformationRequest).toHaveBeenCalledWith({ bundleId: restored.bundleId, vaultOwnerToken: "test-owner-token" }));
+    expect(await screen.findByText("Declined")).toBeInTheDocument();
+    expect(await screen.findByText("Granted")).toBeInTheDocument();
   });
 
   it("discards a late catalog after lock instead of displaying private-session state", async () => {

@@ -144,12 +144,12 @@ describe("AG-UI structured experience registry", () => {
       durationLabel: "30 days",
       status: "pending",
       fields: [
-        { label: "Work authorization", domain: "Identity", status: "granted" },
+        { label: "Work authorization", domain: "Identity", requestId: "request_12345678", status: "granted" },
         { label: "Tax identifier", domain: "Identity", status: "pending" },
       ],
     });
     expect(result?.fields).toEqual([
-      { label: "Work authorization", domain: "Identity", sensitivity: "standard", status: "granted" },
+      { label: "Work authorization", domain: "Identity", sensitivity: "standard", requestId: "request_12345678", status: "granted" },
       { label: "Tax identifier", domain: "Identity", sensitivity: "standard", status: "pending" },
     ]);
   });

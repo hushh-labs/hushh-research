@@ -55,6 +55,8 @@ type ReviewField = {
   label: string;
   domain: string;
   sensitivity: ScopeDiscoverySensitivity;
+  /** Safe per-item reference used only to reconcile current status. */
+  requestId?: string;
 };
 
 export type InformationRequestItemStatus =
@@ -200,7 +202,13 @@ function parseReviewFields(value: unknown, max = 100): ReviewField[] {
     const label = boundedString(field?.label, 120);
     const domain = boundedString(field?.domain, 80);
     if (!label || !domain) return [];
-    return [{ label, domain, sensitivity: normalizeSensitivity(field?.sensitivity) }];
+    const requestId = boundedString(field?.requestId, 128);
+    return [{
+      label,
+      domain,
+      sensitivity: normalizeSensitivity(field?.sensitivity),
+      ...(requestId && /^[A-Za-z0-9_-]{8,128}$/.test(requestId) ? { requestId } : {}),
+    }];
   });
 }
 

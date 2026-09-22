@@ -352,6 +352,7 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
       const status = statuses.every((itemStatus) => itemStatus === firstStatus)
         ? firstStatus
         : "mixed" as const;
+      const byRequestId = new Map(bundle.items.map((item) => [item.requestId, item]));
       const byLabel = new Map<string, typeof bundle.items>();
       for (const item of bundle.items) {
         const matches = byLabel.get(item.label) || [];
@@ -359,6 +360,10 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
         byLabel.set(item.label, matches);
       }
       const fields = experience.fields.map((field) => {
+        if (field.requestId) {
+          const item = byRequestId.get(field.requestId);
+          return item ? { ...field, status: item.status } : field;
+        }
         const matches = byLabel.get(field.label);
         const item = matches?.shift();
         return item ? { ...field, status: item.status } : field;

@@ -161,6 +161,7 @@ def test_history_descriptor_restores_safe_submitted_request_settlement() -> None
                                 "label": "Employment status",
                                 "domain": "Professional",
                                 "sensitivity": "standard",
+                                "requestId": "request_12345678",
                                 "status": "pending",
                             }
                         ],
@@ -178,6 +179,7 @@ def test_history_descriptor_restores_safe_submitted_request_settlement() -> None
     assert content["subjectRef"] == "1234567890abcdef"
     assert content["bundleId"] == "bundle_12345678"
     assert content["fields"][0]["status"] == "pending"
+    assert content["fields"][0]["requestId"] == "request_12345678"
     assert "schemaVersion" not in json.dumps(metadata)
 
 

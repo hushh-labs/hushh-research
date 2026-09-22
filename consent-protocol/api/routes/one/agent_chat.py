@@ -541,6 +541,9 @@ def _safe_submitted_information_request_descriptor(
                 "domain": domain,
                 "sensitivity": _bounded_text(field.get("sensitivity"), 32) or "standard",
             }
+            request_id = _bounded_text(field.get("requestId"), 128)
+            if request_id and re.fullmatch(r"[A-Za-z0-9_-]{8,128}", request_id):
+                projected["requestId"] = request_id
             field_status = _bounded_text(field.get("status"), 32)
             if field_status in {
                 "pending",
