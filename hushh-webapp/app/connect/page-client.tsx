@@ -2838,7 +2838,7 @@ export default function ConnectPageClient() {
                     options={CONNECT_SURFACE_TAB_DEFINITION.tabs}
                     onSelectionCommit={commitSurface}
                     panelInset="none"
-                    viewportMinHeight="0px"
+                    viewportMinHeight="fill"
                     heightMode="active"
                   >
                     <div data-connect-surface="all">

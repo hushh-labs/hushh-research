@@ -1304,7 +1304,7 @@ export function PkmNaturalPanel({
           tabSetId="memory"
           activeValue={workspaceTab}
           onSelectionChange={(value) => setWorkspaceTab(value as MemoryWorkspaceTab)}
-          viewportMinHeight="0px"
+          viewportMinHeight="fill"
           heightMode="active"
         >
           <div className="space-y-5 pb-1 pr-px" data-pkm-saved-panel="true">
