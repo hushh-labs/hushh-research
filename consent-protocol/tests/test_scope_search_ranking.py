@@ -8,7 +8,7 @@ Guardrails under test:
 - Least-privilege first: within a tier the narrowest (longest) scope wins.
 - Exact domain match beats substring which beats fuzzy.
 - Graceful lookups never raise: unknown query/domain returns an empty list.
-- ``limit`` is clamped to [1, 50].
+- ``limit`` is clamped to [1, 500].
 - The public ``request_consent`` tool requires an explicit scope (no bundle
   expansion) and returns a SCOPE_REQUIRED error instead of a 500.
 """
@@ -76,8 +76,15 @@ def test_unknown_domain_returns_empty():
 
 
 def test_limit_is_clamped_to_upper_bound():
-    many = _entries() * 40
-    assert len(rank_scope_matches(many, limit=999)) == 50
+    many = [
+        {
+            "scope": f"attr.financial.field_{index}",
+            "domain": "financial",
+            "label": f"Field {index}",
+        }
+        for index in range(600)
+    ]
+    assert len(rank_scope_matches(many, limit=999)) == 500
 
 
 def test_limit_is_clamped_to_lower_bound():

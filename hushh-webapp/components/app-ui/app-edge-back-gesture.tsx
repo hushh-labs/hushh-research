@@ -123,7 +123,16 @@ export function AppEdgeBackGesture() {
       }
       if (gesture.axis !== "horizontal") return;
 
-      event.preventDefault();
+      // No preventDefault here, on purpose. Every listener below is passive:
+      // a non-passive touchmove on `window` makes WebKit treat the whole
+      // document as a synchronous touch region, so every scroll in the app
+      // waited for this handler before the compositor could move, even
+      // though the handler only cared about touches that began in the 28px
+      // edge lane. The horizontal pan this gesture owns is already refused
+      // by `touch-pan-y` on the scroll root; the cost is that vertical drift
+      // during an axis-locked edge drag now scrolls instead of being
+      // cancelled. If that reads wrong on a phone, the fix is a native
+      // UIScreenEdgePanGestureRecognizer bridge, never a non-passive listener.
       const progress = Math.min(1, deltaX / INDICATOR_REVEAL_DISTANCE_PX);
       setIndicator(root, {
         active: true,
@@ -258,11 +267,11 @@ export function AppEdgeBackGesture() {
     });
     window.addEventListener("pointermove", pointerMove, {
       capture: true,
-      passive: false,
+      passive: true,
     });
     window.addEventListener("pointerup", pointerEnd, {
       capture: true,
-      passive: false,
+      passive: true,
     });
     window.addEventListener("pointercancel", reset, { capture: true });
     window.addEventListener("touchstart", touchStart, {
@@ -271,11 +280,11 @@ export function AppEdgeBackGesture() {
     });
     window.addEventListener("touchmove", touchMove, {
       capture: true,
-      passive: false,
+      passive: true,
     });
     window.addEventListener("touchend", touchEnd, {
       capture: true,
-      passive: false,
+      passive: true,
     });
     window.addEventListener("touchcancel", reset, { capture: true });
 

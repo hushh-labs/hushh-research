@@ -2600,7 +2600,11 @@ describe("Connect — Circles", () => {
     // The default is not written to the URL on mount: doing that would eat one
     // router.back() step for every arrival.
     expect(await screen.findByText("Search by name.")).toBeTruthy();
-    expect(screen.queryByTestId("connect-circles-tab")).toBeNull();
+    // Both surfaces live in one swipeable pager (as Finance and Consent do);
+    // the one the URL did not ask for is present but inert and hidden.
+    const circles = screen.getByTestId("connect-circles-tab");
+    expect(circles.closest('[aria-hidden="true"]')).not.toBeNull();
+    expect(circles.closest("[inert]")).not.toBeNull();
     expect(mocks.routerPush).not.toHaveBeenCalled();
   });
 
@@ -2609,10 +2613,14 @@ describe("Connect — Circles", () => {
 
     render(<ConnectPageClient />);
 
-    expect(await screen.findByTestId("connect-circles-tab")).toBeTruthy();
-    // The whole directory half is gone, not merely scrolled past: the search
-    // box drives a paged server query that has nothing to do with this tab.
-    expect(screen.queryByLabelText("Search people")).toBeNull();
+    const circles = await screen.findByTestId("connect-circles-tab");
+    expect(circles.closest('[aria-hidden="true"]')).toBeNull();
+    // The directory half is the other pane of the pager: still mounted so a
+    // swipe back lands on it, but inert and hidden so nothing in it is
+    // reachable from this tab.
+    const search = screen.getByLabelText("Search people");
+    expect(search.closest('[aria-hidden="true"]')).not.toBeNull();
+    expect(search.closest("[inert]")).not.toBeNull();
     expect(
       screen.queryByRole("button", { name: /Current directory:/ }),
     ).toBeNull();

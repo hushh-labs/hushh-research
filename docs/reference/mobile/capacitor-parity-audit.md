@@ -153,6 +153,14 @@ Current accepted parity exceptions are:
 
 Cloud-backed vault preference flows are the canonical cross-platform behavior, and Android passkey PRF is part of the parity contract rather than an exception. If a new exception is ever needed, document it in the mobile docs in the same change.
 
+## Render Performance
+
+This audit checks routes, plugins, markers and auth states. It does not
+measure frame pacing. That bar, the in-app probe, the native instruments and
+the gesture card live in [render-performance-charter.md](./render-performance-charter.md);
+`npm run verify:render-performance` is its static gate, and a dated device
+baseline under `perf/` is its evidence.
+
 ## Native Project Sanity
 
 Parity is not complete until both projects still load structurally:

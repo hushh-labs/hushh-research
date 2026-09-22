@@ -90,14 +90,20 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain("collapseComposer");
     expect(workspace).toContain("combineAttachmentAndComposerText");
     expect(workspace).toContain("await submitComposerText()");
+    expect(workspace).toContain("redactLikelyPans");
+    expect(workspace).toContain("const submittedText");
     expect(workspace).toContain('source: "agent_chat_auto_capture"');
-    expect(workspace).toContain("saveEligiblePkmCardsInBackground({");
+    expect(workspace).toContain("captureEligiblePkmFactsInBackground({");
+    expect(workspace).toContain("beforeEffect: guard.assertCurrent");
+    expect(workspace).toContain("mayPublish: guard.isCurrent");
     expect(workspace).not.toContain("Long paste detected — choose where it belongs.");
     expect(workspace).not.toContain("composerPurpose");
     expect(workspace).not.toContain("Review for Memory");
     expect(workspace).not.toContain("Send as chat");
     expect(workspace).not.toContain("AgentPkmReviewPanel");
-    expect(workspace).not.toContain("getPkmConfirmationCards");
+    expect(workspace).toContain("getPkmConfirmationCards");
+    expect(workspace).toContain("const reviewRequired =");
+    expect(workspace).toContain('phase: reviewRequired ? "review" : "skipped"');
   });
 
   it("keeps active assistant streams full-width and errors compact", () => {

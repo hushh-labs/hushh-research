@@ -364,8 +364,18 @@ class PkmUpgradeService:
             latest["steps"] = await self._list_steps(latest["run_id"])
         return latest
 
-    async def build_status(self, user_id: str) -> dict[str, Any]:
-        index = await self.pkm_service.get_index_v2(user_id)
+    async def build_status(
+        self,
+        user_id: str,
+        *,
+        resolved_index: PersonalKnowledgeModelIndex | None = None,
+        domain_manifests: dict[str, dict] | None = None,
+    ) -> dict[str, Any]:
+        index = (
+            resolved_index
+            if resolved_index is not None
+            else await self.pkm_service.get_index_v2(user_id)
+        )
         available_domains = list(index.available_domains) if index else []
         if not available_domains:
             try:
@@ -397,7 +407,10 @@ class PkmUpgradeService:
                 if isinstance(domain_summaries.get(domain), dict)
                 else {}
             )
-            manifest = await self.pkm_service.get_domain_manifest(user_id, domain) or {}
+            if domain_manifests is None:
+                manifest = await self.pkm_service.get_domain_manifest(user_id, domain) or {}
+            else:
+                manifest = domain_manifests.get(domain) or {}
             summary_projection = (
                 manifest.get("summary_projection") if isinstance(manifest, dict) else {}
             )

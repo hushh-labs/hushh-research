@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  memo,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -24,11 +25,16 @@ export type BottomShellModel = {
   hidden?: boolean;
 };
 
+// The stack rides the scroll progress only. It used to add a keyboard lift
+// (-1 * --kb-height) too, but the shell is hidden on every route while the
+// keyboard is up (html.kb-open fades it), so the lift only produced a ghost
+// of the navigation jumping to above the keyboard for the frames of the fade,
+// over the spot the chat composer was rising into. It fades where it stands.
 const BOTTOM_SCROLL_TRANSFORM =
-  "translate3d(0, calc((var(--kb-height, 0px) * -1) + (var(--bottom-chrome-progress, 0) * var(--bottom-nav-travel, 0px))), 0)";
+  "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-nav-travel, 0px)), 0)";
 
 /** Shared persistent bottom chrome: separate voice and navigation bars. */
-export function AppBottomShell({ model }: { model: BottomShellModel }) {
+export const AppBottomShell = memo(function AppBottomShell({ model }: { model: BottomShellModel }) {
   const command = useOptionalLocationCommand();
   const voiceActive = useAgentVoiceState((state) => state.active);
   const hidden = model.hidden && !command?.active && !voiceActive;
@@ -82,9 +88,18 @@ export function AppBottomShell({ model }: { model: BottomShellModel }) {
 
   if (hidden) return null;
 
+  // The mask rides the scroll progress the way the stack does: as a
+  // transform, never as a height. Its height used to be recomputed on every
+  // scroll frame (full height minus the progress travel), which was one
+  // layout plus a backdrop-blur re-render per frame under the moving bars,
+  // the only non-composited motion in this stack; the feed flick and the tab
+  // ride both read it as hitch. The gradient keeps its shape and the part
+  // that travels down goes off the bottom of the screen.
   const maskStyle = {
-    height:
-      "calc(var(--bottom-chrome-full-height) - (var(--bottom-chrome-progress, 0) * var(--bottom-nav-travel, 0px)))",
+    height: "var(--bottom-chrome-full-height)",
+    transform:
+      "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-nav-travel, 0px)), 0)",
+    willChange: "transform",
   } as CSSProperties;
 
   return (
@@ -105,6 +120,7 @@ export function AppBottomShell({ model }: { model: BottomShellModel }) {
           model.navigationHidden || undefined
         }
         data-ambient-chrome-ignore
+        data-bottom-chrome-progress-consumer=""
         onPointerDownCapture={
           model.navigationHidden ? undefined : snapKaiBottomChromeVisible
         }
@@ -141,4 +157,4 @@ export function AppBottomShell({ model }: { model: BottomShellModel }) {
       </div>
     </>
   );
-}
+});

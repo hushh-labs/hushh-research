@@ -2611,7 +2611,9 @@ export function OneLocationAgentPageContent({
   useEffect(() => {
     const timer = window.setInterval(() => setNowMs(Date.now()), 30_000);
     // A screen returning from background can be minutes stale; refresh the
-    // clock on the way in rather than waiting out the next tick.
+    // clock on the way in rather than waiting out the next tick. The shared
+    // coarse clock does not carry this resync, and a link that ran out while
+    // the phone was away has to be seen the moment it comes back.
     const syncNow = () => setNowMs(Date.now());
     if (typeof document !== "undefined") {
       document.addEventListener("visibilitychange", syncNow);
@@ -7112,6 +7114,10 @@ export function OneLocationAgentPageContent({
     }
 
     void refreshVisibleGrants();
+    // Deliberately this component's own interval rather than the shared idle
+    // clock: the shared wake is aligned and deferred behind a frame, which is
+    // right for ambient refreshes but makes a poll people are watching land
+    // on someone else's phase. Main's backoff contract pins this cadence.
     const interval = window.setInterval(() => {
       // A synchronous throw here would kill the interval for the rest of the
       // session, so nothing is allowed to escape the tick.

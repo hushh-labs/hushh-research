@@ -1527,9 +1527,11 @@ describe("OneLocationAgentPage", () => {
     expect(pageShell).toBeTruthy();
     expect(pageShell?.className).not.toContain("--app-bottom-fixed-ui");
     expect(pageShell?.className).not.toMatch(/\b(?:sm:|md:)?pb-/u);
+    // "fill" makes the pager measure the remaining body so the swipe works
+    // from the whole screen below the tabs, not only from the rendered list.
     expect(screen.getByTestId("location-swipe-views")).toHaveAttribute(
       "data-viewport-min-height",
-      "0px",
+      "fill",
     );
     expect(screen.getByTestId("location-swipe-views")).toHaveAttribute(
       "data-height-mode",

@@ -323,6 +323,29 @@ describe("UnlockWarmOrchestrator", () => {
       expect(result.locationStateWarmed).toBe(false);
     });
 
+    it("keeps the canonical Chat unlock path free of unrelated workspace warmups", async () => {
+      setupDefaultMocks();
+      const result = await UnlockWarmOrchestrator.run({
+        ...BASE_PARAMS,
+        routePath: "/",
+      });
+
+      expect(profileSyncMock).not.toHaveBeenCalled();
+      expect(pkmGetMetadataMock).not.toHaveBeenCalled();
+      expect(pkmLoadDomainDataMock).not.toHaveBeenCalled();
+      expect(apiGetVaultStatusMock).not.toHaveBeenCalled();
+      expect(apiGetActiveConsentsMock).not.toHaveBeenCalled();
+      expect(apiGetPendingConsentsMock).not.toHaveBeenCalled();
+      expect(apiGetConsentHistoryMock).not.toHaveBeenCalled();
+      expect(oneLocationGetStateMock).not.toHaveBeenCalled();
+      expect(result.metadataWarmed).toBe(false);
+      expect(result.financialWarmed).toBe(false);
+      expect(result.consentsWarmed).toBe(false);
+      expect(result.locationStateWarmed).toBe(false);
+      expect(result.agentContextWarmed).toBe(true);
+      expect(agentHistoryWarmMock).toHaveBeenCalledTimes(1);
+    });
+
     it("warms Location state only for the Location workspace", async () => {
       setupDefaultMocks();
       const result = await UnlockWarmOrchestrator.run({

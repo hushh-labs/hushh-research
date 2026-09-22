@@ -120,6 +120,7 @@ class ConsentCenterService:
         self._identity = ActorIdentityService()
         self._ria = RIAIAMService()
         self._owned_identifier_cache: dict[str, list[str]] = {}
+        self._owned_identifier_inflight: dict[str, asyncio.Task[list[str]]] = {}
         self._location_center = None
         if _one_location_consent_center_enabled():
             try:
@@ -370,10 +371,7 @@ class ConsentCenterService:
                 )
         return any(needle in str(value or "").lower() for value in haystacks)
 
-    async def _owned_user_identifiers(self, user_id: str) -> list[str]:
-        normalized_user_id = str(user_id or "").strip()
-        if normalized_user_id in self._owned_identifier_cache:
-            return self._owned_identifier_cache[normalized_user_id]
+    async def _resolve_owned_user_identifiers(self, normalized_user_id: str) -> list[str]:
         try:
             identifiers = await self._identity.list_account_identifiers(normalized_user_id)
         except Exception as exc:
@@ -383,9 +381,26 @@ class ConsentCenterService:
                 exc,
             )
             identifiers = []
-        resolved = identifiers or [normalized_user_id]
-        self._owned_identifier_cache[normalized_user_id] = resolved
-        return resolved
+        return identifiers or [normalized_user_id]
+
+    async def _owned_user_identifiers(self, user_id: str) -> list[str]:
+        normalized_user_id = str(user_id or "").strip()
+        if normalized_user_id in self._owned_identifier_cache:
+            return self._owned_identifier_cache[normalized_user_id]
+        inflight = self._owned_identifier_inflight.get(normalized_user_id)
+        if inflight is None:
+            inflight = asyncio.create_task(self._resolve_owned_user_identifiers(normalized_user_id))
+            self._owned_identifier_inflight[normalized_user_id] = inflight
+        try:
+            resolved = await asyncio.shield(inflight)
+            self._owned_identifier_cache[normalized_user_id] = resolved
+            return resolved
+        finally:
+            if (
+                inflight.done()
+                and self._owned_identifier_inflight.get(normalized_user_id) is inflight
+            ):
+                self._owned_identifier_inflight.pop(normalized_user_id, None)
 
     @staticmethod
     def _identifier_filter_kwargs(user_id: str, identifiers: list[str]) -> dict[str, list[str]]:

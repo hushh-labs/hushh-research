@@ -1,8 +1,18 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { useAuth } from "@/hooks/use-auth";
+import { useVault } from "@/lib/vault/vault-context";
+import { usePersonInformationRequest } from "@/lib/consent/use-person-information-request";
+import { InformationRequestReviewFields } from "@/components/consent/information-request-review-fields";
+import { DEFAULT_REQUEST_DURATION_HOURS } from "@/lib/agent/action-directive-summary";
+import { PersonProfileService, mergePersonScopePage, type ViewerPersonProfile } from "@/lib/services/person-profile-service";
+import { ConsentScopeNestedList } from "@/components/consent/consent-scope-nested-list";
 import { ConsentScopeList } from "@/components/consent/consent-scope-list";
-import { domainLabelFor, scopePathSegments } from "@/lib/consent/consent-scope-items";
+import {
+  domainLabelFor,
+  scopeItemsFromRequestable,
+} from "@/lib/consent/consent-scope-items";
 import Link from "next/link";
 import {
   ArrowUpRight,
@@ -25,12 +35,36 @@ import type {
   ScopeDiscoveryExperience,
 } from "@/lib/agent/agui-structured-experiences";
 
+export const AgentPersonSelectionContext = createContext<((handle: string, name: string) => void) | null>(null);
+
 export function AgentStructuredExperienceView({
   experience,
 }: {
   experience: AgentStructuredExperience;
 }) {
+  const selectPerson = useContext(AgentPersonSelectionContext);
   switch (experience.type) {
+    case "one.person_selection.v1":
+      return <ExperienceShell experienceType={experience.type} label="Choose a person" title="Who do you mean?"
+        summary="Choose the right person before we check what you can ask for." icon={<UserRound className="size-5" />}>
+        <div className="flex flex-col gap-2">
+          {experience.candidates.map((candidate) => <div key={candidate.selectionHandle} className="flex items-center gap-2">
+            <button type="button" disabled={!selectPerson}
+            className="min-h-11 cursor-pointer rounded-xl px-3 py-2 text-left hover:bg-accent disabled:cursor-default disabled:opacity-50"
+            onClick={() => selectPerson?.(candidate.selectionHandle, candidate.displayName)}>
+            <span className="block font-medium">{candidate.displayName}</span>
+            {candidate.detail ? <span className="block text-sm text-muted-foreground">{candidate.detail}</span> : null}
+          </button>
+          <Link className="ml-auto inline-flex min-h-11 shrink-0 items-center text-sm text-primary underline-offset-4 hover:underline"
+            href={candidate.profilePath} aria-label={`View ${candidate.displayName}'s profile`}>View profile</Link>
+          </div>)}
+          {experience.candidatesIncomplete ? (
+            <p className="px-3 text-sm text-muted-foreground">
+              There are more matches than shown. Narrow the name or provide an email address to continue safely.
+            </p>
+          ) : null}
+        </div>
+      </ExperienceShell>;
     case "one.scope_discovery.v1":
       return <ScopeDiscoveryView experience={experience} />;
     case "one.information_request_review.v1":
@@ -45,12 +79,14 @@ export function AgentStructuredExperienceView({
 }
 
 function ExperienceShell({
+  experienceType,
   label,
   title,
   summary,
   icon,
   children,
 }: {
+  experienceType: AgentStructuredExperience["type"];
   label: string;
   title: string;
   summary: string;
@@ -58,7 +94,7 @@ function ExperienceShell({
   children: ReactNode;
 }) {
   return (
-    <section className="overflow-hidden rounded-[24px] bg-[linear-gradient(145deg,var(--app-accent-surface),color-mix(in_srgb,var(--background)_94%,var(--app-accent-soft)))] shadow-[0_18px_55px_-38px_var(--app-accent-deep)]">
+    <section data-experience-type={experienceType} className="overflow-hidden rounded-[24px] bg-[linear-gradient(145deg,var(--app-accent-surface),color-mix(in_srgb,var(--background)_94%,var(--app-accent-soft)))] shadow-[0_18px_55px_-38px_var(--app-accent-deep)]">
       <header className="flex items-start gap-3 px-4 pb-4 pt-4 sm:px-5 sm:pt-5">
         <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[14px] bg-accent-strong text-white shadow-sm">
           {icon}
@@ -103,25 +139,105 @@ function ScopeDiscoveryView({
 }: {
   experience: ScopeDiscoveryExperience;
 }) {
-  // The same list every other scope surface renders. Was a hand-rolled
-  // reduce-based group-by-domain, one of two independent implementations of the
-  // same thing over the same field shape.
-  const items = experience.scopes.map((scope, index) => ({
-    id: `${scope.domain || "other"}:${scope.label}:${index}`,
-    label: scope.label,
-    description: scope.description || null,
-    domainKey: scope.domain || "other",
-    // The catalogue carries the full scope reference, so chat can nest exactly
-    // as deeply as the profile does.
-    pathSegments: scopePathSegments(scope.scopeRef),
-    domainLabel: domainLabelFor(scope.domain),
-    badge: sensitivityLabel(scope.sensitivity),
-    searchText: `${scope.label} ${scope.description || ""} ${scope.domain || ""}`.toLowerCase(),
-  }));
+  const { user } = useAuth();
+  const { isVaultUnlocked } = useVault();
+  const personRef = experience.person.personRef;
+  const request = usePersonInformationRequest(personRef ?? "");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [reviewing, setReviewing] = useState(false);
+  const [purpose, setPurpose] = useState("");
+  const [durationHours, setDurationHours] = useState(DEFAULT_REQUEST_DURATION_HOURS);
+  const [sent, setSent] = useState(false);
+  const generation = useRef(0);
+  const inFlight = useRef(false);
+  const [current, setCurrent] = useState<{ owner: string; profile: ViewerPersonProfile } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [unavailable, setUnavailable] = useState(false);
+  const [retry, setRetry] = useState(0);
+  const profile = personRef && isVaultUnlocked && current && current.owner === user?.uid && current.profile.personRef === personRef
+    ? current.profile : null;
+
+  useEffect(() => {
+    const run = ++generation.current;
+    inFlight.current = false;
+    setCurrent(null);
+    setSelectedIds(new Set());
+    setReviewing(false);
+    setPurpose("");
+    setDurationHours(DEFAULT_REQUEST_DURATION_HOURS);
+    setSent(false);
+    setUnavailable(false);
+    setLoading(Boolean(user && isVaultUnlocked && personRef));
+    if (user && isVaultUnlocked && personRef) {
+      void user.getIdToken().then(token => PersonProfileService.getViewer(personRef, token, {
+        domain: experience.domainFilter || "",
+      })).then(value => {
+        if (run === generation.current) setCurrent({ owner: user.uid, profile: value });
+      }).catch(() => {
+        if (run === generation.current) setUnavailable(true);
+      }).finally(() => {
+        if (run === generation.current) setLoading(false);
+      });
+    }
+    return () => { generation.current += 1; };
+  }, [user, isVaultUnlocked, personRef, experience.domainFilter, retry]);
+
+  async function loadMore() {
+    if (!personRef || !user || !profile?.scopeCatalog?.nextPage || inFlight.current) return;
+    const run = generation.current;
+    inFlight.current = true;
+    setLoading(true);
+    setUnavailable(false);
+    try {
+      const token = await user.getIdToken();
+      const next = await PersonProfileService.getViewer(personRef, token, {
+        page: profile.scopeCatalog.nextPage,
+        revision: profile.scopeCatalog.catalogRevision,
+        domain: experience.domainFilter || "",
+      });
+      if (run !== generation.current) return;
+      if (next.scopeCatalog?.paginationReset || next.scopeCatalog?.catalogRevision !== profile.scopeCatalog.catalogRevision) {
+        setSelectedIds(new Set());
+        setReviewing(false);
+      }
+      setCurrent({ owner: user.uid, profile: mergePersonScopePage(profile, next) });
+    } catch {
+      if (run === generation.current) setUnavailable(true);
+    } finally {
+      if (run === generation.current) { setLoading(false); inFlight.current = false; }
+    }
+  }
+  // Retained/live cards are safe descriptors, never current authority. Show
+  // the validated descriptor immediately so a person is not left with an
+  // empty "checking" surface, then replace it with the current Profile
+  // catalog as soon as that authority refresh completes. Selection and
+  // mutation remain unavailable until the current catalog is loaded.
+  const authorityScopes = profile?.requestableScopes || [];
+  const displayScopes = profile?.requestableScopes || experience.scopes;
+  const grantedIds = new Set(profile?.grants.map(grant => grant.scopeRef) || []);
+  const selectedScopes = authorityScopes.filter(scope => selectedIds.has(scope.scopeRef) && !grantedIds.has(scope.scopeRef));
+  const total = profile?.scopeCatalog?.totalCount
+    ?? experience.scopeCatalog?.totalCount
+    ?? displayScopes.length;
+  // Profile and Chat deliberately consume the same adapter and recursive
+  // selector. Opaque refs stay leaves; only authored attr paths can create
+  // hierarchy.
+  const items = scopeItemsFromRequestable(
+    displayScopes.map((scope) => ({
+      scopeRef: scope.scopeRef,
+      pathSegments: scope.pathSegments,
+      label: scope.label,
+      description: scope.description,
+      domain: scope.domain,
+      sensitivity: scope.sensitivity,
+      wildcard: "wildcard" in scope ? scope.wildcard : false,
+    })),
+  );
 
   return (
     <section
       aria-label={`Information available from ${experience.person.displayName}`}
+      data-experience-type={experience.type}
       className="space-y-4"
     >
       <header className="flex items-start gap-3 px-1">
@@ -130,42 +246,158 @@ function ScopeDiscoveryView({
         </span>
         <div className="min-w-0 flex-1">
           <h3 className="text-sm font-semibold text-foreground">
-            What {personName(experience.person.displayName)} can share with you
+            What {personName(profile?.displayName || experience.person.displayName)} can share with you
           </h3>
           <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
-            {experience.scopes.length === 0
-              ? `${personName(experience.person.displayName)} has not made anything available to ask for yet.`
-              : `${experience.scopes.length} ${experience.scopes.length === 1 ? "thing" : "things"} you can ask for. They decide what to share, and for how long.`}
+            {!profile ? !personRef ? "This saved card cannot be used to make a request. Ask One to check again." : !user ? "Sign in to check what is available." : !isVaultUnlocked ? "Unlock your vault to continue here." : "Checking what is currently available to request."
+              : total === 0
+              ? "Nothing is currently available to request."
+              : `${total} ${total === 1 ? "thing" : "things"} you can ask for. They decide what to share, and for how long.`}
           </p>
         </div>
       </header>
 
       {items.length > 0 ? (
         <div className="px-1">
-          <ConsentScopeList
+          <ConsentScopeNestedList
             items={items}
-            collapsible={false}
+            rootLabel="All information"
             testIdPrefix="scope-discovery-scopes"
+            selection={profile && !reviewing && !request.pending ? {
+              selectedIds,
+              onToggleMany: (ids, select) => {
+                setSent(false);
+                setSelectedIds(currentIds => {
+                  const next = new Set(currentIds);
+                  ids.forEach(id => {
+                    if (select && authorityScopes.some(scope => scope.scopeRef === id) && !grantedIds.has(id)) next.add(id);
+                    else next.delete(id);
+                  });
+                  return next;
+                });
+              },
+            } : undefined}
           />
         </div>
       ) : null}
 
-      <div className="flex justify-start px-1">
-        <MorphyButton asChild size="sm">
-          <Link href={experience.person.profilePath}>
-            Choose what to ask for
-            <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
-          </Link>
+      {unavailable ? <p role="alert" className="text-sm text-muted-foreground">We couldn’t check available information. Please try again.</p> : null}
+      {profile?.scopeCatalog?.hasMore ? <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+        <p className="text-muted-foreground">{displayScopes.length} of {total} loaded. Search checks loaded information.</p>
+        <MorphyButton type="button" size="sm" disabled={loading} onClick={() => void loadMore()}>
+          {loading ? "Loading more…" : unavailable ? "Try loading more again" : "Load more information"}
         </MorphyButton>
-      </div>
+      </div> : unavailable ? <MorphyButton type="button" size="sm" onClick={() => setRetry(value => value + 1)}>Try again</MorphyButton> : null}
+
+      {reviewing && profile ? <section aria-label="Review information request" className="space-y-3 rounded-2xl border border-border p-4">
+        <h4 className="font-semibold">Request information from {profile.displayName}</h4>
+        <p className="text-sm text-muted-foreground">They will see exactly what you asked for, why, and for how long. Nothing is sent until you confirm.</p>
+        <InformationRequestReviewFields scopes={selectedScopes} purpose={purpose} durationHours={durationHours}
+          onPurposeChange={setPurpose} onDurationChange={setDurationHours} disabled={request.pending} testIdPrefix="chat-request" />
+        {request.error ? <p role="alert" className="text-sm text-destructive">{request.error}</p> : null}
+        <div className="flex flex-wrap justify-end gap-2">
+          <MorphyButton type="button" size="sm" disabled={request.pending} onClick={() => setReviewing(false)}>Edit information</MorphyButton>
+          <MorphyButton type="button" size="sm" disabled={!request.available || request.pending || purpose.trim().length < 8 || !selectedScopes.length || selectedScopes.length > 50}
+            onClick={() => void request.submit({ scopeRefs: selectedScopes.map(scope => scope.scopeRef), purpose, durationHours }).then(success => {
+              if (!success) return;
+              setSent(true); setReviewing(false); setSelectedIds(new Set()); setPurpose("");
+            })}>{request.pending ? "Sending…" : "Send request"}</MorphyButton>
+        </div>
+      </section> : items.length ? <MorphyButton type="button" size="sm" disabled={!selectedScopes.length || loading}
+        onClick={() => setReviewing(true)}>Review request</MorphyButton> : null}
+      {sent ? <p role="status" className="text-sm">Request sent. They can now review your choices; access is not granted yet.</p> : null}
+      <Link href={experience.person.profilePath} className="inline-flex min-h-11 items-center text-sm text-primary underline-offset-4 hover:underline">View profile</Link>
     </section>
   );
 }
 
+function informationRequestStatusLabel(
+  status: NonNullable<InformationRequestReviewExperience["fields"][number]["status"]>,
+): string {
+  return status === "pending"
+    ? "Pending"
+    : status === "granted"
+      ? "Granted"
+      : status === "denied"
+        ? "Declined"
+        : status === "cancelled"
+          ? "Withdrawn"
+          : status === "expired"
+            ? "Expired"
+            : "Revoked";
+}
+
 function InformationRequestReviewView({ experience }: { experience: InformationRequestReviewExperience }) {
+  const { isVaultUnlocked, vaultOwnerToken } = useVault();
+  const [current, setCurrent] = useState<{
+    status: InformationRequestReviewExperience["status"];
+    fields: InformationRequestReviewExperience["fields"];
+  } | null>(null);
+  const [refreshState, setRefreshState] = useState<"idle" | "checking" | "loaded" | "unavailable">("idle");
+
+  useEffect(() => {
+    let active = true;
+    setCurrent(null);
+    if (experience.phase !== "submitted" || !experience.bundleId) {
+      setRefreshState("idle");
+      return () => { active = false; };
+    }
+    if (!isVaultUnlocked || !vaultOwnerToken) {
+      setRefreshState("unavailable");
+      return () => { active = false; };
+    }
+    setRefreshState("checking");
+    void PersonProfileService.getInformationRequest({
+      bundleId: experience.bundleId,
+      vaultOwnerToken,
+    }).then((bundle) => {
+      if (!active) return;
+      // A restored descriptor is only a display reference. If the current
+      // authority lookup resolves a different person, reject it without
+      // rendering any of its status and settle the card into a recoverable
+      // state instead of leaving the reader on an endless "Checking...".
+      if (experience.subjectRef && bundle.personRef !== experience.subjectRef) {
+        setRefreshState("unavailable");
+        return;
+      }
+      if (!bundle.items.length) {
+        setRefreshState("unavailable");
+        return;
+      }
+      const statuses = bundle.items.map((item) => item.status);
+      const firstStatus = statuses[0]!;
+      const status = statuses.every((itemStatus) => itemStatus === firstStatus)
+        ? firstStatus
+        : "mixed" as const;
+      const byRequestId = new Map(bundle.items.map((item) => [item.requestId, item]));
+      const byLabel = new Map<string, typeof bundle.items>();
+      for (const item of bundle.items) {
+        const matches = byLabel.get(item.label) || [];
+        matches.push(item);
+        byLabel.set(item.label, matches);
+      }
+      const fields = experience.fields.map((field) => {
+        if (field.requestId) {
+          const item = byRequestId.get(field.requestId);
+          return item ? { ...field, status: item.status } : field;
+        }
+        const matches = byLabel.get(field.label);
+        const item = matches?.shift();
+        return item ? { ...field, status: item.status } : field;
+      });
+      setCurrent({ status, fields });
+      setRefreshState("loaded");
+    }).catch(() => {
+      if (active) setRefreshState("unavailable");
+    });
+    return () => { active = false; };
+  }, [experience.bundleId, experience.fields, experience.phase, experience.subjectRef, isVaultUnlocked, vaultOwnerToken]);
+
+  const displayFields = current?.fields || experience.fields;
+  const displayStatus = current?.status || experience.status;
   // Every field becomes a row in the one list every scope surface uses, so this
   // reads the same as Memory and the same as the pending-request card.
-  const items = experience.fields.map((field, index) => ({
+  const items = displayFields.map((field, index) => ({
     id: `${field.domain}:${field.label}:${index}`,
     label: field.label,
     description: null,
@@ -177,21 +409,59 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
     // exist. This stays one level until the experience carries `scopeRef`.
     pathSegments: [],
     domainLabel: domainLabelFor(field.domain),
-    badge: sensitivityLabel(field.sensitivity),
+    badge: [
+      sensitivityLabel(field.sensitivity),
+      field.status ? informationRequestStatusLabel(field.status) : null,
+    ].filter(Boolean).join(" · ") || undefined,
     searchText: `${field.label} ${field.domain || ""}`.toLowerCase(),
   }));
 
+  const isIncoming = experience.direction === "incoming";
+  const isOutgoingDraft = experience.direction === "outgoing" && experience.phase === "draft";
+  const label = isIncoming ? "Waiting on you" : isOutgoingDraft ? "Draft request" : experience.direction === "outgoing" ? "Request sent" : "Information request";
+  const title = isIncoming
+    ? `${experience.personName} asked to see some of your information`
+    : isOutgoingDraft
+      ? `Requesting information from ${experience.personName}`
+      : experience.direction === "outgoing"
+        ? `Request sent to ${experience.personName}`
+        : `Information request involving ${experience.personName}`;
+  const statusText = refreshState === "unavailable" && experience.phase === "submitted"
+    ? "Current status unavailable · last recorded status is shown below"
+    : refreshState === "checking"
+      ? "Checking current status…"
+      : experience.phase === "historical"
+    ? "Historical preview · current status was not checked"
+    : displayStatus === "awaiting_review"
+      ? "Not sent yet"
+      : experience.direction === "incoming" && displayStatus === "pending"
+        ? "Waiting for your decision"
+        : experience.direction === "outgoing" && displayStatus === "pending"
+          ? "Waiting for their decision"
+          : displayStatus === "granted"
+            ? "Access granted"
+            : displayStatus === "mixed"
+              ? "Mixed outcomes; see each item below"
+            : displayStatus === "denied"
+              ? "Request declined"
+              : displayStatus === "cancelled"
+                ? "Request withdrawn"
+                : displayStatus === "expired"
+                  ? "Request expired"
+                  : displayStatus === "revoked"
+                    ? "Access revoked"
+                    : "Status unavailable";
+
   return (
     <ExperienceShell
-      // Not "Consent review", not "N fields", and the raw domain key no longer
-      // sits beside every row. agent.yaml:62-70 bans this vocabulary in
-      // owner-facing speech; the chrome used to reintroduce all of it.
-      label="Waiting on you"
-      title={`${experience.personName} asked to see some of your information`}
+      experienceType={experience.type}
+      label={label}
+      title={title}
       summary={`${items.length} ${items.length === 1 ? "thing" : "things"} · ${experience.durationLabel}`}
       icon={<ShieldCheck className="h-5 w-5" aria-hidden="true" />}
     >
       <p className="text-sm leading-6 text-foreground">{experience.purpose}</p>
+      <p role="status" className="mt-2 text-xs font-medium text-muted-foreground">{statusText}</p>
       <div className="mt-3">
         <ConsentScopeList
           items={items}
@@ -213,7 +483,7 @@ const KYC_STATUS_LABEL: Record<KycReadinessExperience["items"][number]["status"]
 
 function KycReadinessView({ experience }: { experience: KycReadinessExperience }) {
   return (
-    <ExperienceShell label="Readiness" title={experience.workflowName} summary={experience.summary} icon={<FileCheck2 className="h-5 w-5" aria-hidden="true" />}>
+    <ExperienceShell experienceType={experience.type} label="Readiness" title={experience.workflowName} summary={experience.summary} icon={<FileCheck2 className="h-5 w-5" aria-hidden="true" />}>
       <p className="mb-2 text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">For {experience.subjectName}</p>
       <ul className="divide-y divide-border/35">
         {experience.items.map((item) => (
@@ -229,10 +499,10 @@ function KycReadinessView({ experience }: { experience: KycReadinessExperience }
 }
 
 function MemoryImportReviewView({ experience }: { experience: MemoryImportReviewExperience }) {
-  const complete = experience.sourceBlockCount === experience.accountedBlockCount;
+  const complete = experience.sourceBlockCount === experience.accountedBlockCount && !experience.presentationIncomplete;
   const total = experience.groups.reduce((count, group) => count + group.candidates.length, 0);
   return (
-    <ExperienceShell label="Memory review" title={`${total} memories ready to review`} summary={`${experience.accountedBlockCount} of ${experience.sourceBlockCount} source sections accounted for`} icon={<FolderLock className="h-5 w-5" aria-hidden="true" />}>
+    <ExperienceShell experienceType={experience.type} label="Memory review" title={`${total} memories ready to review`} summary={`${experience.accountedBlockCount} of ${experience.sourceBlockCount} source sections accounted for`} icon={<FolderLock className="h-5 w-5" aria-hidden="true" />}>
       <p className={complete ? "mb-3 flex items-center gap-2 text-xs font-semibold text-emerald-600" : "mb-3 flex items-center gap-2 text-xs font-semibold text-destructive"}>{complete ? <Check className="h-4 w-4" /> : <CircleAlert className="h-4 w-4" />}{complete ? "Complete coverage" : "Review required before saving"}</p>
       <div className="space-y-4">
         {experience.groups.map((group) => <section key={group.domain}><h4 className="ui-text-section-label text-muted-foreground">{group.domain}</h4><ul className="mt-1 divide-y divide-border/35">{group.candidates.map((candidate) => <li key={candidate.candidateRef} className="py-2.5"><div className="flex items-start justify-between gap-3"><div><p className="text-sm font-medium text-foreground">{candidate.label}</p><p className="mt-0.5 text-xs leading-5 text-muted-foreground">{candidate.preview}</p></div><span className="shrink-0 text-[11px] font-semibold text-accent-strong">{candidate.sharingPosture.replace("_", " ")}</span></div></li>)}</ul></section>)}
@@ -243,7 +513,7 @@ function MemoryImportReviewView({ experience }: { experience: MemoryImportReview
 
 function EvidenceBriefView({ experience }: { experience: EvidenceBriefExperience }) {
   return (
-    <ExperienceShell label={`${experience.confidence} confidence`} title={experience.title} summary={experience.summary} icon={<Link2 className="h-5 w-5" aria-hidden="true" />}>
+    <ExperienceShell experienceType={experience.type} label={`${experience.confidence} confidence`} title={experience.title} summary={experience.summary} icon={<Link2 className="h-5 w-5" aria-hidden="true" />}>
       <ul className="space-y-3">{experience.findings.map((finding) => <li key={finding.label}><p className="text-sm font-semibold text-foreground">{finding.label}</p><p className="mt-0.5 text-sm leading-5 text-muted-foreground">{finding.detail}</p></li>)}</ul>
       {experience.sources.length ? <div className="mt-4 flex flex-wrap gap-2">{experience.sources.map((source) => <a key={source.url} href={source.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 rounded-full bg-accent-surface px-3 py-1.5 text-xs font-semibold text-accent-strong hover:bg-accent-soft">{source.label}<ArrowUpRight className="h-3 w-3" /></a>)}</div> : null}
       {experience.unresolved.length ? <div className="mt-4"><p className="ui-text-section-label text-muted-foreground">Still unresolved</p><ul className="mt-1 space-y-1 text-xs leading-5 text-muted-foreground">{experience.unresolved.map((item) => <li key={item}>• {item}</li>)}</ul></div> : null}

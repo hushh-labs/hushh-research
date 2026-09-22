@@ -28,6 +28,7 @@ import React, {
   useState,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   ReactNode,
 } from "react";
@@ -50,6 +51,7 @@ import { PkmUpgradeOrchestrator } from "@/lib/services/pkm-upgrade-orchestrator"
 import { UnlockWarmOrchestrator } from "@/lib/services/unlock-warm-orchestrator";
 import { VaultService } from "@/lib/services/vault-service";
 import { apiErrorCode } from "@/lib/services/api-client";
+import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { dispatchAuthSessionVerificationRequired, snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
@@ -562,6 +564,7 @@ export function VaultProvider({ children }: VaultProviderProps) {
 
     const kickoffUpgrade = () => {
       if (cancelled) return;
+      if (shouldSkipReviewerBackgroundWritesForAutomation()) return;
       void PkmUpgradeOrchestrator.ensureRunning({
         userId: user.uid,
         vaultKey,
@@ -741,19 +744,39 @@ export function VaultProvider({ children }: VaultProviderProps) {
       ? storedVaultOwnerTokenRef.current : null;
   }, []);
 
-  const value: VaultContextType = {
-    vaultKey,
-    vaultOwnerToken,
-    tokenExpiresAt,
-    isVaultUnlocked: !!vaultKey,
-    ownerTokenStatus: !vaultKey ? "locked" : vaultOwnerToken ? "valid" :
-      renewalState === "renewing" ? "renewing" : "unavailable",
-    retryOwnerTokenRenewal,
-    unlockVault,
-    lockVault,
-    getVaultKey,
-    getVaultOwnerToken,
-  };
+  // Memoised on purpose. useVault() has over a hundred consumers, and this
+  // provider sits inside the app shell frame, which re-renders on every
+  // search-param change (each `?tab=` tap). A fresh object here re-rendered
+  // every one of those consumers on every tab switch; the memo re-mints only
+  // when a vault fact actually changes. `vaultOwnerToken` is already derived
+  // against Date.now() above, so an expiry still flips it to null on the next
+  // render, and the memo follows.
+  const value = useMemo<VaultContextType>(
+    () => ({
+      vaultKey,
+      vaultOwnerToken,
+      tokenExpiresAt,
+      isVaultUnlocked: !!vaultKey,
+      ownerTokenStatus: !vaultKey ? "locked" : vaultOwnerToken ? "valid" :
+        renewalState === "renewing" ? "renewing" : "unavailable",
+      retryOwnerTokenRenewal,
+      unlockVault,
+      lockVault,
+      getVaultKey,
+      getVaultOwnerToken,
+    }),
+    [
+      vaultKey,
+      vaultOwnerToken,
+      tokenExpiresAt,
+      renewalState,
+      retryOwnerTokenRenewal,
+      unlockVault,
+      lockVault,
+      getVaultKey,
+      getVaultOwnerToken,
+    ],
+  );
 
   return (
     <VaultContext.Provider value={value}>{children}</VaultContext.Provider>

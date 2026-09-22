@@ -45,6 +45,39 @@ describe("Profile pane touch navigation", () => {
     window.removeEventListener(PROFILE_PANE_OPEN_EVENT, opened);
   });
 
+  it("leaves the touch default alone while tracking a horizontal swipe", () => {
+    // The listeners are passive so the compositor never waits on them; an
+    // axis-locked leftward swipe still drives the indicator and opens the
+    // pane, but it must not cancel the browser's own touch handling.
+    const opened = vi.fn();
+    window.addEventListener(PROFILE_PANE_OPEN_EVENT, opened);
+    render(<AppProfileEdgeGesture enabled />);
+
+    fireEvent.touchStart(document, {
+      touches: [{ identifier: 7, clientX: 320, clientY: 160 }],
+      timeStamp: 0,
+    });
+    const move = new TouchEvent("touchmove", {
+      bubbles: true,
+      cancelable: true,
+      touches: [
+        { identifier: 7, clientX: 200, clientY: 162 } as unknown as Touch,
+      ],
+    });
+    document.dispatchEvent(move);
+    expect(move.defaultPrevented).toBe(false);
+    expect(
+      document.documentElement.getAttribute("data-app-profile-edge-active"),
+    ).toBe("true");
+
+    fireEvent.touchEnd(document, {
+      changedTouches: [{ identifier: 7, clientX: 150, clientY: 162 }],
+      timeStamp: 140,
+    });
+    expect(opened).toHaveBeenCalled();
+    window.removeEventListener(PROFILE_PANE_OPEN_EVENT, opened);
+  });
+
   it("reserves the extreme-left back lane and yields to vertical scrolling", () => {
     const opened = vi.fn();
     window.addEventListener(PROFILE_PANE_OPEN_EVENT, opened);

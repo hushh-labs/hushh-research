@@ -30,6 +30,9 @@ android {
         versionCode 2
         versionName "1.1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        // Instrumentation runs against debug unless a lane asks otherwise:
+        // the render-performance truth lane passes -PhushhTestBuildType=perf.
+        testBuildType = project.findProperty("hushhTestBuildType") ?: "debug"
         resValue "string", "google_maps_key", googleMapsApiKey
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -59,6 +62,16 @@ android {
             if (hasReleaseSigning) {
                 signingConfig signingConfigs.release
             }
+        }
+        // Release settings with the debug key: the render-performance truth
+        // lane installs it on a phone without release signing material and
+        // drives it with UIAutomator. debuggable false keeps the native test
+        // bridge and run-as out, exactly like a store build. Never shipped.
+        perf {
+            initWith release
+            debuggable false
+            signingConfig signingConfigs.debug
+            matchingFallbacks = ['release']
         }
     }
     compileOptions {
@@ -107,6 +120,7 @@ dependencies {
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
+    androidTestImplementation "androidx.test.uiautomator:uiautomator:2.3.0"
     implementation project(':capacitor-cordova-android-plugins')
 }
 

@@ -317,6 +317,11 @@ evicting what is already stored is an upgrade step that has not run.
   facts and dynamic domains (up to eight per proposal chunk); the client rejects a
   truncated proposal rather than silently dropping details, then encrypts and
   saves each confirmed candidate through the ordinary PKM write coordinator.
+- An explicit valid empty segmentation is a successful no-op, not a provider
+  failure. Missing, malformed, or wholly rejected source quotes fail closed;
+  the product proposal route returns a recoverable unavailable response when
+  no preview can be prepared. Degraded previews are not cached, so retrying
+  the same draft performs fresh preparation instead of repeating a cached error.
 - Large free-form imports are split client-side below the proposal request
   limit and recursively narrowed when the segmentation model detects more than
   eight facts. Diagnostic events carry only a correlation id, chunk index,

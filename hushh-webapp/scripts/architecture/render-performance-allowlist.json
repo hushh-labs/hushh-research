@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "rules": {
+    "backdrop-filter-on-list-row": {
+      "components/one-location/map-name-labels.tsx": 1
+    },
+    "interval-state-tick": {
+      "app/one/location/page.tsx": 1,
+      "components/location/links/location-links.tsx": 1,
+      "components/location/location-home.tsx": 1,
+      "components/location/map/location-map-screen.tsx": 1,
+      "components/one-location/redesign/check-in-flow.tsx": 1,
+      "components/one-location/redesign/location-redesign-hub.tsx": 2,
+      "components/one-voice/pending-action-card.tsx": 1
+    },
+    "root-custom-property-write": {
+      "components/app-ui/app-bottom-shell.tsx": 6,
+      "components/app-ui/app-edge-back-gesture.tsx": 2,
+      "components/app-ui/app-profile-edge-gesture.tsx": 1,
+      "components/keyboard-inset-manager.tsx": 1,
+      "components/navbar.tsx": 1
+    },
+    "transition-geometric": {
+      "components/onboarding/PreviewCarouselStep.tsx": 1,
+      "components/ui/sidebar.tsx": 4,
+      "lib/morphy-ux/ui/sidebar-menu-button.tsx": 1,
+      "lib/morphy-ux/ui/swipe-views.tsx": 1
+    }
+  }
+}

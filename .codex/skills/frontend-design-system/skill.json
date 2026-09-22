@@ -26,10 +26,12 @@
     "docs/reference/quality/frontend-ui-architecture-map.md",
     "docs/reference/quality/app-surface-design-system.md",
     "docs/reference/quality/frontend-pattern-catalog.md",
-    ".codex/skills/frontend-design-system/references/design-review-kernel.md"
+    ".codex/skills/frontend-design-system/references/design-review-kernel.md",
+    "docs/reference/mobile/render-performance-charter.md"
   ],
   "required_commands": [
     "cd hushh-webapp && npm run verify:design-system",
+    "cd hushh-webapp && npm run verify:render-performance",
     "cd hushh-webapp && npm run verify:cache",
     "cd hushh-webapp && npm run verify:docs",
     "cd hushh-webapp && npm run typecheck"
@@ -39,12 +41,14 @@
       "id": "frontend-design-system",
       "commands": [
         "cd hushh-webapp && npm run verify:design-system",
+        "cd hushh-webapp && npm run verify:render-performance",
         "cd hushh-webapp && npm run verify:cache",
         "cd hushh-webapp && npm run verify:docs",
         "cd hushh-webapp && npm run typecheck"
       ],
       "tests": [
         "cd hushh-webapp && npm run verify:design-system",
+        "cd hushh-webapp && npm run verify:render-performance",
         "cd hushh-webapp && npm run verify:cache",
         "cd hushh-webapp && npm run verify:docs",
         "cd hushh-webapp && npm run typecheck"

@@ -1872,7 +1872,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
           activeValue={tab}
           options={LOCATION_SWIPE_OPTIONS}
           onSelectionChange={(value) => setTab(value as LocationHubTab)}
-          viewportMinHeight="0px"
+          viewportMinHeight="fill"
           heightMode="active"
         >
           <LocationHubPanel>
@@ -3174,8 +3174,8 @@ function LocationToggle({
     >
       <span
         className={cn(
-          "absolute top-[2px] h-[27px] w-[27px] rounded-full bg-[color:var(--switch-thumb)] shadow-[0_1px_3px_rgba(0,0,0,0.15)] transition-[left] duration-150",
-          checked ? "left-[22px]" : "left-[2px]",
+          "absolute top-[2px] left-[2px] h-[27px] w-[27px] rounded-full bg-[color:var(--switch-thumb)] shadow-[0_1px_3px_rgba(0,0,0,0.15)] transition-transform duration-150",
+          checked ? "translate-x-[20px]" : "translate-x-0",
         )}
       />
     </button>
@@ -5108,6 +5108,11 @@ function ShareFlow({
   // another thirty seconds -- long enough to read a wrong end time, and long
   // enough for the replacement warning below to compare against a share that
   // has less left than it thinks.
+  // Main scoped this tick to the details step and resyncs it on entry, which
+  // is tighter than a clock that runs on every step: somebody who spent ten
+  // minutes picking people arrives with a fresh "now" to compare against.
+  // Its contract test pins that shape, so this component keeps its own clock
+  // rather than the shared coarse one.
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
     if (step !== "details") return;

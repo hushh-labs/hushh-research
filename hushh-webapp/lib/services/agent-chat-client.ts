@@ -1,5 +1,7 @@
 import { ApiService } from "@/lib/services/api-service";
+import { nativeStreamFetch } from "@/lib/services/native-sse-fetch";
 import { HttpAgent, type AgentSubscriber, type Tool } from "@ag-ui/client";
+import { applyPatch, type Operation } from "fast-json-patch";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 import { describeDirectiveForOwner } from "@/lib/agent/action-directive-summary";
 import {
@@ -17,7 +19,16 @@ export type AgentChatMessage = {
   model?: string | null;
   created_at?: string | null;
   completed_at?: string | null;
-  metadata?: { kind?: string; display?: string } | null;
+  metadata?: {
+    kind?: string;
+    display?: string;
+    structuredExperience?: {
+      activityType?: string;
+      content?: unknown;
+    } | null;
+    structuredExperienceId?: string | null;
+    structuredExperiences?: Array<{ id: string; activityType: string; content: unknown }>;
+  } | null;
 };
 
 export type AgentChatConversation = {
@@ -75,12 +86,34 @@ export type AgentChatStreamHandlers = {
   onError?: (message: string) => void;
   onThought?: (text: string) => void;
   onSources?: (sources: AgentSource[]) => void;
-  onStructuredExperience?: (experience: AgentStructuredExperience) => void;
+  /** The optional id is the AG-UI activity/tool identity for transport dedupe. */
+  onStructuredExperience?: (experience: AgentStructuredExperience, eventId?: string) => void;
   onSpecialistDirective?: (directive: SpecialistDirectiveEvent) => void;
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+}
+
+function parseRecord(value: unknown): Record<string, unknown> | null {
+  if (typeof value === "string") {
+    try {
+      return asRecord(JSON.parse(value));
+    } catch {
+      return null;
+    }
+  }
+  return asRecord(value);
+}
+
+function unwrapParkedActionResult(value: unknown): Record<string, unknown> | null {
+  const record = parseRecord(value);
+  if (!record) return null;
+  for (const key of ["result", "content", "data"] as const) {
+    const nested = parseRecord(record[key]);
+    if (nested?.status || nested?.directive || nested?.action_id) return nested;
+  }
+  return record;
 }
 
 function readString(record: Record<string, unknown>, key: string): string {
@@ -99,29 +132,82 @@ type ParkedAppActionDirective = {
   message: string;
 };
 
+function parseStateActionDirective(
+  path: string,
+  value: unknown,
+  threadId: string,
+): AgentChatToolEvent | null {
+  const record = asRecord(value);
+  if (!record || record.kind !== "action") return null;
+  const payload = asRecord(record.payload);
+  const actionId = String(payload?.actionId || "").trim();
+  const slots = asRecord(payload?.slots);
+  const action = getKaiActionById(actionId);
+  if (!actionId || !slots || !action) return null;
+
+  const needsConfirmation =
+    payload?.needsConfirmation === true || action.execution_policy === "confirm_required";
+  const trustedActivationRequired =
+    payload?.trustedActivationRequired === true ||
+    action.activation_policy === "trusted_activation_required";
+  const directiveId = path.slice("/".length);
+  const callId = `${threadId}:state:${directiveId}`;
+  return {
+    callId,
+    directiveId,
+    conversationId: threadId,
+    contextRevision: null,
+    expiresAt: null,
+    actionId,
+    label: action.label,
+    execution: "frontend",
+    slots,
+    message: describeDirectiveForOwner(actionId, action.label, slots, {
+      requiresConfirmation: needsConfirmation || trustedActivationRequired,
+    }),
+    requiresConfirmation: needsConfirmation,
+    trustedActivationRequired,
+    raw: {
+      protocol: "ag-ui",
+      toolName: "pending_directive",
+      args: {},
+      parked: true,
+      statePath: path,
+      // The proposal has already completed server-side. There is no model
+      // interrupt to resume; the browser's visible tap is the sole authority.
+      resume: async () => undefined,
+    },
+  };
+}
+
 /** Reads the directive a run_app_action result carries when it parked an action for the browser. */
 export function parseParkedAppActionDirective(content: unknown): ParkedAppActionDirective | null {
-  let result: unknown = content;
-  if (typeof result === "string") {
-    try {
-      result = JSON.parse(result);
-    } catch {
-      return null;
-    }
-  }
-  const record = asRecord(result);
+  const record = unwrapParkedActionResult(content);
   if (!record) return null;
   const status = String(record.status || "");
-  if (status !== "ready_to_run" && status !== "confirm_pending") return null;
+  const isProposalDirective = status === "proposal_ready";
+  if (
+    status !== "ready_to_run" &&
+    status !== "confirm_pending" &&
+    !isProposalDirective
+  ) return null;
   const directive = asRecord(record.directive);
-  const actionId = String(directive?.actionId || record.action_id || "").trim();
-  if (!actionId) return null;
-  const slots = asRecord(directive?.slots) || {};
+  const actionId = String(
+    directive?.actionId || directive?.action_id || record.action_id || "",
+  ).trim();
+  if (!actionId || (isProposalDirective && actionId !== "consent.request")) return null;
+  const slots = asRecord(directive?.slots || directive?.slot_values) || {};
+  const needsConfirmation =
+    directive?.needsConfirmation === true || directive?.needs_confirmation === true;
+  if (isProposalDirective && !needsConfirmation) return null;
   return {
     actionId,
     slots,
-    needsConfirmation: directive?.needsConfirmation === true || status === "confirm_pending",
-    trustedActivationRequired: directive?.trustedActivationRequired === true,
+    needsConfirmation:
+      needsConfirmation || status === "confirm_pending",
+    trustedActivationRequired:
+      directive?.trustedActivationRequired === true ||
+      directive?.trusted_activation_required === true,
     message: String(record.message || ""),
   };
 }
@@ -195,6 +281,17 @@ export function formatAgentChatErrorMessage(message: string, code?: string): str
   if (code === "DATABASE_UNAVAILABLE" || code === "DATABASE_EXECUTION_ERROR") {
     return "One's conversation history is temporarily unavailable. Please try again.";
   }
+  // AG-UI may deliver provider failures as an untyped RunErrorEvent when the
+  // ADK bridge cannot preserve the backend error code. Recognize only the
+  // stable provider markers and keep the raw message out of the transcript.
+  const normalizedMessage = message.toUpperCase();
+  if (
+    normalizedMessage.includes("RESOURCE_EXHAUSTED") ||
+    normalizedMessage.includes("TOO MANY REQUESTS") ||
+    /\b429\b/.test(normalizedMessage)
+  ) {
+    return "One is temporarily at capacity. Please try again in a moment.";
+  }
   // AG-UI RunErrorEvent.message may be derived from str(exception). Database
   // drivers append SQL and bound values there, so unknown runtime text is
   // never consumer-safe. Only explicitly mapped codes cross this boundary.
@@ -234,10 +331,16 @@ export async function streamAgentChat(input: {
   conversationId?: string | null;
   vaultOwnerToken: string;
   pkmContext?: string;
+  personSelectionHandle?: string;
   screenContext?: Record<string, unknown> | null;
   signal?: AbortSignal;
   handlers?: AgentChatStreamHandlers;
-}): Promise<{ conversationId: string | null; model: string | null; text: string }> {
+}): Promise<{
+  conversationId: string | null;
+  model: string | null;
+  text: string;
+  interrupted: boolean;
+}> {
   const timezone = resolveBrowserTimeZone();
   const threadId = input.conversationId || crypto.randomUUID();
   const handlers = input.handlers ?? {};
@@ -276,10 +379,12 @@ export async function streamAgentChat(input: {
     threadId,
     headers: { Authorization: `Bearer ${input.vaultOwnerToken}` },
     initialMessages: [{ id: crypto.randomUUID(), role: "user", content: input.message }],
-    fetch: (_url, init) => ApiService.apiFetchStream("/api/one/agent-chat", init),
+    fetch: (_url, init) => nativeStreamFetch("/api/one/agent-chat", init),
   });
   let text = "";
   let failure: Error | null = null;
+  let interrupted = false;
+  let intentionallyStoppedAtConfirmation = false;
   let settleTerminalRun: (() => void) | null = null;
   const terminalRun = new Promise<void>((resolve) => {
     settleTerminalRun = resolve;
@@ -288,9 +393,21 @@ export async function streamAgentChat(input: {
     settleTerminalRun?.();
     settleTerminalRun = null;
   };
+  const stopAfterConfirmation = () => {
+    if (intentionallyStoppedAtConfirmation) return;
+    intentionallyStoppedAtConfirmation = true;
+    interrupted = true;
+    // A parked directive has no AG-UI interrupt to resume. The visible card
+    // owns the next step, so leaving the model run alive would let it repeat
+    // the action or append a second answer while the owner is deciding.
+    handlers.onInterrupt?.({ conversationId: threadId });
+    finishTerminalRun();
+    agent.abortRun();
+  };
   const toolNames = new Map<string, string>();
   const toolArgs = new Map<string, Record<string, unknown>>();
   const interruptsByToolCall = new Map<string, string>();
+  const emittedStateDirectivePaths = new Set<string>();
   const toolPayload = (callId: string, name: string, args: Record<string, unknown> = {}): AgentChatToolEvent => {
     const actionId = tools.find((tool) => tool.name === name)?.metadata?.actionId;
     const action = getKaiActionById(typeof actionId === "string" ? actionId : null);
@@ -334,6 +451,7 @@ export async function streamAgentChat(input: {
             forwardedProps: {
               timezone,
               pkmContext: input.pkmContext,
+              personSelectionHandle: input.personSelectionHandle,
               screenContext: input.screenContext,
             },
             resume: [{ interruptId, status, payload }],
@@ -415,23 +533,52 @@ export async function streamAgentChat(input: {
             resume: async () => undefined,
           },
         });
+        if (parkedRequiresConfirmation || parkedTrustedActivationRequired) {
+          stopAfterConfirmation();
+        }
       }
       const experience = parseAgentToolResultExperience(toolName, event.content);
-      if (experience) handlers.onStructuredExperience?.(experience);
+      if (experience) {
+        // Redelivery can assign a new transport message while retaining the
+        // same invocation. One invocation owns one evolving card.
+        const eventId = event.toolCallId.trim() ||
+          (typeof event.messageId === "string" ? event.messageId.trim() : "") ||
+          undefined;
+        handlers.onStructuredExperience?.(experience, eventId);
+      }
     },
     onActivitySnapshotEvent: ({ event }) => {
       const experience = parseAgentActivityExperience(
         event.activityType,
         event.content,
       );
-      if (experience) handlers.onStructuredExperience?.(experience);
+      if (experience) {
+        handlers.onStructuredExperience?.(experience, String(event.messageId || "").trim() || undefined);
+      }
     },
     onActivityDeltaEvent: ({ event, activityMessage }) => {
+      let content: unknown = activityMessage?.content;
+      if (activityMessage && Array.isArray(event.patch)) {
+        try {
+          content = applyPatch(
+            activityMessage.content ?? {},
+            event.patch as Operation[],
+            true,
+            false,
+          ).newDocument;
+        } catch {
+          // The AG-UI client will still apply the patch to its message store.
+          // Do not emit a stale structured card when this delta is malformed.
+          return;
+        }
+      }
       const experience = parseAgentActivityExperience(
         activityMessage?.activityType || event.activityType,
-        activityMessage?.content,
+        content,
       );
-      if (experience) handlers.onStructuredExperience?.(experience);
+      if (experience) {
+        handlers.onStructuredExperience?.(experience, String(event.messageId || "").trim() || undefined);
+      }
     },
     onStateDeltaEvent: ({ event }) => {
       const patches = Array.isArray(event.delta) ? event.delta : [];
@@ -439,7 +586,7 @@ export async function streamAgentChat(input: {
         if (!patch || typeof patch !== "object") continue;
         const op = patch as { op?: string; path?: string; value?: unknown };
         if (
-          op.op === "add" &&
+          (op.op === "add" || op.op === "replace") &&
           typeof op.path === "string" &&
           op.path.startsWith("/hussh:pending_directive:")
         ) {
@@ -460,6 +607,19 @@ export async function streamAgentChat(input: {
               stateChanged: true,
             };
             handlers.onSpecialistDirective?.(directiveEvent);
+            continue;
+          }
+          if (emittedStateDirectivePaths.has(op.path)) continue;
+          const actionEvent = parseStateActionDirective(op.path, op.value, threadId);
+          if (actionEvent) {
+            emittedStateDirectivePaths.add(op.path);
+            handlers.onToolWaiting?.(actionEvent);
+            if (
+              actionEvent.requiresConfirmation ||
+              actionEvent.trustedActivationRequired
+            ) {
+              stopAfterConfirmation();
+            }
           }
         }
       }
@@ -469,18 +629,32 @@ export async function streamAgentChat(input: {
         for (const interrupt of params.interrupts) {
           if (interrupt.toolCallId) interruptsByToolCall.set(interrupt.toolCallId, interrupt.id);
         }
+        interrupted = true;
         handlers.onInterrupt?.({ conversationId: threadId });
+        // The visible confirmation card owns the next step. The resumable
+        // `agent` and subscriber stay alive through the directive's resume
+        // closure, but the initial turn must settle so the workspace stops
+        // showing an indefinite thinking state.
+        finishTerminalRun();
         return;
       }
       handlers.onComplete?.({ conversationId: threadId });
       finishTerminalRun();
     },
     onRunErrorEvent: ({ event }) => {
+      if (intentionallyStoppedAtConfirmation) {
+        finishTerminalRun();
+        return;
+      }
       failure = new Error(formatAgentChatErrorMessage(event.message || ""));
       handlers.onError?.(failure.message);
       finishTerminalRun();
     },
     onRunFailed: ({ error }) => {
+      if (intentionallyStoppedAtConfirmation) {
+        finishTerminalRun();
+        return;
+      }
       failure = new Error(formatAgentChatErrorMessage(error.message || ""));
       handlers.onError?.(failure.message);
       finishTerminalRun();
@@ -498,6 +672,7 @@ export async function streamAgentChat(input: {
       forwardedProps: {
         timezone,
         pkmContext: input.pkmContext,
+        personSelectionHandle: input.personSelectionHandle,
         screenContext: input.screenContext,
       },
     }, subscriber);
@@ -506,7 +681,7 @@ export async function streamAgentChat(input: {
     input.signal?.removeEventListener("abort", abort);
   }
   if (failure) throw failure;
-  return { conversationId: threadId, model: null, text };
+  return { conversationId: threadId, model: null, text, interrupted };
 }
 
 /**
@@ -528,7 +703,7 @@ export async function streamAgentIntro(input: {
     url: "/api/one/agent-chat",
     threadId,
     initialMessages: [{ id: crypto.randomUUID(), role: "user", content: input.message }],
-    fetch: (_url, init) => ApiService.apiFetchStream("/api/one/agent-chat", init),
+    fetch: (_url, init) => nativeStreamFetch("/api/one/agent-chat", init),
   });
   let text = "";
   let failure: Error | null = null;

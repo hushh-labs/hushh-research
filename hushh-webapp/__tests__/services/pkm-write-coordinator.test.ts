@@ -25,6 +25,7 @@ const pkmGetMetadataMock = vi.fn();
 const pkmGetDomainManifestMock = vi.fn();
 const pkmGetDomainDataMock = vi.fn();
 const pkmStoreMergedDomainWithPreparedBlobMock = vi.fn();
+const pkmStorePreparedDomainMock = vi.fn();
 vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
   PersonalKnowledgeModelService: {
     getMetadata: (...a: unknown[]) => pkmGetMetadataMock(...a),
@@ -32,6 +33,7 @@ vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
     getDomainData: (...a: unknown[]) => pkmGetDomainDataMock(...a),
     storeMergedDomainWithPreparedBlob: (...a: unknown[]) =>
       pkmStoreMergedDomainWithPreparedBlobMock(...a),
+    storePreparedDomainWithPreparedBlob: (...a: unknown[]) => pkmStorePreparedDomainMock(...a),
     emptyMetadata: vi.fn(() => ({ domains: [], upgradableDomains: [] })),
     loadDomainData: vi.fn(),
   },
@@ -136,6 +138,90 @@ const BUILD_CALLBACK = vi.fn().mockImplementation(() => ({
 describe("PkmWriteCoordinator", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  describe("background prepared writes", () => {
+    const automatic = { authorizationMode: "product_default_auto_save_policy" as const,
+      surface: "chat" as const, source: "agent_chat_auto_save", autoSavePolicyVersion: 1,
+      productDefaultEffectiveAt: "2026-09-04T00:00:00.000Z" };
+    it("never starts or resumes upgrades for automatic capture", async () => {
+      stubNoUpgradeNeeded();
+      pkmGetMetadataMock.mockResolvedValueOnce({ upgradableDomains: [{ domain: "food", needsUpgrade: true }] });
+      const result = await PkmWriteCoordinator.savePreparedDomain({ ...BASE_PARAMS, confirmation: automatic, build: BUILD_CALLBACK });
+      expect(result.saveState).toBe("blocked_pending_upgrade");
+      expect(upgradeEnsureRunningMock).not.toHaveBeenCalled();
+      expect(pkmStorePreparedDomainMock).not.toHaveBeenCalled();
+    });
+    it("does not assume missing version readiness after a failed read", async () => {
+      stubNoUpgradeNeeded();
+      pkmGetMetadataMock.mockRejectedValueOnce(new Error("Unavailable"));
+      const result = await PkmWriteCoordinator.savePreparedDomain({ ...BASE_PARAMS, confirmation: automatic, build: BUILD_CALLBACK });
+      expect(result.success).toBe(false);
+      expect(upgradeEnsureRunningMock).not.toHaveBeenCalled();
+      expect(pkmStorePreparedDomainMock).not.toHaveBeenCalled();
+    });
+    it("rejects cancellation during preparation before store dispatch", async () => {
+      stubNoUpgradeNeeded();
+      stubWriteContext();
+      let canceled = false;
+      const beforeEffect = vi.fn(async () => { if (canceled) throw new DOMException("Canceled", "AbortError"); });
+      const result = await PkmWriteCoordinator.savePreparedDomain({
+        ...BASE_PARAMS, confirmation: automatic, beforeEffect,
+        build: () => { canceled = true; return BUILD_CALLBACK(); },
+      });
+      expect(result.success).toBe(false);
+      expect(pkmStorePreparedDomainMock).not.toHaveBeenCalled();
+    });
+    it("forwards the same guard to final dispatch and prevents a canceled conflict retry", async () => {
+      stubNoUpgradeNeeded();
+      stubWriteContext();
+      let canceled = false;
+      const beforeEffect = vi.fn(async () => { if (canceled) throw new DOMException("Canceled", "AbortError"); });
+      pkmStorePreparedDomainMock.mockImplementationOnce(async (params) => {
+        expect(params.beforeEffect).toBe(beforeEffect);
+        await params.beforeEffect();
+        canceled = true;
+        return { success: false, conflict: true, fullBlob: {} };
+      });
+      const result = await PkmWriteCoordinator.savePreparedDomain({ ...BASE_PARAMS, confirmation: automatic, beforeEffect, build: BUILD_CALLBACK });
+      expect(result.success).toBe(false);
+      expect(pkmStorePreparedDomainMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("binds the prepared mutation plan to the reviewed scope", async () => {
+      stubNoUpgradeNeeded();
+      stubWriteContext();
+      pkmStorePreparedDomainMock.mockResolvedValue({
+        success: true,
+        conflict: false,
+        message: "Stored",
+        dataVersion: 2,
+        fullBlob: { food: { preferences: { writing: "concise" } } },
+      });
+
+      const result = await PkmWriteCoordinator.savePreparedDomain({
+        ...BASE_PARAMS,
+        build: () => ({
+          domainData: { preferences: { writing: "concise" } },
+          summary: { item_count: 1 },
+          mergeDecision: { merge_mode: "create_entity" },
+          structureDecision: { target_domain: "food" },
+          scopePath: "preferences.writing",
+        }),
+      });
+
+      expect(result.success).toBe(true);
+      expect(pkmStorePreparedDomainMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          mutationPlan: expect.objectContaining({
+            proposed_scope: "preferences",
+            confirmation_receipt: expect.objectContaining({
+              displayed_scope: "preferences",
+            }),
+          }),
+        }),
+      );
+    });
   });
 
   describe("blocked_pending_unlock", () => {

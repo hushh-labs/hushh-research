@@ -20,6 +20,9 @@ vi.mock("@/lib/services/one-kyc-service", () => ({
   },
 }));
 
+import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
+import { OneKycService } from "@/lib/services/one-kyc-service";
+
 import {
   APPROVED_DISCLOSURE_FORMATTER_CONTRACT_ID,
   effectiveOneKycRequiredFields,
@@ -52,6 +55,32 @@ const connector: KycClientConnectorPrivateRecord = {
 };
 
 describe("OneKycClientZkService", () => {
+  it("does not re-register an already active matching connector during readback", async () => {
+    vi.mocked(PkmDomainResourceService.getStaleFirst).mockResolvedValue({
+      data: { active: connector },
+    } as never);
+    vi.mocked(OneKycService.getClientConnector).mockResolvedValue({
+      configured: true,
+      connector: {
+        connector_key_id: connector.connector_key_id,
+        connector_public_key: connector.connector_public_key,
+        connector_wrapping_alg: connector.connector_wrapping_alg,
+        public_key_fingerprint: connector.public_key_fingerprint,
+        status: "active",
+      },
+    });
+    vi.mocked(OneKycService.registerClientConnector).mockClear();
+
+    await expect(
+      OneKycClientZkService.ensureConnector({
+        userId: "user_1",
+        vaultKey: "vault-key",
+        vaultOwnerToken: "vault-owner-token",
+      }),
+    ).resolves.toEqual(connector);
+    expect(OneKycService.registerClientConnector).not.toHaveBeenCalled();
+  });
+
   it("builds a deterministic local draft from decrypted scoped export values", async () => {
     const first = await OneKycClientZkService.buildDraft({
       workflow: baseWorkflow,

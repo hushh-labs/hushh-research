@@ -114,22 +114,36 @@ describe("native resumed-session privacy shield contract", () => {
   });
 
   it("covers iOS before inactivity and releases only an active matching generation", () => {
-    const delegate = source("ios/App/App/AppDelegate.swift");
+    // The shield is driven from the UIScene lifecycle, not from the
+    // AppDelegate: under the iOS 27 SDK the scene callback fires while
+    // `applicationState` is still `.inactive`, so the handlers observe
+    // UIApplication notifications instead. Same three moments, one owner.
+    const delegate = source("ios/App/App/SceneDelegate.swift");
     const controller = source(
       "ios/App/App/Plugins/HushhSessionPrivacyPlugin.swift",
     );
     const bridgeController = source("ios/App/App/MyViewController.swift");
     const project = source("ios/App/App.xcodeproj/project.pbxproj");
 
+    // A handler nothing calls is the failure mode this replaces: assert the
+    // observers exist before asserting what they do.
+    for (const notification of [
+      "UIApplication.willResignActiveNotification",
+      "UIApplication.didEnterBackgroundNotification",
+      "UIApplication.didBecomeActiveNotification",
+    ]) {
+      expect(delegate).toContain(`center.addObserver(forName: ${notification}`);
+    }
+
     const resignActive = between(
       delegate,
-      "func applicationWillResignActive",
-      "func applicationDidEnterBackground",
+      "static func willResignActive",
+      "static func didEnterBackground",
     );
     const becameActive = between(
       delegate,
-      "func applicationDidBecomeActive",
-      "func applicationWillTerminate",
+      "static func didBecomeActive",
+      "static func open(url:",
     );
 
     expect(resignActive).toContain(

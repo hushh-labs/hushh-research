@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   SpinnerGapIcon as Loader2,
@@ -22,6 +22,7 @@ import { PkmExportService } from "@/lib/services/pkm-export-service";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 import { NativeTestBeacon, type NativeTestDataState } from "@/components/app-ui/native-test-beacon";
@@ -36,9 +37,10 @@ import {
   addToPKM,
   clearAgentPkmContext,
   getIgnoredPkmCards,
-  previewAgentPkmMemory,
   type AgentPkmPreviewCard,
 } from "@/lib/agent/agent-pkm-memory";
+import { prepareNaturalLanguagePkm } from "@/lib/pkm/pkm-natural-language-ingestion";
+import { createAgentPkmCaptureGuard, isAgentPkmProcessingReady } from "@/lib/agent/agent-pkm-capture-runtime";
 import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
 import {
   DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY,
@@ -98,6 +100,13 @@ const EMPTY_DOMAIN_DETAIL: DomainDetailState = {
 /** The Recently learned route lists this many; the home shows one row into it. */
 const RECENT_MEMORIES_LIMIT = 50;
 
+// Capture operations are intentionally process-local. They retain only an
+// owner/operation identity, never source text, keys, or decrypted values. A
+// module-level registry prevents a route remount from dispatching the same
+// reviewed write twice while the first request is still settling.
+const pkmCaptureSaveInFlight = new Map<string, symbol>();
+const pkmCaptureReconciliationNeeded = new Set<string>();
+
 function cardScopePath(card: PkmMemoryCard): string {
   return String(card.pathSegments.find((segment) => typeof segment === "string") || "profile");
 }
@@ -116,8 +125,10 @@ export function PkmNaturalPanel({
   view?: "home" | "recent";
 } = {}) {
   const router = useRouter();
-  const { user, loading: authLoading } = useAuth();
-  const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
+  const { user, loading: authLoading, sessionVerificationRequired } = useAuth();
+  const { isVaultUnlocked, vaultKey, vaultOwnerToken, tokenExpiresAt } = useVault();
+  const captureReadinessRef = useRef({ authLoading, sessionVerificationRequired, isVaultUnlocked, vaultOwnerToken, tokenExpiresAt });
+  captureReadinessRef.current = { authLoading, sessionVerificationRequired, isVaultUnlocked, vaultOwnerToken, tokenExpiresAt };
   const pkmChangeRevision = usePkmDomainChangeRevision(user?.uid);
 
   const [metadata, setMetadata] = useState<PersonalKnowledgeModelMetadata | null>(null);
@@ -186,9 +197,58 @@ export function PkmNaturalPanel({
   const [workspaceTab, setWorkspaceTab] = useState<MemoryWorkspaceTab>("browse");
   const [captureText, setCaptureText] = useState("");
   const [captureCards, setCaptureCards] = useState<AgentPkmPreviewCard[]>([]);
+  const captureHasSharedRecipients = captureCards.some(
+    (card) => (card.sharing_impact?.active_recipient_count || 0) > 0,
+  );
+  const [captureSharingImpactAcknowledged, setCaptureSharingImpactAcknowledged] =
+    useState(false);
+  const [captureHasUnresolvedSource, setCaptureHasUnresolvedSource] = useState(false);
+  const captureRevision = useRef(0);
+  const captureOwnerIdRef = useRef<string | null>(user?.uid ?? null);
+  captureOwnerIdRef.current = user?.uid ?? null;
+  const captureAuthReady = !authLoading && !sessionVerificationRequired;
+  useEffect(() => {
+    if (captureAuthReady) return;
+    // Keep the owner's draft, but old work must not resume after verification.
+    captureRevision.current += 1;
+    setCaptureLoading(false);
+    // A dispatched save can still succeed. Retire the old review, but hold its
+    // operation lock until settlement so recovery cannot submit it twice.
+    // Read the owner through the ref kept current above: this effect runs on
+    // auth readiness only, never on an owner change, by design.
+    const ownerId = captureOwnerIdRef.current;
+    if (ownerId && pkmCaptureSaveInFlight.has(ownerId)) setCaptureCards([]);
+  }, [captureAuthReady]);
   const [captureLoading, setCaptureLoading] = useState(false);
-  const [captureSaving, setCaptureSaving] = useState(false);
+  const [captureSaving, setCaptureSaving] = useState(() =>
+    Boolean(user?.uid && pkmCaptureSaveInFlight.has(user.uid)),
+  );
   const [captureMessage, setCaptureMessage] = useState<string | null>(null);
+  useEffect(() => {
+    captureRevision.current += 1;
+    setCaptureText("");
+    setCaptureCards([]);
+    setCaptureHasUnresolvedSource(false);
+    setCaptureMessage(null);
+    setCaptureLoading(false);
+    setCaptureSaving(Boolean(user?.uid && pkmCaptureSaveInFlight.has(user.uid)));
+    return () => { captureRevision.current += 1; };
+  }, [user?.uid, isVaultUnlocked]);
+
+  // A request can be accepted while verification is temporarily unavailable.
+  // Its result is deliberately not published through the stale guard; once
+  // current authority is restored, force one fresh ciphertext-backed read so
+  // the visible Memory projection catches up without reviving the old result.
+  useEffect(() => {
+    if (!user?.uid || !isVaultUnlocked || !vaultOwnerToken || !isCaptureReady(vaultOwnerToken)) {
+      return;
+    }
+    if (pkmCaptureSaveInFlight.has(user.uid) || !pkmCaptureReconciliationNeeded.has(user.uid)) {
+      return;
+    }
+    pkmCaptureReconciliationNeeded.delete(user.uid);
+    setRefreshNonce((value) => value + 1);
+  }, [authLoading, isVaultUnlocked, sessionVerificationRequired, tokenExpiresAt, user?.uid, vaultOwnerToken]);
   const [sharingManifests, setSharingManifests] = useState<Record<string, DomainManifest | null>>({});
   const [sharingManifestsLoading, setSharingManifestsLoading] = useState(false);
   const [sharingActionKey, setSharingActionKey] = useState<string | null>(null);
@@ -773,9 +833,22 @@ export function PkmNaturalPanel({
     }
   }
 
+  function isCaptureReady(expectedToken: string) {
+    return isAgentPkmProcessingReady(captureReadinessRef.current, expectedToken);
+  }
+
   async function previewMemoryCapture() {
-    if (!user || !vaultOwnerToken || !captureText.trim()) return;
+    if (!user || !isVaultUnlocked || !vaultOwnerToken || !captureText.trim() || captureSaving) return;
+    const revision = ++captureRevision.current;
+    const guard = createAgentPkmCaptureGuard({
+      userId: user.uid, signal: new AbortController().signal,
+      isEnabled: () => revision === captureRevision.current && isCaptureReady(vaultOwnerToken),
+    });
+    if (!guard.isCurrent()) return;
+    setCaptureCards([]);
+    setCaptureSharingImpactAcknowledged(false);
     setCaptureLoading(true);
+    setCaptureHasUnresolvedSource(false);
     setCaptureMessage(null);
     try {
       const localDuplicate = AgentPkmContextStore.findLocalDuplicate({
@@ -787,29 +860,72 @@ export function PkmNaturalPanel({
         setCaptureMessage("That exact detail is already saved. Open Browse to correct it instead of creating a duplicate.");
         return;
       }
-      const preview = await previewAgentPkmMemory({
+      const prepared = await prepareNaturalLanguagePkm({
         userId: user.uid,
         message: captureText.trim(),
         currentDomains: visibleMetadataDomains.map((domain) => domain.key),
         vaultOwnerToken,
+        source: "memory_workspace",
+        allowEmpty: true,
+        isEffectCurrent: guard.isCurrent,
+        findDuplicate: (candidate) => AgentPkmContextStore.findLocalDuplicate({ userId: user.uid, candidate }),
+        beforeEffect: guard.assertCurrent,
+        onProgress: (progress) => {
+          if (guard.isCurrent() && progress.phase !== "prepared") {
+            setCaptureMessage(`Preparing section ${Math.min(progress.chunkIndex + 1, progress.chunkCount)} of ${progress.chunkCount}… Nothing has been saved yet.`);
+          }
+        },
       });
-      setCaptureCards(preview.cards);
+      if (!guard.isCurrent()) return;
+      setCaptureCards(prepared.cards);
+      setCaptureSharingImpactAcknowledged(false);
+      const hasUnresolvedSource = prepared.sourceCoverage.some((block) =>
+        Boolean(block.preparationIssue) || block.disposition === "failed" ||
+        block.detectedFactCount !== block.accountedFactCount) ||
+        prepared.cards.some((card) => card.preparation_requires_review === true);
+      setCaptureHasUnresolvedSource(hasUnresolvedSource);
       setCaptureMessage(
-        localDuplicate?.kind === "possible"
+        hasUnresolvedSource
+          ? "Some sections need another review before anything can be saved. Try again to finish preparing this note."
+          : localDuplicate?.kind === "possible"
           ? "A related saved detail may already exist. Review this suggestion before saving."
-          : preview.cards.length
-          ? "Review the proposed saved detail before adding it."
+          : prepared.cards.length
+          ? "Review the proposed details before adding them."
           : "Nothing new needs to be saved from that note."
       );
     } catch {
-      setCaptureMessage("That note couldn’t be prepared. Unlock your vault again and retry.");
+      if (!guard.isCurrent()) return;
+      setCaptureMessage("That note couldn’t be prepared. Nothing was saved. Please try again.");
     } finally {
-      setCaptureLoading(false);
+      if (revision === captureRevision.current) setCaptureLoading(false);
     }
   }
 
   async function saveMemoryCapture() {
-    if (!user || !vaultKey || !vaultOwnerToken || captureCards.length === 0) return;
+    if (
+      !user || !isVaultUnlocked || !vaultKey || !vaultOwnerToken ||
+      captureCards.length === 0 || captureHasUnresolvedSource ||
+      (captureHasSharedRecipients && !captureSharingImpactAcknowledged) ||
+      pkmCaptureSaveInFlight.has(user.uid)
+    ) return;
+    const operationId = Symbol("memory-save");
+    const operationOwnerId = user.uid;
+    pkmCaptureSaveInFlight.set(operationOwnerId, operationId);
+    const revision = ++captureRevision.current;
+    const receiptGuard = createAgentPkmCaptureGuard({
+      userId: user.uid, signal: new AbortController().signal,
+      isEnabled: () => pkmCaptureSaveInFlight.get(operationOwnerId) === operationId,
+    });
+    const guard = createAgentPkmCaptureGuard({
+      userId: user.uid, signal: new AbortController().signal,
+      isEnabled: () => revision === captureRevision.current && isCaptureReady(vaultOwnerToken),
+    });
+    if (!guard.isCurrent()) {
+      if (pkmCaptureSaveInFlight.get(operationOwnerId) === operationId) {
+        pkmCaptureSaveInFlight.delete(operationOwnerId);
+      }
+      return;
+    }
     setCaptureSaving(true);
     try {
       const operation = addToPKM({
@@ -819,33 +935,68 @@ export function PkmNaturalPanel({
           vaultKey,
           vaultOwnerToken,
           source: "memory_workspace",
+          beforeEffect: guard.assertCurrent,
+          mayPublish: guard.isCurrent,
           confirmation: {
             confirmedByUser: true,
             surface: "web",
             source: "memory_workspace_add",
+            sharingImpactAcknowledged: captureHasSharedRecipients
+              ? captureSharingImpactAcknowledged
+              : false,
           },
         });
       void morphyToast.promise(operation, {
         loading: "Saving reviewed memory…",
-        success: "Reviewed memory saved.",
-        error: "Memory couldn’t be saved. Unlock your vault again and retry.",
+        success: (result) => result.failed > 0
+          ? "Some details still need attention. Your note is kept for review."
+          : result.saved > 0 ? "Reviewed memory saved." : "No details were saved. Your note is kept for review.",
+        error: "Memory couldn’t be saved. Your note is still here; please try again.",
       });
       const result = await operation;
+      if (!guard.isCurrent()) {
+        if (receiptGuard.isCurrent() && captureOwnerIdRef.current === operationOwnerId) {
+          if (result.saved > 0) pkmCaptureReconciliationNeeded.add(operationOwnerId);
+          // Counts only; do not republish cards or refresh private information
+          // while verification is unavailable. The draft stays for review.
+          setCaptureCards([]);
+          setCaptureMessage(result.saved > 0
+            ? `${result.saved} reviewed detail${result.saved === 1 ? "" : "s"} saved. Check Memory before preparing this note again.`
+            : "Saving was interrupted. Check Memory before preparing this note again.");
+        }
+        return;
+      }
       clearAgentPkmContext(user.uid);
       setCaptureMessage(
         result.saved > 0
-          ? `${result.saved} reviewed detail${result.saved === 1 ? "" : "s"} saved.`
+          ? `${result.saved} reviewed detail${result.saved === 1 ? "" : "s"} saved.${result.failed > 0 || captureHasUnresolvedSource ? " Some details still need attention; your note is kept below." : ""}`
           : "Nothing was saved; the proposed detail needs a correction first."
       );
       if (result.saved > 0) {
-        setCaptureText("");
-        setCaptureCards([]);
+        if (result.failed > 0 || captureHasUnresolvedSource) {
+          const savedIds = new Set(result.results.filter((item) => item.success).map((item) => item.cardId));
+          setCaptureCards((current) => current.filter((card) => !savedIds.has(card.card_id)));
+        } else {
+          setCaptureText("");
+          setCaptureCards([]);
+          setCaptureSharingImpactAcknowledged(false);
+        }
         setRefreshNonce((value) => value + 1);
       }
     } catch {
-      setCaptureMessage("Memory couldn’t be saved. Unlock your vault again and retry.");
+      if (!guard.isCurrent()) {
+        if (receiptGuard.isCurrent() && captureOwnerIdRef.current === operationOwnerId) {
+          setCaptureCards([]);
+          setCaptureMessage("Saving was interrupted. Check Memory before preparing this note again.");
+        }
+        return;
+      }
+      setCaptureMessage("Memory couldn’t be saved. Your note is still here; please try again.");
     } finally {
-      setCaptureSaving(false);
+      if (pkmCaptureSaveInFlight.get(operationOwnerId) === operationId) {
+        pkmCaptureSaveInFlight.delete(operationOwnerId);
+        if (captureOwnerIdRef.current === operationOwnerId) setCaptureSaving(false);
+      }
     }
   }
 
@@ -1153,7 +1304,7 @@ export function PkmNaturalPanel({
           tabSetId="memory"
           activeValue={workspaceTab}
           onSelectionChange={(value) => setWorkspaceTab(value as MemoryWorkspaceTab)}
-          viewportMinHeight="0px"
+          viewportMinHeight="fill"
           heightMode="active"
         >
           <div className="space-y-5 pb-1 pr-px" data-pkm-saved-panel="true">
@@ -1275,24 +1426,64 @@ export function PkmNaturalPanel({
               <p className="text-sm font-semibold text-foreground">Teach One something</p>
               <p className="text-sm text-muted-foreground">Tell One something you’d like it to remember.</p>
             </div>
-            <Textarea value={captureText} onChange={(event) => setCaptureText(event.target.value)} placeholder="I prefer morning flights whenever possible." aria-label="Memory note" maxLength={4000} />
-            <Button className="w-full justify-center" type="button" variant="muted" effect="fade" disabled={captureLoading || !captureText.trim()} onClick={() => void previewMemoryCapture()}>
+            <Textarea value={captureText} disabled={captureSaving} onPaste={(event) => {
+              const input = event.currentTarget;
+              const length = captureText.length - (input.selectionEnd - input.selectionStart) +
+                event.clipboardData.getData("text/plain").length;
+              if (length > 50000) {
+                event.preventDefault();
+                setCaptureMessage("That paste is too long. Add smaller sections; your existing note is unchanged.");
+              }
+            }} onChange={(event) => {
+              captureRevision.current += 1;
+              setCaptureText(event.target.value);
+              setCaptureCards([]);
+              setCaptureHasUnresolvedSource(false);
+              setCaptureMessage(null);
+              setCaptureLoading(false);
+            }} placeholder="I prefer morning flights whenever possible." aria-label="Memory note" maxLength={50000} />
+            <Button className="w-full justify-center" type="button" variant="muted" effect="fade" disabled={captureLoading || captureSaving || !captureText.trim()} onClick={() => void previewMemoryCapture()}>
               {captureLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null}Review memory
             </Button>
-            {captureMessage ? <p className="text-sm text-muted-foreground">{captureMessage}</p> : null}
+            {captureMessage ? <p role="status" data-testid="memory-preparation-status" className="text-sm text-muted-foreground">{captureMessage}</p> : null}
             {captureCards.length > 0 ? (
               <SettingsGroup separatorInset>
                 {captureCards.map((card) => (
                   <SettingsRow
                     key={card.card_id}
-                    title="Proposed saved detail"
-                    description={card.sharing_impact?.active_recipient_count ? "This may update a detail that is currently shared." : "This stays private unless you choose to share it later."}
+                    title={card.source_text?.trim() || "Proposed saved detail"}
+                    description={card.sharing_impact?.active_recipient_count
+                      ? card.sharing_impact.summary?.trim() || "This may update a detail that is currently shared."
+                      : "This stays private unless you choose to share it later."}
                   />
                 ))}
                 {getIgnoredPkmCards(captureCards).length > 0 ? <SettingsRow title="Some of this note will not be saved" description="Only appropriate details can be added to Memory." /> : null}
               </SettingsGroup>
             ) : null}
-            {captureCards.length > 0 ? <Button className="w-full justify-center" type="button" effect="fade" disabled={captureSaving} onClick={() => void saveMemoryCapture()}>{captureSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null}Save to Memory</Button> : null}
+            {captureHasSharedRecipients ? (
+              <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2" data-pkm-sharing-impact="true">
+                <label
+                  htmlFor="memory-sharing-impact-ack"
+                  className="flex min-h-11 cursor-pointer items-center gap-3 text-sm text-foreground"
+                >
+                  <Checkbox
+                    id="memory-sharing-impact-ack"
+                    checked={captureSharingImpactAcknowledged}
+                    onCheckedChange={(checked) =>
+                      setCaptureSharingImpactAcknowledged(checked === true)
+                    }
+                    disabled={captureSaving}
+                  />
+                  <span>
+                    I understand that this detail is already shared and will be refreshed for the current recipients.
+                  </span>
+                </label>
+                <p className="pl-7 text-xs leading-5 text-muted-foreground">
+                  Review this before saving. It does not change who can access the detail.
+                </p>
+              </div>
+            ) : null}
+            {captureCards.length > 0 ? <Button data-testid="memory-save-capture" className="w-full justify-center" type="button" effect="fade" disabled={captureSaving || captureHasUnresolvedSource || (captureHasSharedRecipients && !captureSharingImpactAcknowledged)} onClick={() => void saveMemoryCapture()}>{captureSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null}Save to Memory</Button> : null}
           </SurfaceInset>
 
           <SettingsGroup separatorInset testId="memory-auto-save-group">

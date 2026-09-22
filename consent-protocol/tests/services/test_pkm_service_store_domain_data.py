@@ -20,6 +20,43 @@ def _unwrap(value):
     return value.value if isinstance(value, JsonParam) else value
 
 
+@pytest.mark.parametrize(
+    "path",
+    [
+        "employment.entities._entities.summary",
+        "employment.observations._items",
+        "employment._private.summary",
+    ],
+)
+def test_manifest_write_preserves_path_grammar_and_private_markers(path):
+    assert PersonalKnowledgeModelService._normalize_manifest_path(path) == path
+
+
+def test_manifest_round_trip_preserves_selected_collection_path_and_excludes_private():
+    service = PersonalKnowledgeModelService()
+    selected = "employment.entities._entities.summary"
+    private = "employment._private.summary"
+    manifest = service._normalize_manifest_payload(
+        "synthetic-owner",
+        "professional",
+        {
+            "manifest_version": 1,
+            "top_level_scope_paths": ["employment"],
+            "externalizable_paths": [selected, private],
+            "paths": [
+                {"json_path": path, "path_type": "leaf", "exposure_eligibility": True}
+                for path in [selected, private]
+            ],
+        },
+        {"json_paths": [selected, private]},
+    )
+    assert manifest.externalizable_paths == [selected]
+    assert {path.json_path: path.exposure_eligibility for path in manifest.paths} == {
+        selected: True,
+        private: False,
+    }
+
+
 def test_pkm_rpc_payload_unwraps_direct_postgres_and_db_shapes():
     payload = {"schema_version": "pkm_domain_snapshot.v1", "content_revision": 7}
 
@@ -147,6 +184,13 @@ class _StubDbTable:
         self.filters.append((column, value))
         return self
 
+    def in_(self, column, values):
+        self.filters.append((column, set(values)))
+        return self
+
+    def order(self, _column):
+        return self
+
     def limit(self, _count):
         return self
 
@@ -168,7 +212,10 @@ class _StubDbTable:
             return SimpleNamespace(data=[{}], error=None)
         filtered = self.rows
         for column, value in self.filters:
-            filtered = [row for row in filtered if row.get(column) == value]
+            if isinstance(value, set):
+                filtered = [row for row in filtered if row.get(column) in value]
+            else:
+                filtered = [row for row in filtered if row.get(column) == value]
         return SimpleNamespace(data=filtered, error=None)
 
 
@@ -999,6 +1046,94 @@ async def test_get_user_metadata_compacts_domain_available_scopes(monkeypatch):
         "attr.financial.*",
         "attr.financial.analysis.*",
     ]
+
+
+@pytest.mark.asyncio
+async def test_get_user_metadata_reuses_resolved_index(monkeypatch):
+    service = PersonalKnowledgeModelService()
+    resolve_mock = AsyncMock(side_effect=AssertionError("index must not be resolved twice"))
+    monkeypatch.setattr(service, "resolve_metadata_index", resolve_mock)
+
+    class _FakeScopeGenerator:
+        async def get_available_scope_entries(self, user_id: str):
+            assert user_id == "user-1"
+            return []
+
+    service._scope_generator = _FakeScopeGenerator()
+    resolved_index = PersonalKnowledgeModelIndex(
+        user_id="user-1",
+        available_domains=["professional"],
+        domain_summaries={"professional": {"item_count": 1}},
+        total_attributes=1,
+    )
+
+    metadata = await service.get_user_metadata(
+        "user-1",
+        resolved_index=resolved_index,
+    )
+
+    assert metadata.domains[0].domain_key == "professional"
+    resolve_mock.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_get_domain_manifests_batches_paths_and_scope_registry_reads():
+    service = PersonalKnowledgeModelService()
+    db = _StubDb()
+    db.tables["pkm_manifests"].rows = [
+        {
+            "user_id": "user-1",
+            "domain": "professional",
+            "manifest_version": 2,
+            "top_level_scope_paths": ["profile"],
+        },
+        {
+            "user_id": "user-1",
+            "domain": "financial",
+            "manifest_version": 3,
+            "top_level_scope_paths": ["portfolio"],
+        },
+    ]
+    db.tables["pkm_manifest_paths"].rows = [
+        {
+            "user_id": "user-1",
+            "domain": "professional",
+            "json_path": "profile.title",
+            "exposure_eligibility": True,
+        },
+        {
+            "user_id": "user-1",
+            "domain": "financial",
+            "json_path": "portfolio.risk",
+            "exposure_eligibility": True,
+        },
+    ]
+    db.tables["pkm_scope_registry"].rows = [
+        {
+            "user_id": "user-1",
+            "domain": "professional",
+            "scope_handle": "professional-profile",
+            "scope_label": "Profile",
+            "summary_projection": {"top_level_scope_path": "profile"},
+        },
+        {
+            "user_id": "user-1",
+            "domain": "financial",
+            "scope_handle": "financial-portfolio",
+            "scope_label": "Portfolio",
+            "summary_projection": {"top_level_scope_path": "portfolio"},
+        },
+    ]
+    service._db = db
+
+    manifests = await service.get_domain_manifests(
+        "user-1",
+        ["professional", "financial", "professional"],
+    )
+
+    assert sorted(manifests) == ["financial", "professional"]
+    assert manifests["professional"]["paths"][0]["json_path"] == "profile.title"
+    assert manifests["financial"]["scope_registry"][0]["scope_handle"] == "financial-portfolio"
 
 
 @pytest.mark.asyncio

@@ -623,27 +623,10 @@ function resolveTopShellBreadcrumbInner(
     };
   }
 
-  // The optional-capabilities checklist opened from the dashboard's "Finish
-  // setting up One" tile, reachable only once the one mandatory step is
-  // already done. It is reached from the dashboard, not the hub -- both the
-  // arrow and the "Setup" crumb return there, never to a hub the person
-  // didn't visit to get here. Checked before the generic case below so this
-  // more specific route wins.
-  if (pathname === ROUTES.ONE_SETUP_CAPABILITIES) {
-    return {
-      backHref: ROUTES.ONE_HOME,
-      width: "content",
-      align: "center",
-      hideBack: false,
-      items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Setup" }],
-    };
-  }
-
   // Per-capability setup step (`/one/setup/<capability>`, e.g. finance, gmail).
   // Default retrace is the hub, for a direct/legacy entry with no known
-  // origin. A handoff carrying `?from=` (e.g. the capabilities checklist
-  // above) retraces there instead, so the person doesn't lose their place in
-  // whatever list sent them here. Checked before the bare hub so the more
+  // origin. A handoff carrying `?from=` retraces there instead, so the person
+  // doesn't lose their place in whatever list sent them here. Checked before the bare hub so the more
   // specific nested route wins.
   if (
     pathname.startsWith(`${ROUTES.ONE_SETUP}/`) &&

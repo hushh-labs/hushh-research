@@ -32,6 +32,7 @@ from .gemini_config import (
     is_gemini_37_flash,
     is_gemini_38_flash,
     is_gemini_flash_v3,
+    thinking_config_for,
 )
 from .registry import (
     ModelEntry,
@@ -62,6 +63,7 @@ __all__ = [
     "is_gemini_38_flash",
     "is_gemini_flash_v3",
     "generation_config_kwargs",
+    "thinking_config_for",
     "normalize_provider",
     "resolve_model_entry",
     "supported_providers",

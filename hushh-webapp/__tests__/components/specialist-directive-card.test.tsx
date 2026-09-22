@@ -391,13 +391,16 @@ describe("SpecialistPendingConsentRequestCard", () => {
     expect(deny).toHaveTextContent("Sure?");
   });
 
-  it("renders resolved requests without approve or deny actions", () => {
+  it.each([
+    ["approved", "Approved"], ["denied", "Denied"], ["cancelled", "Withdrawn"],
+    ["expired", "Expired"], ["revoked", "Revoked"], ["unavailable", "Status unavailable"],
+  ] as const)("renders %s requests without approve or deny actions", (status, label) => {
     const item = {
       id: "req_approved",
       requesterLabel: "Chase",
       scope: "attr.profile.city",
       scopeDescription: "City",
-      status: "approved",
+      status,
     } as const;
 
     render(
@@ -409,9 +412,32 @@ describe("SpecialistPendingConsentRequestCard", () => {
       />,
     );
 
-    expect(screen.getByText("Approved")).toBeTruthy();
+    expect(screen.getByText(label)).toBeTruthy();
     expect(screen.queryByTestId("specialist-pending-consent-approve")).toBeNull();
     expect(screen.queryByTestId("specialist-pending-consent-deny")).toBeNull();
     expect(screen.getByTestId("specialist-pending-consent-details")).toBeTruthy();
+  });
+
+  it("fails closed for an unknown status", () => {
+    render(<SpecialistPendingConsentRequestCard
+      item={{id: "request", requesterLabel: "Alex", scope: "attr.profile.city",
+        status: "unexpected" as never}}
+      onApprove={vi.fn()} onDeny={vi.fn()} onDetails={vi.fn()} />);
+    expect(screen.getByText("Status unavailable")).toBeTruthy();
+    expect(screen.queryByTestId("specialist-pending-consent-approve")).toBeNull();
+    expect(screen.queryByTestId("specialist-pending-consent-deny")).toBeNull();
+  });
+
+  it("disarms Deny when status becomes terminal", () => {
+    const item = {id: "request", requesterLabel: "Alex", scope: "attr.profile.city"};
+    const actions = {onApprove: vi.fn(), onDeny: vi.fn(), onDetails: vi.fn()};
+    const {rerender} = render(<SpecialistPendingConsentRequestCard item={item} {...actions} />);
+    fireEvent.click(screen.getByTestId("specialist-pending-consent-deny"));
+    expect(screen.getByTestId("specialist-pending-consent-deny")).toHaveTextContent("Sure?");
+    rerender(<SpecialistPendingConsentRequestCard item={{...item, status: "expired"}} {...actions} />);
+    expect(screen.queryByTestId("specialist-pending-consent-deny")).toBeNull();
+    rerender(<SpecialistPendingConsentRequestCard item={item} {...actions} />);
+    expect(screen.getByTestId("specialist-pending-consent-deny")).toHaveTextContent("Deny");
+    expect(actions.onDeny).not.toHaveBeenCalled();
   });
 });

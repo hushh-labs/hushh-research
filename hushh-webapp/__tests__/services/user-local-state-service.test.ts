@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   clearKaiNavTour: vi.fn(),
   clearRiaOnboardingDraft: vi.fn(),
   clearVaultMethodPrompt: vi.fn(),
+  clearQuickUnlockTrust: vi.fn(),
   forgetLocationMemory: vi.fn(),
 }));
 
@@ -42,6 +43,10 @@ vi.mock("@/lib/services/vault-method-prompt-local-service", () => ({
   VaultMethodPromptLocalService: { clear: mocks.clearVaultMethodPrompt },
 }));
 
+vi.mock("@/lib/services/vault-quick-unlock-trust-local-service", () => ({
+  VaultQuickUnlockTrustLocalService: { clear: mocks.clearQuickUnlockTrust },
+}));
+
 vi.mock("@capacitor/core", () => ({
   Capacitor: { isNativePlatform: () => false },
   registerPlugin: vi.fn(() => ({})),
@@ -60,6 +65,7 @@ describe("UserLocalStateService", () => {
     mocks.clearKaiNavTour.mockResolvedValue(undefined);
     mocks.clearRiaOnboardingDraft.mockResolvedValue(undefined);
     mocks.clearVaultMethodPrompt.mockResolvedValue(undefined);
+    mocks.clearQuickUnlockTrust.mockResolvedValue(undefined);
   });
 
   it("clears all user-scoped local state, including RIA onboarding drafts", async () => {
@@ -71,6 +77,7 @@ describe("UserLocalStateService", () => {
     expect(mocks.clearKaiNavTour).toHaveBeenCalledWith("uid-1");
     expect(mocks.clearRiaOnboardingDraft).toHaveBeenCalledWith("uid-1");
     expect(mocks.clearVaultMethodPrompt).toHaveBeenCalledWith("uid-1");
+    expect(mocks.clearQuickUnlockTrust).toHaveBeenCalledWith("uid-1");
   });
 
   it("forgets the remembered location grant and the sealed last-known fix", async () => {

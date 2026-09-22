@@ -1,11 +1,10 @@
 #!/usr/bin/env node
 /**
- * Large pasted recap → Memory review, on localhost. Pastes a synthetic multi-section
- * recap (fixture, fictional data) into Agent chat, takes the "Review for Memory"
- * lane, and asserts the review is grouped by destination with per-item keep/skip,
- * that the secret-looking lines were excluded with a pointer to the secure form,
- * and that nothing is written: the review is skipped, never saved, so the shared
- * reviewer vault is left untouched.
+ * Large pasted recap → background Memory capture, on localhost. Pastes a synthetic multi-section
+ * recap (fixture, fictional data) into Agent chat, verifies that capture stays
+ * off the answer's critical path, exposes a quiet settled status with a View
+ * Memory action, and never renders a retired inline review panel or plaintext
+ * secret material in chat.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -69,57 +68,45 @@ try {
       target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
     }, recap);
     await composer.fill(recap);
-    await page.getByTestId("agent-chat-paste-purpose").waitFor({ state: "visible", timeout: 30_000 });
+    // The composer now represents a large paste as a browser-memory text
+    // attachment. The former paste-purpose test id belonged to the retired
+    // inline lane and made this rehearsal fail before it exercised Memory.
+    await page.getByTestId("agent-chat-text-attachment").waitFor({ state: "visible", timeout: 30_000 });
     return `chars=${recap.length}`;
   });
 
-  await step("Review for Memory organizes the recap into grouped, selectable items", async () => {
-    await page.getByRole("button", { name: "Send message" }).click();
-    await page.getByTestId("agent-pkm-review-list").waitFor({ state: "visible", timeout: importTimeoutMs });
-    const groups = await page.getByTestId("agent-pkm-review-group").count();
-    const cards = await page.getByTestId("agent-pkm-review-card").count();
-    const boxes = await page.locator('[data-testid="agent-pkm-review-list"] input[type="checkbox"]').count();
-    if (groups < 2) throw new Error(`expected several destination groups, got ${groups}`);
-    if (boxes !== cards) throw new Error(`every item must be selectable: ${boxes} boxes for ${cards} items`);
-    return `groups=${groups} items=${cards}`;
-  });
-
-  await step("secret-looking lines were excluded and the secure form is pointed to", async () => {
-    // The import's assistant turn streams activity first; wait for the settled
-    // summary sentence before reading it.
-    await page.waitForFunction(
-      () => {
-        const turns = [...document.querySelectorAll('[data-message-role="assistant"]')];
-        return turns.some((turn) => (turn.textContent || "").includes("Keep or skip each item"));
-      },
-      undefined,
-      { timeout: 120_000 },
+  await step("the answer starts before background Memory capture settles", async () => {
+    const turnRequest = page.waitForRequest(
+      (request) => request.method() === "POST" && new URL(request.url()).pathname === "/api/one/agent-chat",
+      { timeout: importTimeoutMs },
     );
-    const text = await page.evaluate(() => {
-      const turns = [...document.querySelectorAll('[data-message-role="assistant"]')];
-      return turns.map((turn) => turn.textContent || "").find((value) => value.includes("Keep or skip each item")) || "";
-    });
-    if (!/excluded/i.test(text) || !/Wallet form/i.test(text)) throw new Error(`summary lacks the exclusion note: ${text.slice(0, 240)}`);
-    const list = await page.getByTestId("agent-pkm-review-list").innerText();
-    if (/4111 1111 1111 1111|hunter2|X12345678/.test(list)) throw new Error("a secret reached the review list");
+    await page.getByRole("button", { name: "Send message" }).click();
+    await turnRequest;
+    const reviewPanelCount = await page.getByTestId("agent-pkm-review-list").count();
+    if (reviewPanelCount !== 0) throw new Error("retired inline review panel rendered");
+    return "assistant turn mounted without waiting for review UI";
   });
 
-  await step("skip a group and one item, then discard the review without writing", async () => {
-    const groupToggle = page.getByRole("button", { name: /Skip group/ }).first();
-    if (await groupToggle.isVisible().catch(() => false)) await groupToggle.click();
-    const box = page.locator('[data-testid="agent-pkm-review-list"] input[type="checkbox"]:checked').first();
-    if (await box.isVisible().catch(() => false)) await box.click();
-    const save = page.getByTestId("agent-pkm-review-save");
-    const label = await save.innerText();
-    if (!/Save \d+ of \d+/.test(label)) throw new Error(`expected a partial save label, got: ${label}`);
-    const storeCalls = [];
-    page.on("request", (request) => {
-      if (request.url().includes("/api/pkm/store-domain")) storeCalls.push(request.url());
-    });
-    await page.getByRole("button", { name: "Skip", exact: true }).click();
-    await page.getByTestId("agent-pkm-review-list").waitFor({ state: "detached", timeout: 30_000 });
-    if (storeCalls.length) throw new Error("a store-domain write happened on Skip");
-    return label;
+  await step("Memory capture exposes only a quiet status and safe review action", async () => {
+    const status = page.getByTestId("memory-capture-status");
+    await status.waitFor({ state: "visible", timeout: importTimeoutMs });
+    await status.getByText("View Memory", { exact: true }).waitFor({ state: "visible", timeout: importTimeoutMs });
+    if (await status.getByText("View Memory", { exact: true }).count() !== 1) {
+      throw new Error("Memory status did not expose exactly one View Memory action");
+    }
+    const transcript = await page.locator('[data-message-role="assistant"]').allTextContents();
+    const rendered = transcript.join(" ");
+    if (/4111 1111 1111 1111|hunter2|X12345678/.test(rendered)) {
+      throw new Error("a secret-looking fixture reached rendered chat text");
+    }
+    return "status-only capture receipt";
+  });
+
+  await step("no retired review controls or plaintext values are exposed by the status lane", async () => {
+    if (await page.getByTestId("agent-pkm-review-save").count() !== 0) {
+      throw new Error("retired review save control rendered");
+    }
+    return "no inline mutation controls or raw secret material";
   });
   session.capture.assertNoCriticalApiFailures("memory import review");
 } catch (error) {

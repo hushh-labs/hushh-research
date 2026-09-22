@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   user: null as { uid: string; getIdToken: () => Promise<string> } | null,
   unreadCount: vi.fn(),
   liveRefresh: null as (() => void) | null,
+  pathname: "/one",
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
@@ -21,6 +22,10 @@ vi.mock("@/lib/feed/use-feed-live-refresh", () => ({
   },
 }));
 
+vi.mock("next/navigation", () => ({
+  usePathname: () => mocks.pathname,
+}));
+
 import { useFeedUnreadCount } from "@/lib/feed/use-feed-unread-count";
 
 describe("useFeedUnreadCount account isolation", () => {
@@ -28,6 +33,7 @@ describe("useFeedUnreadCount account isolation", () => {
     mocks.user = null;
     mocks.unreadCount.mockReset();
     mocks.liveRefresh = null;
+    mocks.pathname = "/one";
   });
 
   it("never shows a late count from the previous signed-in account", async () => {
@@ -130,5 +136,26 @@ describe("useFeedUnreadCount account isolation", () => {
     expect(mocks.unreadCount).toHaveBeenCalledTimes(2);
     await act(async () => pending[1](2));
     await waitFor(() => expect(result.current).toBe(2));
+  });
+
+  it("defers the root Chat badge read until the first idle window", async () => {
+    mocks.pathname = "/";
+    mocks.user = { uid: "user-a", getIdToken: async () => "token-a" };
+    vi.useFakeTimers();
+
+    try {
+      const { result } = renderHook(() => useFeedUnreadCount());
+      expect(result.current).toBeNull();
+      expect(mocks.unreadCount).not.toHaveBeenCalled();
+
+      await act(async () => {
+        vi.advanceTimersByTime(2_000);
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(mocks.unreadCount).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
