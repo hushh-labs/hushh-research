@@ -160,6 +160,13 @@ does not prove approval, exact encrypted readback, restored cards or cold recove
 
 ### Exact consent readback
 
+For named multi-account journeys, verify that the resolved primary/counterpart
+identities match the task's authorized accounts before opening Chromium. A
+successful review-mode preflight proves configuration availability, not that the
+default primary is the intended person. Use the existing child-process slot
+overrides and `REVIEWER_AUTH_MODE=custom_token` when local email/password fixtures
+belong to a different identity; never suppress the UID mismatch guard.
+
 `verify-reviewer-consent-readback.mjs` composes the same reviewer harness. It
 requires `REVIEWER_COUNTERPART_PERSON_REF`, `REVIEWER_EXPECTED_BUNDLE_ID`,
 `REVIEWER_EXPECTED_REQUEST_ID`, `REVIEWER_CONSENT_SCOPE_REF`, and
@@ -169,4 +176,10 @@ historical grant or treats substring matching as exact readback. The ordinary
 JSON view is compared entirely inside the browser, then returned to formatted
 view; exact object equality rejects extra siblings. The same binding is checked
 after cold re-unlock. No decrypted values or unrelated grant labels are logged.
+`REVIEWER_EXPECTED_PAYLOAD_JSON` must describe the rendered domain projection:
+Profile unwraps the selected domain before passing it to its JSON view. Do not
+include the enclosing domain key or the export envelope's dynamic timestamp in
+that expectation. This check does not independently prove the entire encrypted
+envelope's authority or absence of information outside the displayed projection;
+those remain separate export-integrity and scope-isolation requirements.
 This proves the specified retained grant, not fresh submission or Chat restoration.
