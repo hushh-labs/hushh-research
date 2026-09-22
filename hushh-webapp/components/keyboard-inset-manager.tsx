@@ -40,7 +40,15 @@ function isMobileWebEnv(): boolean {
   return coarsePointer && hasTouch && narrow;
 }
 
-function setKeyboardHeight(px: number): void {
+/**
+ * `px` is the inset (the part of the keyboard still covering the page);
+ * `open` is whether a keyboard is up at all. They differ on Android, where
+ * the viewport absorbs the keyboard: the inset is ~0 while the keyboard is
+ * very much open, and everything keyed on `kb-open` (the fixed launcher
+ * stepping aside, focused fields scrolling into view) still has to run.
+ * `resizes` marks that platform (`html.kb-resizes`) for rules that differ.
+ */
+function setKeyboardHeight(px: number, open: boolean = px > 0, resizes = false): void {
   const root = document.documentElement;
   // Render-performance attribution only (the probe sets this for one launch
   // of a lane run; never in a normal session): leave the inset alone so the
@@ -48,8 +56,12 @@ function setKeyboardHeight(px: number): void {
   if (root.dataset.perfExperiment?.split(",").includes("kb-inset-off")) return;
   const clamped = px > 0 ? Math.round(px) : 0;
   root.style.setProperty("--kb-height", `${clamped}px`);
-  root.classList.toggle("kb-open", clamped > 0);
+  root.classList.toggle("kb-open", open);
+  root.classList.toggle("kb-resizes", open && resizes);
 }
+
+// A viewport that shrank by more than this for the keyboard absorbed it.
+const KB_ABSORBED_MIN_PX = 120;
 
 function isEditableElement(element: HTMLElement | null): element is HTMLElement {
   if (!element) return false;
@@ -134,7 +146,7 @@ export function KeyboardInsetManager() {
           return;
         }
         const absorbed = Math.max(0, baselineInnerHeight - window.innerHeight);
-        setKeyboardHeight(Math.max(0, keyboardPx - absorbed));
+        setKeyboardHeight(Math.max(0, keyboardPx - absorbed), true, absorbed >= KB_ABSORBED_MIN_PX);
       };
       const onWindowResize = () => {
         // With no keyboard up, a taller viewport is the new baseline (an

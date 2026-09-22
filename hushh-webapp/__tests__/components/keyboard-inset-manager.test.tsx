@@ -39,7 +39,7 @@ describe("KeyboardInsetManager on native", () => {
   beforeEach(() => {
     handlers.clear();
     document.documentElement.style.removeProperty("--kb-height");
-    document.documentElement.classList.remove("kb-open");
+    document.documentElement.classList.remove("kb-open", "kb-resizes");
   });
 
   afterEach(() => {
@@ -52,6 +52,7 @@ describe("KeyboardInsetManager on native", () => {
     act(() => handlers.get("keyboardWillShow")?.({ keyboardHeight: 336 }));
     expect(inset()).toBe("336px");
     expect(document.documentElement.classList.contains("kb-open")).toBe(true);
+    expect(document.documentElement.classList.contains("kb-resizes")).toBe(false);
   });
 
   it("does not subtract the keyboard twice when the WebView already shrank for it (Android)", async () => {
@@ -65,7 +66,10 @@ describe("KeyboardInsetManager on native", () => {
     });
     act(() => handlers.get("keyboardDidShow")?.({ keyboardHeight: 384 }));
     expect(inset()).toBe("0px");
-    expect(document.documentElement.classList.contains("kb-open")).toBe(false);
+    // The keyboard is still open: the launcher steps aside and focused fields
+    // scroll into view on kb-open, and kb-resizes names this platform.
+    expect(document.documentElement.classList.contains("kb-open")).toBe(true);
+    expect(document.documentElement.classList.contains("kb-resizes")).toBe(true);
   });
 
   it("corrects the inset when the resize lands after the keyboard event", async () => {
@@ -95,5 +99,6 @@ describe("KeyboardInsetManager on native", () => {
     act(() => handlers.get("keyboardWillHide")?.({}));
     expect(inset()).toBe("0px");
     expect(document.documentElement.classList.contains("kb-open")).toBe(false);
+    expect(document.documentElement.classList.contains("kb-resizes")).toBe(false);
   });
 });

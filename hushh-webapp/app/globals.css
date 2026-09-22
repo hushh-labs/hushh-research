@@ -2417,6 +2417,42 @@ html.kb-open:not(.native-keyboard-inset) .ambient-chrome-mask--bottom {
     visibility 0s linear 150ms;
 }
 
+/* The search palette sits above the bottom chrome so the tab bar stays
+ * reachable. With a keyboard up the tab bar is not on screen (the keyboard
+ * covers it on iOS, it steps aside on Android), yet its height was still
+ * reserved: the palette floated ~160 dp above the keyboard and its top ran
+ * under the status bar (Galaxy S24 Ultra, 2026-09-22). */
+html.kb-open [data-keyboard-anchor="bottom"][data-search-surface] {
+  --palette-chrome-clearance: 0px;
+}
+
+/* Android shrinks the viewport for the keyboard (html.kb-resizes), so the
+ * bottom stack rode up above it: composer, then the tab bar, then the
+ * keyboard, leaving the conversation about 40% of the screen (Galaxy S24
+ * Ultra, 2026-09-22). iOS keeps its frame and the keyboard covers the tab
+ * bar; here the tab bar steps aside for the same result, and the root
+ * composer gives back the room it reserved for the bar. */
+html.kb-open.kb-resizes [data-app-bottom-shell],
+html.kb-open.kb-resizes .ambient-chrome-mask--bottom {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+html.kb-open.kb-resizes
+  .agent-chat-workspace[data-agent-chat-route="root"]
+  [data-agent-chat-composer-form="root"],
+html.kb-open.kb-resizes
+  .agent-chat-workspace[data-agent-chat-route="root"]
+  [data-agent-chat-composer-form="root"]:focus-within {
+  padding-bottom: 0.5rem;
+  /* With the tab bar and its fade out of the way nothing backed the
+   * composer, and the conversation showed in the strip under it and past its
+   * rounded corners. The band fades in over its top edge, so the transcript
+   * ends above the composer instead of against a hard line. */
+  background: linear-gradient(to bottom, transparent 0, var(--background) 0.75rem);
+}
+
 .app-page-shell {
   width: 100%;
   padding-left: var(--page-inline-gutter-standard);
