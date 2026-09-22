@@ -5,10 +5,12 @@
       "components/one-location/map-name-labels.tsx": 1
     },
     "interval-state-tick": {
+      "app/one/location/page.tsx": 1,
       "components/location/links/location-links.tsx": 1,
       "components/location/location-home.tsx": 1,
       "components/location/map/location-map-screen.tsx": 1,
       "components/one-location/redesign/check-in-flow.tsx": 1,
+      "components/one-location/redesign/location-redesign-hub.tsx": 2,
       "components/one-voice/pending-action-card.tsx": 1
     },
     "root-custom-property-write": {
