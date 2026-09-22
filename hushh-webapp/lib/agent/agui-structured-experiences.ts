@@ -224,6 +224,10 @@ function parseInformationRequestReview(content: unknown): InformationRequestRevi
   const phaseValue = boundedString(record.phase, 16);
   const subjectRef = boundedString(record.subjectRef, 128);
   const safeSubjectRef = subjectRef && /^[A-Za-z0-9_-]{16,128}$/.test(subjectRef) ? subjectRef : null;
+  const safeDirection = directionValue === "incoming" || directionValue === "outgoing"
+    ? directionValue
+    : "unknown";
+  const hasBoundIdentity = Boolean(safeSubjectRef);
   const bundleId = boundedString(record.bundleId, 128);
   const requestId = boundedString(record.requestId, 128);
   const fields = parseReviewFields(record.fields).map((field, index) => {
@@ -238,8 +242,13 @@ function parseInformationRequestReview(content: unknown): InformationRequestRevi
     personName,
     purpose,
     durationLabel,
-    direction: directionValue === "incoming" || directionValue === "outgoing" ? directionValue : "unknown",
-    phase: phaseValue === "draft" || phaseValue === "submitted" ? phaseValue : "historical",
+    // A descriptor without a bound subject is a legacy preview only. It must
+    // not imply who is involved or trigger a current authority lookup that
+    // could attach another person's status.
+    direction: hasBoundIdentity ? safeDirection : "unknown",
+    phase: hasBoundIdentity && (phaseValue === "draft" || phaseValue === "submitted")
+      ? phaseValue
+      : "historical",
     subjectRef: safeSubjectRef,
     bundleId: bundleId && /^[A-Za-z0-9_-]{8,128}$/.test(bundleId) ? bundleId : null,
     requestId: requestId && /^[A-Za-z0-9_-]{8,128}$/.test(requestId) ? requestId : null,

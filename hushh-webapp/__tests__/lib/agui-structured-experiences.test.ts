@@ -139,6 +139,7 @@ describe("AG-UI structured experience registry", () => {
     const result = parseAgentActivityExperience("one.information_request_review.v1", {
       direction: "outgoing",
       phase: "submitted",
+      subjectRef: "person_1234567890123456",
       personName: "Alex Morgan",
       purpose: "Complete payroll onboarding",
       durationLabel: "30 days",
@@ -152,6 +153,25 @@ describe("AG-UI structured experience registry", () => {
       { label: "Work authorization", domain: "Identity", sensitivity: "standard", requestId: "request_12345678", status: "granted" },
       { label: "Tax identifier", domain: "Identity", sensitivity: "standard", status: "pending" },
     ]);
+  });
+  it("downgrades an unbound submitted descriptor to a neutral historical preview", () => {
+    const result = parseAgentActivityExperience("one.information_request_review.v1", {
+      direction: "outgoing",
+      phase: "submitted",
+      bundleId: "bundle_12345678",
+      personName: "Alex Morgan",
+      purpose: "Complete payroll onboarding",
+      durationLabel: "30 days",
+      status: "pending",
+      fields: [{ label: "Work authorization", domain: "Identity", sensitivity: "high" }],
+    });
+    expect(result).toMatchObject({
+      direction: "unknown",
+      phase: "historical",
+      subjectRef: null,
+      bundleId: "bundle_12345678",
+      status: "pending",
+    });
   });
   it("accepts the versioned scope activity and normalizes its bounded fields", () => {
     expect(

@@ -168,6 +168,27 @@ describe("current-authority inline Chat catalog", () => {
     expect(screen.queryByText("Access granted")).not.toBeInTheDocument();
   });
 
+  it("does not refresh current status for an unbound historical card", async () => {
+    const historical: InformationRequestReviewExperience = {
+      type: "one.information_request_review.v1",
+      personName: "Legacy Recipient",
+      purpose: "Historical request preview.",
+      durationLabel: "2 days",
+      direction: "unknown",
+      phase: "historical",
+      subjectRef: null,
+      bundleId: "bundle_12345678",
+      requestId: null,
+      status: "pending",
+      fields: [{ label: "Professional role", domain: "Professional", sensitivity: "standard" }],
+    };
+
+    render(<AgentStructuredExperienceView experience={historical} />);
+
+    expect(await screen.findByText("Historical preview · current status was not checked")).toBeInTheDocument();
+    expect(mocks.getInformationRequest).not.toHaveBeenCalled();
+  });
+
   it("discards a late catalog after lock instead of displaying private-session state", async () => {
     let resolve!: (value: ViewerPersonProfile) => void;
     mocks.getViewer.mockReturnValue(new Promise<ViewerPersonProfile>(done => { resolve = done; }));
