@@ -1,7 +1,7 @@
 """
 HTTP proof tests for PKM route path-parameter bounds (CWE-400).
 
-Canonical attach points (via pkm_routes_shared.router, prefix /api/pkm):
+Attach points under the /api/pkm prefix:
   GET  /api/pkm/data/{user_id}
   GET  /api/pkm/domain-data/{user_id}/{domain}
   GET  /api/pkm/manifest/{user_id}/{domain}
@@ -14,8 +14,11 @@ Each route now enforces:
   _Domain:       max_length=128
   _AttributeKey: max_length=256
 
-Tests mount pkm_routes_shared.router directly (where the Path bounds live)
-and override require_vault_owner_token to avoid DB or Firebase calls.
+Tests go through the real `server.app`, not a hand-built app mounting one
+router. `pkm.router` and `pkm_routes_shared.router` share the /api/pkm prefix
+and FastAPI serves first-registered-wins, so mounting the shared router alone
+exercises handlers no request reaches. Only the auth dependencies are stubbed,
+to avoid DB or Firebase calls.
 Valid-path cases use the same user_id as the token so the identity check
 inside each handler passes. Oversized-path cases must return 422 from
 FastAPI path validation before auth or service code runs.
@@ -27,11 +30,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
 import pytest
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 import api.routes.pkm_routes_shared as pkm_shared
+import server
 from api.middleware import require_vault_owner_token
+from api.routes.pkm import require_pkm_metadata_access
 
 _USER_ID = "test-user-id"
 _TOKEN_DATA = {"user_id": _USER_ID, "token": "stub-tok", "scope": "vault.owner"}
@@ -42,11 +46,14 @@ _OVERLONG_DOMAIN = "d" * 129
 
 @pytest.fixture(scope="module")
 def client() -> TestClient:
-    """Minimal app mounting pkm_routes_shared.router with stubbed vault auth."""
-    app = FastAPI()
-    app.include_router(pkm_shared.router)
-    app.dependency_overrides[require_vault_owner_token] = lambda: _TOKEN_DATA
-    return TestClient(app, raise_server_exceptions=False)
+    """The real app, with only the auth dependencies stubbed."""
+    server.app.dependency_overrides[require_vault_owner_token] = lambda: _TOKEN_DATA
+    server.app.dependency_overrides[require_pkm_metadata_access] = lambda: _TOKEN_DATA
+    try:
+        yield TestClient(server.app, raise_server_exceptions=False)
+    finally:
+        server.app.dependency_overrides.pop(require_vault_owner_token, None)
+        server.app.dependency_overrides.pop(require_pkm_metadata_access, None)
 
 
 # ---------------------------------------------------------------------------
