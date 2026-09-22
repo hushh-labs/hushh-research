@@ -373,29 +373,21 @@ export async function prepareNaturalLanguagePkm(params: {
       if (queue.length > MAX_PROPOSAL_CHUNKS) {
         throw new Error("This import is too large to prepare safely. Please split it into smaller sections.");
       }
-      if (preparationTimedOut || preparationController.signal.aborted) {
-        for (const pending of queue) unresolved(pending, "preparation_timeout");
-        queue = [];
-        break;
-      }
+      // Drain completed work even after the deadline. requestChunkPreview
+      // returns retained results first and never starts fresh work when aborted.
       const wave = queue.slice(0, MAX_CONCURRENT_PROPOSALS);
       const results = await Promise.all(
         wave.map((sourceChunk, offset) => requestChunkPreview(sourceChunk, offset)),
       );
       const replacement: PkmSourceChunk[] = [];
       let splitEncountered = false;
-      let timeoutEncountered = false;
 
       for (let offset = 0; offset < results.length; offset += 1) {
         const result = results[offset]!;
         const { sourceChunk, chunk, index } = result;
         if (result.timedOut) {
           unresolved(sourceChunk, "preparation_timeout");
-          timeoutEncountered = true;
-          for (const pending of queue.slice(offset + 1)) {
-            unresolved(pending, "preparation_timeout");
-          }
-          break;
+          continue;
         }
         if (splitEncountered) {
           readyResults.set(sourceChunk, result);
@@ -433,6 +425,10 @@ export async function prepareNaturalLanguagePkm(params: {
           chunk.length > 96
         );
         if (params.memoryProfile !== "kyc_identity_v1" && incomplete) {
+          if (preparationTimedOut || preparationController.signal.aborted) {
+            unresolved(sourceChunk, "preparation_timeout");
+            continue;
+          }
           const retryChunks = splitPkmSourceChunk(message, sourceChunk);
           const deferredWaveItems = results.length - offset - 1;
           if (!retryChunks || queue.length - wave.length + replacement.length + retryChunks.length + deferredWaveItems > MAX_PROPOSAL_CHUNKS) {
@@ -500,13 +496,6 @@ export async function prepareNaturalLanguagePkm(params: {
           chunkCount: queue.length,
           cardCount: cards.length,
         });
-      }
-      if (timeoutEncountered || preparationTimedOut) {
-        for (const pending of queue.slice(wave.length)) {
-          unresolved(pending, "preparation_timeout");
-        }
-        queue = [];
-        break;
       }
       queue.splice(0, wave.length, ...replacement);
     }

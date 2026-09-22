@@ -432,6 +432,59 @@ describe("ingestNaturalLanguagePkm", () => {
     expect(prepared.sourceCoverage.every((block) => block.preparationIssue === "preparation_timeout")).toBe(true);
     expect(mocks.preview).toHaveBeenCalledTimes(2);
   });
+
+  it("retains a split-deferred sibling after the deadline without dispatching trailing work", async () => {
+    mocks.preview
+      .mockResolvedValueOnce({ cards: [], preview_summary: { split_recommended: true } })
+      .mockImplementationOnce(async ({ message }: { message: string }) => ({
+        cards: [{ card_id: "completed", source_text: message, write_mode: "can_save" }],
+        preview_summary: { total_segments_detected: 1 }, used_fallback: false,
+      }))
+      .mockImplementation(({ signal }: { signal: AbortSignal }) => new Promise((_, reject) => {
+        signal.addEventListener("abort", () => reject(new DOMException("Timed out", "TimeoutError")), { once: true });
+      }));
+    const prepared = await prepareNaturalLanguagePkm({
+      userId: "owner", message: Array.from({ length: 13 }, (_, index) =>
+        `${index + 1}. Section ${index + 1}\nA durable synthetic detail.`).join("\n\n"),
+      currentDomains: [], vaultOwnerToken: "token", source: "test",
+      allowEmpty: true, preparationBudgetMs: 50,
+    });
+    expect(mocks.preview).toHaveBeenCalledTimes(4);
+    expect(prepared.cards).toHaveLength(1);
+    expect(prepared.cards[0].preparation_requires_review).toBe(true);
+    expect(prepared.sourceCoverage.map(block => block.disposition)).toEqual([
+      "review_required", "review_required", "proposed", "review_required",
+    ]);
+    const starts = prepared.sourceCoverage.map(block => block.sourceRange!.start);
+    expect(starts).toEqual([...starts].sort((a, b) => a - b));
+    expect(new Set(starts).size).toBe(starts.length);
+    expect(prepared.sourceCoverage.filter(block => block.preparationIssue === "preparation_timeout")).toHaveLength(3);
+  });
+
+  it("retains a completed sibling when the earlier chunk reaches the deadline", async () => {
+    mocks.preview
+      .mockImplementationOnce(({ signal }: { signal: AbortSignal }) => new Promise((_, reject) => {
+        signal.addEventListener("abort", () => reject(new DOMException("Timed out", "TimeoutError")), { once: true });
+      }))
+      .mockImplementationOnce(async ({ message }: { message: string }) => ({
+        cards: [{ card_id: "completed", source_text: message, write_mode: "can_save" }],
+        preview_summary: { total_segments_detected: 1 }, used_fallback: false,
+      }));
+    const prepared = await prepareNaturalLanguagePkm({
+      userId: "owner", message: Array.from({ length: 7 }, (_, index) =>
+        `${index + 1}. Section ${index + 1}\nA durable synthetic detail.`).join("\n\n"),
+      currentDomains: [], vaultOwnerToken: "token", source: "test",
+      allowEmpty: true, preparationBudgetMs: 50,
+    });
+    expect(mocks.preview).toHaveBeenCalledTimes(2);
+    expect(prepared.cards).toHaveLength(1);
+    expect(prepared.cards[0]).toMatchObject({ write_mode: "can_save", preparation_requires_review: true });
+    expect(prepared.sourceCoverage.filter(block => block.disposition === "proposed")).toHaveLength(1);
+    expect(prepared.sourceCoverage.filter(block => block.preparationIssue === "preparation_timeout")).toHaveLength(1);
+    expect(new Set(prepared.sourceCoverage.map(block => JSON.stringify(block.sourceRange))).size)
+      .toBe(prepared.sourceCoverage.length);
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
 });
 
 describe("prepareNaturalLanguagePkm large-paste behavior", () => {
