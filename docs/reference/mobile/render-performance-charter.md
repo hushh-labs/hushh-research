@@ -40,7 +40,19 @@ The web engine inside the iOS shell runs at 60 Hz today
 (`CADisableMinimumFrameDurationOnPhone` is absent and WebKit's 120 Hz support
 varies by model), so the working budget is 16.7 ms. The probe measures the
 real rate at boot and derives the budget from it; 120 Hz is an experiment
-with a measured result, not an assumption.
+with a measured result, not an assumption. The boot reading is the **median**
+frame interval over the first second, snapped to 30 / 60 / 80 / 90 / 120 Hz:
+boot is when frames drop, and an average over it read a 120 Hz Android panel
+as 102 Hz and judged it against a 90 Hz budget. The export keeps the mean as
+`raf_hz.mean` for comparison, and a summary takes the rate most launches
+agreed on.
+
+**Before believing a card, read its window kinds.** A flick, swipe, pan, tab
+switch or pane opens `scroll`, `pager` or route windows. When every window
+of such a gesture is a plain `tap`, the finger landed on a screen that does
+not move (on 2026-09-22 a whole Android card measured the vault gate this
+way and read 8 ms at 120 Hz); the summary marks the gesture "not measured"
+and the card certifies nothing (mobile bug log B52).
 
 ## What costs frames here (and what does not)
 

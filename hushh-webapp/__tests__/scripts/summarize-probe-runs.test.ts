@@ -63,6 +63,40 @@ function summarize(gestureName: string, kinds: string[]) {
   };
 }
 
+describe("summarize-probe-runs: the frame budget", () => {
+  beforeEach(() => {
+    fixture = mkdtempSync(join(tmpdir(), "hushh-perf-summary-"));
+  });
+
+  afterEach(() => {
+    rmSync(fixture, { recursive: true, force: true });
+  });
+
+  it("takes the rate most launches agreed on, not the first file listed", () => {
+    const launch = (name: string, nominal: number) =>
+      writeFileSync(
+        join(fixture, name),
+        JSON.stringify({
+          run_id: name,
+          started_at_epoch_ms: 1,
+          raf_hz: { raw: nominal, nominal, budget_ms: Math.round(10_000 / nominal) / 10 },
+          windows: [],
+          idle_by_route: [],
+        }),
+      );
+    // "a" lists first and is the outlier a busy boot produced.
+    launch("a.json", 90);
+    launch("b.json", 120);
+    launch("c.json", 120);
+    const out = join(fixture, "summary.json");
+    const result = spawnSync(process.execPath, [script, "--runs", fixture, "--json", out, "--md", join(fixture, "s.md")], {
+      encoding: "utf8",
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(readFileSync(out, "utf8")).device.raf_hz.nominal).toBe(120);
+  });
+});
+
 describe("summarize-probe-runs: a gesture that moved nothing", () => {
   beforeEach(() => {
     fixture = mkdtempSync(join(tmpdir(), "hushh-perf-summary-"));

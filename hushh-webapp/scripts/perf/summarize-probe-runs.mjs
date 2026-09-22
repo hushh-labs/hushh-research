@@ -127,7 +127,17 @@ const nothingMoved = (name, ws) => MOVEMENT_GESTURE.test(name) && ws.length > 0 
 const rows = [...byGesture.entries()].map(([name, ws]) => ({ name, ...aggregate(ws), measured: !nothingMoved(name, ws) }));
 const unmeasured = rows.filter((r) => !r.measured).map((r) => r.name);
 const idleRows = idle.map((w) => ({ route: w.route, frames: w.frames, p95_ms: w.p95_ms, max_ms: w.max_ms, over_50_count: w.over_50_count }));
-const hz = runs[0]?.data.raf_hz ?? null;
+// Every launch estimates the rate at its own boot. The header takes the
+// rate most launches agreed on (the faster one on a tie, so the stricter
+// budget), not whichever file the directory happened to list first.
+const hz = (() => {
+  const rates = runs.map((r) => r.data.raf_hz).filter((h) => h && h.nominal);
+  if (!rates.length) return null;
+  const counts = new Map();
+  for (const h of rates) counts.set(h.nominal, (counts.get(h.nominal) ?? 0) + 1);
+  const [nominal] = [...counts.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0];
+  return rates.find((h) => h.nominal === nominal);
+})();
 // A run certifies only when all three hold: real hardware, a Release build,
 // and the test-mode bridge off. The XCUITest card always has the bridge on.
 const simulator = tier.includes("sim");
