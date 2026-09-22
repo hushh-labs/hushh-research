@@ -56,6 +56,10 @@ vi.mock("@/hooks/use-auth", () => ({
   }),
 }));
 
+vi.mock("@/components/consent/document-share-review", () => ({
+  DocumentShareReview: ({ requestId }: { requestId: string }) => <div data-testid="private-document-review">{requestId}</div>,
+}));
+
 // CapabilityExploreCard reads useAuth from the firebase context directly, not
 // via the @/hooks/use-auth re-export, so it needs its own stub here.
 vi.mock("@/lib/firebase/auth-context", () => ({
@@ -362,6 +366,26 @@ describe("ConsentCenterPage requestId deep links", () => {
       missing_request_ids: [],
     });
     installDesktopMediaQuery();
+  });
+
+  it("routes a cold document link only to its private review, never generic consent or voice decisions", async () => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    mocks.search = `tab=pending&requestId=document_share_request%3A${id}&notificationAction=approve`;
+    render(<ConsentCenterPage />);
+    expect(await screen.findByTestId("private-document-review")).toHaveTextContent(id);
+    expect(mocks.lookupPendingRequests).not.toHaveBeenCalled();
+    expect(mocks.handleApprove).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Allow" })).toBeNull();
+    const metadata = vi.mocked(usePublishVoiceSurfaceMetadata).mock.lastCall?.[0];
+    expect(JSON.stringify(metadata)).not.toContain("consent_approve");
+  });
+
+  it("does not send malformed document links through generic pending lookup", async () => {
+    mocks.search = "tab=pending&requestId=document_share_request%3Ainvalid";
+    render(<ConsentCenterPage />);
+    expect(await screen.findByText("Invalid document request")).toBeVisible();
+    expect(mocks.lookupPendingRequests).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("private-document-review")).toBeNull();
   });
 
   it("keeps Northstar's material decision terms once without duplicate controls", async () => {

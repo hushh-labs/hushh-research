@@ -85,7 +85,7 @@ parsing, embeddings and document access control remain outside Google AI service
   conversation, citations include bounded page numbers, and raw document tool results never
   enter durable history. Registered real-SDK dispatch tests use synthetic model boundaries;
   no authenticated Drive Q&A acceptance is claimed.
-- Sharing-domain checkpoint (not yet exposed through Consent Center): encrypted
+- Sharing-domain checkpoint: encrypted
   requests, source-bound reviews, atomic one-use confirmation claims and per-file pending
   operations in migrations 231/232. Requests reveal no private suggestions to the recipient.
   The separate fixed Google permission adapter permits only individual Viewer creation and
@@ -125,6 +125,15 @@ parsing, embeddings and document access control remain outside Google AI service
   without automatic expiry or retry. It requires Google-side management, not a new automatic
   grant. File-lock-key rotation must preserve these fences. No Google permission is removed
   by account cleanup itself, and this mechanism is not a legal retention-policy claim.
+- Consent Center web checkpoint: metadata-only document rows use exact paginated counts,
+  distinguish approval from recorded Google delivery, and remain manageable after disconnect.
+  Opaque namespaced links from Feed open the owner-protected exact-file review, not generic
+  PKM approval or voice execution. Explicit sharing/removal preserves partial coverage and
+  recorded outcomes. Vault generation checks run at dispatch and between every chained read;
+  a successful mutation followed by a failed refresh still reconciles the generic feed.
+  Private details stay in component memory. Missing pre-rollout tables preserve ordinary
+  consents without hiding real SQL failures. This does not implement B's request composer,
+  notification delivery, native recovery or authenticated Google acceptance.
 
 Latest integrated local evidence (2026-09-23): 543 focused backend tests passed, including
 real disposable PostgreSQL concurrency and synthetic Google/Firebase boundaries; 110 web
@@ -134,10 +143,12 @@ The subsequent route/suggestion/worker/account-cleanup checkpoint passed 282 foc
 including real PostgreSQL lease-expiry, queue-fairness and concurrent scan tests. Thirteen
 erasure tests exercise the actual migration-201 identity guard, late results, revocation after
 recipient erasure, migration-first writes and rollback. Canonical Mypy passed for
-156 source files. The prior CI head passed web, native Xcode and integration gates but failed
-two obsolete specialist/identity assertions; corrected focused tests pass locally and need
-new-head CI. This is not evidence of native Drive feature completion.
-Consent Center/notification delivery, native recovery, deployed worker isolation/configuration
+156 source files. CI for `238a758d59a59fb34e861b7e2cf6b076276deff2` passed every required lane,
+including the corrected specialist/identity assertions. The subsequent Consent Center web
+checkpoint passed 110 focused backend checks, 61 web tests and eight mounted Chromium/WebKit
+contracts at 320/390/768/1440px. These checks use synthetic provider boundaries and do not
+prove native Drive feature completion.
+Request creation UI/notification delivery, native recovery, deployed worker isolation/configuration
 and authenticated A/B acceptance remain required before exposing this domain.
 
 Focused automated coverage includes a disposable socket-only PostgreSQL cluster (or the

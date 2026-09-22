@@ -49,6 +49,7 @@ import {
 } from "@/lib/consent/consent-events";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
+import { documentShareSelectionId } from "@/lib/consent/document-share-consent";
 import { resolveConsentRequesterLabel } from "@/lib/consent/consent-display";
 import {
   isLocationConsent,
@@ -554,7 +555,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
           }),
           description: consentSummary(entry),
           href: buildConsentCenterHref("pending", {
-            requestId: entry.request_id || entry.id,
+            requestId: documentShareSelectionId(entry),
             from: "/one/feed",
           }),
           chevron: true,

@@ -11,6 +11,7 @@ import pytest
 from sqlalchemy import text
 
 from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
+from hushh_mcp.services.drive_sharing_center_contributor import DriveSharingCenterContributor
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 from hushh_mcp.services.drive_sharing_projection_store import DriveSharingProjectionStore
 from hushh_mcp.services.drive_sharing_retention import erase_drive_account_in_transaction
@@ -117,6 +118,11 @@ async def test_recipient_erasure_keeps_only_owner_managed_receipts(revocation_se
     assert (await projection.list_requests(user_id="recipient", direction="outgoing"))[
         "items"
     ] == []
+    center = DriveSharingCenterContributor(db=store.db)
+    owner_rows = await center.page("owner", bucket="active_grants", limit=10)
+    assert owner_rows["total"] == 1
+    assert owner_rows["items"][0]["metadata"]["state"] == "management_only"
+    assert (await center.counts("recipient"))["active_grants"] == 0
     with pytest.raises(DriveSharingError, match="request_unavailable"):
         await projection.delivery_snapshot(user_id="recipient", request_id=request_id)
     revokes = await confirm(store, request_id)

@@ -1,0 +1,231 @@
+import { expect, test } from "@playwright/test";
+import fs from "node:fs";
+import path from "node:path";
+import os from "node:os";
+import {
+  awaitProductFont,
+  productFontStyle,
+  stripAppFontFaces,
+} from "./fixtures/product-font";
+let script: string;
+let css: string;
+test.beforeAll(async () => {
+  const root = process.cwd();
+  const { build } = await import("vite");
+  const { Scanner } = await import("@tailwindcss/oxide");
+  const scanner = new Scanner({});
+  const candidates = new Set<string>();
+  const outDir = fs.mkdtempSync(
+    path.join(os.tmpdir(), "document-share-review-"),
+  );
+  await build({
+    configFile: false,
+    logLevel: "error",
+    oxc: { jsx: { runtime: "automatic" } },
+    plugins: [
+      {
+        name: "fixture-css-candidates",
+        transform(source, id) {
+          if (!id.includes("node_modules") && /\.[tj]sx?$/.test(id))
+            for (const candidate of scanner.scanFiles([
+              { content: source, extension: "tsx" },
+            ]))
+              candidates.add(candidate);
+        },
+      },
+    ],
+    resolve: {
+      alias: [
+        ...[
+          "@/hooks/use-auth",
+          "@/lib/vault/vault-context",
+          "@/lib/services/api-service",
+        ].map((find) => ({
+          find,
+          replacement: path.join(
+            root,
+            "e2e/fixtures/document-share-boundaries.tsx",
+          ),
+        })),
+        { find: "@", replacement: root },
+      ],
+    },
+    define: {
+      "process.env.NODE_ENV": JSON.stringify("production"),
+      "process.env": "{}",
+    },
+    build: {
+      outDir,
+      emptyOutDir: false,
+      lib: {
+        entry: path.join(root, "e2e/fixtures/document-share-review.tsx"),
+        name: "Fixture",
+        formats: ["iife"],
+        fileName: () => "fixture.js",
+      },
+    },
+  });
+  script = fs.readFileSync(path.join(outDir, "fixture.js"), "utf8");
+  const { compile } = await import("tailwindcss");
+  const compiler = await compile(
+    fs
+      .readFileSync(path.join(root, "app/globals.css"), "utf8")
+      .replace(/^@source\s+[^;]+;\s*$/gm, ""),
+    {
+      base: path.join(root, "app"),
+      loadStylesheet: async (id, base) => {
+        const file =
+          id === "tailwindcss"
+            ? path.join(root, "node_modules/tailwindcss/index.css")
+            : id === "tw-animate-css"
+              ? path.join(
+                  root,
+                  "node_modules/tw-animate-css/dist/tw-animate.css",
+                )
+              : path.resolve(base, id);
+        return {
+          path: file,
+          base: path.dirname(file),
+          content: fs.readFileSync(file, "utf8"),
+        };
+      },
+    },
+  );
+  css = stripAppFontFaces(compiler.build([...candidates])) + productFontStyle();
+});
+
+for (const width of [320, 390, 768, 1440])
+  test(`exact review, explicit approval and recovery at ${width}px`, async ({
+    page,
+  }, testInfo) => {
+    await page.setViewportSize({ width, height: 820 });
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    const id = "11111111-1111-4111-8111-111111111111";
+    const documentId = "22222222-2222-4222-8222-222222222222";
+    const filename = `${"LongUntrustedFileName".repeat(8)}.pdf`;
+    let approvals = 0;
+    let state = "review_ready";
+    await page.route("http://localhost/document-review-fixture", (route) =>
+      route.fulfill({
+        contentType: "text/html",
+        body: `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`,
+      }),
+    );
+    await page.route(
+      "**/api/connectors/google_drive/sharing/requests/**",
+      async (route) => {
+        const url = new URL(route.request().url());
+        let result: unknown = {
+          requestId: id,
+          status: state,
+          direction: "incoming",
+          revision: 2,
+        };
+        if (url.pathname.endsWith("/review"))
+          result = {
+            requestId: id,
+            status: state,
+            revision: 2,
+            recipientEmail:
+              "verified-recipient-with-long-email@synthetic.invalid",
+            purpose: {
+              purpose: "Please share six months of statements",
+              periodStart: "2026-01-01",
+              periodEnd: "2026-06-30",
+            },
+            files: [{ documentId, name: filename }],
+            coverage: {
+              coverage_summary: "January only",
+              coverage_status: "partial",
+              gaps: ["February–June missing"],
+              truncated: false,
+            },
+            canApprove: true,
+            reviewDigest: "a".repeat(64),
+            expiresAt: new Date(Date.now() + 60_000).toISOString(),
+          };
+        if (url.pathname.endsWith("/approve")) {
+          approvals++;
+          expect(route.request().postDataJSON()).toEqual({
+            revision: 2,
+            reviewDigest: "a".repeat(64),
+            documentIds: [documentId],
+            confirmed: true,
+          });
+          state = "approved";
+          result = { requestId: id, status: state, revision: 2 };
+        }
+        if (url.pathname.endsWith("/delivery"))
+          result = {
+            requestId: id,
+            status: state,
+            files: [{ name: filename, status: "queued", managed: false }],
+          };
+        await route.fulfill({
+          contentType: "application/json",
+          headers: { "Cache-Control": "no-store" },
+          body: JSON.stringify(result),
+        });
+      },
+    );
+    await page.goto("http://localhost/document-review-fixture");
+    await page.addScriptTag({ content: script });
+    await awaitProductFont(page);
+    const draft = page.getByRole("textbox", { name: "Chat draft" });
+    await draft.fill("Preserve this unsent draft");
+    const original = await draft.elementHandle();
+    await page.getByRole("button", { name: "Review document request" }).click();
+    const panel = page.getByRole("dialog", { name: "Document request" });
+    await expect(panel.getByText("February–June missing")).toBeVisible();
+    expect(approvals).toBe(0);
+    const controls = [
+      "Share files",
+      "Decline",
+      "Refresh suggestions",
+      "Refresh status",
+    ];
+    for (const name of controls) {
+      const button = panel.getByRole("button", { name, exact: true });
+      await button.scrollIntoViewIfNeeded();
+      const bounds = (await button.boundingBox())!;
+      expect(bounds.height).toBeGreaterThanOrEqual(44);
+      expect(bounds.x).toBeGreaterThanOrEqual(0);
+      expect(bounds.x + bounds.width).toBeLessThanOrEqual(width + 1);
+    }
+    expect(
+      await panel.evaluate((node) => node.scrollWidth <= node.clientWidth + 1),
+    ).toBe(true);
+    await testInfo.attach("mounted exact-file review", {
+      body: await page.screenshot(),
+      contentType: "image/png",
+    });
+    await panel.getByRole("button", { name: "Lock test vault" }).click();
+    await expect(panel.getByText("Unlock your vault to review.")).toBeVisible();
+    await expect(panel.getByText(filename)).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "Unlock test vault" }).click();
+    await page.getByRole("button", { name: "Review document request" }).click();
+    const share = panel.getByRole("button", {
+      name: "Share files",
+      exact: true,
+    });
+    await share.focus();
+    await page.keyboard.press("Enter");
+    await expect(
+      panel.getByText("Waiting to share", { exact: true }),
+    ).toBeVisible();
+    expect(approvals).toBe(1);
+    await expect(panel.getByRole("status")).toBeFocused();
+    expect(
+      await page.evaluate(() =>
+        JSON.stringify({ ...localStorage, ...sessionStorage }),
+      ),
+    ).not.toMatch(/LongUntrusted|synthetic-vault-owner|verified-recipient/);
+    await page.keyboard.press("Escape");
+    await expect(draft).toHaveValue("Preserve this unsent draft");
+    expect(await original!.evaluate((element) => element.isConnected)).toBe(
+      true,
+    );
+    expect(errors).toEqual([]);
+  });

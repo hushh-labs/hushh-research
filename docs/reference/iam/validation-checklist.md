@@ -145,6 +145,20 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
     semantics. It is not described as Secure Enclave storage without a
     non-exportable `SecKey` implementation.
 
+## Drive Document Review Checks
+
+1. Consent Center/Feed cache only generic state and opaque request references; private
+   names, recipient identity and coverage load only through owner-protected no-store routes.
+2. Document selection IDs cannot reach generic PKM approval, scope revocation or voice actions.
+3. Approval/removal bind the exact server-reviewed revision and whole file/grant set. Opening
+   a notification or refreshing status never submits a decision.
+4. Dispatch and every chained private read recheck the vault generation. Lock/account changes
+   drop private presentation; acknowledged mutations reconcile even if the next read fails.
+5. Approval acceptance is pending, not proof of Google success. Per-file removal outcomes
+   remain distinct from unrelated permissions and are observed through bounded refreshes.
+6. Missing pre-rollout tables do not break unrelated consent surfaces; real SQL failures
+   are errors, not authoritative empty counts. Recorded access survives execution disablement.
+
 ## Ecosystem Checks
 
 1. Agents and Operons respect consent scope boundaries.

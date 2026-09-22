@@ -1077,7 +1077,7 @@ tokens, subjects and endpoints are not returned. Mutations derive owner/generati
 | --- | --- |
 | `POST /requests` | B's recent verified Google Firebase identity must match B's Vault Owner; an active A/B connection is required. Accepts an opaque client request ID, A's ID and purpose/period. B need not connect Drive. |
 | `GET /requests` | Participant-scoped incoming/outgoing metadata, bounded pagination; never private candidates. |
-| `GET /requests/{id}` | Participant-only generic status. Preparation and private review remain pending to B. |
+| `GET /requests/{id}` | Participant-only generic status and server-derived `direction`. Preparation and private review remain pending to B; a deep link never grants owner review authority. |
 | `GET /requests/{id}/review` | A-only current private review; exact documents, coverage, recipient and review digest. |
 | `POST /requests/{id}/review/refresh` | A's current revision cancels unused review authority and queues preparation again. |
 | `POST /requests/{id}/approve` | A's exact revision, digest, document IDs and strict `confirmed=true`; atomically claims confirmation and records work. HTTP 202 means pending, not shared. |
@@ -1095,9 +1095,20 @@ queued approvals; timeout outcomes reconcile with reads, never blind mutation re
 
 Disconnect disables One and deletes its index, not existing Google sharing. Encrypted management
 receipts remain for separate removal. Google originals remain in A's Drive and later edits remain
-visible until access is removed; unrelated inherited/group access can remain. UI, notification,
-deployed worker isolation and authenticated A/B acceptance are still
+visible until access is removed; unrelated inherited/group access can remain. Notification,
+native UI/recovery, deployed worker isolation and authenticated A/B acceptance are still
 release prerequisites. No production flag is enabled by these source changes.
+
+Consent Center's existing investor surfaces add metadata-only document rows with opaque
+`document_share_request:<uuid>` selection IDs, exact counts and bounded previews. Recorded
+Google outcomes, not approval acceptance, determine Active access. The additive
+`drive_projection_available` distinguishes a pre-migration deployment from an installed
+empty domain; database errors are not reported as authoritative zero. No encryption key,
+provider call or private file/recipient data enters this projection. Existing permissions
+remain discoverable when execution is disabled. The generic PKM decision handlers and
+voice controls exclude these rows. Only the private, vault-guarded review can submit exact
+approval/removal terms; status refresh never executes a decision. Those details remain in
+component memory and are dropped on lock/owner change, not stored in the consent cache.
 
 Migration 234 separates A's minimal removal receipts from B's removable private request.
 Account reset/erasure removes request narratives, reviews, B's app identity and raw ACL snapshots;
