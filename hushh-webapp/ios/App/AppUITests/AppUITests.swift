@@ -3,6 +3,9 @@ import XCTest
 
 final class AppUITests: XCTestCase {
     private var vaultUnlockSubmitted = false
+    /// The session walk captures the vault gate with its keyboard up, before
+    /// anything is typed (a stop the host screenshots).
+    private var perfGateStop = false
     private var activeUiFlowRunId = ""
 
     struct RouteCase {
@@ -1378,6 +1381,124 @@ final class AppUITests: XCTestCase {
         // One launch per route, settle, then an idle window. That is enough to
         // find the route that costs 300 ms to paint or never settles at all;
         // gesture work on a named surface still belongs in its own section.
+        // One launch, one unlock, then the app walked the way a person uses
+        // it: every stop is reached by a tap from the one before, never by a
+        // launch into a route, so the session, its caches and its vault key
+        // carry through. Each stop logs PERF_STOP and holds still while the
+        // card captures the phone's screen from the Mac, for the pixel review
+        // (layout under the keyboard, clipping, alignment, copy). Read-only:
+        // nothing is sent, approved or removed.
+        if section == "session" {
+            perfGateStop = true
+            let (app, webView) = try launchAttached(route: nil)
+            perfGateStop = false
+            perfSettle(3)
+            NSLog("PERF_APP_READY route=session")
+            func stop(_ name: String, settle: TimeInterval = 2.5) {
+                perfSettle(settle)
+                NSLog("PERF_STOP name=\(name)")
+                perfSettle(2.5)
+            }
+            func tapLabel(_ label: String, contains: Bool = false) -> Bool {
+                let format = contains ? "label CONTAINS[c] %@" : "label == %@"
+                let element = app.webViews.descendants(matching: .any)
+                    .matching(NSPredicate(format: format, label)).firstMatch
+                guard element.waitForExistence(timeout: 4) else {
+                    NSLog("PERF_SKIPPED name=session-tap reason=label_not_found label=\(label)")
+                    return false
+                }
+                if element.isHittable {
+                    element.tap()
+                } else {
+                    element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+                }
+                return true
+            }
+            // The header's back arrow, found by where it sits (top left)
+            // rather than by its label, which is a breadcrumb that changes
+            // per screen ("Go back", "Back to Location", ...).
+            func tapHeaderBack() -> Bool {
+                let buttons = app.webViews.buttons.allElementsBoundByIndex
+                for button in buttons where button.exists {
+                    let frame = button.frame
+                    if frame.minX < 80 && frame.midY < 170 && frame.width < 90 && button.isHittable {
+                        button.tap()
+                        return true
+                    }
+                }
+                NSLog("PERF_SKIPPED name=session-back reason=header_back_not_found")
+                return false
+            }
+            // Back to the tab bar from wherever the last tap landed (a
+            // full-screen page such as Advisor's setup has none).
+            func returnToTab(_ label: String) {
+                for _ in 0..<3 {
+                    let bar = app.webViews.descendants(matching: .any)
+                        .matching(NSPredicate(format: "label == %@", label))
+                    if bar.count > 0 && bar.allElementsBoundByIndex.contains(where: { $0.frame.midY > 700 }) { break }
+                    if !tapHeaderBack() { break }
+                    perfSettle(1.2)
+                }
+                perfTapNav(app, label: label)
+            }
+            func dismissKeyboard() {
+                // A tap on the content above the keyboard, as a person does.
+                webView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.22)).tap()
+                perfSettle(1.0)
+            }
+
+            stop("landing", settle: 1)
+
+            perfTapNav(app, label: "Chat")
+            stop("chat")
+            if tapLabel("Message One") {
+                stop("chat-keyboard", settle: 1.5)
+                dismissKeyboard()
+            }
+
+            perfTapNav(app, label: "One")
+            stop("one")
+            for (agent, tabs) in [
+                ("Finance", ["Portfolio", "Analysis"]),
+                ("Wallet", []), ("Location", []), ("Advisor", []), ("Mail", []),
+                ("Calendar", []), ("KYC", []), ("Memory", []), ("Consent", []),
+            ] {
+                guard tapLabel(agent) || tapLabel("\(agent),", contains: true) else { continue }
+                stop("agent-\(agent.lowercased())")
+                for tab in tabs where tapLabel(tab) {
+                    stop("agent-\(agent.lowercased())-\(tab.lowercased())")
+                }
+                returnToTab("One")
+                perfSettle(1.5)
+            }
+
+            returnToTab("Connect")
+            stop("connect")
+            if tapLabel("Circles") { stop("connect-circles") }
+
+            returnToTab("Feed")
+            stop("feed")
+
+            returnToTab("Search")
+            stop("search-keyboard", settle: 1.5)
+            dismissKeyboard()
+
+            returnToTab("One")
+            perfSettle(1.5)
+            if tapLabel("Open Profile") {
+                stop("profile-pane")
+                for row in ["Your account", "Appearance & preferences", "Security & privacy", "Trusted devices", "Help & feedback"] {
+                    guard tapLabel(row) else { continue }
+                    stop("profile-\(row.lowercased().replacingOccurrences(of: " & ", with: "-").replacingOccurrences(of: " ", with: "-"))")
+                    // Back to the pane the way a person would: the header arrow.
+                    if !tapHeaderBack() { _ = tapLabel("Open Profile") }
+                    perfSettle(1.5)
+                }
+            }
+            NSLog("PERF_DONE route=session")
+            app.terminate()
+        }
+
         if section == "routes" {
             let list = (environment["HUSHH_PERF_ROUTES"] ?? "")
                 .split(separator: ",")
@@ -1655,6 +1776,12 @@ final class AppUITests: XCTestCase {
                 NSLog("PERF_UNLOCK method=passphrase attempt=\(attempts + 1)")
                 field.tap()
                 perfSettle(0.4)
+                if perfGateStop && attempts == 0 {
+                    // Empty field, keyboard up: what a person sees first.
+                    perfSettle(1.2)
+                    NSLog("PERF_STOP name=gate-keyboard")
+                    perfSettle(2.5)
+                }
                 if attempts > 0 {
                     field.press(forDuration: 1.0)
                     let selectAll = app.menuItems.matching(NSPredicate(format: "label == %@", "Select All")).firstMatch
@@ -1893,8 +2020,19 @@ final class AppUITests: XCTestCase {
             NSLog("PERF_SKIPPED name=nav-tap reason=label_not_found label=\(label)")
             return
         }
-        // The bottom bar is the last match on screen.
-        let element = candidates.element(boundBy: count - 1)
+        // The bottom bar is the lowest match on screen. "Last in the tree"
+        // picked the header's One/Puppy toggle on Chat, where "One" is also
+        // the title, so a walk that tapped the One tab stayed on Chat.
+        var element = candidates.element(boundBy: count - 1)
+        var lowest = -CGFloat.greatestFiniteMagnitude
+        for index in 0..<count {
+            let candidate = candidates.element(boundBy: index)
+            let frame = candidate.frame
+            if !frame.isEmpty && frame.midY > lowest {
+                lowest = frame.midY
+                element = candidate
+            }
+        }
         if element.isHittable {
             element.tap()
         } else {

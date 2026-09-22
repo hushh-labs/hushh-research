@@ -171,7 +171,13 @@ fi
 
 # ---- install (replace in place; -d allows a lower versionCode than the phone's) ----
 "$ADB" -s "$ANDROID_SERIAL" shell am force-stop "$BUNDLE_ID" >/dev/null 2>&1 || true
-if ! "$ADB" -s "$ANDROID_SERIAL" install -r -t -d "$APK" > "$OUT_DIR/install.log" 2>&1; then
+# PERF_SKIP_INSTALL=1 keeps what is on the phone: over wireless adb a
+# streamed install of an unchanged APK has hung for minutes at a time, and a
+# killed client can still finish on the phone later and replace the test
+# package under a running instrumentation (seen as a framework NPE).
+if [[ "${PERF_SKIP_INSTALL:-0}" == "1" ]]; then
+  echo "install skipped (PERF_SKIP_INSTALL=1)" > "$OUT_DIR/install.log"
+elif ! "$ADB" -s "$ANDROID_SERIAL" install -r -t -d "$APK" > "$OUT_DIR/install.log" 2>&1; then
   if grep -q "INSTALL_FAILED_UPDATE_INCOMPATIBLE" "$OUT_DIR/install.log" && [[ "${PERF_ALLOW_REINSTALL:-0}" == "1" ]]; then
     "$ADB" -s "$ANDROID_SERIAL" uninstall "$BUNDLE_ID" >> "$OUT_DIR/install.log" 2>&1 || true
     "$ADB" -s "$ANDROID_SERIAL" install -r -t -d "$APK" >> "$OUT_DIR/install.log" 2>&1 || { echo "install failed; see $OUT_DIR/install.log" >&2; exit 1; }
@@ -180,11 +186,18 @@ if ! "$ADB" -s "$ANDROID_SERIAL" install -r -t -d "$APK" > "$OUT_DIR/install.log
     exit 1
   fi
 fi
-if [[ "$ATTACHED" == "1" ]]; then
+if [[ "$ATTACHED" == "1" && "${PERF_SKIP_INSTALL:-0}" != "1" ]]; then
   "$ADB" -s "$ANDROID_SERIAL" install -r -t -d "$TEST_APK" >> "$OUT_DIR/install.log" 2>&1 || { echo "test APK install failed; see $OUT_DIR/install.log" >&2; exit 1; }
 fi
 
 # ---- run ----
+# An instrumentation outlives the adb client that started it: stopping a card
+# on the Mac leaves the test (a 30-minute hold, say) running on the phone, and
+# the next card's instrumentation then tears it down mid-run, which reads as
+# "Process crashed" with a framework NullPointerException in
+# WindowTokenClient. End whatever is left before starting.
+"$ADB" -s "$ANDROID_SERIAL" shell am force-stop "$BUNDLE_ID" >/dev/null 2>&1 || true
+sleep 1
 RUN_START_MS="$(( $(date +%s) * 1000 - 5000 ))"
 "$ADB" -s "$ANDROID_SERIAL" logcat -c >/dev/null 2>&1 || true
 set +e

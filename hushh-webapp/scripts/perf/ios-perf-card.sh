@@ -149,6 +149,31 @@ fi
 RESULT_BUNDLE="$OUT_DIR/run.xcresult"
 rm -rf "$RESULT_BUNDLE"
 touch "$OUT_DIR/.run-start"
+
+# PERF_SECTION=session walks the app in one launch and marks each stop with
+# PERF_STOP; the phone's screen is captured from the Mac at every mark, for a
+# pixel review of each screen next to its frame numbers. The gate is captured
+# with its keyboard up before anything is typed.
+SHOT_PID=""
+if [[ "${PERF_SECTION:-}" == "session" && -n "${IOS_DEVICE_ID:-}" ]]; then
+  mkdir -p "$OUT_DIR/shots"
+  : > "$OUT_DIR/test.log"
+  (
+    n=0
+    tail -n +1 -F "$OUT_DIR/test.log" 2>/dev/null | while IFS= read -r line; do
+      case "$line" in
+        *"PERF_STOP name="*)
+          n=$((n + 1))
+          # xcodebuild ends its lines with a carriage return; keep it out of the file name.
+          name="${line##*PERF_STOP name=}"; name="${name%% *}"; name="${name//$'\r'/}"
+          xcrun devicectl device capture screenshot --device "$IOS_DEVICE_ID" \
+            --destination "$OUT_DIR/shots/$(printf %02d "$n")-$name.png" -q >/dev/null 2>&1 || true
+          ;;
+      esac
+    done
+  ) &
+  SHOT_PID=$!
+fi
 set +e
 env "$ENABLE_VAR=true" \
     TEST_RUNNER_HUSHH_PERF_REPS="$REPS" \
@@ -165,6 +190,12 @@ env "$ENABLE_VAR=true" \
     -only-testing:"AppUITests/AppUITests/$TEST_NAME" test-without-building > "$OUT_DIR/test.log" 2>&1
 TEST_STATUS=$?
 set -e
+if [[ -n "$SHOT_PID" ]]; then
+  sleep 3
+  pkill -P "$SHOT_PID" 2>/dev/null || true
+  kill "$SHOT_PID" 2>/dev/null || true
+  echo "session shots: $(ls "$OUT_DIR/shots" 2>/dev/null | wc -l | tr -d ' ') in $OUT_DIR/shots"
+fi
 rm -rf "$RESULT_BUNDLE"
 find "$DERIVED/Logs/Test" -maxdepth 1 -name '*.xcresult' -newer "$OUT_DIR/.run-start" -print0 2>/dev/null | xargs -0 rm -rf 2>/dev/null || true
 cd "$WEB_DIR"
