@@ -3,6 +3,7 @@
 import type {
   DomainManifest,
 } from "@/lib/personal-knowledge-model/manifest";
+import { PkmMetadataReviewRequired } from "@/lib/personal-knowledge-model/manifest";
 import {
   buildConfirmedPkmMutationPlanV2,
   isAutomaticPkmWriteAuthorization,
@@ -148,6 +149,9 @@ function emptyResult(
  * a `failed` result they can retry, instead of an uncaught rejection.
  */
 function pkmWriteFailureResult(error: unknown): PkmWriteCoordinatorResult {
+  if (error instanceof PkmMetadataReviewRequired) {
+    return emptyResult("failed", "This memory has conflicting labels or sensitivity assessments. Review and prepare it again before saving; nothing was saved.");
+  }
   if (error instanceof PkmAutomaticUpgradeRequired) {
     return emptyResult("blocked_pending_upgrade", "Open Memory to update it before saving this detail.");
   }
