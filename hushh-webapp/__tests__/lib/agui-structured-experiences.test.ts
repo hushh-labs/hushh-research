@@ -91,7 +91,7 @@ describe("AG-UI structured experience registry", () => {
       parseAgentToolResultExperience("propose_information_request", {
         status: "proposal_ready",
         proposalId: "must-not-render",
-        person: { displayName: "Alex Morgan", profilePath: "/people/1234567890abcdef" },
+        person: { displayName: "Alex Morgan", personRef: "1234567890abcdef", profilePath: "/people/1234567890abcdef" },
         fields: ["Employment status", "Company name"],
         purpose: "Complete the onboarding review.",
         durationHours: 48,
@@ -103,7 +103,7 @@ describe("AG-UI structured experience registry", () => {
       durationLabel: "2 days",
       direction: "outgoing",
       phase: "draft",
-      subjectRef: null,
+      subjectRef: "1234567890abcdef",
       bundleId: null,
       requestId: null,
       status: "awaiting_review",
@@ -112,6 +112,17 @@ describe("AG-UI structured experience registry", () => {
         { label: "Company name", domain: "Information", sensitivity: "standard" },
       ],
     });
+  });
+  it("rejects a live proposal that cannot be bound to its selected person", () => {
+    expect(
+      parseAgentToolResultExperience("propose_information_request", {
+        status: "proposal_ready",
+        person: { displayName: "Alex Morgan", profilePath: "/people/1234567890abcdef" },
+        fields: ["Employment status"],
+        purpose: "Complete the onboarding review.",
+        durationHours: 48,
+      }),
+    ).toBeNull();
   });
   it("keeps restored request direction explicit and accepts terminal lifecycle states", () => {
     const result = parseAgentActivityExperience("one.information_request_review.v1", {

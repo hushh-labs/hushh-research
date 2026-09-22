@@ -264,9 +264,21 @@ function parseInformationRequestProposal(
   if (!record || record.status !== "proposal_ready") return null;
   const person = asRecord(record.person);
   const personName = boundedString(person?.displayName, 120);
+  const subjectRef = boundedString(person?.personRef, 128);
+  const profilePath = boundedString(person?.profilePath, 180);
   const purpose = boundedString(record.purpose, 500);
   const durationHours = boundedInteger(record.durationHours, 720);
-  if (!personName || !purpose || durationHours === null || durationHours < 1) {
+  if (
+    !personName ||
+    !subjectRef ||
+    !PUBLIC_PERSON_REF_PATTERN.test(subjectRef) ||
+    !profilePath ||
+    !PROFILE_PATH_PATTERN.test(profilePath) ||
+    profilePath.slice("/people/".length) !== subjectRef ||
+    !purpose ||
+    durationHours === null ||
+    durationHours < 1
+  ) {
     return null;
   }
 
@@ -293,8 +305,7 @@ function parseInformationRequestProposal(
     durationLabel,
     direction: "outgoing",
     phase: "draft",
-    subjectRef:
-      boundedString(person?.personRef, 128)?.match(/^[A-Za-z0-9_-]{16,128}$/)?.[0] ?? null,
+    subjectRef,
     bundleId: null,
     requestId: null,
     status: "awaiting_review",
