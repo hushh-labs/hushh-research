@@ -4,7 +4,7 @@
  * The docked conversation panel above the voice pill.
  *
  * Stacks, top to bottom: the transcript, confirmed entity cards, a candidate
- * picker, the pending action card, the last tool result, and any error — the
+ * picker, an open pending action card, the last tool result, and any error — the
  * most actionable thing nearest the thumb. Everything on it is derived from
  * typed frames in the session state; a "Done" here needs `tool.result ok:true`
  * or `pending_action.resolved executed`, never a transcript line.
@@ -152,7 +152,7 @@ export function panelHasContent(state: VoiceSessionState): boolean {
     state.transcript.some((item) => item.text.trim().length > 0) ||
     state.entities.length > 0 ||
     state.candidatePicker !== null ||
-    state.pendingAction !== null ||
+    state.pendingAction?.resolvedStatus === null ||
     isSosPublishStep(state.clientStep) ||
     selectPanelResult(state) !== null ||
     state.error !== null
@@ -170,6 +170,13 @@ export function OneVoicePanel({
   const [confirming, setConfirming] = useState(false);
   const picker = state.candidatePicker;
   const pending = state.pendingAction;
+  // A confirmation is actionable only until its matching terminal receipt
+  // resolves. Save My Soul is the exception: its resolved card carries the
+  // device-delivery state while its location publish step is in flight.
+  const openPending = pending?.resolvedStatus === null ? pending : null;
+  const visiblePending =
+    openPending ??
+    (pending?.tool === "trigger_save_my_soul" ? pending : null);
   const resultSlot = selectPanelResult(state);
   const sosPublishing = isSosPublishStep(state.clientStep);
   const error = state.error;
@@ -179,12 +186,12 @@ export function OneVoicePanel({
   }, [picker]);
 
   const pendingEntityKeys = new Set(
-    (pending?.entities ?? []).map(
+    (openPending?.entities ?? []).map(
       (entity) => `${entity.kind}:${entity.user_id ?? entity.circle_id ?? ""}`,
     ),
   );
   const looseEntities =
-    picker || !pending
+    picker || !openPending
       ? state.entities
           .filter(
             (entity) =>
@@ -255,9 +262,9 @@ export function OneVoicePanel({
         />
       ) : null}
 
-      {pending ? (
+      {visiblePending ? (
         <PendingActionCard
-          action={pending}
+          action={visiblePending}
           busy={busy}
           onConfirm={() => void confirm()}
           onCancel={() => controller.cancelPending()}

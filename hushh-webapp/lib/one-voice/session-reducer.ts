@@ -526,6 +526,21 @@ function reduceServerFrame(
     case "tool.result": {
       const ok = frame.ok === true;
       const result = frame.result_public;
+      // A normal confirmed action emits `pending_action.resolved` first, but
+      // a terminal result can still arrive without that frame after a relay
+      // reconnect. Its exact pending id lets the client retire only the card
+      // it settles; matching by tool name could close a newer confirmation.
+      const pending = state.pendingAction;
+      const pendingActionId = String(frame.pending_action_id || "").trim();
+      const matchesOpenPending = Boolean(
+        pending &&
+          pending.resolvedStatus === null &&
+          pendingActionId &&
+          pendingActionId === pending.pending_action_id,
+      );
+      const awaitingDevice = isPendingStatus(result.status);
+      const resolvedStatus: PendingActionView["resolvedStatus"] =
+        awaitingDevice || ok ? "executed" : "failed";
       // A device-settled result reuses the originating call id; it replaces
       // the interim `location_updates_pending` entry rather than adding one.
       // The Save My Soul delivery report has no call id (the trigger was a
@@ -569,8 +584,27 @@ function reduceServerFrame(
       return {
         ...state,
         idleDeadlineAt: null,
+        phase:
+          matchesOpenPending && resolvedStatus === "executed" && !awaitingDevice
+            ? "complete"
+            : matchesOpenPending &&
+                state.phase !== "paused" &&
+                state.phase !== "error"
+              ? "listening"
+              : state.phase,
         toolTimeline: timeline,
         lastResult: result,
+        pendingAction:
+          matchesOpenPending && pending
+            ? {
+                ...pending,
+                status: resolvedStatus,
+                result,
+                receiptToken: null,
+                resolvedStatus,
+                resolvedResult: result,
+              }
+            : pending,
       };
     }
     case "pending_action": {
