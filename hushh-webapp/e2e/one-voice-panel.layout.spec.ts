@@ -33,6 +33,7 @@ const WEBAPP_ROOT = process.cwd();
 const VOICE_PILL_PATH = "components/one-voice/voice-state-pill.tsx";
 const VOICE_PANEL_PATH = "components/one-voice/one-voice-panel.tsx";
 const VOICE_CONTROL_PATH = "components/one-voice/one-voice-control.tsx";
+const VOICE_TRANSCRIPT_PATH = "components/one-voice/voice-transcript.tsx";
 
 const VIEWPORTS = [
   { name: "narrow phone", width: 320, height: 568 },
@@ -79,6 +80,8 @@ function stringConstant(
 type Source = {
   panelClass: string;
   clearButtonClass: string;
+  panelHeaderClass: string;
+  panelContentClass: string;
   dockClass: string;
   dockWidthClass: string;
   primaryClass: string;
@@ -89,12 +92,16 @@ type Source = {
   expandAriaLabel: string;
   minimizeLabel: string;
   expandLabel: string;
+  conversationTitle: string;
+  clearLabel: string;
+  emptyCopy: string;
 };
 
 function extractSource(): Source {
   const pill = read(VOICE_PILL_PATH);
   const panel = read(VOICE_PANEL_PATH);
   const control = read(VOICE_CONTROL_PATH);
+  const transcript = read(VOICE_TRANSCRIPT_PATH);
   const toggleStart = pill.indexOf('data-testid="one-voice-toggle-panel"');
   const toggleEnd = pill.indexOf("</button>", toggleStart);
   if (toggleStart < 0 || toggleEnd < toggleStart) {
@@ -135,6 +142,8 @@ function extractSource(): Source {
       "CLEAR_ACTION_BUTTON",
       VOICE_PANEL_PATH,
     ),
+    panelHeaderClass: stringConstant(panel, "PANEL_HEADER", VOICE_PANEL_PATH),
+    panelContentClass: stringConstant(panel, "PANEL_CONTENT", VOICE_PANEL_PATH),
     dockClass: required(
       control,
       /<div\s+data-testid="one-voice-agent-bar"[\s\S]*?className=\{cn\(\s*"([^"]+)"/,
@@ -159,6 +168,24 @@ function extractSource(): Source {
     expandAriaLabel: aria[2],
     minimizeLabel: labels[1],
     expandLabel: labels[2],
+    conversationTitle: required(
+      panel,
+      /data-testid="one-voice-panel-title"[\s\S]*?\n\s*>\s*\n\s*([^<]+)\s*\n\s*<\/h2>/,
+      "Conversation heading",
+      VOICE_PANEL_PATH,
+    )[1].trim(),
+    clearLabel: required(
+      panel,
+      /data-testid="one-voice-clear-history"[\s\S]*?\n\s*>\s*\n\s*([^<]+)\s*\n\s*<\/button>/,
+      "Clear view label",
+      VOICE_PANEL_PATH,
+    )[1].trim(),
+    emptyCopy: required(
+      transcript,
+      /data-testid="one-voice-transcript-empty"[\s\S]*?\n\s*>\s*\n\s*([^<]+)\s*\n\s*<\/p>/,
+      "cleared conversation empty copy",
+      VOICE_TRANSCRIPT_PATH,
+    )[1].trim(),
   };
 
   // These are product requirements, not fixture wording.  A shorter label can
@@ -173,6 +200,30 @@ function extractSource(): Source {
       "one-voice-panel-layout: the shipped panel no longer declares its min(52dvh,420px) bound.",
     );
   }
+  if (
+    source.conversationTitle !== "Conversation" ||
+    source.clearLabel !== "Clear view" ||
+    source.emptyCopy !== "Your messages will appear here."
+  ) {
+    throw new Error(
+      "one-voice-panel-layout: the shipped cleared-conversation copy no longer matches its product contract.",
+    );
+  }
+  if (!panel.includes("!askingClear && canClearHistory")) {
+    throw new Error(
+      "one-voice-panel-layout: the shipped Clear view utility must disappear after the history is cleared.",
+    );
+  }
+  if (!panel.includes("showEmptyState={!hasRenderedLiveContent}")) {
+    throw new Error(
+      "one-voice-panel-layout: live work must suppress the generic empty conversation copy.",
+    );
+  }
+  if (panel.includes('data-testid="one-voice-clear-status"')) {
+    throw new Error(
+      "one-voice-panel-layout: the cleared-state status row must not remain in the panel.",
+    );
+  }
   return source;
 }
 
@@ -185,8 +236,8 @@ const FIXTURE_CLASSES = [
   "truncate text-[13px] font-medium",
   "space-y-3 text-sm leading-6",
   "min-w-0 break-words",
-  // The panel toolbar row that carries the Clear chat view control.
-  "flex min-h-11 items-center justify-between gap-2 text-[12px]",
+  "rounded-md text-sm font-semibold leading-5 text-[color:var(--app-label)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)]",
+  "text-[14px] font-normal leading-5 text-[color:var(--app-secondary-label)]",
 ].join(" ");
 
 let fixtureUrl: Promise<string> | null = null;
@@ -236,6 +287,8 @@ async function buildFixture(): Promise<string> {
         SOURCE.toggleButtonClass,
         SOURCE.toggleIconClass,
         SOURCE.clearButtonClass,
+        SOURCE.panelHeaderClass,
+        SOURCE.panelContentClass,
         FIXTURE_CLASSES,
       ]
         .join(" ")
@@ -269,8 +322,13 @@ const transcript = ${JSON.stringify(transcript)};
 const root = document.getElementById("fixture-root");
 let stopCalls = 0;
 function render(expanded) {
-  const toolbar = '<div data-testid="one-voice-panel-toolbar" class="flex min-h-11 items-center justify-between gap-2"><p data-testid="one-voice-clear-status" class="text-[12px]"></p><button type="button" data-testid="one-voice-clear-history" aria-label="Clear chat view" class="' + source.clearButtonClass + '">Clear chat view</button></div>';
-  const panel = expanded ? '<section role="region" aria-label="One conversation" data-testid="one-voice-panel" class="' + source.panelClass + '">' + toolbar + '<div data-testid="one-voice-transcript" class="space-y-3 text-sm leading-6">' + transcript + '</div></section>' : '';
+  const cleared = new URLSearchParams(window.location.search).get("state") === "cleared";
+  const clear = cleared ? '' : '<button type="button" data-testid="one-voice-clear-history" aria-label="Clear chat view" title="Clear chat view" class="' + source.clearButtonClass + '">' + source.clearLabel + '</button>';
+  const header = '<div data-testid="one-voice-panel-header" class="' + source.panelHeaderClass + '"><h2 data-testid="one-voice-panel-title" tabindex="-1" class="rounded-md text-sm font-semibold leading-5 text-[color:var(--app-label)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)]">' + source.conversationTitle + '</h2>' + clear + '</div>';
+  const body = cleared
+    ? '<div data-testid="one-voice-panel-content" class="' + source.panelContentClass + '"><div data-testid="one-voice-transcript" role="log" aria-live="polite"><p data-testid="one-voice-transcript-empty" class="text-[14px] font-normal leading-5 text-[color:var(--app-secondary-label)]">' + source.emptyCopy + '</p></div></div>'
+    : '<div data-testid="one-voice-panel-content" class="' + source.panelContentClass + '"><div data-testid="one-voice-transcript" class="space-y-3 text-sm leading-6">' + transcript + '</div></div>';
+  const panel = expanded ? '<section role="region" aria-label="One conversation" data-testid="one-voice-panel" class="' + source.panelClass + '">' + header + body + '</section>' : '';
   const toggleLabel = expanded ? source.minimizeLabel : source.expandLabel;
   const toggleAria = expanded ? source.minimizeAriaLabel : source.expandAriaLabel;
   root.innerHTML = '<div data-testid="fixture-one-voice-stack" class="flex flex-col items-center gap-2">' + panel +
@@ -294,9 +352,14 @@ render(true);
   return fixtureUrl;
 }
 
-async function openFixture(page: Page, width: number, height: number) {
+async function openFixture(
+  page: Page,
+  width: number,
+  height: number,
+  state: "populated" | "cleared" = "populated",
+) {
   await page.setViewportSize({ width, height });
-  await page.goto(await buildFixture());
+  await page.goto(`${await buildFixture()}?state=${state}`);
   await awaitProductFont(page);
 }
 
@@ -316,6 +379,7 @@ type Geometry = {
   toggle: Rect;
   stop: Rect;
   panelScrollHeight: number | null;
+  panelClientHeight: number | null;
   panelOverflowY: string | null;
 };
 
@@ -349,6 +413,7 @@ async function geometry(page: Page): Promise<Geometry> {
       toggle: rect(toggle),
       stop: rect(stop),
       panelScrollHeight: panel?.scrollHeight ?? null,
+      panelClientHeight: panel?.clientHeight ?? null,
       panelOverflowY: panel ? getComputedStyle(panel).overflowY : null,
     };
   });
@@ -420,6 +485,7 @@ test.describe("One Live Voice panel minimization layout", () => {
       const clear = page.getByTestId("one-voice-clear-history");
       await expect(clear).toBeVisible();
       await expect(clear).toHaveAccessibleName("Clear chat view");
+      await expect(clear).toHaveText(SOURCE.clearLabel);
       const clearBox = await clear.boundingBox();
       if (!clearBox) throw new Error("clear control missing");
       expect(clearBox.height).toBeGreaterThanOrEqual(MIN_TOUCH_TARGET_PX);
@@ -473,4 +539,67 @@ test.describe("One Live Voice panel minimization layout", () => {
       await expect(dock).toHaveAttribute("data-stop-calls", "1");
     });
   }
+
+  test("standard phone: cleared conversation stays compact at increased text", async ({
+    page,
+  }, testInfo) => {
+    await openFixture(page, 390, 844, "cleared");
+
+    const panel = page.getByTestId("one-voice-panel");
+    const header = page.getByTestId("one-voice-panel-header");
+    const empty = page.getByTestId("one-voice-transcript-empty");
+    const dock = page.getByTestId("one-voice-agent-bar");
+    await expect(panel).toBeVisible();
+    await expect(header).toHaveText(SOURCE.conversationTitle);
+    await expect(empty).toHaveText(SOURCE.emptyCopy);
+    await expect(page.getByTestId("one-voice-clear-history")).toHaveCount(0);
+    await expect(page.getByText("Chat view cleared", { exact: true })).toHaveCount(
+      0,
+    );
+
+    const cleared = await geometry(page);
+    if (
+      !cleared.panel ||
+      cleared.panelScrollHeight === null ||
+      cleared.panelClientHeight === null
+    ) {
+      throw new Error("cleared panel geometry is unavailable");
+    }
+    expect(cleared.overflowX).toBeLessThanOrEqual(BOUNDARY_TOLERANCE_PX);
+    expect(cleared.panel.height).toBeGreaterThanOrEqual(96 - BOUNDARY_TOLERANCE_PX);
+    expect(cleared.panel.height).toBeLessThanOrEqual(112 + BOUNDARY_TOLERANCE_PX);
+    expect(cleared.panelScrollHeight).toBeLessThanOrEqual(
+      cleared.panelClientHeight + BOUNDARY_TOLERANCE_PX,
+    );
+    expect(cleared.panel.bottom).toBeLessThanOrEqual(cleared.dock.top - 7);
+    await page.screenshot({
+      path: testInfo.outputPath("one-voice-cleared-standard-phone.png"),
+    });
+
+    await page.addStyleTag({
+      content:
+        '[data-testid="one-voice-panel-title"], [data-testid="one-voice-transcript-empty"] { font-size: 18px !important; line-height: 26px !important; }',
+    });
+    const largeText = await geometry(page);
+    if (
+      !largeText.panel ||
+      largeText.panelScrollHeight === null ||
+      largeText.panelClientHeight === null
+    ) {
+      throw new Error("large-text cleared panel geometry is unavailable");
+    }
+    expect(largeText.overflowX).toBeLessThanOrEqual(BOUNDARY_TOLERANCE_PX);
+    expect(largeText.panel.height).toBeLessThanOrEqual(112 + BOUNDARY_TOLERANCE_PX);
+    expect(largeText.panelScrollHeight).toBeLessThanOrEqual(
+      largeText.panelClientHeight + BOUNDARY_TOLERANCE_PX,
+    );
+    await page.screenshot({
+      path: testInfo.outputPath("one-voice-cleared-standard-phone-large-text.png"),
+    });
+
+    await page.getByTestId("one-voice-toggle-panel").click();
+    await expect(panel).toHaveCount(0);
+    await expect(page.getByTestId("one-voice-clear-history")).toHaveCount(0);
+    await expect(dock).toHaveAttribute("data-voice-panel", "collapsed");
+  });
 });

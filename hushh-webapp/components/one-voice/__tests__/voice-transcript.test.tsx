@@ -42,11 +42,16 @@ describe("VoiceTranscript", () => {
     expect(lines[1]).toHaveTextContent("For how long");
   });
 
-  it("shows a listening prompt when nothing has been said yet", () => {
+  it("shows the compact cleared-conversation prompt when nothing has been said", () => {
     render(<VoiceTranscript items={[]} />);
     expect(screen.getByTestId("one-voice-transcript-empty")).toHaveTextContent(
-      "Say what you need.",
+      "Your messages will appear here.",
     );
+  });
+
+  it("lets a live decision or recovery card own the empty panel", () => {
+    render(<VoiceTranscript items={[]} showEmptyState={false} />);
+    expect(screen.queryByTestId("one-voice-transcript-empty")).toBeNull();
   });
 
   it("collapses to the latest line only", () => {
