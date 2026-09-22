@@ -2232,6 +2232,8 @@ export default function GmailReceiptsPage({
                       {
                         receiptMemoryArtifact.candidate_pkm_payload
                           .receipts_memory.readable_summary.text
+                          ? receiptMemoryArtifact.candidate_pkm_payload.receipts_memory.readable_summary.text.replace(/\bKai\b/g, "One")
+                          : ""
                       }
                     </p>
                   </div>
@@ -2242,7 +2244,7 @@ export default function GmailReceiptsPage({
                       {receiptMemoryArtifact.candidate_pkm_payload.receipts_memory.readable_summary.highlights.map(
                         (item) => (
                           <Badge key={item} variant="outline">
-                            {item}
+                            {typeof item === "string" ? item.replace(/\bKai\b/g, "One") : item}
                           </Badge>
                         ),
                       )}
