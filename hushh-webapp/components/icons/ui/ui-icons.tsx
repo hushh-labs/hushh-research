@@ -267,7 +267,7 @@ export { XIcon as CloseIcon };
 
 export function CheckIcon({
   size = "1em",
-  weight = "duotone",
+  weight = "regular",
   className,
   ...props
 }: UiIconProps) {

@@ -214,7 +214,7 @@ describe("OneVoicePanel", () => {
     ).toBe(true);
   });
 
-  it("renders the resolved receipt once when resolved and tool.result carry the same payload", () => {
+  it("removes the confirmation card when resolved and tool.result carry the same payload", () => {
     const pendingFrame: ServerFrame = {
       type: "pending_action",
       pending_action_id: "pa_1",
@@ -254,14 +254,60 @@ describe("OneVoicePanel", () => {
       },
     ]);
     render(<OneVoicePanel state={state} controller={controller()} />);
-    expect(screen.getByTestId("one-voice-pending-resolved")).toHaveTextContent(
-      "Done",
-    );
+    expect(screen.queryByTestId("one-voice-pending-action")).toBeNull();
     expect(screen.getAllByTestId("one-voice-tool-result")).toHaveLength(1);
     expect(
       screen.getByTestId("one-voice-tool-result-headline"),
     ).toHaveTextContent("Done");
     expect(screen.queryByTestId("one-voice-pending-confirm")).toBeNull();
+  });
+
+  it("retires only the matching Circle confirmation when its terminal result arrives", () => {
+    const pendingActionId = "pa-circle";
+    const payload = {
+      status: "created",
+      spoken_facts: ["Created the Goa Circle."],
+    };
+    const state = replay([
+      ready,
+      {
+        type: "pending_action",
+        pending_action_id: pendingActionId,
+        tool: "create_circle",
+        gateway_action_id: "location.create_circle",
+        tier: "voice",
+        summary: "create a circle called Goa Circle",
+        args: {},
+        status: "pending",
+        shown_at: null,
+        expires_at: null,
+        result: null,
+        risk_level: "low",
+        requires_tap: false,
+        entities: [],
+      },
+      {
+        type: "tool.result",
+        call_id: null,
+        pending_action_id: pendingActionId,
+        tool: "create_circle",
+        status: "created",
+        ok: true,
+        result_public: payload,
+      },
+    ]);
+
+    expect(state.pendingAction?.resolvedStatus).toBe("executed");
+    expect(state.pendingAction?.receiptToken).toBeNull();
+    render(<OneVoicePanel state={state} controller={controller()} />);
+    expect(screen.queryByTestId("one-voice-pending-action")).toBeNull();
+    expect(screen.queryByTestId("one-voice-pending-confirm")).toBeNull();
+    expect(screen.getAllByTestId("one-voice-tool-result")).toHaveLength(1);
+    expect(screen.getByTestId("one-voice-tool-result")).toHaveAttribute(
+      "data-tool",
+      "create_circle",
+    );
+    expect(screen.getByText("Created the Goa Circle.")).toBeInTheDocument();
   });
 
   it("routes the candidate picker to chooseCandidate and 'None of these' to null", () => {

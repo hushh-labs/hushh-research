@@ -102,7 +102,7 @@ function authErrorMessage(error: unknown): string {
   if (error && typeof error === "object" && "code" in error) {
     const code = String((error as { code?: unknown }).code ?? "");
     if (code === "auth/account-exists-with-different-credential") {
-      return "An account already exists with this email using a different sign-in method.";
+      return "An account already exists with this mail using a different sign-in method.";
     }
     if (code === "auth/network-request-failed") {
       return "Network error. Check your connection and try again.";

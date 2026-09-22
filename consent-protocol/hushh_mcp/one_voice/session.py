@@ -587,6 +587,7 @@ class VoiceSession:
         await self._send(
             protocol.tool_result(
                 call_id=call_id,
+                pending_action_id=pending_id,
                 tool=outcome.spec.name if outcome.spec else "",
                 result_public=public,
                 ok=False if awaiting else ok,

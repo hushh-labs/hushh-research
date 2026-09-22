@@ -4,13 +4,29 @@ export const ONE_LOCATION_STATE_CHANGED_EVENT =
   "hushh:one-location-state-changed";
 
 const ONE_LOCATION_STATE_CHANNEL = "hushh-one-location-state-v1";
+const ONE_LOCATION_STATE_SOURCE_ID =
+  typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID()
+    : `tab-${Date.now()}-${Math.random()}`;
 
-export type OneLocationStateDomain = "workspace" | "circles" | "sms_roster";
+export type OneLocationStateDomain =
+  "workspace" | "circles" | "sms_roster" | "map_preferences";
 
 export type OneLocationStateChangedDetail = {
   userId: string;
   domains: OneLocationStateDomain[];
   changedAt: number;
+  /** Optional, non-sensitive mutation identity for consumers that must react
+   *  differently to a terminal transition (for example, closing a Circle
+   *  detail after that Circle was deleted). */
+  notificationType?: string;
+  circleId?: string;
+  /** Account whose membership was removed. Kept as one opaque identifier so
+   *  an open detail can distinguish "you lost access" from "your roster
+   *  changed" without broadcasting any roster contents. */
+  memberUserId?: string;
+  /** Stable across SSE/FCM and tabs for one backend transition. */
+  eventId?: string;
 };
 
 function normalizeDetail(
@@ -26,16 +42,57 @@ function normalizeDetail(
           (domain): domain is OneLocationStateDomain =>
             domain === "workspace" ||
             domain === "circles" ||
-            domain === "sms_roster",
+            domain === "sms_roster" ||
+            domain === "map_preferences",
         ),
     ),
   );
   const changedAt = Number(value?.changedAt);
+  const notificationType = String(value?.notificationType || "").trim();
+  const circleId = String(value?.circleId || "").trim();
+  const memberUserId = String(value?.memberUserId || "").trim();
+  const eventId = String(value?.eventId || "").trim();
   return {
     userId,
     domains: domains.length > 0 ? domains : ["workspace"],
     changedAt: Number.isFinite(changedAt) ? changedAt : Date.now(),
+    ...(notificationType ? { notificationType } : null),
+    ...(circleId ? { circleId } : null),
+    ...(memberUserId ? { memberUserId } : null),
+    ...(eventId ? { eventId } : null),
   };
+}
+
+function normalizeWireDetail(
+  value: unknown,
+): OneLocationStateChangedDetail | null {
+  if (value && typeof value === "object" && "detail" in value) {
+    return normalizeDetail(
+      (value as { detail?: Partial<OneLocationStateChangedDetail> }).detail,
+    );
+  }
+  return normalizeDetail(value as Partial<OneLocationStateChangedDetail>);
+}
+
+export function circleStateChangeClosesDetail(
+  detail: Pick<
+    OneLocationStateChangedDetail,
+    "notificationType" | "circleId" | "memberUserId"
+  >,
+  viewerUserId: string,
+  openCircleId: string,
+): boolean {
+  const sameCircle =
+    Boolean(detail.circleId) &&
+    detail.circleId === String(openCircleId || "").trim();
+  if (!sameCircle) return false;
+  if (detail.notificationType === "location_circle_deleted") return true;
+  return (
+    (detail.notificationType === "location_circle_member_removed" ||
+      detail.notificationType === "location_circle_member_left") &&
+    Boolean(detail.memberUserId) &&
+    detail.memberUserId === String(viewerUserId || "").trim()
+  );
 }
 
 /**
@@ -47,9 +104,18 @@ function normalizeDetail(
 export function dispatchOneLocationStateChanged(
   userId: string,
   domains: OneLocationStateDomain[] = ["workspace"],
+  context: Pick<
+    OneLocationStateChangedDetail,
+    "notificationType" | "circleId" | "memberUserId" | "eventId"
+  > = {},
 ): void {
   if (typeof window === "undefined") return;
-  const detail = normalizeDetail({ userId, domains, changedAt: Date.now() });
+  const detail = normalizeDetail({
+    userId,
+    domains,
+    changedAt: Date.now(),
+    ...context,
+  });
   if (!detail) return;
 
   window.dispatchEvent(
@@ -61,7 +127,7 @@ export function dispatchOneLocationStateChanged(
 
   if (typeof BroadcastChannel === "undefined") return;
   const channel = new BroadcastChannel(ONE_LOCATION_STATE_CHANNEL);
-  channel.postMessage(detail);
+  channel.postMessage({ sourceId: ONE_LOCATION_STATE_SOURCE_ID, detail });
   channel.close();
 }
 
@@ -71,8 +137,20 @@ export function subscribeToOneLocationStateChanges(
   if (typeof window === "undefined") return () => undefined;
 
   let lastDeliveredKey = "";
+  const seenEventIds = new Set<string>();
   const deliver = (detail: OneLocationStateChangedDetail) => {
-    const key = `${detail.userId}:${detail.changedAt}:${detail.domains.join(",")}`;
+    if (detail.eventId) {
+      const eventKey = `${detail.userId}:event:${detail.eventId}`;
+      if (seenEventIds.has(eventKey)) return;
+      seenEventIds.add(eventKey);
+      // A tab can remain open for days. Bound transport-only replay memory;
+      // backend transition ids are unique, so FIFO eviction is sufficient.
+      if (seenEventIds.size > 128) {
+        const oldest = seenEventIds.values().next().value;
+        if (oldest) seenEventIds.delete(oldest);
+      }
+    }
+    const key = `${detail.userId}:${detail.changedAt}:${detail.domains.join(",")}:${detail.notificationType || ""}:${detail.circleId || ""}:${detail.memberUserId || ""}`;
     if (key === lastDeliveredKey) return;
     lastDeliveredKey = key;
     listener(detail);
@@ -91,9 +169,7 @@ export function subscribeToOneLocationStateChanges(
       ? null
       : new BroadcastChannel(ONE_LOCATION_STATE_CHANNEL);
   const onChannelMessage = (event: MessageEvent<unknown>) => {
-    const detail = normalizeDetail(
-      event.data as Partial<OneLocationStateChangedDetail>,
-    );
+    const detail = normalizeWireDetail(event.data);
     if (detail) deliver(detail);
   };
   channel?.addEventListener("message", onChannelMessage);
@@ -102,5 +178,36 @@ export function subscribeToOneLocationStateChanges(
     window.removeEventListener(ONE_LOCATION_STATE_CHANGED_EVENT, onWindowEvent);
     channel?.removeEventListener("message", onChannelMessage);
     channel?.close();
+  };
+}
+
+/** Subscribe only to validated state events emitted by another browser tab. */
+export function subscribeToRemoteOneLocationStateChanges(
+  listener: (detail: OneLocationStateChangedDetail) => void,
+): () => void {
+  if (
+    typeof window === "undefined" ||
+    typeof BroadcastChannel === "undefined"
+  ) {
+    return () => undefined;
+  }
+  const channel = new BroadcastChannel(ONE_LOCATION_STATE_CHANNEL);
+  const onChannelMessage = (event: MessageEvent<unknown>) => {
+    if (
+      event.data &&
+      typeof event.data === "object" &&
+      "sourceId" in event.data &&
+      (event.data as { sourceId?: unknown }).sourceId ===
+        ONE_LOCATION_STATE_SOURCE_ID
+    ) {
+      return;
+    }
+    const detail = normalizeWireDetail(event.data);
+    if (detail) listener(detail);
+  };
+  channel.addEventListener("message", onChannelMessage);
+  return () => {
+    channel.removeEventListener("message", onChannelMessage);
+    channel.close();
   };
 }

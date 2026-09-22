@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import threading
 from datetime import datetime, timezone
 
 import pytest
@@ -7,6 +9,71 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.routes import pkm, pkm_routes_shared
+
+
+@pytest.mark.asyncio
+async def test_location_sync_push_does_not_block_committed_mutation_response(monkeypatch):
+    push_started = threading.Event()
+    release_push = threading.Event()
+
+    def _blocked_push(*_args, **_kwargs):
+        push_started.set()
+        release_push.wait(timeout=2)
+
+    async def _shared_pool_must_not_run(*_args, **_kwargs):
+        raise AssertionError("Location pushes must not use FastAPI's shared thread pool")
+
+    monkeypatch.setattr(pkm_routes_shared, "run_in_threadpool", _shared_pool_must_not_run)
+    monkeypatch.setattr(pkm_routes_shared, "send_user_data_push", _blocked_push)
+    monkeypatch.setattr(
+        "api.consent_listener.publish_user_state_event_threadsafe",
+        lambda *_args, **_kwargs: True,
+    )
+
+    await asyncio.wait_for(
+        pkm_routes_shared._notify_location_pkm_changed("user_123"),
+        timeout=0.1,
+    )
+    assert push_started.wait(timeout=1)
+    assert pkm_routes_shared._LOCATION_SYNC_PUSH_TASKS
+
+    release_push.set()
+    await asyncio.gather(
+        *tuple(pkm_routes_shared._LOCATION_SYNC_PUSH_TASKS),
+        return_exceptions=True,
+    )
+
+
+@pytest.mark.asyncio
+async def test_location_sync_push_backlog_is_bounded(monkeypatch):
+    release_fillers = asyncio.Event()
+    monkeypatch.setattr(pkm_routes_shared, "_LOCATION_SYNC_PUSH_MAX_PENDING", 1)
+
+    async def _pending_delivery():
+        await release_fillers.wait()
+
+    fillers = {asyncio.create_task(_pending_delivery())}
+    pkm_routes_shared._LOCATION_SYNC_PUSH_TASKS.update(fillers)
+    pushes: list[str] = []
+    monkeypatch.setattr(
+        pkm_routes_shared,
+        "send_user_data_push",
+        lambda *_args, **_kwargs: pushes.append("push"),
+    )
+    monkeypatch.setattr(
+        "api.consent_listener.publish_user_state_event_threadsafe",
+        lambda *_args, **_kwargs: True,
+    )
+
+    try:
+        await pkm_routes_shared._notify_location_pkm_changed("user_123")
+        await asyncio.sleep(0)
+        assert pushes == []
+        assert pkm_routes_shared._LOCATION_SYNC_PUSH_TASKS == fillers
+    finally:
+        release_fillers.set()
+        await asyncio.gather(*fillers, return_exceptions=True)
+        pkm_routes_shared._LOCATION_SYNC_PUSH_TASKS.difference_update(fillers)
 
 
 def _confirmed_mutation_plan_payload(
@@ -228,6 +295,140 @@ def test_store_domain_forwards_server_upgrade_claim(monkeypatch):
     ]
 
 
+def test_location_store_emits_silent_metadata_only_sync_after_commit(monkeypatch):
+    pushes: list[tuple[str, dict]] = []
+    streams: list[tuple[str, dict]] = []
+    push_delivered = threading.Event()
+
+    class _FakePkmService:
+        async def get_mutation_sharing_impact(self, **_kwargs):
+            return {
+                "active_recipient_count": 0,
+                "recipient_labels": [],
+                "enters_next_export_revision": False,
+                "affected_grant_ids": [],
+                "affected_export_ids": [],
+            }
+
+        async def store_domain_data(self, **_kwargs):
+            return {
+                "success": True,
+                "data_version": 8,
+                "updated_at": "2026-09-20T00:00:00Z",
+            }
+
+    plan = _confirmed_mutation_plan_payload()
+    plan["proposed_domain"] = "location"
+    plan["confirmation_receipt"]["displayed_domain"] = "location"
+    monkeypatch.setattr(pkm_routes_shared, "get_pkm_service", lambda: _FakePkmService())
+
+    def _capture_push(user_id, **kwargs):
+        pushes.append((user_id, kwargs))
+        push_delivered.set()
+        return 1
+
+    monkeypatch.setattr(pkm_routes_shared, "send_user_data_push", _capture_push)
+    monkeypatch.setattr(
+        "api.consent_listener.publish_user_state_event_threadsafe",
+        lambda user_id, data: streams.append((user_id, data)) or True,
+    )
+
+    with TestClient(_build_app()) as client:
+        response = client.post(
+            "/api/pkm/store-domain",
+            json={
+                "user_id": "user_123",
+                "domain": "location",
+                "encrypted_blob": {
+                    "ciphertext": "ciphertext-only",
+                    "iv": "iv",
+                    "tag": "tag",
+                    "algorithm": "aes-256-gcm",
+                },
+                "summary": {},
+                "mutation_plan": plan,
+            },
+        )
+        assert push_delivered.wait(timeout=2)
+
+    assert response.status_code == 200
+    assert len(pushes) == 1
+    user_id, push = pushes[0]
+    assert user_id == "user_123"
+    assert push["notification_type"] == "location_pkm_changed"
+    assert push["show_alert"] is False
+    assert push["data"]["domain"] == "location"
+    assert push["data"]["data_version"] == "8"
+    assert set(push["data"]) == {
+        "domain",
+        "operation",
+        "data_version",
+        "updated_at",
+        "sync_only",
+        "message_id",
+    }
+    assert "ciphertext" not in str(push)
+    assert streams[0][0] == "user_123"
+    assert streams[0][1]["type"] == "location_pkm_changed"
+    assert streams[0][1]["message_id"] == push["data"]["message_id"]
+    assert streams[0][1]["operation"] == "stored"
+
+
+def test_failed_location_store_does_not_emit_sync_doorbell(monkeypatch):
+    notifications: list[object] = []
+
+    class _FakePkmService:
+        async def get_mutation_sharing_impact(self, **_kwargs):
+            return {
+                "active_recipient_count": 0,
+                "recipient_labels": [],
+                "enters_next_export_revision": False,
+                "affected_grant_ids": [],
+                "affected_export_ids": [],
+            }
+
+        async def store_domain_data(self, **_kwargs):
+            return {
+                "success": False,
+                "conflict": True,
+                "data_version": 9,
+                "updated_at": "2026-09-20T00:00:01Z",
+            }
+
+    plan = _confirmed_mutation_plan_payload()
+    plan["proposed_domain"] = "location"
+    plan["confirmation_receipt"]["displayed_domain"] = "location"
+    monkeypatch.setattr(pkm_routes_shared, "get_pkm_service", lambda: _FakePkmService())
+    monkeypatch.setattr(
+        pkm_routes_shared,
+        "send_user_data_push",
+        lambda *_args, **_kwargs: notifications.append("push"),
+    )
+    monkeypatch.setattr(
+        "api.consent_listener.publish_user_state_event_threadsafe",
+        lambda *_args, **_kwargs: notifications.append("stream"),
+    )
+
+    response = TestClient(_build_app()).post(
+        "/api/pkm/store-domain",
+        json={
+            "user_id": "user_123",
+            "domain": "location",
+            "encrypted_blob": {
+                "ciphertext": "ciphertext-only",
+                "iv": "iv",
+                "tag": "tag",
+                "algorithm": "aes-256-gcm",
+            },
+            "summary": {},
+            "mutation_plan": plan,
+        },
+    )
+
+    assert response.status_code == 409
+    assert notifications == []
+
+
 def test_confirmed_domain_delete_forwards_revision_and_plan(monkeypatch):
     captured: dict[str, object] = {}
 
@@ -275,6 +476,96 @@ def test_confirmed_domain_delete_forwards_revision_and_plan(monkeypatch):
     assert captured["expected_data_version"] == 7
     assert captured["return_result"] is True
     assert captured["mutation_plan"]["operation"] == "delete"
+
+
+@pytest.mark.parametrize("route_kind", ["legacy", "confirmed"])
+def test_location_domain_delete_emits_silent_metadata_only_sync(monkeypatch, route_kind):
+    pushes: list[tuple[str, dict]] = []
+    streams: list[tuple[str, dict]] = []
+    push_delivered = threading.Event()
+
+    class _FakePkmService:
+        async def get_mutation_sharing_impact(self, **_kwargs):
+            return {
+                "active_recipient_count": 0,
+                "recipient_labels": [],
+                "enters_next_export_revision": False,
+                "affected_grant_ids": [],
+                "affected_export_ids": [],
+            }
+
+        async def delete_domain_data(self, _user_id, _domain, **kwargs):
+            if not kwargs:
+                return True
+            return {
+                "success": True,
+                "conflict": False,
+                "deleted": True,
+                "data_version": 12,
+                "updated_at": "2026-09-20T12:00:00Z",
+            }
+
+    monkeypatch.setattr(pkm_routes_shared, "get_pkm_service", lambda: _FakePkmService())
+
+    def _capture_push(user_id, **kwargs):
+        pushes.append((user_id, kwargs))
+        push_delivered.set()
+        return 1
+
+    monkeypatch.setattr(pkm_routes_shared, "send_user_data_push", _capture_push)
+    monkeypatch.setattr(
+        "api.consent_listener.publish_user_state_event_threadsafe",
+        lambda user_id, data: streams.append((user_id, data)) or True,
+    )
+
+    with TestClient(_build_app()) as client:
+        if route_kind == "legacy":
+            response = client.delete("/api/pkm/domain-data/user_123/location")
+        else:
+            plan = _confirmed_delete_plan_payload()
+            plan["proposed_domain"] = "location"
+            plan["confirmation_receipt"]["displayed_domain"] = "location"
+            response = client.post(
+                "/api/pkm/delete-domain",
+                json={
+                    "user_id": "user_123",
+                    "domain": "location",
+                    "expected_data_version": 11,
+                    "mutation_plan": plan,
+                },
+            )
+        assert push_delivered.wait(timeout=2)
+
+    assert response.status_code == 200
+    assert len(pushes) == 1
+    user_id, push = pushes[0]
+    assert user_id == "user_123"
+    assert push["notification_type"] == "location_pkm_changed"
+    assert push["show_alert"] is False
+    assert push["data"]["domain"] == "location"
+    assert push["data"]["operation"] == "cleared"
+    assert set(push["data"]) == {
+        "domain",
+        "operation",
+        "data_version",
+        "updated_at",
+        "sync_only",
+        "message_id",
+    }
+    assert streams == [
+        (
+            "user_123",
+            {
+                "type": "location_pkm_changed",
+                "user_id": "user_123",
+                "request_url": "/one/location?action=settings",
+                "deep_link": "/one/location?action=settings",
+                "notification_tag": push["data"]["message_id"],
+                "notification_category": "ONE_LOCATION",
+                **push["data"],
+            },
+        )
+    ]
 
 
 def test_device_sync_feed_is_owner_bound(monkeypatch):

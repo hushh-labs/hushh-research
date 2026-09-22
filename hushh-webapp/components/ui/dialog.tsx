@@ -43,7 +43,7 @@ function DialogOverlay({
       className={cn(
         // The blur/scrim lives on the Radix overlay itself so it shares the
         // open/close lifecycle and fades OUT on close instead of snapping.
-        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 duration-150 ease-out fixed inset-0 z-(--z-dialog-overlay) touch-none bg-black/22 backdrop-blur-[8px] [-webkit-backdrop-filter:blur(8px)]",
+        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 duration-150 ease-out fixed inset-0 z-(--z-dialog-overlay) touch-none bg-black/24 backdrop-blur-[12px] [-webkit-backdrop-filter:blur(12px)]",
         className
       )}
       {...props}
@@ -98,7 +98,7 @@ function DialogContent({
         {showCloseButton && (
           <DialogPrimitive.Close
             data-slot="dialog-close"
-            className="ring-offset-background focus:ring-ring group absolute top-4 right-4 z-30 isolate overflow-hidden rounded-full border border-transparent bg-[color:var(--app-card-surface-compact)] p-2 opacity-70 transition-[opacity,transform] duration-100 ease-out hover:opacity-100 active:scale-[0.97] focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
+            className="ring-offset-background focus:ring-ring group absolute top-4 right-4 z-30 isolate overflow-hidden rounded-full border border-transparent bg-transparent p-2 text-[color:var(--app-secondary-label)] transition-[color,background-color,transform] duration-100 ease-out hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-label)] active:scale-[0.97] focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4"
           >
             <XIcon />
             <MaterialRipple variant="none" effect="fade" className="z-10" />

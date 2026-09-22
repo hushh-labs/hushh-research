@@ -492,6 +492,50 @@ def test_nearby_check_in_preferences_default_visible_true_requests_false(
     }
 
 
+def test_settings_sync_notification_is_silent_and_metadata_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pushes: list[dict] = []
+    streams: list[tuple[str, dict]] = []
+    service = OneLocationAgentService()
+
+    monkeypatch.setattr(
+        service,
+        "_send_metadata_notification",
+        lambda **kwargs: pushes.append(kwargs) or True,
+    )
+    monkeypatch.setattr(
+        "api.consent_listener.publish_user_state_event_threadsafe",
+        lambda user_id, data: streams.append((user_id, data)) or True,
+    )
+
+    service._send_settings_sync_notification(
+        user_id="user_a",
+        setting="map_preferences",
+    )
+
+    assert len(pushes) == 1
+    assert pushes[0]["notification_type"] == "location_settings_changed"
+    assert pushes[0]["show_alert"] is False
+    assert pushes[0]["data"]["setting"] == "map_preferences"
+    assert pushes[0]["data"]["sync_only"] == "true"
+    assert set(pushes[0]["data"]) == {"setting", "sync_only", "message_id"}
+    assert streams == [
+        (
+            "user_a",
+            {
+                "type": "location_settings_changed",
+                "user_id": "user_a",
+                "request_url": "/one/location?action=settings",
+                "deep_link": "/one/location?action=settings",
+                "notification_tag": pushes[0]["data"]["message_id"],
+                "notification_category": "ONE_LOCATION",
+                **pushes[0]["data"],
+            },
+        )
+    ]
+
+
 def test_nearby_check_in_preferences_update_upserts_and_returns_stored_row(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2931,6 +2975,19 @@ class FourUserMemoryService(OneLocationAgentService):
                 and envelope["recipient_user_id"] == params["recipient_user_id"]
             ]
             return matches[-1] if matches else None
+        if "metadata->'command_operations'->>:operation AS command_fingerprint" in sql:
+            for request in self.requests.values():
+                operations = (request.get("metadata") or {}).get("command_operations") or {}
+                if (
+                    request["owner_user_id"] == params["owner"]
+                    and request["requester_user_id"] == params["requester"]
+                    and params["operation"] in operations
+                ):
+                    return {
+                        **request,
+                        "command_fingerprint": operations[params["operation"]],
+                    }
+            return None
         if (
             "FROM one_location_access_requests" in sql
             and "requester_user_id = :requester_user_id" in sql
@@ -2993,9 +3050,20 @@ class FourUserMemoryService(OneLocationAgentService):
                 "requested_duration_mode": params.get("requested_duration_mode"),
                 "extends_grant_id": params.get("extends_grant_id"),
                 "request_revision": 1,
+                "metadata": {},
             }
             self.requests[request_id] = row
             return row
+        if "SET metadata=" in sql and "command_operations" in sql:
+            request = self.requests.get(params["id"])
+            if not request:
+                return None
+            metadata = dict(request.get("metadata") or {})
+            operations = dict(metadata.get("command_operations") or {})
+            operations[params["operation"]] = params["fingerprint"]
+            metadata["command_operations"] = operations
+            request["metadata"] = metadata
+            return request
         if (
             "UPDATE one_location_access_requests" in sql
             and "SET message = CASE WHEN :exact_message" in sql
@@ -5049,6 +5117,106 @@ def test_location_request_creation_does_not_require_requester_key_material() -> 
             require_recipient_phone_verified=False,
         )
     assert missing_key.value.code == "LOCATION_RECIPIENT_UNAVAILABLE"
+
+
+def test_direct_location_request_rechecks_peer_eligibility_before_writing() -> None:
+    service = FourUserMemoryService()
+
+    with pytest.raises(OneLocationAgentError) as disconnected:
+        service.request_access(
+            requester_user_id="user_b",
+            owner_user_id="user_a",
+            message="Can I see your location?",
+            enforce_peer_eligibility=True,
+        )
+
+    assert disconnected.value.code == "LOCATION_RECIPIENT_NOT_CONNECTED"
+    assert not service.requests
+    assert not service.events
+    assert not service.notifications
+
+    service._seed_connection("user_a", "user_b")
+    direct = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        enforce_peer_eligibility=True,
+    )
+    assert direct["status"] == "pending"
+
+
+def test_direct_location_request_allows_current_circle_only_peer() -> None:
+    service = FourUserMemoryService()
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+    service._seed_named_circle(circle_id, "user_a", "user_c")
+
+    request = service.request_access(
+        requester_user_id="user_c",
+        owner_user_id="user_a",
+        enforce_peer_eligibility=True,
+    )
+
+    assert request["status"] == "pending"
+    assert request["requesterUserId"] == "user_c"
+
+
+def test_direct_location_request_replays_after_relationship_removal() -> None:
+    service = FourUserMemoryService()
+    operation_id = "123e4567-e89b-12d3-a456-426614174099"
+    service._seed_connection("user_a", "user_b")
+
+    first = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        message="Can I see your location?",
+        client_operation_id=operation_id,
+        enforce_peer_eligibility=True,
+    )
+    event_count = len(service.events)
+    notification_count = len(service.notifications)
+    service._revoke_connection_origin(
+        "user_a",
+        "user_b",
+        origin_kind="direct_request",
+    )
+
+    replay = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        message="Can I see your location?",
+        client_operation_id=operation_id,
+        enforce_peer_eligibility=True,
+    )
+
+    assert replay == first
+    assert len(service.requests) == 1
+    assert len(service.events) == event_count
+    assert len(service.notifications) == notification_count
+
+
+def test_direct_location_extension_allows_current_grant_without_connection() -> None:
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user-b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "b", "y": "b"},
+    )
+    grant = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user-b",
+        duration_hours=1,
+    )
+
+    request = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        requested_duration_hours=2,
+        extends_grant_id=grant["id"],
+        enforce_peer_eligibility=True,
+    )
+
+    assert request["isExtension"] is True
+    assert request["extendsGrantId"] == grant["id"]
 
 
 def test_one_location_activity_summary_uses_existing_metadata_events() -> None:

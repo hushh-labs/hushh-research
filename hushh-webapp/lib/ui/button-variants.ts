@@ -1,4 +1,4 @@
-import { cva, type VariantProps } from "class-variance-authority"
+import { cva, type VariantProps } from "class-variance-authority";
 
 export const buttonVariants = cva(
   "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-full transition-[transform,opacity,color,background-color,border-color,box-shadow] motion-reduce:transition-none duration-100 ease-out press-scale active:scale-[0.97] disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4 shrink-0 [&_svg]:shrink-0 outline-none focus-visible:border-[color:var(--app-accent)] focus-visible:ring-[color:var(--app-focus-ring)] focus-visible:ring-[3px] aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive touch-manipulation",
@@ -27,10 +27,25 @@ export const buttonVariants = cva(
       size: {
         default:
           "ui-text-button-label min-h-[50px] h-[50px] px-4 py-3 has-[>svg]:px-3",
+        /**
+         * The app action-size contract is intentionally semantic:
+         * - standard = ordinary form, card, dialog, and sheet action
+         * - prominent = the final action that commits a flow
+         *
+         * `default` stays at its legacy 50px value for compatibility while
+         * feature surfaces migrate explicitly. New product UI should choose
+         * standard or prominent instead of relying on that legacy default.
+         */
+        standard: "ui-text-button-label min-h-11 h-11 px-5 has-[>svg]:px-4",
+        prominent:
+          "ui-text-button-label min-h-[50px] h-[50px] px-6 has-[>svg]:px-5",
+        compact:
+          "ui-text-compact-button-label min-h-11 h-11 gap-1.5 px-4 has-[>svg]:px-3",
         xs: "min-h-7 h-7 gap-1 rounded-[var(--app-radius-sm)] px-2 text-[13px] font-semibold leading-[18px] has-[>svg]:px-1.5 [&_svg:not([class*='size-'])]:size-3",
         sm: "min-h-9 h-9 rounded-[var(--app-radius-md)] gap-1.5 px-3 text-[15px] font-semibold leading-[20px] has-[>svg]:px-2.5",
         lg: "ui-text-button-label min-h-[50px] h-[50px] rounded-full px-6 has-[>svg]:px-4",
         icon: "size-9 rounded-full",
+        "icon-touch": "size-11 rounded-full",
         "icon-xs": "size-6 rounded-full [&_svg:not([class*='size-'])]:size-3",
         "icon-sm": "size-8",
         "icon-lg": "size-10",
@@ -41,6 +56,6 @@ export const buttonVariants = cva(
       size: "default",
     },
   },
-)
+);
 
-export type ButtonVariantProps = VariantProps<typeof buttonVariants>
+export type ButtonVariantProps = VariantProps<typeof buttonVariants>;

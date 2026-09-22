@@ -5,7 +5,6 @@ import { Check, Copy, ShieldCheck } from "@/components/icons";
 import { toast } from "sonner";
 
 import { SurfaceInset } from "@/components/app-ui/surfaces";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/lib/morphy-ux/button";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
@@ -16,7 +15,7 @@ import {
 import { copyToClipboard } from "@/lib/utils/clipboard";
 
 const EXTERNAL_AGENT_PROMPT =
-  "Create a concise, reviewable summary of the personal and KYC details I have explicitly provided to you. Include only information useful for KYC, organized by field.";
+  "Summarize the personal and KYC details I've shared with you so far. Keep it short, organized by field, and only include what's useful for KYC.";
 
 export function GmailVerificationOnboarding({
   userId,
@@ -147,17 +146,14 @@ export function GmailVerificationOnboarding({
 
   if (checking) {
     return (
-      <SurfaceInset
+      <div
         aria-busy="true"
         aria-live="polite"
         aria-label="Checking KYC setup"
-        className="space-y-3 px-4 py-5 sm:px-5"
+        className="sr-only"
       >
-        <div className="space-y-2">
-          <Skeleton className="h-5 w-40" />
-          <Skeleton className="h-4 w-full max-w-md" />
-        </div>
-      </SurfaceInset>
+        Checking KYC setup
+      </div>
     );
   }
   if (profileReady || deferred) return <>{children}</>;
@@ -193,8 +189,8 @@ export function GmailVerificationOnboarding({
           Build your KYC profile
         </h2>
         <p className="text-sm text-muted-foreground">
-          Ask another AI for an export, paste it here, then save only the
-          details you want One to use for future KYC replies.
+          Export your details from another AI, paste them here, and choose what
+          you&apos;d like One to remember for future KYC replies.
         </p>
       </div>
       <Textarea

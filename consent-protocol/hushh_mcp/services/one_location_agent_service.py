@@ -1628,6 +1628,7 @@ class OneLocationAgentService:
         notification_tag: str,
         request_url: str,
         data: dict[str, str | None],
+        show_alert: bool = True,
     ) -> bool:
         """Best-effort metadata-only FCM delivery for location workflow state.
 
@@ -1695,7 +1696,7 @@ class OneLocationAgentService:
                     body=body,
                     request_url=request_url,
                     notification_tag=notification_tag,
-                    show_alert=True,
+                    show_alert=show_alert,
                 )
                 _submit_notification_send(
                     messaging=messaging,
@@ -1714,6 +1715,47 @@ class OneLocationAgentService:
                 exc,
             )
             return False
+
+    def _send_settings_sync_notification(self, *, user_id: str, setting: str) -> None:
+        """Wake the owner's other sessions without presenting a notification.
+
+        The payload is deliberately a metadata-only doorbell. Clients must
+        re-read the authenticated resource; preference values never ride the
+        push/SSE transport.
+        """
+        message_id = f"location_settings_changed:{uuid.uuid4()}"
+        data: dict[str, str | None] = {
+            "setting": setting,
+            "sync_only": "true",
+            "message_id": message_id,
+        }
+        try:
+            from api.consent_listener import publish_user_state_event_threadsafe
+
+            publish_user_state_event_threadsafe(
+                user_id,
+                {
+                    "type": "location_settings_changed",
+                    "user_id": user_id,
+                    "request_url": "/one/location?action=settings",
+                    "deep_link": "/one/location?action=settings",
+                    "notification_tag": message_id,
+                    "notification_category": "ONE_LOCATION",
+                    **data,
+                },
+            )
+        except Exception as exc:  # noqa: BLE001 - sync delivery is best-effort
+            logger.warning("one.location.settings_sse_skipped setting=%s error=%s", setting, exc)
+        self._send_metadata_notification(
+            user_id=user_id,
+            notification_type="location_settings_changed",
+            title="Location settings updated",
+            body="Your Location settings changed on another session.",
+            notification_tag=message_id,
+            request_url="/one/location?action=settings",
+            data=data,
+            show_alert=False,
+        )
 
     def _send_push_notification(
         self,
@@ -5676,6 +5718,50 @@ class OneLocationAgentService:
             )
         return cleaned_circle_id
 
+    def _lock_active_normal_grant_authority(
+        self,
+        conn: Any,
+        *,
+        grant_id: str | None,
+        owner_user_id: str,
+        recipient_user_id: str,
+    ) -> bool:
+        """Lock the live non-SOS grant that authorizes an extension ask."""
+        cleaned_grant_id = str(grant_id or "").strip()
+        if not cleaned_grant_id:
+            return False
+        row = (
+            conn.execute(
+                text(
+                    """
+                    SELECT id
+                    FROM one_location_share_grants
+                    WHERE id = CAST(:grant_id AS UUID)
+                      AND owner_user_id = :owner_user_id
+                      AND recipient_user_id = :recipient_user_id
+                      AND status = 'active'
+                      AND (expires_at IS NULL OR expires_at > NOW())
+                    """  # nosec B608 - the appended lane predicate is a
+                    # module-level constant of static SQL and every value,
+                    # including the lane flag, remains a bound parameter.
+                    + _share_lane_match_sql()
+                    + """
+                    LIMIT 1
+                    FOR SHARE
+                    """
+                ),
+                {
+                    "grant_id": cleaned_grant_id,
+                    "owner_user_id": owner_user_id,
+                    "recipient_user_id": recipient_user_id,
+                    "is_sos_lane": False,
+                },
+            )
+            .mappings()
+            .first()
+        )
+        return row is not None
+
     def _create_enforced_grant_row(
         self,
         *,
@@ -7160,7 +7246,9 @@ class OneLocationAgentService:
                     ),
                 },
             )
-        return self._auto_approve_preference_payload(stored)
+        payload = self._auto_approve_preference_payload(stored)
+        self._send_settings_sync_notification(user_id=user_id, setting="auto_approve")
+        return payload
 
     @staticmethod
     def _nearby_check_in_preferences_payload(row: dict[str, Any] | None) -> dict[str, Any]:
@@ -7224,7 +7312,9 @@ class OneLocationAgentService:
                 "Could not update Nearby Check-In defaults.",
                 status_code=500,
             )
-        return self._nearby_check_in_preferences_payload(row)
+        payload = self._nearby_check_in_preferences_payload(row)
+        self._send_settings_sync_notification(user_id=user_id, setting="nearby_check_in")
+        return payload
 
     @staticmethod
     def _sos_voice_preference_payload(row: dict[str, Any] | None) -> dict[str, Any]:
@@ -7439,12 +7529,14 @@ class OneLocationAgentService:
                 "renderer_consent_version": renderer_consent_version,
             },
         )
-        return {
+        payload = {
             "presenceMode": str((row or {}).get("presence_mode") or "ghost"),
             "rendererConsentVersion": str((row or {}).get("renderer_consent_version") or "")
             or None,
             "updatedAt": _iso((row or {}).get("updated_at")),
         }
+        self._send_settings_sync_notification(user_id=user_id, setting="map_preferences")
+        return payload
 
     def list_map_state(self, *, user_id: str) -> dict[str, Any]:
         """Read active, freshly published private Map envelopes for the viewer.
@@ -9778,6 +9870,7 @@ class OneLocationAgentService:
         referred_by_user_id: str | None = None,
         notify_owner: bool = True,
         require_requester_key_material: bool = False,
+        enforce_peer_eligibility: bool = False,
         requested_duration_hours: float | None = None,
         requested_duration_mode: str | None = None,
         extends_grant_id: str | None = None,
@@ -9925,6 +10018,11 @@ class OneLocationAgentService:
                 },
             )
             if operation_id:
+                # A committed operation is a receipt, not a new authorization
+                # attempt. Return an exact replay before consulting current
+                # relationship state: the original response may have been lost
+                # and the peers may have disconnected after the write already
+                # succeeded. Changed inputs still fail closed by fingerprint.
                 prior = self._execute_one(
                     """SELECT *, metadata->'command_operations'->>:operation AS command_fingerprint
                     FROM one_location_access_requests WHERE owner_user_id=:owner AND requester_user_id=:requester
@@ -9945,6 +10043,48 @@ class OneLocationAgentService:
                     if command and not command_prior:
                         command.save(str(prior["id"]))
                     return self._request_payload(prior) or {}
+            if enforce_peer_eligibility:
+                # Direct authenticated Ask flows have the same relationship
+                # boundary as a private share. Lock that relationship inside
+                # this event-bound transaction so connection/Circle removal
+                # either wins first (and this request fails) or waits and then
+                # observes/cancels the committed workflow. Public-link and
+                # referral requests deliberately leave this flag false: their
+                # live invite/grant is the authority instead of a connection.
+                if connection is not None:
+                    try:
+                        self._lock_circle_share_eligibility(
+                            connection,
+                            owner_user_id=owner_user_id,
+                            recipient_user_id=requester_user_id,
+                            requested_circle_id=None,
+                        )
+                    except OneLocationAgentError as error:
+                        if (
+                            error.code != "LOCATION_RECIPIENT_NOT_CONNECTED"
+                            or not self._lock_active_normal_grant_authority(
+                                connection,
+                                grant_id=extends_grant_value,
+                                owner_user_id=owner_user_id,
+                                recipient_user_id=requester_user_id,
+                            )
+                        ):
+                            raise
+                elif not (
+                    self._is_location_peer_eligible(
+                        owner_user_id=owner_user_id,
+                        other_user_id=requester_user_id,
+                    )
+                    or is_extension
+                ):
+                    # In-memory test doubles do not expose the production
+                    # transaction connection; preserve the same fail-closed
+                    # contract through the canonical eligibility predicate.
+                    raise OneLocationAgentError(
+                        "LOCATION_RECIPIENT_NOT_CONNECTED",
+                        LOCATION_PEER_NOT_ELIGIBLE_MESSAGE,
+                        status_code=403,
+                    )
             if command_prior:
                 raise OneLocationAgentError(
                     "LOCATION_OPERATION_CONFLICT",

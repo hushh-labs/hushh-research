@@ -240,7 +240,7 @@ export class GmailReceiptsService {
 
     if (!response.ok) {
       throw new Error(
-        await extractError(response, "Failed to load Gmail connector status."),
+        await extractError(response, "Failed to load Mail connector status."),
       );
     }
 
@@ -284,7 +284,7 @@ export class GmailReceiptsService {
         result: "error",
       });
       throw new Error(
-        await extractError(response, "Failed to start Gmail OAuth."),
+        await extractError(response, "Failed to start Mail OAuth."),
       );
     }
 
@@ -312,7 +312,7 @@ export class GmailReceiptsService {
     );
     if (!response.ok) {
       throw new Error(
-        await extractError(response, "Failed to start native Gmail OAuth."),
+        await extractError(response, "Failed to start native Mail OAuth."),
       );
     }
     return (await response.json()) as GmailNativeConnectStartResponse;
@@ -339,7 +339,7 @@ export class GmailReceiptsService {
     );
     if (!response.ok) {
       throw new Error(
-        await extractError(response, "Failed to complete native Gmail OAuth."),
+        await extractError(response, "Failed to complete native Mail OAuth."),
       );
     }
     return (await response.json()) as GmailConnectionStatus;
@@ -373,7 +373,7 @@ export class GmailReceiptsService {
         result: "error",
       });
       throw new Error(
-        await extractError(response, "Failed to complete Gmail OAuth."),
+        await extractError(response, "Failed to complete Mail OAuth."),
       );
     }
 
@@ -403,7 +403,7 @@ export class GmailReceiptsService {
     if (!response.ok) {
       trackEvent("gmail_disconnect_result", { result: "error" });
       throw new Error(
-        await extractError(response, "Failed to disconnect Gmail."),
+        await extractError(response, "Failed to disconnect Mail."),
       );
     }
 
@@ -431,7 +431,7 @@ export class GmailReceiptsService {
       throw new Error(
         await extractError(
           response,
-          "Failed to refresh Gmail connector status.",
+          "Failed to refresh Mail connector status.",
         ),
       );
     }
@@ -472,7 +472,7 @@ export class GmailReceiptsService {
         result: "error",
       });
       throw new Error(
-        await extractError(response, "Failed to queue Gmail receipt sync."),
+        await extractError(response, "Failed to queue Mail receipt sync."),
       );
     }
 
@@ -502,7 +502,7 @@ export class GmailReceiptsService {
 
     if (!response.ok) {
       throw new Error(
-        await extractError(response, "Failed to load Gmail sync run status."),
+        await extractError(response, "Failed to load Mail sync run status."),
       );
     }
 
@@ -533,7 +533,7 @@ export class GmailReceiptsService {
         result: "error",
       });
       throw new Error(
-        await extractError(response, "Failed to load synced Gmail receipts."),
+        await extractError(response, "Failed to load synced Mail receipts."),
       );
     }
 
@@ -562,7 +562,7 @@ export class GmailReceiptsService {
 
     if (!response.ok) {
       throw new Error(
-        await extractError(response, "Failed to load Gmail nudges."),
+        await extractError(response, "Failed to load Mail nudges."),
       );
     }
 

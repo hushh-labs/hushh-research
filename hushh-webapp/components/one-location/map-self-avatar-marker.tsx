@@ -63,6 +63,8 @@ export interface MapSelfAvatarMarkerProps {
   avatarUrl: string | null;
   /** Used only for the initials fallback and the accessible name. */
   displayName: string | null;
+  /** What this presentation marker represents. Defaults to the live device fix. */
+  accessibleLabel?: string;
   /** Position is older than the server's freshness window. */
   stale?: boolean;
   /**
@@ -149,6 +151,7 @@ function MapSelfAvatarMarkerImpl({
   viewport,
   avatarUrl,
   displayName,
+  accessibleLabel = "Your location",
   stale,
   stalePositions,
   onSelect,
@@ -172,10 +175,10 @@ function MapSelfAvatarMarkerImpl({
       type="button"
       data-testid="one-location-map-self-avatar"
       data-stale={stale ? "true" : undefined}
-      // "Your location" and nothing more. The renderer's own pin announced the
-      // same two words; adding the person's name here would say out loud, on
-      // the one surface built around not doing that, who the map belongs to.
-      aria-label="Your location"
+      // Do not announce the person's name. On Your Map this remains the live
+      // device fix; an active Check-in may instead describe the public venue
+      // where the owner intentionally chose to appear.
+      aria-label={accessibleLabel}
       onClick={onSelect}
       // z-10 puts it in the same band as the name pills and keeps it under the
       // people tray (z-20) and the top controls (z-30), which are things you

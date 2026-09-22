@@ -23,10 +23,10 @@ describe("EmailDeliveryHistoryCard", () => {
   it("keeps a sent email collapsed until the owner asks to inspect it", () => {
     render(<EmailDeliveryHistoryCard item={item} />);
 
-    expect(screen.getByText("Email sent")).toBeInTheDocument();
+    expect(screen.getByText("Mail sent")).toBeInTheDocument();
     expect(screen.queryByText(item.instruction)).not.toBeVisible();
 
-    fireEvent.click(screen.getByText("Email activity"));
+    fireEvent.click(screen.getByText("Mail activity"));
 
     expect(screen.getByText(item.instruction)).toBeVisible();
     expect(screen.getByText(item.draft.subject)).toBeVisible();
@@ -42,7 +42,7 @@ describe("EmailDeliveryHistoryCard", () => {
       />,
     );
 
-    fireEvent.click(screen.getByText("Email activity"));
+    fireEvent.click(screen.getByText("Mail activity"));
     fireEvent.click(screen.getByRole("button", { name: "Edit and retry" }));
 
     expect(onRetry).toHaveBeenCalledWith(
@@ -62,8 +62,8 @@ describe("EmailDeliveryHistoryCard", () => {
       />,
     );
 
-    fireEvent.click(screen.getByText("Email activity"));
-    expect(screen.getByRole("link", { name: "Reconnect Gmail" })).toHaveAttribute(
+    fireEvent.click(screen.getByText("Mail activity"));
+    expect(screen.getByRole("link", { name: "Reconnect Mail" })).toHaveAttribute(
       "href",
       "/one/gmail",
     );
@@ -76,7 +76,7 @@ describe("EmailDeliveryHistoryCard", () => {
       />,
     );
 
-    fireEvent.click(screen.getByText("Email activity"));
+    fireEvent.click(screen.getByText("Mail activity"));
     expect(screen.getByText("Welcome").tagName).toBe("STRONG");
     expect(screen.getByText("Draft").closest("li")).toBeTruthy();
   });

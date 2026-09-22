@@ -108,7 +108,7 @@ export function ContactSyncResultsSheet({
             ? "Contact sync cancelled"
             : "Could not sync Google contacts";
     return (
-      <Sheet modal={takeover} open={open} onOpenChange={onOpenChange}>
+      <Sheet modal open={open} onOpenChange={onOpenChange}>
         <SheetContent
           side="bottom"
           dragDismiss={false}
@@ -184,7 +184,7 @@ export function ContactSyncResultsSheet({
     result.uncheckedContactCount === result.lookupLimitedContactCount;
 
   return (
-    <Sheet modal={takeover} open={open} onOpenChange={onOpenChange}>
+    <Sheet modal open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="bottom"
         dragDismiss={false}
@@ -201,7 +201,7 @@ export function ContactSyncResultsSheet({
           <SheetTitle>Contact sync results</SheetTitle>
           <SheetDescription>
             {invitations?.enabled
-              ? "Names, numbers and invitation emails stay on your device. Choose contacts to invite from this session after reviewing your matches."
+              ? "Names, numbers and invitation mail messages stay on your device. Choose contacts to invite from this session after reviewing your matches."
               : "Only eligible Hushh accounts are listed. Names and raw phone numbers are never sent to Hushh; contacts without a match are shown only as counts."}
           </SheetDescription>
         </SheetHeader>

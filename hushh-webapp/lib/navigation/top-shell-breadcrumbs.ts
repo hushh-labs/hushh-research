@@ -137,7 +137,7 @@ function profilePanelLabel(panel: ProfilePanel | null): string | null {
   if (panel === "security") return "Security";
   if (panel === "referrals") return "Invite friends";
   if (panel === "support") return "Support & feedback";
-  if (panel === "gmail") return "Gmail";
+  if (panel === "gmail") return "Mail";
   if (panel === "regulatory") return "Regulatory profile";
   return null;
 }
@@ -179,7 +179,7 @@ function profileOriginCrumbLabel(backHref: string): string {
   const labels: Record<string, string> = {
     [ROUTES.ONE_HOME]: "One",
     [ROUTES.ONE_LOCATION]: "Location",
-    [ROUTES.GMAIL]: "Gmail",
+    [ROUTES.GMAIL]: "Mail",
     [ROUTES.PKM]: "Memory",
     [ROUTES.PKM_RECENT]: "Recently learned",
     [ROUTES.ONE_MARKETPLACE]: "Marketplace",
@@ -975,7 +975,7 @@ function resolveTopShellBreadcrumbInner(
         resolveCapabilitySetupBackHref(pathname, originHref) || ROUTES.ONE_HOME,
       width: "profile",
       align: "center",
-      items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Gmail" }],
+      items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Mail" }],
     };
   }
 
@@ -1261,7 +1261,7 @@ function resolveTopShellBreadcrumbInner(
       align: "center",
       items: [
         { label: "One", href: ROUTES.ONE_HOME },
-        { label: "Gmail", href: ROUTES.GMAIL },
+        { label: "Mail", href: ROUTES.GMAIL },
         { label: "Legacy receipts" },
       ],
     };

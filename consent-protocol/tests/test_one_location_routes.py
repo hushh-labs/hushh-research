@@ -179,6 +179,48 @@ def test_atomic_private_share_route_binds_owner_from_token(monkeypatch) -> None:
     assert service.calls[0]["enforce_connection"] is True
 
 
+def test_direct_access_request_route_enforces_current_peer_eligibility(
+    monkeypatch,
+) -> None:
+    class RequestRouteProbe:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def request_access(self, **kwargs):
+            self.calls.append(kwargs)
+            return {
+                "id": "request-1",
+                "ownerUserId": kwargs["owner_user_id"],
+                "requesterUserId": kwargs["requester_user_id"],
+                "status": "pending",
+            }
+
+    service = RequestRouteProbe()
+    current_user = {"user_id": "requester-from-token"}
+    client = _client(service, current_user, monkeypatch)  # type: ignore[arg-type]
+
+    response = client.post(
+        "/api/one/location/requests",
+        json={"ownerUserId": "owner", "message": "Can you share?"},
+    )
+
+    assert response.status_code == 200
+    assert service.calls == [
+        {
+            "requester_user_id": "requester-from-token",
+            "owner_user_id": "owner",
+            "message": "Can you share?",
+            "enforce_peer_eligibility": True,
+            "requested_duration_hours": None,
+            "requested_duration_mode": None,
+            "extends_grant_id": None,
+            "client_operation_id": None,
+            "command_operation_id": None,
+            "command_directive_id": None,
+        }
+    ]
+
+
 def test_private_share_route_threads_until_stopped_duration_mode(monkeypatch) -> None:
     class GrantRouteProbe:
         def __init__(self) -> None:

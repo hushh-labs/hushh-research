@@ -1,6 +1,13 @@
+import base64
 from types import SimpleNamespace
 
-from hushh_mcp.services.feed_service import POSTGRES_BIGINT_MAX, FeedService
+import pytest
+
+from hushh_mcp.services.feed_service import (
+    POSTGRES_BIGINT_MAX,
+    FeedService,
+    _safe_photo_url,
+)
 
 
 class _Db:
@@ -205,7 +212,6 @@ def test_feed_projection_allows_only_bounded_renderer_metadata() -> None:
     assert item["actor_label"] == "A" * 160
     assert item["metadata"] == {
         "counterpart_label": "B" * 256,
-        "counterpart_photo_url": f"https://cdn.example.test/{'p' * 999}",
         "requested_duration_hours": 3,
         "is_extension": True,
     }
@@ -228,6 +234,7 @@ def test_list_feed_enriches_connection_rows_with_counterpart_photo() -> None:
     )
     count_query = _Query(count=1)
     service = FeedService()
+    service._durable_counterpart_photos = lambda *_: None
     service._db = _QueuedDb(
         list_query,
         count_query,
@@ -268,6 +275,7 @@ def test_list_feed_enriches_location_grant_rows_with_counterpart_photo() -> None
     )
     count_query = _Query(count=1)
     service = FeedService()
+    service._durable_counterpart_photos = lambda *_: None
     service._db = _QueuedDb(
         list_query,
         count_query,
@@ -287,3 +295,202 @@ def test_list_feed_enriches_location_grant_rows_with_counterpart_photo() -> None
         "https://cdn.example.test/ankit.jpg"
     )
     assert "one_location_share_grants" in service._db.raw_calls[0][0]
+
+
+def test_durable_identity_gives_same_person_photo_to_mixed_feed_events() -> None:
+    photo = "https://cdn.example.test/current-person.jpg"
+    service = FeedService()
+    service._db = _QueuedDb(
+        raw_results=[
+            [
+                {"feed_id": "41", "counterpart_photo_url": photo},
+                {"feed_id": "42", "counterpart_photo_url": photo},
+                {"feed_id": "43", "counterpart_photo_url": photo},
+            ]
+        ]
+    )
+    rows = [
+        {
+            "id": 41,
+            "source_domain": "location",
+            "event_type": "location_share_viewed",
+            "source_row_id": "old-view-source",
+            "metadata": {"counterpart_label": "Kushal Trivedi"},
+        },
+        {
+            "id": 42,
+            "source_domain": "location",
+            "event_type": "location_sms_contact_added",
+            "source_row_id": "old-sms-source",
+            "metadata": {"counterpart_label": "Kushal Trivedi"},
+        },
+        {
+            "id": 43,
+            "source_domain": "location",
+            "event_type": "circle_member_added",
+            "source_row_id": "old-circle-source",
+            "metadata": {"counterpart_label": "Kushal Trivedi"},
+        },
+    ]
+
+    enriched = service._with_counterpart_photos("viewer-user", rows)
+
+    assert [row["metadata"]["counterpart_photo_url"] for row in enriched] == [
+        photo,
+        photo,
+        photo,
+    ]
+    sql, params = service._db.raw_calls[0]
+    assert "feed_event_counterparts" in sql
+    assert "WHERE f.user_id = :user_id" in sql
+    assert params == {
+        "user_id": "viewer-user",
+        "feed_ids_json": '["41", "42", "43"]',
+    }
+    assert all("counterpart_user_id" not in row for row in enriched)
+    assert all("counterpart_user_id" not in row["metadata"] for row in enriched)
+
+
+def test_uploaded_avatar_is_never_truncated_by_either_feed_boundary() -> None:
+    photo = "data:image/png;base64," + base64.b64encode(b"synthetic-image" * 150).decode()
+    service = FeedService()
+    service._db = _QueuedDb(
+        raw_results=[[{"source_row_id": "grant", "counterpart_photo_url": photo}]]
+    )
+
+    resolved = service._photo_rows("SELECT synthetic", {})[0]["counterpart_photo_url"]
+
+    assert resolved == photo
+    assert (
+        FeedService._to_item({"id": 1, "metadata": {"counterpart_photo_url": resolved}})[
+            "metadata"
+        ]["counterpart_photo_url"]
+        == photo
+    )
+
+
+@pytest.mark.parametrize(
+    "photo",
+    [
+        "javascript:alert(1)",
+        "data:image/svg+xml;base64,PHN2Zy8+",
+        "data:image/png;base64,not-base64!",
+        "data:image/png;base64,",
+        "https://example.test/" + "a" * 1100,
+        "data:image/png;base64," + base64.b64encode(b"a" * (300 * 1024 + 1)).decode(),
+    ],
+    ids=[
+        "script",
+        "svg",
+        "invalid-base64",
+        "empty",
+        "long-url",
+        "oversized-raster",
+    ],
+)
+def test_invalid_avatar_is_rejected_not_partially_returned(photo: str) -> None:
+    assert _safe_photo_url(photo) is None
+
+
+@pytest.mark.parametrize("photo", ["https://example.test/new.png", None, ""])
+def test_durable_photo_read_follows_current_identity_including_removal(
+    photo: str | None,
+) -> None:
+    service = FeedService()
+    service._db = _QueuedDb(raw_results=[[{"feed_id": "42", "counterpart_photo_url": photo}]])
+    row = {
+        "id": 42,
+        "source_domain": "location",
+        "event_type": "location_share_expired",
+        "metadata": {"counterpart_photo_url": "https://example.test/old.png"},
+    }
+
+    item = FeedService._to_item(service._with_counterpart_photos("viewer", [row])[0])
+
+    assert item["metadata"].get("counterpart_photo_url") == (photo or None)
+    assert "counterpart_user_id" not in item
+    assert "counterpart_user_id" not in item["metadata"]
+
+
+def test_old_schema_wrapped_error_keeps_legacy_photo_enrichment_available() -> None:
+    class MissingTable(Exception):
+        pgcode = "42P01"
+
+    class OldSchemaDb:
+        def execute_raw(self, *_args, **_kwargs):
+            raise RuntimeError("wrapped driver error") from MissingTable()
+
+    service = FeedService()
+    service._db = OldSchemaDb()
+
+    assert service._durable_counterpart_photos("viewer", [{"id": 1}]) is None
+
+
+@pytest.mark.parametrize("outcome", ["removed", "missing", "unavailable"])
+def test_legacy_photo_lookup_never_resurrects_a_snapshot(outcome: str) -> None:
+    request_id = "11111111-1111-4111-8111-111111111111"
+
+    class UnavailableDb:
+        def execute_raw(self, *_args, **_kwargs):
+            raise RuntimeError("synthetic unavailable identity lookup")
+
+    service = FeedService()
+    service._durable_counterpart_photos = lambda *_: None
+    service._db = (
+        UnavailableDb()
+        if outcome == "unavailable"
+        else _QueuedDb(
+            raw_results=[
+                [{"source_row_id": request_id, "counterpart_photo_url": None}]
+                if outcome == "removed"
+                else []
+            ]
+        )
+    )
+    original = {
+        "id": 42,
+        "source_domain": "connections",
+        "event_type": "connection_accepted",
+        "source_row_id": request_id,
+        "metadata": {
+            "counterpart_label": "Current Person",
+            "counterpart_photo_url": "https://example.test/old.png",
+        },
+    }
+
+    row = service._with_counterpart_photos("viewer", [original])[0]
+
+    assert row["metadata"] == {"counterpart_label": "Current Person"}
+    assert "counterpart_photo_url" in original["metadata"]
+
+
+def test_legacy_duration_event_prefers_its_authoritative_grant_id() -> None:
+    grant_id = "22222222-2222-4222-8222-222222222222"
+    service = FeedService()
+    service._durable_counterpart_photos = lambda *_: None
+    service._db = _QueuedDb(
+        raw_results=[
+            [
+                {
+                    "source_row_id": grant_id,
+                    "counterpart_photo_url": "https://example.test/person.png",
+                }
+            ]
+        ]
+    )
+
+    rows = service._with_counterpart_photos(
+        "viewer",
+        [
+            {
+                "id": 42,
+                "source_domain": "location",
+                "event_type": "location_share_duration_changed",
+                "source_row_id": "999",
+                "metadata": {"grant_id": grant_id},
+            }
+        ],
+    )
+
+    assert rows[0]["metadata"]["counterpart_photo_url"] == "https://example.test/person.png"
+    assert grant_id in service._db.raw_calls[0][1]["grant_ids_json"]

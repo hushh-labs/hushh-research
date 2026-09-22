@@ -1617,7 +1617,14 @@ def test_history_listing_paginates_all_gmail_history_pages():
 
 
 @pytest.mark.asyncio
-async def test_history_notification_does_not_advance_cursor_when_processing_fails():
+async def test_history_notification_advances_cursor_even_when_one_message_fails_to_process():
+    # A message that will *never* parse (malformed MIME, unclassifiable
+    # content) must not wedge every subsequent webhook against the same
+    # poison message forever -- Gmail History cursors cannot skip one
+    # entry, so a checkpoint that only advances on an all-succeed batch
+    # can never advance again once one message permanently fails. The
+    # checkpoint must advance regardless; the failed message is still
+    # logged individually in the returned results.
     service = _service(_FakeDb(), _FakeConsentDb())
     service._get_mailbox_state = lambda: {"history_id": "100"}  # type: ignore[method-assign]
     service._list_message_ids_from_history = lambda _history_id: ["unprocessed"]  # type: ignore[method-assign]
@@ -1632,12 +1639,18 @@ async def test_history_notification_does_not_advance_cursor_when_processing_fail
         }
     }
 
-    with pytest.raises(OneEmailKycError) as exc_info:
-        await service.handle_push_notification(payload, headers={})
+    result = await service.handle_push_notification(payload, headers={})
 
-    assert exc_info.value.status_code == 503
-    assert exc_info.value.code == "ONE_EMAIL_INTAKE_RETRY"
-    assert upserts == []
+    assert result["accepted"] is True
+    assert result["handled"] is False
+    assert result["results"] == [
+        {
+            "handled": False,
+            "reason": "message_process_failed",
+            "message_id": "unprocessed",
+        }
+    ]
+    assert upserts == [{"history_id": "101", "last_notification": True}]
 
 
 @pytest.mark.asyncio

@@ -405,3 +405,76 @@ export function resolvePreparedAudience<
     );
   return selected as T[];
 }
+
+/**
+ * Re-check the Circle membership recorded in a reviewed audience immediately
+ * before a share is submitted.
+ *
+ * `resolvePreparedAudience` proves that every reviewed person is still an
+ * eligible Location recipient (and, for shares, still has the same encryption
+ * key). A Circle-backed selection has one more invariant: a person must still
+ * belong to the Circle that supplied them. Keeping this as a second,
+ * authoritative check prevents an already-open review from sharing with a
+ * person who left that Circle in another tab/device after the review opened.
+ */
+export async function resolveAuthoritativePreparedAudience<
+  T extends { userId: string; keyId?: string | null },
+>(params: {
+  binding: Record<string, unknown>;
+  pool: readonly T[];
+  owner: string | null;
+  readCircleMembers: (
+    circleId: string,
+  ) => Promise<readonly { userId: string }[]>;
+  options?: { requireEncryptionKey: boolean };
+}): Promise<T[]> {
+  const selected = resolvePreparedAudience(
+    params.binding,
+    params.pool,
+    params.owner,
+    params.options,
+  );
+  const rawSources = params.binding.sourceCircleByRecipient;
+  if (rawSources == null) return selected;
+  if (typeof rawSources !== "object" || Array.isArray(rawSources)) {
+    throw new Error("The reviewed Circle audience changed. Review it again.");
+  }
+
+  const sources = rawSources as Record<string, unknown>;
+  const selectedIds = new Set(selected.map((person) => person.userId));
+  const circleIds = new Set<string>();
+  for (const recipientId of selectedIds) {
+    const source = sources[recipientId];
+    if (source == null || source === "") continue;
+    if (typeof source !== "string") {
+      throw new Error("The reviewed Circle audience changed. Review it again.");
+    }
+    circleIds.add(source);
+  }
+
+  const membersByCircle = new Map(
+    await Promise.all(
+      [...circleIds].map(
+        async (circleId) =>
+          [
+            circleId,
+            new Set(
+              (await params.readCircleMembers(circleId)).map((member) =>
+                String(member.userId || "").trim(),
+              ),
+            ),
+          ] as const,
+      ),
+    ),
+  );
+  for (const recipientId of selectedIds) {
+    const source = sources[recipientId];
+    if (typeof source !== "string" || !source) continue;
+    if (!membersByCircle.get(source)?.has(recipientId)) {
+      throw new Error(
+        "Circle membership changed. Review the audience before sharing.",
+      );
+    }
+  }
+  return selected;
+}

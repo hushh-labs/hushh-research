@@ -101,7 +101,7 @@ export function SelectedContactsSheet({
   );
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
+    <Drawer modal open={open} onOpenChange={onOpenChange}>
       <DrawerContent
         className="max-h-[80vh]"
         data-testid="sms-selected-sheet"

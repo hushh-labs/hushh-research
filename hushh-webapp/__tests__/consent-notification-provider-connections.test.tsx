@@ -18,6 +18,7 @@ const mocks = vi.hoisted(() => {
     getVaultOwnerToken: vi.fn(),
     onConsentMutated: vi.fn(),
     onConnectionGraphMutated: vi.fn(),
+    onOneLocationStateMutated: vi.fn(),
     dispatchConsentStateChanged: vi.fn(),
     dispatchFeedStateChanged: vi.fn(),
     markPendingConsentOpened: vi.fn(),
@@ -85,6 +86,7 @@ vi.mock("@/lib/cache/cache-sync-service", () => ({
   CacheSyncService: {
     onConsentMutated: mocks.onConsentMutated,
     onConnectionGraphMutated: mocks.onConnectionGraphMutated,
+    onOneLocationStateMutated: mocks.onOneLocationStateMutated,
     onConsentReviewed: vi.fn(),
   },
 }));

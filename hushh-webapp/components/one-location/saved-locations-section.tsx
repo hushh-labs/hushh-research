@@ -18,6 +18,7 @@ import { SaveLocationModal } from "@/components/one-location/onboarding/save-loc
 import type { PickedLocation } from "@/components/one-location/onboarding/location-picker-map";
 import { SectionLabel } from "@/components/app-ui/typography";
 import { GOOGLE_MAPS_RENDERER_CONSENT_VERSION } from "@/lib/one-location/map-renderer-consent";
+import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { useAuth } from "@/lib/firebase/auth-context";
 import {
   addSavedLocation,
@@ -31,7 +32,10 @@ import {
   type SavedLocationCategory,
   updateSavedLocation,
   updateSavedLocationAddress,
+  LOCATION_PKM_DOMAIN,
 } from "@/lib/one-location/saved-locations";
+import { usePkmDomainChangeRevision } from "@/lib/pkm/use-pkm-domain-change-revision";
+import { useOneLocationMapPreferences } from "@/lib/one-location/use-one-location-map-preferences";
 import {
   buildSavedLocationAddress,
   inferPostalCode,
@@ -77,6 +81,18 @@ export function SavedLocationsSection() {
   const { user } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
   const userId = user?.uid ?? null;
+  const pkmChangeRevision = usePkmDomainChangeRevision(
+    userId,
+    LOCATION_PKM_DOMAIN,
+  );
+  const {
+    preferences: mapPreferences,
+    refresh: refreshMapPreferences,
+    commit: commitMapPreferences,
+  } = useOneLocationMapPreferences({
+    userId,
+    vaultOwnerToken,
+  });
   const locationControl = useOneLocationControlState(userId);
   const [locations, setLocations] = useState<SavedLocation[]>([]);
   const [loadedUserId, setLoadedUserId] = useState<string | null>(null);
@@ -108,6 +124,10 @@ export function SavedLocationsSection() {
   const vaultSessionRef = useRef({ userId, vaultKey, vaultOwnerToken });
   const captureRequestIdRef = useRef(0);
   const addressResolutionIdRef = useRef(0);
+  const reloadRequestIdRef = useRef(0);
+  const pkmRevisionMountedRef = useRef(false);
+  const reconcileTaskRef = useRef<Promise<void> | null>(null);
+  const reconcileQueuedRef = useRef(false);
 
   // Keep a "latest session" ref so async callbacks can detect when the vault
   // session changed mid-flight. Updated in an effect (not during render) to
@@ -117,27 +137,11 @@ export function SavedLocationsSection() {
   }, [userId, vaultKey, vaultOwnerToken]);
 
   useEffect(() => {
-    let cancelled = false;
-    setRendererDisclosureAccepted(false);
-    if (!vaultOwnerToken) return () => undefined;
-
-    void OneLocationService.getMapState(vaultOwnerToken)
-      .then((state) => {
-        if (cancelled) return;
-        setRendererDisclosureAccepted(
-          state.preferences.rendererConsentVersion ===
-            GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
-        );
-      })
-      .catch(() => {
-        // Fail closed: show the disclosure again when canonical state cannot
-        // be read instead of assuming a prior acceptance.
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [vaultOwnerToken]);
+    setRendererDisclosureAccepted(
+      mapPreferences?.rendererConsentVersion ===
+        GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
+    );
+  }, [mapPreferences]);
 
   const hasVaultAccess = Boolean(
     isVaultUnlocked && vaultKey && vaultOwnerToken,
@@ -159,6 +163,7 @@ export function SavedLocationsSection() {
   );
 
   const reload = useCallback(async () => {
+    const requestId = ++reloadRequestIdRef.current;
     if (!userId) {
       setLocations([]);
       setLoadedUserId(null);
@@ -181,14 +186,22 @@ export function SavedLocationsSection() {
         vaultKey,
         vaultOwnerToken,
       });
-      if (!isCurrentVaultSession(session)) return;
+      if (
+        requestId !== reloadRequestIdRef.current ||
+        !isCurrentVaultSession(session)
+      ) return;
       setLocations(sortSavedLocationsForDisplay(list));
     } catch {
-      if (!isCurrentVaultSession(session)) return;
-      setLocations([]);
+      if (
+        requestId !== reloadRequestIdRef.current ||
+        !isCurrentVaultSession(session)
+      ) return;
       setLoadError("Saved locations could not be loaded. Try again.");
     } finally {
-      if (isCurrentVaultSession(session)) {
+      if (
+        requestId === reloadRequestIdRef.current &&
+        isCurrentVaultSession(session)
+      ) {
         setLoadedUserId(userId);
         setLoading(false);
       }
@@ -198,6 +211,53 @@ export function SavedLocationsSection() {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  useEffect(() => {
+    if (!pkmRevisionMountedRef.current) {
+      pkmRevisionMountedRef.current = true;
+      return;
+    }
+    if (hasVaultAccess) void reload();
+  }, [hasVaultAccess, pkmChangeRevision, reload]);
+
+  useEffect(() => {
+    if (!hasVaultAccess) return;
+    const reconcile = () => {
+      if (
+        typeof document !== "undefined" &&
+        document.visibilityState === "hidden"
+      ) return;
+      if (reconcileTaskRef.current) {
+        reconcileQueuedRef.current = true;
+        return;
+      }
+      const run = async () => {
+        do {
+          reconcileQueuedRef.current = false;
+          await reload();
+          await refreshMapPreferences();
+        } while (reconcileQueuedRef.current);
+      };
+      const task = run().finally(() => {
+        if (reconcileTaskRef.current === task) reconcileTaskRef.current = null;
+      });
+      reconcileTaskRef.current = task;
+    };
+    window.addEventListener("focus", reconcile);
+    window.addEventListener("online", reconcile);
+    document.addEventListener("visibilitychange", reconcile);
+    const removeLifecycle = appInteractionCoordinator.subscribeLifecycle(() => {
+      if (appInteractionCoordinator.getLifecycleSnapshot().state === "active") {
+        reconcile();
+      }
+    });
+    return () => {
+      window.removeEventListener("focus", reconcile);
+      window.removeEventListener("online", reconcile);
+      document.removeEventListener("visibilitychange", reconcile);
+      removeLifecycle();
+    };
+  }, [hasVaultAccess, refreshMapPreferences, reload]);
 
   useEffect(() => {
     if (hasVaultAccess) return;
@@ -580,10 +640,11 @@ export function SavedLocationsSection() {
       vaultOwnerToken,
       rendererConsentVersion: GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
     });
+    commitMapPreferences(next);
     setRendererDisclosureAccepted(
       next.rendererConsentVersion === GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
     );
-  }, [vaultOwnerToken]);
+  }, [commitMapPreferences, vaultOwnerToken]);
 
   if (!userId || loadedUserId !== userId) return null;
 

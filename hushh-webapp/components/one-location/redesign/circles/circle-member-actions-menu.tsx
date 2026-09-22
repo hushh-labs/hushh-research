@@ -27,11 +27,13 @@ import Link from "next/link";
  *                      because it is not laid out against one, and it says
  *                      who it is for in the header rather than by proximity.
  *
- *   desktop (>=640px)  the anchored menu, restyled onto the app's surface
- *                      grammar and headed by the same name. A cursor makes
- *                      the anchor unambiguous, and a bottom sheet on a
- *                      1440px window is the wrong trade in the other
- *                      direction.
+ *   desktop (>=640px)  an anchored menu immediately outside the row, to the
+ *                      right of the kebab and vertically centred on the
+ *                      selected member. It visibly repeats the member name,
+ *                      so a collision-flip on a narrower pointer viewport
+ *                      does not make the actions ambiguous. A cursor makes
+ *                      the anchor unambiguous, and a bottom sheet on a 1440px
+ *                      window is the wrong trade in the other direction.
  *
  * 640px is the same boundary `save-location-sheet-layout.ts` switches its own
  * sheet on, and the same one Tailwind's `sm:` uses -- restated here rather
@@ -41,15 +43,15 @@ import Link from "next/link";
  * ## Visual Map
  *
  *   phone                                desktop
- *   +--------------------------+         roster row          [...]
- *   | Ankit Kumar Singh  [...] |                               |
- *   | JHUMMA KUMARI      [...] |                               v
- *   +==========================+                  +---------------------+
- *   |           ====           |                  | Ankit Kumar Singh   |
- *   |  (AK)  Ankit Kumar Singh |                  +---------------------+
- *   |        Connected         |                  | (>) Share location  |
- *   |  +--------------------+  |                  | (X) Remove from ... |
- *   |  | (>) Share location |  |                  +---------------------+
+ *   +--------------------------+                   +---------------------+  [...]
+ *   | Ankit Kumar Singh  [...] |                   | (>) Share location  |<-- row
+ *   | JHUMMA KUMARI      [...] |                   | (X) Remove from ... |
+ *   +==========================+                   +---------------------+
+ *   |           ====           |
+ *   |  (AK)  Ankit Kumar Singh |
+ *   |        Connected         |
+ *   |  +--------------------+  |
+ *   |  | (>) Share location |  |
  *   |  | (X) Remove from .. |  |
  *   |  +--------------------+  |
  *   |  |       Cancel       |  |
@@ -81,9 +83,18 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { CIRCLE_MEMBER_MENU_CLASSNAME } from "@/components/one-location/redesign/circles/circle-member-row-layout";
+import {
+  CIRCLE_MEMBER_ACTIONS_MENU_ALIGN,
+  CIRCLE_MEMBER_ACTIONS_MENU_COLLISION_PADDING_PX,
+  CIRCLE_MEMBER_ACTIONS_MENU_SIDE,
+  CIRCLE_MEMBER_ACTIONS_MENU_SIDE_OFFSET_PX,
+  CIRCLE_MEMBER_MENU_CLASSNAME,
+  CIRCLE_MEMBER_MENU_ITEM_CLASSNAME,
+  CIRCLE_MEMBER_MENU_TRIGGER_CLASSNAME,
+} from "@/components/one-location/redesign/circles/circle-member-row-layout";
 import { cn } from "@/lib/utils";
 
 /* ------------------------------------------------------------------ */
@@ -96,6 +107,8 @@ export const MEMBER_ACTIONS_SHEET_QUERY = "(max-width: 639.98px)";
 
 export const MEMBER_ACTIONS_SHEET_TESTID = "circle-member-actions-sheet";
 export const MEMBER_ACTIONS_MENU_TESTID = "circle-member-actions-menu";
+export const MEMBER_ACTIONS_MENU_CONTEXT_TESTID =
+  "circle-member-actions-menu-context";
 
 /**
  * The anchored menu's surface, on the app's card grammar rather than the
@@ -119,7 +132,7 @@ export const MEMBER_ACTIONS_MENU_SURFACE_CLASSNAME =
  * to owner.
  */
 export const MEMBER_ACTIONS_MENU_ITEM_CLASSNAME =
-  "flex min-h-11 items-center gap-3 rounded-[10px] px-3 text-[15px] font-normal leading-5 focus:bg-[color:var(--app-neutral-fill)] dark:focus:bg-[color:var(--app-neutral-fill-strong)]";
+  CIRCLE_MEMBER_MENU_ITEM_CLASSNAME;
 
 /** One row of the bottom sheet's action list. 56px, full bleed, so the whole
  *  width of the row is the target rather than the label alone. */
@@ -266,16 +279,17 @@ export function CircleMemberActionsMenu({
           aria-label={menuLabel}
           aria-haspopup="menu"
           aria-expanded={sheetOpen}
-          className={CIRCLE_MEMBER_MENU_CLASSNAME}
+          className={CIRCLE_MEMBER_MENU_TRIGGER_CLASSNAME}
           onClick={() => {
             setSheetConfirmingRemove(false);
             setSheetOpen(true);
           }}
         >
-          <MoreVertical className="h-5 w-5" />
+          <MoreVertical className="h-5 w-5" weight="regular" />
         </Button>
 
         <Drawer
+          modal
           open={sheetOpen}
           onOpenChange={(next) => {
             setSheetOpen(next);
@@ -431,19 +445,28 @@ export function CircleMemberActionsMenu({
             variant="ghost"
             disabled={busy}
             aria-label={menuLabel}
-            className={CIRCLE_MEMBER_MENU_CLASSNAME}
+            className={CIRCLE_MEMBER_MENU_TRIGGER_CLASSNAME}
           >
-            <MoreVertical className="h-5 w-5" />
+            <MoreVertical className="h-5 w-5" weight="regular" />
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
           data-testid={MEMBER_ACTIONS_MENU_TESTID}
-          side="bottom"
-          align="end"
-          sideOffset={6}
-          collisionPadding={12}
+          aria-label={menuLabel}
+          side={CIRCLE_MEMBER_ACTIONS_MENU_SIDE}
+          align={CIRCLE_MEMBER_ACTIONS_MENU_ALIGN}
+          sideOffset={CIRCLE_MEMBER_ACTIONS_MENU_SIDE_OFFSET_PX}
+          collisionPadding={CIRCLE_MEMBER_ACTIONS_MENU_COLLISION_PADDING_PX}
           className={MEMBER_ACTIONS_MENU_SURFACE_CLASSNAME}
         >
+          <DropdownMenuLabel
+            data-testid={MEMBER_ACTIONS_MENU_CONTEXT_TESTID}
+            className="px-3 pb-1 pt-1.5 text-[12px] font-medium leading-4 text-[color:var(--app-secondary-label)]"
+          >
+            <span className="block max-w-[11rem] whitespace-normal [overflow-wrap:anywhere]">
+              Actions for {displayName}
+            </span>
+          </DropdownMenuLabel>
           {canShare ? (
             <DropdownMenuItem
               className={MEMBER_ACTIONS_MENU_ITEM_CLASSNAME}

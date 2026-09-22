@@ -62,6 +62,8 @@ import {
   CIRCLE_DETAIL_HEADER_COPY_CLASSNAME,
   CIRCLE_MEMBERS_CARD_SCROLL_CLASSNAME,
   CIRCLE_MEMBERS_CARD_SHELL_CLASSNAME,
+  CIRCLE_LEAVE_ACTION_CLASSNAME,
+  CIRCLE_PROCEED_TO_SMS_CLASSNAME,
   CIRCLE_MEMBER_ACTION_CLASSNAME,
   CIRCLE_MEMBER_ACTION_COPY_CLASSNAME,
   CIRCLE_MEMBER_STACKED_ACTION_CLASSNAME,
@@ -107,6 +109,7 @@ import { ConnectionPersonAvatar } from "@/components/connections/connection-pers
 import { LOCATION_SEARCH_INPUT_CLASSNAME } from "@/components/one-location/redesign/selectors";
 import { relationshipCta } from "@/lib/connections/relationship-label";
 import { ActionMenu } from "@/components/app-ui/action-menu";
+import { FlowActionGroup } from "@/components/app-ui/flow-actions";
 import { cn } from "@/lib/utils";
 import {
   CIRCLE_INVITE_BATCH_LIMIT,
@@ -129,7 +132,7 @@ const CIRCLES_EMPTY_STATE_WRAPPER =
  * which is what this does.
  */
 const CIRCLE_DESTRUCTIVE_ACTION =
-  "h-12 w-full rounded-full text-[17px] font-semibold text-destructive hover:bg-destructive/10 hover:text-destructive";
+  "ui-text-button-label h-11 min-h-11 w-full rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive";
 
 /**
  * A circle is a group of trusted people, so its glyph carries the PEOPLE role
@@ -421,10 +424,10 @@ export function CirclesSection({
               <Button
                 type="button"
                 variant="outline"
+                size="standard"
                 disabled={incomingInvitesLoading}
                 isLoading={incomingInvitesLoading}
                 onClick={onRetryInvites}
-                className="h-11 rounded-full px-5"
               >
                 Retry
               </Button>
@@ -483,26 +486,31 @@ export function CirclesSection({
                     Invited by {invite.inviterDisplayName}
                   </p>
                 </div>
-                <div className="grid w-full grid-cols-2 gap-2 sm:w-auto">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    disabled={inviteBusy || Boolean(respondingInviteId)}
-                    onClick={() => void respondToInvite(invite, "decline")}
-                    className="h-11 rounded-full px-4"
-                  >
-                    Decline
-                  </Button>
-                  <Button
-                    type="button"
-                    disabled={inviteBusy || Boolean(respondingInviteId)}
-                    isLoading={responding}
-                    onClick={() => void respondToInvite(invite, "accept")}
-                    className="h-11 rounded-full px-4"
-                  >
-                    Join
-                  </Button>
-                </div>
+                <FlowActionGroup
+                  className="sm:w-auto"
+                  secondary={
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="standard"
+                      disabled={inviteBusy || Boolean(respondingInviteId)}
+                      onClick={() => void respondToInvite(invite, "decline")}
+                    >
+                      Decline
+                    </Button>
+                  }
+                  primary={
+                    <Button
+                      type="button"
+                      size="standard"
+                      disabled={inviteBusy || Boolean(respondingInviteId)}
+                      isLoading={responding}
+                      onClick={() => void respondToInvite(invite, "accept")}
+                    >
+                      Join
+                    </Button>
+                  }
+                />
               </div>
             );
           })}
@@ -522,8 +530,8 @@ export function CirclesSection({
               <Button
                 type="button"
                 variant="outline"
+                size="standard"
                 onClick={onDismissFocusedInvite}
-                className="h-11 rounded-full px-5"
               >
                 Dismiss
               </Button>
@@ -686,8 +694,7 @@ export function CreateCircleFlow({
           placeholder="Family, close friends, project team"
           className={cn(
             "h-[52px] w-full rounded-[14px] border border-transparent bg-[color:var(--app-card-surface-default-solid)] px-4 text-[17px] leading-[22px] shadow-[var(--app-card-shadow-standard)] outline-none transition focus:border-[color:var(--app-accent)] focus:ring-2 focus:ring-[color:var(--app-accent-ring)] dark:shadow-none",
-            showNameError &&
-              "ring-2 ring-[#FF3B30]/35 focus:ring-[#FF3B30]/35",
+            showNameError && "ring-2 ring-[#FF3B30]/35 focus:ring-[#FF3B30]/35",
           )}
         />
         {nameHelpText ? (
@@ -695,7 +702,8 @@ export function CreateCircleFlow({
             id={nameHelpId}
             className={cn(
               "block text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]",
-              showNameError && "font-medium text-[color:var(--app-destructive)]",
+              showNameError &&
+                "font-medium text-[color:var(--app-destructive)]",
             )}
           >
             {nameHelpText}
@@ -769,13 +777,11 @@ export function CreateCircleFlow({
 
       <Button
         type="button"
+        size="prominent"
         disabled={!canSubmit}
         isLoading={busy}
         onClick={() => void submit()}
-        className={cn(
-          "h-[52px] w-full rounded-[15px] text-base font-semibold",
-          BLOCKED_CTA,
-        )}
+        className={cn("w-full", BLOCKED_CTA)}
       >
         {busy ? "Creating…" : "Create Circle"}
       </Button>
@@ -825,7 +831,8 @@ export function JoinCircleFlow({
   // accidental tap away from wiping the circle just reviewed.
   const [discardPreviewConfirmOpen, setDiscardPreviewConfirmOpen] =
     useState(false);
-  const inputRef = useRef<HTMLInputElement | null>(null);  const previewRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const previewRef = useRef<HTMLDivElement | null>(null);
   const initialAutoResolvedCodeRef = useRef<string | null>(null);
   const resolveRequestRef = useRef(0);
   const preview = resolved?.preview ?? null;
@@ -983,42 +990,46 @@ export function JoinCircleFlow({
       ) : null}
 
       {preview ? (
-        <div className="space-y-2">
-          <Button
-            type="button"
-            onClick={() => void join()}
-            isLoading={busy}
-            disabled={busy}
-            className="h-[52px] w-full rounded-[15px] text-base font-semibold"
-          >
-            {busy
-              ? preview.alreadyMember
-                ? "Opening…"
-                : "Joining…"
-              : preview.alreadyMember
-                ? "Open Circle"
-                : "Join Circle"}
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            disabled={busy}
-            onClick={() => setDiscardPreviewConfirmOpen(true)}
-            className="h-11 w-full rounded-full text-[15px] font-semibold text-[color:var(--app-accent)]"
-          >
-            Use Another Code
-          </Button>
-        </div>
+        <FlowActionGroup
+          stacked
+          secondary={
+            <Button
+              type="button"
+              variant="ghost"
+              size="standard"
+              disabled={busy}
+              onClick={() => setDiscardPreviewConfirmOpen(true)}
+              className="text-[color:var(--app-accent)]"
+            >
+              Use Another Code
+            </Button>
+          }
+          primary={
+            <Button
+              type="button"
+              size="prominent"
+              onClick={() => void join()}
+              isLoading={busy}
+              disabled={busy}
+            >
+              {busy
+                ? preview.alreadyMember
+                  ? "Opening…"
+                  : "Joining…"
+                : preview.alreadyMember
+                  ? "Open Circle"
+                  : "Join Circle"}
+            </Button>
+          }
+        />
       ) : (
         <Button
           type="button"
+          size="prominent"
           disabled={normalizedLength !== 12 || busy}
           isLoading={busy}
           onClick={() => void resolve()}
-          className={cn(
-            "h-[52px] w-full rounded-[15px] text-base font-semibold",
-            BLOCKED_CTA,
-          )}
+          className={cn("w-full", BLOCKED_CTA)}
         >
           {busy ? "Reviewing…" : "Review Circle"}
         </Button>
@@ -1212,7 +1223,7 @@ function CircleMemberRow({
           <Button
             type="button"
             variant="outline"
-            size="sm"
+            size="compact"
             disabled={busy || cancelling}
             isLoading={cancelling}
             aria-label={`Cancel your request to ${member.displayName}`}
@@ -1226,7 +1237,7 @@ function CircleMemberRow({
         {actionCta?.action === "connect" ? (
           <Button
             type="button"
-            size="sm"
+            size="compact"
             disabled={busy || connecting}
             isLoading={connecting}
             aria-label={`Connect with ${member.displayName}`}
@@ -1698,19 +1709,42 @@ export function CircleDetailFlow({
     page = 1,
     append = false,
     query = peopleSearch,
-  }: { page?: number; append?: boolean; query?: string } = {}) => {
+    reconcileSelections = false,
+  }: {
+    page?: number;
+    append?: boolean;
+    query?: string;
+    /** A remote mutation may invalidate a selection that is not on the
+     *  currently rendered page. Pair the paged display read with the bounded
+     *  full eligible set before trimming selections. */
+    reconcileSelections?: boolean;
+  } = {}) => {
     if (!circle || !canInviteMembers) return;
     const requestId = ++peopleRequestRef.current;
     if (append) setPeopleLoadingMore(true);
     else setPeopleLoading(true);
     setPeopleLoadError(null);
     try {
+      let authoritativeResult: OneLocationCircleEligibleConnections | null =
+        null;
       const result = onLoadEligibleConnectionsPage
-        ? await onLoadEligibleConnectionsPage(circle.id, {
-            page,
-            limit: 50,
-            query: query.trim() || undefined,
-          })
+        ? reconcileSelections
+          ? await Promise.all([
+              onLoadEligibleConnectionsPage(circle.id, {
+                page,
+                limit: 50,
+                query: query.trim() || undefined,
+              }),
+              onLoadEligibleConnections(circle.id),
+            ]).then(([paged, authoritative]) => {
+              authoritativeResult = authoritative;
+              return paged;
+            })
+          : await onLoadEligibleConnectionsPage(circle.id, {
+              page,
+              limit: 50,
+              query: query.trim() || undefined,
+            })
         : await onLoadEligibleConnections(circle.id);
       if (requestId !== peopleRequestRef.current) return;
       setEligibleConnections((current) => {
@@ -1723,8 +1757,9 @@ export function CircleDetailFlow({
         }
         return [...byUserId.values()];
       });
-      setPendingInvites(result.pendingInvites);
-      setRemainingCapacity(result.remainingCapacity);
+      const authoritative = authoritativeResult ?? result;
+      setPendingInvites(authoritative.pendingInvites);
+      setRemainingCapacity(authoritative.remainingCapacity);
       const pagedResult = onLoadEligibleConnectionsPage
         ? (result as OneLocationCircleEligibleConnectionsPage)
         : null;
@@ -1733,20 +1768,32 @@ export function CircleDetailFlow({
       setPeopleTotalCount(
         pagedResult?.totalCount ?? result.eligibleConnections.length,
       );
-      const eligibleByUserId = new Map(
-        result.eligibleConnections.map((connection) => [
-          connection.userId,
-          connection,
-        ]),
-      );
-      setSelectedConnections((current) =>
-        new Map(
-          [...current]
-            .filter(([userId]) => eligibleByUserId.has(userId))
-            .map(([userId]) => [userId, eligibleByUserId.get(userId)!] as const)
-            .slice(0, circleInviteSelectionLimit(result.remainingCapacity)),
-        ),
-      );
+      // Appending page 2 proves nothing about a selection from page 1. Trim
+      // only when this response is the complete authority (non-paged) or the
+      // explicit remote-change reconciliation fetched that authority beside
+      // the visible page.
+      if (!onLoadEligibleConnectionsPage || authoritativeResult) {
+        const eligibleByUserId = new Map(
+          authoritative.eligibleConnections.map((connection) => [
+            connection.userId,
+            connection,
+          ]),
+        );
+        setSelectedConnections((current) =>
+          new Map(
+            [...current]
+              .filter(([userId]) => eligibleByUserId.has(userId))
+              .map(
+                ([userId]) =>
+                  [userId, eligibleByUserId.get(userId)!] as const,
+              )
+              .slice(
+                0,
+                circleInviteSelectionLimit(authoritative.remainingCapacity),
+              ),
+          ),
+        );
+      }
     } catch (error) {
       if (requestId !== peopleRequestRef.current) return;
       setPeopleLoadError(
@@ -1776,7 +1823,11 @@ export function CircleDetailFlow({
     // picker too. Reload in place so search text and the sheet stay put; the
     // response also trims selections that no longer fit the authoritative
     // eligible set.
-    void loadEligibleConnections({ page: 1, query: peopleSearch });
+    void loadEligibleConnections({
+      page: 1,
+      query: peopleSearch,
+      reconcileSelections: true,
+    });
     // This effect is signal-driven. Capturing the current loader is intended;
     // depending on its render-local identity would refetch on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1978,9 +2029,9 @@ export function CircleDetailFlow({
           <Button
             type="button"
             variant="ghost"
-            size="sm"
+            size="compact"
             onClick={() => void reload()}
-            className="ml-2 h-11 rounded-full"
+            className="ml-2"
           >
             Retry
           </Button>
@@ -2000,31 +2051,22 @@ export function CircleDetailFlow({
               <Button
                 type="button"
                 variant="ghost"
+                size="compact"
                 onClick={() => {
                   setCircleName(circle.name);
                   setRenameSheetOpen(true);
                   window.setTimeout(() => nameInputRef.current?.focus(), 80);
                 }}
-                className="h-11 rounded-full px-4 text-[color:var(--app-accent)] hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-accent-hover)]"
+                className="text-[color:var(--app-accent)] hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-accent-hover)]"
               >
                 Edit
               </Button>
             ) : null}
           </div>
 
-          {onProceedToSms && hasOtherMember ? (
-            <Button
-              type="button"
-              onClick={onProceedToSms}
-              className="mx-auto h-12 w-full max-w-[320px] rounded-[14px] text-[15px] font-semibold"
-              data-testid="one-location-proceed-to-sms"
-            >
-              Proceed to SMS
-            </Button>
-          ) : null}
-
           {isOwner && circle.systemKind !== "trusted" ? (
             <Sheet
+              modal
               open={renameSheetOpen}
               onOpenChange={(open) => {
                 setRenameSheetOpen(open);
@@ -2069,34 +2111,43 @@ export function CircleDetailFlow({
                   {circleNameDirty && trimmedCircleName.length < 1 ? (
                     <p className="text-sm text-destructive">Enter a name.</p>
                   ) : null}
-                  <Button
-                    type="button"
-                    disabled={!canSaveCircleName}
-                    isLoading={savingName}
-                    onClick={() =>
-                      void renameCircle().then((saved) => {
-                        if (saved) setRenameSheetOpen(false);
-                      })
+                  <FlowActionGroup
+                    stacked
+                    className="mx-auto max-w-[260px]"
+                    secondary={
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="compact"
+                        onClick={() => {
+                          setRenameSheetOpen(false);
+                          setCircleName(circle.name);
+                        }}
+                      >
+                        Cancel
+                      </Button>
                     }
-                    className={cn(
-                      "h-12 w-full rounded-full text-base font-semibold",
-                      BLOCKED_CTA,
-                    )}
-                    data-testid="one-location-circle-name-save"
-                  >
-                    Save
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    onClick={() => {
-                      setRenameSheetOpen(false);
-                      setCircleName(circle.name);
-                    }}
-                    className="h-11 w-full rounded-full"
-                  >
-                    Cancel
-                  </Button>
+                    primary={
+                      <Button
+                        type="button"
+                        size="standard"
+                        disabled={!canSaveCircleName}
+                        isLoading={savingName}
+                        onClick={() =>
+                          void renameCircle().then((saved) => {
+                            if (saved) setRenameSheetOpen(false);
+                          })
+                        }
+                        className={cn(
+                          BLOCKED_CTA,
+                          "h-11 min-h-11 rounded-[14px]",
+                        )}
+                        data-testid="one-location-circle-name-save"
+                      >
+                        Save
+                      </Button>
+                    }
+                  />
                 </div>
               </SheetContent>
             </Sheet>
@@ -2140,6 +2191,7 @@ export function CircleDetailFlow({
 
           {canViewInviteCode ? (
             <Sheet
+              modal
               open={inviteCodeSheetOpen}
               onOpenChange={(open) => {
                 setInviteCodeSheetOpen(open);
@@ -2181,36 +2233,47 @@ export function CircleDetailFlow({
                         Joining does not share location.
                       </p>
                     </div>
-                    <Button
-                      type="button"
-                      disabled={busy}
-                      onClick={() => void onShareCode(circle, inviteCode.code)}
-                      className="h-12 w-full rounded-full text-base font-semibold"
-                    >
-                      <Share2 className="mr-2 h-4 w-4" />
-                      Share invite
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      disabled={busy}
-                      onClick={() => void copyInviteCode(inviteCode.code)}
-                      className="h-12 w-full rounded-full text-base font-semibold"
-                    >
-                      <Copy className="mr-2 h-4 w-4" />
-                      {codeCopied ? "Copied" : "Copy code"}
-                    </Button>
-                    {canRotateInviteCode ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        disabled={busy}
-                        onClick={() => setReplaceCodeConfirmOpen(true)}
-                        className="h-11 w-full rounded-full"
-                      >
-                        Replace code
-                      </Button>
-                    ) : null}
+                    <FlowActionGroup
+                      stacked
+                      secondary={
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="standard"
+                          disabled={busy}
+                          onClick={() => void copyInviteCode(inviteCode.code)}
+                        >
+                          <Copy className="mr-2 h-4 w-4" />
+                          {codeCopied ? "Copied" : "Copy code"}
+                        </Button>
+                      }
+                      primary={
+                        <Button
+                          type="button"
+                          size="standard"
+                          disabled={busy}
+                          onClick={() =>
+                            void onShareCode(circle, inviteCode.code)
+                          }
+                        >
+                          <Share2 className="mr-2 h-4 w-4" />
+                          Share invite
+                        </Button>
+                      }
+                      tertiary={
+                        canRotateInviteCode ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="standard"
+                            disabled={busy}
+                            onClick={() => setReplaceCodeConfirmOpen(true)}
+                          >
+                            Replace code
+                          </Button>
+                        ) : undefined
+                      }
+                    />
                   </div>
                 ) : inviteCodeNeedsOwnerRotation && !canRotateInviteCode ? (
                   <div
@@ -2227,26 +2290,33 @@ export function CircleDetailFlow({
                     </p>
                   </div>
                 ) : (
-                  <div className={cn(CIRCLE_SHEET_BODY_CLASSNAME, "space-y-3")}>
-                    <Button
-                      type="button"
-                      disabled={busy}
-                      isLoading={busy}
-                      onClick={() =>
-                        void generateCode(inviteCodeNeedsOwnerRotation)
+                  <div className={CIRCLE_SHEET_BODY_CLASSNAME}>
+                    <FlowActionGroup
+                      stacked
+                      secondary={
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="standard"
+                          onClick={() => setInviteCodeSheetOpen(false)}
+                        >
+                          Cancel
+                        </Button>
                       }
-                      className="h-12 w-full rounded-full text-base font-semibold"
-                    >
-                      Create code
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      onClick={() => setInviteCodeSheetOpen(false)}
-                      className="h-11 w-full rounded-full"
-                    >
-                      Cancel
-                    </Button>
+                      primary={
+                        <Button
+                          type="button"
+                          size="prominent"
+                          disabled={busy}
+                          isLoading={busy}
+                          onClick={() =>
+                            void generateCode(inviteCodeNeedsOwnerRotation)
+                          }
+                        >
+                          Create code
+                        </Button>
+                      }
+                    />
                   </div>
                 )}
               </SheetContent>
@@ -2283,6 +2353,7 @@ export function CircleDetailFlow({
           ) : null}
 
           <Sheet
+            modal
             open={peopleSheetOpen}
             onOpenChange={(open) => {
               if (open && !canInviteMembers) return;
@@ -2344,8 +2415,8 @@ export function CircleDetailFlow({
                       <Button
                         type="button"
                         variant="outline"
+                        size="standard"
                         onClick={() => void loadEligibleConnections()}
-                        className="h-11 rounded-full"
                       >
                         Retry
                       </Button>
@@ -2375,7 +2446,7 @@ export function CircleDetailFlow({
                             const selectionAtCapacity =
                               selectedConnections.size >= selectionLimit;
 
-  return (
+                            return (
                               <SettingsRow
                                 key={connection.userId}
                                 layout="person"
@@ -2405,11 +2476,14 @@ export function CircleDetailFlow({
                                       "flex h-6 w-6 items-center justify-center rounded-full border",
                                       selected
                                         ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
-                                        : "border-border bg-background",
+                                        : "border-border bg-transparent",
                                     )}
                                   >
                                     {selected ? (
-                                      <Check className="h-4 w-4" />
+                                      <Check
+                                        className="h-4 w-4"
+                                        weight="bold"
+                                      />
                                     ) : null}
                                   </span>
                                 }
@@ -2458,7 +2532,7 @@ export function CircleDetailFlow({
                                   className={cn(
                                     buttonVariants({
                                       variant: "outline",
-                                      size: "sm",
+                                      size: "compact",
                                     }),
                                   )}
                                 >
@@ -2474,6 +2548,7 @@ export function CircleDetailFlow({
                         <Button
                           type="button"
                           variant="outline"
+                          size="standard"
                           disabled={peopleLoadingMore}
                           isLoading={peopleLoadingMore}
                           onClick={() =>
@@ -2482,7 +2557,7 @@ export function CircleDetailFlow({
                               append: true,
                             })
                           }
-                          className="h-11 w-full rounded-full"
+                          className="w-full"
                         >
                           Load more connections
                         </Button>
@@ -2517,13 +2592,14 @@ export function CircleDetailFlow({
                                 <Button
                                   type="button"
                                   variant="ghost"
+                                  size="compact"
                                   disabled={Boolean(cancellingInviteId)}
                                   isLoading={cancellingInviteId === invite.id}
                                   onClick={(event) => {
                                     event.stopPropagation();
                                     void cancelMemberInvite(invite.id);
                                   }}
-                                  className="h-11 rounded-full px-3 text-destructive hover:text-destructive"
+                                  className="text-destructive hover:text-destructive"
                                 >
                                   Cancel
                                 </Button>
@@ -2538,6 +2614,7 @@ export function CircleDetailFlow({
 
                 <Button
                   type="button"
+                  size="prominent"
                   disabled={
                     !selectedConnections.size ||
                     peopleLoading ||
@@ -2546,10 +2623,7 @@ export function CircleDetailFlow({
                   }
                   isLoading={peopleSubmitting}
                   onClick={() => void sendMemberInvites()}
-                  className={cn(
-                    "h-12 w-full shrink-0 rounded-full text-base font-semibold",
-                    BLOCKED_CTA,
-                  )}
+                  className={cn("w-full shrink-0", BLOCKED_CTA)}
                 >
                   {selectedConnections.size
                     ? `Add ${selectedConnections.size} ${
@@ -2675,16 +2749,33 @@ export function CircleDetailFlow({
               <Button
                 type="button"
                 variant="outline"
+                size="standard"
                 disabled={memberLoadingMore}
                 isLoading={memberLoadingMore}
                 onClick={() => void loadMoreMembers()}
-                className="h-11 w-full rounded-full"
+                className="w-full"
                 data-testid="one-location-circle-members-load-more"
               >
                 Load more members
               </Button>
             ) : null}
           </section>
+
+          {onProceedToSms && hasOtherMember ? (
+            <div
+              className="flex justify-end"
+              data-testid="one-location-proceed-to-sms-row"
+            >
+              <Button
+                type="button"
+                onClick={onProceedToSms}
+                className={CIRCLE_PROCEED_TO_SMS_CLASSNAME}
+                data-testid="one-location-proceed-to-sms"
+              >
+                Proceed to SMS
+              </Button>
+            </div>
+          ) : null}
 
           {/* A system Circle (today: SMS Contacts) is provisioned by the product
               and read by SOS, so deleting it would switch emergency alerts off
@@ -2728,41 +2819,50 @@ export function CircleDetailFlow({
               </AlertDialogContent>
             </AlertDialog>
           ) : canLeaveCircle ? (
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  disabled={busy}
-                  className={cn(CARD_SURFACE, CIRCLE_DESTRUCTIVE_ACTION)}
-                >
-                  <LogOut className="mr-2 h-4 w-4" />
-                  Leave circle
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Leave “{circle.name}”?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    Circle shares with you will stop. Direct shares stay
-                    unchanged.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel className="h-11 w-full sm:w-auto">
-                    Cancel
-                  </AlertDialogCancel>
-                  <AlertDialogAction
-                    variant="destructive"
+            <div
+              className="flex justify-end"
+              data-testid="one-location-leave-circle-row"
+            >
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    type="button"
+                    variant="ghost"
                     disabled={busy}
-                    onClick={() => void leaveCircle()}
-                    className="h-11 w-full sm:w-auto"
+                    className={cn(CARD_SURFACE, CIRCLE_LEAVE_ACTION_CLASSNAME)}
                   >
-                    Leave Circle
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+                    <LogOut
+                      className="mr-2 h-4 w-4"
+                      weight="regular"
+                      data-testid="one-location-leave-circle-icon"
+                    />
+                    Leave circle
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Leave “{circle.name}”?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Circle shares with you will stop. Direct shares stay
+                      unchanged.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel className="h-11 w-full sm:w-auto">
+                      Cancel
+                    </AlertDialogCancel>
+                    <AlertDialogAction
+                      variant="destructive"
+                      disabled={busy}
+                      onClick={() => void leaveCircle()}
+                      className="h-11 w-full sm:w-auto"
+                    >
+                      Leave Circle
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
           ) : null}
         </>
       ) : !loadError ? (

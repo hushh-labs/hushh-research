@@ -1192,7 +1192,7 @@ function replySubject(subject: string | null | undefined): string {
 
 function kycX25519UnsupportedError(): Error {
   return new Error(
-    "One Email KYC requires WebCrypto X25519 support. Use iOS 17 or later for direct device testing."
+    "One Mail KYC requires WebCrypto X25519 support. Use iOS 17 or later for direct device testing."
   );
 }
 

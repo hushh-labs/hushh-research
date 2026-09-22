@@ -379,7 +379,7 @@ function buildActions(card: PublicWalletCard): CardAction[] {
   if (card.email) {
     actions.push({
       id: "email",
-      label: "Email",
+      label: "Mail",
       href: mailtoHref(card.email),
       icon: Mail,
       external: false,

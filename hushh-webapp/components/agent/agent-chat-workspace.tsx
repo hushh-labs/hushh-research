@@ -101,8 +101,6 @@ import {
   type SpecialistPendingConsentRequestItem,
 } from "@/components/agent/specialist-directive-card";
 import { copyTextToClipboard } from "@/components/agent/chat-markdown-link";
-import { AgentConnectAccessCard } from "@/components/agent/agent-connect-access-card";
-import { AgentGmailNudgeCard } from "@/components/agent/agent-gmail-nudge-card";
 import { AgentMarkdown } from "@/components/agent/agent-markdown";
 import { SelectionChip } from "@/components/agent/selection-chip";
 import { PuppyOneSurface } from "@/components/agent/puppy-one-surface";
@@ -248,9 +246,6 @@ import type {
 import { KycIdentityProfilePkmService } from "@/lib/services/kyc-identity-profile-pkm-service";
 import { prepareScopedGmailInformationRequestDraft } from "@/lib/services/gmail-information-request-draft-service";
 import { GmailInformationRequestsService } from "@/lib/services/gmail-information-requests-service";
-import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
-import { useGmailNudges } from "@/lib/gmail/use-gmail-nudges";
-import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
 
 type AgentMessage = {
   id: string;
@@ -1742,10 +1737,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const pathname = usePathname();
   const isCanonicalChatRoute = pathname === ROUTES.HOME;
   const searchParams = useSearchParams();
-  // The workspace is now the canonical full-page chat surface. Keep this
-  // compatibility guard for the proactive-card contract while there is no
-  // popover mount in the current route topology.
-  const isPopover = false;
   const localCrmEnabled = isLocalCrmBuildEnabled();
   const { user, loading: authLoading, phoneNumber, sessionVerificationRequired } = useAuth();
   const {
@@ -2179,44 +2170,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     vaultOwnerToken &&
     tokenIsFresh,
   );
-  // Proactive Gmail connect/nudge cards: page-variant only (the popover
-  // shouldn't repeat a full "connect Gmail" pitch every time it's opened
-  // elsewhere in the app), and gated the same way the rest of the chat's
-  // vault-backed features are.
-  const gmailIdTokenProvider = useCallback(
-    () => (user?.getIdToken ? user.getIdToken() : Promise.resolve("")),
-    [user],
-  );
-  const gmailConnectorStatus = useGmailConnectorStatus({
-    userId: user?.uid || null,
-    enabled: !isPopover && hasChatAccess,
-    idTokenProvider: user?.getIdToken ? gmailIdTokenProvider : null,
-    routeHref: ROUTES.HOME,
-  });
-  const gmailNudges = useGmailNudges({
-    userId: user?.uid || null,
-    vaultOwnerToken: vaultOwnerToken || null,
-    isConnected: gmailConnectorStatus.status?.connected === true,
-    idTokenProvider: user?.getIdToken ? gmailIdTokenProvider : null,
-  });
-  const [gmailConnectCardDismissed, setGmailConnectCardDismissed] = useState(false);
-  const [gmailNudgeCardDismissed, setGmailNudgeCardDismissed] = useState(false);
-  const [gmailConnectBusy, setGmailConnectBusy] = useState(false);
-  const handleConnectGmail = useCallback(async () => {
-    if (!user?.uid || !user?.getIdToken) return;
-    setGmailConnectBusy(true);
-    try {
-      const idToken = await user.getIdToken();
-      const start = await GmailReceiptsService.startConnect({
-        idToken,
-        userId: user.uid,
-        includeGrantedScopes: false,
-      });
-      window.location.assign(start.authorize_url);
-    } catch {
-      setGmailConnectBusy(false);
-    }
-  }, [user]);
   const availablePersonas = useMemo(() => {
     const personas = new Set<typeof activePersona>([activePersona]);
     personas.add("investor");
@@ -2810,7 +2763,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           );
           updateMessage(assistantMessageId, (message) => ({
             ...message,
-            text: `I couldn’t find ${(unavailableLabels.length > 0 ? unavailableLabels : request.requested_field_labels).join(", ")} in your private memory. Reply here with only the details you want to share, and I’ll save them privately before preparing the Gmail reply.`,
+            text: `I couldn’t find ${(unavailableLabels.length > 0 ? unavailableLabels : request.requested_field_labels).join(", ")} in your private memory. Reply here with only the details you want to share, and I’ll save them privately before preparing the Mail reply.`,
             status: "done",
           }));
           return;
@@ -2819,7 +2772,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         setGmailKycMissingLabels([]);
         const requestSummary = gmailKycRequestSummary(workflow);
         setEmailDraftInstruction(
-          `Replying to the selected Gmail request. Requested: ${requestSummary}.`,
+          `Replying to the selected Mail request. Requested: ${requestSummary}.`,
         );
         setEmailDraftInitialValue({
           to: "",
@@ -2834,7 +2787,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         setEmailDraftOpen(true);
         updateMessage(assistantMessageId, (message) => ({
           ...message,
-          text: "I found the matching private details. Your editable reply to the selected Gmail request is ready below.",
+          text: "I found the matching private details. Your editable reply to the selected Mail request is ready below.",
           status: "done",
         }));
       } catch {
@@ -2842,7 +2795,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         setGmailKycEmailDraftWorkflowId(null);
         updateMessage(assistantMessageId, (message) => ({
           ...message,
-          text: "I couldn’t prepare the Gmail reply right now. Please try again.",
+          text: "I couldn’t prepare the Mail reply right now. Please try again.",
           status: "error",
         }));
       } finally {
@@ -2875,7 +2828,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     appendMessage({
       id: assistantMessageId,
       role: "assistant",
-      text: `Saving those details privately and preparing a reply to the selected Gmail request for ${gmailKycRequestSummary(request)}…`,
+      text: `Saving those details privately and preparing a reply to the selected Mail request for ${gmailKycRequestSummary(request)}…`,
       timestamp,
       status: "streaming",
       ephemeral: true,
@@ -2894,7 +2847,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       }
       updateMessage(assistantMessageId, (message) => ({
         ...message,
-        text: "Finding the matching private details and preparing the reply in the original Gmail thread…",
+        text: "Finding the matching private details and preparing the reply in the original Mail thread…",
         status: "streaming",
       }));
       await prepareGmailKycReply(request, assistantMessageId, {
@@ -3067,7 +3020,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         {
           id: handoffMessageId,
           role: "assistant",
-          text: `I’m replying in the selected Gmail thread. This request asks for: ${requestedFields}. I’ll use only matching private details, and you can review the response before it sends.`,
+          text: `I’m replying in the selected Mail thread. This request asks for: ${requestedFields}. I’ll use only matching private details, and you can review the response before it sends.`,
           timestamp,
           status: "done",
           ephemeral: true,
@@ -5548,7 +5501,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       surface={agentSurface}
       onClose={onClose}
       onToggleCollapsed={toggleHistoryDrawer}
-      onOpenConnectors={() => setConnectorsPanelOpen(true)}
+      // MCP connections isn't ready to surface in the chat sidebar yet --
+      // omitting onOpenConnectors hides AgentHistorySidebar's button (it
+      // renders only when the prop is passed). The panel, the deep-link
+      // effect below, and the OAuth-return route stay intact so re-enabling
+      // this is a one-line change, not a re-build.
       onCreateNew={handleSidebarCreateNewChat}
       onSelectConversation={handleSidebarSelectConversation}
       onRenameConversation={isPuppySurface ? handleRenamePuppyConversation : handleRenameConversation}
@@ -6009,38 +5966,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     </Button>
                   ) : null}
                 </div>
-              ) : null}
-
-              {!isPopover &&
-              hasChatAccess &&
-              !hasStartedConversation &&
-              !gmailConnectCardDismissed &&
-              gmailConnectorStatus.status?.connected === false ? (
-                <AgentConnectAccessCard
-                  title="Read your inbox"
-                  bullets={[
-                    "Reads your email for what needs a reply",
-                    "Surfaces meetings from your invites",
-                    "Never shares or sells your data",
-                    "Never acts without your yes",
-                  ]}
-                  ctaLabel="Connect Gmail & continue"
-                  busy={gmailConnectBusy}
-                  onConnect={() => void handleConnectGmail()}
-                  onDismiss={() => setGmailConnectCardDismissed(true)}
-                />
-              ) : null}
-
-              {!isPopover &&
-              hasChatAccess &&
-              !hasStartedConversation &&
-              !gmailNudgeCardDismissed &&
-              gmailConnectorStatus.status?.connected === true &&
-              gmailNudges.nudges.length > 0 ? (
-                <AgentGmailNudgeCard
-                  nudges={gmailNudges.nudges}
-                  onDismiss={() => setGmailNudgeCardDismissed(true)}
-                />
               ) : null}
 
               {postSetupWelcomeContext ? (
@@ -7107,7 +7032,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         }
                         placeholder={
                           isGmailKycSaving && gmailKycReplyRequest
-                            ? "Preparing your reply to the selected Gmail request…"
+                            ? "Preparing your reply to the selected Mail request…"
                             : gmailKycMissingLabels.length > 0
                             ? `Reply with: ${gmailKycMissingLabels.join(", ")}`
                             : "Write a longer message..."
@@ -7173,7 +7098,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           }
                           placeholder={
                             isGmailKycSaving && gmailKycReplyRequest
-                              ? "Preparing your reply to the selected Gmail request…"
+                              ? "Preparing your reply to the selected Mail request…"
                               : gmailKycMissingLabels.length > 0
                               ? `Reply with: ${gmailKycMissingLabels.join(", ")}`
                               : "Message One..."

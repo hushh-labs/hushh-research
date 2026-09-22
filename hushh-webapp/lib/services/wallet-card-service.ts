@@ -519,7 +519,7 @@ export function validateWalletCardPayload(
       if (!match) {
         errors.push({
           field: key,
-          message: "Choose email, phone, LinkedIn or a link.",
+          message: "Choose mail, phone, LinkedIn or a link.",
         });
         continue;
       }
@@ -528,7 +528,7 @@ export function validateWalletCardPayload(
     }
 
     if (key === "email" && !EMAIL_SHAPE.test(trimmed)) {
-      errors.push({ field: key, message: "Enter a valid email address." });
+      errors.push({ field: key, message: "Enter a valid mail address." });
       continue;
     }
     if (key === "phone" && !PHONE_SHAPE.test(trimmed)) {

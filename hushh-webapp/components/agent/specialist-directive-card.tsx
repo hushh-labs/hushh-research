@@ -156,6 +156,7 @@ export type SpecialistConsentRequiredCardProps = {
 };
 
 function agentDisplayName(agentId: string): string {
+  if (agentId === "agent_email") return "Mail";
   if (agentId === "agent_nav") return "Nav";
   if (agentId === "agent_location") return "Location";
   if (agentId === "agent_kai") return "Finance";

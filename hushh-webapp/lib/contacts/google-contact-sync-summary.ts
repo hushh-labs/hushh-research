@@ -20,7 +20,7 @@ export function googleContactSyncSummary(
     return {
       title: "No phone numbers to match",
       description:
-        "Your Google contacts were read, but none had a usable phone number. One matches verified phone numbers. You can still invite contacts with an email address, or choose another Google account.",
+        "Your Google contacts were read, but none had a usable phone number. One matches verified phone numbers. You can still invite contacts with a mail address, or choose another Google account.",
     };
   }
   if (!result.partial && result.matches.length === 0) {

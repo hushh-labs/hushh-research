@@ -1135,7 +1135,7 @@ export function OneKycWorkspace({
       }
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Email alias verification failed.",
+        err instanceof Error ? err.message : "Mail alias verification failed.",
       );
     } finally {
       setBusy(null);
@@ -1158,7 +1158,7 @@ export function OneKycWorkspace({
       setAliasChallenge(null);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Email alias confirmation failed.",
+        err instanceof Error ? err.message : "Mail alias confirmation failed.",
       );
     } finally {
       setBusy(null);
@@ -1951,7 +1951,7 @@ export function OneKycWorkspace({
                     description="Enable it to review requests sent from one of your verified addresses to one@hushh.ai."
                     trailing={
                       <Button asChild size="sm" variant="outline">
-                        <a href={ROUTES.ONE_SETUP_EMAIL}>Set up email</a>
+                        <a href={ROUTES.ONE_SETUP_EMAIL}>Set up mail</a>
                       </Button>
                     }
                     trailingInteractive

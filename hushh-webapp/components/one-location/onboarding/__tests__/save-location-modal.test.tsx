@@ -1029,8 +1029,9 @@ describe("SaveLocationModal", () => {
         // painted circle is unchanged.
         expect(button.className).toContain("after:h-11");
         expect(button.className).toContain("after:w-11");
-        expect(button.className).toContain("h-9");
-        expect(button.className).toContain("w-9");
+        expect(button.className).toContain("h-10");
+        expect(button.className).toContain("w-10");
+        expect(button.className).toContain("bg-transparent");
       }
     });
 
@@ -1118,7 +1119,10 @@ describe("SaveLocationModal", () => {
 
       const footer = screen.getByRole("button", { name: /Save location/ })
         .parentElement!;
-      expect(footer.className).toContain("bg-background");
+      expect(footer.className).toContain(
+        "bg-[color:var(--app-card-surface-default-solid)]",
+      );
+      expect(footer.className).not.toContain("bg-background");
       expect(footer.className).toContain(
         "pb-[max(1.5rem,env(safe-area-inset-bottom))]",
       );

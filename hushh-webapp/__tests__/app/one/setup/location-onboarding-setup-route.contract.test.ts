@@ -28,6 +28,38 @@ describe("Location setup route contract", () => {
     expect(adapter).not.toContain("<SetupCapabilityTerminalFooter");
   });
 
+  it("keeps One Voice readiness from replacing the canonical onboarding tree", () => {
+    const adapter = read(
+      "app/one/setup/location/location-onboarding-setup-client.tsx",
+    );
+
+    // Live readiness owns the global microphone/publisher runtime. It must not
+    // choose a second presentation here: root setup is pre-vault, while the
+    // server-progress LocationSetupFlow requires a vault owner token.
+    expect(adapter).toContain('<OneLocationAgentPage mode="setup"');
+    expect(adapter.match(/<OneLocationAgentPage/g)).toHaveLength(1);
+    expect(adapter).not.toContain("useOneVoiceLiveEnabled");
+    expect(adapter).not.toContain("LocationSetupFlow");
+    expect(adapter).not.toContain("next/dynamic");
+    expect(adapter).not.toMatch(/if\s*\(\s*live\s*\)/);
+  });
+
+  it("keeps setup paired with the established Location workspace", () => {
+    const locationPage = read("app/one/location/page.tsx");
+
+    // The migration-223 setup-progress UI is owned by the separate,
+    // non-routed LocationArea experiment. The customer-facing workspace and
+    // its setup route must stay on the same established One Location tree so
+    // one cannot declare the other incomplete after settlement.
+    expect(locationPage).toContain(
+      "return <OneLocationAgentPage {...props} />;",
+    );
+    expect(locationPage).not.toContain("LocationAreaSwitch");
+    expect(locationPage).not.toContain(
+      '@/components/location/location-area',
+    );
+  });
+
   it("keeps Location setup vault-free until the root setup completion", () => {
     const locationPage = read("app/one/location/page.tsx");
 

@@ -87,7 +87,7 @@ describe("EmailDeliveryService", () => {
       }),
     ).rejects.toMatchObject<Partial<EmailDeliveryError>>({
       code: "GMAIL_SEND_PERMISSION_REQUIRED",
-      message: "Reconnect Gmail to grant email sending permission.",
+      message: "Reconnect Mail to grant mail sending permission.",
     });
   });
 
@@ -107,7 +107,7 @@ describe("EmailDeliveryService", () => {
       }),
     ).rejects.toMatchObject<Partial<EmailDeliveryError>>({
       code: "GMAIL_SEND_DISABLED",
-      message: "Reconnect Gmail to finish enabling email sending.",
+      message: "Reconnect Mail to finish enabling mail sending.",
       needsGmailReconnect: true,
     });
   });

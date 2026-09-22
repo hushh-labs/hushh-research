@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import { mailDisplayLabel } from "@/lib/copy/mail-terminology";
 import {
   Check,
   Code2,
@@ -152,7 +153,7 @@ function DecryptedRecordContent({ data }: { data: Record<string, unknown> }) {
         const stringTags = val.map(String).filter(Boolean);
         if (stringTags.length > 0) {
           tagSections.push({
-            label: displayKey.replace(/_/g, " "),
+            label: mailDisplayLabel(displayKey.replace(/_/g, " ")),
             tags: stringTags,
           });
         }
@@ -160,7 +161,7 @@ function DecryptedRecordContent({ data }: { data: Record<string, unknown> }) {
         inspectLevel(val as Record<string, unknown>, displayKey, false);
       } else if (val !== null && val !== undefined) {
         kvPairs.push({
-          key: displayKey.replace(/_/g, " "),
+          key: mailDisplayLabel(displayKey.replace(/_/g, " ")),
           val: String(val),
         });
       }

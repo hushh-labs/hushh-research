@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { isNative } from "@/lib/capacitor/platform";
+import styles from "./ria-profile-native.module.css";
 import {
   AlertTriangle,
   ArrowRight,
@@ -108,8 +110,9 @@ function ProfileSummaryValue({
   return (
     <span
       className={cn(
-        // Mobile values stack below labels, so wrapped text should align left.
+        // Browser mobile values stack; the native summary module aligns columns.
         "block max-w-full text-left text-[14px] leading-snug tracking-normal [overflow-wrap:anywhere] sm:max-w-[20rem] sm:text-right",
+        styles.value,
         muted ? "text-muted-foreground" : "text-foreground",
       )}
     >
@@ -137,6 +140,7 @@ function RiaProfileSummaryRow({
         </ProfileSummaryValue>
       }
       stackTrailingOnMobile
+      className={styles.summaryRow}
       testId={testId}
     />
   );
@@ -212,9 +216,11 @@ function RiaRegulatoryProfileSummary({
   const services = formatRiaListValue(reviewProps.servicesOffered);
   const fees = formatRiaListValue(reviewProps.feeStructure);
   const advisorAccess = reviewProps.advisoryAccessReady ? "Ready" : "Pending";
+  const [native, setNative] = useState(false);
+  useEffect(() => setNative(isNative()), []);
 
   return (
-    <div className="space-y-4">
+    <div className={cn("space-y-4", styles.summary)} data-native={native || undefined}>
       <SettingsGroup testId="ria-profile-assistant">
         <SettingsRow
           title="Ask One to update anything"
@@ -282,11 +288,19 @@ function RiaRegulatoryProfileSummary({
           value={reviewProps.minEngagementAmount}
           testId="ria-profile-summary-min-engagement"
         />
-        <SettingsRow
-          title="Bio"
-          description={formatRiaDisplayValue(reviewProps.bio)}
-          testId="ria-profile-summary-bio"
-        />
+        {native ? (
+          <RiaProfileSummaryRow
+            title="Bio"
+            value={reviewProps.bio}
+            testId="ria-profile-summary-bio"
+          />
+        ) : (
+          <SettingsRow
+            title="Bio"
+            description={formatRiaDisplayValue(reviewProps.bio)}
+            testId="ria-profile-summary-bio"
+          />
+        )}
         <SettingsRow
           icon={Pencil}
           title="Edit services"
@@ -454,7 +468,7 @@ function RiaEmailVerifyCard({ onVerified }: { onVerified: () => Promise<void> })
         code: trimmed,
       });
       if (result.verified) {
-        toast.success("Email verified");
+        toast.success("Mail verified");
         await onVerified();
         return;
       }
@@ -474,7 +488,7 @@ function RiaEmailVerifyCard({ onVerified }: { onVerified: () => Promise<void> })
       className="space-y-3 rounded-[22px] border border-[color:var(--border)] bg-[color:var(--card)] p-4 shadow-[0_8px_24px_rgba(62,48,30,0.05)]"
     >
       <div>
-        <p className="text-[15px] font-semibold">Verify with your work email</p>
+        <p className="text-[15px] font-semibold">Verify with your work mail</p>
         <p className="mt-0.5 text-[13px] text-muted-foreground">
           We&apos;ll send a code.
         </p>
@@ -556,7 +570,7 @@ const DOSSIER_POLL_LIMIT_MS = 35 * 60_000;
  */
 function dossierFailureLabel(status: string): string {
   if (status === "scan_failed") return "Couldn't build it.";
-  if (status === "blocked_no_email") return "No email on your account to send it to.";
+  if (status === "blocked_no_email") return "No mail on your account to send it to.";
   return "Couldn't send.";
 }
 
@@ -1187,7 +1201,7 @@ export function RiaProfileSection({
         <DialogContent className="sm:max-w-lg">
           <DialogTitle>Update license data</DialogTitle>
           <DialogDescription>
-            Refresh official regulator fields. Your bio, services, fees, email,
+            Refresh official regulator fields. Your bio, services, fees, mail,
             phone, and custom profile copy stay unchanged.
           </DialogDescription>
           <div className="rounded-xl border border-border/60 bg-muted/40 p-3 text-sm">

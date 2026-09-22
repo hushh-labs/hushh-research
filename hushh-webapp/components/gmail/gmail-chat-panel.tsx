@@ -16,7 +16,7 @@ interface ChatMessage {
 
 const SUGGESTIONS = [
   "What needs a reply today?",
-  "Find unread emails from this week",
+  "Find unread mail messages from this week",
   "Any invoices in my inbox?",
 ];
 
@@ -80,7 +80,7 @@ export default function GmailChatPanel({
         <div className="flex items-center gap-2">
           <Sparkles className="h-4 w-4 text-amber-500" aria-hidden />
           <div>
-            <p className="text-sm font-semibold text-foreground">Email assistant</p>
+            <p className="text-sm font-semibold text-foreground">Mail assistant</p>
             <p className="text-xs text-muted-foreground">
               Unlock your vault to chat with your inbox.
             </p>
@@ -98,7 +98,7 @@ export default function GmailChatPanel({
         <div className="flex items-center gap-2">
           <Sparkles className="h-4 w-4 text-amber-500" aria-hidden />
           <div>
-            <p className="text-sm font-semibold text-foreground">Email assistant</p>
+            <p className="text-sm font-semibold text-foreground">Mail assistant</p>
             <p className="text-xs text-muted-foreground">
               Ask what needs a reply, or to find anything in your inbox.
             </p>

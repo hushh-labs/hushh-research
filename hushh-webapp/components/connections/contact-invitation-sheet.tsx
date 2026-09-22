@@ -117,7 +117,7 @@ export function ContactInvitationSheet({
     outcome && !["cancelled", "failed", "unavailable"].includes(outcome);
   return (
     <Sheet
-      modal={takeover}
+      modal
       open={controller.active}
       onOpenChange={(open) => {
         if (!open) finish();
@@ -179,7 +179,7 @@ export function ContactInvitationSheet({
                     <h3 className="mb-2 text-sm font-medium">
                       {classification === "no_match"
                         ? "No match found"
-                        : "Not checked—email only"}
+                        : "Not checked—mail only"}
                     </h3>
                     <ul className="divide-y divide-border">
                       {rows.map((candidate) => {
@@ -232,7 +232,7 @@ export function ContactInvitationSheet({
                                 </span>
                                 <span className="block break-all text-sm text-muted-foreground">
                                   {chosen?.value ??
-                                    "Choose a number or email below"}
+                                    "Choose a number or mail below"}
                                 </span>
                                 {duplicate ? (
                                   <span className="block text-xs text-muted-foreground">
@@ -259,7 +259,7 @@ export function ContactInvitationSheet({
                                 }}
                               >
                                 <option value="">
-                                  Choose a number or email
+                                  Choose a number or mail
                                 </option>
                                 {candidate.destinations.map((destination) => (
                                   <option
@@ -432,7 +432,7 @@ export function ContactInvitationSheet({
                           onClick={() => void act("compose")}
                         >
                           {selected[current.id]?.kind === "email"
-                            ? "Open email"
+                            ? "Open mail"
                             : "Open Messages"}
                         </Button>
                         <div className="flex gap-2">

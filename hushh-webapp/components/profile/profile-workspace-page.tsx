@@ -448,7 +448,7 @@ function getProvider(user: ReturnType<typeof useAuth>["user"]) {
     case "apple.com":
       return { name: "Apple", id: "apple" };
     case "password":
-      return { name: "Email/Password", id: "password" };
+      return { name: "Mail/Password", id: "password" };
     default:
       return { name: providerId || "Unknown", id: providerId || "unknown" };
   }
@@ -768,7 +768,7 @@ function ProfilePageContent({
     : supportReplyEmail.trim();
   const supportReplyLine = effectiveReplyEmail
     ? `Replies go to ${effectiveReplyEmail}`
-    : "No reply email added.";
+    : "No reply mail added.";
   const supportMessageErrorId = "support-message-error";
   const supportReplyEmailErrorId = "support-reply-email-error";
   const supportSendStatusId = "support-send-status";
@@ -1857,7 +1857,7 @@ function ProfilePageContent({
       trimmedReplyEmail &&
       !isValidReplyEmail(trimmedReplyEmail)
     ) {
-      setSupportReplyEmailError("Enter a valid email.");
+      setSupportReplyEmailError("Enter a valid mail.");
       setSupportComposerState({ status: "editing" });
       supportReplyEmailRef.current?.focus();
       return { kind: "invalid_reply_email" };
@@ -1917,11 +1917,11 @@ function ProfilePageContent({
       setGmailActionBusy("disconnect");
       const next = await gmail.disconnectGmail();
       if (!next) return;
-      toast.success("Gmail disconnected and Gmail receipt data was deleted.");
+      toast.success("Mail disconnected and Mail receipt data was deleted.");
     } catch (error) {
       const message = sanitizeGmailUserMessage(error, {
         fallback:
-          "We couldn't disconnect Gmail right now. Please try again in a moment.",
+          "We couldn't disconnect Mail right now. Please try again in a moment.",
       });
       console.error("[ProfilePage] Failed to disconnect Gmail:", error);
       toast.error(message);
@@ -1944,7 +1944,7 @@ function ProfilePageContent({
       const message = sanitizeGmailUserMessage(error, {
         fallback:
           "We couldn't sync your receipts. Please try again in a moment.",
-        authFallback: "Reconnect Gmail to continue syncing your receipts.",
+        authFallback: "Reconnect Mail to continue syncing your receipts.",
       });
       console.error("[ProfilePage] Failed to start Gmail sync:", error);
       toast.error(message);
@@ -2312,15 +2312,15 @@ function ProfilePageContent({
       {
         id: "profile_account",
         label: PROFILE_LABELS.account,
-        purpose: "opens account identity, email, and phone management.",
+        purpose: "opens account identity, mail, and phone management.",
         actionId: "route.profile",
         role: "card",
         voiceAliases: ["account", "phone number", "identity"],
       },
       {
         id: "profile_gmail",
-        label: "Gmail receipts",
-        purpose: "opens Gmail receipt sync and receipt-memory management.",
+        label: "Mail receipts",
+        purpose: "opens Mail receipt sync and receipt-memory management.",
         actionId: "route.profile_receipts",
         role: "card",
         voiceAliases: ["gmail receipts", "receipts"],
@@ -2400,7 +2400,7 @@ function ProfilePageContent({
                   : activePanel === "security"
                     ? PROFILE_LABELS.security
                     : activePanel === "gmail"
-                      ? "Gmail receipts"
+                      ? "Mail receipts"
                       : PROFILE_LABELS.support,
           ...(activeDetail ? [activeDetail] : []),
         ]
@@ -2410,7 +2410,7 @@ function ProfilePageContent({
           "Memory",
           "Access & sharing",
           ...(localCrmEnabled ? ["Connected Systems"] : []),
-          "Gmail receipts",
+          "Mail receipts",
           PROFILE_LABELS.security,
           "Trusted devices",
           PROFILE_LABELS.referrals,
@@ -2421,12 +2421,12 @@ function ProfilePageContent({
       activePanel === "gmail"
         ? [
             gmailPresentation.isConnected
-              ? "Sync Gmail receipts"
+              ? "Sync Mail receipts"
               : gmailPresentation.state === "needs_reauthentication"
-                ? "Reconnect Gmail"
-                : "Connect Gmail",
+                ? "Reconnect Mail"
+                : "Connect Mail",
             "Open receipts",
-            ...(gmailPresentation.isConnected ? ["Disconnect Gmail"] : []),
+            ...(gmailPresentation.isConnected ? ["Disconnect Mail"] : []),
           ]
         : activePanel === "support"
           ? [
@@ -2475,7 +2475,7 @@ function ProfilePageContent({
                   : activePanel === "security"
                     ? PROFILE_LABELS.security
                     : activePanel === "gmail"
-                      ? "Gmail receipts"
+                      ? "Mail receipts"
                       : PROFILE_LABELS.support
           : "Profile",
         purpose:
@@ -2484,7 +2484,7 @@ function ProfilePageContent({
           {
             id: "account",
             title: PROFILE_LABELS.account,
-            purpose: "Email, phone, and sign-in identity.",
+            purpose: "Mail, phone, and sign-in identity.",
           },
           {
             id: "preferences",
@@ -3464,7 +3464,7 @@ function ProfilePageContent({
         <SettingsRow
           icon={Mail}
           iconTone="orange"
-          title="Email"
+          title="Mail"
           description={user.email || "Not available"}
         />
         <SettingsRow
@@ -3759,7 +3759,7 @@ function ProfilePageContent({
                 htmlFor="support-reply-email"
                 className="text-[15px] font-semibold leading-5 text-foreground"
               >
-                Email for reply (optional)
+                Mail for reply (optional)
               </label>
               <Input
                 id="support-reply-email"
@@ -4091,7 +4091,7 @@ function ProfilePageContent({
               ? gmail.status.google_email
               : gmail.loadingStatus
                 ? "Resolving connected inbox..."
-                : "No Gmail inbox connected yet."
+                : "No Mail inbox connected yet."
           }
         />
         <SettingsRow
@@ -4122,7 +4122,7 @@ function ProfilePageContent({
         <SettingsRow
           icon={RefreshCw}
           title="Sync now"
-          description="Fetch new receipt emails and refresh extracted records."
+          description="Fetch new receipt mail messages and refresh extracted records."
           disabled={gmailActionsBusy || !gmailPresentation.isConnected}
           chevron
           onClick={() => void handleSyncGmailNow()}
@@ -4133,10 +4133,10 @@ function ProfilePageContent({
           iconTone="capability"
           title={
             gmailPresentation.state === "needs_reauthentication"
-              ? "Reconnect Gmail"
-              : "Connect Gmail"
+              ? "Reconnect Mail"
+              : "Connect Mail"
           }
-          description="Review Gmail data use, then authorize read-only receipt sync."
+          description="Review Mail data use, then authorize read-only receipt sync."
           disabled={gmailActionsBusy || gmail.status?.configured === false}
           chevron
           onClick={() => router.push(ROUTES.GMAIL)}
@@ -4146,7 +4146,7 @@ function ProfilePageContent({
       <SettingsRow
         icon={RefreshCw}
         title="Refresh status"
-        description="Re-check your Gmail connection, sync status, and inbox details."
+        description="Re-check your Mail connection, sync status, and inbox details."
         disabled={gmailActionsBusy}
         chevron
         onClick={() => void gmail.refreshStatus({ force: true })}
@@ -4164,8 +4164,8 @@ function ProfilePageContent({
       {gmailPresentation.isConnected ? (
         <SettingsRow
           icon={Trash2}
-          title="Disconnect Gmail"
-          description="Revoke Gmail, stop future syncs, and delete Gmail receipt data."
+          title="Disconnect Mail"
+          description="Revoke Mail, stop future syncs, and delete Mail receipt data."
           tone="destructive"
           disabled={gmailActionsBusy}
           chevron
@@ -4243,7 +4243,7 @@ function ProfilePageContent({
     profileStackEntries.push({
       key: "panel:account",
       title: "Account",
-      description: "Email, phone, and sign-in.",
+      description: "Mail, phone, and sign-in.",
       content: accountContent,
       presentation: "account",
     });
@@ -4478,7 +4478,7 @@ function ProfilePageContent({
   } else if (!routeBlockedByVault && activePanel === "gmail") {
     profileStackEntries.push({
       key: "panel:gmail",
-      title: "Gmail receipts",
+      title: "Mail receipts",
       description: "Receipts and sync.",
       content: gmailContent,
     });
