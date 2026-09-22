@@ -138,6 +138,36 @@ describe("current-authority inline Chat catalog", () => {
     expect(await screen.findByText("Granted")).toBeInTheDocument();
   });
 
+  it("fails closed when a restored status response belongs to another person", async () => {
+    const restored: InformationRequestReviewExperience = {
+      type: "one.information_request_review.v1",
+      personName: "Synthetic Recipient",
+      purpose: "Check the selected recipient only.",
+      durationLabel: "2 days",
+      direction: "outgoing",
+      phase: "submitted",
+      subjectRef: person,
+      bundleId: "bundle_12345678",
+      requestId: null,
+      status: "pending",
+      fields: [{ label: "Professional role", domain: "Professional", sensitivity: "standard" }],
+    };
+    mocks.getInformationRequest.mockResolvedValue({
+      bundleId: restored.bundleId,
+      personRef: "fedcba0987654321",
+      purpose: restored.purpose,
+      durationSeconds: 172800,
+      cancelled: false,
+      items: [{ requestId: "request_12345678", scopeRef: "scope-other", label: "Professional role", sensitivity: "standard", status: "granted" }],
+    });
+
+    render(<AgentStructuredExperienceView experience={restored} />);
+
+    expect(await screen.findByText(/Current status unavailable/)).toBeInTheDocument();
+    expect(screen.queryByText("Checking current status…")).not.toBeInTheDocument();
+    expect(screen.queryByText("Access granted")).not.toBeInTheDocument();
+  });
+
   it("discards a late catalog after lock instead of displaying private-session state", async () => {
     let resolve!: (value: ViewerPersonProfile) => void;
     mocks.getViewer.mockReturnValue(new Promise<ViewerPersonProfile>(done => { resolve = done; }));

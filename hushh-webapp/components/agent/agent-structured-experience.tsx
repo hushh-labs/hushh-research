@@ -342,7 +342,15 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
       bundleId: experience.bundleId,
       vaultOwnerToken,
     }).then((bundle) => {
-      if (!active || (experience.subjectRef && bundle.personRef !== experience.subjectRef)) return;
+      if (!active) return;
+      // A restored descriptor is only a display reference. If the current
+      // authority lookup resolves a different person, reject it without
+      // rendering any of its status and settle the card into a recoverable
+      // state instead of leaving the reader on an endless "Checking...".
+      if (experience.subjectRef && bundle.personRef !== experience.subjectRef) {
+        setRefreshState("unavailable");
+        return;
+      }
       if (!bundle.items.length) {
         setRefreshState("unavailable");
         return;
