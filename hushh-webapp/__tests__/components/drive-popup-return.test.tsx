@@ -44,6 +44,7 @@ describe("Drive popup completion", () => {
       connectorId: "google_drive",
       status: "verifying",
     });
+    // eslint-disable-next-line no-restricted-globals -- Synthetic redacted attempt marker; no tokens or codes.
     sessionStorage.setItem(
       "one_drive_popup_attempt_v1",
       JSON.stringify({
@@ -62,6 +63,7 @@ describe("Drive popup completion", () => {
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
+    // eslint-disable-next-line no-restricted-globals -- Clear the synthetic test marker between cases.
     sessionStorage.clear();
   });
   it("uses Firebase identity, scrubs URL, and settles once in Strict Mode", async () => {
@@ -141,6 +143,7 @@ describe("Drive popup completion", () => {
     expect(mocks.notify).toHaveBeenCalledOnce();
   });
   it("never renders provider errors or treats expired attempts as success", async () => {
+    // eslint-disable-next-line no-restricted-globals -- Synthetic expired attempt marker; no tokens or codes.
     sessionStorage.setItem(
       "one_drive_popup_attempt_v1",
       JSON.stringify({

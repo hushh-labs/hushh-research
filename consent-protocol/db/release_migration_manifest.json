@@ -200,7 +200,8 @@
     "225_external_mcp_connectors.sql",
     "226_pkm_manifest_path_repair.sql",
     "227_external_connector_lifecycle.sql",
-    "228_selected_drive_documents.sql"
+    "228_selected_drive_documents.sql",
+    "229_drive_document_chunks.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -389,10 +390,12 @@
       "142_source_library_scope_retirement.sql",
       "225_external_mcp_connectors.sql",
       "227_external_connector_lifecycle.sql",
-      "228_selected_drive_documents.sql"
+      "228_selected_drive_documents.sql",
+      "229_drive_document_chunks.sql"
     ]
   },
   "rollback_migrations": {
+    "229_drive_document_chunks.sql": "rollback/229_drive_document_chunks.rollback.sql",
     "203_feed_counterpart_recipient_index.sql": "rollback/203_feed_counterpart_recipient_index.rollback.sql",
     "204_feed_counterpart_indexed_lookup.sql": "rollback/204_feed_counterpart_indexed_lookup.rollback.sql",
     "205_contact_sync_disconnect_actor.sql": "rollback/205_contact_sync_disconnect_actor.rollback.sql",

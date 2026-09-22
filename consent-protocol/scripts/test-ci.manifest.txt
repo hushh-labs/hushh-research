@@ -7,6 +7,7 @@ tests/services/test_external_connector_credentials_service.py
 tests/services/test_external_connector_google_oauth.py
 tests/services/test_google_drive_adapter.py
 tests/services/test_drive_document_selection.py
+tests/services/test_drive_ingestion.py
 tests/services/test_connector_feature_admission.py
 tests/test_external_connector_oauth_routes.py
 

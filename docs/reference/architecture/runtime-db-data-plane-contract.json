@@ -943,13 +943,13 @@
       "owner": "iam-consent-governance",
       "data_class": "personal_encrypted",
       "lifecycle_status": "customer0",
-      "exact_tables": ["connected_documents"],
-      "primary_access_path": "Owner-authenticated explicit file selection and document management via drive_selection_service.py and drive_document_store.py.",
-      "retention_policy": "Keep selected encrypted source metadata while the connection generation remains active; source removal, disconnect, account switch or account deletion removes the catalog. No content/index exists in this checkpoint.",
-      "deletion_behavior": "Connection-generation/status trigger deletes sources atomically on disconnect/account switch; connection deletion cascades. Explicit owner removal is repeat-safe. Future chunk and grant records must cascade from document/owner.",
-      "trust_boundary": "Separate server-readable connector-processing domain, not client-key PKM. Metadata including file ID and name is AES-256-GCM encrypted using DRIVE_DOCUMENT_KEY_V1 and owner/document/generation AAD. Owner-keyed HMAC source fingerprints permit repeat-safe selection without plaintext provider IDs. No OAuth or vault key is stored here.",
-      "plaintext_posture": "encrypted_source_metadata_with_bounded_workflow_status_only",
-      "expected_row_growth": "bounded_100_per_owner"
+      "exact_tables": ["connected_documents", "document_chunks"],
+      "primary_access_path": "Owner-authenticated selection/management and durable connection-first ingestion leases. Atomic versioned publication via drive_ingestion_store.py; no global vector search or client database access.",
+      "retention_policy": "Keep encrypted source metadata and at most 128 encrypted chunks per selected document while the connection generation remains active. Prior versions are removed atomically on successful publication. Failed retryable refresh preserves the previous version; provider denial deletes it. Runtime processor and retention scheduler acceptance remain rollout prerequisites.",
+      "deletion_behavior": "Connection-generation/status trigger deletes sources atomically on disconnect/account switch; connection deletion cascades to sources and composite owner/document FK cascades to chunks. Owner removal is repeat-safe and does not need the processing key. Future grants must cascade from document/owner.",
+      "trust_boundary": "Separate server-readable processing domain, not client-key PKM. Source IDs/names, text, provenance and vectors use DRIVE_DOCUMENT_KEY_V1 AES-256-GCM with purpose/owner/document/generation AAD; chunks additionally bind version/ordinal. Owner-keyed HMAC source fingerprints support idempotency; no plaintext content hashes, OAuth credentials or vault keys.",
+      "plaintext_posture": "encrypted_source_metadata_content_and_vectors_with_bounded_workflow_status_only",
+      "expected_row_growth": "bounded_100_documents_128_chunks_each_per_owner"
     },
     {
       "id": "drive_picker_selection_sessions",

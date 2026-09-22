@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 228,
+  "expected_migration_version": 229,
   "migration_version_policy": "exact",
   "required_functions": [
     "invalidate_selected_drive_documents",
@@ -563,6 +563,14 @@
       "created_at",
       "revoked_at",
       "last_used_at"
+    ],
+    "document_chunks": [
+      "document_id",
+      "user_id",
+      "index_version",
+      "ordinal",
+      "content_envelope",
+      "created_at"
     ],
     "drive_picker_sessions": [
       "session_id",

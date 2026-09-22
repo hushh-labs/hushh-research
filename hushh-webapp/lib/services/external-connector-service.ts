@@ -29,6 +29,7 @@ export type ConnectorFeatures = Partial<
     | "connections_panel_v2"
     | "google_drive_connection"
     | "google_drive_picker"
+    | "drive_document_indexing"
     | "gmail_chat_reads"
     | "google_drive_chat_reads",
     boolean

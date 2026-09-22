@@ -105,7 +105,9 @@ class DriveDocumentStore(ExternalConnectorLifecycleStore):
             raise DriveReadError("connection_changed")
         return row
 
-    def _selection_policy(self, connection, user_id: str) -> None:
+    def _selection_policy(
+        self, connection, user_id: str, *, feature: str = "google_drive_picker"
+    ) -> None:
         # Serialize against operator registry mutation, not a stale service
         # snapshot. Runtime flag/cohort admission is checked at the commit edge.
         policy = self._row(
@@ -121,7 +123,7 @@ class DriveDocumentStore(ExternalConnectorLifecycleStore):
             or policy["capability_policy"] != SELECTED_POLICY
         ):
             raise DriveReadError("connector_policy_changed")
-        if not connector_feature_enabled("google_drive_picker", user_id):
+        if not connector_feature_enabled(feature, user_id):
             raise DriveReadError("connector_unavailable")
 
     async def start_selection(self, *, user_id: str, generation: int) -> dict:

@@ -36,7 +36,7 @@ parsing, embeddings and document access control remain outside Google AI service
 - Catalog concurrency tests cover single-use selection, wrong owner, expiry, policy drift,
   disconnect/account switch, removal during in-flight selection, and removal after reauth failure.
   Source metadata uses a separate server-processing key, not a vault key or OAuth key.
-- Existing hosted feature config has five independent default-off flags plus a strict
+- Existing hosted feature config has independent default-off flags plus a strict
   internal owner cohort. No registry seed, grant, transport, or feature is enabled.
 - Web checkpoint: existing left drawer has mounted Chats/Connections views and exactly
   Mail/Drive cards. Web OAuth uses retained popups, exact settlement checks and status
@@ -47,6 +47,13 @@ parsing, embeddings and document access control remain outside Google AI service
 - Mounted Chromium/WebKit contracts exercise 320, 390, 768 and 1440px, real popup windows,
   synthetic external Google boundaries, file confirmation/removal and retained chat state.
   These are component-integration checks, not live-provider or native acceptance.
+- Durable ingestion foundation: migration 229 adds owner/document-cascading encrypted
+  chunks. Connection-first leases allow one job per owner, five bounded retries, expired
+  crash recovery and generation/policy/lease checks before processing and publication.
+  Publication switches complete versions atomically; text, source ranges and embeddings
+  are encrypted together. Source denial purges the prior index; transient failures preserve it.
+  The orchestration has an explicit processor port, not a production default or startup hook.
+  No real document has been parsed/embedded, and no scheduler is activated by this checkpoint.
 
 Focused automated coverage includes a disposable socket-only PostgreSQL cluster (or the
 existing explicitly test-only CI PostgreSQL service), real concurrent claim/refresh tests,
@@ -96,6 +103,10 @@ revoke a provider grant or mutate an active connection.
   capability checks, bounds and late-result suppression. No whole-Drive scan or mutations.
 - [ ] Encrypted document catalog, durable ingestion/retry/deletion, local non-Google parsing
   and embeddings, owner-private retrieval and bounded source references.
+- [ ] Verified scanner and isolated parser/embedding runtime. Passive PDF/DOCX parsing is
+  not malware scanning; subprocess resource limits alone are not a security sandbox. Do not
+  add a heavy scanner into the existing API memory budget without capacity proof. Binary
+  processing must fail closed until these prerequisites pass; tests use synthetic processors.
 - [ ] Specific-document requests, explicit owner decisions, recipient/version/mode/expiry
   grants, immediate revocation and metadata-only audit in the existing Consent Center.
 - [ ] Mail metadata-only delegated reads with stable One conversation identity; unchanged

@@ -1002,7 +1002,7 @@ database lease and generation/version fencing. A pending revocation temporarily 
 reconnection so an old revoke request cannot race a new grant.
 
 The existing hosted runtime-config mechanism carries default-false `connections_panel_v2`,
-`google_drive_connection`, `google_drive_picker`, `gmail_chat_reads`, and `google_drive_chat_reads` with an explicit
+`google_drive_connection`, `google_drive_picker`, `drive_document_indexing`, `gmail_chat_reads`, and `google_drive_chat_reads` with an explicit
 internal owner cohort. This is revision-owned configuration, not an instantaneous fleet-wide
 flag service. Writes, user-facing downloads, connector voice execution and production remain
 disabled. Status, recovery callbacks and disconnect remain reachable with their required

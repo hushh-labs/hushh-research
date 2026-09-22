@@ -134,6 +134,7 @@ def lifecycle(connector_postgres_url):
                 "225_external_mcp_connectors.sql",
                 "227_external_connector_lifecycle.sql",
                 "228_selected_drive_documents.sql",
+                "229_drive_document_chunks.sql",
             ):
                 connection.exec_driver_sql((MIGRATIONS / filename).read_text())
             # Release migrations are replayable, including after constraints exist.

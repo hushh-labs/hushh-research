@@ -16,6 +16,7 @@ export const HushhAuth = {
 };
 export const ApiService = {
   getAuthHeaders: (token: string) => ({ Authorization: `Bearer ${token}` }),
+  // eslint-disable-next-line no-restricted-syntax -- Synthetic ApiService transport intercepted by the browser harness; never a product component.
   apiFetch: (path: string, options: RequestInit) => fetch(path, options),
 };
 export const GmailReceiptsService = {

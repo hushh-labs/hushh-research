@@ -428,23 +428,30 @@ class ExternalConnectorLifecycleStore:
             generation=generation,
             version=version,
             lease_id=lease_id,
+            rotated=envelope is not None,
+            rejected=rejected,
+            ciphertext=(envelope or {}).get("ciphertext"),
+            iv=(envelope or {}).get("iv"),
+            algorithm=(envelope or {}).get("algorithm"),
+            expires_at=(envelope or {}).get("expires_at"),
         )
-        update = ""
-        if envelope is not None:
-            params.update(envelope)
-            update = """credential_ciphertext = :ciphertext, credential_iv = :iv,
-                credential_algorithm = :algorithm, envelope_version = 2,
-                credential_expires_at = :expires_at, credential_version = credential_version + 1,
-                last_error_code = NULL,"""
-        elif rejected:
-            update = """status = 'needs_reauth', last_error_code = 'grant_rejected',
-                validation_state = 'unverified', verified_policy_hash = NULL, verified_at = NULL,"""
         return await self._transaction(
             lambda connection: (
                 self._row(
                     connection,
-                    f"""
-            UPDATE user_external_connector_connections SET {update}
+                    """
+            UPDATE user_external_connector_connections SET
+                credential_ciphertext = CASE WHEN :rotated THEN :ciphertext ELSE credential_ciphertext END,
+                credential_iv = CASE WHEN :rotated THEN :iv ELSE credential_iv END,
+                credential_algorithm = CASE WHEN :rotated THEN :algorithm ELSE credential_algorithm END,
+                envelope_version = CASE WHEN :rotated THEN 2 ELSE envelope_version END,
+                credential_expires_at = CASE WHEN :rotated THEN CAST(:expires_at AS timestamptz) ELSE credential_expires_at END,
+                credential_version = credential_version + CASE WHEN :rotated THEN 1 ELSE 0 END,
+                status = CASE WHEN :rejected THEN 'needs_reauth' ELSE status END,
+                last_error_code = CASE WHEN :rotated THEN NULL WHEN :rejected THEN 'grant_rejected' ELSE last_error_code END,
+                validation_state = CASE WHEN :rejected THEN 'unverified' ELSE validation_state END,
+                verified_policy_hash = CASE WHEN :rejected THEN NULL ELSE verified_policy_hash END,
+                verified_at = CASE WHEN :rejected THEN NULL ELSE verified_at END,
                 refresh_lease_id = NULL, refresh_lease_expires_at = NULL, updated_at = now()
             WHERE user_id = :user_id AND connector_id = :connector_id
               AND connection_generation = :generation AND credential_version = :version
