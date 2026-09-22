@@ -31,6 +31,7 @@ export function safeFailureCode(error) {
 export function createFixtureMutationAdmission(expected) {
   requireEvidence([expected?.ownerUid, expected?.domain, expected?.scope].every(
     value => typeof value === "string" && value.trim().length > 0), "FIXTURE_TARGET_REQUIRED");
+  requireEvidence(["create", "update"].includes(expected.operation), "FIXTURE_OPERATION_REQUIRED");
   const sameIds = (actual, wanted) => Array.isArray(actual) && Array.isArray(wanted) &&
     actual.every(id => typeof id === "string" && id.length > 0) &&
     new Set(actual).size === actual.length &&
@@ -46,7 +47,7 @@ export function createFixtureMutationAdmission(expected) {
       plan?.proposed_domain === target.domain && plan.proposed_scope === target.scope &&
       receipt?.displayed_domain === target.domain && receipt.displayed_scope === target.scope,
     "FIXTURE_TARGET_MISMATCH");
-    requireEvidence(plan.operation === "create" && typeof plan.plan_id === "string" && plan.plan_id.length > 0 &&
+    requireEvidence(plan.operation === target.operation && typeof plan.plan_id === "string" && plan.plan_id.length > 0 &&
       receipt.plan_id === plan.plan_id && receipt.confirmed_by_user_id === target.ownerUid &&
       receipt.authorization_mode === "owner_confirmed", "FIXTURE_CONFIRMATION_MISMATCH");
     requireEvidence(sameIds(plan.affected_grant_ids, target.grantIds) &&

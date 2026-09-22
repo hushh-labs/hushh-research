@@ -49,7 +49,7 @@ describe("Profile rehearsal startup safety", () => {
 
 describe("consent rehearsal evidence", () => {
   it("pins one synthetic mutation to the reviewed owner/root/impact and identical retries", () => {
-    const target = { ownerUid: "owner", domain: "professional", scope: "projects", grantIds: ["grant"], exportIds: ["export"] };
+    const target = { ownerUid: "owner", domain: "professional", scope: "projects", operation: "create", grantIds: ["grant"], exportIds: ["export"] };
     const body = { user_id: "owner", domain: "professional", encrypted_blob: { ciphertext: "ciphertext" }, mutation_plan: {
       plan_id: "plan", operation: "create", proposed_domain: "professional", proposed_scope: "projects",
       affected_grant_ids: ["grant"], affected_export_ids: ["export"], confirmation_receipt: {
@@ -58,6 +58,12 @@ describe("consent rehearsal evidence", () => {
       },
     } };
     expect(() => createFixtureMutationAdmission({ ...target, domain: "" })).toThrow("FIXTURE_TARGET_REQUIRED");
+    expect(() => createFixtureMutationAdmission({ ...target, operation: "delete" })).toThrow("FIXTURE_OPERATION_REQUIRED");
+    const updateAdmission = createFixtureMutationAdmission({ ...target, operation: "update" });
+    expect(() => updateAdmission(body)).toThrow("FIXTURE_CONFIRMATION_MISMATCH");
+    const domainUpdate = structuredClone(body);
+    domainUpdate.mutation_plan.operation = "update";
+    expect(() => updateAdmission(domainUpdate)).not.toThrow();
     const admit = createFixtureMutationAdmission(target);
     const wrongRoot = structuredClone(body);
     wrongRoot.mutation_plan.proposed_scope = "profile";
