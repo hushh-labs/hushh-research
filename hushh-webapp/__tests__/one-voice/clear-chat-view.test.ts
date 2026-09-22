@@ -210,3 +210,85 @@ describe("clear chat view — reducer boundary", () => {
     ).toBe(false);
   });
 });
+
+describe("clear chat view — defects an adversarial review found", () => {
+  /**
+   * One turn id spans BOTH sides of the exchange, and the relay stamps a
+   * typed message with the turn that is already in flight. Suppressing by
+   * turn id alone therefore swallowed the person's own next message.
+   */
+  it("shows a message typed after the clear, even on the cleared turn", () => {
+    const streaming = run(
+      [
+        server({
+          type: "transcript.output",
+          text: "Let me check",
+          final: false,
+          turn_id: "t9",
+        }),
+      ],
+      withHistory(),
+    );
+    const cleared = reduceVoiceSession(streaming, { type: "clear_view" });
+
+    // The relay stamps a typed message with the turn already in flight.
+    const typed = run(
+      [
+        server({
+          type: "transcript.input",
+          text: "actually, who can see me?",
+          final: true,
+          turn_id: "t9",
+        }),
+      ],
+      cleared,
+    );
+    expect(visibleText(typed)).toEqual(["actually, who can see me?"]);
+  });
+
+  /**
+   * Pruning fired on the first `final` of EITHER role, so the user's own
+   * final un-suppressed the assistant half and the cleared answer returned.
+   */
+  it("keeps the cleared answer hidden after the person's own turn finalizes", () => {
+    const streaming = run(
+      [
+        server({
+          type: "transcript.input",
+          text: "share with Priya",
+          final: false,
+          turn_id: "t9",
+        }),
+        server({
+          type: "transcript.output",
+          text: "Sharing now",
+          final: false,
+          turn_id: "t9",
+        }),
+      ],
+      withHistory(),
+    );
+    const cleared = reduceVoiceSession(streaming, { type: "clear_view" });
+
+    const after = run(
+      [
+        // The person's half finalizes first...
+        server({
+          type: "transcript.input",
+          text: "share with Priya",
+          final: true,
+          turn_id: "t9",
+        }),
+        // ...which must not bring the cleared answer back.
+        server({
+          type: "transcript.output",
+          text: "Sharing now with Priya.",
+          final: true,
+          turn_id: "t9",
+        }),
+      ],
+      cleared,
+    );
+    expect(after.transcript.map((i) => i.role)).not.toContain("one");
+  });
+});

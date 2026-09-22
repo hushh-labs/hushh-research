@@ -153,3 +153,57 @@ describe("Clear chat view", () => {
     expect(screen.getByText("Microphone blocked")).toBeInTheDocument();
   });
 });
+
+describe("Clear chat view — defects an adversarial review found", () => {
+  it("keeps focus on a control through every confirm transition", () => {
+    render(<OneVoicePanel state={withHistory()} controller={controller()} />);
+    const open = screen.getByTestId("one-voice-clear-history");
+
+    fireEvent.click(open);
+    // Focus must land on the decision, not be dropped on the document.
+    expect(document.activeElement).toBe(
+      screen.getByTestId("one-voice-clear-confirm-action"),
+    );
+
+    fireEvent.click(screen.getByTestId("one-voice-clear-cancel"));
+    expect(document.activeElement).toBe(
+      screen.getByTestId("one-voice-clear-history"),
+    );
+  });
+
+  it("uses the repo's inline-confirmation role so it is announced", () => {
+    render(<OneVoicePanel state={withHistory()} controller={controller()} />);
+    fireEvent.click(screen.getByTestId("one-voice-clear-history"));
+    const confirm = screen.getByTestId("one-voice-clear-confirm");
+    expect(confirm).toHaveAttribute("role", "alertdialog");
+    expect(confirm).toHaveAccessibleName("Clear chat view?");
+  });
+
+  it("stops claiming 'cleared' once the panel has content again", () => {
+    const cleared = reduceVoiceSession(withHistory(), { type: "clear_view" });
+    const { rerender } = render(
+      <OneVoicePanel state={cleared} controller={controller()} />,
+    );
+    expect(screen.getByTestId("one-voice-clear-status")).toHaveTextContent(
+      "Chat view cleared",
+    );
+
+    // A result card arrives: the view is no longer empty, so the notice goes
+    // even though no transcript text landed.
+    const withResult = {
+      ...cleared,
+      entities: [{ kind: "person", name: "Priya" }],
+    } as typeof cleared;
+    rerender(<OneVoicePanel state={withResult} controller={controller()} />);
+    expect(screen.getByTestId("one-voice-clear-status")).toHaveTextContent("");
+  });
+
+  it("pins the toolbar so the control survives the transcript scrolling", () => {
+    render(<OneVoicePanel state={withHistory()} controller={controller()} />);
+    // The panel is the scroll container; a static toolbar scrolls out of
+    // reach exactly when there is history to clear.
+    expect(screen.getByTestId("one-voice-panel-toolbar").className).toContain(
+      "sticky",
+    );
+  });
+});

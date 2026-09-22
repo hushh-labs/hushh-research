@@ -495,11 +495,17 @@ function reduceServerFrame(
     case "transcript.output": {
       const role: TranscriptItem["role"] =
         frame.type === "transcript.input" ? "you" : "one";
-      if (state.clearedTurnIds.includes(frame.turn_id)) {
-        // This turn was already on screen when the view was cleared. Its
-        // remaining chunks and its finalization belong to the cleared
-        // exchange, so they never re-enter the displayed history. Once the
-        // turn ends there is nothing left to suppress.
+      if (role === "one" && state.clearedTurnIds.includes(frame.turn_id)) {
+        // An answer that was mid-sentence when the view was cleared belongs
+        // to the cleared exchange, so its remaining chunks and its
+        // finalization stay out. Once it ends there is nothing left to
+        // suppress.
+        //
+        // Only the answer is suppressed. A turn id covers BOTH sides of the
+        // exchange, and the relay stamps a typed message with the turn
+        // already in flight, so suppressing by turn id alone swallowed the
+        // person's own next message and let their final un-suppress the
+        // answer. What someone says or types is never stale history.
         return {
           ...state,
           turnId: frame.turn_id,
@@ -884,7 +890,9 @@ export function reduceVoiceSession(
             : null,
         clearedTurnIds: Array.from(
           new Set(
-            state.transcript.filter((item) => !item.final).map((i) => i.turnId),
+            state.transcript
+              .filter((item) => !item.final && item.role === "one")
+              .map((item) => item.turnId),
           ),
         ).slice(-MAX_CLEARED_TURN_IDS),
         historyCleared: true,

@@ -13,7 +13,7 @@
  * (max-h min(52dvh, 420px)) and never covers the page with a backdrop.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Loader2 } from "@/components/icons";
 
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
@@ -179,6 +179,14 @@ export function OneVoicePanel({
   // Local view state only. It never touches the pending-action contract: a
   // clear consumes no receipt and resolves no server decision.
   const [askingClear, setAskingClear] = useState(false);
+  const clearButtonRef = useRef<HTMLButtonElement | null>(null);
+  const clearConfirmRef = useRef<HTMLButtonElement | null>(null);
+  // Focus must not be dropped on the document when the toolbar swaps for the
+  // confirmation and back, or a keyboard or screen-reader user loses their
+  // place mid-decision. Only moved in response to the person's own click.
+  const [focusTarget, setFocusTarget] = useState<"none" | "confirm" | "clear">(
+    "none",
+  );
   const picker = state.candidatePicker;
   const pending = state.pendingAction;
   // A confirmation is actionable only until its matching terminal receipt
@@ -197,6 +205,12 @@ export function OneVoicePanel({
   }, [picker]);
 
   const canClearHistory = panelHasClearableHistory(state);
+
+  useEffect(() => {
+    if (focusTarget === "confirm") clearConfirmRef.current?.focus();
+    if (focusTarget === "clear") clearButtonRef.current?.focus();
+    if (focusTarget !== "none") setFocusTarget("none");
+  }, [focusTarget]);
   // The reducer owns "the view is cleared", so the control and its notice
   // survive a remount and disappear on their own once a new turn arrives.
   const showClearRow = canClearHistory || state.historyCleared;
@@ -249,7 +263,7 @@ export function OneVoicePanel({
     >
       {askingClear ? (
         <div
-          role="group"
+          role="alertdialog"
           aria-label="Clear chat view?"
           data-testid="one-voice-clear-confirm"
           className="flex flex-col gap-2 rounded-[var(--app-card-radius-standard,24px)] border border-[color:var(--app-separator)] bg-[color:var(--app-card-surface-default-solid)] p-3"
@@ -265,7 +279,10 @@ export function OneVoicePanel({
             <button
               type="button"
               data-testid="one-voice-clear-cancel"
-              onClick={() => setAskingClear(false)}
+              onClick={() => {
+                setAskingClear(false);
+                setFocusTarget("clear");
+              }}
               className={CLEAR_ACTION_BUTTON}
             >
               Cancel
@@ -273,8 +290,10 @@ export function OneVoicePanel({
             <button
               type="button"
               data-testid="one-voice-clear-confirm-action"
+              ref={clearConfirmRef}
               onClick={() => {
                 setAskingClear(false);
+                setFocusTarget("clear");
                 controller.clearView();
               }}
               className={CLEAR_ACTION_BUTTON}
@@ -284,9 +303,12 @@ export function OneVoicePanel({
           </div>
         </div>
       ) : showClearRow ? (
+        // The panel itself scrolls and the transcript follows the latest
+        // line, so a static toolbar scrolled out of reach exactly when there
+        // was history to clear. Pinning it keeps the control reachable.
         <div
           data-testid="one-voice-panel-toolbar"
-          className="flex min-h-11 items-center justify-between gap-2"
+          className="bottom-chrome-surface sticky top-0 z-10 -mx-3 -mt-3 flex min-h-11 items-center justify-between gap-2 px-3 pt-3"
         >
           <p
             data-testid="one-voice-clear-status"
@@ -294,14 +316,20 @@ export function OneVoicePanel({
             aria-live="polite"
             className="text-[12px] text-[color:var(--app-tertiary-label)]"
           >
-            {state.historyCleared ? "Chat view cleared" : ""}
+            {/* The notice stands down as soon as the view has content again,
+                so it cannot keep claiming "cleared" over a filled panel. */}
+            {state.historyCleared && !canClearHistory ? "Chat view cleared" : ""}
           </p>
           <button
             type="button"
             data-testid="one-voice-clear-history"
             disabled={!canClearHistory}
             aria-label="Clear chat view"
-            onClick={() => setAskingClear(true)}
+            ref={clearButtonRef}
+            onClick={() => {
+              setAskingClear(true);
+              setFocusTarget("confirm");
+            }}
             className={CLEAR_ACTION_BUTTON}
           >
             Clear chat view

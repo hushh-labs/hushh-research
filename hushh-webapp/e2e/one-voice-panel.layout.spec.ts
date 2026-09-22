@@ -358,7 +358,7 @@ test.describe("One Live Voice panel minimization layout", () => {
   for (const viewport of VIEWPORTS) {
     test(`${viewport.name}: bounded, non-overlapping dock minimizes and restores`, async ({
       page,
-    }) => {
+    }, testInfo) => {
       await openFixture(page, viewport.width, viewport.height);
 
       const panel = page.getByTestId("one-voice-panel");
@@ -435,7 +435,7 @@ test.describe("One Live Voice panel minimization layout", () => {
         open.dock.top + BOUNDARY_TOLERANCE_PX,
       );
       await page.screenshot({
-        path: `test-results/one-voice-clear-${viewport.name}-before.png`,
+        path: testInfo.outputPath(`one-voice-clear-${viewport.name}-before.png`),
       });
 
       await toggle.click();
@@ -444,7 +444,7 @@ test.describe("One Live Voice panel minimization layout", () => {
       // button may keep intercepting taps over the page.
       await expect(clear).toHaveCount(0);
       await page.screenshot({
-        path: `test-results/one-voice-clear-${viewport.name}-after.png`,
+        path: testInfo.outputPath(`one-voice-clear-${viewport.name}-after.png`),
       });
       await expect(dock).toHaveAttribute("data-voice-panel", "collapsed");
       await expect(toggle).toHaveAccessibleName(SOURCE.expandAriaLabel);
