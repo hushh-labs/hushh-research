@@ -663,9 +663,7 @@ async def test_complete_connect_reports_success_when_only_bootstrap_queueing_fai
         assert user_id == "user_123"
         failure_recorded.set()
 
-    monkeypatch.setattr(
-        service, "_record_connect_queue_failure", _record_connect_queue_failure
-    )
+    monkeypatch.setattr(service, "_record_connect_queue_failure", _record_connect_queue_failure)
 
     async def _get_status(*, user_id: str):
         assert user_id == "user_123"

@@ -175,6 +175,8 @@ export type ToolStartedFrame = { type: "tool.started"; call_id: string; tool: st
 export type ToolResultFrame = {
   type: "tool.result";
   call_id: string | null;
+  /** Exact pending confirmation this terminal result settles, when there is one. */
+  pending_action_id?: string | null;
   tool: string;
   status: string;
   ok: boolean;

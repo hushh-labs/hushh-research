@@ -509,6 +509,8 @@ async def test_tap_tier_requires_receipt_and_rejects_spoken_yes():
     await asyncio.sleep(0.1)
     assert transport.frames("pending_action.resolved")[-1]["status"] == "executed"
     assert pending.rows[card["pending_action_id"]].status == "executed"
+    result = transport.frames("tool.result")[-1]
+    assert result["pending_action_id"] == card["pending_action_id"]
     event = json.loads(fake.events_sent[-1].removeprefix("[ONE_EVENT] "))
     assert (
         event["kind"] == "tool_result"
