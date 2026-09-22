@@ -150,7 +150,10 @@ def _ensure_passage_vectors(
     cached = _PASSAGE_CACHE
     if cached["digest"] == digest and len(cached["vectors"]) == len(supported):
         return cast(list[list[float]], cached["vectors"])
-    vectors = get_embedding_client().embed_passages([_build_passage(entry) for entry in supported])
+    vectors = cast(
+        list[list[float]],
+        get_embedding_client().embed_passages([_build_passage(entry) for entry in supported]),
+    )
     if len(vectors) == len(supported):
         _PASSAGE_CACHE["digest"] = digest
         _PASSAGE_CACHE["vectors"] = vectors
