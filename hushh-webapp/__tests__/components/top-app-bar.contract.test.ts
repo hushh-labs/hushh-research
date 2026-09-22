@@ -131,6 +131,20 @@ describe("Top app bar responsive contract", () => {
     expect(providers).not.toContain("<TopAppBar />");
   });
 
+  it("renders every signed-in hub tab set as the one segmented strip", () => {
+    // Finance used to take the underline arm while Connect and Consent took
+    // the segmented pill; one signed-in shell, one tab style.
+    const tabs = read("components/app-ui/top-shell-tabs.tsx");
+    const branch = tabs.slice(
+      tabs.indexOf("const usesModuleSegmentedTabs ="),
+      tabs.indexOf("const usesCompactLabels"),
+    );
+    for (const id of ["location", "connect", "consent", "finance", "ria"]) {
+      expect(branch).toContain(`tabSet.id === "${id}"`);
+    }
+    expect(branch).not.toContain('tabSet.id === "public"');
+  });
+
   it("keeps the top-shell scroll lifecycle stable across route swaps", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
     const effectStart = source.indexOf("const hasBackControlRef");
