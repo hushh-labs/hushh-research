@@ -171,6 +171,10 @@ tests/test_internal_vault_owner_token_validation.py
 # manifest is the only pytest invocation in any lane -- so a guard absent from
 # it is decoration.
 tests/test_contact_discovery_hardening.py
+tests/test_trust.py
+tests/test_trust_routes.py
+tests/test_trust_link_session_binding.py
+tests/test_trust_link_verbatim_scope.py
 tests/test_trusted_device_routes.py
 tests/test_trusted_device_heartbeat.py
 tests/quality/test_revocation_persistence.py

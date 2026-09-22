@@ -28,7 +28,11 @@ from pydantic import BaseModel, Field
 
 from api.middleware import require_vault_owner_token
 from hushh_mcp.consent.scope_helpers import resolve_scope_to_enum
-from hushh_mcp.trust.link import create_trust_link, verify_trust_link
+from hushh_mcp.trust.link import (
+    create_trust_link,
+    is_trusted_for_scope,
+    verify_trust_link,
+)
 from hushh_mcp.types import AgentID, ConsentScope, TrustLink, UserID
 
 logger = logging.getLogger(__name__)
@@ -51,6 +55,9 @@ class TrustLinkPayload(BaseModel):
     from_agent: str = Field(..., min_length=1, max_length=128)
     to_agent: str = Field(..., min_length=1, max_length=128)
     scope: str = Field(..., min_length=1, max_length=256)
+    # Round-tripped from create-link. It is part of the signature, so a link
+    # minted with one cannot be verified without it.
+    scope_str: str = Field(default="", max_length=256)
     created_at: int
     expires_at: int
     signed_by_user: str = Field(..., min_length=1, max_length=128)
@@ -91,6 +98,7 @@ async def create_link(
         scope=scope,
         signed_by_user=UserID(request.signed_by_user),
         session_id=request.session_id,
+        scope_str=request.scope,
         **kwargs,
     )
     logger.info(
@@ -102,7 +110,11 @@ async def create_link(
     return {
         "from_agent": link.from_agent,
         "to_agent": link.to_agent,
-        "scope": link.scope.value,
+        # The delegated authority verbatim. Reporting `link.scope.value` here
+        # would answer "pkm.read" for every dynamic scope and misstate what
+        # the owner granted.
+        "scope": link.scope_str or link.scope.value,
+        "scope_str": link.scope_str,
         "created_at": link.created_at,
         "expires_at": link.expires_at,
         "signed_by_user": link.signed_by_user,
@@ -119,6 +131,7 @@ async def verify_link(request: VerifyTrustLinkRequest):
         from_agent=AgentID(request.link.from_agent),
         to_agent=AgentID(request.link.to_agent),
         scope=scope,
+        scope_str=request.link.scope_str,
         created_at=request.link.created_at,
         expires_at=request.link.expires_at,
         signed_by_user=UserID(request.link.signed_by_user),
@@ -130,7 +143,13 @@ async def verify_link(request: VerifyTrustLinkRequest):
     if not valid:
         return {"valid": False, "reason": "Invalid, expired, or session-mismatched link"}
     if request.required_scope is not None:
-        required = _resolve_scope(request.required_scope)
-        if link.scope != required:
+        # Validate the requested scope so an unknown string is still a 422,
+        # then judge the link on the authority it actually carries.
+        _resolve_scope(request.required_scope)
+        if not is_trusted_for_scope(
+            link,
+            request.required_scope,
+            expected_session_id=request.expected_session_id,
+        ):
             return {"valid": False, "reason": "Scope mismatch"}
     return {"valid": True, "reason": None}
