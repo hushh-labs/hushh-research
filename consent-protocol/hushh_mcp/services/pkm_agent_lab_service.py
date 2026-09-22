@@ -4322,6 +4322,14 @@ class PKMAgentLabService:
     ) -> dict[str, Any]:
         path_map: dict[str, dict[str, Any]] = {}
         cls._walk_payload(payload, [], path_map)
+        # The walk owns structural facts, not a replacement sensitivity judgment.
+        # Adopt only labels for surviving paths before deriving scope tiers.
+        sensitivity_labels = structure_decision.get("sensitivity_labels")
+        if isinstance(sensitivity_labels, dict):
+            for json_path, path in path_map.items():
+                label = sensitivity_labels.get(json_path)
+                if isinstance(label, str) and label.strip():
+                    path["sensitivity_label"] = label.strip()
         paths = [path_map[key] for key in sorted(path_map)]
         top_level_scope_paths = sorted(
             {path["json_path"].split(".", 1)[0] for path in paths if path["json_path"]}

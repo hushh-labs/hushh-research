@@ -101,6 +101,14 @@ flowchart TB
 
 ## Canonical tables
 
+Structure-preview manifests preserve nonempty sensitivity labels from the adopted
+structure decision for paths that survive payload normalization. The structural
+walk still owns actual paths and segments; it must not overwrite the agent's
+sensitivity assessment. Scope sensitivity tiers are derived after those labels
+are applied. A label alone never enables exposure or grants consent. Browser
+merged-save metadata preservation must be verified separately from this preview
+contract.
+
 - `pkm_index`
   Sanitized discovery/readable-summary projection. It can carry coarse summaries,
   counters, freshness, and capability flags, but it is not raw PKM and is not the
