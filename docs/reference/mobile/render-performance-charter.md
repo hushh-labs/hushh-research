@@ -67,11 +67,26 @@ cost on a phone is JavaScript and compositing:
    inside the native shell).
 7. **Layer order.** Floating primitives take their z-index from the `--z-*`
    ladder; a menu that opens behind a sheet is a ladder bug.
+8. **Anything that rides a gesture on a property other than `transform` or
+   `opacity`.** A bar that follows the scroll by recomputing its `height`
+   pays one layout per frame, and under a `backdrop-filter` it repaints the
+   blur with it. The travel goes on a transform and the part that leaves the
+   screen simply leaves it.
 
 Load-bearing settings this program never touches: the Keyboard
 `resize: "none"` contract and `--kb-height`, `ios.scrollEnabled: false` and
 the DOM scroll root, the motion duration tokens, the single route-transition
 engine, and `SwipeViews` as the only pager.
+
+Two things the pager owes its hubs, both measured rather than assumed. A
+gesture surface is the whole body below the tabs, not the rendered list:
+`viewportMinHeight="fill"` measures the scroll root's remaining height once
+per resize (root visible height, minus the pager's layout offset through the
+`offsetParent` chain, minus what the root and each ancestor reserve below
+it) and never per gesture frame. And a live pathname on native carries a
+trailing slash that an authored href does not, so any comparison between the
+two normalises first, or a re-tap of the current tab runs an exit beat with
+no enter to pair with it (B51).
 
 ## Measuring
 

@@ -439,6 +439,23 @@ Three small mobile UX/nav fixes (commit `909ea793d`):
 - **Fix:** on native the shell is not hidden at all while the keyboard is up (it no longer lifts, so the keyboard simply covers it; the hide stays for mobile web); the transcript's padding rides the keyboard's own clock so the rows travel with the bar; the focus padding is one value on native. Traces after: "27 19 42 49 41 27 16 9 6 4 3 2 1 1" (largest step 49, monotone tail).
 - **GOTCHA:** a first dismiss right after a streamed reply is the case people live; measure that one, not a fresh screen.
 
+### B49 — Finishing a bank connection in Chase left the app and landed on the website
+- **Symptom (founder, iPhone 16e):** Plaid Link opened, Chase opened its own native app, the flow completed, and then a browser window came up on `uat.one.hushh.ai` instead of returning to the app. The backend saw the link-token create and never an `exchange-public-token`, so the connection did not exist.
+- **Root cause:** Plaid's OAuth leg leaves the WebView entirely. The bank returns to Plaid's hosted redirect, which continues as a normal Safari navigation; a Universal Link does not fire for a redirect chain, so nothing brought the session back into the app. The app's entitlements (`applinks:uat.one.hushh.ai`) and Apple's cached AASA were both verified correct: the link was never offered to them.
+- **Fix:** the web Link SDK cannot complete an OAuth bank inside a WebView, so native Link is the answer. `HushhPlaidLinkPlugin` (LinkKit 7.1.2) presents Link natively and resolves `{publicToken, metadata}` or `{exit}`; `plaid-link-loader.ts` returns the LinkKit-backed session whenever the plugin is available and the web loader everywhere else. A narrower `HushhOAuthReturnPlugin` also cancels a top-frame navigation to `{one,uat.one,dev.one}.hushh.ai/oauth/return` and re-enters through `appUrlOpen`, which covers non-Plaid returns but not this one.
+- **Status:** compiled and registered, **not yet exercised on the phone** — the founder deferred the bank test. UAT points at Plaid **production**, so automation never proceeds past Link's first screen and no screenshot is taken while a bank credential screen is open.
+
+### B50 — Plaid's Link frame sat under the status bar
+- **Symptom (founder):** "the interface was not correct and not following safe area at the top (overlapping with system icons)".
+- **Root cause:** Plaid's web Link injects its own full-viewport iframe (`#plaid-link-iframe-*`) positioned at `top: 0`. It is outside the app's layout, so every safe-area token the shell applies misses it.
+- **Fix:** a native-only rule pins the iframe below `--app-safe-area-top-effective` and takes the same amount off its height. Native Link (B49) does not use the iframe at all, so this only has to hold for the web fallback.
+
+### B51 — Re-tapping the tab you are already on turned the screen white
+- **Symptom (founder):** "on /connect, tapping Connect again glitches, the entire screen goes white". Reproduced on the phone and in the reviewer session.
+- **Root cause:** the static native export is built with `trailingSlash: true`, so the live pathname is `/one/connect/` while the nav item's href is `/one/connect`. The route-transition engine's same-pathname guard compared the two as strings, decided this was a real navigation, ran the exit beat, and then had no enter to pair with it: the page faded out and stayed out.
+- **Fix:** `routePathname()` normalises the trailing slash before the comparison, so a re-tap is recognised as the current route and does nothing. Regression test covers the `/one/connect/` form.
+- **GOTCHA:** any future comparison between a live pathname and an authored href on native has to normalise the trailing slash. The web build has no slash and never showed this.
+
 ---
 
 ## 🧪 QA test phone numbers (UAT, fixed OTP `000000`)
