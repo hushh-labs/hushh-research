@@ -22,6 +22,7 @@ import { PkmExportService } from "@/lib/services/pkm-export-service";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 import { NativeTestBeacon, type NativeTestDataState } from "@/components/app-ui/native-test-beacon";
@@ -196,6 +197,11 @@ export function PkmNaturalPanel({
   const [workspaceTab, setWorkspaceTab] = useState<MemoryWorkspaceTab>("browse");
   const [captureText, setCaptureText] = useState("");
   const [captureCards, setCaptureCards] = useState<AgentPkmPreviewCard[]>([]);
+  const captureHasSharedRecipients = captureCards.some(
+    (card) => (card.sharing_impact?.active_recipient_count || 0) > 0,
+  );
+  const [captureSharingImpactAcknowledged, setCaptureSharingImpactAcknowledged] =
+    useState(false);
   const [captureHasUnresolvedSource, setCaptureHasUnresolvedSource] = useState(false);
   const captureRevision = useRef(0);
   const captureOwnerIdRef = useRef<string | null>(user?.uid ?? null);
@@ -840,6 +846,7 @@ export function PkmNaturalPanel({
     });
     if (!guard.isCurrent()) return;
     setCaptureCards([]);
+    setCaptureSharingImpactAcknowledged(false);
     setCaptureLoading(true);
     setCaptureHasUnresolvedSource(false);
     setCaptureMessage(null);
@@ -871,6 +878,7 @@ export function PkmNaturalPanel({
       });
       if (!guard.isCurrent()) return;
       setCaptureCards(prepared.cards);
+      setCaptureSharingImpactAcknowledged(false);
       const hasUnresolvedSource = prepared.sourceCoverage.some((block) =>
         Boolean(block.preparationIssue) || block.disposition === "failed" ||
         block.detectedFactCount !== block.accountedFactCount) ||
@@ -894,7 +902,12 @@ export function PkmNaturalPanel({
   }
 
   async function saveMemoryCapture() {
-    if (!user || !isVaultUnlocked || !vaultKey || !vaultOwnerToken || captureCards.length === 0 || captureHasUnresolvedSource || pkmCaptureSaveInFlight.has(user.uid)) return;
+    if (
+      !user || !isVaultUnlocked || !vaultKey || !vaultOwnerToken ||
+      captureCards.length === 0 || captureHasUnresolvedSource ||
+      (captureHasSharedRecipients && !captureSharingImpactAcknowledged) ||
+      pkmCaptureSaveInFlight.has(user.uid)
+    ) return;
     const operationId = Symbol("memory-save");
     const operationOwnerId = user.uid;
     pkmCaptureSaveInFlight.set(operationOwnerId, operationId);
@@ -928,6 +941,9 @@ export function PkmNaturalPanel({
             confirmedByUser: true,
             surface: "web",
             source: "memory_workspace_add",
+            sharingImpactAcknowledged: captureHasSharedRecipients
+              ? captureSharingImpactAcknowledged
+              : false,
           },
         });
       void morphyToast.promise(operation, {
@@ -963,6 +979,7 @@ export function PkmNaturalPanel({
         } else {
           setCaptureText("");
           setCaptureCards([]);
+          setCaptureSharingImpactAcknowledged(false);
         }
         setRefreshNonce((value) => value + 1);
       }
@@ -1435,13 +1452,38 @@ export function PkmNaturalPanel({
                   <SettingsRow
                     key={card.card_id}
                     title={card.source_text?.trim() || "Proposed saved detail"}
-                    description={card.sharing_impact?.active_recipient_count ? "This may update a detail that is currently shared." : "This stays private unless you choose to share it later."}
+                    description={card.sharing_impact?.active_recipient_count
+                      ? card.sharing_impact.summary?.trim() || "This may update a detail that is currently shared."
+                      : "This stays private unless you choose to share it later."}
                   />
                 ))}
                 {getIgnoredPkmCards(captureCards).length > 0 ? <SettingsRow title="Some of this note will not be saved" description="Only appropriate details can be added to Memory." /> : null}
               </SettingsGroup>
             ) : null}
-            {captureCards.length > 0 ? <Button className="w-full justify-center" type="button" effect="fade" disabled={captureSaving || captureHasUnresolvedSource} onClick={() => void saveMemoryCapture()}>{captureSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null}Save to Memory</Button> : null}
+            {captureHasSharedRecipients ? (
+              <div className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2" data-pkm-sharing-impact="true">
+                <label
+                  htmlFor="memory-sharing-impact-ack"
+                  className="flex min-h-11 cursor-pointer items-center gap-3 text-sm text-foreground"
+                >
+                  <Checkbox
+                    id="memory-sharing-impact-ack"
+                    checked={captureSharingImpactAcknowledged}
+                    onCheckedChange={(checked) =>
+                      setCaptureSharingImpactAcknowledged(checked === true)
+                    }
+                    disabled={captureSaving}
+                  />
+                  <span>
+                    I understand that this detail is already shared and will be refreshed for the current recipients.
+                  </span>
+                </label>
+                <p className="pl-7 text-xs leading-5 text-muted-foreground">
+                  Review this before saving. It does not change who can access the detail.
+                </p>
+              </div>
+            ) : null}
+            {captureCards.length > 0 ? <Button data-testid="memory-save-capture" className="w-full justify-center" type="button" effect="fade" disabled={captureSaving || captureHasUnresolvedSource || (captureHasSharedRecipients && !captureSharingImpactAcknowledged)} onClick={() => void saveMemoryCapture()}>{captureSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden /> : null}Save to Memory</Button> : null}
           </SurfaceInset>
 
           <SettingsGroup separatorInset testId="memory-auto-save-group">

@@ -502,6 +502,58 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     );
   });
 
+  it("requires sharing-impact acknowledgment before saving a shared detail", async () => {
+    previewAgentPkmMemory.mockResolvedValueOnce({
+      cards: [{
+        card_id: "shared-memory-card",
+        source_text: "I prefer asynchronous written updates for work.",
+        write_mode: "confirm_first",
+        target_domain: "professional",
+        target_entity_scope: "work_preferences",
+        candidate_payload: { communication: { preference: "written" } },
+        merge_decision: { merge_mode: "create_entity" },
+        structure_decision: { target_domain: "professional" },
+        sharing_impact: {
+          active_recipient_count: 2,
+          recipient_labels: ["Reviewer A", "Reviewer B"],
+          enters_next_export_revision: true,
+          summary: "This detail is already shared with the current recipients.",
+          affected_grant_ids: [],
+          affected_export_ids: [],
+        },
+      }],
+    });
+
+    await openMainScreen();
+    fireEvent.click(screen.getByRole("tab", { name: "Add" }));
+    fireEvent.change(await screen.findByRole("textbox", { name: "Memory note" }), {
+      target: { value: "I prefer asynchronous written updates for work." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Review memory" }));
+
+    const acknowledgment = await screen.findByRole("checkbox", {
+      name: /already shared and will be refreshed/i,
+    });
+    const save = await screen.findByRole("button", { name: "Save to Memory" });
+    expect(screen.getByText("This detail is already shared with the current recipients.")).toBeTruthy();
+    expect(save).toBeDisabled();
+    expect(addToPKM).not.toHaveBeenCalled();
+
+    fireEvent.click(acknowledgment);
+    expect(save).not.toBeDisabled();
+    fireEvent.click(save);
+    await waitFor(() =>
+      expect(addToPKM).toHaveBeenCalledWith(
+        expect.objectContaining({
+          confirmation: expect.objectContaining({
+            confirmedByUser: true,
+            sharingImpactAcknowledged: true,
+          }),
+        }),
+      ),
+    );
+  });
+
   it("keeps a failed review retryable without asking the owner to relock the vault", async () => {
     previewAgentPkmMemory.mockRejectedValueOnce(new Error("proposal unavailable"));
     await openMainScreen();
