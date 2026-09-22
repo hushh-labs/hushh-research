@@ -199,7 +199,8 @@ async def test_recipient_sees_status_not_private_suggestions(sharing):
     prepared, _ = await review(sharing)
     status = await sharing.request_status(user_id="recipient", request_id=prepared["requestId"])
     assert status["status"] == "pending"
-    assert set(status) == {"requestId", "status", "revision"}
+    assert set(status) == {"requestId", "status", "revision", "direction"}
+    assert status["direction"] == "outgoing"
     with pytest.raises(DriveSharingError, match="request_unavailable"):
         await sharing.owner_review(user_id="recipient", request_id=prepared["requestId"])
     private = await sharing.owner_review(user_id="owner", request_id=prepared["requestId"])

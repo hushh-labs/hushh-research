@@ -50,6 +50,11 @@ async def test_lists_are_bounded_metadata_only_and_do_not_decrypt(sharing, monke
     assert second["items"][0]["status"] == "pending"
     assert set(second["items"][0]) == {"requestId", "status", "revision", "createdAt", "direction"}
     assert (await store.list_requests(user_id="unrelated", direction="incoming"))["items"] == []
+    assert (await store.request_status(user_id="owner", request_id=prepared["requestId"]))[
+        "direction"
+    ] == "incoming"
+    with pytest.raises(DriveSharingError, match="request_unavailable"):
+        await store.request_status(user_id="unrelated", request_id=prepared["requestId"])
 
 
 @pytest.mark.asyncio

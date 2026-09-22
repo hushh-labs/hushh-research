@@ -574,7 +574,7 @@ class DriveSharingStore(DriveDocumentStore):
         return cast(dict, await self._transaction(operation))
 
     async def request_status(self, *, user_id: str, request_id: str) -> dict:
-        """Participant-only, safe to refresh while locked; no private matches."""
+        """Owner-authorized participant metadata for cold review links; no matches."""
 
         def operation(connection):
             row = self._row(
@@ -600,8 +600,13 @@ class DriveSharingStore(DriveDocumentStore):
                     "requestId": request_id,
                     "status": "management_only",
                     "revision": context["revocation_revision"],
+                    "direction": "incoming",
                 }
-            return self._summary(row, recipient=row["recipient_user_id"] == user_id)
+            recipient = row["recipient_user_id"] == user_id
+            return {
+                **self._summary(row, recipient=recipient),
+                "direction": "outgoing" if recipient else "incoming",
+            }
 
         return cast(dict, await self._transaction(operation))
 
