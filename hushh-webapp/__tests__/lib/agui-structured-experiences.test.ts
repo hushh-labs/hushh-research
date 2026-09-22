@@ -173,6 +173,20 @@ describe("AG-UI structured experience registry", () => {
       status: "pending",
     });
   });
+  it("downgrades a submitted descriptor with an unknown direction", () => {
+    const result = parseAgentActivityExperience("one.information_request_review.v1", {
+      direction: "legacy",
+      phase: "submitted",
+      subjectRef: "person_1234567890123456",
+      bundleId: "bundle_12345678",
+      personName: "Alex Morgan",
+      purpose: "Complete payroll onboarding",
+      durationLabel: "30 days",
+      status: "pending",
+      fields: [{ label: "Work authorization", domain: "Identity", sensitivity: "high" }],
+    });
+    expect(result).toMatchObject({ direction: "unknown", phase: "historical" });
+  });
   it("accepts the versioned scope activity and normalizes its bounded fields", () => {
     expect(
       parseAgentActivityExperience("one.scope_discovery.v1", scopeResult),

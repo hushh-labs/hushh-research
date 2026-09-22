@@ -227,7 +227,7 @@ function parseInformationRequestReview(content: unknown): InformationRequestRevi
   const safeDirection = directionValue === "incoming" || directionValue === "outgoing"
     ? directionValue
     : "unknown";
-  const hasBoundIdentity = Boolean(safeSubjectRef);
+  const hasReliableBinding = Boolean(safeSubjectRef) && safeDirection !== "unknown";
   const bundleId = boundedString(record.bundleId, 128);
   const requestId = boundedString(record.requestId, 128);
   const fields = parseReviewFields(record.fields).map((field, index) => {
@@ -245,8 +245,8 @@ function parseInformationRequestReview(content: unknown): InformationRequestRevi
     // A descriptor without a bound subject is a legacy preview only. It must
     // not imply who is involved or trigger a current authority lookup that
     // could attach another person's status.
-    direction: hasBoundIdentity ? safeDirection : "unknown",
-    phase: hasBoundIdentity && (phaseValue === "draft" || phaseValue === "submitted")
+    direction: hasReliableBinding ? safeDirection : "unknown",
+    phase: hasReliableBinding && (phaseValue === "draft" || phaseValue === "submitted")
       ? phaseValue
       : "historical",
     subjectRef: safeSubjectRef,
