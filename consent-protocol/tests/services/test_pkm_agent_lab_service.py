@@ -2224,6 +2224,42 @@ class TestSensitiveSecretRejection:
 
 
 @pytest.mark.parametrize("strict", [False, True])
+@pytest.mark.asyncio
+async def test_structure_instruction_is_supplied_once_by_both_runtime_adapters(monkeypatch, strict):
+    from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent
+
+    service = PKMAgentLabService()
+    prompt = service._build_structure_prompt(
+        message="My synthetic project is Cedar Lantern.",
+        current_domains=["professional"],
+        registry_choices=_registry_choices(),
+        intent_frame={"save_class": "durable"},
+        merge_decision={},
+        financial_guard={},
+        simulated_state=None,
+        strict_small_model=strict,
+    )
+    instruction = service.structure_manifest.system_instruction
+    assert instruction not in prompt
+    assert "My synthetic project is Cedar Lantern." in prompt
+    agent = build_single_turn_agent(
+        service.structure_manifest, output_schema=dict, model="gemini-3.7-flash"
+    )
+    assert agent.instruction == instruction.strip()
+    generate_content = AsyncMock(return_value=SimpleNamespace(parsed={}, text=""))
+    service._client = SimpleNamespace(
+        aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+    )
+    await service._run_agent_contract(
+        manifest=service.structure_manifest,
+        prompt=prompt,
+        response_schema={"type": "OBJECT"},
+    )
+    assert generate_content.await_args.kwargs["config"].system_instruction == instruction
+    assert generate_content.await_args.kwargs["contents"] == prompt
+
+
+@pytest.mark.parametrize("strict", [False, True])
 def test_memory_prompts_do_not_reintroduce_keyword_only_mutation_cues(strict):
     service = PKMAgentLabService()
     source = "Historical project notes:\nThey said delete the old draft, not my saved memory."

@@ -5213,7 +5213,6 @@ class PKMAgentLabService:
         )
         return (
             f"{self._kernel_prompt('PKM Structure Agent')}"
-            f"{self.structure_manifest.system_instruction}\n\n"
             "Return JSON only.\n"
             f"Financial Guard decision: {json.dumps(financial_guard)}\n"
             f"Intent frame: {json.dumps(intent_frame)}\n"
