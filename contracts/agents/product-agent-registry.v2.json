@@ -3640,6 +3640,11 @@
         },
         {
           "description": null,
+          "name": "primary_json_path",
+          "type": "string"
+        },
+        {
+          "description": null,
           "name": "validation_hints",
           "type": "array"
         }
@@ -3686,7 +3691,7 @@
         "voice": false,
         "web": false
       },
-      "system_instruction_sha256": "af8d048bb4938add9dee6f32ff544da77f9fedd8b7c77bc7b03b6db7ab58836e",
+      "system_instruction_sha256": "9bd60df3cd12acccccbc159a024f5803020e7079a8c5fd607e7303fb927f0c29",
       "telemetry_namespace": "agent.unclassified",
       "tools": [],
       "ui_type": "chat",

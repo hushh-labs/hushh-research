@@ -2241,6 +2241,27 @@ async def test_structure_instruction_is_supplied_once_by_both_runtime_adapters(m
     )
     instruction = service.structure_manifest.system_instruction
     assert instruction not in prompt
+    assert service._kernel_prompt("PKM Structure Agent") not in prompt
+    assert "Never invent domains, paths" not in instruction + prompt
+    assert (
+        "New domain and path names may organize only information actually supplied" in instruction
+    )
+    assert "Proposing structure does not authorize a write" in instruction
+    assert "Never create a changes branch" in instruction
+    assert "merge_decision.target_entity_path" in prompt
+    assert "do not create replacement plaintext" in prompt
+    assert "write_mode=do_not_save" in prompt
+    assert "Never save reminders" in instruction
+    assert "Export eligibility is not publication or consent" in instruction
+    assert '"primary_json_path": "string"' in instruction
+    assert "contract_version must be 1" in instruction
+    if not strict:
+        examples = [line.split(" -> ", 1)[1] for line in prompt.splitlines() if " -> {" in line]
+        assert len(examples) == 2
+        assert all(
+            json.loads(example)["structure_decision"]["contract_version"] == 1
+            for example in examples
+        )
     assert "My synthetic project is Cedar Lantern." in prompt
     agent = build_single_turn_agent(
         service.structure_manifest, output_schema=dict, model="gemini-3.7-flash"
@@ -2257,6 +2278,38 @@ async def test_structure_instruction_is_supplied_once_by_both_runtime_adapters(m
     )
     assert generate_content.await_args.kwargs["config"].system_instruction == instruction
     assert generate_content.await_args.kwargs["contents"] == prompt
+
+
+def test_structure_creation_keeps_current_persistence_contract():
+    preview = PKMAgentLabService._normalize_structure_preview(
+        message="I prefer espresso without sugar.",
+        current_domains=[],
+        registry_choices=_registry_choices(),
+        intent_frame={
+            "intent_class": "preference",
+            "mutation_intent": "create",
+            "candidate_domain_choices": [{"domain_key": "food", "recommended": True}],
+        },
+        merge_decision={"target_domain": "food", "merge_mode": "create_entity"},
+        financial_guard={"routing_decision": "non_financial_or_ephemeral"},
+        parsed_structure={
+            "candidate_payload": {"preferences": {"drink": "espresso without sugar"}},
+            "structure_decision": {
+                "target_domain": "food",
+                "action": "create_domain",
+                "contract_version": 1,
+            },
+            "write_mode": "confirm_first",
+        },
+        fallback_target_domain="food",
+        simulated_state=None,
+    )
+    assert preview["structure_decision"]["action"] == "create_domain"
+    assert (
+        preview["structure_decision"]["contract_version"]
+        == pkm_agent_lab_module.DYNAMIC_DOMAIN_CONTRACT_VERSION
+    )
+    assert preview["write_mode"] == "confirm_first"
 
 
 @pytest.mark.parametrize("strict", [False, True])

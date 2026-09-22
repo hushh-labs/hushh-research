@@ -78,6 +78,15 @@ This page is current-state implementation truth. It does not rename runtime iden
 | World Model agents | `agent_memory_intent`, `agent_memory_segmentation`, `agent_memory_merge`, `agent_pkm_structure` | Semantic memory shaping | Must stay under vault/PKM consent and redaction boundaries |
 | Hermes-local product leaf | Source Library Steward | Query, virtual organization, revision-pinned file management, synchronization, and mounted-target sharing | Exact local `hussh_one_sources` tools only; no terminal, generic filesystem, credentials, vault keys, provider APIs, shared memory, or delegation |
 
+The PKM Structure manifest owns its instructions in both managed and direct-client
+execution. New domain/path names may organize user-supplied facts under the
+upstream intent/merge contract; they do not authorize fabrication, persistence,
+or sharing. Structure response examples use the authored response contract version
+1. The existing normalization step separately upgrades the persisted domain
+contract to `DYNAMIC_DOMAIN_CONTRACT_VERSION`; these are not competing versions
+of the same boundary. Prompt alignment alone does not prove extraction quality or
+resolve a provider timeout.
+
 `agent_one` and `agent_orchestrator` are not two product heads. The orchestrator path is a compatibility implementation namespace for One.
 
 `agent_nav` is the Consent Center runtime; `consent.chat.turn` resolves to it
