@@ -54,6 +54,8 @@ What this proves:
 7. sandbox audit emits a local report for representative investor and RIA journeys without affecting GA4 numbers
 8. UAT smoke proves a real deployed UAT browser journey and direct GA4 collect handoff when maintainer-only smoke credentials are available
 9. cache and route performance events remain bounded metadata-only signals for UX KPIs, not user-data telemetry
+10. web, iOS, and Android bind the same salted analytics User-ID, clear it on sign-out, reject profile PII, and prevent stale account-binding retries from winning an auth race
+11. each runtime selects exactly one event transport: web uses `gtag`/`dataLayer`, while Capacitor iOS and Android omit web analytics scripts and use native Firebase Analytics
 
 Repo verification fails if:
 
@@ -64,6 +66,8 @@ Repo verification fails if:
 5. docs verification fails
 6. the event schema drifts from the declared contract
 7. route/cache performance events accept raw user IDs, emails, PKM payloads, workflow IDs, cache keys, prompts, or decrypted values
+8. analytics identity or transport code forwards email, display name, phone number, or raw Firebase UID to GA4 or `dataLayer`
+9. a Capacitor runtime can activate the web transport and duplicate native events across web and Firebase streams
 
 Cache performance KPI note:
 

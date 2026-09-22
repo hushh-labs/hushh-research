@@ -19,6 +19,8 @@ These are the non-negotiable reporting rules for the current system:
 7. Looker Studio is the presentation layer for approved BigQuery results, not the source of truth.
 8. GA UI cards are for configuration spot checks, DebugView, and Realtime validation only.
 9. `HushhVoice` remains on the production property for now, but is explicitly excluded from Kai growth models and from the production BigQuery export link.
+10. Authenticated web, iOS, and Android sessions bind only the same salted 32-character analytics User-ID; email, display name, phone number, and raw Firebase UID must never enter GA4 or `dataLayer`.
+11. Analytics transports are mutually exclusive: browser sessions use direct `gtag`/`dataLayer`, while Capacitor iOS and Android sessions use only the native Firebase Analytics adapter.
 
 ## Scope
 
@@ -223,6 +225,13 @@ Shared observability surfaces:
 - `lib/observability/adapters/native-firebase.ts`
 - `lib/observability/request-id.ts`
 
+Cross-surface identity:
+
+- `hushh-webapp/lib/observability/identity.ts` derives the same salted analytics User-ID from the Firebase UID on web, iOS, and Android.
+- web binds it through `gtag('set', { user_id })`; native binds it through `FirebaseAnalytics.setUserId`.
+- identity changes are serialized and stale web retries are cancelled so a prior account cannot overwrite a later sign-out or account switch on a shared device.
+- profile PII is not an analytics identity input and is never copied into event payloads or user properties.
+
 Web transport:
 
 - root layout injects `gtag` whenever a valid measurement ID exists:
@@ -231,6 +240,8 @@ Web transport:
   - `hushh-webapp/lib/observability/env.ts`
 - web uses direct GA tagging as the primary path and keeps `dataLayer` pushes for optional GTM compatibility:
   - `hushh-webapp/lib/observability/adapters/web-gtm.ts`
+- the web adapter rejects Capacitor native runtimes even though their WebView exposes `window`; this prevents one native event from being emitted to both the web stream and the native Firebase stream
+- Capacitor static builds also omit the gtag and GTM loader scripts entirely, preventing automatic web-stream sessions or page events from being created inside the native WebView
 
 Growth emitters:
 
