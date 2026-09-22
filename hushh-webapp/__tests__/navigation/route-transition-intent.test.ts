@@ -89,4 +89,21 @@ describe("route transition intent ownership", () => {
     vi.advanceTimersByTime(200);
     expect(document.documentElement.dataset.routeTransition).not.toBe("pending");
   });
+
+  it("treats the native export's trailing slash as the same pathname", () => {
+    // The native export is built with `trailingSlash: true`: on the phone the
+    // page sits at `/one/connect/` while the nav's href is `/one/connect`.
+    // Compared byte for byte, the active tab tapped again went `pending`
+    // with nowhere to go and the screen stayed blank (bug log B51).
+    vi.useFakeTimers();
+    window.history.replaceState(null, "", "/one/connect/");
+    const navigate = vi.fn();
+
+    beginRouteTransition("/one/connect", navigate, "tap", "full");
+
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(document.documentElement.dataset.routeTransition).not.toBe("pending");
+    vi.advanceTimersByTime(200);
+    expect(document.documentElement.dataset.routeTransition).not.toBe("pending");
+  });
 });

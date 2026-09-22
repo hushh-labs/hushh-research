@@ -214,11 +214,28 @@ let originalReplaceState: History["replaceState"] | null = null;
  * they are in-place updates and animating them looks abnormal/janky. Those pass
  * straight through to the original history method.
  */
+/**
+ * A route pathname with the trailing slash dropped. The native export is
+ * built with `trailingSlash: true`, so on the phone the page's pathname is
+ * `/one/connect/` while every href in the app is `/one/connect`; compared
+ * byte for byte, the active tab tapped again read as a route switch, the
+ * shell went to its exit state, the destination never changed, the enter
+ * beat never fired, and the screen stayed blank until the 9 s safety net
+ * (bug log B51, the white screen on re-tapping Connect).
+ */
+function routePathname(pathname: string): string {
+  const trimmed = pathname.replace(/\/+$/, "");
+  return trimmed || "/";
+}
+
 /** True when `href` resolves to the pathname already on screen. */
-function isCurrentPathname(href: string): boolean {
+export function isCurrentPathname(href: string): boolean {
   if (typeof window === "undefined") return false;
   try {
-    return new URL(href, window.location.href).pathname === window.location.pathname;
+    return (
+      routePathname(new URL(href, window.location.href).pathname) ===
+      routePathname(window.location.pathname)
+    );
   } catch {
     return false;
   }
@@ -239,8 +256,9 @@ function transitionTargetForHistory(
   if (resolved.origin !== window.location.origin) return null;
 
   // Only a pathname change is a route switch. Query-only / hash-only / no-op
-  // writes stay shallow and instant.
-  if (resolved.pathname === window.location.pathname) {
+  // writes stay shallow and instant (trailing slash ignored: the native
+  // export carries one, the app's hrefs do not).
+  if (routePathname(resolved.pathname) === routePathname(window.location.pathname)) {
     return null;
   }
 
