@@ -1104,18 +1104,6 @@
       "reason": "GAP, not a permanent exclusion. This is the Calendar agent's setup step and inherits the same gap as /one/calendar. Revisit alongside it."
     },
     {
-      "route": "/one/setup/capabilities",
-      "classification": "native-required-functional",
-      "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Fcapabilities",
-      "expectedMarker": "native-route-setup-capabilities",
-      "expectedRoute": "/one/setup/capabilities",
-      "autoReviewerLogin": true,
-      "expectedAuth": "authenticated",
-      "allowedDataStates": [
-        "loaded"
-      ]
-    },
-    {
       "route": "/one/setup/connected-systems",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Fconnected-systems",

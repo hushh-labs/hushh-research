@@ -4658,29 +4658,6 @@
         "policy": "memory-only",
         "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
         "resource_classes": [
-          "unknown"
-        ]
-      },
-      "implementation_override": null,
-      "lifecycle": "canonical",
-      "native_surface_id": "native-route-setup-capabilities",
-      "page_file": "app/one/setup/capabilities/page.tsx",
-      "pathname": "/one/setup/capabilities",
-      "route_mode": "standard",
-      "semantic_routes": [],
-      "voice": {
-        "action_ids": [],
-        "delegate_agent_ids": [],
-        "playbook_id": "route.one.setup.capabilities"
-      }
-    },
-    {
-      "alias": null,
-      "api_dependencies": [],
-      "cache": {
-        "policy": "memory-only",
-        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-        "resource_classes": [
           "crm_registry_metadata",
           "crm_schema_metadata"
         ]
@@ -5608,13 +5585,13 @@
     "a2a_scope_map": "7379039859448ff3db422aa5ee50124bbcadcecc8c9c49e3c1471791f54208c1",
     "action_gateway": "120fc6f7446e860d47bcae8674593ef62a91e4739a10c5c23ec5a5c7ea12a684",
     "agent_registry": "7040830fdc6c2fed322258b6be748b67b7015acddddd0854890cabf17f65cb85",
-    "cache_manifest": "3145db9cd5ec36a55c41a07cbb954c24220585c9ed035c772927d5f2f85af406",
+    "cache_manifest": "57b4267b6f316b4612e23f1a36a2107ab96e687883271bf70e0bd12e681865d3",
     "data_plane": "c9c094dd78bef3121d468eba93e0fbefb5275c5aab7a2bfd6be6e46cab4f9184",
     "in_process_dispatch": "022c40c305a11e06510f2688041a96c1523cae5b5c03d7876fd122ce027e98c3",
     "one_specialist_tools": "9fc4ddc87b08f458f6bda587ed429b43561ea4da99498881404912e845a65a11",
-    "route_index": "e2bf3a298f738a977174792714f45e872474f65e40427b820ac509a42799ee37",
-    "route_layout": "5505ac01b33668b675d7f3e0fd55e2b9dca534582012e3b669a9def3795a2e76",
-    "surface_map": "21afa55984b9a0892532182051cde0b9db576042eafdccfd5903b3c05db9ae35",
+    "route_index": "ace26ca01a2bb5d5be3b1195a8305bb10324025181e0b3276d062b060e05ce54",
+    "route_layout": "4cf774a9ebb6cc26db9cbacc38aeea491f01a6b7bf440c3aaae3d8fddc567bd1",
+    "surface_map": "4b32b6ac70f70251e21c7f1dec6abfa70cf401f153adb538968c49990469b4b5",
     "topology_contract": "16f7f315d6ca6831bc4cae732b0b25a8cbb280288a1da4a53ab43ec5718c24e0",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
@@ -5626,7 +5603,7 @@
     "decision_required": 2,
     "in_process_specialists": 3,
     "one_specialist_tools": 6,
-    "physical_routes": 142,
+    "physical_routes": 141,
     "semantic_routes": 14,
     "table_families": 67
   }
