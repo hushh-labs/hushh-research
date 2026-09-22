@@ -461,6 +461,17 @@ describe("PersonProfilePage request catalog tools", () => {
     vi.clearAllMocks();
   });
 
+  it("loads the initial request catalog through the bounded first page", async () => {
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+
+    await screen.findByRole("heading", { name: "Available to request" });
+    expect(mocks.getViewer).toHaveBeenCalledWith(
+      "actual-public-ref",
+      "id-token",
+      { page: 1 },
+    );
+  });
+
   it("drills into an area, walks back out, and lets search cut across every level", async () => {
     // The domain chips are gone. They were a flat filter standing in for
     // navigation; the level view navigates for real. Search survives because it

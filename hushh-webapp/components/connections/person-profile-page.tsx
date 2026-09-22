@@ -194,7 +194,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     setViewerLoadError(null);
     void user
       .getIdToken()
-      .then((token) => PersonProfileService.getViewer(resolvedPersonRef, token))
+      .then((token) => PersonProfileService.getViewer(resolvedPersonRef, token, { page: 1 }))
       .then((value) => {
         if (active) {
           setViewerProfileState({
@@ -610,7 +610,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
       setViewerProfileState({
         personRef: resolvedPersonRef,
         viewerUid: user.uid,
-        profile: await PersonProfileService.getViewer(resolvedPersonRef, idToken),
+        profile: await PersonProfileService.getViewer(resolvedPersonRef, idToken, { page: 1 }),
       });
       toast.success("Information request cancelled");
     } catch (reason) {
