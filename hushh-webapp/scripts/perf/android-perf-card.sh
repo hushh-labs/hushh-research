@@ -23,7 +23,8 @@
 # Knobs: HUSHH_PERF_REPS (default 3), HUSHH_PERF_TIER (default
 # android-flagship-2024; redacted, never a device name), PERF_OUT_DIR
 # (default tmp/perf/android-<timestamp>), PERF_SKIP_BUILD=1 (reuse the last
-# web export, sync and APK), PERF_SECTION=feed|kai|location|all,
+# web export, sync and APK), PERF_SECTION=feed|kai|location|all|hold (hold: one launch, one unlock, then the app stays
+# unlocked in front for PERF_HOLD_MINUTES, default 20, as one continuous session),
 # PERF_THIRD_PARTY=1 (also flick Threads and X, gfxinfo only), ADB.
 #
 # The passphrase comes from the env resolver (REVIEWER_VAULT_PASSPHRASE) and
@@ -200,6 +201,7 @@ if [[ "$ATTACHED" == "1" ]]; then
   "$ADB" -s "$ANDROID_SERIAL" shell am instrument -w -r \
     -e passphrase "$(python3 -c 'import shlex,sys; print(shlex.quote(sys.argv[1]))' "$REVIEWER_VAULT_PASSPHRASE")" \
     -e reps "$REPS" -e section "$SECTION" -e thirdParty "${PERF_THIRD_PARTY:-0}" \
+    -e holdMinutes "${PERF_HOLD_MINUTES:-20}" \
     -e class com.hussh.app.AttachedRenderPerfTest \
     com.hussh.app.test/androidx.test.runner.AndroidJUnitRunner > "$OUT_DIR/instrument.log" 2>&1
   TEST_STATUS=$?

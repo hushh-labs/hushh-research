@@ -69,6 +69,7 @@ class AttachedRenderPerfTest {
             if (section == "all" || section == "feed") feedSection()
             if (section == "all" || section == "kai") kaiSection()
             if (section == "all" || section == "location") locationSection()
+            if (section == "hold") holdSection()
         } finally {
             clearProbePreferences()
             publishExports()
@@ -172,6 +173,23 @@ class AttachedRenderPerfTest {
         finishLaunch("/one/location")
     }
 
+    /**
+     * One launch, one unlock, then the app stays in front and unlocked for
+     * `holdMinutes` (default 20) as a single continuous session: the way a
+     * person uses it, walked by hand or by adb taps from the host with a
+     * screenshot at every stop. No route is injected, so the app lands where
+     * it normally would, and nothing here relaunches it or unlocks it again.
+     */
+    private fun holdSection() {
+        if (!launchAttached(null)) return
+        log("PERF_APP_READY route=session")
+        val minutes = (args.getString("holdMinutes")?.toLongOrNull() ?: 20L).coerceIn(1L, 60L)
+        log("PERF_HOLD minutes=$minutes")
+        val until = System.currentTimeMillis() + minutes * 60_000
+        while (System.currentTimeMillis() < until) settle(5_000)
+        log("PERF_DONE route=session")
+    }
+
     /** Threads and X on the same phone, same flick, HWUI numbers only. */
     private fun thirdPartyFeedFlick(name: String, otherPkg: String) {
         // Through the shell, not our own PackageManager: since Android 11 an
@@ -216,20 +234,22 @@ class AttachedRenderPerfTest {
      * them; a non-debuggable build leaves the seeded keys alone, see
      * PerfProbeLaunchPolicy), then unlocks the vault with the passphrase.
      */
-    private fun launchAttached(route: String): Boolean {
+    private fun launchAttached(route: String?): Boolean {
         // The instrumentation runs inside the app's own process, so the app is
         // never force-stopped here; CLEAR_TASK destroys the previous activity
-        // (and its WebView, and its probe run) and a fresh one boots.
-        target.getSharedPreferences(PerfProbeLaunchPolicy.PREFERENCES_GROUP, Context.MODE_PRIVATE)
+        // (and its WebView, and its probe run) and a fresh one boots. A null
+        // route injects none: the app opens where it normally would.
+        val prefs = target.getSharedPreferences(PerfProbeLaunchPolicy.PREFERENCES_GROUP, Context.MODE_PRIVATE)
             .edit()
             .putString(PerfProbeLaunchPolicy.PROBE_PREFERENCE_KEY, "1")
-            .putString(PerfProbeLaunchPolicy.ROUTE_PREFERENCE_KEY, route)
-            .commit()
+        if (route != null) prefs.putString(PerfProbeLaunchPolicy.ROUTE_PREFERENCE_KEY, route)
+        else prefs.remove(PerfProbeLaunchPolicy.ROUTE_PREFERENCE_KEY)
+        prefs.commit()
         val intent = Intent(Intent.ACTION_MAIN)
             .setClassName(pkg, "$pkg.MainActivity")
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
             .putExtra(PerfProbeLaunchPolicy.PROBE_EXTRA, true)
-            .putExtra(PerfProbeLaunchPolicy.ROUTE_EXTRA, route)
+        if (route != null) intent.putExtra(PerfProbeLaunchPolicy.ROUTE_EXTRA, route)
         target.startActivity(intent)
         // The gate's passkey attempt can put Android's Credential Manager in
         // front before the app's own window is visible to UIAutomator.
