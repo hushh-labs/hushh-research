@@ -979,10 +979,17 @@ class GmailReceiptsService:
 
     @staticmethod
     def _oauth_scopes_for_purpose(purpose: GmailConnectPurpose) -> tuple[str, ...]:
-        base_scopes = ("openid", "email", "profile", _GMAIL_READONLY_SCOPE)
-        if purpose == "send":
-            return (*base_scopes, _GMAIL_SEND_SCOPE)
-        return base_scopes
+        # `purpose` intentionally does not gate the send scope: no call site
+        # in this codebase (web popup, native, or the connectors panel) ever
+        # passes purpose="send" -- every real connect/reconnect defaults or
+        # hardcodes "read", so gating gmail.send on that value made send
+        # capability unreachable through any live path, with no working
+        # recovery flow (the app's own "Reconnect Mail" link re-runs the
+        # same read-only connect). Request both scopes unconditionally, as
+        # this did before purpose existed, until a real incremental-consent
+        # UI actually calls this with "send".
+        del purpose
+        return ("openid", "email", "profile", _GMAIL_READONLY_SCOPE, _GMAIL_SEND_SCOPE)
 
     def _encrypt_token(self, token: str) -> dict[str, str]:
         aesgcm = AESGCM(self._token_key())
@@ -1743,11 +1750,16 @@ class GmailReceiptsService:
                 window_end_at=bootstrap_window_end,
             )
         except Exception as exc:
+            # The Gmail account is already durably connected above (the
+            # connection_write commit already succeeded) -- a failure to
+            # schedule the *first sync* is a separate, recoverable concern
+            # and must not be reported to the caller as a failed OAuth
+            # connection. Record it and return the real (connected, but
+            # bootstrap-failed) status instead of raising, matching this
+            # method's behavior before this queue_sync call started
+            # re-raising on any transient scheduling failure.
             await self._record_connect_queue_failure(user_id=user_id, error=exc)
-            raise GmailApiError(
-                "Gmail connected, but the first receipt sync could not be scheduled. Try again.",
-                status_code=503,
-            ) from exc
+            return await self.get_status(user_id=user_id)
         latest_run = queued.get("run") if isinstance(queued, dict) else None
 
         logger.info(
@@ -2576,22 +2588,34 @@ class GmailReceiptsService:
             return_exceptions=True,
         )
         messages: list[dict[str, Any]] = []
-        for _message_id, result in zip(message_ids, results, strict=False):
+        for message_id, result in zip(message_ids, results, strict=False):
             if isinstance(result, Exception):
                 if isinstance(result, GmailApiError) and result.status_code == 404:
                     logger.info("gmail.personal_information_request.message_gone_before_scan")
                     continue
-                raise GmailApiError(
-                    "Gmail could not read a recent Inbox message. Try again.",
-                    status_code=503,
-                    code="GMAIL_MONITOR_MESSAGE_FETCH_FAILED",
+                # Unlike list_personal_inbox_monitor_history_page, this page
+                # has no checkpoint to protect -- it is a one-shot scan over
+                # Gmail's own nextPageToken pagination, not a resumable
+                # cursor. Skip a message that failed to fetch (rate limit, a
+                # transient 5xx, a timeout) instead of discarding this whole
+                # page's other successfully-fetched messages: aborting here
+                # previously meant a single transient failure among up to 30
+                # concurrent fetches could permanently block the mandatory
+                # initial scan from ever completing, since a failed attempt
+                # never marks the scan done and every retry re-rolls the
+                # same odds against the same 30-way concurrent fetch.
+                logger.warning(
+                    "gmail.personal_information_request.message_fetch_failed message_id=%s reason=%s",
+                    message_id,
+                    result,
                 )
+                continue
             if not isinstance(result, dict):
-                raise GmailApiError(
-                    "Gmail returned an invalid recent Inbox message. Try again.",
-                    status_code=503,
-                    code="GMAIL_MONITOR_MESSAGE_FETCH_FAILED",
+                logger.warning(
+                    "gmail.personal_information_request.message_fetch_invalid message_id=%s",
+                    message_id,
                 )
+                continue
             labels = {
                 _clean_text(label).upper()
                 for label in result.get("labelIds", [])

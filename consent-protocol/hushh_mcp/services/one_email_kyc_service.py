@@ -1766,10 +1766,13 @@ class OneEmailKycService:
             results = await self._process_message_ids(
                 ids,
                 history_id=history_id,
-                raise_on_failure=True,
             )
             # A first watch notification establishes the cursor only after
-            # catch-up succeeded. Otherwise Pub/Sub redelivery must replay it.
+            # catch-up is attempted. Do not gate this on every message
+            # succeeding: one message that will never parse (a permanent
+            # failure, not a transient one) must not block the mailbox's
+            # cursor from ever advancing -- see the removed raise_on_failure
+            # below for why.
             self._upsert_mailbox_state(history_id=history_id, last_notification=True)
             return {
                 "accepted": True,
@@ -1786,10 +1789,14 @@ class OneEmailKycService:
         results = await self._process_message_ids(
             ids,
             history_id=history_id,
-            raise_on_failure=True,
         )
-        # Do not checkpoint Gmail History if even one message failed. The
-        # message-id workflow is idempotent, so retrying this page is safe.
+        # Always advance the Gmail History checkpoint after attempting this
+        # page, even if a message failed. A message that always fails
+        # (malformed MIME, unclassifiable content) would otherwise wedge
+        # every subsequent webhook against the same poison message forever,
+        # since Gmail History cursors do not support skipping one entry.
+        # Per-message failures are already logged individually in
+        # _process_message_ids's results.
         self._upsert_mailbox_state(history_id=history_id, last_notification=True)
         return {
             "accepted": True,
