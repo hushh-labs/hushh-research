@@ -1943,6 +1943,97 @@ describe("NearbyCheckInSheet", () => {
     });
   });
 
+  it("preserves the confirmed venue anchor when an older poll omits it", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const onPlaceFocusChange = vi.fn();
+      const onStateChange = vi.fn();
+      const checkedInAt = new Date().toISOString();
+      const expiresAt = new Date(Date.now() + 60 * 60_000).toISOString();
+      const olderApiState = {
+        presence: {
+          status: "active" as const,
+          audience: "all_opted_in" as const,
+          radiusMeters: 500,
+          allowConnectionRequests: false,
+          consentVersion: "one-location-nearby-presence-v3",
+          checkedInAt,
+          expiresAt,
+          placeLabel: "Stanford University",
+        },
+        attendees: [],
+      };
+      service.checkInNearby.mockResolvedValue(olderApiState);
+
+      render(
+        <NearbyCheckInSheet
+          open
+          ownerId="user-1"
+          vaultOwnerToken="owner-token"
+          captureCurrentPosition={vi.fn().mockResolvedValue(point)}
+          onOpenChange={vi.fn()}
+          onStateChange={onStateChange}
+          onPlaceFocusChange={onPlaceFocusChange}
+        />,
+      );
+
+      fireEvent.click(
+        await screen.findByRole("radio", { name: /Stanford University/ }),
+      );
+      fireEvent.click(
+        screen.getByRole("checkbox", {
+          name: /Show my name here/,
+        }),
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Check in" }));
+
+      await waitFor(() => {
+        expect(onStateChange).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            presence: expect.objectContaining({
+              placeId: "stanford-main",
+              placeLat: 37.4276,
+              placeLng: -122.1697,
+            }),
+          }),
+        );
+      });
+
+      const readsBeforePoll = service.getNearbyPresence.mock.calls.length;
+      service.getNearbyPresence.mockResolvedValue(olderApiState);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15_000);
+      });
+
+      await waitFor(() => {
+        expect(service.getNearbyPresence.mock.calls.length).toBeGreaterThan(
+          readsBeforePoll,
+        );
+        expect(onStateChange).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            presence: expect.objectContaining({
+              placeId: "stanford-main",
+              placeLabel: "Stanford University",
+              placeLat: 37.4276,
+              placeLng: -122.1697,
+            }),
+          }),
+        );
+        expect(onPlaceFocusChange).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            label: "Stanford University",
+            latitude: 37.4276,
+            longitude: -122.1697,
+            active: true,
+          }),
+        );
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("names the gap between the owner and the place they picked", async () => {
     render(
       <NearbyCheckInSheet

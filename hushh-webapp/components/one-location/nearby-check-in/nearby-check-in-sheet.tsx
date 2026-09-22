@@ -184,6 +184,13 @@ const EMPTY_NEARBY_STATE: OneLocationNearbyPresenceState = {
 
 type LocationRecovery = "app-settings" | "location-settings" | null;
 type PresenceLoadResult = OneLocationNearbyPresenceState | "error" | null;
+type ConfirmedPlaceAnchor = {
+  placeId: string | null;
+  placeLabel: string | null;
+  checkedInAt: string | null;
+  latitude: number;
+  longitude: number;
+};
 
 /**
  * How the point driving the place list was obtained. A degraded fix still
@@ -374,6 +381,87 @@ function placePoint(
   return { latitude: place.latitude, longitude: place.longitude };
 }
 
+function presenceHasPlacePoint(
+  presence: OneLocationNearbyPresenceState["presence"],
+): boolean {
+  return (
+    !!presence &&
+    typeof presence.placeLat === "number" &&
+    typeof presence.placeLng === "number" &&
+    Number.isFinite(presence.placeLat) &&
+    Number.isFinite(presence.placeLng)
+  );
+}
+
+function confirmedAnchorFromPresence(
+  presence: OneLocationNearbyPresenceState["presence"],
+): ConfirmedPlaceAnchor | null {
+  if (!presenceHasPlacePoint(presence) || !presence) return null;
+  return {
+    placeId: presence.placeId?.trim() || null,
+    placeLabel: presence.placeLabel?.trim() || null,
+    checkedInAt: presence.checkedInAt || null,
+    latitude: presence.placeLat!,
+    longitude: presence.placeLng!,
+  };
+}
+
+function confirmedAnchorFromPlace(
+  place: OneLocationNearbyPlaceSuggestion,
+): ConfirmedPlaceAnchor | null {
+  const point = placePoint(place);
+  if (!point) return null;
+  return {
+    placeId: place.placeId?.trim() || null,
+    placeLabel: place.name?.trim() || place.text?.trim() || null,
+    checkedInAt: null,
+    latitude: point.latitude,
+    longitude: point.longitude,
+  };
+}
+
+function presenceMatchesConfirmedAnchor(
+  presence: OneLocationNearbyPresenceState["presence"],
+  anchor: ConfirmedPlaceAnchor,
+): boolean {
+  if (!presence) return false;
+  if (
+    anchor.checkedInAt &&
+    presence.checkedInAt &&
+    anchor.checkedInAt !== presence.checkedInAt
+  ) {
+    return false;
+  }
+  const presencePlaceId = presence.placeId?.trim();
+  if (presencePlaceId && anchor.placeId) {
+    return presencePlaceId === anchor.placeId;
+  }
+  const presenceLabel = presence.placeLabel?.trim();
+  if (presenceLabel && anchor.placeLabel) {
+    return presenceLabel === anchor.placeLabel;
+  }
+  return false;
+}
+
+function withPreservedConfirmedAnchor(
+  state: OneLocationNearbyPresenceState,
+  anchor: ConfirmedPlaceAnchor | null,
+): OneLocationNearbyPresenceState {
+  const presence = state.presence;
+  if (!presence || !anchor || presenceHasPlacePoint(presence)) return state;
+  if (!presenceMatchesConfirmedAnchor(presence, anchor)) return state;
+  return {
+    ...state,
+    presence: {
+      ...presence,
+      placeId: presence.placeId || anchor.placeId || undefined,
+      placeLabel: presence.placeLabel?.trim() || anchor.placeLabel || undefined,
+      placeLat: anchor.latitude,
+      placeLng: anchor.longitude,
+    },
+  };
+}
+
 /**
  * Keep the confirmed public venue authoritative even while deployments roll.
  *
@@ -392,23 +480,18 @@ function withConfirmedPlaceAnchor(
 ): OneLocationNearbyPresenceState {
   const presence = state.presence;
   if (!presence) return state;
-  if (
-    typeof presence.placeLat === "number" &&
-    typeof presence.placeLng === "number" &&
-    Number.isFinite(presence.placeLat) &&
-    Number.isFinite(presence.placeLng)
-  ) {
+  if (presenceHasPlacePoint(presence)) {
     return state;
   }
-  const anchor = placePoint(place);
+  const anchor = confirmedAnchorFromPlace(place);
   if (!anchor) return state;
   return {
     ...state,
     presence: {
       ...presence,
-      placeId: presence.placeId || place.placeId,
+      placeId: presence.placeId || anchor.placeId || undefined,
       placeLabel:
-        presence.placeLabel?.trim() || place.name?.trim() || place.text,
+        presence.placeLabel?.trim() || anchor.placeLabel || undefined,
       placeLat: anchor.latitude,
       placeLng: anchor.longitude,
     },
@@ -665,6 +748,7 @@ export function NearbyCheckInSheet({
   const mutationInFlightRef = useRef(false);
   const searchGenerationRef = useRef(0);
   const placeFocusGenerationRef = useRef(0);
+  const confirmedPlaceAnchorRef = useRef<ConfirmedPlaceAnchor | null>(null);
   /**
    * Best fix seen this session. Reused when a refresh fails so a transient
    * geolocation hiccup degrades the drawer instead of emptying it.
@@ -826,8 +910,15 @@ export function NearbyCheckInSheet({
 
   const publishState = useCallback(
     (next: OneLocationNearbyPresenceState) => {
-      setState(next);
-      onStateChange?.(next);
+      const nextWithAnchor = withPreservedConfirmedAnchor(
+        next,
+        confirmedPlaceAnchorRef.current,
+      );
+      confirmedPlaceAnchorRef.current = confirmedAnchorFromPresence(
+        nextWithAnchor.presence,
+      );
+      setState(nextWithAnchor);
+      onStateChange?.(nextWithAnchor);
     },
     [onStateChange],
   );
