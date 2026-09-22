@@ -456,6 +456,20 @@ Three small mobile UX/nav fixes (commit `909ea793d`):
 - **Fix:** `routePathname()` normalises the trailing slash before the comparison, so a re-tap is recognised as the current route and does nothing. Regression test covers the `/one/connect/` form.
 - **GOTCHA:** any future comparison between a live pathname and an authored href on native has to normalise the trailing slash. The web build has no slash and never showed this.
 
+### B52 — The Android truth lane measured the vault gate and reported it as the app (every run until 2026-09-22)
+- **Symptom:** the S24 Ultra card read p95 8 ms at 120 Hz on feed, tab switch, pager, chart and map, "certifying". A screenshot mid-run showed "Unlock One" with an empty field and a greyed-out Unlock button.
+- **Evidence:** every probe window on the phone was kind `tap` on ~280 to 350 DOM nodes; the iPhone's unlocked feed is `scroll` windows on ~700 nodes, its tab switch `bottom-nav→route`. A tree dump of the gate: the input exposes neither its aria-label nor its placeholder to UIAutomator.
+- **Root cause (three stacked):** (1) "the labelled field has been gone 4 s" was the unlock proof, and the label was never visible, so it held from the first poll; (2) `UiObject2.setText` filled the field without an input event, so React kept Unlock disabled; (3) one sighting of the tab bar counted, and a cold boot can paint the shell for a moment before the gate mounts. The "stale accessibility tree" diagnosis from 2026-09-20 was this: the tree was right, the gate was up. `UiAutomation.clearCache()` was tried and changed nothing, which is what disproved the stale-tree idea.
+- **Fix:** the passphrase goes in as key events (`Instrumentation.sendStringSync`, in-process, no shell command line); Unlock is pressed once enabled, re-pressed while the gate stays up; unlock proof is positive only: tab bar present and "Unlock One" absent, held 3 s. The shared summariser now marks a flick / swipe / pan / switch / pane whose windows are all taps "not measured (nothing moved)" and the card certifies nothing.
+- **Status:** typing proven on the phone (field filled, Unlock enabled); the submit and the full card are not yet re-run (Android paused by the founder). Every earlier S24 app number is void; the Threads/X HWUI numbers stand.
+- **GOTCHA:** a number that looks better than the phone can do is a finding, not a win. Check the window kinds and DOM size before believing a card.
+
+### B53 — A route sweep signed the reviewer out and then recorded every later route "unreachable"
+- **Symptom:** the 93-route iOS sweep went unreachable from `/connected-systems` on; a screenshot showed "Welcome to One".
+- **Root cause:** an earlier sweep included `/logout`, which ended the session; the Release truth lane has no automated sign-in (test mode is Debug-only by design), so every launch after it waited 90 s on the sign-in screen.
+- **Fix:** the sweep takes signed-in, non-callback routes only; it aborts on the first launch that sits on the sign-in screen (`PERF_SWEEP_ABORTED reason=signed-out`) instead of burning 90 s per route; `scripts/perf/ios-reviewer-signin.sh` restores the session in one command (Debug bootstrap with `-UITestResetAppState false`; the Release install lands on top and keeps it).
+- **Tool:** `xcrun devicectl device capture screenshot --device <udid> --destination <png>` reads the phone's screen from the Mac with no test running.
+
 ---
 
 ## 🧪 QA test phone numbers (UAT, fixed OTP `000000`)

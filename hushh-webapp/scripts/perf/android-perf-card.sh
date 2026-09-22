@@ -66,8 +66,18 @@ if [[ -z "${ANDROID_SERIAL:-}" ]]; then
   fi
   export ANDROID_SERIAL="${DEVICES[1]}"
 fi
-if [[ "$("$ADB" -s "$ANDROID_SERIAL" get-state 2>/dev/null || true)" != "device" ]]; then
-  echo "Android device $ANDROID_SERIAL is not ready (adb get-state)." >&2
+# A USB link re-enumerates for a second or two now and then (the transport id
+# changes and get-state briefly fails); one failed probe used to end the run.
+ready=0
+for _ in {1..15}; do
+  if [[ "$("$ADB" -s "$ANDROID_SERIAL" get-state 2>/dev/null || true)" == "device" ]]; then
+    ready=1
+    break
+  fi
+  sleep 2
+done
+if [[ "$ready" != "1" ]]; then
+  echo "Android device $ANDROID_SERIAL is not ready after 30 s (adb get-state)." >&2
   exit 1
 fi
 
