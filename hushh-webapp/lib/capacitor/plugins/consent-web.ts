@@ -363,6 +363,7 @@ export class HushhConsentWeb extends WebPlugin {
       fromAgent: data.from_agent,
       toAgent: data.to_agent,
       scope: data.scope,
+      scopeStr: data.scope_str ?? "",
       createdAt: data.created_at,
       expiresAt: data.expires_at,
       signedByUser: data.signed_by_user,
@@ -382,6 +383,8 @@ export class HushhConsentWeb extends WebPlugin {
           from_agent: options.link.fromAgent,
           to_agent: options.link.toAgent,
           scope: options.link.scope,
+          // Signed, so dropping it here would make a valid link fail to verify.
+          scope_str: options.link.scopeStr ?? "",
           created_at: options.link.createdAt,
           expires_at: options.link.expiresAt,
           signed_by_user: options.link.signedByUser,
