@@ -140,13 +140,33 @@ the expected evidence for them.
 
 ## Consent lifecycle from chat rehearsal
 
-`verify-reviewer-consent-chat.mjs` (mutation-authorized) proves the person-to-person
-lifecycle from Agent chat: discovery names the requestable field and links the
-profile; a request is proposed, read back, and created only after a spoken yes
-(backend-direct with the requester's active connector key); "what is waiting on me"
-answers from `list_pending_information_requests`; the sent request is withdrawn
-from chat after a spoken yes; and no `attr.` or `psr_` identifier reaches the
-surface. The requester's connector key is read on the backend origin
-(`REVIEWER_BACKEND_ORIGIN`, default `http://localhost:8010`) because the web proxy
-does not serve that read; a first-time requester registers it once from the profile
-page, which the script does on its own when the check reports none.
+`verify-reviewer-consent-chat.mjs` is a mutation-authorized discovery/send/withdrawal
+rehearsal, not full approval or encrypted-readback acceptance. Supply the intended
+counterpart's canonical public reference in `REVIEWER_COUNTERPART_PERSON_REF` and
+an explicitly selected synthetic field in `REVIEWER_CONSENT_SCOPE_REF`, in process
+memory. Never fall back to the first connection or ambiguity candidate.
+
+The rehearsal requires the requester's existing connector configuration; it does
+not create a hidden setup request. Connector reads use `REVIEWER_BACKEND_ORIGIN`
+(default `http://localhost:8010`). It uses a unique run purpose, one visible
+confirmation per mutation, the exact returned bundle ID, and current per-item
+states. Failed status reads are failures, not evidence of cancellation. Request
+drafts targeting another person or extra fields are blocked before submission.
+
+Reports contain sanitized outcomes and source identity, never assistant excerpts,
+response bodies, or decrypted values. Test requests and conversations are retained;
+baseline-difference cleanup is prohibited on shared accounts. A passing run still
+does not prove approval, exact encrypted readback, restored cards or cold recovery.
+
+### Exact consent readback
+
+`verify-reviewer-consent-readback.mjs` composes the same reviewer harness. It
+requires `REVIEWER_COUNTERPART_PERSON_REF`, `REVIEWER_EXPECTED_BUNDLE_ID`,
+`REVIEWER_EXPECTED_REQUEST_ID`, `REVIEWER_CONSENT_SCOPE_REF`, and
+`REVIEWER_EXPECTED_PAYLOAD_JSON` in process memory from the authorized synthetic
+journey. Missing bindings stop before browser startup. It never picks an arbitrary
+historical grant or treats substring matching as exact readback. The ordinary
+JSON view is compared entirely inside the browser, then returned to formatted
+view; exact object equality rejects extra siblings. The same binding is checked
+after cold re-unlock. No decrypted values or unrelated grant labels are logged.
+This proves the specified retained grant, not fresh submission or Chat restoration.
