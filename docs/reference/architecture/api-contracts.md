@@ -325,8 +325,13 @@ this first release.
 The shared Google credential boundary verifies provider subject before refresh
 reuse, rejects account replacement while connected, and requires fresh credentials
 after disconnection. Cached tokens and grants are read in one snapshot; refresh
-writes compare original credentials. Atomic callback publication and same-account
-disconnect/reconnect generation fencing remain an activation prerequisite.
+writes compare original credentials. Starts and disconnects serialize per owner;
+callback publication verifies the start-bound generation and atomically stores
+credentials, permission and terminal attempt expiry. Native starts also return
+an opaque `state`, which completion must echo. It remains memory-only on the
+client; missing/legacy state requires restarting the connection, with no unfenced
+fallback. Deploy matching native/web assets with the backend. Real provider
+revocation/reauthorization ordering is not proven by local transaction tests.
 The internal Drive MCP adapter now admits an explicit read-only tool set through
 that same credential owner; no public Drive route or Chat/native completion is
 implied by this source-level adapter.
@@ -335,6 +340,8 @@ implied by this source-level adapter.
 | ------ | ------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------- |
 | POST   | `/api/one/calendar/connect/start`     | Firebase Bearer    | Start incremental Google Calendar read or manage authorization; returns only an OAuth authorization URL and expiry. |
 | POST   | `/api/one/calendar/connect/complete`  | Firebase Bearer    | Redeem a one-time, PKCE-bound OAuth callback and persist the encrypted provider credential and Calendar grant.      |
+| POST   | `/api/one/calendar/connect/native/start` | Firebase Bearer | Create an owner-bound, generation-fenced native attempt; return public client settings and opaque state. |
+| POST   | `/api/one/calendar/connect/native/complete` | Firebase Bearer | Exchange the native code only with the matching state, owner, service and permission; missing state is rejected. |
 | GET    | `/api/one/calendar/status/{user_id}`  | Firebase Bearer    | Return non-sensitive Calendar connection and permission state.                                                      |
 | POST   | `/api/one/calendar/disconnect`        | Firebase Bearer    | Disable Calendar locally and delete pending actions without revoking sibling Google services.                       |
 | POST   | `/api/one/calendar/events`            | VAULT_OWNER Bearer | Read bounded primary-calendar events in a supplied ISO-8601 time range.                                             |

@@ -13,11 +13,14 @@ from hushh_mcp.services.google_connection_service import (
     GoogleConnectionError,
     GoogleConnectionService,
 )
+from hushh_mcp.services.google_oauth_attempt import connection_generation
+from tests.google_oauth_test_support import TransactionEngine
 
 
 class _Db:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict | None]] = []
+        self.engine = TransactionEngine(self)
 
     def execute_raw(self, sql: str, params: dict | None = None):  # noqa: ANN001
         self.calls.append((sql, params))
@@ -303,6 +306,10 @@ def test_calendar_stale_callback_cannot_reenable_a_disconnected_service_grant(
                 service="calendar",
                 requested_scopes=GoogleConnectionService.scopes("calendar", "read"),
                 oauth_started_at=datetime(2026, 1, 1, tzinfo=UTC),
+                attempt_id="synthetic-attempt",
+                expected_generation=connection_generation(
+                    {"status": "connected", "provider_subject": "subject-1"}
+                ),
             )
         )
 

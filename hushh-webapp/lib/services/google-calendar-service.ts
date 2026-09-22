@@ -19,6 +19,7 @@ type NativeOAuthStart = {
   server_client_id: string;
   service: "calendar";
   access_level: "read" | "manage";
+  state: string;
 };
 
 export type CalendarExecution = {
@@ -163,7 +164,13 @@ export class GoogleCalendarService {
       throw new Error(
         await errorMessage(response, "Unable to start Calendar connection."),
       );
-    return response.json() as Promise<NativeOAuthStart>;
+    const start = (await response.json()) as NativeOAuthStart;
+    if (typeof start.state !== "string" || !start.state.trim()) {
+      throw new Error(
+        "Google connection could not be prepared. Please try again.",
+      );
+    }
+    return start;
   }
 
   static async completeNativeConnect(params: {
@@ -171,7 +178,11 @@ export class GoogleCalendarService {
     userId: string;
     accessLevel: "read" | "manage";
     serverAuthCode: string;
+    state: string;
   }): Promise<GoogleCalendarStatus> {
+    if (!params.state.trim()) {
+      throw new Error("Restart the Google connection to continue.");
+    }
     const response = await ApiService.apiFetch(
       "/api/one/calendar/connect/native/complete",
       {
@@ -184,6 +195,7 @@ export class GoogleCalendarService {
           user_id: params.userId,
           access_level: params.accessLevel,
           server_auth_code: params.serverAuthCode,
+          state: params.state,
         }),
       },
     );

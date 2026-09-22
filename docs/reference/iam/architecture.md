@@ -109,10 +109,23 @@ reads the provider credential and service grant in one SQL snapshot. Refresh
 writes compare the original credential and subject plus the current service
 grant. These checks do not make OAuth permission a consent grant.
 
-Remaining activation prerequisite: provider/grant publication still uses two
-commits and lacks an attempt-bound generation fence against a delayed
-same-subject callback after disconnect/reconnect. Close that race atomically
-before exposing additional Google-connected execution surfaces.
+Web and native connection starts capture a generation inside the encrypted
+attempt under the same owner transaction lock used by disconnect. Publication
+rechecks that generation, the claimed attempt and its current expiry, then writes
+provider credentials, the service grant and terminal attempt expiry atomically.
+Every authorization encrypts a fresh refresh envelope; normal access-token
+refresh does not change that generation. Disconnect expires even consumed,
+in-flight attempts for the selected service while preserving sibling grants.
+Late refresh failures cannot mark a newer authorization as needing reconnection.
+Attempt creation and expiry use wall-clock time after lock acquisition, not a
+transaction-start timestamp that may predate a wait.
+
+Native start returns an owner-bound opaque `state`, carried in memory to native
+completion. Matching frontend/backend versions are required; missing state,
+legacy unversioned attempts and web/native interchange fail closed and require a
+fresh connection attempt. Provider calls occur outside database locks. The
+existing last-service Google revoke remains best effort and may race a fresh
+provider grant; local transaction tests do not prove provider-side ordering.
 
 The source-level Drive MCP adapter uses this same credential owner and a
 `drive.readonly` service grant. Because Google tokens may accumulate permissions,

@@ -10,6 +10,8 @@ from hushh_mcp.services.google_connection_service import (
     GoogleConnectionError,
     GoogleConnectionService,
 )
+from hushh_mcp.services.google_oauth_attempt import connection_generation
+from tests.google_oauth_test_support import TransactionEngine
 
 
 class _Db:
@@ -18,6 +20,7 @@ class _Db:
         self.accept_connection = accept_connection
         self.accept_grant = accept_grant
         self.calls = []
+        self.engine = TransactionEngine(self)
 
     def execute_raw(self, sql, params=None):
         self.calls.append((sql, params))
@@ -50,6 +53,8 @@ async def _store(service, *, token=None, level="read"):
         service="calendar",
         requested_scopes=GoogleConnectionService.scopes("calendar", level),
         oauth_started_at=datetime(2026, 9, 22, tzinfo=UTC),
+        attempt_id="synthetic-attempt",
+        expected_generation=connection_generation(service.db.existing),
     )
 
 

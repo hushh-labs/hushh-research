@@ -23,6 +23,7 @@ def test_calendar_native_connect_uses_the_authenticated_owner(monkeypatch) -> No
             return {
                 "configured": True,
                 "server_client_id": "calendar-client-id",
+                "state": "synthetic-attempt-state",
                 "service": "calendar",
                 "access_level": "read",
             }
@@ -47,13 +48,14 @@ def test_calendar_native_connect_uses_the_authenticated_owner(monkeypatch) -> No
             "user_id": "calendar-user",
             "access_level": "read",
             "server_auth_code": "one-time-code",
+            "state": "synthetic-attempt-state",
         },
     )
 
     assert start.status_code == 200
     assert complete.status_code == 200
     assert calls == [
-        ("start", {"service": "calendar", "access_level": "read"}),
+        ("start", {"user_id": "calendar-user", "service": "calendar", "access_level": "read"}),
         (
             "complete",
             {
@@ -61,6 +63,7 @@ def test_calendar_native_connect_uses_the_authenticated_owner(monkeypatch) -> No
                 "service": "calendar",
                 "access_level": "read",
                 "server_auth_code": "one-time-code",
+                "state": "synthetic-attempt-state",
             },
         ),
     ]
@@ -75,7 +78,21 @@ def test_calendar_native_complete_rejects_another_users_code(monkeypatch) -> Non
             "user_id": "different-user",
             "access_level": "read",
             "server_auth_code": "one-time-code",
+            "state": "synthetic-attempt-state",
         },
     )
 
     assert response.status_code == 403
+
+
+def test_legacy_native_completion_without_bound_state_is_rejected(monkeypatch) -> None:
+    monkeypatch.setattr(calendar, "get_google_connection_service", lambda: object())
+    response = TestClient(_app()).post(
+        "/api/one/calendar/connect/native/complete",
+        json={
+            "user_id": "calendar-user",
+            "access_level": "read",
+            "server_auth_code": "one-time-code",
+        },
+    )
+    assert response.status_code == 422

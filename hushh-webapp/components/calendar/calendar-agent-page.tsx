@@ -234,6 +234,7 @@ export function CalendarAgentPage({
           userId: user.uid,
           accessLevel,
           serverAuthCode: nativeResult.serverAuthCode,
+          state: start.state,
         });
         setStatus(completed);
         if (!completed.connected) {

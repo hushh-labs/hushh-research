@@ -20,9 +20,15 @@ from urllib.parse import urlencode
 
 import httpx
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from sqlalchemy import text
 
 from db.db_client import get_db
 from hushh_mcp.runtime_settings import get_app_runtime_settings, get_core_security_settings
+from hushh_mcp.services.google_oauth_attempt import (
+    connection_generation,
+    decode_attempt,
+    encode_attempt,
+)
 
 GoogleService = Literal["gmail", "calendar", "contacts", "drive"]
 
@@ -179,6 +185,71 @@ class GoogleConnectionService:
             raise GoogleConnectionError("Google OAuth state is invalid", status_code=400)
         return attempt_id
 
+    async def _create_oauth_attempt(
+        self,
+        *,
+        user_id: str,
+        service: GoogleService,
+        access_level: Literal["read", "manage"],
+        redirect_uri: str,
+        transport: Literal["web", "native"],
+    ) -> dict[str, Any]:
+        requested_scopes = ("openid", "email", "profile", *self.scopes(service, access_level))
+        attempt_id = secrets.token_urlsafe(32)
+        verifier = secrets.token_urlsafe(48)
+        state = self._signed_state(attempt_id)
+
+        def persist_attempt() -> None:
+            with self.db.engine.begin() as connection:
+                self._lock_google_owner(connection, user_id)
+                row = (
+                    connection.execute(
+                        text(
+                            "SELECT * FROM google_provider_connections WHERE user_id = :user_id AND provider = 'google' FOR UPDATE"
+                        ),
+                        {"user_id": user_id},
+                    )
+                    .mappings()
+                    .first()
+                )
+                generation = connection_generation(dict(row) if row else None)
+                connection.execute(
+                    text("""
+            INSERT INTO google_oauth_attempts (
+              attempt_id, user_id, service, redirect_uri, requested_scope_csv,
+              state_digest, verifier_ciphertext, verifier_iv, verifier_tag, expires_at, created_at
+            ) VALUES (
+              :attempt_id, :user_id, :service, :redirect_uri, :scope_csv,
+              :state_digest, :ciphertext, :iv, :tag, :expires_at, clock_timestamp()
+            )
+            """),
+                    {
+                        "attempt_id": attempt_id,
+                        "user_id": user_id,
+                        "service": service,
+                        "redirect_uri": redirect_uri,
+                        "scope_csv": " ".join(requested_scopes),
+                        "state_digest": hashlib.sha256(state.encode()).hexdigest(),
+                        **self._encrypt(
+                            encode_attempt(
+                                verifier=verifier, generation=generation, transport=transport
+                            ),
+                            aad=f"oauth-attempt:{attempt_id}",
+                        ),
+                        "expires_at": _now() + timedelta(minutes=10),
+                    },
+                )
+
+        try:
+            await asyncio.to_thread(persist_attempt)
+        except GoogleConnectionError:
+            raise
+        except Exception:
+            raise GoogleConnectionError(
+                "Google connection could not be started. Please try again.", status_code=503
+            ) from None
+        return {"state": state, "verifier": verifier, "scopes": requested_scopes}
+
     async def start(
         self,
         *,
@@ -191,41 +262,23 @@ class GoogleConnectionService:
         if not self.is_configured():
             raise GoogleConnectionError("Google OAuth is not configured", status_code=503)
         resolved_redirect = self._redirect_uri(redirect_uri)
-        requested_scopes = ("openid", "email", "profile", *self.scopes(service, access_level))
-        attempt_id = secrets.token_urlsafe(32)
-        verifier = secrets.token_urlsafe(48)
-        state = self._signed_state(attempt_id)
-        await self._execute_raw_async(
-            """
-            INSERT INTO google_oauth_attempts (
-              attempt_id, user_id, service, redirect_uri, requested_scope_csv,
-              state_digest, verifier_ciphertext, verifier_iv, verifier_tag, expires_at
-            ) VALUES (
-              :attempt_id, :user_id, :service, :redirect_uri, :scope_csv,
-              :state_digest, :ciphertext, :iv, :tag, :expires_at
-            )
-            """,
-            {
-                "attempt_id": attempt_id,
-                "user_id": user_id,
-                "service": service,
-                "redirect_uri": resolved_redirect,
-                "scope_csv": " ".join(requested_scopes),
-                "state_digest": hashlib.sha256(state.encode()).hexdigest(),
-                **self._encrypt(verifier, aad=f"oauth-attempt:{attempt_id}"),
-                "expires_at": _now() + timedelta(minutes=10),
-            },
+        attempt = await self._create_oauth_attempt(
+            user_id=user_id,
+            service=service,
+            access_level=access_level,
+            redirect_uri=resolved_redirect,
+            transport="web",
         )
         query = {
             "client_id": self._client_id(),
             "redirect_uri": resolved_redirect,
             "response_type": "code",
-            "scope": " ".join(requested_scopes),
+            "scope": " ".join(attempt["scopes"]),
             "access_type": "offline",
             "include_granted_scopes": "true",
-            "code_challenge": self._pkce_challenge(verifier),
+            "code_challenge": self._pkce_challenge(attempt["verifier"]),
             "code_challenge_method": "S256",
-            "state": state,
+            "state": attempt["state"],
             "prompt": "consent select_account" if not _clean(login_hint) else "consent",
         }
         if _clean(login_hint):
@@ -288,8 +341,12 @@ class GoogleConnectionService:
         Calendar API failure. Persisting it keeps status and the reconnect UI
         truthful instead of claiming a dead credential is connected.
         """
-        updated = await self._execute_raw_async(
-            """
+
+        def mark_failed() -> None:
+            with self.db.engine.begin() as connection:
+                self._lock_google_owner(connection, user_id)
+                updated = connection.execute(
+                    text("""
             UPDATE google_provider_connections
             SET status = 'needs_reauth',
                 access_token_ciphertext = NULL,
@@ -302,22 +359,29 @@ class GoogleConnectionService:
               AND status = 'connected'
               AND refresh_token_ciphertext = :expected_refresh_ciphertext
             RETURNING user_id
-            """,
-            {
-                "user_id": user_id,
-                "expected_refresh_ciphertext": expected_refresh_ciphertext,
-            },
-        )
-        if not updated.data:
-            return
-        await self._execute_raw_async(
-            """
+            """),
+                    {
+                        "user_id": user_id,
+                        "expected_refresh_ciphertext": expected_refresh_ciphertext,
+                    },
+                )
+                if not updated.first():
+                    return
+                connection.execute(
+                    text("""
             UPDATE google_service_grants
             SET status = 'needs_reauth', updated_at = NOW()
             WHERE user_id = :user_id AND provider = 'google' AND service = :service
-            """,
-            {"user_id": user_id, "service": service},
-        )
+            """),
+                    {"user_id": user_id, "service": service},
+                )
+
+        try:
+            await asyncio.to_thread(mark_failed)
+        except Exception:
+            raise GoogleConnectionError(
+                "Google connection status could not be updated.", status_code=503
+            ) from None
 
     async def _store_authorized_connection(
         self,
@@ -327,6 +391,8 @@ class GoogleConnectionService:
         service: GoogleService,
         requested_scopes: tuple[str, ...],
         oauth_started_at: datetime,
+        attempt_id: str,
+        expected_generation: str,
     ) -> dict[str, Any]:
         access_token = _clean(token.get("access_token"))
         if not access_token:
@@ -336,6 +402,10 @@ class GoogleConnectionService:
         if not subject:
             raise GoogleConnectionError("Google account could not be verified", status_code=502)
         existing = await self._connection(user_id)
+        if connection_generation(existing) != expected_generation:
+            raise GoogleConnectionError(
+                "The Google connection changed. Please reconnect.", status_code=409
+            )
         # One provider row backs all service grants. A new service must not
         # silently replace the account used by already-connected services.
         if existing and existing.get("status") != "disconnected":
@@ -377,8 +447,7 @@ class GoogleConnectionService:
         expires_at = _now() + timedelta(seconds=max(60, int(token.get("expires_in") or 3600)))
         refresh = self._encrypt(refresh_token, aad=f"google-connection:{user_id}")
         access = self._encrypt(access_token, aad=f"google-connection:{user_id}")
-        connection_write = await self._execute_raw_async(
-            """INSERT INTO google_provider_connections (
+        connection_sql = """INSERT INTO google_provider_connections (
                  user_id, provider, provider_subject, provider_email, status,
                  refresh_token_ciphertext, refresh_token_iv, refresh_token_tag,
                  access_token_ciphertext, access_token_iv, access_token_tag, access_token_expires_at, connected_at
@@ -398,28 +467,21 @@ class GoogleConnectionService:
                  AND (google_provider_connections.status <> 'disconnected'
                   OR google_provider_connections.revoked_at IS NULL
                   OR google_provider_connections.revoked_at <= :oauth_started_at)
-               RETURNING user_id""",
-            {
-                "user_id": user_id,
-                "subject": subject,
-                "email": _clean(profile.get("email")).lower() or None,
-                "expires_at": expires_at,
-                "refresh_ciphertext": refresh["ciphertext"],
-                "refresh_iv": refresh["iv"],
-                "refresh_tag": refresh["tag"],
-                "access_ciphertext": access["ciphertext"],
-                "access_iv": access["iv"],
-                "access_tag": access["tag"],
-                "oauth_started_at": oauth_started_at,
-            },
-        )
-        if not connection_write.data:
-            raise GoogleConnectionError(
-                "This Google authorization was cancelled. Start a new connection to continue.",
-                status_code=409,
-            )
-        grant_write = await self._execute_raw_async(
-            """INSERT INTO google_service_grants (user_id, provider, service, status, scope_csv, access_level)
+               RETURNING user_id"""
+        connection_params = {
+            "user_id": user_id,
+            "subject": subject,
+            "email": _clean(profile.get("email")).lower() or None,
+            "expires_at": expires_at,
+            "refresh_ciphertext": refresh["ciphertext"],
+            "refresh_iv": refresh["iv"],
+            "refresh_tag": refresh["tag"],
+            "access_ciphertext": access["ciphertext"],
+            "access_iv": access["iv"],
+            "access_tag": access["tag"],
+            "oauth_started_at": oauth_started_at,
+        }
+        grant_sql = """INSERT INTO google_service_grants (user_id, provider, service, status, scope_csv, access_level)
                SELECT :user_id, 'google', :service, 'connected', :scope_csv, :access_level
                FROM google_provider_connections
                WHERE user_id = :user_id AND provider = 'google' AND status = 'connected'
@@ -429,32 +491,108 @@ class GoogleConnectionService:
                  disconnected_at = NULL, updated_at = NOW()
                WHERE google_service_grants.disconnected_at IS NULL
                   OR google_service_grants.disconnected_at <= :oauth_started_at
-               RETURNING user_id""",
-            {
-                "user_id": user_id,
-                "subject": subject,
-                "access_ciphertext": access["ciphertext"],
-                "service": service,
-                "scope_csv": scopes,
-                "access_level": level,
-                "oauth_started_at": oauth_started_at,
-            },
+               RETURNING user_id"""
+        grant_params = {
+            "user_id": user_id,
+            "subject": subject,
+            "access_ciphertext": access["ciphertext"],
+            "service": service,
+            "scope_csv": scopes,
+            "access_level": level,
+            "oauth_started_at": oauth_started_at,
+        }
+        await asyncio.to_thread(
+            self._publish_authorization,
+            user_id=user_id,
+            service=service,
+            attempt_id=attempt_id,
+            expected_generation=expected_generation,
+            connection_sql=connection_sql,
+            connection_params=connection_params,
+            grant_sql=grant_sql,
+            grant_params=grant_params,
         )
-        if not grant_write.data:
-            raise GoogleConnectionError(
-                "This Google authorization was cancelled. Start a new connection to continue.",
-                status_code=409,
-            )
         return await self.status(user_id=user_id, service=service)
 
-    async def complete(
-        self, *, user_id: str, code: str, state: str, redirect_uri: str | None
-    ) -> dict[str, Any]:
+    @staticmethod
+    def _lock_google_owner(connection: Any, user_id: str) -> None:
+        connection.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0))"),
+            {"lock_key": f"google-connection:{user_id}"},
+        )
+
+    def _publish_authorization(
+        self,
+        *,
+        user_id: str,
+        service: GoogleService,
+        attempt_id: str,
+        expected_generation: str,
+        connection_sql: str,
+        connection_params: dict[str, Any],
+        grant_sql: str,
+        grant_params: dict[str, Any],
+    ) -> None:
+        # No Google/network calls inside this transaction. Postgres serializes
+        # publication and disconnect even when this owner has no provider row.
+        try:
+            with self.db.engine.begin() as connection:
+                self._lock_google_owner(connection, user_id)
+                row = (
+                    connection.execute(
+                        text(
+                            "SELECT * FROM google_provider_connections WHERE user_id = :user_id AND provider = 'google' FOR UPDATE"
+                        ),
+                        {"user_id": user_id},
+                    )
+                    .mappings()
+                    .first()
+                )
+                if connection_generation(dict(row) if row else None) != expected_generation:
+                    raise GoogleConnectionError(
+                        "The Google connection changed. Please reconnect.", status_code=409
+                    )
+                attempt = connection.execute(
+                    text(
+                        """SELECT attempt_id FROM google_oauth_attempts
+                       WHERE attempt_id = :attempt_id AND user_id = :user_id AND service = :service
+                         AND consumed_at IS NOT NULL AND expires_at > clock_timestamp() FOR UPDATE"""
+                    ),
+                    {"attempt_id": attempt_id, "user_id": user_id, "service": service},
+                ).first()
+                if not attempt:
+                    raise GoogleConnectionError(
+                        "This Google authorization was cancelled or expired. Please reconnect.",
+                        status_code=409,
+                    )
+                for sql, params in ((connection_sql, connection_params), (grant_sql, grant_params)):
+                    if not connection.execute(text(sql), params).first():
+                        raise GoogleConnectionError(
+                            "This Google authorization was cancelled. Please reconnect.",
+                            status_code=409,
+                        )
+                connection.execute(
+                    text(
+                        "UPDATE google_oauth_attempts SET expires_at = clock_timestamp() WHERE attempt_id = :attempt_id"
+                    ),
+                    {"attempt_id": attempt_id},
+                )
+        except GoogleConnectionError:
+            raise
+        except Exception:
+            # SQLAlchemy exceptions may contain bound credential envelopes.
+            raise GoogleConnectionError(
+                "Google connection could not be saved. Please reconnect.", status_code=503
+            ) from None
+
+    async def _consume_oauth_attempt(
+        self, *, user_id: str, state: str
+    ) -> tuple[str, dict[str, Any]]:
         attempt_id = self._verify_state(state)
         result = await self._execute_raw_async(
             """UPDATE google_oauth_attempts SET consumed_at = NOW()
                WHERE attempt_id = :attempt_id AND user_id = :user_id AND consumed_at IS NULL
-                 AND expires_at > NOW() AND state_digest = :state_digest
+                 AND expires_at > clock_timestamp() AND state_digest = :state_digest
                RETURNING *""",
             {
                 "attempt_id": attempt_id,
@@ -466,15 +604,31 @@ class GoogleConnectionService:
             raise GoogleConnectionError(
                 "Google OAuth attempt has expired or was already used", status_code=400
             )
-        attempt = result.data[0]
+        return attempt_id, result.data[0]
+
+    def _attempt_context(
+        self, attempt_id: str, attempt: dict[str, Any], *, transport: Literal["web", "native"]
+    ) -> dict[str, str]:
+        value = self._decrypt(
+            {"ciphertext": attempt["verifier_ciphertext"], "iv": attempt["verifier_iv"]},
+            aad=f"oauth-attempt:{attempt_id}",
+        )
+        try:
+            return decode_attempt(value, transport=transport)
+        except ValueError:
+            # Legacy attempts did not bind a generation. Never bless their
+            # current connection at callback time; ask for a fresh start.
+            raise GoogleConnectionError("Restart the Google connection.", status_code=409) from None
+
+    async def complete(
+        self, *, user_id: str, code: str, state: str, redirect_uri: str | None
+    ) -> dict[str, Any]:
+        attempt_id, attempt = await self._consume_oauth_attempt(user_id=user_id, state=state)
         if redirect_uri and not hmac.compare_digest(
             _clean(redirect_uri), _clean(attempt["redirect_uri"])
         ):
             raise GoogleConnectionError("Google OAuth redirect URI is not allowed", status_code=400)
-        verifier = self._decrypt(
-            {"ciphertext": attempt["verifier_ciphertext"], "iv": attempt["verifier_iv"]},
-            aad=f"oauth-attempt:{attempt_id}",
-        )
+        context = self._attempt_context(attempt_id, attempt, transport="web")
         token = await self._post_form(
             _TOKEN_URL,
             {
@@ -483,7 +637,7 @@ class GoogleConnectionService:
                 "client_secret": self._client_secret(),
                 "redirect_uri": attempt["redirect_uri"],
                 "grant_type": "authorization_code",
-                "code_verifier": verifier,
+                "code_verifier": context["verifier"],
             },
         )
         raw_service = _clean(attempt["service"])
@@ -500,22 +654,33 @@ class GoogleConnectionService:
             service=service,
             requested_scopes=requested_scopes,
             oauth_started_at=oauth_started_at,
+            attempt_id=attempt_id,
+            expected_generation=context["generation"],
         )
 
     async def start_native(
         self,
         *,
+        user_id: str,
         service: GoogleService,
         access_level: Literal["read", "manage"],
     ) -> dict[str, Any]:
         """Return the public OAuth client for a platform Google sign-in request."""
         if not self.is_configured():
             raise GoogleConnectionError("Google OAuth is not configured", status_code=503)
+        attempt = await self._create_oauth_attempt(
+            user_id=user_id,
+            service=service,
+            access_level=access_level,
+            redirect_uri="",
+            transport="native",
+        )
         return {
             "configured": True,
             "server_client_id": self._client_id(),
             "service": service,
             "access_level": access_level,
+            "state": attempt["state"],
         }
 
     async def complete_native(
@@ -525,6 +690,7 @@ class GoogleConnectionService:
         service: GoogleService,
         access_level: Literal["read", "manage"],
         server_auth_code: str,
+        state: str,
     ) -> dict[str, Any]:
         """Exchange a short-lived native server code without a WebView callback."""
         if not self.is_configured():
@@ -532,6 +698,15 @@ class GoogleConnectionService:
         code = _clean(server_auth_code)
         if not code:
             raise GoogleConnectionError("Missing native Google authorization code", status_code=400)
+        attempt_id, attempt = await self._consume_oauth_attempt(user_id=user_id, state=state)
+        requested_scopes = ("openid", "email", "profile", *self.scopes(service, access_level))
+        if attempt["service"] != service or set(
+            _clean(attempt["requested_scope_csv"]).split()
+        ) != set(requested_scopes):
+            raise GoogleConnectionError(
+                "Google connection permission does not match this attempt", status_code=400
+            )
+        context = self._attempt_context(attempt_id, attempt, transport="native")
         token = await self._post_form(
             _TOKEN_URL,
             {
@@ -546,8 +721,10 @@ class GoogleConnectionService:
             user_id=user_id,
             token=token,
             service=service,
-            requested_scopes=("openid", "email", "profile", *self.scopes(service, access_level)),
-            oauth_started_at=_now(),
+            requested_scopes=requested_scopes,
+            oauth_started_at=attempt["created_at"],
+            attempt_id=attempt_id,
+            expected_generation=context["generation"],
         )
 
     async def access_token(
@@ -681,71 +858,87 @@ class GoogleConnectionService:
         delete its pending actions; the account-level revoke remains the only
         operation that calls Google's revocation endpoint.
         """
-        connection = await self._connection(user_id)
-        refresh_token = ""
-        if connection and connection.get("status") == "connected":
-            try:
-                refresh_token = self._decrypt(
-                    {
-                        "ciphertext": connection.get("refresh_token_ciphertext"),
-                        "iv": connection.get("refresh_token_iv"),
-                    },
-                    aad=f"google-connection:{user_id}",
+
+        def disconnect() -> str:
+            with self.db.engine.begin() as connection:
+                self._lock_google_owner(connection, user_id)
+                row = (
+                    connection.execute(
+                        text(
+                            "SELECT * FROM google_provider_connections WHERE user_id = :user_id AND provider = 'google' FOR UPDATE"
+                        ),
+                        {"user_id": user_id},
+                    )
+                    .mappings()
+                    .first()
                 )
-            except GoogleConnectionError:
-                # Local disable and token erasure remain reliable even if a
-                # legacy/corrupt envelope cannot be sent to Google's revoke API.
+                params = {"user_id": user_id, "service": service}
+                connection.execute(
+                    text("""UPDATE google_service_grants SET status = 'disconnected',
+                    disconnected_at = clock_timestamp(), updated_at = clock_timestamp()
+                    WHERE user_id = :user_id AND provider = 'google' AND service = :service"""),
+                    params,
+                )
+                # A claimed callback can be waiting on Google. Expire it too,
+                # not just unconsumed attempts, before allowing publication.
+                connection.execute(
+                    text("""UPDATE google_oauth_attempts
+                    SET consumed_at = COALESCE(consumed_at, clock_timestamp()), expires_at = clock_timestamp()
+                    WHERE user_id = :user_id AND service = :service AND expires_at > clock_timestamp()"""),
+                    params,
+                )
+                if service == "calendar":
+                    connection.execute(
+                        text(
+                            "DELETE FROM google_calendar_action_proposals WHERE user_id = :user_id AND status IN ('pending', 'executing')"
+                        ),
+                        params,
+                    )
+                siblings = connection.execute(
+                    text("""SELECT 1 FROM google_service_grants
+                    WHERE user_id = :user_id AND provider = 'google' AND service <> :service
+                    AND status = 'connected' LIMIT 1"""),
+                    params,
+                ).first()
+                if siblings:
+                    return ""
                 refresh_token = ""
-        await self._execute_raw_async(
-            """UPDATE google_service_grants SET status = 'disconnected', disconnected_at = NOW(),
-               updated_at = NOW() WHERE user_id = :user_id AND provider = 'google' AND service = :service""",
-            {"user_id": user_id, "service": service},
-        )
-        await self._execute_raw_async(
-            """UPDATE google_oauth_attempts
-               SET consumed_at = NOW()
-               WHERE user_id = :user_id AND service = :service AND consumed_at IS NULL""",
-            {"user_id": user_id, "service": service},
-        )
-        if service == "calendar":
-            await self._execute_raw_async(
-                "DELETE FROM google_calendar_action_proposals WHERE user_id = :user_id AND status IN ('pending', 'executing')",
-                {"user_id": user_id},
-            )
-        active_siblings = await self._execute_raw_async(
-            """
-            SELECT 1 FROM google_service_grants
-            WHERE user_id = :user_id AND provider = 'google' AND service <> :service
-              AND status = 'connected'
-            LIMIT 1
-            """,
-            {"user_id": user_id, "service": service},
-        )
-        if not active_siblings.data:
-            await self._execute_raw_async(
-                """
-                UPDATE google_provider_connections
-                SET status = 'disconnected',
-                    refresh_token_ciphertext = NULL,
-                    refresh_token_iv = NULL,
-                    refresh_token_tag = NULL,
-                    access_token_ciphertext = NULL,
-                    access_token_iv = NULL,
-                    access_token_tag = NULL,
-                    access_token_expires_at = NULL,
-                    revoked_at = NOW(),
-                    updated_at = NOW()
-                WHERE user_id = :user_id AND provider = 'google'
-                """,
-                {"user_id": user_id},
-            )
-            if refresh_token:
-                try:
-                    async with httpx.AsyncClient(timeout=5) as client:
-                        await client.post(_REVOKE_URL, data={"token": refresh_token})
-                except httpx.HTTPError:
-                    # Local deletion has completed; provider revoke is best effort.
-                    pass
+                if row and row.get("status") == "connected":
+                    try:
+                        refresh_token = self._decrypt(
+                            {
+                                "ciphertext": row.get("refresh_token_ciphertext"),
+                                "iv": row.get("refresh_token_iv"),
+                            },
+                            aad=f"google-connection:{user_id}",
+                        )
+                    except GoogleConnectionError:
+                        pass  # Local erasure still succeeds for corrupt envelopes.
+                connection.execute(
+                    text("""UPDATE google_provider_connections SET status = 'disconnected',
+                    refresh_token_ciphertext = NULL, refresh_token_iv = NULL, refresh_token_tag = NULL,
+                    access_token_ciphertext = NULL, access_token_iv = NULL, access_token_tag = NULL,
+                    access_token_expires_at = NULL, revoked_at = clock_timestamp(), updated_at = clock_timestamp()
+                    WHERE user_id = :user_id AND provider = 'google'"""),
+                    params,
+                )
+                return refresh_token
+
+        try:
+            refresh_token = await asyncio.to_thread(disconnect)
+        except Exception:
+            raise GoogleConnectionError(
+                "Google connection could not be disconnected. Please try again.", status_code=503
+            ) from None
+        if refresh_token:
+            try:
+                async with httpx.AsyncClient(timeout=5) as client:
+                    await client.post(_REVOKE_URL, data={"token": refresh_token})
+            except httpx.HTTPError:
+                # Provider revoke remains best effort, outside local locks. It
+                # can race a fresh provider grant; local atomicity is not proof
+                # of provider-side revocation/reauthorization ordering.
+                pass
         return await self.status(user_id=user_id, service=service)
 
 
