@@ -88,9 +88,18 @@ export const AppBottomShell = memo(function AppBottomShell({ model }: { model: B
 
   if (hidden) return null;
 
+  // The mask rides the scroll progress the way the stack does: as a
+  // transform, never as a height. Its height used to be recomputed on every
+  // scroll frame (full height minus the progress travel), which was one
+  // layout plus a backdrop-blur re-render per frame under the moving bars,
+  // the only non-composited motion in this stack; the feed flick and the tab
+  // ride both read it as hitch. The gradient keeps its shape and the part
+  // that travels down goes off the bottom of the screen.
   const maskStyle = {
-    height:
-      "calc(var(--bottom-chrome-full-height) - (var(--bottom-chrome-progress, 0) * var(--bottom-nav-travel, 0px)))",
+    height: "var(--bottom-chrome-full-height)",
+    transform:
+      "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-nav-travel, 0px)), 0)",
+    willChange: "transform",
   } as CSSProperties;
 
   return (

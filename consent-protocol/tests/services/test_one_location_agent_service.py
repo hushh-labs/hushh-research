@@ -3877,6 +3877,7 @@ def test_directory_candidate_search_filters_before_pagination(
         "exact_name": "cara",
         "name_prefix": "cara%",
         "word_prefix": "% cara%",
+        "token_prefixes": ["% cara%"],
         "email_prefix": "cara%",
         "email_query": "cara",
         # Every caller that predates the advisor split still asks for both
@@ -3989,11 +3990,16 @@ def test_directory_search_folds_separators_so_tiering_is_about_the_name() -> Non
 
     # " Nilesh" must not be demoted out of the first tier by a leading space,
     # and "Abdul-Rashid" / "Abdul R." must still reach the second one.
+    #
+    # Eight sites: the filter and the tiering each compare the stored name
+    # against the exact, name-prefix, word-prefix and per-token patterns. A new
+    # tier moves this number on both halves at once; one half moving alone is
+    # the drift this test exists to catch.
     assert (
         service.sql.count(
             "TRANSLATE(LOWER(BTRIM(COALESCE(a.display_name, ''))), '-''._/,', '      ')"
         )
-        == 6
+        == 8
     )
 
 
@@ -4064,7 +4070,7 @@ def test_directory_search_folds_both_sides_with_one_separator_list() -> None:
     service = RecipientDirectoryProbe()
     service.search_directory_candidates(owner_user_id="owner", query="n")
 
-    assert service.sql.count(_DIRECTORY_SEPARATOR_SQL) == 6
+    assert service.sql.count(_DIRECTORY_SEPARATOR_SQL) == 8
     # The Python side folds exactly the characters the SQL side names.
     for separator in _DIRECTORY_SEPARATORS:
         assert f"a{separator}b".translate(_DIRECTORY_SEPARATOR_FOLD) == "a b"
