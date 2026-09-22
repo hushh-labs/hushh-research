@@ -29,7 +29,7 @@ export function RenderPerfProbe() {
       if (cancelled || !enablement.enabled) return;
       const { startFramePacingProbe } = await import("@/lib/perf/frame-pacing");
       if (cancelled) return;
-      probeRef.current = startFramePacingProbe({ hud: enablement.hud });
+      probeRef.current = startFramePacingProbe({ hud: enablement.hud, experiments: enablement.experiments });
       probeRef.current.setRoute(window.location.pathname, window.location.search);
       // One navigation at boot, native launch argument only; the auth guard
       // still decides admission (a locked vault detours through /login).

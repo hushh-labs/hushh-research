@@ -27,6 +27,16 @@ export const PERF_PROBE_PREFERENCE_KEY = "hushh_perf_probe";
  * a locked vault sends the route through /login?redirect= and back.
  */
 export const PERF_ROUTE_PREFERENCE_KEY = "hushh_perf_route";
+/**
+ * Native only, read only when the probe is on: attribution experiments the
+ * probe applies to the page for one launch (`-CapacitorStorage.hushh_perf_experiment
+ * autocorrect-off`). An experiment changes behaviour to isolate a cost, so a
+ * run with one on is attribution only and never certifies; the export names
+ * it. Known experiments are listed in `PERF_EXPERIMENTS`.
+ */
+export const PERF_EXPERIMENT_PREFERENCE_KEY = "hushh_perf_experiment";
+export const PERF_EXPERIMENTS = ["autocorrect-off", "spellcheck-off", "kb-inset-off"] as const;
+export type PerfExperiment = (typeof PERF_EXPERIMENTS)[number];
 
 export type PerfProbeEnablement = {
   enabled: boolean;
@@ -34,7 +44,17 @@ export type PerfProbeEnablement = {
   source: "query" | "session" | "preferences" | "none";
   /** App-relative path to open once at boot; native launch argument only. */
   route?: string;
+  /** Attribution experiments for this launch; native launch argument only. */
+  experiments?: PerfExperiment[];
 };
+
+/** Only names from the known list, comma separated; anything else is dropped. */
+export function sanitizePerfExperiments(value: string | null | undefined): PerfExperiment[] {
+  return String(value ?? "")
+    .split(",")
+    .map((name) => name.trim())
+    .filter((name): name is PerfExperiment => (PERF_EXPERIMENTS as readonly string[]).includes(name));
+}
 
 const DISABLED: PerfProbeEnablement = { enabled: false, hud: false, source: "none" };
 
@@ -91,7 +111,14 @@ export async function resolvePerfProbeEnablement(): Promise<PerfProbeEnablement>
     const { value } = await Preferences.get({ key: PERF_PROBE_PREFERENCE_KEY });
     if (value !== "1" && value !== "hud") return DISABLED;
     const { value: routeValue } = await Preferences.get({ key: PERF_ROUTE_PREFERENCE_KEY });
-    return { enabled: true, hud: value === "hud", source: "preferences", route: sanitizePerfRoute(routeValue) };
+    const { value: experimentValue } = await Preferences.get({ key: PERF_EXPERIMENT_PREFERENCE_KEY });
+    return {
+      enabled: true,
+      hud: value === "hud",
+      source: "preferences",
+      route: sanitizePerfRoute(routeValue),
+      experiments: sanitizePerfExperiments(experimentValue),
+    };
   } catch {
     // No plugin, or the bridge is not ready: stay inert.
   }

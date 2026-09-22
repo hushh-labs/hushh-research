@@ -2,7 +2,12 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const capacitor = vi.hoisted(() => ({ native: false, preference: null as string | null, route: null as string | null }));
+const capacitor = vi.hoisted(() => ({
+  native: false,
+  preference: null as string | null,
+  route: null as string | null,
+  experiment: null as string | null,
+}));
 
 vi.mock("@capacitor/core", () => ({
   Capacitor: {
@@ -14,7 +19,12 @@ vi.mock("@capacitor/core", () => ({
 vi.mock("@capacitor/preferences", () => ({
   Preferences: {
     get: async ({ key }: { key: string }) => ({
-      value: key === "hushh_perf_route" ? capacitor.route : capacitor.preference,
+      value:
+        key === "hushh_perf_route"
+          ? capacitor.route
+          : key === "hushh_perf_experiment"
+            ? capacitor.experiment
+            : capacitor.preference,
     }),
   },
 }));
@@ -35,6 +45,7 @@ describe("perf probe enablement", () => {
     capacitor.native = false;
     capacitor.preference = null;
     capacitor.route = null;
+    capacitor.experiment = null;
     window.sessionStorage.clear();
     setSearch("");
   });
@@ -84,7 +95,18 @@ describe("perf probe enablement", () => {
       hud: false,
       source: "preferences",
       route: undefined,
+      experiments: [],
     });
+  });
+
+  it("carries only known attribution experiments, with the probe on", async () => {
+    capacitor.native = true;
+    capacitor.preference = "1";
+    capacitor.experiment = "autocorrect-off, drop-tables, ";
+    await expect(resolvePerfProbeEnablement()).resolves.toMatchObject({ enabled: true, experiments: ["autocorrect-off"] });
+
+    capacitor.preference = null;
+    await expect(resolvePerfProbeEnablement()).resolves.toMatchObject({ enabled: false });
   });
 
   it("carries an app-relative launch route only with the probe on, and only a safe one", async () => {

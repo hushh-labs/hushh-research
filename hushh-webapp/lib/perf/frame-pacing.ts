@@ -219,6 +219,10 @@ export type ProbeExport = {
   attribution: { loaf_top_scripts: Array<{ source: string; blocking_ms: number }> };
   /** True once React reported a commit: a `next build --profile` bundle (attribution only, never certifies). */
   react_profiling: boolean;
+  /** Attribution experiments applied for this launch; any entry means the run never certifies. */
+  experiments: string[];
+  /** Exceptions caught inside the frame loop; anything but 0 means the run's numbers are suspect. */
+  tick_errors: number;
 };
 
 export type FramePacingProbe = {
@@ -280,8 +284,41 @@ function round(value: number): number {
   return Math.round(value * 10) / 10;
 }
 
-export function startFramePacingProbe(options: { hud: boolean }): FramePacingProbe {
+/**
+ * Attribution experiments: one launch, applied by the probe, named in the
+ * export (a run with one on never certifies). `autocorrect-off` turns the
+ * chat composer's autocorrection and spell checking off before it is
+ * focused, to separate WebKit's autocorrection-context work for the system
+ * keyboard from what the page does when the keyboard rises or text wraps.
+ * `kb-inset-off` asks KeyboardInsetManager to leave `--kb-height` alone for
+ * the launch (read from `data-perf-experiment` on <html>), to separate the
+ * system keyboard's presentation from the page's own keyboard work.
+ */
+const EXPERIMENT_DATASET_KEY = "perfExperiment";
+const EXPERIMENT_COMPOSER = 'textarea[data-testid="agent-chat-composer-textarea"]';
+const EXPERIMENT_POLL_FRAMES = 10;
+
+function applyAutocorrectOff(): void {
+  const composer = document.querySelector<HTMLTextAreaElement>(EXPERIMENT_COMPOSER);
+  if (!composer || composer.getAttribute("autocorrect") === "off") return;
+  composer.setAttribute("autocorrect", "off");
+  composer.setAttribute("spellcheck", "false");
+}
+
+/** Spell checking alone off; autocorrection stays as the product ships it. */
+function applySpellcheckOff(): void {
+  const composer = document.querySelector<HTMLTextAreaElement>(EXPERIMENT_COMPOSER);
+  if (!composer || composer.getAttribute("spellcheck") === "false") return;
+  composer.setAttribute("spellcheck", "false");
+}
+
+export function startFramePacingProbe(options: { hud: boolean; experiments?: string[] }): FramePacingProbe {
   const startedAt = Date.now();
+  const experiments = options.experiments ?? [];
+  if (experiments.length > 0) document.documentElement.dataset[EXPERIMENT_DATASET_KEY] = experiments.join(",");
+  // A throw inside the frame loop would end the run silently; it is counted
+  // and exported instead, and the loop keeps its next frame.
+  let tickErrors = 0;
   const runId = randomRunId();
   const windows: ProbeWindow[] = [];
   const idle = new Map<string, { acc: FrameAccumulator; durationMs: number; commits: CommitAccumulator }>();
@@ -375,6 +412,16 @@ export function startFramePacingProbe(options: { hud: boolean }): FramePacingPro
 
   const tick = (now: number) => {
     if (stopped) return;
+    try {
+      tickBody(now);
+    } catch {
+      tickErrors += 1;
+    }
+    lastFrameAt = now;
+    rafHandle = window.requestAnimationFrame(tick);
+  };
+
+  const tickBody = (now: number) => {
     if (booting) {
       if (bootStart === 0) {
         bootStart = now;
@@ -391,6 +438,14 @@ export function startFramePacingProbe(options: { hud: boolean }): FramePacingPro
       }
     }
     frameIndex += 1;
+    if (experiments.length > 0 && frameIndex % EXPERIMENT_POLL_FRAMES === 0) {
+      try {
+        if (experiments.includes("autocorrect-off")) applyAutocorrectOff();
+        if (experiments.includes("spellcheck-off")) applySpellcheckOff();
+      } catch {
+        tickErrors += 1;
+      }
+    }
     if (frameIndex % STREAM_POLL_FRAMES === 0) {
       const streaming = document.querySelector(STREAM_MARKER) !== null;
       if (streaming && !current) openWindow("stream", now);
@@ -427,8 +482,6 @@ export function startFramePacingProbe(options: { hud: boolean }): FramePacingPro
       }
       if (hudNode) updateHud(delta);
     }
-    lastFrameAt = now;
-    rafHandle = window.requestAnimationFrame(tick);
   };
 
   const onPointerDown = (event: Event) => {
@@ -593,6 +646,8 @@ export function startFramePacingProbe(options: { hud: boolean }): FramePacingPro
       idle_by_route: idleReports,
       attribution: { loaf_top_scripts: topScripts },
       react_profiling: reactProfiling,
+      experiments,
+      tick_errors: tickErrors,
     };
   };
 

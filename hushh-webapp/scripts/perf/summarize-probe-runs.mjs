@@ -124,14 +124,19 @@ const simulator = tier.includes("sim");
 // A `next build --profile` bundle reports React commits; it attributes and
 // never certifies (the profiling build adds work of its own).
 const reactProfiling = runs.some((r) => r.data.react_profiling === true);
-const certifies = !simulator && configuration === "Release" && !testMode && !reactProfiling;
+// An attribution experiment changes the page's behaviour for the launch, so
+// its numbers isolate a cost and certify nothing.
+const experiments = [...new Set(runs.flatMap((r) => r.data.experiments ?? []))];
+const certifies = !simulator && configuration === "Release" && !testMode && !reactProfiling && experiments.length === 0;
 const laneSentence = certifies
   ? "Device run, Release, test mode off: certifying."
   : simulator
     ? "**Simulator run: attribution only, certifies nothing.**"
-    : reactProfiling
-      ? `**Device run, ${configuration}, React profiling build: attribution only, certifies nothing.**`
-      : `**Device run, ${configuration}${testMode ? " + test mode" : ""}: attribution only, certifies nothing.**`;
+    : experiments.length
+      ? `**Device run, ${configuration}, experiment ${experiments.join("+")} on: attribution only, certifies nothing.**`
+      : reactProfiling
+        ? `**Device run, ${configuration}, React profiling build: attribution only, certifies nothing.**`
+        : `**Device run, ${configuration}${testMode ? " + test mode" : ""}: attribution only, certifies nothing.**`;
 
 // Route-enter attribution: every window that carried a route change, with the
 // destination's first commit and first frame, and the commits inside the
@@ -182,6 +187,7 @@ const summary = {
   gestures: rows.map((r) => ({ ...r, verdict: verdict(r) })),
   idle_by_route: idleRows,
   react_profiling: reactProfiling,
+  experiments,
   route_enter: routeEnterRows,
   keyboard_geometry: keyboardGeometry,
   stalls: stallRows,

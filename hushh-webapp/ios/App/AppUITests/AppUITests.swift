@@ -1179,6 +1179,13 @@ final class AppUITests: XCTestCase {
             if let route {
                 arguments += ["-CapacitorStorage.hushh_perf_route", route]
             }
+            // An attribution experiment for this launch (the probe applies
+            // it and names it in the export; such a run never certifies).
+            if let experiment = ProcessInfo.processInfo.environment["HUSHH_PERF_EXPERIMENT"],
+               !experiment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                arguments += ["-CapacitorStorage.hushh_perf_experiment", experiment]
+                NSLog("PERF_EXPERIMENT \(experiment)")
+            }
             app.launchArguments = arguments
             app.launch()
             let webView = app.webViews.firstMatch
@@ -1670,6 +1677,21 @@ final class AppUITests: XCTestCase {
             }
             perfSettle(1.2)
             NSLog("PERF_KEYBOARD dismissed=\(app.keyboards.firstMatch.exists ? 0 : 1)")
+        }
+
+        // A second rise in the same session: the system keyboard's first
+        // presentation has a cost of its own, and only a repeat separates
+        // that from what the page does when the keyboard comes up.
+        perfGesture("chat-keyboard-show-2", rep: 0) {
+            composer.tap()
+            perfSettle(1.2)
+            NSLog("PERF_KEYBOARD shown_again=\(app.keyboards.firstMatch.exists ? 1 : 0)")
+        }
+        perfGesture("chat-keyboard-dismiss-2", rep: 0) {
+            if app.keyboards.firstMatch.exists {
+                app.webViews.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap()
+            }
+            perfSettle(1.2)
         }
         return true
     }

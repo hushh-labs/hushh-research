@@ -192,6 +192,18 @@ handler from a stall the page did not cause (a 614-element document cannot
 spend 80 ms in a style pass; a frame with no event and no commit under it
 is the system, or a layout the size of the change explains).
 
+When the table cannot decide, a one-launch experiment can: `PERF_EXPERIMENT=<name>`
+on the card (native launch argument `hushh_perf_experiment`, applied by the
+probe, named in the export; such a run never certifies). `autocorrect-off`
+and `spellcheck-off` change the chat composer's text-input traits before it
+is focused; `kb-inset-off` makes KeyboardInsetManager leave `--kb-height`
+alone. Measured on the iPhone 16e (bug log B43): the typing stall is
+WebKit's autocorrection and spell-check work for the system keyboard (gone
+with `autocorrect-off`), and the keyboard-show stall is the system
+keyboard's presentation (unchanged with `kb-inset-off`). The keyboard is
+the same for every app; the lane records these so they are never chased
+as page defects again.
+
 On a native shell the keyboard never resizes the WebView, so the root chat
 composer lifts itself: `--kb-height` lands once at `keyboardWillShow` with
 the keyboard's final height, and the composer form moves on the CSS
