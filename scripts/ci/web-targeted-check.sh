@@ -168,6 +168,18 @@ if has_match '^(hushh-webapp/(app/connect/|__tests__/app/connect/|__tests__/serv
   ran=1
 fi
 
+# TrustLink delegation, which has a signed field on both sides of the wire.
+#
+# `scope_str` carries the verbatim delegated authority and is part of the
+# link's HMAC, so the backend that signs it and the web plugin that rebuilds
+# it field by field have to agree. The plugin dropping that one key turns a
+# freshly signed link into an unverifiable one, and until this was added a
+# change confined to `consent-web.ts` matched no pack at all.
+if has_match '^(hushh-webapp/(lib/capacitor/(types\.ts|plugins/consent-web\.ts)|__tests__/capacitor/trust-link-scope-round-trip\.test\.ts)|consent-protocol/(hushh_mcp/(trust/link|types)\.py|api/routes/trust\.py))'; then
+  run_check "TrustLink scope round-trip" npm run verify:trust-link
+  ran=1
+fi
+
 # The share ladder, and the origin a shared link has to carry.
 #
 # Both were extracted out of lib/one-location so Connect's "Invite them to One"
