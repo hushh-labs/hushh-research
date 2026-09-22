@@ -2046,71 +2046,79 @@ export default function GmailReceiptsPage({
           ) : null}
 
           {isConnected && workspace === "overview" ? (
-            <SurfaceInset className="space-y-3 px-4 py-4 text-sm sm:px-5 sm:py-5">
+            <SurfaceInset className="space-y-3 px-4 py-3.5 text-sm sm:px-5 sm:py-4">
               <div className="flex items-start gap-3">
-                <div className="rounded-xl bg-primary/10 p-2 text-primary">
-                  <PenLine className="h-5 w-5" />
+                <div className="rounded-xl bg-indigo-500/10 p-2 text-indigo-600 dark:bg-indigo-400/15 dark:text-indigo-400 shrink-0">
+                  <PenLine className="h-4.5 w-4.5" />
                 </div>
-                <div className="space-y-1">
-                  <p className="font-medium text-foreground">Draft with One</p>
-                  <p className="text-sm leading-6 text-muted-foreground">
-                    Ask One to write, reply to, or follow up on a message. You&apos;ll
-                    always have the final say — nothing sends until you tap Send.
+                <div className="space-y-0.5 min-w-0 flex-1">
+                  <p className="font-semibold text-foreground">Draft with One</p>
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    Draft, reply, or follow up with One. Nothing sends without your approval.
                   </p>
                 </div>
               </div>
-              <AskOneButton onClick={handleOpenOneChat} showIcon={false}>
-                Chat with One
-              </AskOneButton>
+              <div className="flex justify-start w-full">
+                <AskOneButton
+                  onClick={handleOpenOneChat}
+                  showIcon={false}
+                  className="w-36 h-9 justify-center text-xs font-semibold rounded-full"
+                >
+                  Chat with One
+                </AskOneButton>
+              </div>
             </SurfaceInset>
           ) : null}
 
           {isConnected && workspace === "overview" ? (
-            <SurfaceInset className="space-y-3 px-4 py-4 text-sm sm:px-5 sm:py-5">
+            <SurfaceInset className="space-y-3 px-4 py-3.5 text-sm sm:px-5 sm:py-4">
               <div className="flex items-start gap-3">
-                <div className="rounded-xl bg-primary/10 p-2 text-primary">
-                  <ShieldCheck className="h-5 w-5" />
+                <div className="rounded-xl bg-emerald-500/10 p-2 text-emerald-600 dark:bg-emerald-400/15 dark:text-emerald-400 shrink-0">
+                  <ShieldCheck className="h-4.5 w-4.5" />
                 </div>
-                <div className="space-y-1">
-                  <p className="font-medium text-foreground">KYC requests</p>
-                  <p className="text-sm leading-6 text-muted-foreground">
-                    Add your KYC details, catch new requests, and approve every
-                    reply before it&apos;s sent.
+                <div className="space-y-0.5 min-w-0 flex-1">
+                  <p className="font-semibold text-foreground">KYC requests</p>
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    Store KYC details privately and review auto-generated replies.
                   </p>
                 </div>
               </div>
-              <Button
-                type="button"
-                variant="muted"
-                onClick={() => setWorkspace("kyc")}
-                className="w-full justify-center sm:w-auto"
-              >
-                Open KYC
-              </Button>
+              <div className="flex justify-start w-full">
+                <Button
+                  type="button"
+                  variant="muted"
+                  onClick={() => setWorkspace("kyc")}
+                  className="w-36 h-9 justify-center text-xs font-semibold rounded-full"
+                >
+                  Open KYC
+                </Button>
+              </div>
             </SurfaceInset>
           ) : null}
 
           {isConnected && workspace === "overview" ? (
-            <SurfaceInset className="space-y-3 px-4 py-4 text-sm sm:px-5 sm:py-5">
+            <SurfaceInset className="space-y-3 px-4 py-3.5 text-sm sm:px-5 sm:py-4">
               <div className="flex items-start gap-3">
-                <div className="rounded-xl bg-primary/10 p-2 text-primary">
-                  <ShoppingBag className="h-5 w-5" />
+                <div className="rounded-xl bg-amber-500/10 p-2 text-amber-600 dark:bg-amber-400/15 dark:text-amber-400 shrink-0">
+                  <ShoppingBag className="h-4.5 w-4.5" />
                 </div>
-                <div className="space-y-1">
-                  <p className="font-medium text-foreground">Receipts</p>
-                  <p className="text-sm leading-6 text-muted-foreground">
-                    Sync your purchase emails and keep shopping insights private.
+                <div className="space-y-0.5 min-w-0 flex-1">
+                  <p className="font-semibold text-foreground">Receipts</p>
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    Sync purchase emails and keep order insights private.
                   </p>
                 </div>
               </div>
-              <Button
-                type="button"
-                variant="muted"
-                onClick={() => setWorkspace("receipts")}
-                className="w-full justify-center sm:w-auto"
-              >
-                Open receipts
-              </Button>
+              <div className="flex justify-start w-full">
+                <Button
+                  type="button"
+                  variant="muted"
+                  onClick={() => setWorkspace("receipts")}
+                  className="w-36 h-9 justify-center text-xs font-semibold rounded-full"
+                >
+                  Open receipts
+                </Button>
+              </div>
             </SurfaceInset>
           ) : null}
 

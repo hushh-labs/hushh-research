@@ -129,14 +129,14 @@ export function SegmentedTabs({
                         ? "z-10 border-[color:var(--app-accent)] bg-transparent text-[color:var(--app-accent)] font-semibold shadow-none"
                         : isFilter
                           ? "z-10 border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent-deep)] font-semibold shadow-none"
-                          : "z-10 border-transparent bg-[color:var(--app-segmented-active-surface)] text-[color:var(--app-segmented-active-foreground)] font-semibold shadow-[var(--app-segmented-active-shadow)]",
+                          : "z-10 border-transparent bg-white dark:bg-zinc-800 text-[color:var(--app-accent)] font-semibold shadow-[0_1px_3px_rgba(0,0,0,0.1),0_1px_2px_rgba(0,0,0,0.06)]",
                       variant === "agent-top" && "mx-0.5",
                     )
                   : isSubordinate
                     ? "border-transparent bg-transparent text-[color:var(--app-secondary-label)] [@media(hover:hover)]:hover:text-[color:var(--app-label)]"
                     : isFilter
                       ? "border-border/60 bg-[color:var(--app-card-surface-compact)] text-[color:var(--app-secondary-label)] [@media(hover:hover)]:hover:border-[color:var(--app-accent-border)]"
-                      : "border-transparent bg-transparent text-[color:var(--app-secondary-label)] [@media(hover:hover)]:hover:bg-[color:var(--app-neutral-fill)]",
+                      : "border-transparent bg-transparent text-[color:var(--app-secondary-label)] [@media(hover:hover)]:hover:bg-black/5 dark:[@media(hover:hover)]:hover:bg-white/5",
                 disabled && "cursor-not-allowed opacity-60",
               )}
           >
