@@ -221,6 +221,9 @@ public class HushhConsentPlugin: CAPPlugin, CAPBridgedPlugin {
                 "fromAgent": data["from_agent"] ?? fromAgent,
                 "toAgent": data["to_agent"] ?? toAgent,
                 "scope": data["scope"] ?? scope,
+                // Part of the link's signature. Dropping it here would hand
+                // JS a link that can no longer verify itself.
+                "scopeStr": data["scope_str"] ?? "",
                 "createdAt": data["created_at"] ?? 0,
                 "expiresAt": data["expires_at"] ?? 0,
                 "signedByUser": data["signed_by_user"] ?? signedByUser,
@@ -253,6 +256,7 @@ public class HushhConsentPlugin: CAPPlugin, CAPBridgedPlugin {
                 "from_agent": fromAgent,
                 "to_agent": toAgent,
                 "scope": scope,
+                "scope_str": (link["scopeStr"] as? String) ?? "",
                 "created_at": createdAt.int64Value,
                 "expires_at": expiresAt.int64Value,
                 "signed_by_user": signedByUser,

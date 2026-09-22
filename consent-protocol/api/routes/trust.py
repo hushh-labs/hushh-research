@@ -98,7 +98,11 @@ async def create_link(
         scope=scope,
         signed_by_user=UserID(request.signed_by_user),
         session_id=request.session_id,
-        scope_str=request.scope,
+        # Only a dynamic scope needs the verbatim string: a static scope round
+        # trips through its enum without losing anything, and leaving it empty
+        # keeps those links byte-identical to what older clients already sign
+        # and verify.
+        scope_str=request.scope if ConsentScope.is_dynamic_scope(request.scope) else "",
         **kwargs,
     )
     logger.info(

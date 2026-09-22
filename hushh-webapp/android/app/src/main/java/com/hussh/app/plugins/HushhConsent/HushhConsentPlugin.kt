@@ -293,6 +293,9 @@ class HushhConsentPlugin : Plugin() {
                         put("fromAgent", json.optString("from_agent", fromAgent))
                         put("toAgent", json.optString("to_agent", toAgent))
                         put("scope", json.optString("scope", scope))
+                        // Part of the link's signature: dropping it here would
+                        // hand JS a link that can no longer verify itself.
+                        put("scopeStr", json.optString("scope_str", ""))
                         put("createdAt", json.optLong("created_at"))
                         put("expiresAt", json.optLong("expires_at"))
                         put("signedByUser", json.optString("signed_by_user", signedByUser))
@@ -345,6 +348,7 @@ class HushhConsentPlugin : Plugin() {
                         put("from_agent", fromAgent)
                         put("to_agent", toAgent)
                         put("scope", scope)
+                        put("scope_str", link.getString("scopeStr") ?: "")
                         put("created_at", createdAt)
                         put("expires_at", expiresAt)
                         put("signed_by_user", signedByUser)

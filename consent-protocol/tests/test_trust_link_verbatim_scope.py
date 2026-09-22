@@ -61,3 +61,60 @@ def test_legacy_links_without_a_verbatim_scope_still_verify():
     assert link.scope_str == ""
     assert verify_trust_link(link) is True
     assert is_trusted_for_scope(link, ConsentScope.PKM_READ) is True
+
+
+# --- regressions the adversarial review found in the first cut ---------------
+
+
+def test_a_pipe_in_the_session_id_cannot_forge_the_scope_boundary():
+    """The signed payload must be injective.
+
+    Pipe-joining alone let `session_id="|attr.food.*"` with no verbatim scope
+    hash to the same bytes as `session_id=""` with `scope_str="attr.food.*"`.
+    A link could then be re-presented as the other and take the weaker legacy
+    comparison path with an unchanged, valid signature.
+    """
+    from hushh_mcp.trust.link import _signing_payload
+
+    common = dict(
+        from_agent=DELEGATOR,
+        to_agent=DELEGATEE,
+        scope=ConsentScope.PKM_READ,
+        created_at=1,
+        expires_at=2,
+        signed_by_user=USER_ID,
+    )
+    carried = _signing_payload(**common, session_id="", scope_str=FOOD)
+    smuggled = _signing_payload(**common, session_id=f"|{FOOD}", scope_str="")
+    assert carried != smuggled
+
+
+def test_a_vault_owner_link_still_delegates_only_vault_owner():
+    """scope_matches treats vault.owner as a master key.
+
+    Routing a non-dynamic scope through it would turn a vault.owner link into
+    a delegation of everything, which is wider than it has ever been.
+    """
+    link = create_trust_link(
+        DELEGATOR,
+        DELEGATEE,
+        ConsentScope.VAULT_OWNER,
+        USER_ID,
+        scope_str="vault.owner",
+    )
+    assert is_trusted_for_scope(link, ConsentScope.VAULT_OWNER) is True
+    assert is_trusted_for_scope(link, FINANCIAL) is False
+    assert is_trusted_for_scope(link, ConsentScope.PKM_WRITE) is False
+
+
+def test_a_legacy_dynamic_link_still_authorizes_what_it_recorded():
+    """A link minted before this field existed recorded only PKM_READ.
+
+    Comparing the caller's raw string against `link.scope.value` made every
+    such link authorize nothing, which is a silent revocation.
+    """
+    link = create_trust_link(DELEGATOR, DELEGATEE, ConsentScope.PKM_READ, USER_ID)
+    assert link.scope_str == ""
+    assert is_trusted_for_scope(link, FOOD) is True
+    assert is_trusted_for_scope(link, "pkm.read") is True
+    assert is_trusted_for_scope(link, ConsentScope.PKM_WRITE) is False

@@ -7,6 +7,11 @@ import time
 from hushh_mcp.config import APP_SIGNING_KEY, DEFAULT_TRUST_LINK_EXPIRY_MS
 from hushh_mcp.types import AgentID, ConsentScope, TrustLink, UserID
 
+# Domain separator for the length-prefixed payload. Keeps signatures minted
+# under the two schemes in disjoint spaces.
+TRUST_LINK_V2_TAG = "hushh.trustlink.v2"
+
+
 # ========== TrustLink Creator ==========
 
 
@@ -92,11 +97,10 @@ def is_trusted_for_scope(
 ) -> bool:
     """True when this link actually delegates ``required_scope``.
 
-    A link that carries a verbatim scope is judged on that string through the
-    shared ``scope_matches`` primitive, which keeps domains isolated: an
+    A link carrying a verbatim DYNAMIC scope is judged on that string through
+    the shared ``scope_matches`` primitive, which keeps domains isolated: an
     ``attr.food.*`` delegation never satisfies ``attr.financial.holdings``.
-    A legacy link without one falls back to comparing the enum, which is all
-    the authority it ever recorded.
+    Every other link keeps the exact enum comparison it always had.
     """
     if not verify_trust_link(link, expected_session_id=expected_session_id):
         return False
@@ -104,14 +108,26 @@ def is_trusted_for_scope(
     required = (
         required_scope.value if isinstance(required_scope, ConsentScope) else str(required_scope)
     )
-    if link.scope_str:
-        # Imported lazily: scope_helpers pulls in the dynamic scope generator,
-        # and this module is imported by low-level signing paths.
-        from hushh_mcp.consent.scope_helpers import scope_matches
 
+    # Imported lazily: scope_helpers pulls in the dynamic scope generator, and
+    # this module is imported by low-level signing paths.
+    from hushh_mcp.consent.scope_helpers import resolve_scope_to_enum, scope_matches
+
+    # Dynamic scopes are the only case the verbatim field exists for: they all
+    # collapse to the same PKM_READ enum, so only the string can tell them
+    # apart. Routing anything else through scope_matches would WIDEN it --
+    # a `vault.owner` link would start delegating everything via that
+    # function's master-key short circuit.
+    if link.scope_str and ConsentScope.is_dynamic_scope(link.scope_str):
         return scope_matches(link.scope_str, required)
 
-    return link.scope.value == required
+    # Resolve before comparing: callers pass a raw string, and a legacy link
+    # for a dynamic scope recorded only PKM_READ. Comparing the raw string to
+    # `link.scope.value` would make every such link authorize nothing.
+    try:
+        return link.scope == resolve_scope_to_enum(required)
+    except (KeyError, ValueError):
+        return False
 
 
 # ========== Internal Signer ==========
@@ -130,13 +146,32 @@ def _signing_payload(
 ) -> str:
     """The exact bytes a link's signature covers.
 
-    The verbatim scope is appended only when present, so a link minted before
-    this field existed still hashes to its original payload and keeps
-    verifying. Because the field IS signed when set, it cannot be swapped or
-    stripped after the fact.
+    A link with no verbatim scope hashes the original pipe-joined payload, so
+    links minted before that field existed keep verifying.
+
+    A link that HAS one is length-prefixed instead. Pipe-joining alone is not
+    injective: `session_id="|attr.food.*"` with no verbatim scope produces the
+    same bytes as `session_id=""` with `scope_str="attr.food.*"`, so one link
+    could be re-presented as the other and take the weaker legacy comparison
+    path. Prefixing every field with its length makes each field's extent
+    explicit, so no separator inside a value can be mistaken for a boundary.
     """
-    raw = f"{from_agent}|{to_agent}|{scope}|{created_at}|{expires_at}|{signed_by_user}|{session_id}"
-    return f"{raw}|{scope_str}" if scope_str else raw
+    legacy = (
+        f"{from_agent}|{to_agent}|{scope}|{created_at}|{expires_at}|{signed_by_user}|{session_id}"
+    )
+    if not scope_str:
+        return legacy
+    fields = (
+        str(from_agent),
+        str(to_agent),
+        str(scope),
+        str(created_at),
+        str(expires_at),
+        str(signed_by_user),
+        session_id,
+        scope_str,
+    )
+    return TRUST_LINK_V2_TAG + "".join(f"|{len(field)}:{field}" for field in fields)
 
 
 def _sign(input_string: str) -> str:

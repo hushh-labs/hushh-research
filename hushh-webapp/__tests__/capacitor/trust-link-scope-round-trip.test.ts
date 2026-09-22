@@ -1,3 +1,6 @@
+import fs from "fs";
+import path from "path";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { HushhConsentWeb } from "@/lib/capacitor/plugins/consent-web";
@@ -76,4 +79,40 @@ describe("TrustLink verbatim scope round-trip", () => {
     const body = JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body ?? "{}"));
     expect(body.link.scope_str).toBe("");
   });
+});
+
+/**
+ * The web plugin is not the only implementation of this contract. iOS and
+ * Android rebuild the link field by field too, and a native build is not
+ * exercised by any unit test, so this reads their source directly: dropping
+ * `scope_str` there hands JS a link that can no longer verify itself.
+ */
+describe("native consent plugins carry the signed verbatim scope", () => {
+  const WEBAPP_ROOT = path.resolve(__dirname, "../..");
+  const read = (p: string) =>
+    fs.readFileSync(path.join(WEBAPP_ROOT, p), "utf8");
+
+  const NATIVE = [
+    {
+      name: "iOS",
+      path: "ios/App/App/Plugins/HushhConsentPlugin.swift",
+      // create-link response -> JS, and JS -> verify-link request body
+      outbound: '"scopeStr": data["scope_str"]',
+      inbound: '"scope_str": (link["scopeStr"] as? String) ?? ""',
+    },
+    {
+      name: "Android",
+      path: "android/app/src/main/java/com/hussh/app/plugins/HushhConsent/HushhConsentPlugin.kt",
+      outbound: 'put("scopeStr", json.optString("scope_str", ""))',
+      inbound: 'put("scope_str", link.getString("scopeStr") ?: "")',
+    },
+  ];
+
+  for (const plugin of NATIVE) {
+    it(`${plugin.name} keeps scope_str in both directions`, () => {
+      const source = read(plugin.path);
+      expect(source).toContain(plugin.outbound);
+      expect(source).toContain(plugin.inbound);
+    });
+  }
 });
