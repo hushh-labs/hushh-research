@@ -286,7 +286,18 @@ function SheetContent(
           the handle draggable everywhere except the corner it never owned.
         */}
         {showCloseButton && (
-          <SheetPrimitive.Close className="ring-offset-background focus:ring-ring absolute top-4 right-4 z-10 rounded-full border border-transparent bg-[color:var(--app-card-surface-compact)] p-2 opacity-70 transition-opacity after:absolute after:-inset-1.5 after:content-[''] hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none">
+          <SheetPrimitive.Close
+            className={cn(
+              "ring-offset-background focus:ring-ring absolute right-4 z-10 rounded-full border border-transparent bg-[color:var(--app-card-surface-compact)] p-2 opacity-70 transition-opacity after:absolute after:-inset-1.5 after:content-[''] hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none",
+              // Absolute against the sheet's box, so the padding above does
+              // not move it: a sheet that reaches the top of the window keeps
+              // its close control below the status bar (bottom sheets start
+              // mid-screen and keep the plain offset).
+              side === "bottom"
+                ? "top-4"
+                : "top-[calc(1rem+var(--app-safe-area-top-effective,0px))]"
+            )}
+          >
             <XIcon className="size-4" />
             <span className="sr-only">Close</span>
           </SheetPrimitive.Close>
