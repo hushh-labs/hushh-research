@@ -44,6 +44,15 @@ def route_client(monkeypatch):
             {"redirectUri": "https://example.invalid/return"},
         ),
         ("/api/connectors/google_drive/disconnect", {}),
+        ("/api/connectors/google_drive/picker/session", {"origin": "https://example.invalid"}),
+        (
+            "/api/connectors/google_drive/documents/select",
+            {
+                "sessionId": "550e8400-e29b-41d4-a716-446655440000",
+                "fileIds": ["file-one"],
+                "confirmed": True,
+            },
+        ),
         ("/api/connectors/oauth/native/finalize", {"attemptId": "synthetic-attempt"}),
         (
             "/api/connectors/oauth/complete",
@@ -55,6 +64,48 @@ def test_owner_routes_stay_owner_protected(route_client, path, body):
     client, _, drive = route_client
     assert client.post(path, json=body).status_code == 401
     drive.complete.assert_not_called()
+
+
+def test_selection_routes_derive_owner_reject_unknown_fields_and_do_not_cache_tokens(
+    route_client, monkeypatch
+):
+    client, app, _ = route_client
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "verified-owner"}
+    service = SimpleNamespace(
+        picker_session=AsyncMock(return_value={"accessToken": "synthetic-short-lived"}),
+        select=AsyncMock(return_value=[]),
+    )
+    monkeypatch.setattr(routes, "DriveSelectionService", lambda: service)
+    response = client.post(
+        "/api/connectors/google_drive/picker/session", json={"origin": "https://example.invalid"}
+    )
+    assert response.status_code == 200 and response.headers["Cache-Control"] == "no-store"
+    service.picker_session.assert_awaited_once_with(
+        user_id="verified-owner", origin="https://example.invalid"
+    )
+    body = {
+        "sessionId": "550e8400-e29b-41d4-a716-446655440000",
+        "fileIds": ["file-one"],
+        "confirmed": True,
+    }
+    for change in (
+        {"ownerId": "attacker"},
+        {"confirmed": False},
+        {"endpoint": "https://attacker.invalid"},
+    ):
+        assert (
+            client.post(
+                "/api/connectors/google_drive/documents/select", json={**body, **change}
+            ).status_code
+            == 422
+        )
+    service.select.assert_not_called()
+    assert (
+        client.post("/api/connectors/google_drive/documents/select", json=body).status_code == 200
+    )
+    service.select.assert_awaited_once_with(
+        user_id="verified-owner", session_id=body["sessionId"], file_ids=["file-one"]
+    )
 
 
 def test_popup_completion_uses_firebase_owner_not_an_opener_token(route_client):

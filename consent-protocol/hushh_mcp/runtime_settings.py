@@ -95,6 +95,7 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "one_location_read_only_state_enabled": "ONE_LOCATION_READ_ONLY_STATE_ENABLED",
     "connections_panel_v2": "CONNECTIONS_PANEL_V2",
     "google_drive_connection": "GOOGLE_DRIVE_CONNECTION",
+    "google_drive_picker": "GOOGLE_DRIVE_PICKER",
     "gmail_chat_reads": "GMAIL_CHAT_READS",
     "google_drive_chat_reads": "GOOGLE_DRIVE_CHAT_READS",
     "connector_internal_owner_cohort": "CONNECTOR_INTERNAL_OWNER_COHORT",

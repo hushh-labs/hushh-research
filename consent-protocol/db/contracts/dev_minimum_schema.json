@@ -1,8 +1,9 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 227,
+  "expected_migration_version": 228,
   "migration_version_policy": "minimum",
   "required_functions": [
+    "invalidate_selected_drive_documents",
     "resolve_feed_counterpart_user_id",
     "populate_feed_counterpart_identity",
     "merge_pkm_domain_summary",
@@ -140,6 +141,25 @@
       "metadata",
       "created_at",
       "completed_at"
+    ],
+    "connected_documents": [
+      "document_id",
+      "user_id",
+      "connector_id",
+      "connection_generation",
+      "source_fingerprint",
+      "metadata_envelope",
+      "source_version",
+      "status",
+      "active_version",
+      "lease_id",
+      "lease_expires_at",
+      "attempt_count",
+      "next_attempt_at",
+      "last_error_code",
+      "created_at",
+      "updated_at",
+      "last_indexed_at"
     ],
     "connected_system_audit_events": [
       "event_id",
@@ -344,6 +364,15 @@
       "created_at",
       "revoked_at",
       "last_used_at"
+    ],
+    "drive_picker_sessions": [
+      "session_id",
+      "user_id",
+      "connector_id",
+      "connection_generation",
+      "created_at",
+      "expires_at",
+      "consumed_at"
     ],
     "enterprise_crm_registry": [
       "crm_id",

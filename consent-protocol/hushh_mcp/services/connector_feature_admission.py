@@ -11,6 +11,7 @@ import os
 FEATURES = {
     "connections_panel_v2": "CONNECTIONS_PANEL_V2",
     "google_drive_connection": "GOOGLE_DRIVE_CONNECTION",
+    "google_drive_picker": "GOOGLE_DRIVE_PICKER",
     "gmail_chat_reads": "GMAIL_CHAT_READS",
     "google_drive_chat_reads": "GOOGLE_DRIVE_CHAT_READS",
 }

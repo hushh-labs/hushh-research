@@ -186,3 +186,23 @@ async def test_provider_body_is_bounded_before_json_parsing(service, monkeypatch
 async def test_caller_cannot_choose_provider_endpoint(service):
     with pytest.raises(oauth.DriveOAuthError, match="connector_configuration_invalid"):
         await service._post("https://attacker.invalid", {})
+
+
+@pytest.mark.parametrize(
+    "scope",
+    [
+        "openid email https://www.googleapis.com/auth/drive.readonly",
+        " ".join(oauth.SCOPES) + " https://www.googleapis.com/auth/drive",
+        " ".join(oauth.SCOPES) + " https://www.googleapis.com/auth/gmail.readonly",
+    ],
+)
+def test_selected_file_consent_rejects_read_all_and_combined_mail_grants(service, scope):
+    with pytest.raises(oauth.DriveOAuthError):
+        service._token_fields(
+            {
+                "access_token": "synthetic",
+                "token_type": "Bearer",
+                "expires_in": 3600,
+                "scope": scope,
+            }
+        )

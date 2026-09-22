@@ -17,7 +17,7 @@ _TOKEN_PREFIXES = ("HCT:", "Bearer ")
 _TOKEN_VALUE_RE = re.compile(r"\b(?:Bearer\s+|HCT:)[A-Za-z0-9._~+/=-]+")
 _QUERY_SECRET_RE = re.compile(
     r"([?&](?:access_token|api[_-]?key|apikey|auth|client_secret|key|"
-    r"private_key|refresh_token|secret|signature|token|code|state|"
+    r"private_key|refresh_token|secret|signature|token|code|state|picked_file_ids|"
     # A person's position is as sensitive as a credential and leaks the same
     # way. httpx logs every outbound request URL at INFO, so any provider call
     # that carries coordinates in its query string — the advisor directory, the
@@ -25,6 +25,9 @@ _QUERY_SECRET_RE = re.compile(
     r"lat|latitude|latlng|lng|lon|longitude|coords|coordinates|postal_?code|zip)=)"
     r"([^&\s\"'<>]+)",
     flags=re.IGNORECASE,
+)
+_DRIVE_FILE_PATH_RE = re.compile(
+    r"(https://www\.googleapis\.com/drive/v3/files/)[^/?\s\"'<>]+", re.IGNORECASE
 )
 
 _SQL_PARAMS_MARKER = "[parameters:"
@@ -119,6 +122,7 @@ def _redact_sql_bound_parameters(value: str) -> str:
 
 def _redact_sensitive_substrings(value: str) -> str:
     redacted = _TOKEN_VALUE_RE.sub(REDACTED, value)
+    redacted = _DRIVE_FILE_PATH_RE.sub(lambda match: f"{match.group(1)}{REDACTED}", redacted)
     redacted = _QUERY_SECRET_RE.sub(lambda match: f"{match.group(1)}{REDACTED}", redacted)
     return _redact_sql_bound_parameters(redacted)
 

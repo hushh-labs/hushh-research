@@ -25,13 +25,13 @@ from hushh_mcp.services.external_connector_credentials_service import (
     ExternalConnectorCredentialError,
 )
 from hushh_mcp.services.external_connector_lifecycle_store import ExternalConnectorLifecycleStore
+from hushh_mcp.services.google_drive_adapter import DRIVE_FILE_SCOPE
 
 CONNECTOR_ID = "google_drive"
 AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"  # noqa: S105 - public provider URL, not a token
 REVOKE_URL = "https://oauth2.googleapis.com/revoke"
-DRIVE_READ_SCOPE = "https://www.googleapis.com/auth/drive.readonly"
-SCOPES = ("openid", "email", DRIVE_READ_SCOPE)
+SCOPES = ("openid", "email", DRIVE_FILE_SCOPE)
 RESPONSE_LIMIT = 256 * 1024
 
 
@@ -214,6 +214,10 @@ class ExternalConnectorGoogleOAuth:
             scopes = set(previous["grantedScopes"])
         if not set(SCOPES).issubset(scopes):
             raise DriveOAuthError("insufficient_scope", status_code=403)
+        if scopes != set(SCOPES):
+            # Do not accidentally accept a pre-existing broad Drive or combined
+            # Gmail grant for the selected-file product boundary.
+            raise DriveOAuthError("unexpected_scope", status_code=403)
         access = token.get("access_token")
         expiry = token.get("expires_in")
         if (
@@ -385,6 +389,8 @@ class ExternalConnectorGoogleOAuth:
         credential = self.credentials.open_credential(
             user_id=user_id, connector_id=CONNECTOR_ID, row=row
         )
+        if set(credential.get("grantedScopes", [])) != set(SCOPES):
+            raise DriveOAuthError("reconnect_required", status_code=401)
         _, client_id, client_secret = await self._configuration()
         if credential.get("oauthClientId") != client_id:
             raise DriveOAuthError("reconnect_required", status_code=401)

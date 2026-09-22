@@ -199,7 +199,8 @@
     "224_setup_capability_declined_ids.sql",
     "225_external_mcp_connectors.sql",
     "226_pkm_manifest_path_repair.sql",
-    "227_external_connector_lifecycle.sql"
+    "227_external_connector_lifecycle.sql",
+    "228_selected_drive_documents.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -386,7 +387,9 @@
       "108_canonical_mcp_credentials.sql",
       "109_oauth_client_credentials_consent_execution.sql",
       "142_source_library_scope_retirement.sql",
-      "225_external_mcp_connectors.sql"
+      "225_external_mcp_connectors.sql",
+      "227_external_connector_lifecycle.sql",
+      "228_selected_drive_documents.sql"
     ]
   },
   "rollback_migrations": {

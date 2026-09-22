@@ -979,7 +979,7 @@ No silent success is emitted on terminal failures.
 
 The Drive lifecycle extends the existing external-connector registry and credential store;
 it does not migrate Gmail/Calendar credentials or change Firebase authentication. These
-routes do **not** imply a usable Drive transport or enable chat reads.
+routes remain default-off and do **not** enable chat reads or indexing.
 
 | Route | Authority | Contract |
 | --- | --- | --- |
@@ -990,23 +990,41 @@ routes do **not** imply a usable Drive transport or enable chat reads.
 | `GET /api/connectors/oauth/native/callback` | Signed state + atomic native attempt claim | Backend code exchange; encrypted pending credentials only. Fixed `hushh://connectors/return` handoff contains only opaque attempt/outcome. Invalid state has no redirect. |
 | `POST /api/connectors/oauth/native/finalize` | Original Vault Owner | Accepts `attemptId`; checks expiry, generation, client/redirect configuration and current cohort admission before activation. |
 | `POST /api/connectors/google_drive/disconnect` | Vault Owner; remains available when rollout is off | Immediately disables local execution, invalidates attempts, clears credentials, then makes a bounded in-memory provider revocation attempt. Reports `revocationOutcome`; no background retry is promised. |
+| `POST /api/connectors/google_drive/picker/session` | Vault Owner + Picker cohort/flag | Exact registered web `origin`; verifies authenticated Drive About and fixed selected-file policy, then returns a ten-minute opaque selection session and the minimum short-lived Google access credential for the official Picker. Backend and web proxy both set `no-store`. No refresh token. |
+| `POST /api/connectors/google_drive/documents/select` | Same Vault Owner + current single-use session + explicit `confirmed=true` | At most 25 unique candidate IDs. Revalidates fixed provider metadata/policy; atomically consumes the session and inserts encrypted internal catalog references in `queued` state. Does not claim indexing completed. |
+| `GET /api/connectors/google_drive/documents` | Vault Owner | Owner-only internal document references, names and safe states. Available after grant rejection and with execution disabled; never provider file IDs or tokens. |
+| `DELETE /api/connectors/google_drive/documents/{document_id}` | Vault Owner + explicit `confirmed=true` | Repeat-safe local removal, no Google mutation. Invalidates pending Picker sessions so in-flight selection cannot resurrect a removed source. Works without provider credentials or document decryption. |
 
-Consent enters `verifying`, **not** `connected`. Capability verification and canonical
-Drive execution remain separate checkpoints. A definitive refresh grant rejection yields
+Consent enters `verifying`, **not** `connected`. The fixed REST selected-file policy and
+authenticated Drive About check precede the Picker session. A definitive refresh grant rejection yields
 `needs_reauth`; transient failures preserve the encrypted grant. Refresh uses a 30-second
 database lease and generation/version fencing. A pending revocation temporarily blocks
 reconnection so an old revoke request cannot race a new grant.
 
 The existing hosted runtime-config mechanism carries default-false `connections_panel_v2`,
-`google_drive_connection`, `gmail_chat_reads`, and `google_drive_chat_reads` with an explicit
+`google_drive_connection`, `google_drive_picker`, `gmail_chat_reads`, and `google_drive_chat_reads` with an explicit
 internal owner cohort. This is revision-owned configuration, not an instantaneous fleet-wide
 flag service. Writes, user-facing downloads, connector voice execution and production remain
 disabled. Status, recovery callbacks and disconnect remain reachable with their required
 authority; an outstanding callback does not bypass activation eligibility.
 
-Release prerequisites still include authenticated transport selection/verification, web/native
-callers, scheduled retention, and OAuth callback ingress-log routing evidence. Application
-redaction covers query `code`/`state`, but does not sanitize platform-managed request logs.
+Web OAuth accepts exactly identity scopes plus `drive.file`; broad Drive and combined Gmail
+grants are rejected, including legacy cached credentials. The REST adapter has no scan or write
+operation: selected metadata, Docs/Slides text export and bounded binary/text retrieval only.
+It rejects redirects, compression, unsupported formats, shortcuts, CSE, missing/false download
+or GenAI capabilities, and changed metadata after fetch. Requiring GenAI eligibility is our
+conservative REST-index policy, not a claim that all Google REST calls require it.
+
+Migration 228 adds an encrypted source catalog under separate `DRIVE_DOCUMENT_KEY_V1`, not
+client-key PKM or OAuth credential storage. Source metadata is owner/document/generation bound;
+source IDs are owner-keyed HMAC fingerprints. Disconnect/account switch atomically deletes
+selected sources and sessions. This checkpoint stores no raw content, chunks or embeddings.
+
+Release prerequisites still include web/native Picker callers, ingestion/index/search/grants,
+scheduled retention, and OAuth callback ingress-log routing evidence. Native Picker requires a
+separate drive.file-only system-browser flow; the existing staged native OAuth foundation alone
+is not native Picker completion. Application redaction covers query `code`/`state`/`picked_file_ids`
+and Drive file-ID paths, but does not sanitize platform-managed request logs.
 See [Mail + Drive UAT acceptance](../operations/mail-drive-uat-acceptance.md).
 
 ## External Developer API

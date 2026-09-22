@@ -4,6 +4,20 @@ Status: incomplete draft; no feature enabled, merge or deployment authorized by 
 Runtime remains in `hushh-pda-uat`; the isolated Drive OAuth project is `hushh-drive-uat`.
 Mail/Calendar/Firebase clients and existing grants are unchanged.
 
+## Visual Map
+
+```text
+Existing left drawer -> independent Mail / Drive connections
+Drive OAuth + Picker -> explicitly selected files -> bounded REST reads
+Selected files -> encrypted document catalog -> local ingestion / index
+Owner retrieval -> document-specific request -> owner approval -> recipient grant
+Automated acceptance -> protected merge -> green main SHA -> serialized UAT
+```
+
+The selected-file fast path supersedes the earlier hosted-MCP feasibility lane.
+No hosted MCP preview or remote tool catalog is required. Google supplies source files;
+parsing, embeddings and document access control remain outside Google AI services.
+
 ## Implemented checkpoints
 
 - PR0: public reasoning removed from generation summaries, AG-UI events/snapshots, history,
@@ -11,8 +25,18 @@ Mail/Calendar/Firebase clients and existing grants are unchanged.
 - PR1/PR2 foundation: additive migration 227, compatible encrypted v2 envelopes, atomic
   owner-bound PKCE claims, verified Google identity/scopes, refresh leases/version fences,
   safe disconnect, native pending credentials and owner finalization. Successful OAuth
-  remains `verifying` until authenticated transport health/capability verification exists.
-- Existing hosted feature config has four independent default-off flags plus a strict
+  remains `verifying` until the authenticated Drive API/policy check before a Picker session.
+- Selected-file backend checkpoint: exact web identity + `drive.file` scopes, fixed REST
+  adapter, default-off Picker admission, owner-bound selection sessions and encrypted catalog
+  in migration 228. Selection reports `queued`, not indexed. Scope upgrades, whole-Drive listing,
+  remote MCP and provider writes are absent.
+- The adapter caps metadata at 256 KiB, ingestion bytes at 4 MiB and each operation/selection
+  at 20 seconds. It rejects compressed responses, policy denials, CSE and shortcuts; checks
+  source metadata both before and after fetch. PDF/DOCX bytes are not parsed in this checkpoint.
+- Catalog concurrency tests cover single-use selection, wrong owner, expiry, policy drift,
+  disconnect/account switch, removal during in-flight selection, and removal after reauth failure.
+  Source metadata uses a separate server-processing key, not a vault key or OAuth key.
+- Existing hosted feature config has five independent default-off flags plus a strict
   internal owner cohort. No registry seed, grant, transport, or feature is enabled.
 
 Focused automated coverage includes a disposable socket-only PostgreSQL cluster (or the
@@ -53,17 +77,25 @@ revoke a provider grant or mutate an active connection.
 
 ## Remaining delivery checklist
 
-- [ ] Dedicated Drive web client provisioned; exact callbacks, project isolation and secret
-  bindings verified without exposing secret values. Google branding alone is insufficient.
-- [ ] Approved synthetic-account consent and authenticated MCP feasibility. Select exactly
-  one transport; no fallback after permission/policy/quota/timeout failures.
-- [ ] Five canonical Drive reads, policy/catalog verification, invocation authority, bounds,
-  external-content isolation, redacted durable projections and late-result suppression.
+- [x] Dedicated Drive web client provisioned in `hushh-drive-uat`; UAT web origin and both
+  exact callbacks verified. No Mail/Calendar client changes.
+- [ ] Backend client-secret binding and browser-restricted Picker configuration verified
+  without exposing secret values; approved synthetic-account consent exercised.
+- [ ] Separate document-processing encryption key and fixed REST registry policy provisioned
+  in UAT. No plaintext source metadata or key values in setup evidence.
+- [ ] Selected-file `drive.file` consent and Google Picker; one fixed REST transport with
+  capability checks, bounds and late-result suppression. No whole-Drive scan or mutations.
+- [ ] Encrypted document catalog, durable ingestion/retry/deletion, local non-Google parsing
+  and embeddings, owner-private retrieval and bounded source references.
+- [ ] Specific-document requests, explicit owner decisions, recipient/version/mode/expiry
+  grants, immediate revocation and metadata-only audit in the existing Consent Center.
 - [ ] Mail metadata-only delegated reads with stable One conversation identity; unchanged
   receipts, Calendar, Firebase and reviewed Send.
 - [ ] Mounted left-drawer Chats/Connections UI with independent Mail/Drive cards; popup
   settlement, encrypted one-use recovery and draft preservation.
-- [ ] Native `connectDrive` bridges/coordinators and real iOS/Android test/build artifacts.
+- [ ] Native `connectDrive` bridges/coordinators, drive.file-only system-browser Picker,
+  authenticated About identity and encrypted pending selection confirmation; real iOS/Android
+  test/build artifacts. Existing staged OAuth completion is not native Picker proof.
 - [ ] Chromium/WebKit mounted acceptance at 320/390/768/desktop widths.
 - [ ] Callback log-routing and scheduled retention proof before granting access.
 - [ ] Required CI/review, final overlap reconciliation, protected merge, green containing main

@@ -939,6 +939,32 @@
       "expected_row_growth": "low_ttl_cache"
     },
     {
+      "id": "selected_drive_documents",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_encrypted",
+      "lifecycle_status": "customer0",
+      "exact_tables": ["connected_documents"],
+      "primary_access_path": "Owner-authenticated explicit file selection and document management via drive_selection_service.py and drive_document_store.py.",
+      "retention_policy": "Keep selected encrypted source metadata while the connection generation remains active; source removal, disconnect, account switch or account deletion removes the catalog. No content/index exists in this checkpoint.",
+      "deletion_behavior": "Connection-generation/status trigger deletes sources atomically on disconnect/account switch; connection deletion cascades. Explicit owner removal is repeat-safe. Future chunk and grant records must cascade from document/owner.",
+      "trust_boundary": "Separate server-readable connector-processing domain, not client-key PKM. Metadata including file ID and name is AES-256-GCM encrypted using DRIVE_DOCUMENT_KEY_V1 and owner/document/generation AAD. Owner-keyed HMAC source fingerprints permit repeat-safe selection without plaintext provider IDs. No OAuth or vault key is stored here.",
+      "plaintext_posture": "encrypted_source_metadata_with_bounded_workflow_status_only",
+      "expected_row_growth": "bounded_100_per_owner"
+    },
+    {
+      "id": "drive_picker_selection_sessions",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "customer0",
+      "exact_tables": ["drive_picker_sessions"],
+      "primary_access_path": "Single-use owner/generation-bound web Picker selection sessions; never a document-read or sharing grant.",
+      "retention_policy": "Ten-minute authorization lifetime; at most one session per owner, replaced at next Picker start and deleted on connection invalidation. Scheduled expiry cleanup must be proven before rollout.",
+      "deletion_behavior": "Owner connection deletion cascades; disconnect/account switch deletes in the same transaction. Contains no source identifiers or provider credentials.",
+      "trust_boundary": "Only Vault Owner protected routes create/consume sessions. A browser event or isAppAuthorized provider field alone cannot authorize ingestion; authenticated explicit confirmation and current generation are both required.",
+      "plaintext_posture": "opaque_workflow_identifiers_timestamps_only",
+      "expected_row_growth": "bounded_one_per_owner"
+    },
+    {
       "id": "external_mcp_connector_registry",
       "owner": "iam-consent-governance",
       "data_class": "reference",

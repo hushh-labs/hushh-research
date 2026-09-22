@@ -12,13 +12,15 @@ from __future__ import annotations
 
 from typing import Literal, Optional
 from urllib.parse import urlencode
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import RedirectResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from hushh_mcp.services.connector_feature_admission import connector_features
+from hushh_mcp.services.drive_selection_service import DriveSelectionService
 from hushh_mcp.services.external_connector_credentials_service import (
     ExternalConnectorCredentialError,
     get_external_connector_credentials_service,
@@ -32,6 +34,7 @@ from hushh_mcp.services.external_connector_oauth_service import (
 from hushh_mcp.services.external_connector_registry_service import (
     get_external_connector_registry_service,
 )
+from hushh_mcp.services.google_drive_adapter import DriveReadError
 
 router = APIRouter(prefix="/api/connectors", tags=["external-connectors"])
 
@@ -88,6 +91,97 @@ class CompleteOAuthRequest(BaseModel):
 
 class FinalizeNativeRequest(BaseModel):
     attemptId: str = Field(min_length=16, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
+
+
+class PickerSessionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    origin: str = Field(min_length=1, max_length=2048)
+
+
+class SelectDriveDocumentsRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    sessionId: UUID
+    fileIds: list[str] = Field(min_length=1, max_length=25)
+    confirmed: Literal[True]
+
+
+class RemoveDriveDocumentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    confirmed: Literal[True]
+
+
+def _drive_selection_error(error: Exception) -> HTTPException:
+    if isinstance(error, DriveReadError):
+        code = str(error)
+        status = 503 if error.retryable or code.endswith("unavailable") else 409
+        return HTTPException(status_code=status, detail=code)
+    return _oauth_error(error)
+
+
+_DRIVE_ERRORS = (
+    DriveReadError,
+    DriveOAuthError,
+    ConnectorLifecycleError,
+    ExternalConnectorCredentialError,
+)
+
+
+@router.post("/google_drive/picker/session")
+async def drive_picker_session(
+    body: PickerSessionRequest,
+    response: Response,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    try:
+        return await DriveSelectionService().picker_session(
+            user_id=_user_id(token_data), origin=body.origin
+        )
+    except _DRIVE_ERRORS as error:
+        raise _drive_selection_error(error) from None
+
+
+@router.post("/google_drive/documents/select")
+async def select_drive_documents(
+    body: SelectDriveDocumentsRequest,
+    response: Response,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        documents = await DriveSelectionService().select(
+            user_id=_user_id(token_data), session_id=str(body.sessionId), file_ids=body.fileIds
+        )
+        return {"documents": documents}
+    except _DRIVE_ERRORS as error:
+        raise _drive_selection_error(error) from None
+
+
+@router.get("/google_drive/documents")
+async def list_drive_documents(
+    response: Response, token_data: dict = Depends(require_vault_owner_token)
+):
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return {"documents": await DriveSelectionService().documents(user_id=_user_id(token_data))}
+    except _DRIVE_ERRORS as error:
+        raise _drive_selection_error(error) from None
+
+
+@router.delete("/google_drive/documents/{document_id}")
+async def remove_drive_document(
+    document_id: UUID,
+    body: RemoveDriveDocumentRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    try:
+        await DriveSelectionService().remove(
+            user_id=_user_id(token_data), document_id=str(document_id)
+        )
+        return {"status": "removed"}
+    except _DRIVE_ERRORS as error:
+        raise _drive_selection_error(error) from None
 
 
 def _oauth_error(error: Exception) -> HTTPException:
