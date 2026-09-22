@@ -2058,9 +2058,15 @@ export default function GmailReceiptsPage({
                   </p>
                 </div>
               </div>
-              <AskOneButton onClick={handleOpenOneChat} showIcon={false}>
-                Chat with One
-              </AskOneButton>
+              <div className="flex justify-center w-full pt-1">
+                <AskOneButton
+                  onClick={handleOpenOneChat}
+                  showIcon={false}
+                  className="w-full h-10 justify-center text-center text-xs font-semibold rounded-full"
+                >
+                  Chat with One
+                </AskOneButton>
+              </div>
             </SurfaceInset>
           ) : null}
 
@@ -2077,14 +2083,16 @@ export default function GmailReceiptsPage({
                   </p>
                 </div>
               </div>
-              <Button
-                type="button"
-                variant="muted"
-                onClick={() => setWorkspace("kyc")}
-                className="w-full justify-center sm:w-auto text-xs"
-              >
-                Open KYC
-              </Button>
+              <div className="flex justify-center w-full pt-1">
+                <Button
+                  type="button"
+                  variant="muted"
+                  onClick={() => setWorkspace("kyc")}
+                  className="w-full h-10 justify-center text-center text-xs font-semibold rounded-full"
+                >
+                  Open KYC
+                </Button>
+              </div>
             </SurfaceInset>
           ) : null}
 
@@ -2101,14 +2109,16 @@ export default function GmailReceiptsPage({
                   </p>
                 </div>
               </div>
-              <Button
-                type="button"
-                variant="muted"
-                onClick={() => setWorkspace("receipts")}
-                className="w-full justify-center sm:w-auto text-xs"
-              >
-                Open receipts
-              </Button>
+              <div className="flex justify-center w-full pt-1">
+                <Button
+                  type="button"
+                  variant="muted"
+                  onClick={() => setWorkspace("receipts")}
+                  className="w-full h-10 justify-center text-center text-xs font-semibold rounded-full"
+                >
+                  Open receipts
+                </Button>
+              </div>
             </SurfaceInset>
           ) : null}
 
