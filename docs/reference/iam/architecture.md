@@ -98,6 +98,33 @@ A single authenticated account may hold both `investor` and `ria` personas. Runt
 
 ## Ecosystem Contract Mapping
 
+### Google provider account binding
+
+The shared Google connection owns one verified provider subject per Hussh owner.
+OAuth completion verifies that subject before reusing a refresh token. While a
+connection remains active or needs reauthorization, selecting another Google
+account fails closed; disconnect its services before changing accounts. A
+disconnected connection requires a fresh refresh token. Cached-token admission
+reads the provider credential and service grant in one SQL snapshot. Refresh
+writes compare the original credential and subject plus the current service
+grant. These checks do not make OAuth permission a consent grant.
+
+Remaining activation prerequisite: provider/grant publication still uses two
+commits and lacks an attempt-bound generation fence against a delayed
+same-subject callback after disconnect/reconnect. Close that race atomically
+before exposing additional Google-connected execution surfaces.
+
+The source-level Drive MCP adapter uses this same credential owner and a
+`drive.readonly` service grant. Because Google tokens may accumulate permissions,
+the adapter additionally admits only six explicitly named read tools at Google's
+fixed MCP endpoint. Copy/create and unknown tools fail before credential retrieval
+or dispatch. This adapter is not yet exposed through a Chat tool or a complete
+native connection flow; its presence does not establish end-to-end availability.
+Onward sharing and private-agent delegation still require their existing separate
+authorities. Provider file content is untrusted information, not instructions.
+
+### Runtime mapping
+
 1. Agents: consume only consent-approved data slices.
 2. Operons: perform business logic only after scope check in calling path.
 3. MCP: external/tool access remains token-scoped and audit-backed.

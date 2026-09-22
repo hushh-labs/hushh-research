@@ -86,6 +86,19 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
 
 ## Security and Privacy Checks
 
+- Google connection completion rejects a different active provider subject before
+  refresh-token reuse; disconnected accounts require fresh credentials. Cached
+  tokens and grants come from one snapshot; refresh writes compare the original
+  credential generation. A declined service permission creates no grant.
+- Still required before Drive activation: atomic provider/grant publication and
+  an attempt-bound generation fence prevent stale same-account callbacks from
+  overwriting a newer disconnect/reconnect. Test real interleavings, not only
+  simulated SQL rejection results.
+- Drive MCP read adapters require the Drive service grant, pin Google's official
+  endpoint, and reject copy/create and unknown tools even when the cumulative
+  Google token has broader privileges. Chat/native authenticated read acceptance
+  remains separate from these source-level checks.
+
 1. No private data leakage in public surfaces.
 2. Audit records include actor/scope/duration metadata.
 3. Telemetry remains metadata-only.

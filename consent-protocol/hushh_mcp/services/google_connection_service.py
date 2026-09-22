@@ -24,7 +24,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from db.db_client import get_db
 from hushh_mcp.runtime_settings import get_app_runtime_settings, get_core_security_settings
 
-GoogleService = Literal["gmail", "calendar", "contacts"]
+GoogleService = Literal["gmail", "calendar", "contacts", "drive"]
 
 _AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 _TOKEN_URL = "https://oauth2.googleapis.com/token"  # noqa: S105 - OAuth endpoint, not a credential
@@ -47,6 +47,7 @@ _SERVICE_SCOPES: dict[GoogleService, dict[str, tuple[str, ...]]] = {
         ),
     },
     "contacts": {"read": ("https://www.googleapis.com/auth/contacts.readonly",)},
+    "drive": {"read": ("https://www.googleapis.com/auth/drive.readonly",)},
 }
 
 
@@ -330,9 +331,26 @@ class GoogleConnectionService:
         access_token = _clean(token.get("access_token"))
         if not access_token:
             raise GoogleConnectionError("Google did not return an access token", status_code=502)
+        profile = await self._userinfo(access_token)
+        subject = _clean(profile.get("sub"))
+        if not subject:
+            raise GoogleConnectionError("Google account could not be verified", status_code=502)
         existing = await self._connection(user_id)
+        # One provider row backs all service grants. A new service must not
+        # silently replace the account used by already-connected services.
+        if existing and existing.get("status") != "disconnected":
+            if _clean(existing.get("provider_subject")) != subject:
+                raise GoogleConnectionError(
+                    "Choose the Google account already connected, or disconnect its services first.",
+                    status_code=409,
+                )
         refresh_token = _clean(token.get("refresh_token"))
-        if not refresh_token and existing:
+        if (
+            not refresh_token
+            and existing
+            and existing.get("status") == "connected"
+            and _clean(existing.get("provider_subject")) == subject
+        ):
             refresh_token = self._decrypt(
                 {
                     "ciphertext": existing.get("refresh_token_ciphertext"),
@@ -345,7 +363,17 @@ class GoogleConnectionService:
                 "Google did not return a refresh token; reconnect and grant consent",
                 status_code=400,
             )
-        profile = await self._userinfo(access_token)
+        scopes = _clean(token.get("scope")) or " ".join(requested_scopes)
+        level = (
+            "manage"
+            if service == "calendar"
+            and "https://www.googleapis.com/auth/calendar.events" in scopes.split()
+            else "read"
+        )
+        if not set(self.scopes(service, level)).issubset(scopes.split()):
+            raise GoogleConnectionError(
+                "The requested Google service permission was not granted", status_code=403
+            )
         expires_at = _now() + timedelta(seconds=max(60, int(token.get("expires_in") or 3600)))
         refresh = self._encrypt(refresh_token, aad=f"google-connection:{user_id}")
         access = self._encrypt(access_token, aad=f"google-connection:{user_id}")
@@ -365,13 +393,15 @@ class GoogleConnectionService:
                  access_token_ciphertext = EXCLUDED.access_token_ciphertext,
                  access_token_iv = EXCLUDED.access_token_iv, access_token_tag = EXCLUDED.access_token_tag,
                  access_token_expires_at = EXCLUDED.access_token_expires_at, revoked_at = NULL, updated_at = NOW()
-               WHERE google_provider_connections.status <> 'disconnected'
+               WHERE (google_provider_connections.provider_subject = EXCLUDED.provider_subject
+                      OR google_provider_connections.status = 'disconnected')
+                 AND (google_provider_connections.status <> 'disconnected'
                   OR google_provider_connections.revoked_at IS NULL
-                  OR google_provider_connections.revoked_at <= :oauth_started_at
+                  OR google_provider_connections.revoked_at <= :oauth_started_at)
                RETURNING user_id""",
             {
                 "user_id": user_id,
-                "subject": _clean(profile.get("sub")) or None,
+                "subject": subject,
                 "email": _clean(profile.get("email")).lower() or None,
                 "expires_at": expires_at,
                 "refresh_ciphertext": refresh["ciphertext"],
@@ -388,16 +418,12 @@ class GoogleConnectionService:
                 "This Google authorization was cancelled. Start a new connection to continue.",
                 status_code=409,
             )
-        scopes = _clean(token.get("scope")) or " ".join(requested_scopes)
-        level = (
-            "manage"
-            if service == "calendar"
-            and "https://www.googleapis.com/auth/calendar.events" in scopes.split()
-            else "read"
-        )
         grant_write = await self._execute_raw_async(
             """INSERT INTO google_service_grants (user_id, provider, service, status, scope_csv, access_level)
-               VALUES (:user_id, 'google', :service, 'connected', :scope_csv, :access_level)
+               SELECT :user_id, 'google', :service, 'connected', :scope_csv, :access_level
+               FROM google_provider_connections
+               WHERE user_id = :user_id AND provider = 'google' AND status = 'connected'
+                 AND provider_subject = :subject AND access_token_ciphertext = :access_ciphertext
                ON CONFLICT (user_id, provider, service) DO UPDATE SET status = 'connected',
                  scope_csv = EXCLUDED.scope_csv, access_level = EXCLUDED.access_level,
                  disconnected_at = NULL, updated_at = NOW()
@@ -406,6 +432,8 @@ class GoogleConnectionService:
                RETURNING user_id""",
             {
                 "user_id": user_id,
+                "subject": subject,
+                "access_ciphertext": access["ciphertext"],
                 "service": service,
                 "scope_csv": scopes,
                 "access_level": level,
@@ -525,28 +553,32 @@ class GoogleConnectionService:
     async def access_token(
         self, *, user_id: str, service: GoogleService, access_level: Literal["read", "manage"]
     ) -> str:
-        row = await self._connection(user_id)
+        required_scopes = set(self.scopes(service, access_level))
+        service_name = "Google Calendar" if service == "calendar" else "Google service"
+        # One statement/snapshot prevents pairing account A's cached bearer
+        # with account B's service grant during disconnect/reconnect.
+        snapshot = await self._execute_raw_async(
+            """SELECT c.*, g.status AS service_status, g.access_level AS service_access_level,
+                      g.scope_csv AS service_scope_csv
+               FROM google_provider_connections c
+               LEFT JOIN google_service_grants g
+                 ON g.user_id = c.user_id AND g.provider = c.provider AND g.service = :service
+               WHERE c.user_id = :user_id AND c.provider = 'google'""",
+            {"user_id": user_id, "service": service},
+        )
+        row = snapshot.data[0] if snapshot.data else None
         if not row or row.get("status") != "connected":
-            raise GoogleConnectionError("Connect Google Calendar first", status_code=403)
-        grant = (
-            await self._execute_raw_async(
-                "SELECT * FROM google_service_grants WHERE user_id = :user_id AND provider = 'google' AND service = :service",
-                {"user_id": user_id, "service": service},
-            )
-        ).data
-        if (
-            not grant
-            or grant[0].get("status") != "connected"
-            or (access_level == "manage" and grant[0].get("access_level") != "manage")
+            raise GoogleConnectionError(f"Connect {service_name} first", status_code=403)
+        if row.get("service_status") != "connected" or (
+            access_level == "manage" and row.get("service_access_level") != "manage"
         ):
             raise GoogleConnectionError(
-                "Additional Google Calendar permission is required", status_code=403
+                f"Additional {service_name} permission is required", status_code=403
             )
-        granted_scopes = set(_clean(grant[0].get("scope_csv")).split())
-        required_scopes = set(self.scopes(service, access_level))
+        granted_scopes = set(_clean(row.get("service_scope_csv")).split())
         if not required_scopes.issubset(granted_scopes):
             raise GoogleConnectionError(
-                "Additional Google Calendar permission is required", status_code=403
+                f"Additional {service_name} permission is required", status_code=403
             )
         expiry = row.get("access_token_expires_at")
         try:
@@ -593,12 +625,23 @@ class GoogleConnectionService:
                access_token_iv = :iv, access_token_tag = :tag,
                access_token_expires_at = :expires_at, updated_at = NOW()
                WHERE user_id = :user_id AND provider = 'google' AND status = 'connected'
+                 AND refresh_token_ciphertext = :expected_refresh_ciphertext
+                 AND provider_subject IS NOT DISTINCT FROM :expected_subject
+                 AND EXISTS (
+                   SELECT 1 FROM google_service_grants
+                   WHERE user_id = :user_id AND provider = 'google' AND service = :service
+                     AND status = 'connected' AND scope_csv = :expected_scope_csv
+                 )
                RETURNING user_id""",
             {
                 **envelope,
                 "expires_at": _now()
                 + timedelta(seconds=max(60, int(token.get("expires_in") or 3600))),
                 "user_id": user_id,
+                "expected_refresh_ciphertext": row.get("refresh_token_ciphertext"),
+                "expected_subject": row.get("provider_subject"),
+                "service": service,
+                "expected_scope_csv": row.get("service_scope_csv"),
             },
         )
         if not token_write.data:

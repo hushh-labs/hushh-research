@@ -322,6 +322,15 @@ or failure and become unusable after ten minutes; a subsequent Calendar mutation
 purges expired plans. Event data is not persisted as PKM or a Calendar cache in
 this first release.
 
+The shared Google credential boundary verifies provider subject before refresh
+reuse, rejects account replacement while connected, and requires fresh credentials
+after disconnection. Cached tokens and grants are read in one snapshot; refresh
+writes compare original credentials. Atomic callback publication and same-account
+disconnect/reconnect generation fencing remain an activation prerequisite.
+The internal Drive MCP adapter now admits an explicit read-only tool set through
+that same credential owner; no public Drive route or Chat/native completion is
+implied by this source-level adapter.
+
 | Method | Path                                  | Authorization      | Description                                                                                                         |
 | ------ | ------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------- |
 | POST   | `/api/one/calendar/connect/start`     | Firebase Bearer    | Start incremental Google Calendar read or manage authorization; returns only an OAuth authorization URL and expiry. |

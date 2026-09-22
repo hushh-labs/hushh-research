@@ -81,9 +81,12 @@ def test_calendar_manage_scope_keeps_availability_permission() -> None:
     assert "https://www.googleapis.com/auth/calendar.freebusy" in scopes
 
 
-def test_google_drive_is_not_an_authorizable_service() -> None:
+def test_google_drive_authorization_is_read_only() -> None:
+    assert GoogleConnectionService.scopes("drive", "read") == (
+        "https://www.googleapis.com/auth/drive.readonly",
+    )
     with pytest.raises(GoogleConnectionError, match="Unsupported Google service permission"):
-        GoogleConnectionService.scopes("drive", "read")  # type: ignore[arg-type]
+        GoogleConnectionService.scopes("drive", "manage")
 
 
 def test_calendar_callback_derives_from_frontend_origin_without_reusing_gmail_path(
@@ -155,6 +158,9 @@ def test_calendar_access_token_rejects_partial_granted_scopes() -> None:
                             "access_token_expires_at": "2999-01-01T00:00:00+00:00",
                             "access_token_ciphertext": "not-used",
                             "access_token_iv": "not-used",
+                            "service_status": "connected",
+                            "service_access_level": "manage",
+                            "service_scope_csv": "https://www.googleapis.com/auth/calendar.events",
                         }
                     ]
                 )
@@ -190,10 +196,13 @@ def test_calendar_refresh_does_not_restore_a_token_after_disconnect(
                             "refresh_token_ciphertext": "old-refresh-envelope",
                             "refresh_token_iv": "not-used",
                             "access_token_expires_at": "2000-01-01T00:00:00+00:00",
+                            "service_status": "connected",
+                            "service_access_level": "read",
+                            "service_scope_csv": "https://www.googleapis.com/auth/calendar.events.readonly https://www.googleapis.com/auth/calendar.freebusy",
                         }
                     ]
                 )
-            if "google_service_grants" in sql:
+            if "google_service_grants" in sql and sql.lstrip().startswith("SELECT"):
                 return SimpleNamespace(
                     data=[
                         {
@@ -231,6 +240,9 @@ def test_calendar_refresh_does_not_restore_a_token_after_disconnect(
     assert exc_info.value.status_code == 409
     token_write = next(sql for sql, _ in db.calls if "access_token_ciphertext" in sql)
     assert "status = 'connected'" in token_write
+    assert "refresh_token_ciphertext = :expected_refresh_ciphertext" in token_write
+    assert "provider_subject IS NOT DISTINCT FROM :expected_subject" in token_write
+    assert "scope_csv = :expected_scope_csv" in token_write
 
 
 def test_calendar_disconnect_invalidates_pending_oauth_attempts() -> None:
@@ -257,7 +269,9 @@ def test_calendar_stale_callback_cannot_reenable_a_disconnected_service_grant(
         def execute_raw(self, sql: str, params: dict | None = None):  # noqa: ANN001
             self.calls.append((sql, params))
             if "SELECT * FROM google_provider_connections" in sql:
-                return SimpleNamespace(data=[{"status": "connected"}])
+                return SimpleNamespace(
+                    data=[{"status": "connected", "provider_subject": "subject-1"}]
+                )
             if "INSERT INTO google_provider_connections" in sql:
                 return SimpleNamespace(data=[{"user_id": "user-1"}])
             if "INSERT INTO google_service_grants" in sql:

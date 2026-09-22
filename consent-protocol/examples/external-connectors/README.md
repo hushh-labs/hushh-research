@@ -25,7 +25,15 @@ generic specialist as an arbitrary tool dispatcher under information-only
 authority. Copy/create and onward email delivery require separately reviewed
 action authority; document contents cannot supply that authority.
 
-Current integration gap: generic external OAuth does not yet implement the full
-refresh/native lifecycle. Keep activation and end-to-end acceptance open until
-those paths are verified. The descriptor intentionally contains no credentials,
-automatic activation, or grant of file-sharing permission.
+The application adapter `google_drive_mcp_service.py` uses the existing shared
+Google connection owner, not a second generic OAuth credential for the same
+provider. It pins the official endpoint and rejects tools outside its explicit
+read set. The descriptor above remains a public-catalog inspection example: do
+not activate it as a generic OAuth row alongside the Google connection.
+
+Current integration gaps: Chat invocation authority, browser/native Drive
+connection entrypoints, atomic generation-fenced Google callback publication,
+and authenticated read acceptance remain open. Generic
+external OAuth also lacks the full refresh/native lifecycle and is not a
+shortcut. The descriptor contains no credentials, automatic activation, or
+grant of file-sharing permission.
