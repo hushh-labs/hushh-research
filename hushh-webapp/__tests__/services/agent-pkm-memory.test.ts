@@ -47,6 +47,38 @@ import {
   type AgentPkmPreviewCard,
 } from "@/lib/agent/agent-pkm-memory";
 import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { createAgentPkmCaptureGuard, isAgentPkmProcessingReady } from "@/lib/agent/agent-pkm-capture-runtime";
+
+it("keeps a confirmed old-generation receipt without invalidating the replacement owner context", async () => {
+  publishValidatedAuthSessionOwner("owner-a");
+  const guard = createAgentPkmCaptureGuard({
+    userId: "owner-a", signal: new AbortController().signal, isEnabled: () => true,
+  });
+  const invalidate = vi.spyOn(AgentPkmContextStore, "invalidateUser");
+  pkmSavePreparedDomainMock.mockImplementationOnce(async () => {
+    publishValidatedAuthSessionOwner("owner-b");
+    publishValidatedAuthSessionOwner("owner-a");
+    advanceVaultSessionEpoch();
+    return { success: true, saveState: "saved", fullBlob: {} };
+  });
+  try {
+    const result = await addToPKM({
+      userId: "owner-a", sourceMessage: "Synthetic preference", vaultKey: "test-key",
+      vaultOwnerToken: "test-token", beforeEffect: guard.assertCurrent, mayPublish: guard.isCurrent,
+      confirmation: { confirmedByUser: true, surface: "chat", source: "test" },
+      cards: [{ card_id: "test", write_mode: "can_save", target_domain: "preferences",
+        candidate_payload: { format: "brief" }, structure_decision: { target_domain: "preferences" } }],
+    });
+    expect(result.saved).toBe(1);
+    expect(guard.isCurrent()).toBe(false);
+    expect(invalidate).not.toHaveBeenCalled();
+  } finally {
+    invalidate.mockRestore();
+    publishValidatedAuthSessionOwner(null);
+  }
+});
 
 const METADATA = {
   userId: "user_1",
@@ -129,6 +161,7 @@ describe("agent PKM memory helpers", () => {
   it("keeps sharing and uncertain cards in review while exposing only private can-save cards", () => {
     const cards: AgentPkmPreviewCard[] = [
       { card_id: "auto", source_text: "", write_mode: "can_save" },
+      { card_id: "incomplete", source_text: "", write_mode: "can_save", preparation_requires_review: true },
       {
         card_id: "shared",
         source_text: "",
@@ -150,6 +183,82 @@ describe("agent PKM memory helpers", () => {
       "shared",
       "review",
     ]);
+  });
+
+  it("keeps degraded previews out of automatic writes", () => {
+    const cards: AgentPkmPreviewCard[] = [
+      { card_id: "verified", source_text: "", write_mode: "can_save" },
+      {
+        card_id: "degraded",
+        source_text: "",
+        write_mode: "can_save",
+        preview_degraded: true,
+      },
+    ];
+
+    expect(getPkmAutoSaveCards(cards).map((card) => card.card_id)).toEqual(["verified"]);
+  });
+
+  it("rejects a degraded preview even when a caller supplies explicit confirmation", async () => {
+    const result = await addToPKM({
+      userId: "user_1",
+      sourceMessage: "I prefer tea.",
+      vaultKey: "test-key",
+      vaultOwnerToken: "test-token",
+      confirmation: { confirmedByUser: true, surface: "web", source: "test" },
+      cards: [{
+        card_id: "degraded",
+        source_text: "I prefer tea.",
+        write_mode: "can_save",
+        preview_degraded: true,
+        target_domain: "preferences",
+        candidate_payload: { drink: "tea" },
+        structure_decision: { target_domain: "preferences" },
+      }],
+    });
+
+    expect(result).toMatchObject({ saved: 0, failed: 1 });
+    expect(result.results[0]?.message).toContain("prepared again");
+    expect(pkmSavePreparedDomainMock).not.toHaveBeenCalled();
+    expect(pkmSaveMergedDomainMock).not.toHaveBeenCalled();
+  });
+
+  it("rechecks token expiry without requiring a React render", () => {
+    vi.useFakeTimers();
+    const state = { authLoading: false, sessionVerificationRequired: false, isVaultUnlocked: true,
+      vaultOwnerToken: "test-token", tokenExpiresAt: Date.now() + 100 };
+    expect(isAgentPkmProcessingReady(state, "test-token")).toBe(true);
+    expect(isAgentPkmProcessingReady({ ...state, vaultOwnerToken: "replacement" }, "test-token")).toBe(false);
+    vi.advanceTimersByTime(100);
+    expect(isAgentPkmProcessingReady(state, "test-token")).toBe(false);
+    expect(isAgentPkmProcessingReady({ ...state, tokenExpiresAt: null }, "test-token")).toBe(false);
+  });
+
+  it.each(["owner", "product"])("rejects a direct %s automatic write with incomplete coverage but retains explicit manual review", async (mode) => {
+    const card: AgentPkmPreviewCard = {
+      card_id: "incomplete", source_text: "I prefer tea.", write_mode: "can_save",
+      preparation_requires_review: true, target_domain: "preferences",
+      candidate_payload: { drink: "tea" }, structure_decision: { target_domain: "preferences" },
+    };
+    const params = { userId: "user_1", cards: [card], sourceMessage: "I prefer tea. I prefer warm rooms.",
+      vaultKey: "test-key", vaultOwnerToken: "test-token", source: "test" };
+    const automatic = await addToPKM({ ...params, confirmation: mode === "owner" ? {
+      authorizationMode: "owner_auto_save_policy", surface: "chat", source: "test",
+      autoSavePolicyVersion: 1, autoSavePolicyEnabledAt: "2026-09-18T00:00:00Z",
+    } : {
+      authorizationMode: "product_default_auto_save_policy", surface: "chat",
+      source: "agent_chat_product_default_auto_save", autoSavePolicyVersion: 1,
+      productDefaultEffectiveAt: "2026-09-18T00:00:00Z",
+    } });
+    expect(automatic).toMatchObject({ saved: 0, failed: 1 });
+    expect(pkmSavePreparedDomainMock).not.toHaveBeenCalled();
+    expect(pkmSaveMergedDomainMock).not.toHaveBeenCalled();
+    const reviewed = await addToPKM({ ...params, confirmation: {
+      confirmedByUser: true, surface: "web", source: "test",
+    } });
+    expect(reviewed).toMatchObject({ saved: 1, failed: 0 });
+    expect(pkmSavePreparedDomainMock).toHaveBeenCalledTimes(1);
+    expect(card.write_mode).toBe("can_save");
   });
 
   it("loads decrypted session PKM when the vault key is available", async () => {
@@ -484,6 +593,38 @@ describe("agent PKM memory helpers", () => {
     });
   });
 
+  it("carries a response-level fallback marker onto every preview card", async () => {
+    apiFetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        agent_id: "agent",
+        agent_name: "One",
+        model: "test",
+        used_fallback: true,
+        preview_cards: [{
+          card_id: "fallback-card",
+          source_text: "",
+          write_mode: "can_save",
+          target_domain: "preferences",
+          candidate_payload: { writing: { default_style: "concise" } },
+          structure_decision: { target_domain: "preferences" },
+        }],
+      }),
+    });
+
+    const preview = await previewAgentPkmMemory({
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      message: "remember that I prefer concise summaries",
+      currentDomains: ["preferences"],
+    });
+
+    expect(preview.cards[0]).toMatchObject({
+      card_id: "fallback-card",
+      preview_degraded: true,
+    });
+  });
+
   it("redacts rejected proposal payloads from the user-facing error", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
     apiFetchMock.mockResolvedValue({
@@ -530,6 +671,7 @@ describe("agent PKM memory helpers", () => {
         source_text: "remember that I prefer concise summaries",
         write_mode: "can_save",
         target_domain: "preferences",
+        primary_json_path: "preferences.writing.default_style",
         candidate_payload: { writing: { default_style: "concise" } },
         structure_decision: { target_domain: "preferences" },
       },
@@ -567,6 +709,7 @@ describe("agent PKM memory helpers", () => {
     );
     expect(plan.summary).not.toHaveProperty("message_excerpt");
     expect(plan.summary).not.toHaveProperty("card_id");
+    expect(plan.scopePath).toBe("preferences.writing.default_style");
     expect(peekAgentPkmContext({ userId: "user_1", message: "writing" })).toBeNull();
   });
 

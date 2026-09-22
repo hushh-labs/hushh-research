@@ -96,7 +96,13 @@ vi.mock("@/lib/morphy-ux/button", () => ({
 }));
 
 vi.mock("@/components/ui/dialog", () => ({
-  Dialog: ({ children }: { children: ReactNode }) => <>{children}</>,
+  Dialog: ({
+    children,
+    open,
+  }: {
+    children: ReactNode;
+    open?: boolean;
+  }) => (open === false ? null : <>{children}</>),
   DialogContent: ({ children }: { children: ReactNode }) => <section>{children}</section>,
   DialogDescription: ({ children }: { children: ReactNode }) => <p>{children}</p>,
   DialogFooter: ({ children }: { children: ReactNode }) => <footer>{children}</footer>,
@@ -362,9 +368,64 @@ describe("PersonProfilePage native profile route", () => {
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
+
+  it("does not open an unusable review dialog while the vault token is still loading", async () => {
+    mocks.user = {
+      uid: "viewer",
+      getIdToken: vi.fn().mockResolvedValue("viewer-token"),
+    };
+    mocks.getViewer.mockResolvedValue(viewerProfile());
+
+    render(
+      <PersonProfilePage
+        personRef="actual-public-ref"
+        initialProfile={{
+          personRef: "actual-public-ref",
+          displayName: "Actual Person",
+          photoUrl: null,
+          verifiedRole: null,
+        }}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open Financial" }));
+    fireEvent.click(screen.getByRole("button", { name: /Risk profile/ }));
+    const reviewButton = await screen.findByRole("button", {
+      name: "Review request (1)",
+    });
+    fireEvent.click(reviewButton);
+
+    expect(screen.queryByRole("button", { name: "Send request" })).not.toBeInTheDocument();
+    const { toast } = await import("sonner");
+    expect(toast.error).toHaveBeenCalledWith(
+      "Your vault is still getting ready. Try again in a moment.",
+    );
+  });
 });
 
 describe("PersonProfilePage request catalog tools", () => {
+  it("distinguishes an unavailable catalog from an empty one and allows retry", async () => {
+    mocks.getViewer.mockRejectedValueOnce(new Error("temporary failure"));
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    // The retry card carries the shipped copy ("We couldn't load your connection
+    // with <name> right now") and stays identity-scoped to this viewer.
+    expect(await screen.findByRole("alert")).toHaveTextContent("couldn’t load your connection");
+    expect(screen.queryByRole("heading", { name: "Available to request" })).not.toBeInTheDocument();
+    mocks.getViewer.mockResolvedValue(viewerProfile());
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    await screen.findByRole("heading", { name: "Available to request" });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+
+  it("does not reuse the previous viewer's catalog while another account loads", async () => {
+    const { rerender } = render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    await screen.findByRole("heading", { name: "Available to request" });
+    mocks.user = { uid: "different-viewer", getIdToken: async () => "different-token" };
+    mocks.getViewer.mockImplementation(() => new Promise(() => {}));
+    rerender(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    expect(screen.queryByRole("heading", { name: "Available to request" })).not.toBeInTheDocument();
+  });
+
   function manyScopes(count: number) {
     return Array.from({ length: count }, (_, index) => ({
       scopeRef: `scope-${index}`,
@@ -398,6 +459,17 @@ describe("PersonProfilePage request catalog tools", () => {
   afterEach(() => {
     cleanup();
     vi.clearAllMocks();
+  });
+
+  it("loads the initial request catalog through the bounded first page", async () => {
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+
+    await screen.findByRole("heading", { name: "Available to request" });
+    expect(mocks.getViewer).toHaveBeenCalledWith(
+      "actual-public-ref",
+      "id-token",
+      { page: 1 },
+    );
   });
 
   it("drills into an area, walks back out, and lets search cut across every level", async () => {
@@ -439,6 +511,8 @@ describe("PersonProfilePage request catalog tools", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Open Professional" }));
     fireEvent.click(screen.getByRole("button", { name: /Employment status/ }));
     fireEvent.click(screen.getByRole("button", { name: /Review request \(1\)/ }));
+    const sendRequest = screen.getByRole("button", { name: "Send request" });
+    expect(sendRequest).toBeDisabled();
     const duration = screen.getByTestId("person-profile-duration-select") as HTMLSelectElement;
     expect(duration.value).toBe("168");
     fireEvent.change(duration, { target: { value: "24" } });
@@ -447,12 +521,37 @@ describe("PersonProfilePage request catalog tools", () => {
     expect(screen.getByText("They will see exactly what you asked for, why, and for how long.")).toBeTruthy();
     expect(duration.value).toBe("24");
     fireEvent.change(screen.getByTestId("person-profile-purpose"), { target: { value: "Checking references for a role" } });
-    fireEvent.click(screen.getByRole("button", { name: "Send request" }));
+    expect(sendRequest).toBeEnabled();
+    fireEvent.click(sendRequest);
     await waitFor(() =>
       expect(PersonProfileService.createInformationRequest).toHaveBeenCalledWith(
         expect.objectContaining({ durationSeconds: 24 * 3600, scopeRefs: ["scope-0"] }),
       ),
     );
+  });
+
+  it("marks already shared fields as unavailable for a duplicate request", async () => {
+    mocks.getViewer.mockResolvedValue(
+      viewerProfile({
+        requestableScopes: manyScopes(2),
+        grants: [{
+          scopeRef: "scope-0",
+          label: "Employment status",
+          domain: "professional",
+          requestId: "req-shared",
+          issuedAt: null,
+          expiresAt: null,
+          status: "granted",
+          encryptedExportAvailable: true,
+        }],
+      }),
+    );
+
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open Professional" }));
+    const sharedField = screen.getByRole("checkbox", { name: "Employment status" });
+    expect(sharedField).toBeDisabled();
   });
 
   it("reveals a grant behind stable test ids and confirms a copy in one word", async () => {
@@ -518,6 +617,98 @@ describe("PersonProfilePage request catalog tools", () => {
     }
   });
 
+  it("unwraps the domain envelope before rendering an encrypted grant", async () => {
+    const { PersonProfileService } = await import("@/lib/services/person-profile-service");
+    const { OneKycClientZkService } = await import("@/lib/services/one-kyc-client-zk-service");
+    (OneKycClientZkService.ensureConnector as ReturnType<typeof vi.fn>).mockResolvedValue({ connector_key_id: "ck_1" });
+    (PersonProfileService.getInformationRequestExports as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { requestId: "req-domain", encryptedExport: { sealed: true } },
+    ]);
+    (OneKycClientZkService.decryptScopedExport as ReturnType<typeof vi.fn>).mockResolvedValue({
+      professional: { summary: "Synthetic approved detail" },
+      __export_metadata: { source_domain: "professional" },
+    });
+    mocks.getViewer.mockResolvedValue(
+      viewerProfile({
+        requestableScopes: manyScopes(2),
+        grants: [{
+          scopeRef: "scope-0",
+          label: "Professional detail",
+          domain: "Professional",
+          requestId: "req-domain",
+          issuedAt: null,
+          expiresAt: null,
+          status: "granted",
+          encryptedExportAvailable: true,
+        }],
+        requestHistory: [{
+          bundleId: "bundle-domain",
+          requestId: "req-domain",
+          scopeRef: "scope-0",
+          label: "Professional detail",
+          sensitivity: "standard",
+          purpose: "Reviewing a professional detail",
+          durationSeconds: 24 * 3600,
+          createdAt: null,
+          expiresAt: null,
+          status: "approved",
+        }],
+      }),
+    );
+
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+
+    expect(await screen.findByTestId("person-profile-grant-value")).toHaveTextContent(
+      "Synthetic approved detail",
+    );
+  });
+
+  it("keeps nested approved summaries visible in an encrypted grant", async () => {
+    const { PersonProfileService } = await import("@/lib/services/person-profile-service");
+    const { OneKycClientZkService } = await import("@/lib/services/one-kyc-client-zk-service");
+    (OneKycClientZkService.ensureConnector as ReturnType<typeof vi.fn>).mockResolvedValue({ connector_key_id: "ck_1" });
+    (PersonProfileService.getInformationRequestExports as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { requestId: "req-nested", encryptedExport: { sealed: true } },
+    ]);
+    (OneKycClientZkService.decryptScopedExport as ReturnType<typeof vi.fn>).mockResolvedValue({
+      professional: { profile: { summary: "Synthetic nested detail" } },
+      __export_metadata: { source_domain: "professional" },
+    });
+    mocks.getViewer.mockResolvedValue(
+      viewerProfile({
+        requestableScopes: manyScopes(2),
+        grants: [{
+          scopeRef: "scope-0",
+          label: "Professional detail",
+          domain: "Professional",
+          requestId: "req-nested",
+          issuedAt: null,
+          expiresAt: null,
+          status: "granted",
+          encryptedExportAvailable: true,
+        }],
+        requestHistory: [{
+          bundleId: "bundle-nested",
+          requestId: "req-nested",
+          scopeRef: "scope-0",
+          label: "Professional detail",
+          sensitivity: "standard",
+          purpose: "Reviewing a professional detail",
+          durationSeconds: 24 * 3600,
+          createdAt: null,
+          expiresAt: null,
+          status: "approved",
+        }],
+      }),
+    );
+
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+
+    expect(await screen.findByTestId("person-profile-grant-value")).toHaveTextContent(
+      "Synthetic nested detail",
+    );
+  });
+
   it("keeps a backend detail out of the toast when a grant cannot be opened", async () => {
     const { PersonProfileService } = await import("@/lib/services/person-profile-service");
     const { OneKycClientZkService } = await import("@/lib/services/one-kyc-client-zk-service");
@@ -567,6 +758,54 @@ describe("PersonProfilePage request catalog tools", () => {
     expect(shown).toBe("This shared information could not be opened.");
     expect(shown).not.toMatch(/psycopg2|column|export/i);
     expect(screen.queryByTestId("person-profile-grant-value")).toBeNull();
+  });
+
+  it("stops automatic grant retries after a bounded failure and leaves a manual retry", async () => {
+    const { PersonProfileService } = await import("@/lib/services/person-profile-service");
+    const { OneKycClientZkService } = await import("@/lib/services/one-kyc-client-zk-service");
+    const { toast } = await import("sonner");
+    mocks.user = {
+      uid: "viewer",
+      getIdToken: vi.fn().mockResolvedValue("viewer-token"),
+    };
+    mocks.vaultKey = "vault-key";
+    mocks.vaultOwnerToken = "owner-token";
+    (OneKycClientZkService.ensureConnector as ReturnType<typeof vi.fn>).mockResolvedValue({ connector_key_id: "ck_1" });
+    (PersonProfileService.getInformationRequestExports as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new Error("psycopg2.errors.SerializationFailure: temporary export failure"),
+    );
+    mocks.getViewer.mockResolvedValue(
+      viewerProfile({
+        grants: [{
+          scopeRef: "scope-0",
+          label: "City",
+          domain: "location",
+          requestId: "req-grant-fail",
+          issuedAt: null,
+          expiresAt: null,
+          status: "granted",
+          encryptedExportAvailable: true,
+        }],
+        requestHistory: [{
+          bundleId: "bundle-grant",
+          requestId: "req-grant-fail",
+          scopeRef: "scope-0",
+          label: "City",
+          sensitivity: "standard",
+          purpose: "Delivery",
+          durationSeconds: 24 * 3600,
+          createdAt: null,
+          expiresAt: null,
+          status: "approved",
+        }],
+      }),
+    );
+
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith("This shared information could not be opened."));
+    expect(await screen.findByTestId("person-profile-grant-reveal")).toBeInTheDocument();
+    expect(PersonProfileService.getInformationRequestExports).toHaveBeenCalledTimes(1);
   });
 
   it("brings the requestable catalog into view when opened with ?request=1", async () => {

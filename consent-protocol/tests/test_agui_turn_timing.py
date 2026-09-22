@@ -117,6 +117,9 @@ async def test_measures_first_visible_and_elapsed_and_counts(monkeypatch, caplog
     assert fields["head"] == HEAD_ONE
     assert fields["run"] == RUN_ID[:8]
     assert int(fields["first_visible_ms"]) >= 25
+    assert int(fields["first_answer_token_ms"]) >= 25
+    assert int(fields["first_tool_call_ms"]) >= int(fields["first_answer_token_ms"])
+    assert fields["first_activity_ms"] == "None"
     assert int(fields["elapsed_ms"]) >= int(fields["first_visible_ms"])
     assert fields["events"] == "6"
     assert fields["tool_calls"] == "2"

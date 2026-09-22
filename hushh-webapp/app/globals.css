@@ -200,6 +200,32 @@ textarea {
 }
 
 :root {
+  /* Layer ladder. Every floating primitive in components/ui takes its z-index
+     from here, so the order below is the only place the ladder is decided:
+
+       chrome (persistent bars, 100..160)
+         < sheet / drawer (711, 712)
+         < dialog / alert dialog (800, 801)
+         < takeover (Location onboarding, 9000..9101)
+         < system (network banner, 9999)
+         < transient (menus, popovers, selects, comboboxes, tooltips)
+
+     Transient surfaces portal to <body> and must float above whichever
+     container opened them. When dialogs were lifted above sheets, the
+     transient tier was left at its shadcn defaults (50..520): every menu
+     opened inside the profile pane rendered behind the pane, which is how
+     the theme menu and the Molten Gold picker became unreachable. The
+     contract test in __tests__/ui/layer-order.contract.test.ts pins both
+     the token values and which primitive consumes which token. */
+  --z-chrome: 118;
+  --z-sheet-overlay: 711;
+  --z-sheet: 712;
+  --z-dialog-overlay: 800;
+  --z-dialog: 801;
+  --z-takeover: 9000;
+  --z-system: 9999;
+  --z-transient-scrim: 10099;
+  --z-transient: 10100;
   /* Centralized app typography variables. Product UI uses Inter only. */
   --font-family-product: "InterVariable", "Inter", system-ui, sans-serif;
   /* Emoji tier, appended to the text stack rather than folded into
@@ -649,6 +675,12 @@ textarea {
    * no-op there. Fixed/bottom-anchored surfaces subtract/pad by this so inputs
    * sit above the keyboard. See mobile-bug-log B21. */
   --kb-height: 0px;
+  /* How the on-screen keyboard moves on iOS: 0.25 s on the curve UIKit
+   * reports for it (its reverse-engineered control points). A surface that
+   * rides the keyboard's edge transitions on these, so it neither leads nor
+   * trails the keyboard. */
+  --kb-motion-duration: 250ms;
+  --kb-motion-curve: cubic-bezier(0.38, 0.7, 0.125, 1);
   /* Effective safe-area used by bottom-fixed UI primitives.
    * Overridden on native iOS because WKWebView contentInset already applies bottom insets. */
   --app-safe-area-bottom-effective: var(--app-safe-area-bottom);
@@ -1123,6 +1155,26 @@ textarea {
   --app-shell-surface-fill: var(--app-glass-surface);
   --app-shell-surface-shadow: var(--app-glass-shadow);
   --app-shell-surface-blur: 20px;
+}
+
+/* The scroll-collapsed app bar writes --top-chrome-progress and
+   --top-chrome-collapse-px per frame on the elements that read them (the top
+   shell, the top mask, registered sticky headers), not on <html>; the derived
+   heights re-resolve here so those elements follow the live value while the
+   root only receives the settled one. */
+[data-testid="app-top-shell-layout"],
+.ambient-chrome-mask--top,
+[data-top-chrome-collapse-consumer] {
+  --top-shell-live-height: calc(
+    var(--top-shell-visual-height) - var(--top-chrome-collapse-px, 0px)
+  );
+  --top-shell-mask-solid-height: calc(
+    var(--top-shell-reserved-height) - var(--top-shell-mask-tabs-gap) -
+      var(--top-chrome-collapse-px, 0px)
+  );
+  --top-shell-mask-visible-height: calc(
+    var(--top-shell-mask-solid-height) + var(--top-fade-active)
+  );
 }
 
 /* Mobile: reduce card shadow spread — device edge is the frame */
@@ -2171,7 +2223,14 @@ body:has(.profile-account-content)
   );
 }
 
-/* Chat's text composer moves down relatively with the bottom chrome navigation. */
+/* Chat's text composer rides down with the bottom navigation. The
+ * navigation stack follows the scroll progress directly, frame by frame,
+ * with no easing (kai-bottom-chrome-visibility writes the value on both
+ * elements in one pass); the composer used to reach the same value through a
+ * 140 ms eased transition that restarted on every frame, so it trailed the
+ * navigation by up to that much and the two bars read as two motions. No
+ * transition here: one value, one clock, both bars in lockstep. The keyboard
+ * lift keeps its own timing on the separate `translate` property. */
 .agent-chat-workspace[data-agent-chat-route="root"]
   [data-agent-chat-composer-form="root"] {
   transform: translate3d(
@@ -2179,7 +2238,6 @@ body:has(.profile-account-content)
     calc(var(--bottom-chrome-progress, 0) * var(--bottom-nav-travel, 0px)),
     0
   );
-  transition: transform var(--motion-duration-lg) cubic-bezier(0.16, 1, 0.3, 1);
   will-change: transform;
 }
 
@@ -2199,6 +2257,77 @@ body:has([data-agent-history-drawer-open="true"]) [data-app-scroll-root] {
 html.kb-open .agent-chat-workspace,
 html.native-keyboard-inset .agent-chat-workspace {
   --agent-chat-keyboard-inset: var(--kb-height, 0px);
+}
+
+/* A native shell keeps its WebView frame under the keyboard (Keyboard.resize
+ * "none"), so the root composer lifts itself. `--kb-height` lands once, at
+ * keyboardWillShow, already holding the keyboard's final height, while the
+ * keyboard itself is still sliding up. Padding the form by that height moved
+ * the bar to its final spot in a single layout and left the keyboard to catch
+ * up (iPhone 16e: the bar led the keyboard by its whole travel). The lift now
+ * rides the `translate` property, composited and independent of the nav-ride
+ * `transform`, on the keyboard's own duration and curve, and the padding stays
+ * at its resting value so no layout runs during the rise. The transcript keeps
+ * its keyboard clearance through --agent-chat-composer-bottom as before. */
+html.native-keyboard-inset .agent-chat-workspace[data-agent-chat-route="root"] {
+  --agent-chat-composer-lift: max(
+    0px,
+    calc(var(--kb-height, 0px) - var(--app-bottom-shell-height, 4.5rem))
+  );
+}
+
+html.native-keyboard-inset
+  .agent-chat-workspace[data-agent-chat-route="root"]
+  [data-agent-chat-composer-form="root"] {
+  padding-bottom: calc(var(--app-bottom-shell-height, 4.5rem) + 0.5rem);
+  translate: 0 calc(var(--agent-chat-composer-lift, 0px) * -1);
+  transition: translate var(--kb-motion-duration) var(--kb-motion-curve);
+}
+
+/* The web composer lifts 4 px more while focused. On native that 4 px landed
+ * as a step at the first frame of every keyboard rise and fall, on top of the
+ * lift; the keyboard trace read it. One resting value here. */
+html.native-keyboard-inset
+  .agent-chat-workspace[data-agent-chat-route="root"]
+  [data-agent-chat-composer-form="root"]:focus-within {
+  padding-bottom: calc(var(--app-bottom-shell-height, 4.5rem) + 0.5rem);
+}
+
+/* The transcript reserves the keyboard's height under its last row through
+ * --agent-chat-composer-bottom. That reservation changed in one layout at
+ * keyboardWillShow and keyboardWillHide, so the messages snapped while the
+ * composer glided (the first dismiss after a reply read as a 78 px step in
+ * the keyboard trace). It now moves on the keyboard's own clock, so the rows
+ * travel with the bar. The element is the workspace's transcript region;
+ * its accessible name is the stable hook until it carries a data attribute. */
+html.native-keyboard-inset
+  .agent-chat-workspace[data-agent-chat-route="root"]
+  [role="region"][aria-label="Agent conversation history"] {
+  transition: padding-bottom var(--kb-motion-duration) var(--kb-motion-curve);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html.native-keyboard-inset
+    .agent-chat-workspace[data-agent-chat-route="root"]
+    [role="region"][aria-label="Agent conversation history"] {
+    transition: none;
+  }
+}
+
+/* While the keyboard is up the bottom navigation is hidden, so the composer
+ * must not ride its scroll travel down over the keyboard. */
+html.native-keyboard-inset.kb-open
+  .agent-chat-workspace[data-agent-chat-route="root"]
+  [data-agent-chat-composer-form="root"] {
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html.native-keyboard-inset
+    .agent-chat-workspace[data-agent-chat-route="root"]
+    [data-agent-chat-composer-form="root"] {
+    transition: none;
+  }
 }
 
 html.native-ios .agent-chat-workspace[data-agent-chat-workspace="page"] {
@@ -2252,12 +2381,40 @@ html.kb-open [data-agent-bar-shell][data-agent-bar-layout="fixed"] {
  * a focused bottom input (e.g. Connect's people search, Share location). Hide
  * the whole bottom chrome while a real keyboard is open so the input is never
  * occluded; it returns on blur. Only active under html.kb-open (native +
- * mobile web) → byte-for-byte inert on desktop. See mobile-bug-log B21. */
-html.kb-open [data-app-bottom-shell],
-html.kb-open .ambient-chrome-mask--bottom {
+ * mobile web) → byte-for-byte inert on desktop. See mobile-bug-log B21.
+ *
+ * Hidden means out of hit-testing too. The shell's stack still rides up by
+ * --kb-height while faded, which put the navigation pill (its own
+ * `pointer-events: auto`, which the shell's `none` never reached) exactly
+ * over the lifted chat composer: an invisible nav took the taps meant for
+ * Send and the mic (the probe classed them as bottom-nav taps, bug log B45).
+ * `visibility: hidden` cannot be overridden by a child's pointer-events; it
+ * flips once the fade has run and returns at once. */
+/* Plaid Link mounts its own iframe on the page, `position: fixed; inset: 0`
+ * inline, so on the native shell (whose WebView runs under the status bar)
+ * the Link card and its close control sat under the clock and the battery
+ * (a real Chase connection on the iPhone, bug log B49). On native the frame
+ * starts below the safe area; on the web the inset is 0 and nothing moves.
+ * The selector is Plaid's own id prefix for the Link frame. */
+html.native-keyboard-inset iframe[id^="plaid-link-iframe"] {
+  top: var(--app-safe-area-top-effective, 0px) !important;
+  height: calc(100% - var(--app-safe-area-top-effective, 0px)) !important;
+}
+
+/* Mobile web only. In the native shell the stack no longer lifts with the
+ * keyboard (bug log B47), so the keyboard simply covers the navigation and
+ * there is nothing to hide; hiding it anyway cost the return: visibility
+ * flipping and two backdrop-blur layers taking their first paint in the
+ * middle of the composer's descent, which the keyboard trace showed as a
+ * 4 px step followed by a 74 px step (bug log B48). */
+html.kb-open:not(.native-keyboard-inset) [data-app-bottom-shell],
+html.kb-open:not(.native-keyboard-inset) .ambient-chrome-mask--bottom {
   opacity: 0;
+  visibility: hidden;
   pointer-events: none;
-  transition: opacity 150ms ease;
+  transition:
+    opacity 150ms ease,
+    visibility 0s linear 150ms;
 }
 
 .app-page-shell {
@@ -2827,11 +2984,39 @@ body:has([data-testid="one-location-onboarding"])
    around the perimeter. Each pool is a blurred radial blob hugging one edge;
    staggered slow drift/scale animations make the whole rim shimmer like Siri's
    glow. A mask keeps the light on the edges only, feathering into the center. */
+/* The live audio level arrives as one custom property on the glow container,
+   written from a requestAnimationFrame follower that runs only while the glow
+   is active or still settling. Layer opacity, mask depth and pool blur are all
+   derived here, so a level change costs one style recalculation on this
+   subtree and no React render. */
+.one-siri-edge-glow {
+  --one-siri-level: 0;
+  /* How far the rim reaches in from each edge, as a share of the screen. */
+  --one-siri-depth: calc(5% + var(--one-siri-level) * 3%);
+}
+
+/* Edge mask: reveal the pools only in a NARROW band at the perimeter and
+   feather quickly to transparent. Two linear masks (top/bottom + left/right)
+   unioned so all four edges show; anchored to the true edges (0%). */
+.one-siri-edge-pools {
+  opacity: calc(0.6 + var(--one-siri-level) * 0.3);
+  -webkit-mask-image:
+    linear-gradient(to bottom, #000 0%, transparent var(--one-siri-depth), transparent calc(100% - var(--one-siri-depth)), #000 100%),
+    linear-gradient(to right, #000 0%, transparent var(--one-siri-depth), transparent calc(100% - var(--one-siri-depth)), #000 100%);
+  mask-image:
+    linear-gradient(to bottom, #000 0%, transparent var(--one-siri-depth), transparent calc(100% - var(--one-siri-depth)), #000 100%),
+    linear-gradient(to right, #000 0%, transparent var(--one-siri-depth), transparent calc(100% - var(--one-siri-depth)), #000 100%);
+  -webkit-mask-composite: source-over;
+  mask-composite: add;
+}
+
 .one-siri-edge-pool {
   position: absolute;
   border-radius: 50%;
-  will-change: transform, opacity;
-  filter: blur(var(--one-siri-pool-blur, 44px));
+  /* Saturation keeps the colours vivid so even a thin rim reads as a
+     spectrum; the blur tightens slightly with energy. */
+  filter: blur(calc(30px - var(--one-siri-level) * 8px)) saturate(1.55)
+    brightness(1.15);
   mix-blend-mode: screen;
 }
 
@@ -3249,32 +3434,6 @@ body:has([data-testid="one-location-onboarding"])
    Deep quiet canvas, one breathing glow, film grain, refined type with
    springy assembled reveals, a magnetic CTA, and a gold foil brand word.
    ══════════════════════════════════════════════════════════════ */
-
-/* ── Google Stitch Gold-Mesh Pulsar ──
-   A slow, organic fluid sweep that morphs behind the glass panel.
-   Keeps the background alive with molten fluid aesthetics. */
-@keyframes gold-mesh-pulse {
-  0% {
-    transform: scale(1) translate(0px, 0px) rotate(0deg);
-    filter: blur(80px) opacity(0.5);
-  }
-  33% {
-    transform: scale(1.18) translate(25px, -35px) rotate(120deg);
-    filter: blur(95px) opacity(0.65);
-  }
-  66% {
-    transform: scale(0.85) translate(-35px, 25px) rotate(240deg);
-    filter: blur(75px) opacity(0.45);
-  }
-  100% {
-    transform: scale(1) translate(0px, 0px) rotate(360deg);
-    filter: blur(80px) opacity(0.5);
-  }
-}
-
-.glow-mesh-active {
-  animation: gold-mesh-pulse 20s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate;
-}
 
 /* ── Interactive Web-Tap Ripple ──
    On-click ripple that fans outwards as an organic halo. */
@@ -4372,11 +4531,13 @@ body:has([data-testid="one-location-onboarding"])
   backdrop-filter: blur(6px);
 }
 
-/* Apply GPU promotion to all glass elements automatically */
-[class*="backdrop-blur"] {
-  transform: translate3d(0, 0, 0);
-  will-change: transform;
-}
+/* No blanket layer promotion for glass. A previous rule matched every
+   `[class*="backdrop-blur"]` and pinned it with translate3d + will-change,
+   which held 170 compositor layers (all 27 glass button variants included)
+   for the life of the page on WKWebView. backdrop-filter already creates a
+   stacking context and a containing block, so nothing below needs the
+   transform; a surface that measurably flickers on iOS gets `translateZ(0)`
+   on its own rule, never here. */
 
 /* iOS WKWebView: mirror backdrop-blur-xl for WebKit */
 [class*="backdrop-blur-xl"] {
@@ -4448,7 +4609,6 @@ md-ripple.morphy-md-ripple {
   --ambient-chrome-fade-mask-trace: 0.12;
   -webkit-backdrop-filter: var(--ambient-chrome-backdrop-filter);
   backdrop-filter: var(--ambient-chrome-backdrop-filter);
-  will-change: background-color, backdrop-filter;
 }
 
 html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
@@ -4957,7 +5117,7 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
    surface. */
 @media (prefers-reduced-motion: reduce) {
   [data-bottom-shell-motion-stack] {
-    transform: translate3d(0, calc(var(--kb-height, 0px) * -1), 0) !important;
+    transform: none !important;
   }
 
   [data-bottom-shell-motion-stack],

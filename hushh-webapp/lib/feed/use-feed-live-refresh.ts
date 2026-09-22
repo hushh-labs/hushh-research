@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useId, useRef } from "react";
+
+import { markPeriodicTaskRan, registerPeriodicTask } from "@/lib/perf/idle-scheduler";
 
 import {
   FEED_STATE_CHANGED_EVENT,
@@ -44,33 +46,30 @@ export function useFeedLiveRefresh(
   useEffect(() => {
     refreshRef.current = refresh;
   }, [refresh]);
+  const taskId = `feed-live:${useId()}`;
 
   useEffect(() => {
     if (!enabled || typeof window === "undefined") return;
 
+    // The timer lives on the shared idle clock: every Feed surface's 45 s
+    // re-check runs in the same wake, after a frame, never while hidden. A
+    // re-check the hook triggers itself (mount, focus, an event) tells the
+    // clock so the next scheduled one is a full interval away.
     const run = () => {
       if (document.visibilityState !== "visible") return;
+      markPeriodicTaskRan(taskId);
       refreshRef.current();
     };
-
-    let timer: number | null = null;
-    const startPolling = () => {
-      if (timer !== null) return;
-      timer = window.setInterval(run, FEED_LIVE_POLL_INTERVAL_MS);
-    };
-    const stopPolling = () => {
-      if (timer === null) return;
-      window.clearInterval(timer);
-      timer = null;
-    };
+    const unregister = registerPeriodicTask({
+      id: taskId,
+      intervalMs: FEED_LIVE_POLL_INTERVAL_MS,
+      run: () => {
+        refreshRef.current();
+      },
+    });
 
     const onVisibilityChange = () => {
-      if (document.visibilityState === "visible") {
-        run();
-        startPolling();
-      } else {
-        stopPolling();
-      }
+      if (document.visibilityState === "visible") run();
     };
 
     // Refresh ON MOUNT, not only 45 seconds after it.
@@ -83,7 +82,6 @@ export function useFeedLiveRefresh(
     // precisely to see what just happened.
     if (document.visibilityState === "visible") {
       run();
-      startPolling();
     }
 
     document.addEventListener("visibilitychange", onVisibilityChange);
@@ -99,10 +97,10 @@ export function useFeedLiveRefresh(
     window.addEventListener(FEED_STATE_CHANGED_EVENT, onFeedStateChanged);
 
     return () => {
-      stopPolling();
+      unregister();
       document.removeEventListener("visibilitychange", onVisibilityChange);
       window.removeEventListener("focus", run);
       window.removeEventListener(FEED_STATE_CHANGED_EVENT, onFeedStateChanged);
     };
-  }, [enabled]);
+  }, [enabled, taskId]);
 }

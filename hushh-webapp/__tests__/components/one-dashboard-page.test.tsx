@@ -71,26 +71,24 @@ describe("OneDashboardPage", () => {
     );
   });
 
-  it("breaks down the setup tile subtitle by connected, dismissed, and remaining", () => {
-    render(
+  it("does not put a setup progress tile above the roster", () => {
+    // Founder directive 2026-09-22: /one is the agent roster and nothing
+    // else. The optional capabilities keep their own setup steps; the
+    // dashboard no longer carries a checklist for them.
+    const { container } = render(
       <OneDashboardPage
         displayName="Parth"
-        userId="dashboard-subtitle-user"
+        userId="dashboard-no-tile-user"
         capabilityStatusById={buildStatusMap({
           gmail: { state: "completed" },
-          calendar: { state: "completed" },
           ria: { state: "skipped" },
           finance: { state: "not-started" },
-          email: { state: "not-started" },
-          location: { state: "not-started" },
         })}
       />,
     );
 
-    const tile = screen.getByTestId("one-setup-progress-tile");
-    expect(tile.textContent).toContain(
-      "Mail, Calendar connected · Advisor dismissed · 3 left to decide",
-    );
+    expect(screen.queryByTestId("one-setup-progress-tile")).toBeNull();
+    expect(container.textContent).not.toContain("Finish setting up One");
   });
 
   it("renders the primary One agent modes with route targets", () => {

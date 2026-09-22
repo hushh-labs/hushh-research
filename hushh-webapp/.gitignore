@@ -21,6 +21,7 @@
 
 # next.js
 /.next/
+/.next-*/
 /.next-prod/
 /.next-native-uat/
 /out/

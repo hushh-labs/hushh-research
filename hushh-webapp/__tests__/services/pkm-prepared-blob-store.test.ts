@@ -1,16 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const encryptDataMock = vi.fn();
+const transport = vi.hoisted(() => ({ native: false, nativeStore: vi.fn() }));
 
 vi.mock("@capacitor/core", () => ({
   Capacitor: {
-    isNativePlatform: () => false,
+    isNativePlatform: () => transport.native,
   },
   registerPlugin: vi.fn(() => ({})),
 }));
 
 vi.mock("@/lib/capacitor", () => ({
-  HushhPersonalKnowledgeModel: {},
+  HushhPersonalKnowledgeModel: { storeDomainData: transport.nativeStore },
   HushhVault: {
     encryptData: (...args: unknown[]) => encryptDataMock(...args),
   },
@@ -25,6 +26,7 @@ vi.mock("@/lib/firebase/config", () => ({
 
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { ApiService } from "@/lib/services/api-service";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 
 function stringify(value: unknown): string {
   return JSON.stringify(value);
@@ -33,11 +35,71 @@ function stringify(value: unknown): string {
 describe("PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    transport.native = false;
+    transport.nativeStore.mockReset();
     encryptDataMock.mockResolvedValue({
       ciphertext: "ciphertext-1",
       iv: "iv-1",
       tag: "tag-1",
     });
+  });
+
+  it.each([false, true])("blocks final dispatch if the session changes during encryption (native=%s)", async (native) => {
+    transport.native = native;
+    let canceled = false;
+    vi.spyOn(PersonalKnowledgeModelService, "getDomainManifest").mockResolvedValue(null);
+    const api = vi.spyOn(ApiService, "apiFetch");
+    encryptDataMock.mockImplementation(async () => {
+      canceled = true;
+      return { ciphertext: "ciphertext", iv: "iv", tag: "tag", algorithm: "aes-256-gcm" };
+    });
+    await expect(PersonalKnowledgeModelService.storePreparedDomainWithPreparedBlob({
+      userId: "owner-fixture", vaultKey: "vault-key-fixture", vaultOwnerToken: "owner-token-fixture",
+      domain: "food", domainData: { preference: "tea" }, baseFullBlob: {}, summary: {},
+      beforeEffect: async () => { if (canceled) throw new DOMException("Canceled", "AbortError"); },
+    })).rejects.toMatchObject({ name: "AbortError" });
+    expect(api).not.toHaveBeenCalled();
+    expect(transport.nativeStore).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])("preserves a confirmed receipt without republishing after session change (native=%s)", async (native) => {
+    transport.native = native;
+    let current = true;
+    vi.spyOn(PersonalKnowledgeModelService, "getDomainManifest").mockResolvedValue(null);
+    const cache = vi.spyOn(CacheSyncService, "onPkmDomainStored").mockImplementation(() => {});
+    const fullBlobCache = vi.spyOn(PersonalKnowledgeModelService, "cacheDecryptedBlob").mockImplementation(() => {});
+    if (native) transport.nativeStore.mockImplementation(async () => {
+      current = false;
+      return { success: true, dataVersion: 2 };
+    });
+    else vi.spyOn(ApiService, "apiFetch").mockImplementation(async (_path, options) => {
+      await options?.beforeDispatch?.();
+      current = false;
+      return new Response(JSON.stringify({ success: true, data_version: 2 }));
+    });
+    const result = await PersonalKnowledgeModelService.storePreparedDomainWithPreparedBlob({
+      userId: "owner-fixture", vaultKey: "vault-key-fixture", vaultOwnerToken: "owner-token-fixture",
+      domain: "food", domainData: { preference: "tea" }, baseFullBlob: {}, summary: {},
+      beforeEffect: async () => { if (!current) throw new DOMException("Canceled", "AbortError"); },
+      mayPublish: () => current,
+    });
+    expect(result.success).toBe(true);
+    expect(result.dataVersion).toBe(2);
+    expect(cache).not.toHaveBeenCalled();
+    expect(fullBlobCache).not.toHaveBeenCalled();
+  });
+
+  it("checks native effect authority synchronously after an async guard yields", async () => {
+    transport.native = true;
+    let current = true;
+    await expect(PersonalKnowledgeModelService.storeDomainData({
+      userId: "owner-fixture", domain: "food", summary: {},
+      encryptedBlob: { ciphertext: "ciphertext", iv: "iv", tag: "tag", algorithm: "aes-256-gcm" },
+      vaultOwnerToken: "owner-token-fixture",
+      beforeEffect: async () => { queueMicrotask(() => { current = false; }); },
+      mayPublish: () => current,
+    })).rejects.toMatchObject({ name: "AbortError" });
+    expect(transport.nativeStore).not.toHaveBeenCalled();
   });
 
   it("stores merged domain from prepared blob without loading blob again", async () => {

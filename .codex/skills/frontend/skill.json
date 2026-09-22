@@ -29,7 +29,8 @@
     "docs/reference/quality/design-system.md",
     "hushh-webapp/components/README.md",
     "hushh-webapp/lib/services/README.md",
-    ".codex/skills/frontend/references/browser-ux-runtime.md"
+    ".codex/skills/frontend/references/browser-ux-runtime.md",
+    "docs/reference/mobile/render-performance-charter.md"
   ],
   "required_commands": [
     "cd hushh-webapp && npm run verify:docs",

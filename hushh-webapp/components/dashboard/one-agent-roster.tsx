@@ -3,7 +3,6 @@
 import Link from "next/link";
 import {
   type CSSProperties,
-  type ReactNode,
   useEffect,
   useMemo,
   useState,
@@ -745,13 +744,10 @@ const SHOW_AGENT_SEARCH = false;
 export function OneAgentRoster({
   capabilityStatusById,
   userId,
-  progressSlot,
 }: {
   capabilityStatusById: Record<string, CapabilityStatus>;
   userId?: string | null;
   displayName?: string | null;
-  /** Rendered below the header/search area, above the agent grid -- the dashboard's setup-progress tile. */
-  progressSlot?: ReactNode;
 }) {
   const cachedMetrics = useCachedAgentMetrics(userId);
   const setupDismissed = Boolean(
@@ -842,7 +838,6 @@ export function OneAgentRoster({
           />
         </label>
       ) : null}
-      {progressSlot ? <div className="mb-3.5">{progressSlot}</div> : null}
       <div
         key={view}
         data-testid="one-agents-view-content"

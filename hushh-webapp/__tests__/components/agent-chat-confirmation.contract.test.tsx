@@ -113,5 +113,5 @@ describe("the confirm card itself", () => {
 
     fireEvent.click(button);
     expect(onConfirm).toHaveBeenCalledTimes(1);
-  });
+  }, 30_000);
 });

@@ -20,14 +20,34 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import pytest
+
 import hushh_mcp.services.connections_service as connections_service_module
 import hushh_mcp.services.one_location_agent_service as agent_service_module
 import hushh_mcp.services.one_location_circle_service as circle_service_module
 from hushh_mcp.services.people_search_sql import (
     PEOPLE_MATCH_RANK_SQL,
     PEOPLE_SINGLE_CHAR_NARROW_SQL,
+    directory_name_rank,
     people_query_match_params,
 )
+
+
+@pytest.mark.parametrize(
+    "name,query,rank",
+    [
+        ("Kushal Trivedi", "  KUSHAL   trivedi ", 0),
+        ("Kushal-Trivedi", "kushal trivedi", 0),
+        ("Kushal Trivedi", "kushal tri", 1),
+        ("Dr Kushal Trivedi", "kush tri", 2),
+        ("Alice Trivedi", "kushal trivedi", None),
+        ("Kushal Smith", "kushal trivedi", None),
+        ("Neelesh Meena", "n", 1),
+        ("Ankit Kumar Singh", "n", None),
+    ],
+)
+def test_directory_matching_requires_every_name_token(name, query, rank):
+    assert directory_name_rank(name, query) == rank
 
 
 def _rank_patterns(query: str) -> tuple[re.Pattern[str], re.Pattern[str]]:

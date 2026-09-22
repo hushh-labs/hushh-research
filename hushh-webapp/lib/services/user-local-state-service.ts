@@ -9,6 +9,7 @@ import { FinanceSetupDraftService } from "@/lib/services/finance-setup-draft-ser
 import { KycIdentityProfileDraftService } from "@/lib/services/kyc-identity-profile-pkm-service";
 import { RiaOnboardingDraftLocalService } from "@/lib/services/ria-onboarding-draft-local-service";
 import { VaultMethodPromptLocalService } from "@/lib/services/vault-method-prompt-local-service";
+import { VaultQuickUnlockTrustLocalService } from "@/lib/services/vault-quick-unlock-trust-local-service";
 
 /**
  * Centralized cleanup for user-scoped local state.
@@ -39,6 +40,7 @@ export class UserLocalStateService {
       KaiNavTourLocalService.clear(userId),
       RiaOnboardingDraftLocalService.clear(userId),
       VaultMethodPromptLocalService.clear(userId),
+      VaultQuickUnlockTrustLocalService.clear(userId),
     ];
 
     const results = await Promise.allSettled(tasks);

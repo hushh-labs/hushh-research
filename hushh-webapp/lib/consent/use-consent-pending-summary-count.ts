@@ -16,6 +16,7 @@ import {
   type ConsentCenterPageSummary,
 } from "@/lib/services/consent-center-service";
 import { CACHE_KEYS } from "@/lib/services/cache-service";
+import { useRootChatDeferredReady } from "@/lib/navigation/use-root-chat-deferred-ready";
 
 /**
  * Returns `null` until the current persona's summary has resolved. Consumers
@@ -26,6 +27,7 @@ export function useConsentPendingSummaryCount(): number | null {
   const { user } = useAuth();
   const pathname = usePathname();
   const { activePersona } = usePersonaState();
+  const rootChatReady = useRootChatDeferredReady();
   const actor: ConsentCenterActor | undefined =
     pathname?.startsWith("/ria") && activePersona === "ria" ? "ria" : undefined;
   const mode = "consents";
@@ -59,7 +61,7 @@ export function useConsentPendingSummaryCount(): number | null {
   const summaryResource = useStaleResource({
     cacheKey,
     refreshKey: `${scope}:${mode}:${mutationTick}`,
-    enabled: Boolean(user?.uid),
+    enabled: Boolean(user?.uid) && rootChatReady,
     load: async () => {
       const idToken = await user?.getIdToken();
       if (!user?.uid || !idToken) {

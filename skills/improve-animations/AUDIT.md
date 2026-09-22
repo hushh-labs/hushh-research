@@ -90,6 +90,34 @@ Hunt for: `@keyframes` on toasts/toggles/rapidly-triggered UI, gesture handlers 
 
 Hunt for: `transition: all`, animated layout properties, Framer Motion shorthand props on busy pages, `setProperty('--x', …)` driving child transforms, rAF loops doing what CSS could.
 
+**JavaScript engines (what a CSS scan cannot see).** On WKWebView these
+cost every frame in the app, not just the animated element. Hunt for:
+
+- `documentElement.style.setProperty("--…")` from a scroll, pointer or
+  `requestAnimationFrame` handler: a document-wide style invalidation per
+  write. The fix is to write on the element that consumes the value
+  (`lib/navigation/top-shell-tab-swipe-progress.ts` is the pattern).
+- `new MutationObserver(...).observe(document.body, { subtree: true })`: it
+  wakes on every streamed token and marker move. Check whether the engine's
+  output is even consumed before rewriting it; the ambient chrome tint wrote
+  four variables sixty times a second that nothing read.
+- `addEventListener("touchmove", …, { passive: false })` on `window` or
+  `document`: WebKit then waits for the main thread on every scroll frame.
+- `setState` from an audio-level, scroll-progress or streaming-token
+  callback: a React render per frame. Move the value to a CSS variable
+  written from the loop or to a leaf `useSyncExternalStore` store.
+- `[class*="…"] { will-change }` and any unconditional `will-change` on a
+  `fixed` overlay: held compositor layers.
+- Recharts series without `isAnimationActive`: 1500ms of SVG interpolation
+  per data change.
+- `read → write → read` of layout inside one scroll handler
+  (`getBoundingClientRect` after `style.setProperty`): a forced reflow.
+
+`cd hushh-webapp && npm run verify:render-performance` finds all of these
+statically; `?perf=1` (web) or `-CapacitorStorage.hushh_perf_probe 1` (iOS
+launch argument) measures them. Bar and instruments:
+`docs/reference/mobile/render-performance-charter.md`.
+
 ## 6. Accessibility
 
 ```css

@@ -132,6 +132,8 @@ import {
   GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
   writeCachedRendererConsentAccepted,
 } from "@/lib/one-location/map-renderer-consent";
+import { registerPeriodicTask } from "@/lib/perf/idle-scheduler";
+import { useCoarseClock } from "@/lib/perf/use-periodic-task";
 
 const MAP_ID = "one-location-private-map";
 
@@ -611,11 +613,9 @@ export function LocationImmersiveMap({
   // has to go grey while nothing at all is happening. The marker refresh alone
   // would never notice, because a phone that stopped publishing sends nothing
   // to notice.
-  const [staleClockMs, setStaleClockMs] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = window.setInterval(() => setStaleClockMs(Date.now()), 15_000);
-    return () => window.clearInterval(timer);
-  }, []);
+  // One shared 15 s clock for every consumer of a coarse "now" (lib/perf),
+  // instead of a private interval that re-rendered this component alone.
+  const staleClockMs = useCoarseClock(15_000);
   const [selfMarker, setSelfMarker] = useState<RenderMarker | null>(null);
   /**
    * What the renderer is currently showing, so the HTML name pills can be put
@@ -1275,14 +1275,20 @@ export function LocationImmersiveMap({
     void refresh();
     if (demoMode) return;
     void refreshShareCount();
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") void refresh();
-    }, 5_000);
-    // The outgoing-share count changes far less often than live positions, so
-    // poll it on a much slower cadence than the 5s marker refresh.
-    const shareCountTimer = window.setInterval(() => {
-      if (document.visibilityState === "visible") void refreshShareCount();
-    }, 30_000);
+    // Both polls ride the shared idle clock: one wake, after a frame, never
+    // while hidden (lib/perf/idle-scheduler.ts). The outgoing-share count
+    // changes far less often than live positions, so it keeps the slower
+    // cadence.
+    const unregisterRefresh = registerPeriodicTask({
+      id: "location-map:markers",
+      intervalMs: 5_000,
+      run: () => refresh(),
+    });
+    const unregisterShareCount = registerPeriodicTask({
+      id: "location-map:share-count",
+      intervalMs: 30_000,
+      run: () => refreshShareCount(),
+    });
     // Returning to the app is exactly when the map is most wrong, and the
     // interval only ever checked visibility on its own schedule -- so coming
     // back showed a position up to five seconds stale before anything moved.
@@ -1304,8 +1310,8 @@ export function LocationImmersiveMap({
       });
     }
     return () => {
-      window.clearInterval(timer);
-      window.clearInterval(shareCountTimer);
+      unregisterRefresh();
+      unregisterShareCount();
       document.removeEventListener("visibilitychange", onVisibility);
       void appListener?.remove();
     };

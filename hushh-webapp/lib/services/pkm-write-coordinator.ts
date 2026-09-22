@@ -5,6 +5,7 @@ import type {
 } from "@/lib/personal-knowledge-model/manifest";
 import {
   buildConfirmedPkmMutationPlanV2,
+  isAutomaticPkmWriteAuthorization,
   type PkmMutationOperation,
   type PkmUserConfirmation,
   type PkmWriteAuthorization,
@@ -36,7 +37,10 @@ export type PkmWriteCoordinatorSaveState =
   | "upgraded_and_saved"
   | "retrying_after_conflict"
   | "blocked_pending_unlock"
+  | "blocked_pending_upgrade"
   | "failed";
+
+class PkmAutomaticUpgradeRequired extends Error {}
 
 type BaseContext = {
   currentDomainData: Record<string, unknown>;
@@ -144,6 +148,12 @@ function emptyResult(
  * a `failed` result they can retry, instead of an uncaught rejection.
  */
 function pkmWriteFailureResult(error: unknown): PkmWriteCoordinatorResult {
+  if (error instanceof PkmAutomaticUpgradeRequired) {
+    return emptyResult("blocked_pending_upgrade", "Open Memory to update it before saving this detail.");
+  }
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return emptyResult("blocked_pending_unlock", "Memory saving stopped because the session changed.");
+  }
   const rawMessage = error instanceof Error ? error.message : String(error || "");
   if (rawMessage.includes("PKM_SHARING_IMPACT_CHANGED")) {
     console.warn("[PkmWriteCoordinator] Sharing impact changed during confirmation.");
@@ -152,7 +162,7 @@ function pkmWriteFailureResult(error: unknown): PkmWriteCoordinatorResult {
       "Sharing changed while you were reviewing this detail. Review the current recipients and confirm again."
     );
   }
-  console.error("[PkmWriteCoordinator] PKM write failed:", error);
+  console.error("[PkmWriteCoordinator] PKM write failed.");
   return emptyResult(
     "failed",
     "We couldn't save this to your vault. Try again, or make sure your vault is set up.",
@@ -196,18 +206,20 @@ async function ensureWritableVersion(params: {
   domain: string;
   vaultKey: string;
   vaultOwnerToken: string;
+  allowImplicitUpgrade?: boolean;
 }): Promise<{ upgraded: boolean }> {
   const [metadata, manifest] = await Promise.all([
     PersonalKnowledgeModelService.getMetadata(
       params.userId,
       true,
-      params.vaultOwnerToken
-    ).catch(() => null),
+      params.vaultOwnerToken,
+      { allowStaleFallback: params.allowImplicitUpgrade !== false },
+    ).catch((error) => { if (params.allowImplicitUpgrade === false) throw error; return null; }),
     PersonalKnowledgeModelService.getDomainManifest(
       params.userId,
       params.domain,
       params.vaultOwnerToken
-    ).catch(() => null),
+    ).catch((error) => { if (params.allowImplicitUpgrade === false) throw error; return null; }),
   ]);
 
   if (metadata?.upgradeStatus === "client_update_required") {
@@ -246,6 +258,10 @@ async function ensureWritableVersion(params: {
   if (!needsUpgrade) {
     return { upgraded: false };
   }
+
+  // Background capture must not start/resume an independent upgrade with
+  // captured credentials. The owner can use the governed upgrade surface.
+  if (params.allowImplicitUpgrade === false) throw new PkmAutomaticUpgradeRequired();
 
   await PkmUpgradeOrchestrator.ensureRunning({
     userId: params.userId,
@@ -395,6 +411,8 @@ export class PkmWriteCoordinator {
     vaultKey?: string | null;
     vaultOwnerToken?: string | null;
     confirmation: PkmWriteAuthorization;
+    beforeEffect?: () => Promise<void>;
+    mayPublish?: () => boolean;
     build: (context: BaseContext) => Promise<PreparedWritePlan> | PreparedWritePlan;
   }): Promise<PkmWriteCoordinatorResult> {
     if (!params.vaultKey || !params.vaultOwnerToken) {
@@ -406,15 +424,19 @@ export class PkmWriteCoordinator {
 
     try {
       for (let attempt = 0; attempt <= MAX_CONFLICT_RETRIES; attempt += 1) {
+        await params.beforeEffect?.();
         if (!upgradedInSession) {
           const upgrade = await ensureWritableVersion({
             userId: params.userId,
             domain: params.domain,
             vaultKey: params.vaultKey,
             vaultOwnerToken: params.vaultOwnerToken,
+            allowImplicitUpgrade: !isAutomaticPkmWriteAuthorization(params.confirmation),
           });
           upgradedInSession = upgrade.upgraded;
         }
+
+        await params.beforeEffect?.();
 
         const context = await buildWriteContext({
           userId: params.userId,
@@ -424,7 +446,9 @@ export class PkmWriteCoordinator {
           attempt,
           upgradedInSession,
         });
+        await params.beforeEffect?.();
         const plan = await params.build(context);
+        await params.beforeEffect?.();
         const mergeMode = String(plan.mergeDecision?.merge_mode || "").trim().toLowerCase();
         const operation = mergeMode === "delete_entity"
           ? "delete"
@@ -441,6 +465,7 @@ export class PkmWriteCoordinator {
           operation,
           confidence: Number(plan.structureDecision?.confidence ?? 1),
           explanation: String(plan.structureDecision?.explanation || "").trim() || undefined,
+          scopePath: plan.scopePath,
           sourceRevision: context.currentEncryptedDomain?.dataVersion,
           confirmation: params.confirmation,
         });
@@ -468,6 +493,8 @@ export class PkmWriteCoordinator {
           syncCheckpoint,
           mutationPlan,
           cacheFullBlob: false,
+          beforeEffect: params.beforeEffect,
+          mayPublish: params.mayPublish,
         });
         const resultCheckpoint = {
           ...syncCheckpoint,

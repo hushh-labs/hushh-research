@@ -34,10 +34,56 @@ function financialDomain(tickers: string[]): Record<string, unknown> {
   };
 }
 
+function analysisHistoryDomain(tickers: string[]): Record<string, unknown> {
+  return {
+    analysis_history: {
+      ...Object.fromEntries(
+        tickers.map((ticker) => [
+          ticker,
+          [
+            {
+              ticker,
+              decision: "hold",
+              confidence: 0.8,
+              final_statement: `Synthetic ${ticker} history`,
+            },
+          ],
+        ]),
+      ),
+      domain_intent: {
+        primary: "financial",
+        secondary: "analysis_history",
+      },
+    },
+  };
+}
+
 const TEN = Array.from({ length: 10 }, (_, index) => `T${index}`);
 const TWO_HUNDRED = Array.from({ length: 200 }, (_, index) => `T${index}`);
 
 describe("manifest entity-map collapse", () => {
+  it("excludes private entity entries and refuses leaves that became containers", () => {
+    expect(projectDomainDataForScope({
+      domain: "professional", scope: "attr.professional.work.*",
+      domainData: { work: { entities: {
+        public: { summary: "Synthetic" },
+        _private: { summary: "Hidden" },
+        changed: { summary: { secret: "Not a reviewed leaf" } },
+      } } },
+      approvedPaths: ["work.entities._entities.summary"],
+    })).toEqual({ professional: { work: { entities: { public: { summary: "Synthetic" } } } } });
+  });
+
+  it("keeps array fields attached to their original item when siblings are absent", () => {
+    const projected = projectDomainDataForScope({
+      domain: "professional",
+      scope: "attr.professional.projects.*",
+      domainData: { projects: [{ title: "Synthetic first" }, { status: "Synthetic second" }] },
+      approvedPaths: ["projects._items.title", "projects._items.status"],
+    });
+    expect(projected).toEqual({ professional: { projects: [{ title: "Synthetic first" }, { status: "Synthetic second" }] } });
+  });
+
   it("does not grow the path list as entities are added", () => {
     const small = buildPersonalKnowledgeModelStructureArtifacts({
       domain: "financial",
@@ -96,6 +142,36 @@ describe("manifest entity-map collapse", () => {
     // The manifest no longer enumerates entities, but a collapsed path still
     // has to resolve every entity behind it and say which one each value
     // belongs to -- otherwise the shared projection loses its subject.
+    const serialized = JSON.stringify(projected);
+    expect(serialized).toContain("AAPL");
+    expect(serialized).toContain("MSFT");
+  });
+
+  it("collapses Financial analysis history by ticker without hiding metadata", () => {
+    const small = buildPersonalKnowledgeModelStructureArtifacts({
+      domain: "financial",
+      domainData: analysisHistoryDomain(["AAPL"]),
+    });
+    const large = buildPersonalKnowledgeModelStructureArtifacts({
+      domain: "financial",
+      domainData: analysisHistoryDomain(["AAPL", "MSFT", "NVDA"]),
+    });
+
+    expect(large.structureDecision.json_paths).toEqual(
+      small.structureDecision.json_paths,
+    );
+    expect(large.structureDecision.json_paths).toContain(
+      "analysis_history._entities._items.final_statement",
+    );
+    expect(large.structureDecision.json_paths).toContain("analysis_history.domain_intent.primary");
+    expect(large.structureDecision.json_paths.join(" ")).not.toMatch(/AAPL|MSFT|NVDA/);
+
+    const projected = projectDomainDataForScope({
+      domain: "financial",
+      scope: "attr.financial.*",
+      domainData: analysisHistoryDomain(["AAPL", "MSFT"]),
+      approvedPaths: large.structureDecision.externalizable_paths,
+    });
     const serialized = JSON.stringify(projected);
     expect(serialized).toContain("AAPL");
     expect(serialized).toContain("MSFT");

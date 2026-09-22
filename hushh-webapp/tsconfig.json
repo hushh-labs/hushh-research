@@ -46,7 +46,11 @@
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts",
     ".next\\dev/types/**/*.ts",
-    ".next\\dev/types/**/*.ts"
+    ".next\\dev/types/**/*.ts",
+    ".next-adk-dev/types/**/*.ts",
+    ".next-adk-dev/dev/types/**/*.ts",
+    ".next-native-uat/types/**/*.ts",
+    ".next-native-uat/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

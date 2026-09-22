@@ -185,8 +185,8 @@ function SentimentGauge({ score }: { score: number }) {
           <div className="flex-1 bg-emerald-500/20" />
         </div>
         <div
-          className={cn("absolute top-0 h-full w-2.5 rounded-full transition-[left] duration-500", score > 0.3 ? "bg-emerald-500" : score < -0.3 ? "bg-red-500" : "bg-blue-500")}
-          style={{ left: `calc(${normalized}% - 5px)` }}
+          className={cn("absolute top-0 left-0 h-full w-2.5 rounded-full transition-transform duration-500", score > 0.3 ? "bg-emerald-500" : score < -0.3 ? "bg-red-500" : "bg-blue-500")}
+          style={{ transform: `translateX(calc(${normalized}% - 5px))` }}
         />
       </div>
       <div className="flex justify-between text-[10px] text-muted-foreground">
