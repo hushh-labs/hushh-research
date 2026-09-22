@@ -215,7 +215,12 @@ describe("One Location — the Ask for location trail agrees with the screen", (
     );
     // …and the hub row that opens it names the same thing.
     expect(HUB_SOURCE).toContain(`title="${last}"`);
-    expect(HUB_SOURCE).not.toContain('title="Request Location"');
+    // The selected-recipient rail is an action label, not a competing screen
+    // title. Product copy calls this read-back "Request Location" while the
+    // breadcrumb, page heading, and hub entry remain "Ask for location".
+    expect(HUB_SOURCE).toMatch(
+      /<SelectedRecipientsRail\s+title="Request Location"/,
+    );
   });
 });
 
