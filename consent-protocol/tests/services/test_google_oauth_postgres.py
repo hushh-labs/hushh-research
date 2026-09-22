@@ -141,21 +141,60 @@ async def test_native_success_consumes_once_and_publishes_both_rows(pg_service):
 
 
 @pytest.mark.asyncio
-async def test_web_completion_uses_the_original_bound_pkce_verifier(pg_service, monkeypatch):
+@pytest.mark.parametrize("google_service", ["calendar", "drive"])
+async def test_web_completion_uses_the_original_bound_pkce_verifier(
+    pg_service, monkeypatch, google_service
+):
     service, _ = pg_service
     redirect = "https://app.example.test/one/profile/google/oauth/return"
     monkeypatch.setattr(service, "_redirect_uri", lambda supplied: redirect)
     started = await service.start(
-        user_id=OWNER, service="calendar", access_level="read", redirect_uri=None, login_hint=None
+        user_id=OWNER,
+        service=google_service,
+        access_level="read",
+        redirect_uri=None,
+        login_hint=None,
     )
     query = parse_qs(urlparse(started["authorize_url"]).query)
     outcome = await service.complete(
         user_id=OWNER, code="synthetic-web", state=query["state"][0], redirect_uri=redirect
     )
     assert outcome["connected"]
+    assert outcome["service"] == google_service
     exchanged = service._post_form.await_args.args[1]
     assert service._pkce_challenge(exchanged["code_verifier"]) == query["code_challenge"][0]
     assert exchanged["redirect_uri"] == redirect
+
+
+@pytest.mark.asyncio
+async def test_wrong_service_consumes_attempt_without_exchanging_credentials(
+    pg_service, monkeypatch
+):
+    service, _ = pg_service
+    monkeypatch.setattr(service, "_redirect_uri", lambda supplied: "https://example.test/callback")
+    started = await service.start(
+        user_id=OWNER, service="drive", access_level="read", redirect_uri=None, login_hint=None
+    )
+    state = parse_qs(urlparse(started["authorize_url"]).query)["state"][0]
+    with pytest.raises(GoogleConnectionError) as wrong_service:
+        await service.complete(
+            user_id=OWNER,
+            code="synthetic-code",
+            state=state,
+            redirect_uri=None,
+            expected_service="calendar",
+        )
+    assert wrong_service.value.status_code == 409
+    with pytest.raises(GoogleConnectionError) as consumed:
+        await service.complete(
+            user_id=OWNER,
+            code="synthetic-code",
+            state=state,
+            redirect_uri=None,
+            expected_service="drive",
+        )
+    assert consumed.value.status_code == 400
+    service._post_form.assert_not_awaited()
 
 
 @pytest.mark.asyncio

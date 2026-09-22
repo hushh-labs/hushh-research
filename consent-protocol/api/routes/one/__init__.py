@@ -11,11 +11,13 @@ from .calendar import router as calendar_router
 from .capability_runtime import router as capability_runtime_router
 from .command_proposals import router as command_proposals_router
 from .connections import router as connections_router
+from .drive import router as drive_router
 from .email import router as email_router
 from .email_chat import router as email_chat_router
 from .feed import router as feed_router
 from .gmail_delivery import router as gmail_delivery_router
 from .gmail_information_requests import router as gmail_information_requests_router
+from .google import router as google_router
 from .information_chat import router as information_chat_router
 from .information_requests import router as information_requests_router
 from .insurance_agents import router as insurance_agents_router
@@ -42,12 +44,14 @@ router.include_router(advisors_router)
 router.include_router(agent_chat_router)
 router.include_router(connections_router)
 router.include_router(calendar_router)
+router.include_router(drive_router)
 router.include_router(capability_runtime_router)
 router.include_router(command_proposals_router)
 router.include_router(email_router)
 router.include_router(email_chat_router)
 router.include_router(gmail_delivery_router)
 router.include_router(gmail_information_requests_router)
+router.include_router(google_router)
 router.include_router(feed_router)
 router.include_router(models_router)
 router.include_router(agent_feedback_router)

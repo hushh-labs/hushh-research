@@ -131,8 +131,12 @@ The source-level Drive MCP adapter uses this same credential owner and a
 `drive.readonly` service grant. Because Google tokens may accumulate permissions,
 the adapter additionally admits only six explicitly named read tools at Google's
 fixed MCP endpoint. Copy/create and unknown tools fail before credential retrieval
-or dispatch. This adapter is not yet exposed through a Chat tool or a complete
-native connection flow; its presence does not establish end-to-end availability.
+or dispatch. Owner-authenticated Drive connection routes use this existing
+credential owner, forbid broader permissions, and expose no file access.
+Shared web completion returns the service from the stored attempt, not browser
+metadata; wrong-service callbacks require a restart. This adapter is not yet
+exposed through a Chat tool or a complete browser/native connection flow;
+its presence does not establish end-to-end availability.
 Onward sharing and private-agent delegation still require their existing separate
 authorities. Provider file content is untrusted information, not instructions.
 

@@ -621,9 +621,21 @@ class GoogleConnectionService:
             raise GoogleConnectionError("Restart the Google connection.", status_code=409) from None
 
     async def complete(
-        self, *, user_id: str, code: str, state: str, redirect_uri: str | None
+        self,
+        *,
+        user_id: str,
+        code: str,
+        state: str,
+        redirect_uri: str | None,
+        expected_service: GoogleService | None = None,
     ) -> dict[str, Any]:
         attempt_id, attempt = await self._consume_oauth_attempt(user_id=user_id, state=state)
+        raw_service = _clean(attempt["service"])
+        if raw_service not in _SERVICE_SCOPES:
+            raise GoogleConnectionError("Unsupported Google service", status_code=400)
+        service = cast(GoogleService, raw_service)
+        if expected_service is not None and attempt.get("service") != expected_service:
+            raise GoogleConnectionError("Restart the Google connection.", status_code=409)
         if redirect_uri and not hmac.compare_digest(
             _clean(redirect_uri), _clean(attempt["redirect_uri"])
         ):
@@ -640,15 +652,11 @@ class GoogleConnectionService:
                 "code_verifier": context["verifier"],
             },
         )
-        raw_service = _clean(attempt["service"])
-        if raw_service not in _SERVICE_SCOPES:
-            raise GoogleConnectionError("Unsupported Google service", status_code=400)
-        service = cast(GoogleService, raw_service)
         requested_scopes = tuple(_clean(attempt["requested_scope_csv"]).split())
         oauth_started_at = attempt.get("created_at")
         if not isinstance(oauth_started_at, datetime):
             oauth_started_at = _now()
-        return await self._store_authorized_connection(
+        status = await self._store_authorized_connection(
             user_id=user_id,
             token=token,
             service=service,
@@ -657,6 +665,9 @@ class GoogleConnectionService:
             attempt_id=attempt_id,
             expected_generation=context["generation"],
         )
+        # Browser metadata chooses presentation only. The consumed attempt is
+        # the authority for which service was actually connected.
+        return {**status, "service": service}
 
     async def start_native(
         self,

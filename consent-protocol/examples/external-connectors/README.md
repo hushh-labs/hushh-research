@@ -31,8 +31,10 @@ provider. It pins the official endpoint and rejects tools outside its explicit
 read set. The descriptor above remains a public-catalog inspection example: do
 not activate it as a generic OAuth row alongside the Google connection.
 
-Current integration gaps: Chat invocation authority, browser/native Drive
-connection entrypoints and authenticated read acceptance remain open. Google
+Read-only Drive connection-management APIs and a shared Google callback API now
+use this same credential owner. They expose no private file reads. Current
+integration gaps: Chat invocation authority, browser/native Drive connection UI
+and authenticated read acceptance remain open. Google
 callback publication now has generation fencing and atomic local transactions;
 its provider-side revoke/reauthorization ordering remains unverified. Generic
 external OAuth also lacks the full refresh/native lifecycle and is not a

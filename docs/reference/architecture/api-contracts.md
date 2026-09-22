@@ -332,12 +332,23 @@ an opaque `state`, which completion must echo. It remains memory-only on the
 client; missing/legacy state requires restarting the connection, with no unfenced
 fallback. Deploy matching native/web assets with the backend. Real provider
 revocation/reauthorization ordering is not proven by local transaction tests.
-The internal Drive MCP adapter now admits an explicit read-only tool set through
-that same credential owner; no public Drive route or Chat/native completion is
-implied by this source-level adapter.
+The internal Drive MCP adapter admits an explicit read-only tool set through
+that same credential owner. Drive connection-management routes exist, but do not
+expose private file reads, agent dispatch or onward sharing. Their browser/native
+UI integration and authenticated end-to-end acceptance remain separate work.
+The shared callback returns `service` from the consumed server-side attempt;
+clients must not infer completion from an already-connected service after a timeout.
+Calendar's completion endpoint remains a compatibility facade over that same owner.
 
 | Method | Path                                  | Authorization      | Description                                                                                                         |
 | ------ | ------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| POST | `/api/one/google/connect/complete` | Firebase Bearer | Complete the owner-bound Google attempt; return connection status and authoritative service. No caller-supplied service is accepted. |
+| POST | `/api/one/drive/connect/start` | Firebase Bearer | Start read-only Drive authorization using the existing configured Google callback and PKCE. |
+| POST | `/api/one/drive/connect/complete` | Firebase Bearer | Complete only a Drive attempt; wrong-service attempts are consumed and rejected before provider exchange. |
+| POST | `/api/one/drive/connect/native/start` | Firebase Bearer | Create an owner-bound read-only Drive attempt and return public client settings plus opaque state. |
+| POST | `/api/one/drive/connect/native/complete` | Firebase Bearer | Exchange a native Drive code only with its owner-bound state; broader permissions are rejected. |
+| GET | `/api/one/drive/status/{user_id}` | Firebase Bearer | Read only the authenticated owner's connection status, never files. |
+| POST | `/api/one/drive/disconnect` | Firebase Bearer | Disable Drive locally without disabling sibling Google service grants. |
 | POST   | `/api/one/calendar/connect/start`     | Firebase Bearer    | Start incremental Google Calendar read or manage authorization; returns only an OAuth authorization URL and expiry. |
 | POST   | `/api/one/calendar/connect/complete`  | Firebase Bearer    | Redeem a one-time, PKCE-bound OAuth callback and persist the encrypted provider credential and Calendar grant.      |
 | POST   | `/api/one/calendar/connect/native/start` | Firebase Bearer | Create an owner-bound, generation-fenced native attempt; return public client settings and opaque state. |

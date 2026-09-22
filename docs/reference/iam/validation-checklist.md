@@ -100,6 +100,10 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
   endpoint, and reject copy/create and unknown tools even when the cumulative
   Google token has broader privileges. Chat/native authenticated read acceptance
   remains separate from these source-level checks.
+- Drive connection routes require authenticated owner matching and read-only
+  permissions; native completion requires bound state. Shared browser completion
+  derives service from its consumed attempt. Wrong-service completion consumes
+  the attempt without provider exchange; unexpected diagnostics are sanitized.
 
 1. No private data leakage in public surfaces.
 2. Audit records include actor/scope/duration metadata.
