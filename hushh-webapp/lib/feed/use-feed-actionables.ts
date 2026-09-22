@@ -49,7 +49,7 @@ import {
 } from "@/lib/consent/consent-events";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
-import { documentShareSelectionId } from "@/lib/consent/document-share-consent";
+import { documentShareSelectionId, isDocumentShareEntry } from "@/lib/consent/document-share-consent";
 import { resolveConsentRequesterLabel } from "@/lib/consent/consent-display";
 import {
   isLocationConsent,
@@ -543,6 +543,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
         // the real one). The connections lane owns them: it carries the inline
         // Confirm/Decline and the scoped Review route.
         if (entry.kind === "connection_request") continue;
+        if (entry.kind === "outgoing_request" || (isDocumentShareEntry(entry) && entry.metadata?.direction !== "incoming")) continue;
         items.push({
           id: `consent:${entry.id}`,
           icon: ShieldCheck,

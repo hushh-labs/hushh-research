@@ -252,6 +252,97 @@ def test_request_uses_fresh_verified_google_identity_not_drive_connection(setup,
     verifier.assert_called_once_with("synthetic-firebase", app=marker, check_revoked=False)
 
 
+def test_request_resolves_public_reference_without_accepting_identity_from_client(
+    setup, monkeypatch
+):
+    client, app, service, current = setup
+    unlock(app)
+    google_identity(monkeypatch, app)
+    target = str(uuid4())
+    resolve = Mock(return_value=("resolved-owner", {"status": "connected"}))
+    monkeypatch.setattr(
+        routes, "PersonProfileService", lambda: SimpleNamespace(get_relationship_target=resolve)
+    )
+    body = {**create_body(), "ownerPersonRef": target}
+    del body["ownerUserId"]
+    response = client.post(BASE, json=body, headers={"Authorization": "Bearer synthetic-firebase"})
+    assert response.status_code == 202
+    resolve.assert_called_once_with(viewer_user_id="recipient", public_person_ref=target)
+    assert service.create.await_args.kwargs["owner_user_id"] == "resolved-owner"
+    assert "resolved-owner" not in response.text
+    assert current.await_count >= 3
+
+
+@pytest.mark.parametrize(
+    "targets",
+    [
+        {},
+        {"ownerUserId": "owner", "ownerPersonRef": str(uuid4())},
+        {"ownerPersonRef": "private-invalid-value"},
+    ],
+)
+def test_request_requires_exactly_one_valid_owner_target(setup, monkeypatch, targets):
+    client, app, service, _ = setup
+    unlock(app)
+    google_identity(monkeypatch, app)
+    body = create_body()
+    del body["ownerUserId"]
+    response = client.post(
+        BASE, json={**body, **targets}, headers={"Authorization": "Bearer synthetic-firebase"}
+    )
+    assert response.status_code == 422
+    assert "private-invalid-value" not in response.text
+    service.create.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [routes.PersonProfileNotFoundError("missing"), TimeoutError("private-provider-error")],
+)
+def test_owner_reference_failure_is_redacted_and_does_not_mutate(setup, monkeypatch, failure):
+    client, app, service, _ = setup
+    unlock(app)
+    google_identity(monkeypatch, app)
+    monkeypatch.setattr(
+        routes,
+        "PersonProfileService",
+        lambda: SimpleNamespace(get_relationship_target=Mock(side_effect=failure)),
+    )
+    body = create_body()
+    del body["ownerUserId"]
+    response = client.post(
+        BASE,
+        json={**body, "ownerPersonRef": str(uuid4())},
+        headers={"Authorization": "Bearer synthetic-firebase"},
+    )
+    assert response.status_code in (404, 503)
+    assert "private-provider-error" not in response.text
+    service.create.assert_not_called()
+
+
+def test_owner_lock_during_reference_lookup_prevents_create(setup, monkeypatch):
+    client, app, service, current = setup
+    unlock(app)
+    google_identity(monkeypatch, app)
+
+    def resolve(**kwargs):
+        current.side_effect = HTTPException(401, "Owner locked")
+        return "resolved-owner", {"status": "connected"}
+
+    monkeypatch.setattr(
+        routes, "PersonProfileService", lambda: SimpleNamespace(get_relationship_target=resolve)
+    )
+    body = create_body()
+    del body["ownerUserId"]
+    response = client.post(
+        BASE,
+        json={**body, "ownerPersonRef": str(uuid4())},
+        headers={"Authorization": "Bearer synthetic-firebase"},
+    )
+    assert response.status_code == 401
+    service.create.assert_not_called()
+
+
 def test_crossed_firebase_and_vault_owners_fail_before_provider_lookup(setup, monkeypatch):
     client, app, service, _ = setup
     unlock(app)

@@ -1075,7 +1075,7 @@ tokens, subjects and endpoints are not returned. Mutations derive owner/generati
 
 | Method / suffix | Authority and result |
 | --- | --- |
-| `POST /requests` | B's recent verified Google Firebase identity must match B's Vault Owner; an active A/B connection is required. Accepts an opaque client request ID, A's ID and purpose/period. B need not connect Drive. |
+| `POST /requests` | B's recent verified Google Firebase identity must match B's Vault Owner; an active A/B connection is required. Accepts an opaque client request ID, exactly one of `ownerUserId` or `ownerPersonRef`, and purpose/period. Public person references resolve server-side; no internal UID is exposed in the profile. B need not connect Drive. |
 | `GET /requests` | Participant-scoped incoming/outgoing metadata, bounded pagination; never private candidates. |
 | `GET /requests/{id}` | Participant-only generic status and server-derived `direction`. Preparation and private review remain pending to B; a deep link never grants owner review authority. |
 | `GET /requests/{id}/review` | A-only current private review; exact documents, coverage, recipient and review digest. |
@@ -1109,6 +1109,16 @@ remain discoverable when execution is disabled. The generic PKM decision handler
 voice controls exclude these rows. Only the private, vault-guarded review can submit exact
 approval/removal terms; status refresh never executes a decision. Those details remain in
 component memory and are dropped on lock/owner change, not stored in the consent cache.
+
+`GET /api/consent/center/list?surface=pending&request_view=sent` adds B's pending document
+requests to the existing Consent Center Requests pane. Its metadata-only page/count is
+separate from Received and Needs You; the default summary still counts incoming requests
+only. Sent remains discoverable after disconnect or a feature pause. The UI uses
+`requestView=sent`, not the legacy RIA route. Connected person profiles offer a default-off
+request form with same-current-user Google reauthentication and independent Firebase/Vault
+headers. An unchanged in-memory retry reuses its client request ID; lock clears the draft.
+Web reauthentication is implemented; native reauthentication remains unavailable pending
+the additive bridge. No Google consent or grant is inferred from a submitted request.
 
 Migration 234 separates A's minimal removal receipts from B's removable private request.
 Account reset/erasure removes request narratives, reviews, B's app identity and raw ACL snapshots;

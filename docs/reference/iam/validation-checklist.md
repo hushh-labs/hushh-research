@@ -158,6 +158,12 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
    remain distinct from unrelated permissions and are observed through bounded refreshes.
 6. Missing pre-rollout tables do not break unrelated consent surfaces; real SQL failures
    are errors, not authoritative empty counts. Recorded access survives execution disablement.
+7. B's requester form reauthenticates the current Google-linked Firebase user, never signs
+   into a substitute account. Owner/epoch changes suppress late submission. Unchanged
+   uncertain retries reuse the request key and never claim an earlier request was unsent.
+8. Public owner references resolve server-side and the domain rechecks the relationship
+   under locks. B's Sent documents projection is separate from A's pending/Needs You count;
+   it reveals no private matches and remains available when creation is disabled.
 
 ## Ecosystem Checks
 

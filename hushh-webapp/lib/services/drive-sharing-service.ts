@@ -7,6 +7,32 @@ export type SharingStatus = {
   revision: number;
   direction: "incoming" | "outgoing";
 };
+export type DocumentRequestDraft = {
+  ownerPersonRef: string;
+  clientRequestId: string;
+  purpose: {
+    purpose: string;
+    periodStart: string | null;
+    periodEnd: string | null;
+  };
+};
+
+export function validDocumentRequestPeriod(
+  start: string | null,
+  end: string | null,
+): boolean {
+  if (start === null || end === null) return start === null && end === null;
+  const validDate = (value: string) => {
+    const parsed = new Date(`${value}T00:00:00Z`);
+    return (
+      /^\d{4}-\d{2}-\d{2}$/.test(value) &&
+      !value.startsWith("0000") &&
+      Number.isFinite(parsed.getTime()) &&
+      parsed.toISOString().slice(0, 10) === value
+    );
+  };
+  return validDate(start) && validDate(end) && end >= start;
+}
 export type SharingReview = {
   revision: number;
   status: string;
@@ -100,15 +126,16 @@ function date(value: unknown): string {
 export class DriveSharingService {
   private static async request(
     token: string,
-    requestId: string,
+    requestId: string | null,
     guard: SharingSessionGuard,
     action = "",
     body?: object,
+    firebaseToken?: string,
   ): Promise<RecordValue> {
-    id(requestId);
+    if (requestId !== null) id(requestId);
     guard();
     const response = await ApiService.apiFetch(
-      `/api/connectors/google_drive/sharing/requests/${requestId}${action}`,
+      `/api/connectors/google_drive/sharing/requests${requestId === null ? "" : `/${requestId}${action}`}`,
       {
         isEffectCurrent: () => {
           guard();
@@ -117,7 +144,12 @@ export class DriveSharingService {
         method: body === undefined ? "GET" : "POST",
         cache: "no-store",
         headers: {
-          ...ApiService.getAuthHeaders(token),
+          ...(firebaseToken
+            ? {
+                Authorization: `Bearer ${firebaseToken}`,
+                "X-Hushh-Consent": token,
+              }
+            : ApiService.getAuthHeaders(token)),
           "Content-Type": "application/json",
         },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -147,6 +179,39 @@ export class DriveSharingService {
       throw new DriveSharingError(code, response.status);
     }
     return payload;
+  }
+
+  static async create(
+    token: string,
+    firebaseToken: string,
+    draft: DocumentRequestDraft,
+    guard: SharingSessionGuard,
+  ) {
+    id(draft.ownerPersonRef);
+    id(draft.clientRequestId);
+    if (
+      !firebaseToken ||
+      !draft.purpose.purpose.trim() ||
+      draft.purpose.purpose.length > 2000 ||
+      !validDocumentRequestPeriod(
+        draft.purpose.periodStart,
+        draft.purpose.periodEnd,
+      )
+    )
+      throw new DriveSharingError("invalid_argument");
+    const result = await this.request(
+      token,
+      null,
+      guard,
+      "",
+      draft,
+      firebaseToken,
+    );
+    return {
+      requestId: id(result.requestId),
+      status: string(result.status, 80),
+      revision: revision(result.revision),
+    };
   }
 
   static async status(

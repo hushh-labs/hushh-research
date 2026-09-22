@@ -1642,6 +1642,7 @@ export function ConsentCenterPage() {
   const explicitView = searchParams.get("view");
   const riaOutgoingCompatibilityRoute =
     explicitActor === "ria" && explicitView === "outgoing";
+  const sentDocumentRequests = !riaOutgoingCompatibilityRoute && searchParams.get("requestView") === "sent";
   const actor: ConsentCenterActor = riaOutgoingCompatibilityRoute
     ? "ria"
     : "investor";
@@ -1727,7 +1728,7 @@ export function ConsentCenterPage() {
   const listCacheKey = user?.uid
     ? CACHE_KEYS.CONSENT_CENTER_LIST(
         user.uid,
-        `${consentScopeKey}:${mode}`,
+        `${consentScopeKey}:${mode}${tab === "requests" && sentDocumentRequests ? ":sent" : ""}`,
         listSurface,
         deferredQuery,
         page,
@@ -2103,14 +2104,14 @@ export function ConsentCenterPage() {
     cacheKey: user?.uid
       ? CACHE_KEYS.CONSENT_CENTER_LIST(
           user.uid,
-          `${consentScopeKey}:${mode}`,
+          `${consentScopeKey}:${mode}${sentDocumentRequests ? ":sent" : ""}`,
           "pending",
           deferredQuery,
           pendingPage,
           CONSENT_CENTER_PAGE_SIZE,
         )
       : "consent_center_list_guest_pending",
-    refreshKey: `${consentScopeKey}:${mode}:pending:${deferredQuery}:${pendingPage}`,
+    refreshKey: `${consentScopeKey}:${mode}:pending:${sentDocumentRequests ? "sent" : "received"}:${deferredQuery}:${pendingPage}`,
     enabled: Boolean(user?.uid) && visitedSurfaces.has("requests"),
     retainOnInvalidate: true,
     load: async (options) => {
@@ -2124,6 +2125,7 @@ export function ConsentCenterPage() {
         actor: apiActor,
         mode,
         surface: "pending",
+        requestView: sentDocumentRequests ? "sent" : "received",
         q: deferredQuery,
         page: pendingPage,
         limit: CONSENT_CENTER_PAGE_SIZE,
@@ -2583,6 +2585,7 @@ export function ConsentCenterPage() {
 
   useEffect(() => {
     if (tab === "connections" || !listResource) return;
+    if (tab === "requests" && sentDocumentRequests) return;
     if (deferredQuery) return;
     if (listResource.loading || listResource.refreshing) return;
     if (!summaryData || !listData) return;
@@ -2609,6 +2612,7 @@ export function ConsentCenterPage() {
     listSurface,
     mutationTick,
     summaryData,
+    sentDocumentRequests,
     tab,
   ]);
   const consentVoiceSurfaceMetadata = useMemo(() => {
@@ -2833,7 +2837,7 @@ export function ConsentCenterPage() {
   const emptyListMessage = deferredQuery
     ? `No ${tab === "active" ? "active access" : tab} matches “${deferredQuery}”.`
     : tab === "requests"
-      ? "No requests need your review."
+      ? sentDocumentRequests ? "No document requests are waiting for a response." : "No requests need your review."
       : tab === "active"
         ? "No one currently has active access."
         : tab === "history"
@@ -2986,6 +2990,11 @@ export function ConsentCenterPage() {
                     viewportMinHeight="fill"
                     heightMode="active"
                   >
+                    <div>
+                    {!riaOutgoingCompatibilityRoute ? <div role="group" aria-label="Request direction" className="mb-3 flex flex-wrap gap-2">
+                      <Button size="standard" variant="none" aria-pressed={!sentDocumentRequests} onClick={() => setParam({ requestView: null, page: null, requestId: null, selected: null, bundleId: null })}>Received</Button>
+                      <Button size="standard" variant="none" aria-pressed={sentDocumentRequests} onClick={() => setParam({ requestView: "sent", page: null, requestId: null, selected: null, bundleId: null })}>Sent documents</Button>
+                    </div> : null}
                     <ConsentSurfaceListSection
                       loading={pendingResource.loading}
                       emptyMessage={
@@ -3001,6 +3010,7 @@ export function ConsentCenterPage() {
                       }
                       pagination={pendingPagination}
                     />
+                    </div>
                     <ConsentSurfaceListSection
                       loading={activeResource.loading}
                       emptyMessage={

@@ -94,6 +94,35 @@ async def test_metadata_only_previews_counts_and_filtered_pages(sharing, monkeyp
     legacy = await service.get_center("owner", actor="investor")
     assert len(legacy["incoming_requests"]) == 50
     assert legacy["summary"]["incoming_requests"] == 61
+    # B can rediscover every pending request after reload, without a Drive
+    # credential, document key, feature admission or A's private suggestions.
+    seen = []
+    for page_number in range(1, 5):
+        sent = await service.list_center(
+            "recipient",
+            actor="investor",
+            surface="pending",
+            request_view="sent",
+            page=page_number,
+            limit=20,
+        )
+        assert sent["total"] == 61 and sent["request_view"] == "sent"
+        seen.extend(sent["items"])
+    assert len({item["id"] for item in seen}) == 61
+    assert all(
+        item["metadata"]["direction"] == "outgoing" and item["scope"] is None for item in seen
+    )
+    assert (
+        await service.list_center(
+            "stranger", actor="investor", surface="pending", request_view="sent"
+        )
+    )["total"] == 0
+    assert (
+        await service.list_center("owner", actor="investor", surface="pending", request_view="sent")
+    )["total"] == 0
+    assert (await service.list_center("recipient", actor="investor", surface="pending"))[
+        "total"
+    ] == 0
 
 
 @pytest.mark.asyncio

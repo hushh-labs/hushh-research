@@ -1924,6 +1924,7 @@ class ConsentCenterService:
         top: int | None = None,
         page: int = 1,
         limit: int = 20,
+        request_view: str = "received",
     ) -> dict[str, Any]:
         normalized_actor = "ria" if actor == "ria" else "investor"
         normalized_surface = surface if surface in {"pending", "active", "previous"} else "pending"
@@ -1931,6 +1932,33 @@ class ConsentCenterService:
         safe_top = max(1, min(int(top), 10)) if top is not None else None
         safe_limit = safe_top or max(1, min(limit, 100))
         safe_page = 1 if safe_top is not None else max(1, page)
+
+        if (
+            request_view == "sent"
+            and normalized_actor == "investor"
+            and normalized_mode == "consents"
+            and normalized_surface == "pending"
+        ):
+            # B's requests remain rediscoverable, including after disconnect or
+            # a rollout pause. They never enter A's Needs You / approval count.
+            paged = await self._paginate_with_drive(
+                [],
+                user_id=user_id,
+                surface="sent",
+                page=safe_page,
+                limit=safe_limit,
+                query=query,
+            )
+            return {
+                "user_id": user_id,
+                "actor": normalized_actor,
+                "surface": normalized_surface,
+                "mode": normalized_mode,
+                "request_view": "sent",
+                "query": query or "",
+                **paged,
+                "drive_projection_available": bool(getattr(self, "_drive_schema_available", False)),
+            }
 
         if normalized_mode == "connections":
             entries = await self._load_connection_entries_for_actor(

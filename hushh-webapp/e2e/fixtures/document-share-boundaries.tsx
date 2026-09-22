@@ -1,6 +1,7 @@
 // Only authentication and transport boundaries are synthetic. The production
 // review, session epoch, API decoding and decision payloads remain unchanged.
 import { useSyncExternalStore } from "react";
+import type { AnchorHTMLAttributes } from "react";
 import { advanceVaultSessionEpoch } from "../../lib/vault/session-epoch";
 let unlocked = true;
 const listeners = new Set<() => void>();
@@ -40,3 +41,21 @@ export const ApiService = {
     return fetch(path, options);
   },
 };
+
+// Popup identity is synthetic here; Firebase's same-user semantics have their
+// own unit tests and live consent remains a separate acceptance requirement.
+export const AuthService = {
+  reauthenticateGoogleIdentity: async (
+    _uid: string,
+    current: () => boolean,
+  ) => {
+    if (!current()) throw new Error("session_changed");
+    return "synthetic-firebase-proof";
+  },
+};
+export const CacheSyncService = { onConsentMutated: (_userId: string) => {} };
+export default function FixtureLink(
+  props: AnchorHTMLAttributes<HTMLAnchorElement>,
+) {
+  return <a {...props} />;
+}

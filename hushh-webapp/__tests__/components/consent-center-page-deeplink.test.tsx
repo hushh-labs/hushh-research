@@ -388,6 +388,21 @@ describe("ConsentCenterPage requestId deep links", () => {
     expect(screen.queryByTestId("private-document-review")).toBeNull();
   });
 
+  it("rediscovers sent requests in their own projection and preserves that view when closing detail", async () => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    mocks.search = `tab=pending&requestView=sent&requestId=document_share_request%3A${id}`;
+    render(<ConsentCenterPage />);
+    await waitFor(() => expect(mocks.listEntries).toHaveBeenCalledWith(expect.objectContaining({ surface: "pending", requestView: "sent" })));
+    expect(mocks.lookupPendingRequests).not.toHaveBeenCalled();
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    await waitFor(() => expect(mocks.replace).toHaveBeenCalled());
+    expect(await screen.findByRole("button", { name: "Sent documents" })).toHaveAttribute("aria-pressed", "true");
+    expect(mocks.replace.mock.lastCall?.[0]).toContain("requestView=sent");
+    expect(mocks.replace.mock.lastCall?.[0]).not.toContain("requestId=");
+    fireEvent.click(screen.getByRole("button", { name: "Received" }));
+    expect(mocks.replace.mock.lastCall?.[0]).not.toContain("requestView=sent");
+  });
+
   it("keeps Northstar's material decision terms once without duplicate controls", async () => {
     mocks.search = "tab=requests&requestId=northstar-scope-upgrade";
     mocks.listEntries.mockResolvedValue(

@@ -132,8 +132,15 @@ parsing, embeddings and document access control remain outside Google AI service
   recorded outcomes. Vault generation checks run at dispatch and between every chained read;
   a successful mutation followed by a failed refresh still reconciles the generic feed.
   Private details stay in component memory. Missing pre-rollout tables preserve ordinary
-  consents without hiding real SQL failures. This does not implement B's request composer,
-  notification delivery, native recovery or authenticated Google acceptance.
+  consents without hiding real SQL failures. This does not prove notification delivery,
+  native recovery or authenticated Google acceptance.
+- Request-creation web checkpoint: connected profiles provide purpose/period entry, fresh
+  same-current-user Google verification and separate Firebase/Vault headers. Public person
+  references resolve server-side; B needs no Drive connection. Memory-only unchanged retries
+  reuse their request ID, dismissal/navigation is disabled during submission, and cancellation
+  does not falsely deny an earlier uncertain submission. Sent documents in the existing
+  Consent Center uses separate bounded counts/pages; no new inbox or incoming approval count.
+  Native identity verification remains explicitly unavailable until its bridge is implemented.
 
 Latest integrated local evidence (2026-09-23): 543 focused backend tests passed, including
 real disposable PostgreSQL concurrency and synthetic Google/Firebase boundaries; 110 web
@@ -148,7 +155,12 @@ including the corrected specialist/identity assertions. The subsequent Consent C
 checkpoint passed 110 focused backend checks, 61 web tests and eight mounted Chromium/WebKit
 contracts at 320/390/768/1440px. These checks use synthetic provider boundaries and do not
 prove native Drive feature completion.
-Request creation UI/notification delivery, native recovery, deployed worker isolation/configuration
+The subsequent requester checkpoint passed 45 backend tests (including real PostgreSQL
+61-row pagination/isolation with execution disabled), 144 focused web tests and 16 mounted
+Chromium/WebKit cases across the same four widths. Bandit static-fragment false positives
+are narrowly annotated; all caller values remain parameter-bound. Typecheck, changed-file
+lint and canonical Mypy passed. These checks are synthetic at the Firebase/Google boundary.
+Notification delivery, native recovery, deployed worker isolation/configuration
 and authenticated A/B acceptance remain required before exposing this domain.
 
 Focused automated coverage includes a disposable socket-only PostgreSQL cluster (or the

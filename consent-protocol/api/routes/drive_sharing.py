@@ -10,7 +10,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.routing import APIRoute
 from firebase_admin import auth as firebase_auth
-from pydantic import BaseModel, ConfigDict, Field, StrictBool
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 
 from api.middleware import require_firebase_auth_read_only, require_vault_owner_token
 from api.utils.firebase_admin import get_firebase_auth_app
@@ -21,6 +21,10 @@ from hushh_mcp.services.drive_sharing_contract import (
 )
 from hushh_mcp.services.drive_sharing_service import DriveSharingService
 from hushh_mcp.services.google_drive_adapter import DriveReadError
+from hushh_mcp.services.person_profile_service import (
+    PersonProfileNotFoundError,
+    PersonProfileService,
+)
 
 NO_STORE = {"Cache-Control": "private, no-store", "Pragma": "no-cache"}
 
@@ -122,9 +126,16 @@ class StrictRequest(BaseModel):
 
 
 class CreateRequest(StrictRequest):
-    ownerUserId: str = Field(min_length=1, max_length=128)
+    ownerUserId: str | None = Field(default=None, min_length=1, max_length=128)
+    ownerPersonRef: UUID | None = None
     clientRequestId: UUID
     purpose: ShareRequestPurpose
+
+    @model_validator(mode="after")
+    def one_owner_target(self):
+        if (self.ownerUserId is None) == (self.ownerPersonRef is None):
+            raise ValueError("Specify one owner target.")
+        return self
 
 
 class DecisionRequest(StrictRequest):
@@ -199,11 +210,27 @@ async def _call(method, *, owner, **kwargs):
 async def create_request(
     body: CreateRequest, recipient=Depends(_recipient), owner: Owner = Depends(_owner)
 ):
+    owner_user_id = body.ownerUserId
+    if body.ownerPersonRef is not None:
+        await owner.require_current()
+        try:
+            async with asyncio.timeout(6):
+                owner_user_id, _ = await asyncio.to_thread(
+                    PersonProfileService().get_relationship_target,
+                    viewer_user_id=owner.user_id,
+                    public_person_ref=str(body.ownerPersonRef),
+                )
+        except PersonProfileNotFoundError:
+            raise _error(DriveSharingError("request_unavailable")) from None
+        except Exception:
+            raise _error(DriveSharingError("identity_verification_unavailable")) from None
+        # The domain store separately rechecks the active A/B relationship
+        # under locks. A public profile reference is never sharing authority.
     return await _call(
         "create",
         owner=owner,
         recipient=recipient,
-        owner_user_id=body.ownerUserId,
+        owner_user_id=owner_user_id,
         client_request_id=str(body.clientRequestId),
         purpose=body.purpose,
     )

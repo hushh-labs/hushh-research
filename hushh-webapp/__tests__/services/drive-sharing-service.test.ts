@@ -9,6 +9,7 @@ vi.mock("@/lib/services/api-service", () => ({
 import {
   DriveSharingService,
   DriveSharingError,
+  validDocumentRequestPeriod,
 } from "@/lib/services/drive-sharing-service";
 import {
   documentShareRequestId,
@@ -45,6 +46,67 @@ const reply = (payload: unknown, status = 200) =>
 
 describe("private sharing transport", () => {
   beforeEach(() => vi.resetAllMocks());
+  it("creates a request with separate Firebase identity and vault authority, without a Drive token", async () => {
+    fetcher.mockResolvedValueOnce(
+      reply({ requestId, status: "pending", revision: 0 }, 202),
+    );
+    const draft = {
+      ownerPersonRef: documentId,
+      clientRequestId: requestId,
+      purpose: { purpose: "Statements", periodStart: null, periodEnd: null },
+    };
+    await expect(
+      DriveSharingService.create("vault", "firebase", draft, guard),
+    ).resolves.toEqual({ requestId, status: "pending", revision: 0 });
+    const [url, options] = fetcher.mock.calls[0];
+    expect(url).toBe("/api/connectors/google_drive/sharing/requests");
+    expect(options).toMatchObject({
+      method: "POST",
+      cache: "no-store",
+      headers: { Authorization: "Bearer firebase", "X-Hushh-Consent": "vault" },
+    });
+    expect(JSON.parse(options.body)).toEqual(draft);
+    expect(options.isEffectCurrent()).toBe(true);
+  });
+  it.each([
+    [null, null, true],
+    ["2026-01-01", "2026-06-30", true],
+    ["2024-02-29", "2024-02-29", true],
+    ["2026-02-29", "2026-03-01", false],
+    ["2026-01-01", null, false],
+    [null, "2026-06-30", false],
+    ["2026-06-30", "2026-01-01", false],
+    ["2026-1-1", "2026-06-30", false],
+    ["0000-01-01", "2026-06-30", false],
+  ])("validates the complete calendar period %s/%s", (start, end, expected) => {
+    expect(validDocumentRequestPeriod(start, end)).toBe(expected);
+  });
+  it("rejects invalid request purposes before dispatch and late creation results after locking", async () => {
+    const draft = {
+      ownerPersonRef: documentId,
+      clientRequestId: requestId,
+      purpose: { purpose: " ", periodStart: null, periodEnd: null },
+    };
+    await expect(
+      DriveSharingService.create("vault", "firebase", draft, guard),
+    ).rejects.toMatchObject({ code: "invalid_argument" });
+    expect(fetcher).not.toHaveBeenCalled();
+    let current = true;
+    fetcher.mockImplementationOnce(async () => {
+      current = false;
+      return reply({ requestId, status: "pending", revision: 0 });
+    });
+    await expect(
+      DriveSharingService.create(
+        "vault",
+        "firebase",
+        { ...draft, purpose: { ...draft.purpose, purpose: "Statements" } },
+        () => {
+          if (!current) throw new DriveSharingError("session_changed");
+        },
+      ),
+    ).rejects.toMatchObject({ code: "session_changed" });
+  });
   it("posts the exact reviewed set, digest and revision without caching", async () => {
     fetcher
       .mockResolvedValueOnce(reply(rawReview()))

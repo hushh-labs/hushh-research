@@ -12,7 +12,12 @@ from hushh_mcp.services.external_connector_lifecycle_store import ExternalConnec
 
 REQUEST_SOURCE = "drive_document_share_request"
 BUCKETS = ("incoming_requests", "outgoing_requests", "active_grants", "history")
-SURFACES = {"pending": "incoming_requests", "active": "active_grants", "previous": "history"}
+SURFACES = {
+    "pending": "incoming_requests",
+    "sent": "outgoing_requests",
+    "active": "active_grants",
+    "previous": "history",
+}
 
 # Only participant identifiers and operation state are read. In particular, no
 # request/review/plan/receipt envelope participates in search or classification.
@@ -118,7 +123,8 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
             if not self._installed(connection):
                 return {**dict.fromkeys(BUCKETS, 0), "schema_available": False}
             rows = connection.execute(
-                text(_PROJECTION + "SELECT bucket,count(*) AS total FROM filtered GROUP BY bucket"),
+                # Both SQL fragments are static; every value is bound below.
+                text(_PROJECTION + "SELECT bucket,count(*) AS total FROM filtered GROUP BY bucket"),  # nosec B608
                 {"user": user_id, "query": "", "bucket": ""},
             ).mappings()
             return {
@@ -141,7 +147,8 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
             rows = list(
                 connection.execute(
                     text(
-                        _PROJECTION
+                        # Both SQL fragments are static; every value is bound below.
+                        _PROJECTION  # nosec B608
                         + """
                         SELECT totals.total,page.* FROM (SELECT count(*) AS total FROM filtered) totals
                         LEFT JOIN LATERAL (
@@ -179,7 +186,8 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
                 }
             rows = connection.execute(
                 text(
-                    _PROJECTION
+                    # Both SQL fragments are static; every value is bound below.
+                    _PROJECTION  # nosec B608
                     + """
                     , ranked AS (
                       SELECT *,count(*) OVER (PARTITION BY bucket) AS total,
