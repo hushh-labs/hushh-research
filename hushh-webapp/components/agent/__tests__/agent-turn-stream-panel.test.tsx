@@ -233,6 +233,7 @@ describe("AgentTurnStreamPanel", () => {
         structuredExperience={{
           type: "one.scope_discovery.v1",
           person: {
+            personRef: "1234567890abcdef",
             displayName: "Alex Morgan",
             profilePath: "/people/1234567890abcdef",
             relationship: "connected",
