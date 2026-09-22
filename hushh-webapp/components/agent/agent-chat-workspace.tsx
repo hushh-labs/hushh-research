@@ -91,8 +91,6 @@ import {
   type SpecialistPendingConsentRequestItem,
 } from "@/components/agent/specialist-directive-card";
 import { copyTextToClipboard } from "@/components/agent/chat-markdown-link";
-import { AgentConnectAccessCard } from "@/components/agent/agent-connect-access-card";
-import { AgentGmailNudgeCard } from "@/components/agent/agent-gmail-nudge-card";
 import { AgentMarkdown } from "@/components/agent/agent-markdown";
 import { SelectionChip } from "@/components/agent/selection-chip";
 import { PuppyOneSurface } from "@/components/agent/puppy-one-surface";
@@ -232,9 +230,6 @@ import type {
 import { KycIdentityProfilePkmService } from "@/lib/services/kyc-identity-profile-pkm-service";
 import { prepareScopedGmailInformationRequestDraft } from "@/lib/services/gmail-information-request-draft-service";
 import { GmailInformationRequestsService } from "@/lib/services/gmail-information-requests-service";
-import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
-import { useGmailNudges } from "@/lib/gmail/use-gmail-nudges";
-import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
 
 type AgentMessage = {
   id: string;
@@ -1930,44 +1925,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     vaultOwnerToken &&
     tokenIsFresh,
   );
-  // Proactive Gmail connect/nudge cards: page-variant only (the popover
-  // shouldn't repeat a full "connect Gmail" pitch every time it's opened
-  // elsewhere in the app), and gated the same way the rest of the chat's
-  // vault-backed features are.
-  const gmailIdTokenProvider = useCallback(
-    () => (user?.getIdToken ? user.getIdToken() : Promise.resolve("")),
-    [user],
-  );
-  const gmailConnectorStatus = useGmailConnectorStatus({
-    userId: user?.uid || null,
-    enabled: !isPopover && hasChatAccess,
-    idTokenProvider: user?.getIdToken ? gmailIdTokenProvider : null,
-    routeHref: ROUTES.HOME,
-  });
-  const gmailNudges = useGmailNudges({
-    userId: user?.uid || null,
-    vaultOwnerToken: vaultOwnerToken || null,
-    isConnected: gmailConnectorStatus.status?.connected === true,
-    idTokenProvider: user?.getIdToken ? gmailIdTokenProvider : null,
-  });
-  const [gmailConnectCardDismissed, setGmailConnectCardDismissed] = useState(false);
-  const [gmailNudgeCardDismissed, setGmailNudgeCardDismissed] = useState(false);
-  const [gmailConnectBusy, setGmailConnectBusy] = useState(false);
-  const handleConnectGmail = useCallback(async () => {
-    if (!user?.uid || !user?.getIdToken) return;
-    setGmailConnectBusy(true);
-    try {
-      const idToken = await user.getIdToken();
-      const start = await GmailReceiptsService.startConnect({
-        idToken,
-        userId: user.uid,
-        includeGrantedScopes: false,
-      });
-      window.location.assign(start.authorize_url);
-    } catch {
-      setGmailConnectBusy(false);
-    }
-  }, [user]);
   const availablePersonas = useMemo(() => {
     const personas = new Set<typeof activePersona>([activePersona]);
     personas.add("investor");
@@ -5751,52 +5708,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     </Button>
                   ) : null}
                 </div>
-              ) : null}
-
-              {// Hidden: this unsolicited "Connect Mail & continue" prompt
-              // (added in #6779, PR-confirmed regression 761fcea7) surfaces
-              // on every fresh chat regardless of whether the person came to
-              // do anything Gmail-related. State/handlers untouched, so
-              // re-enabling is a one-line condition change.
-              false &&
-              !isPopover &&
-              hasChatAccess &&
-              !hasStartedConversation &&
-              !gmailConnectCardDismissed &&
-              gmailConnectorStatus.status?.connected === false ? (
-                <AgentConnectAccessCard
-                  title="Read your inbox"
-                  bullets={[
-                    "Reads your mail for what needs a reply",
-                    "Surfaces meetings from your invites",
-                    "Never shares or sells your data",
-                    "Never acts without your yes",
-                  ]}
-                  ctaLabel="Connect Mail & continue"
-                  busy={gmailConnectBusy}
-                  onConnect={() => void handleConnectGmail()}
-                  onDismiss={() => setGmailConnectCardDismissed(true)}
-                />
-              ) : null}
-
-              {// Hidden: listNudges() is surfacing non-actionable mail (an
-              // automated "Welcome back to One" send, a NoBroker listing) as
-              // if it needs a reply, so this card was showing up on the chat
-              // landing screen with nothing real waiting on the person. Off
-              // until that classification only returns genuine action items;
-              // state/hook below untouched, so re-enabling is a one-line
-              // condition change, not a rebuild.
-              false &&
-              !isPopover &&
-              hasChatAccess &&
-              !hasStartedConversation &&
-              !gmailNudgeCardDismissed &&
-              gmailConnectorStatus.status?.connected === true &&
-              gmailNudges.nudges.length > 0 ? (
-                <AgentGmailNudgeCard
-                  nudges={gmailNudges.nudges}
-                  onDismiss={() => setGmailNudgeCardDismissed(true)}
-                />
               ) : null}
 
               {postSetupWelcomeContext ? (
