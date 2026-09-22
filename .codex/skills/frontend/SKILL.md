@@ -49,6 +49,7 @@ Non-owned surfaces:
 3. `hushh-webapp/components/README.md`
 4. `hushh-webapp/lib/services/README.md`
 5. `.codex/skills/frontend/references/browser-ux-runtime.md`
+6. `docs/reference/mobile/render-performance-charter.md`
 
 ## Workflow
 

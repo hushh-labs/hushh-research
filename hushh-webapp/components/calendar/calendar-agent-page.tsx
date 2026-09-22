@@ -391,7 +391,7 @@ export function CalendarAgentPage({
                   </p>
                 </div>
 
-                {/* Actions: Two buttons (Try Calendar Agent & Disconnect) */}
+                {/* Actions */}
                 <div className="flex flex-col items-center gap-2.5 w-full pt-1">
                   <AskOneButton
                     disabled={busy}
@@ -406,15 +406,14 @@ export function CalendarAgentPage({
                   >
                     Try Calendar Agent with One
                   </AskOneButton>
-                  <Button
+                  <button
                     type="button"
-                    variant="muted"
+                    className="text-xs font-medium text-muted-foreground transition-colors hover:text-destructive focus-visible:outline-none"
                     disabled={busy}
                     onClick={() => setDisconnectConfirmOpen(true)}
-                    className="w-full justify-center text-xs font-semibold"
                   >
                     Disconnect Calendar
-                  </Button>
+                  </button>
                 </div>
               </div>
             ) : shouldShowSetup ? (

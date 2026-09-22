@@ -334,10 +334,6 @@ Choose exactly one mutation:
 - delete_entity: user asks to remove an active memory and a stable target exists
 - no_op: ephemeral, ambiguous, unsupported, unsafe, or no stable target
 
-Corrections are signaled by: actually, instead, changed my mind, no longer, works better now, now prefer, update that.
-Deletions are signaled by: forget, remove, delete, don't remember this anymore.
-Refinements are signaled by: also, still, usually, when possible, prefer, more often.
-
 Output JSON only. Follow the schema exactly. If unsure, choose confirm_first or no_op."""
 _SENSITIVE_VALUE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
@@ -509,8 +505,9 @@ _SEGMENTATION_SCHEMA = {
         },
         "source_agent": {"type": "STRING"},
         "contract_version": {"type": "INTEGER"},
+        "has_more_candidates": {"type": "BOOLEAN"},
     },
-    "required": ["segments", "source_agent", "contract_version"],
+    "required": ["segments", "source_agent", "contract_version", "has_more_candidates"],
 }
 
 _KYC_IDENTITY_FACT_SCHEMA = {
@@ -761,7 +758,8 @@ class PKMAgentLabService:
         status_code = PKMAgentLabService._provider_status_code(exc)
         if status_code in {429, 500, 503}:
             return True
-        message = str(exc).lower()
+        current: BaseException | None = exc
+        seen: set[int] = set()
         markers = (
             "resource_exhausted",
             "resource exhausted",
@@ -775,21 +773,42 @@ class PKMAgentLabService:
             "code 500",
             "code 503",
         )
-        return any(marker in message for marker in markers)
+        while current is not None and id(current) not in seen:
+            seen.add(id(current))
+            if any(marker in str(current).lower() for marker in markers):
+                return True
+            current = current.__cause__ or current.__context__
+        return False
+
+    @staticmethod
+    def _has_timeout_cause(exc: Exception) -> bool:
+        current: BaseException | None = exc
+        seen: set[int] = set()
+        while current is not None and id(current) not in seen:
+            seen.add(id(current))
+            if isinstance(current, (asyncio.TimeoutError, TimeoutError)):
+                return True
+            current = current.__cause__ or current.__context__
+        return False
 
     @staticmethod
     def _provider_status_code(exc: Exception) -> int | None:
-        for field in ("status_code", "code"):
-            value = getattr(exc, field, None)
-            if callable(value):
+        current: BaseException | None = exc
+        seen: set[int] = set()
+        while current is not None and id(current) not in seen:
+            seen.add(id(current))
+            for field in ("status_code", "code"):
+                value = getattr(current, field, None)
+                if callable(value):
+                    try:
+                        value = value()
+                    except TypeError:
+                        continue
                 try:
-                    value = value()
-                except TypeError:
+                    return int(value)
+                except (TypeError, ValueError):
                     continue
-            try:
-                return int(value)
-            except (TypeError, ValueError):
-                continue
+            current = current.__cause__ or current.__context__
         return None
 
     @classmethod
@@ -866,6 +885,12 @@ class PKMAgentLabService:
 
     @classmethod
     def _set_cached_structure_preview(cls, cache_key: str, payload: dict[str, Any]) -> None:
+        # A retry must perform fresh work after a provider/schema failure. Keep
+        # successful semantic no-ops cacheable, but never pin a degraded result
+        # to the same draft for the entire preview TTL.
+        if payload.get("used_fallback") or payload.get("error"):
+            _PREVIEW_CACHE.pop(cache_key, None)
+            return
         _PREVIEW_CACHE[cache_key] = (
             time.time() + _PREVIEW_CACHE_TTL_SECONDS,
             deepcopy(payload),
@@ -983,27 +1008,24 @@ class PKMAgentLabService:
         if not isinstance(items, list):
             return []
 
-        normalized_message = cls._safe_excerpt(message, limit=50000).casefold()
         sanitized: list[dict[str, Any]] = []
         seen: set[str] = set()
         for item in items:
             if not isinstance(item, dict):
                 continue
-            source_text = cls._safe_excerpt(
-                str(item.get("source_text") or ""),
-                limit=_MAX_SEGMENT_SOURCE_CHARS,
-            )
-            if not source_text:
+            source_text = item.get("source_text")
+            if not isinstance(source_text, str) or not source_text.strip():
                 continue
-            normalized = source_text.casefold()
+            if len(source_text) > _MAX_SEGMENT_SOURCE_CHARS:
+                continue
             # Segmentation may select only a direct part of the owner's text.
             # Never let a rewritten or invented clause become a persistence
             # candidate, even if a provider returned valid JSON.
-            if normalized not in normalized_message:
+            if source_text not in message:
                 continue
-            if normalized in seen:
+            if source_text in seen:
                 continue
-            seen.add(normalized)
+            seen.add(source_text)
             sanitized.append(
                 {
                     "source_text": source_text,
@@ -1604,39 +1626,130 @@ class PKMAgentLabService:
         # Test doubles and legacy manifest stand-ins retain the direct-client
         # seam so deterministic tests never acquire credentials or network I/O.
         if self._should_use_adk_single_turn(manifest):
-            try:
-                from google.adk.models import Gemini
+            deadline = (
+                time.perf_counter() + timeout_seconds if timeout_seconds is not None else None
+            )
+            for attempt in range(1, _AGENT_CONTRACT_MAX_ATTEMPTS + 1):
+                remaining_seconds = (
+                    max(0.0, deadline - time.perf_counter()) if deadline is not None else None
+                )
+                if remaining_seconds is not None and remaining_seconds <= 0.25:
+                    record("budget_exhausted", attempts=attempt - 1)
+                    return None
+                effective_timeout = _AGENT_CONTRACT_TIMEOUT_SECONDS
+                if remaining_seconds is not None:
+                    effective_timeout = max(0.25, min(effective_timeout, remaining_seconds))
+                try:
+                    from google.adk.models import Gemini
 
-                adk_model = Gemini(
-                    model=model_override or _manifest_model_name(manifest) or GEMINI_MODEL,
-                    client=self.client,
-                )
-                agent = build_single_turn_agent(
-                    manifest,
-                    output_schema=response_schema,
-                    model=adk_model,
-                )
-                parsed = await run_single_turn(
-                    agent,
-                    prompt_parts=prompt,
-                    user_id="pkm-agent-lab",
-                    consent_token="managed-runtime",  # noqa: S106 - turn-local sentinel
-                    timeout_seconds=timeout_seconds,
-                )
-                value = parsed.model_dump(mode="json") if hasattr(parsed, "model_dump") else parsed
-                if isinstance(value, dict):
-                    record("success", attempts=1)
-                    return value
-                record("invalid_response", attempts=1)
-                return None
-            except Exception as error:
-                record("adk_failure", attempts=1, error_type=type(error).__name__)
-                logger.warning(
-                    "pkm.agent_contract_adk_failed agent=%s error=%s",
-                    agent_id,
-                    type(error).__name__,
-                )
-                return None
+                    adk_model = Gemini(
+                        model=model_override or _manifest_model_name(manifest) or GEMINI_MODEL,
+                        client=self.client,
+                    )
+                    agent = build_single_turn_agent(
+                        manifest,
+                        output_schema=response_schema,
+                        model=adk_model,
+                    )
+                    parsed = await run_single_turn(
+                        agent,
+                        prompt_parts=prompt,
+                        user_id="pkm-agent-lab",
+                        consent_token="managed-runtime",  # noqa: S106 - turn-local sentinel
+                        timeout_seconds=effective_timeout,
+                    )
+                    value = (
+                        parsed.model_dump(mode="json") if hasattr(parsed, "model_dump") else parsed
+                    )
+                    if isinstance(value, dict):
+                        record("success", attempts=attempt)
+                        return value
+                    record("invalid_response", attempts=attempt)
+                    return None
+                except asyncio.TimeoutError:
+                    retry_budget_seconds = (
+                        max(0.0, deadline - time.perf_counter()) if deadline is not None else None
+                    )
+                    if attempt < _AGENT_CONTRACT_MAX_ATTEMPTS and (
+                        retry_budget_seconds is None or retry_budget_seconds > 0.25
+                    ):
+                        logger.warning(
+                            "pkm.agent_contract_adk_timeout_retry agent=%s attempt=%s "
+                            "max_attempts=%s timeout_seconds=%s budget_remaining_seconds=%s",
+                            agent_id,
+                            attempt,
+                            _AGENT_CONTRACT_MAX_ATTEMPTS,
+                            round(effective_timeout, 3),
+                            round(retry_budget_seconds, 3)
+                            if retry_budget_seconds is not None
+                            else None,
+                        )
+                        continue
+                    record("timeout", attempts=attempt)
+                    logger.warning(
+                        "pkm.agent_contract_adk_timeout agent=%s attempts=%s timeout_seconds=%s",
+                        agent_id,
+                        attempt,
+                        round(effective_timeout, 3),
+                    )
+                    return None
+                except Exception as error:
+                    retry_budget_seconds = (
+                        max(0.0, deadline - time.perf_counter()) if deadline is not None else None
+                    )
+                    if self._has_timeout_cause(error):
+                        if attempt < _AGENT_CONTRACT_MAX_ATTEMPTS and (
+                            retry_budget_seconds is None or retry_budget_seconds > 0.25
+                        ):
+                            logger.warning(
+                                "pkm.agent_contract_adk_timeout_retry agent=%s attempt=%s "
+                                "max_attempts=%s timeout_seconds=%s budget_remaining_seconds=%s",
+                                agent_id,
+                                attempt,
+                                _AGENT_CONTRACT_MAX_ATTEMPTS,
+                                round(effective_timeout, 3),
+                                round(retry_budget_seconds, 3)
+                                if retry_budget_seconds is not None
+                                else None,
+                            )
+                            continue
+                        record("timeout", attempts=attempt)
+                        logger.warning(
+                            "pkm.agent_contract_adk_timeout agent=%s attempts=%s timeout_seconds=%s",
+                            agent_id,
+                            attempt,
+                            round(effective_timeout, 3),
+                        )
+                        return None
+                    can_retry = (
+                        attempt < _AGENT_CONTRACT_MAX_ATTEMPTS
+                        and self._is_retryable_provider_error(error)
+                        and (retry_budget_seconds is None or retry_budget_seconds > 0.25)
+                    )
+                    if can_retry:
+                        retry_delay_seconds = self._provider_retry_delay_seconds(attempt)
+                        if retry_budget_seconds is None or (
+                            retry_budget_seconds > retry_delay_seconds + 0.25
+                        ):
+                            logger.warning(
+                                "pkm.agent_contract_adk_provider_retry agent=%s attempt=%s "
+                                "max_attempts=%s delay_seconds=%s error_type=%s",
+                                agent_id,
+                                attempt,
+                                _AGENT_CONTRACT_MAX_ATTEMPTS,
+                                round(retry_delay_seconds, 3),
+                                type(error).__name__,
+                            )
+                            await asyncio.sleep(retry_delay_seconds)
+                            continue
+                    record("error", attempts=attempt, error_type=type(error).__name__)
+                    logger.warning(
+                        "pkm.agent_contract_adk_failed agent=%s error=%s",
+                        agent_id,
+                        type(error).__name__,
+                    )
+                    return None
+            return None
         deadline = time.perf_counter() + timeout_seconds if timeout_seconds is not None else None
         from google.genai import types as genai_types
 
@@ -1645,6 +1758,7 @@ class PKMAgentLabService:
             genai_types,
             active_model,
             temperature=0.0,
+            system_instruction=getattr(manifest, "system_instruction", None),
             # These calls are deterministic schema workers inside a bounded,
             # sequential PKM graph. Gemini's default thinking can consume the
             # shared preview deadline before the final structure contract runs,
@@ -1848,39 +1962,12 @@ class PKMAgentLabService:
         message: str,
         strict_small_model: bool,
     ) -> str:
-        header = (
-            "You are the Memory Segmentation Agent for Hussh Kai.\n"
-            "Return JSON only with segments, source_agent, contract_version.\n"
-            "Select zero to eight direct quotes that could be durable PKM memory candidates.\n"
-        )
-        if strict_small_model:
-            return (
-                f"{header}"
-                f"Message: {message}\n"
-                "Rules:\n"
-                "- Return an empty segments array when there is no explicit durable fact, preference, routine, goal, relationship, or health constraint.\n"
-                "- Keep only direct owner-stated claims that remain useful after this conversation.\n"
-                "- Exclude greetings, introductions, filler, generic self-description, one-off plans, current moods, requests, and form/chat boilerplate.\n"
-                "- Keep each segment self-contained and short.\n"
-                "- source_text must be an exact contiguous quote from the message.\n"
-                "- Split only when the prompt clearly contains multiple independent durable ideas.\n"
-                "- Numbered or Markdown headings are boundaries: never merge across two headings, and never include the heading line in source_text.\n"
-                "- contract_version must be 1.\n"
-                'Examples: {"message":"I like to swim and prefer early breakfasts.","segments":[{"source_text":"I like to swim.","confidence":0.91,"reason":"Exercise preference."},{"source_text":"I prefer early breakfasts.","confidence":0.84,"reason":"Separate food habit."}]} '
-                '{"message":"I usually book aisle seats.","segments":[{"source_text":"I usually book aisle seats.","confidence":0.97,"reason":"Single travel preference."}]}'
-            )
-        return (
-            f"{header}"
-            f"Natural language message: {message}\n"
-            "Rules:\n"
-            "- Return an empty segments array when there is no explicit durable fact, preference, routine, goal, relationship, or health constraint.\n"
-            "- Exclude greetings, introductions, filler, generic self-description, one-off plans, current moods, requests, and form/chat boilerplate.\n"
-            "- Return one segment for one eligible claim; return multiple segments only for independent eligible claims.\n"
-            "- Do not split stylistic repetition, explanations, or connective narrative.\n"
-            "- source_text must be an exact contiguous quote from the user's message.\n"
-            "- Numbered or Markdown section headings are boundaries: never merge candidates across two headings, and never include the heading line in source_text.\n"
-            "- Never emit more than 8 segments.\n"
-            "- contract_version must be 1.\n"
+        # The manifest owns semantic instructions in both managed ADK and
+        # direct-client paths. Keep user material serialized as input, without
+        # a second (previously contradictory) instruction/example set here.
+        return json.dumps(
+            {"message": message, "strict_small_model": strict_small_model},
+            ensure_ascii=False,
         )
 
     def _build_financial_guard_prompt(
@@ -2639,6 +2726,17 @@ class PKMAgentLabService:
             fallback.get("save_class") == "durable"
             and fallback.get("mutation_intent") in {"correct", "delete"}
             and frame.get("mutation_intent") != fallback.get("mutation_intent")
+            and (
+                not model_answered
+                or (
+                    "\n" not in message.strip()
+                    and message.strip()
+                    .lower()
+                    .startswith(
+                        ("actually i ", "actually, i ", "update my ", "delete my ", "forget my ")
+                    )
+                )
+            )
         ):
             # DELIBERATELY NOT gated on model_answered, unlike the three rules
             # above it. This is the one place the fallback is catching an
@@ -2661,8 +2759,14 @@ class PKMAgentLabService:
             frame["save_class"] = "durable"
             frame["intent_class"] = fallback["intent_class"]
             frame["mutation_intent"] = fallback["mutation_intent"]
-            frame["requires_confirmation"] = False
-            frame["confirmation_reason"] = ""
+            frame["requires_confirmation"] = True
+            frame["confirmation_reason"] = (
+                frame.get("confirmation_reason")
+                or "Confirm the requested change to your saved information."
+            )
+            logger.info(
+                "pkm_intent_integrity_guard_applied operation=%s", fallback["mutation_intent"]
+            )
             frame["confidence"] = max(
                 float(frame.get("confidence") or 0.0),
                 float(fallback.get("confidence") or 0.0),
@@ -2743,6 +2847,7 @@ class PKMAgentLabService:
         if (
             frame["intent_class"] in {"correction", "deletion", "financial_event"}
             and frame["confidence"] >= 0.8
+            and not model_answered
         ):
             frame["requires_confirmation"] = False
             frame["confirmation_reason"] = ""
@@ -2752,6 +2857,7 @@ class PKMAgentLabService:
             and frame.get("save_class") == "durable"
             and frame.get("requires_confirmation")
             and cls._clamp_confidence(fallback.get("confidence"), default=0.0) >= 0.7
+            and not model_answered
         ):
             frame["requires_confirmation"] = False
             frame["confirmation_reason"] = ""
@@ -4933,11 +5039,7 @@ class PKMAgentLabService:
                 "- Home base, residence, and where the user lives are profile_fact, not preference.\n"
                 "- Financial goals like saving for a home or paying off loans are usually plan_or_goal, not financial_event, unless the message is explicitly about portfolio construction, investing behavior, or risk preference.\n"
                 "- If state_summary already shows an active memory in the same broad domain and the new message says still, also, again, continue, or otherwise refines the same theme, prefer mutation_intent extend instead of create.\n"
-                "- Explicit update / actually / now / changed-my-mind phrasing should prefer intent_class correction with mutation_intent correct.\n"
-                "- Delete / remove / forget phrasing about existing PKM should prefer intent_class deletion with mutation_intent delete, not ephemeral.\n"
                 "- Repeating a durable policy like reminders staying out of PKM should not become a new durable preference unless the user clearly states a lasting meta-preference.\n"
-                "- correction phrases like actually / instead / changed my mind -> correct.\n"
-                "- deletion phrases like forget that / remove that -> delete.\n"
                 "- If multiple broad domains are plausible, set requires_confirmation=true and return 2-4 broad candidate domains.\n"
                 "- If Financial Guard says sanctioned_financial_memory, use intent_class financial_event with financial recommended first.\n"
                 "- If Financial Guard says non_financial_or_ephemeral, do not force financial.\n"
@@ -5448,11 +5550,11 @@ class PKMAgentLabService:
         if not capture_execution_trace:
             cached_preview = self._get_cached_structure_preview(preview_cache_key)
             if cached_preview is not None:
-                logger.info("pkm.agent_lab.preview_cache_hit user_id=%s", user_id)
+                logger.info("pkm.agent_lab.preview_cache_hit")
                 return cached_preview
             inflight_preview = _PREVIEW_INFLIGHT.get(preview_cache_key)
             if inflight_preview is not None:
-                logger.info("pkm.agent_lab.preview_inflight_hit user_id=%s", user_id)
+                logger.info("pkm.agent_lab.preview_inflight_hit")
                 return deepcopy(await inflight_preview)
 
         async def _build_preview() -> dict[str, Any]:
@@ -5490,15 +5592,44 @@ class PKMAgentLabService:
             segmentation_latency_ms = round(
                 (time.perf_counter() - segmentation_started_at) * 1000, 2
             )
-            segmentation_used_fallback = segmentation_raw is None
+            segmentation_used_fallback = not (
+                isinstance(segmentation_raw, dict)
+                and type(segmentation_raw.get("has_more_candidates")) is bool
+            )
+            if isinstance(segmentation_raw, dict):
+                raw_segments = segmentation_raw.get("segments")
+                if not isinstance(raw_segments, list) or any(
+                    not isinstance(item, dict)
+                    or not isinstance(item.get("source_text"), str)
+                    or not item["source_text"].strip()
+                    or item["source_text"] not in message
+                    for item in (raw_segments if isinstance(raw_segments, list) else [])
+                ):
+                    segmentation_used_fallback = True
             if segmentation_used_fallback:
                 errors.append("memory_segmentation_agent_fallback")
+                # Invalid coverage is a schema failure, not a successful
+                # semantic selection. Never auto-save a partially certified batch.
+                segmentation_raw = None
 
             segmented_messages = self._sanitize_segmented_messages(
                 segmentation_raw, message=message
             )
             total_segments_detected = len(segmented_messages)
-            split_recommended = total_segments_detected > _MAX_PREVIEW_CARDS
+            split_recommended = total_segments_detected > _MAX_PREVIEW_CARDS or (
+                isinstance(segmentation_raw, dict)
+                and segmentation_raw.get("has_more_candidates") is True
+            )
+            # A selected source span must not lose a trailing qualifier just
+            # to fit a limit. Ask the existing client splitter for a smaller
+            # passage; no truncated prefix becomes a memory candidate.
+            oversized_source = isinstance(segmentation_raw, dict) and any(
+                isinstance(item, dict)
+                and isinstance(item.get("source_text"), str)
+                and len(item["source_text"]) > _MAX_SEGMENT_SOURCE_CHARS
+                for item in (segmentation_raw.get("segments") or [])
+            )
+            split_recommended = split_recommended or oversized_source
             preview_results: list[dict[str, Any]] = []
             preview_cards: list[dict[str, Any]] = []
             preview_latencies_ms: list[float] = []
@@ -5506,10 +5637,7 @@ class PKMAgentLabService:
             async def _build_preview_entry(
                 index: int, segment: dict[str, Any]
             ) -> dict[str, Any] | None:
-                source_text = self._safe_excerpt(
-                    str(segment.get("source_text") or ""),
-                    limit=_MAX_SEGMENT_SOURCE_CHARS,
-                )
+                source_text = segment["source_text"]
                 if not source_text:
                     return None
                 preview_started_at = time.perf_counter()
@@ -5594,6 +5722,23 @@ class PKMAgentLabService:
                 performance["agent_execution"] = execution_trace
 
             if primary_preview is None:
+                # An explicit, valid empty segmentation is the model's no-op
+                # decision, not a failed provider call. Malformed output and
+                # rejected nonempty source quotes still fail closed.
+                empty_selection = (
+                    isinstance(segmentation_raw, dict)
+                    and segmentation_raw.get("segments") == []
+                    and segmentation_raw.get("has_more_candidates") is False
+                    and type(segmentation_raw.get("contract_version")) is int
+                    and segmentation_raw["contract_version"] == 1
+                    and isinstance(segmentation_raw.get("source_agent"), str)
+                    and bool(segmentation_raw["source_agent"].strip())
+                )
+                retryable_split = split_recommended and not segmentation_used_fallback
+                preparation_valid = empty_selection or retryable_split
+                empty_hints = [] if preparation_valid else ["preview_generation_failed"]
+                if split_recommended:
+                    empty_hints.append("split_recommended")
                 empty_manifest = self._build_manifest_from_payload(
                     user_id=user_id,
                     domain="professional",
@@ -5617,20 +5762,17 @@ class PKMAgentLabService:
                     "model": model_override
                     or _manifest_model_name(self.memory_segmentation_manifest)
                     or GEMINI_MODEL,
-                    "used_fallback": True,
+                    "used_fallback": not preparation_valid,
                     "intent_used_fallback": False,
                     "merge_used_fallback": False,
                     "structure_used_fallback": False,
                     "drift_flags": self._drift_flags_from_preview(
-                        validation_hints=[
-                            "preview_generation_failed",
-                            *(["split_recommended"] if split_recommended else []),
-                        ],
-                        fallback_used=True,
+                        validation_hints=empty_hints,
+                        fallback_used=not preparation_valid,
                     ),
-                    "error": "; ".join(
-                        self._unique_list(errors or ["memory_segmentation_no_output"])
-                    ),
+                    "error": None
+                    if preparation_valid
+                    else "; ".join(self._unique_list(errors or ["memory_segmentation_no_output"])),
                     "routing_decision": "non_financial_or_ephemeral",
                     "intent_frame": {},
                     "merge_decision": {},
@@ -5639,10 +5781,7 @@ class PKMAgentLabService:
                     "write_mode": "do_not_save",
                     "primary_json_path": None,
                     "target_entity_scope": None,
-                    "validation_hints": [
-                        "preview_generation_failed",
-                        *(["split_recommended"] if split_recommended else []),
-                    ],
+                    "validation_hints": empty_hints,
                     "manifest_draft": empty_manifest,
                     "preview_cards": preview_cards,
                     "preview_summary": preview_summary,

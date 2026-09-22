@@ -15,6 +15,10 @@ export default [
       ".next-prod/**/*",
       ".next-native-uat/**",
       ".next-native-uat/**/*",
+      // Every other NEXT_DIST_DIR output (per-port dev servers, the Android
+      // export, CI check builds) is generated code too.
+      ".next-*/**",
+      ".next-*/**/*",
       "out/**",
       "node_modules/**",
       "node_modules*/**",

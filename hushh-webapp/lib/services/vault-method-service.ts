@@ -1,6 +1,7 @@
 "use client";
 
 import { Capacitor } from "@capacitor/core";
+import { VaultQuickUnlockTrustLocalService } from "@/lib/services/vault-quick-unlock-trust-local-service";
 
 import type { GeneratedVaultKeyMode } from "@/lib/services/vault-bootstrap-service";
 import { VaultBootstrapService } from "@/lib/services/vault-bootstrap-service";
@@ -242,6 +243,9 @@ export class VaultMethodService {
         trackEvent("profile_method_switch_result", {
           result: "success",
         });
+        // The quick method was just verified on this device: the gate may
+        // start it by itself from the next launch on.
+        void VaultQuickUnlockTrustLocalService.mark(params.userId, material.mode);
         return { method: material.mode };
       } catch (error) {
         if (

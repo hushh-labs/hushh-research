@@ -32,6 +32,7 @@ def _client() -> TestClient:
         ("get", f"/api/pkm/data/{_TOO_LONG}"),
         ("get", f"/api/pkm/domain-data/{_TOO_LONG}/{_OK}"),
         ("get", f"/api/pkm/manifest/{_TOO_LONG}/{_OK}"),
+        ("post", f"/api/pkm/domains/{_TOO_LONG}/repair-manifest-paths"),
         ("delete", f"/api/pkm/domain-data/{_TOO_LONG}/{_OK}"),
         ("post", f"/api/pkm/reconcile/{_TOO_LONG}"),
         ("delete", f"/api/pkm/attributes/{_TOO_LONG}/{_OK}/{_OK}"),

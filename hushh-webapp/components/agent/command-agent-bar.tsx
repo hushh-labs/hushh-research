@@ -5,7 +5,10 @@ import { usePathname } from "next/navigation";
 import { AudioLines, X, ChevronUp } from "@/components/icons";
 import { AgentVoiceWaveform } from "@/components/agent/agent-voice-waveform";
 import { LocationCommandCard } from "./location-command-card";
-import { useLocationCommand } from "./location-command-provider";
+import {
+  useLocationCommand,
+  useLocationCommandLive,
+} from "./location-command-provider";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import {
   isFoundationPublicRoute,
@@ -23,8 +26,6 @@ export function CommandAgentBar({
     view,
     user,
     recording,
-    level,
-    elapsedMs,
     collapsed,
     setCollapsed,
     startCapture,
@@ -35,6 +36,9 @@ export function CommandAgentBar({
     hapticCancel,
     active,
   } = useLocationCommand();
+  // Microphone-cadence fields come from their own context so only this bar
+  // re-renders per audio frame, never the whole bottom shell.
+  const { level, elapsedMs } = useLocationCommandLive();
   const pathname = usePathname();
   const [held, setHeld] = useState(false);
   const [cancelArmed, setCancelArmed] = useState(false);

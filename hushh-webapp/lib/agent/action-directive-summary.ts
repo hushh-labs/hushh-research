@@ -21,8 +21,8 @@
 
 /**
  * The durations a request can be made for, in the same order the profile page
- * offers them. Deliberately a copy: the page owns its select, this module
- * owns the sentence, and neither should import the other's UI.
+ * offers them. Profile and inline Chat import this same typed list for their
+ * shared review fields; neither maintains a second duration policy.
  */
 export const REQUEST_DURATION_OPTIONS = [
   { hours: 24, label: "1 day" },

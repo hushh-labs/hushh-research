@@ -197,7 +197,8 @@
     "222_one_voice_runtime.sql",
     "223_one_location_setup_progress.sql",
     "224_setup_capability_declined_ids.sql",
-    "225_external_mcp_connectors.sql"
+    "225_external_mcp_connectors.sql",
+    "226_pkm_manifest_path_repair.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -368,7 +369,8 @@
       "128_private_analysis_history_redaction.sql",
       "129_ria_pick_legacy_retirement.sql",
       "142_source_library_scope_retirement.sql",
-      "161_atomic_pkm_scope_exposure.sql"
+      "161_atomic_pkm_scope_exposure.sql",
+      "226_pkm_manifest_path_repair.sql"
     ],
     "developer": [
       "070_developer_registry.sql",
@@ -397,6 +399,7 @@
     "212_location_command_runtime.sql": "rollback/212_location_command_runtime.rollback.sql",
     "221_one_location_account_settings.sql": "rollback/221_one_location_account_settings.rollback.sql",
     "222_one_voice_runtime.sql": "rollback/222_one_voice_runtime.rollback.sql",
-    "223_one_location_setup_progress.sql": "rollback/223_one_location_setup_progress.rollback.sql"
+    "223_one_location_setup_progress.sql": "rollback/223_one_location_setup_progress.rollback.sql",
+    "226_pkm_manifest_path_repair.sql": "rollback/226_pkm_manifest_path_repair.rollback.sql"
   }
 }

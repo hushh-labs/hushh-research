@@ -53,7 +53,10 @@ describe("PortfolioSourceSwitcher", () => {
     );
 
     expect(screen.queryByRole("button", { name: "Brokerage" })).toBeNull();
-    expect(screen.getAllByText("Statement").length).toBeGreaterThan(0);
+    // With one viable source there is nothing to switch, so no tabs at all;
+    // the row still names what is in use.
+    expect(screen.queryByRole("tab", { name: "Statement" })).toBeNull();
+    expect(screen.getAllByText("Demo Brokerage · Jul 17").length).toBeGreaterThan(0);
   });
 
   it("keeps statement management readable and delegates its distinct actions", () => {
@@ -73,14 +76,18 @@ describe("PortfolioSourceSwitcher", () => {
       />,
     );
 
-    expect(screen.getByTestId("portfolio-source-statements-group")).toBeTruthy();
+    // The active statement is named once, as the "Now using" row's title;
+    // the header above the screen already says "Portfolio source".
+    expect(screen.getByTestId("portfolio-source-active-row")).toBeTruthy();
     expect(screen.getAllByText("Demo Brokerage · Jul 17").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Portfolio source")).toBeNull();
+    expect(screen.getByTestId("portfolio-source-add-group")).toBeTruthy();
 
     fireEvent.click(
       screen.getByRole("button", { name: /import another statement/i }),
     );
     fireEvent.click(
-      screen.getByRole("button", { name: /delete selected statement/i }),
+      screen.getByRole("button", { name: /delete this statement/i }),
     );
 
     expect(onImportStatement).toHaveBeenCalledTimes(1);
@@ -130,6 +137,30 @@ describe("PortfolioSourceSwitcher", () => {
 
     expect(onRefreshPlaid).toHaveBeenCalledTimes(1);
     expect(onManageConnections).toHaveBeenCalledTimes(1);
-    expect(screen.getByTestId("portfolio-source-add-statement-group")).toBeTruthy();
+    expect(screen.getByTestId("portfolio-source-add-group")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /upload a statement/i })).toBeTruthy();
+  });
+
+  it("offers the bank door on this screen even while a statement is active", () => {
+    const onManageConnections = vi.fn();
+    render(
+      <PortfolioSourceSwitcher
+        activeSource="statement"
+        availableSources={["statement"]}
+        onSourceChange={() => Promise.resolve()}
+        statementSnapshots={statementSnapshots.slice(0, 1)}
+        activeStatementSnapshotId={statementSnapshots[0]!.id}
+        onManageConnections={onManageConnections}
+        onImportStatement={vi.fn()}
+      />,
+    );
+
+    // One statement: nothing to switch, so no switch row and no source tabs.
+    expect(screen.queryByTestId("portfolio-source-selected-statement")).toBeNull();
+    expect(screen.queryByRole("tab", { name: "Statement" })).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: /connect a bank or brokerage/i }),
+    );
+    expect(onManageConnections).toHaveBeenCalledTimes(1);
   });
 });

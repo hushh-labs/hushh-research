@@ -48,6 +48,64 @@ const SWIPE_VIEWPORT_MIN_HEIGHT =
   "calc(100dvh - var(--app-top-content-offset, 0px))";
 
 /**
+ * `viewportMinHeight="fill"`: the pager grows to the bottom of the app scroll
+ * root, so the gesture surface is the whole remaining body rather than only
+ * the rendered list. A hub with its own header above the pager cannot use the
+ * `100dvh` default (it would add a scroll tail) and `0px` leaves everything
+ * below a short list dead to the swipe. The height is measured, not per
+ * frame but once per resize of the root or of anything between it and the
+ * pager: the root's visible height, minus the pager's layout offset from the
+ * root's top, minus the root's bottom clearance for the fixed chrome.
+ */
+export const SWIPE_VIEWPORT_FILL = "fill";
+const APP_SCROLL_ROOT_SELECTOR = '[data-app-scroll-root="true"]';
+
+function cssPx(value: string): number {
+  return Number.parseFloat(value) || 0;
+}
+
+/**
+ * The pager's min-height that puts its bottom edge exactly where the scroll
+ * root's content ends: the root's visible height, minus the pager's layout
+ * offset from the root's top (offsetParent chain: layout offsets ignore
+ * transforms, so a route enter beat in flight does not skew the value the way
+ * a bounding rect would), minus everything reserved below the pager (the
+ * root's bottom clearance, plus each ancestor's bottom padding, border and
+ * margin, which is what the page shell's own bottom padding is). Returns null
+ * when the pager is not inside an app scroll root.
+ */
+export function measureFillViewportMinHeight(
+  viewport: HTMLElement,
+): number | null {
+  const root = viewport.closest<HTMLElement>(APP_SCROLL_ROOT_SELECTOR);
+  if (!root) return null;
+  let offsetTop = 0;
+  let node: HTMLElement | null = viewport;
+  while (node && node !== root) {
+    offsetTop += node.offsetTop;
+    const parent: Element | null = node.offsetParent;
+    if (!(parent instanceof HTMLElement) || !root.contains(parent)) {
+      return null;
+    }
+    node = parent;
+  }
+  const view = window.getComputedStyle;
+  let reserved = cssPx(view(root).paddingBottom) + cssPx(view(viewport).marginBottom);
+  for (
+    let ancestor = viewport.parentElement;
+    ancestor && ancestor !== root;
+    ancestor = ancestor.parentElement
+  ) {
+    const style = view(ancestor);
+    reserved +=
+      cssPx(style.paddingBottom) +
+      cssPx(style.borderBottomWidth) +
+      cssPx(style.marginBottom);
+  }
+  return Math.max(0, Math.round(root.clientHeight - offsetTop - reserved));
+}
+
+/**
  * How close the pager has to be to the selected pane before the outgoing one
  * counts as gone. Two device pixels plus one for sub-pixel rounding; Embla
  * overshoots its target by ~2px before easing back, so anything tighter waits
@@ -245,6 +303,8 @@ interface SwipeViewsProps {
   /**
    * Opt into a parent-owned vertical viewport. Workspace managers use this
    * when their toolbar and pagination live outside the scrollable row rail.
+   * `"fill"` measures the remaining height of the app scroll root instead,
+   * so the swipe works from the whole body below the pager's own content.
    */
   viewportMinHeight?: string;
   /**
@@ -775,6 +835,54 @@ export function SwipeViews({
     tabSetId,
   ]);
 
+  const fillMode = viewportMinHeight === SWIPE_VIEWPORT_FILL;
+  const [fillMinHeight, setFillMinHeight] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!emblaApi || !fillMode) return;
+    const viewport = emblaApi.rootNode();
+    if (!viewport) return;
+    const scrollRoot = viewport.closest<HTMLElement>(APP_SCROLL_ROOT_SELECTOR);
+    if (!scrollRoot) return;
+
+    let frame: number | null = null;
+    const measure = () => {
+      if (frame !== null) return;
+      // Apply on the next frame so the observers below never see their own
+      // write in the same delivery (the loop-limit warning).
+      frame = window.requestAnimationFrame(() => {
+        frame = null;
+        const next = measureFillViewportMinHeight(viewport);
+        setFillMinHeight((current) => (current === next ? current : next));
+      });
+    };
+
+    measure();
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", measure, { passive: true });
+      return () => {
+        if (frame !== null) window.cancelAnimationFrame(frame);
+        window.removeEventListener("resize", measure);
+      };
+    }
+    // The root (keyboard, orientation, chrome) and every ancestor between it
+    // and the pager: a banner appearing above the pager grows that ancestor,
+    // and the pager's offset moves with it.
+    const observer = new ResizeObserver(measure);
+    observer.observe(scrollRoot);
+    for (
+      let node = viewport.parentElement;
+      node && node !== scrollRoot;
+      node = node.parentElement
+    ) {
+      observer.observe(node);
+    }
+    return () => {
+      if (frame !== null) window.cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
+  }, [emblaApi, fillMode]);
+
   useEffect(() => {
     if (!emblaApi) return;
     const root = emblaApi.rootNode();
@@ -946,7 +1054,11 @@ export function SwipeViews({
       )}
       ref={emblaRef}
       style={{
-        minHeight: viewportMinHeight,
+        minHeight: fillMode
+          ? fillMinHeight !== null
+            ? `${fillMinHeight}px`
+            : undefined
+          : viewportMinHeight,
         ...(heightMode === "active" && activePanelHeight !== null
           ? { height: activePanelHeight }
           : null),

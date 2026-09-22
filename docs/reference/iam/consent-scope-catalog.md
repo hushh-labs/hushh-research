@@ -88,6 +88,39 @@ scope string, token, grant, registry handle, and consent policy. Existing `attr.
 and handles are never renamed to insert the origin code. Retired and unknown values remain
 non-authorizing.
 
+### Unavailable versus empty discovery
+
+Manifest-backed discovery must not translate a failed authority read into an
+empty catalog. `DynamicScopeGenerator.get_available_scope_entries` raises
+`ScopeCatalogUnavailableError` when its metadata reads fail; the Connections
+adapter exposes a retryable `INFORMATION_CATALOG_UNAVAILABLE` error (HTTP 503).
+Profile and Chat must describe this as an unsuccessful check, not as the owner
+having no requestable information. A successful catalog read may legitimately
+return no entries after private, internal-only, and exposure rules are applied.
+Neither failure nor emptiness permits relaxing those rules or approving an export.
+
+## Exact encrypted export projection
+
+An approved `attr.*` export keeps the requested machine scope unchanged. Missing
+paths must fail with recoverable feedback; substring or keyword similarity must
+never substitute a different stored field. Domain-wide exports still intersect
+the manifest's externalizable paths with eligible leaves and internal-key
+exclusions before client-side projection and encryption.
+
+Manifest collection markers (`_items` and `_entities`) are path grammar, not
+ordinary field names. Catalog normalization must preserve them so discovery and
+browser-side export traverse the same structure. They never authorize private
+children or bypass the current exposure rules. Safe diagnostics report stages
+and counts only, not scope paths, identities, keys, or decrypted values.
+
+Private or disabled registry sections suppress a domain wildcard; an
+authoritative catalog filtered to empty must not fall back to legacy index
+wildcards. Export preparation rereads current manifest posture. Array projections
+retain item positions, raw private entity keys remain excluded, and a formerly
+scalar leaf that is now a container requires new review rather than sharing its
+subtree. Canonical spelling may resolve to one original key, never to an
+ambiguous collision or a semantically similar field.
+
 ## Template Catalog (V1)
 
 | Template ID | Actor Direction | Scope Set | Default Duration |

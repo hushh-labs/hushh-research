@@ -1527,9 +1527,11 @@ describe("OneLocationAgentPage", () => {
     expect(pageShell).toBeTruthy();
     expect(pageShell?.className).not.toContain("--app-bottom-fixed-ui");
     expect(pageShell?.className).not.toMatch(/\b(?:sm:|md:)?pb-/u);
+    // "fill" makes the pager measure the remaining body so the swipe works
+    // from the whole screen below the tabs, not only from the rendered list.
     expect(screen.getByTestId("location-swipe-views")).toHaveAttribute(
       "data-viewport-min-height",
-      "0px",
+      "fill",
     );
     expect(screen.getByTestId("location-swipe-views")).toHaveAttribute(
       "data-height-mode",
@@ -6040,6 +6042,55 @@ describe("OneLocationAgentPage", () => {
       expect(mockRouterReplace).not.toHaveBeenCalled();
     },
   );
+
+  it("keeps Ask for location open when it is launched from Shared with me", async () => {
+    window.localStorage.setItem("one_location_onboarding_v2:user_a", "1");
+    window.history.replaceState(
+      window.history.state,
+      "",
+      "/one/location?action=shared-with-me",
+    );
+    mockUseSearchParams.mockReturnValue(
+      new URLSearchParams("action=shared-with-me"),
+    );
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+      receivedGrants: [],
+    });
+
+    const view = render(<OneLocationAgentPage />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Shared with me" }),
+    ).toBeTruthy();
+    mockRouterPush.mockClear();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Ask for location" }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Ask for location" }),
+    ).toBeTruthy();
+    expect(window.location.search).toBe("?action=ask");
+    expect(mockRouterPush).not.toHaveBeenCalled();
+
+    // Apply the browser's new query snapshot, as Next does after a native
+    // history write. The URL-sync effect must agree with the focused flow and
+    // must not restore the previous Shared-with-me action a moment later.
+    mockUseSearchParams.mockReturnValue(
+      new URLSearchParams(window.location.search),
+    );
+    view.rerender(<OneLocationAgentPage />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Ask for location" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("heading", { name: "Shared with me" }),
+    ).toBeNull();
+  });
 
   it("warns the recipient when the decrypted location update is stale", async () => {
     const staleGrant = {

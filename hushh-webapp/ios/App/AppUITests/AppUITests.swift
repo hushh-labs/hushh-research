@@ -926,6 +926,7 @@ final class AppUITests: XCTestCase {
             "portfolio_stream_error_class",
             "bootstrap_uid_ok",
             "bootstrap_error_class",
+            "bootstrap_detail",
             "jserr_class",
             "jsrej_class",
             "long_wait",
@@ -973,7 +974,915 @@ final class AppUITests: XCTestCase {
     }
 
     @discardableResult
-    private func launchApp(_ route: RouteCase) -> XCUIApplication {
+    // MARK: - Render performance card
+
+    /// Drives the fixed gesture card from docs/reference/mobile/render-performance-charter.md
+    /// with the in-app frame-pacing probe switched on, and prints one
+    /// `PERF_GESTURE name=<n> rep=<i> start_epoch_ms=<ms> end_epoch_ms=<ms>` line
+    /// per gesture so the probe's windows can be joined to what the finger did.
+    ///
+    /// Opt-in only: `HUSHH_ENABLE_PERF_BENCHMARK=true` in the test runner
+    /// environment (`TEST_RUNNER_` prefix through xcodebuild). It signs in as
+    /// the reviewer through the same `-UITestMode` bootstrap as the route
+    /// audits, which means the 350ms native status poll is running; that is a
+    /// recorded contaminant of the attribution lane, never of a sign-off run.
+    /// On a simulator the numbers attribute causes and certify nothing.
+    func testRenderPerformanceCard() throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["HUSHH_ENABLE_PERF_BENCHMARK"] == "true" else {
+            throw XCTSkip("Render performance card runs only with HUSHH_ENABLE_PERF_BENCHMARK=true.")
+        }
+        let repetitions = max(1, Int(environment["HUSHH_PERF_REPS"] ?? "") ?? 3)
+        let probeArguments = ["-CapacitorStorage.hushh_perf_probe", "1"]
+        // This card drives the app through the -UITestMode bridge (reviewer
+        // login), so it is attribution on any hardware. Sign-off numbers come
+        // from a phone, Release, test mode off (the charter's truth lane).
+        #if targetEnvironment(simulator)
+        NSLog("PERF_LANE certifies=false simulator=true test_mode=true")
+        #else
+        NSLog("PERF_LANE certifies=false simulator=false test_mode=true")
+        #endif
+
+        // Launch 1: feed flicks, bottom-nav switches, profile pane, chat stream.
+        let feedRoute = RouteCase(
+            name: "perf-feed",
+            initialRoute: "/login?redirect=%2Fone%2Ffeed",
+            expectedMarker: "native-route-feed",
+            expectedRoute: "/one/feed",
+            expectedRoutePrefix: nil,
+            autoReviewerLogin: true,
+            expectedAuth: "authenticated",
+            allowedDataStates: ["loaded"]
+        )
+        var app = launchApp(feedRoute, extraArguments: probeArguments)
+        _ = try waitForSatisfiedStatus(app, route: feedRoute, timeout: 150)
+        var webView = app.webViews.firstMatch
+        XCTAssertTrue(webView.waitForExistence(timeout: 10), "WebView unavailable for the feed card")
+        NSLog("PERF_APP_READY route=/one/feed")
+        perfSettle(2.5)
+
+        for rep in 0..<repetitions {
+            perfGesture("feed-flick", rep: rep) {
+                for _ in 0..<5 {
+                    perfFlick(webView, fromY: 0.75, toY: 0.25)
+                    perfSettle(0.35)
+                }
+                perfSettle(1.5)
+                for _ in 0..<5 {
+                    perfFlick(webView, fromY: 0.25, toY: 0.75)
+                    perfSettle(0.35)
+                }
+                perfSettle(1.5)
+            }
+        }
+
+        for rep in 0..<repetitions {
+            perfGesture("bottom-nav-switch", rep: rep) {
+                for label in ["One", "Connect", "Feed"] {
+                    perfTapNav(app, label: label)
+                    perfSettle(1.5)
+                }
+            }
+        }
+
+        perfTapNav(app, label: "One")
+        perfSettle(1.5)
+        for rep in 0..<repetitions {
+            perfGesture("profile-pane-open-dismiss", rep: rep) {
+                // AppProfileEdgeGesture: a broad leftward body swipe on /one.
+                let start = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5))
+                let end = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.5))
+                start.press(forDuration: 0.05, thenDragTo: end)
+                perfSettle(1.5)
+                // The pane is a right-side sheet without content drag-dismiss;
+                // a tap on the scrim closes it.
+                webView.coordinate(withNormalizedOffset: CGVector(dx: 0.04, dy: 0.5)).tap()
+                perfSettle(1.2)
+            }
+        }
+
+        perfTapNav(app, label: "Chat")
+        perfSettle(2.5)
+        if !perfChatExchange(app, streamSeconds: 30) {
+            NSLog("PERF_SKIPPED name=chat-stream-30s reason=composer_not_found")
+        }
+
+        perfSettle(12) // let the probe write its idle export
+        NSLog("PERF_DONE route=/one/feed")
+        app.terminate()
+
+        // Launch 2: top-shell pager swipes on Finance.
+        let kaiRoute = RouteCase(
+            name: "perf-kai",
+            initialRoute: "/login?redirect=%2Fone%2Fkai",
+            expectedMarker: "native-route-kai-home",
+            expectedRoute: "/one/kai",
+            expectedRoutePrefix: nil,
+            autoReviewerLogin: true,
+            expectedAuth: "authenticated",
+            allowedDataStates: ["loaded"]
+        )
+        app = launchApp(kaiRoute, extraArguments: probeArguments)
+        _ = try waitForSatisfiedStatus(app, route: kaiRoute, timeout: 150)
+        webView = app.webViews.firstMatch
+        XCTAssertTrue(webView.waitForExistence(timeout: 10), "WebView unavailable for the Finance card")
+        NSLog("PERF_APP_READY route=/one/kai")
+        perfSettle(2.5)
+        for rep in 0..<repetitions {
+            perfGesture("top-shell-pager-swipe", rep: rep) {
+                let left = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.82, dy: 0.48))
+                let right = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.18, dy: 0.48))
+                left.press(forDuration: 0.08, thenDragTo: right)
+                perfSettle(1.2)
+                right.press(forDuration: 0.08, thenDragTo: left)
+                perfSettle(1.2)
+            }
+        }
+        for rep in 0..<repetitions {
+            perfGesture("kai-chart-flick", rep: rep) {
+                for _ in 0..<3 {
+                    perfFlick(webView, fromY: 0.7, toY: 0.3)
+                    perfSettle(0.4)
+                }
+                perfSettle(1.5)
+            }
+        }
+        perfSettle(12)
+        NSLog("PERF_DONE route=/one/kai")
+        app.terminate()
+
+        // Launch 3: Location map pan (native map: the hitches instrument scores it).
+        let locationRoute = RouteCase(
+            name: "perf-location",
+            initialRoute: "/login?redirect=%2Fone%2Flocation",
+            expectedMarker: "native-route-one-location",
+            expectedRoute: "/one/location",
+            expectedRoutePrefix: nil,
+            autoReviewerLogin: true,
+            expectedAuth: "authenticated",
+            allowedDataStates: ["loaded"]
+        )
+        app = launchApp(locationRoute, extraArguments: probeArguments)
+        _ = try waitForSatisfiedStatus(app, route: locationRoute, timeout: 150)
+        webView = app.webViews.firstMatch
+        XCTAssertTrue(webView.waitForExistence(timeout: 10), "WebView unavailable for the Location card")
+        NSLog("PERF_APP_READY route=/one/location")
+        perfSettle(2.5)
+        for rep in 0..<repetitions {
+            perfGesture("location-map-pan", rep: rep) {
+                for _ in 0..<3 {
+                    let start = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.4))
+                    let end = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.55))
+                    start.press(forDuration: 0.05, thenDragTo: end)
+                    perfSettle(0.6)
+                }
+                perfSettle(1.5)
+            }
+        }
+        perfSettle(12)
+        NSLog("PERF_DONE route=/one/location")
+        app.terminate()
+    }
+
+    /// The truth lane: the same gesture card with test mode off. Each surface
+    /// is its own launch with only the probe argument and a route argument the
+    /// probe honours (`-CapacitorStorage.hushh_perf_route`), so there is no
+    /// reviewer bridge and no native status poll. The vault is unlocked with
+    /// the passphrase from the process environment (never Face ID); if none
+    /// is configured the test waits for the person holding the phone. On a
+    /// Release build this is the certifying run the charter names.
+    /// Opt-in: HUSHH_ENABLE_PERF_ATTACHED=true. HUSHH_PERF_ATTACHED_SECTION
+    /// = feed | chat | kai | location | all (default all).
+    func testRenderPerformanceCardAttached() throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["HUSHH_ENABLE_PERF_ATTACHED"] == "true" else {
+            throw XCTSkip("Attached render performance card runs only with HUSHH_ENABLE_PERF_ATTACHED=true.")
+        }
+        let repetitions = max(1, Int(environment["HUSHH_PERF_REPS"] ?? "") ?? 3)
+        let section = environment["HUSHH_PERF_ATTACHED_SECTION"] ?? "all"
+        let passphrase = (environment["HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE"] ?? environment["REVIEWER_VAULT_PASSPHRASE"] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        #if DEBUG
+        let release = false
+        #else
+        let release = true
+        #endif
+        #if targetEnvironment(simulator)
+        NSLog("PERF_LANE certifies=false simulator=true test_mode=false")
+        #else
+        NSLog("PERF_LANE certifies=\(release) simulator=false test_mode=false")
+        #endif
+
+        func launchAttached(route: String?) throws -> (XCUIApplication, XCUIElement) {
+            let app = XCUIApplication()
+            var arguments = ["-CapacitorStorage.hushh_perf_probe", "1"]
+            if let route {
+                arguments += ["-CapacitorStorage.hushh_perf_route", route]
+            }
+            // An attribution experiment for this launch (the probe applies
+            // it and names it in the export; such a run never certifies).
+            if let experiment = ProcessInfo.processInfo.environment["HUSHH_PERF_EXPERIMENT"],
+               !experiment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                arguments += ["-CapacitorStorage.hushh_perf_experiment", experiment]
+                NSLog("PERF_EXPERIMENT \(experiment)")
+            }
+            app.launchArguments = arguments
+            app.launch()
+            let webView = app.webViews.firstMatch
+            XCTAssertTrue(webView.waitForExistence(timeout: 30), "WebView unavailable")
+            try perfUnlockVault(app, passphrase: passphrase, timeout: 240)
+            return (app, webView)
+        }
+
+        if section == "all" || section == "feed" {
+            let (app, webView) = try launchAttached(route: "/one/feed")
+            perfSettle(3)
+            NSLog("PERF_APP_READY route=/one/feed")
+            for rep in 0..<repetitions {
+                perfGesture("feed-flick", rep: rep) {
+                    for _ in 0..<5 {
+                        perfFlick(webView, fromY: 0.75, toY: 0.25)
+                        perfSettle(0.35)
+                    }
+                    perfSettle(1.5)
+                    for _ in 0..<5 {
+                        perfFlick(webView, fromY: 0.25, toY: 0.75)
+                        perfSettle(0.35)
+                    }
+                    perfSettle(1.5)
+                }
+            }
+            for rep in 0..<repetitions {
+                perfGesture("bottom-nav-switch", rep: rep) {
+                    for label in ["One", "Connect", "Feed"] {
+                        perfTapNav(app, label: label)
+                        perfSettle(1.5)
+                    }
+                }
+            }
+            perfTapNav(app, label: "One")
+            perfSettle(1.5)
+            for rep in 0..<repetitions {
+                perfGesture("profile-pane-open-dismiss", rep: rep) {
+                    let start = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.9, dy: 0.5))
+                    let end = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.5))
+                    start.press(forDuration: 0.05, thenDragTo: end)
+                    perfSettle(1.5)
+                    webView.coordinate(withNormalizedOffset: CGVector(dx: 0.04, dy: 0.5)).tap()
+                    perfSettle(1.2)
+                }
+            }
+            perfSettle(12)
+            NSLog("PERF_DONE route=/one/feed")
+            app.terminate()
+        }
+
+        if section == "all" || section == "chat" {
+            let (app, _) = try launchAttached(route: "/")
+            perfSettle(3)
+            NSLog("PERF_APP_READY route=/")
+            if !perfChatExchange(app, streamSeconds: 30) {
+                NSLog("PERF_SKIPPED name=chat-stream-30s reason=composer_not_found")
+            }
+            perfSettle(12)
+            NSLog("PERF_DONE route=/")
+            app.terminate()
+        }
+
+        // The MCP connections panel (a right-side sheet off the chat history
+        // drawer): open it, hold it for a capture, and read where its title
+        // and close control sit against the top of the window.
+        if section == "connectors" {
+            let (app, _) = try launchAttached(route: "/")
+            perfSettle(3)
+            NSLog("PERF_APP_READY route=/")
+            let openHistory = app.webViews.descendants(matching: .any)
+                .matching(NSPredicate(format: "label == %@", "Open chat history")).firstMatch
+            if openHistory.waitForExistence(timeout: 10) {
+                perfGesture("history-drawer-open", rep: 0) {
+                    openHistory.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+                    perfSettle(1.2)
+                }
+                let openConnectors = app.webViews.descendants(matching: .any)
+                    .matching(NSPredicate(format: "label == %@", "Open MCP connections")).firstMatch
+                if openConnectors.waitForExistence(timeout: 5) {
+                    perfGesture("connectors-open", rep: 0) {
+                        openConnectors.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+                        perfSettle(1.5)
+                    }
+                    let title = app.webViews.staticTexts.matching(NSPredicate(format: "label == %@", "MCP connections")).firstMatch
+                    let close = app.webViews.buttons.matching(NSPredicate(format: "label == %@", "Close")).firstMatch
+                    NSLog("PERF_CONNECTORS_GEOMETRY title_top=\(title.exists ? Int(title.frame.minY) : -1) close_top=\(close.exists ? Int(close.frame.minY) : -1) window_safe_top=\(Int(app.windows.firstMatch.frame.minY))")
+                    NSLog("PERF_CONNECTORS_OPEN 1")
+                    perfSettle(8)
+                } else {
+                    NSLog("PERF_SKIPPED name=connectors-open reason=button_not_found")
+                }
+            } else {
+                NSLog("PERF_SKIPPED name=history-drawer-open reason=button_not_found")
+            }
+            NSLog("PERF_DONE route=/")
+            app.terminate()
+        }
+
+        // The person's own information on the Memory route: the scope
+        // catalogue as the person sees it. Logs the visible labels (never
+        // values) at the root and inside the financial branch.
+        if section == "memory" {
+            let (app, _) = try launchAttached(route: "/one/pkm")
+            let readyAt = perfEpochMs()
+            NSLog("PERF_APP_READY route=/one/pkm")
+            func logLabels(_ tag: String) {
+                let texts = app.webViews.staticTexts.allElementsBoundByIndex
+                let labels = texts.prefix(120).map { $0.label }.filter { !$0.isEmpty }
+                NSLog("PERF_MEMORY_LABELS \(tag) count=\(labels.count) :: \(labels.joined(separator: " | "))")
+            }
+            func find(_ text: String) -> XCUIElement {
+                app.webViews.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH[c] %@", text)).firstMatch
+            }
+            // The categories arrive after the memories load; note how long that takes.
+            let financial = find("Financial")
+            let listed = financial.waitForExistence(timeout: 25)
+            NSLog("PERF_MEMORY_CATEGORIES listed=\(listed ? 1 : 0) after_ms=\(perfEpochMs() - readyAt)")
+            logLabels("saved-root")
+            if listed {
+                financial.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+                perfSettle(3)
+                logLabels("saved-financial")
+                let firstBranch = app.webViews.descendants(matching: .any)
+                    .matching(NSPredicate(format: "label CONTAINS[c] %@", "Portfolio")).firstMatch
+                if firstBranch.waitForExistence(timeout: 5) {
+                    firstBranch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+                    perfSettle(3)
+                    logLabels("saved-financial-portfolio")
+                }
+                // Back to the root, then the Sharing tab: what a person can share.
+                app.terminate()
+                let (again, _) = try launchAttached(route: "/one/pkm")
+                let sharing = again.webViews.descendants(matching: .any)
+                    .matching(NSPredicate(format: "label ==[c] %@", "Sharing")).firstMatch
+                if sharing.waitForExistence(timeout: 20) {
+                    sharing.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+                    perfSettle(4)
+                    let texts = again.webViews.staticTexts.allElementsBoundByIndex.prefix(120).map { $0.label }.filter { !$0.isEmpty }
+                    NSLog("PERF_MEMORY_LABELS sharing count=\(texts.count) :: \(texts.joined(separator: " | "))")
+                    let fin = again.webViews.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH[c] %@", "Financial")).firstMatch
+                    if fin.waitForExistence(timeout: 8) {
+                        fin.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+                        perfSettle(3)
+                        let inner = again.webViews.staticTexts.allElementsBoundByIndex.prefix(120).map { $0.label }.filter { !$0.isEmpty }
+                        NSLog("PERF_MEMORY_LABELS sharing-financial count=\(inner.count) :: \(inner.joined(separator: " | "))")
+                    }
+                }
+                perfSettle(3)
+                NSLog("PERF_DONE route=/one/pkm")
+                again.terminate()
+            } else {
+                NSLog("PERF_SKIPPED name=memory-financial reason=categories_never_listed")
+                NSLog("PERF_DONE route=/one/pkm")
+                app.terminate()
+            }
+        }
+
+        // Connecting a bank through Plaid Link on the phone, step by step,
+        // with a marker per screen for captures. It only proceeds past the
+        // institution list when Link is plainly in sandbox (the test bank is
+        // listed); against anything else it stops there and never types.
+        if section == "plaid" {
+            let (app, _) = try launchAttached(route: "/one/kai?tab=portfolio")
+            perfSettle(5)
+            NSLog("PERF_APP_READY route=/one/kai?tab=portfolio")
+            func element(_ label: String, exact: Bool = true) -> XCUIElement {
+                let format = exact ? "label == %@" : "label CONTAINS[c] %@"
+                return app.webViews.descendants(matching: .any).matching(NSPredicate(format: format, label)).firstMatch
+            }
+            func tap(_ e: XCUIElement) { e.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
+            func step(_ name: String, settle: TimeInterval = 1.5) {
+                perfSettle(settle)
+                NSLog("PERF_PLAID_STEP \(name)")
+            }
+            func labels(_ tag: String) {
+                let texts = app.webViews.staticTexts.allElementsBoundByIndex.prefix(60).map { $0.label }.filter { !$0.isEmpty }
+                NSLog("PERF_PLAID_LABELS \(tag) :: \(texts.joined(separator: " | "))")
+            }
+            step("kai-dashboard", settle: 1)
+            let settings = element("Portfolio source settings")
+            if settings.waitForExistence(timeout: 8) {
+                tap(settings)
+                step("source-settings")
+                let add = element("Add a statement", exact: false)
+                if add.waitForExistence(timeout: 5) { tap(add); step("import-view") }
+            } else {
+                NSLog("PERF_PLAID_NOTE no source settings control; expecting the import view directly")
+            }
+            let bank = element("Bank account (via Plaid)", exact: false)
+            if bank.waitForExistence(timeout: 8) {
+                tap(bank)
+                step("link-opening", settle: 6)
+                labels("link-first")
+                let cont = app.webViews.buttons.matching(NSPredicate(format: "label ==[c] %@", "Continue")).firstMatch
+                if cont.waitForExistence(timeout: 10) {
+                    tap(cont)
+                    step("link-institutions", settle: 3)
+                    labels("institutions")
+                    let sandboxBank = element("Platypus", exact: false)
+                    if sandboxBank.waitForExistence(timeout: 4) {
+                        tap(sandboxBank)
+                        step("link-credentials", settle: 3)
+                        let user = app.webViews.textFields.firstMatch
+                        let pass = app.webViews.secureTextFields.firstMatch
+                        if user.waitForExistence(timeout: 6), pass.exists {
+                            tap(user); user.typeText("user_good")
+                            tap(pass); pass.typeText("pass_good")
+                            let submit = app.webViews.buttons.matching(NSPredicate(format: "label ==[c] %@ OR label ==[c] %@", "Submit", "Continue")).firstMatch
+                            if submit.exists { tap(submit) }
+                            step("link-accounts", settle: 6)
+                            labels("accounts")
+                            let next = app.webViews.buttons.matching(NSPredicate(format: "label ==[c] %@", "Continue")).firstMatch
+                            if next.waitForExistence(timeout: 8) { tap(next); step("link-finish", settle: 6); labels("finish") }
+                            let done = app.webViews.buttons.matching(NSPredicate(format: "label ==[c] %@ OR label ==[c] %@", "Continue", "Done")).firstMatch
+                            if done.waitForExistence(timeout: 8) { tap(done) }
+                            step("exchange", settle: 12)
+                            labels("after-exchange")
+                        } else {
+                            NSLog("PERF_PLAID_NOTE credential fields not reachable")
+                        }
+                    } else {
+                        NSLog("PERF_PLAID_STOP reason=not_sandbox")
+                    }
+                } else {
+                    NSLog("PERF_PLAID_NOTE Link's first screen did not expose a Continue control")
+                }
+            } else {
+                NSLog("PERF_SKIPPED name=plaid reason=bank_row_not_found")
+                labels("import-missing")
+            }
+            perfSettle(4)
+            NSLog("PERF_DONE route=/one/kai")
+            app.terminate()
+        }
+
+        if section == "all" || section == "kai" {
+            let (app, webView) = try launchAttached(route: "/one/kai")
+            guard perfWaitForLabel(app, label: "Portfolio", timeout: 60) else {
+                NSLog("PERF_SKIPPED name=kai reason=finance_not_reached")
+                app.terminate()
+                throw XCTSkip("Finance did not open")
+            }
+            perfSettle(2.5)
+            NSLog("PERF_APP_READY route=/one/kai")
+            for rep in 0..<repetitions {
+                perfGesture("top-shell-pager-swipe", rep: rep) {
+                    let left = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.82, dy: 0.48))
+                    let right = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.18, dy: 0.48))
+                    left.press(forDuration: 0.08, thenDragTo: right)
+                    perfSettle(1.2)
+                    right.press(forDuration: 0.08, thenDragTo: left)
+                    perfSettle(1.2)
+                }
+            }
+            for rep in 0..<repetitions {
+                perfGesture("kai-chart-flick", rep: rep) {
+                    for _ in 0..<3 {
+                        perfFlick(webView, fromY: 0.7, toY: 0.3)
+                        perfSettle(0.4)
+                    }
+                    perfSettle(1.5)
+                }
+            }
+            perfSettle(12)
+            NSLog("PERF_DONE route=/one/kai")
+            app.terminate()
+        }
+
+        if section == "all" || section == "location" {
+            let (app, webView) = try launchAttached(route: "/one/location")
+            perfSettle(4)
+            NSLog("PERF_APP_READY route=/one/location")
+            for rep in 0..<repetitions {
+                perfGesture("location-map-pan", rep: rep) {
+                    for _ in 0..<3 {
+                        let start = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.3, dy: 0.4))
+                        let end = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.55))
+                        start.press(forDuration: 0.05, thenDragTo: end)
+                        perfSettle(0.6)
+                    }
+                    perfSettle(1.5)
+                }
+            }
+            perfSettle(12)
+            NSLog("PERF_DONE route=/one/location")
+            app.terminate()
+        }
+    }
+
+    /// Unlocks the vault with the passphrase method: reveal the field if Face ID
+    /// is the default, type the passphrase, tap Unlock, wait for the signed-in
+    /// bottom bar. With no passphrase configured (or a sign-in screen) it waits
+    /// for the person holding the phone. The passphrase is never logged.
+    private func perfUnlockVault(_ app: XCUIApplication, passphrase: String, timeout: TimeInterval) throws {
+        // The clock starts when the passphrase field is on screen: a cold
+        // launch can spend two minutes behind the system passkey sheet first.
+        var deadline = Date().addingTimeInterval(timeout)
+        var fieldSeen = false
+        var attempts = 0
+        var announced = false
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        while Date() < deadline {
+            if perfLabelExists(app, "One") {
+                return
+            }
+            // The vault gate opens the passkey flow at launch; with no passkey
+            // on this phone iOS shows its "Scan QR Code" sheet over the app and
+            // every tap below lands on it. Close it (X) and use the passphrase.
+            let passkeySheet = springboard.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "Scan QR Code")).firstMatch
+            if passkeySheet.exists {
+                let close = springboard.buttons.matching(NSPredicate(format: "label IN %@", ["Close", "Cancel"])).firstMatch
+                if close.exists {
+                    close.tap()
+                    NSLog("PERF_UNLOCK dismissed=passkey-sheet")
+                    perfSettle(0.8)
+                    continue
+                }
+            }
+            let field = app.webViews.secureTextFields.matching(NSPredicate(format: "label == %@ OR placeholderValue == %@", "Vault passphrase", "Enter passphrase")).firstMatch
+            if !field.exists && attempts == 0 && !passphrase.isEmpty {
+                let reveal = app.webViews.buttons.matching(NSPredicate(format: "label == %@", "Passphrase")).firstMatch
+                if reveal.exists {
+                    reveal.tap()
+                    perfSettle(0.8)
+                    continue
+                }
+            }
+            let mismatch = app.webViews.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "did not match")).firstMatch.exists
+            // Type once, and again after a mismatch (a partial typeText was
+            // observed when the sheet above stole focus mid-string), up to 3 times.
+            if field.exists && !passphrase.isEmpty && (attempts == 0 || (mismatch && attempts < 3)) {
+                if !fieldSeen {
+                    fieldSeen = true
+                    deadline = Date().addingTimeInterval(timeout)
+                }
+                NSLog("PERF_UNLOCK method=passphrase attempt=\(attempts + 1)")
+                field.tap()
+                perfSettle(0.4)
+                if attempts > 0 {
+                    field.press(forDuration: 1.0)
+                    let selectAll = app.menuItems.matching(NSPredicate(format: "label == %@", "Select All")).firstMatch
+                    if selectAll.waitForExistence(timeout: 1.5) {
+                        selectAll.tap()
+                        perfSettle(0.2)
+                    }
+                    field.typeText(XCUIKeyboardKey.delete.rawValue)
+                    perfSettle(0.2)
+                }
+                field.typeText(passphrase)
+                perfSettle(0.3)
+                // A secure field reports one mask character per typed character.
+                let typedCount = (field.value as? String)?.count ?? -1
+                if typedCount != passphrase.count {
+                    NSLog("PERF_UNLOCK typed_mismatch expected=\(passphrase.count) got=\(typedCount)")
+                }
+                let unlock = app.webViews.buttons.matching(NSPredicate(format: "label == %@", "Unlock")).firstMatch
+                if unlock.exists && unlock.isHittable {
+                    unlock.tap()
+                } else {
+                    field.typeText("\n")
+                }
+                attempts += 1
+                perfSettle(2)
+                continue
+            }
+            if !announced {
+                NSLog("PERF_WAITING_FOR_HUMAN step=sign-in-and-unlock timeout_s=\(Int(timeout))")
+                announced = true
+            }
+            perfSettle(1.0)
+        }
+        XCTFail("The app was not signed in and unlocked within \(Int(timeout)) s.")
+        throw XCTSkip("unlock timeout")
+    }
+
+    private func perfLabelExists(_ app: XCUIApplication, _ label: String) -> Bool {
+        app.webViews.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).count > 0
+    }
+
+    /// Waits for any web element with the exact accessibility label.
+    private func perfWaitForLabel(_ app: XCUIApplication, label: String, timeout: TimeInterval) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            let matches = app.webViews.descendants(matching: .any)
+                .matching(NSPredicate(format: "label == %@", label))
+            if matches.count > 0 {
+                return true
+            }
+            perfSettle(1.0)
+        }
+        return false
+    }
+
+    // MARK: - Third-party scroll benchmark (Threads, X)
+
+    /// Apple's own scroll-hitch number for the apps the founder holds up as the
+    /// bar, on the same phone, with the same flick. Instruments cannot attach to
+    /// an App Store binary, but XCUITest can drive one, and
+    /// XCTOSSignpostMetric.scrollDecelerationMetric measures the UIScrollView
+    /// deceleration hitches those native feeds produce. Our own feed is a DOM
+    /// scroller without a UIScrollView, so it is measured by the in-app probe
+    /// instead; the unit (hitch ms per second) is the same.
+    ///
+    /// Opt-in only: HUSHH_ENABLE_THIRD_PARTY_SCROLL_BENCHMARK=true. Records
+    /// timings only; nothing from either app's content is read or stored.
+    /// XCTest records one set of metrics per test method, so each app gets
+    /// its own method around one shared helper.
+    func testThirdPartyFeedScrollBenchmarkThreads() throws {
+        try thirdPartyFeedScrollBenchmark(name: "threads", bundleId: "com.burbn.barcelona")
+    }
+
+    func testThirdPartyFeedScrollBenchmarkX() throws {
+        try thirdPartyFeedScrollBenchmark(name: "x", bundleId: "com.atebits.Tweetie2")
+    }
+
+    private func thirdPartyFeedScrollBenchmark(name: String, bundleId: String) throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["HUSHH_ENABLE_THIRD_PARTY_SCROLL_BENCHMARK"] == "true" else {
+            throw XCTSkip("Third-party scroll benchmark runs only with HUSHH_ENABLE_THIRD_PARTY_SCROLL_BENCHMARK=true.")
+        }
+        let app = XCUIApplication(bundleIdentifier: bundleId)
+        app.launch()
+        guard app.wait(for: .runningForeground, timeout: 30) else {
+            NSLog("PERF_SKIPPED name=\(name)-feed-flick reason=did_not_launch")
+            throw XCTSkip("\(name) is not installed or did not launch.")
+        }
+        perfSettle(5)
+        NSLog("PERF_APP_READY app=\(name)")
+        let options = XCTMeasureOptions()
+        options.iterationCount = 3
+        let start = perfEpochMs()
+        measure(metrics: [XCTOSSignpostMetric.scrollDecelerationMetric, XCTCPUMetric(application: app)], options: options) {
+            for _ in 0..<5 {
+                perfFlick(app, fromY: 0.75, toY: 0.25)
+                perfSettle(0.6)
+            }
+            perfSettle(1.2)
+        }
+        NSLog("PERF_GESTURE name=\(name)-feed-flick rep=0 start_epoch_ms=\(start) end_epoch_ms=\(perfEpochMs())")
+        app.terminate()
+    }
+
+    // The same non-scroll gestures our card measures on its own shell, on the
+    // reference app, so the comparison is not only a feed flick (founder ask,
+    // 2026-09-20). Each gets its own method because XCTest keeps one metric
+    // set per method. Tab switches in a UIKit tab bar are not animated, so
+    // there is no hitch signpost for them: the clock metric records how long
+    // the round of switches takes and the CPU metric what it cost. The pager
+    // is a paging UIScrollView (dragging + deceleration signposts) and a post
+    // open/close is a navigation push/pop (navigation transition signpost).
+    func testThirdPartyBottomNavBenchmarkThreads() throws {
+        try thirdPartyGestureBenchmark(name: "threads", bundleId: "com.burbn.barcelona", gesture: "bottom-nav-switch")
+    }
+
+    func testThirdPartyPagerSwipeBenchmarkThreads() throws {
+        try thirdPartyGestureBenchmark(name: "threads", bundleId: "com.burbn.barcelona", gesture: "top-shell-pager-swipe")
+    }
+
+    func testThirdPartyOpenDismissBenchmarkThreads() throws {
+        try thirdPartyGestureBenchmark(name: "threads", bundleId: "com.burbn.barcelona", gesture: "open-dismiss")
+    }
+
+    private func thirdPartyGestureBenchmark(name: String, bundleId: String, gesture: String) throws {
+        let environment = ProcessInfo.processInfo.environment
+        guard environment["HUSHH_ENABLE_THIRD_PARTY_SCROLL_BENCHMARK"] == "true" else {
+            throw XCTSkip("Third-party benchmarks run only with HUSHH_ENABLE_THIRD_PARTY_SCROLL_BENCHMARK=true.")
+        }
+        let app = XCUIApplication(bundleIdentifier: bundleId)
+        app.launch()
+        guard app.wait(for: .runningForeground, timeout: 30) else {
+            NSLog("PERF_SKIPPED name=\(name)-\(gesture) reason=did_not_launch")
+            throw XCTSkip("\(name) is not installed or did not launch.")
+        }
+        perfSettle(5)
+        NSLog("PERF_APP_READY app=\(name)")
+        let options = XCTMeasureOptions()
+        options.iterationCount = 3
+        let start = perfEpochMs()
+        switch gesture {
+        case "bottom-nav-switch":
+            let tabs = thirdPartyBottomTabs(app)
+            guard tabs.count >= 2 else {
+                NSLog("PERF_SKIPPED name=\(name)-\(gesture) reason=tab_bar_not_found tabs=\(tabs.count)")
+                app.terminate()
+                throw XCTSkip("no tab bar found in \(name)")
+            }
+            NSLog("PERF_NAV app=\(name) tabs=\(tabs.map { $0.label }.joined(separator: ","))")
+            let home = tabs[0]
+            let others = Array(tabs.dropFirst().prefix(4))
+            measure(metrics: [XCTClockMetric(), XCTCPUMetric(application: app)], options: options) {
+                for tab in others {
+                    tab.tap()
+                    perfSettle(0.7)
+                    home.tap()
+                    perfSettle(0.7)
+                }
+            }
+            home.tap()
+        case "top-shell-pager-swipe":
+            measure(metrics: [XCTOSSignpostMetric.scrollDraggingMetric, XCTOSSignpostMetric.scrollDecelerationMetric, XCTCPUMetric(application: app)], options: options) {
+                perfHorizontalSwipe(app, fromX: 0.85, toX: 0.15, y: 0.4)
+                perfSettle(0.9)
+                perfHorizontalSwipe(app, fromX: 0.15, toX: 0.85, y: 0.4)
+                perfSettle(0.9)
+            }
+        default:
+            measure(metrics: [XCTOSSignpostMetric.navigationTransitionMetric, XCTCPUMetric(application: app)], options: options) {
+                for _ in 0..<3 {
+                    app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45)).tap()
+                    perfSettle(1.2)
+                    // The leading-edge back swipe is the dismiss every iOS app shares.
+                    perfHorizontalSwipe(app, fromX: 0.02, toX: 0.9, y: 0.5)
+                    perfSettle(0.9)
+                }
+            }
+        }
+        NSLog("PERF_GESTURE name=\(name)-\(gesture) rep=0 start_epoch_ms=\(start) end_epoch_ms=\(perfEpochMs())")
+        app.terminate()
+    }
+
+    /// The reference app's bottom bar: a UIKit tab bar when it has one, else
+    /// the hittable buttons in the bottom 12% of the screen, left to right,
+    /// without the compose/create control (it opens an editor).
+    private func thirdPartyBottomTabs(_ app: XCUIApplication) -> [XCUIElement] {
+        let screen = app.frame
+        let bottomBand = screen.height * 0.88
+        let skip = NSPredicate(format: "NOT (label CONTAINS[c] 'create' OR label CONTAINS[c] 'compose' OR label CONTAINS[c] 'new thread' OR label CONTAINS[c] 'new post' OR label CONTAINS[c] 'write')")
+        var candidates = app.tabBars.buttons.matching(skip).allElementsBoundByIndex
+        if candidates.count < 2 {
+            candidates = app.buttons.matching(skip).allElementsBoundByIndex.filter { element in
+                let frame = element.frame
+                return frame.minY >= bottomBand && frame.height < screen.height * 0.12 && element.isHittable
+            }
+        }
+        return candidates.sorted { $0.frame.minX < $1.frame.minX }
+    }
+
+    private func perfHorizontalSwipe(_ app: XCUIApplication, fromX: CGFloat, toX: CGFloat, y: CGFloat) {
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: fromX, dy: y))
+        let end = app.coordinate(withNormalizedOffset: CGVector(dx: toX, dy: y))
+        start.press(forDuration: 0.05, thenDragTo: end, withVelocity: .fast, thenHoldForDuration: 0.0)
+    }
+
+    private func perfEpochMs() -> Int64 {
+        Int64((Date().timeIntervalSince1970 * 1000).rounded())
+    }
+
+    private func perfSettle(_ seconds: TimeInterval) {
+        RunLoop.current.run(until: Date().addingTimeInterval(seconds))
+    }
+
+    private func perfGesture(_ name: String, rep: Int, _ body: () -> Void) {
+        let start = perfEpochMs()
+        body()
+        let end = perfEpochMs()
+        NSLog("PERF_GESTURE name=\(name) rep=\(rep) start_epoch_ms=\(start) end_epoch_ms=\(end)")
+    }
+
+    /// One thumb sweep at a fixed speed, in the WebView's normalised space.
+    private func perfFlick(_ webView: XCUIElement, fromY: CGFloat, toY: CGFloat) {
+        let start = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: fromY))
+        let end = webView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: toY))
+        start.press(forDuration: 0.04, thenDragTo: end, withVelocity: XCUIGestureVelocity(rawValue: 2000), thenHoldForDuration: 0)
+    }
+
+    private func perfTapNav(_ app: XCUIApplication, label: String) {
+        let candidates = app.webViews.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", label))
+        let count = candidates.count
+        guard count > 0 else {
+            NSLog("PERF_SKIPPED name=nav-tap reason=label_not_found label=\(label)")
+            return
+        }
+        // The bottom bar is the last match on screen.
+        let element = candidates.element(boundBy: count - 1)
+        if element.isHittable {
+            element.tap()
+        } else {
+            element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        }
+    }
+
+    /// Types a fixed prompt into the chat composer and sends it. Best effort:
+    /// returns false when the composer cannot be found, so the card records a
+    /// skip instead of failing.
+    /// The composer lives on the canonical Chat route ("/"), not on /one:
+    /// `<textarea aria-label="Message One">` with a `Send message` button.
+    /// The caller puts the app on that route first.
+    /// The chat exchange as a person does it, with the native keyboard in
+    /// the loop (founder ask, 2026-09-21): tap the composer and let the
+    /// keyboard rise, type the prompt through it, send, let the reply
+    /// stream, then dismiss the keyboard. Each step is its own gesture so
+    /// the frames the keyboard's rise, the typing and its dismissal cost are
+    /// read apart from the reply itself.
+    private func perfChatExchange(_ app: XCUIApplication, streamSeconds: TimeInterval) -> Bool {
+        let composer = app.webViews.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", "Message One")).firstMatch
+        guard composer.waitForExistence(timeout: 20) else { return false }
+
+        var keyboardShown = false
+        perfGesture("chat-keyboard-show", rep: 0) {
+            composer.tap()
+            // No accessibility polling while the keyboard rises (a WebView
+            // snapshot blocks the page's main thread); one check after the
+            // rise has settled.
+            perfSettle(1.2)
+            keyboardShown = app.keyboards.firstMatch.exists
+            NSLog("PERF_KEYBOARD shown=\(keyboardShown ? 1 : 0)")
+        }
+
+        // Settled geometry, read outside the measured window: an accessibility
+        // snapshot of the WebView runs on the app's main thread and would show
+        // up as a long frame of its own. The composer belongs just above the
+        // keyboard's edge; the gap is the number the summary carries.
+        if keyboardShown {
+            let window = app.windows.firstMatch.frame
+            let keyRowsTop = app.keyboards.firstMatch.frame.minY
+            // The QuickType strip sits above the key rows and outside the
+            // keyboard element's frame; the keyboard's visible edge is the
+            // strip's top when the strip is there.
+            var keyboardTop = keyRowsTop
+            let predictions = app.descendants(matching: .any)
+                .matching(NSPredicate(format: "label CONTAINS[c] %@ OR identifier CONTAINS[c] %@", "predict", "predict")).firstMatch
+            if predictions.exists {
+                keyboardTop = min(keyboardTop, predictions.frame.minY)
+            }
+            let composerBottom = composer.frame.maxY
+            NSLog("PERF_KEYBOARD_GEOMETRY window_h=\(Int(window.height)) keyboard_top=\(Int(keyboardTop)) key_rows_top=\(Int(keyRowsTop)) composer_bottom=\(Int(composerBottom)) gap=\(Int(keyboardTop - composerBottom))")
+        }
+
+        perfGesture("chat-keyboard-type", rep: 0) {
+            composer.typeText("Summarize my week in three short bullet points.")
+            perfSettle(0.8)
+        }
+
+        perfGesture("chat-stream-30s", rep: 0) {
+            let send = app.webViews.buttons.matching(NSPredicate(format: "label == %@", "Send message")).firstMatch
+            if send.exists {
+                // A finger lands on the button's centre; XCTest's own hit
+                // test can return no point for a lifted composer while the
+                // button is plainly on screen, so the tap goes by coordinate.
+                send.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+            } else {
+                composer.typeText("\n")
+            }
+            perfSettle(streamSeconds)
+        }
+
+        perfGesture("chat-keyboard-dismiss", rep: 0) {
+            // A tap on the transcript, above the composer, is how a person
+            // puts the keyboard away here; fall back to the keyboard's own
+            // dismiss control when the tap does not take it down.
+            let keyboard = app.keyboards.firstMatch
+            if keyboard.exists {
+                app.webViews.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap()
+                perfSettle(0.8)
+                if keyboard.exists {
+                    let dismiss = app.keyboards.buttons.matching(NSPredicate(format: "label IN %@", ["Hide keyboard", "Dismiss", "Done"])).firstMatch
+                    if dismiss.exists { dismiss.tap() }
+                }
+            }
+            perfSettle(1.2)
+            NSLog("PERF_KEYBOARD dismissed=\(app.keyboards.firstMatch.exists ? 0 : 1)")
+        }
+
+        // A second rise in the same session: the system keyboard's first
+        // presentation has a cost of its own, and only a repeat separates
+        // that from what the page does when the keyboard comes up.
+        perfGesture("chat-keyboard-show-2", rep: 0) {
+            composer.tap()
+            perfSettle(1.2)
+            NSLog("PERF_KEYBOARD shown_again=\(app.keyboards.firstMatch.exists ? 1 : 0)")
+        }
+        perfGesture("chat-keyboard-dismiss-2", rep: 0) {
+            if app.keyboards.firstMatch.exists {
+                app.webViews.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap()
+            }
+            perfSettle(1.2)
+        }
+
+        // The transcript ride: a flick up hides the bottom chrome and the
+        // composer rides down with it, a flick down brings both back. The
+        // probe reads the two bars' transforms per frame during these.
+        let webView = app.webViews.firstMatch
+        for rep in 0..<2 {
+            perfGesture("chat-transcript-flick", rep: rep) {
+                perfFlick(webView, fromY: 0.55, toY: 0.25)
+                perfSettle(0.9)
+                perfFlick(webView, fromY: 0.25, toY: 0.55)
+                perfSettle(0.9)
+            }
+        }
+        return true
+    }
+
+    private func launchApp(_ route: RouteCase, extraArguments: [String] = []) -> XCUIApplication {
         let app = XCUIApplication()
         app.launchArguments = [
             "-UITestMode",
@@ -981,7 +1890,7 @@ final class AppUITests: XCTestCase {
             "-UITestExpectedMarker", route.expectedMarker,
             "-UITestAutoReviewerLogin", route.autoReviewerLogin ? "true" : "false",
             "-UITestResetAppState", "false",
-        ]
+        ] + extraArguments
         if let expectedRoute = route.expectedRoute {
             app.launchArguments += ["-UITestExpectedRoute", expectedRoute]
         }

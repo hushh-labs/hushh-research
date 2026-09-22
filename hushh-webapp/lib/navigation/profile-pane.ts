@@ -124,6 +124,29 @@ export function buildProfilePaneHref(
   return profilePaneHref(pathname, searchParams, location);
 }
 
+/**
+ * Where a legacy `/one/profile?...` address lands: the pane on `/one`, with
+ * `panel|tab|profile_panel` and `detail|profile_detail` carried across. One
+ * mapping for the server redirect on the web and the client redirect inside
+ * the Capacitor bundle, which has no server to redirect from.
+ */
+export function legacyProfileRouteRedirectHref(
+  query: Record<string, string | string[] | undefined> | URLSearchParams,
+): string {
+  const read = (key: string): string => {
+    const raw =
+      query instanceof URLSearchParams ? query.get(key) : query[key];
+    return String(Array.isArray(raw) ? raw[0] ?? "" : raw ?? "").trim();
+  };
+  const params = new URLSearchParams();
+  params.set(PROFILE_PANE_QUERY, "1");
+  const panel = read("panel") || read("tab") || read(PROFILE_PANE_PANEL_QUERY);
+  if (panel) params.set(PROFILE_PANE_PANEL_QUERY, panel);
+  const detail = read("detail") || read(PROFILE_PANE_DETAIL_QUERY);
+  if (detail) params.set(PROFILE_PANE_DETAIL_QUERY, detail);
+  return `/one?${params.toString()}`;
+}
+
 export function buildProfilePaneCloseHref(
   pathname: string,
   searchParams:

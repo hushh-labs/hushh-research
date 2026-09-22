@@ -8,10 +8,10 @@ const mocks = vi.hoisted(() => ({
 vi.mock("@/lib/agent/agent-pkm-memory", () => ({
   previewAgentPkmMemory: mocks.preview,
   addToPKM: mocks.save,
-  getPkmAutoSaveCards: (cards: Array<{ write_mode?: string; sharing_impact?: { active_recipient_count?: number } }>) =>
+  getPkmAutoSaveCards: (cards: Array<{ write_mode?: string; preparation_requires_review?: boolean; sharing_impact?: { active_recipient_count?: number } }>) =>
     cards.filter(
       (card) =>
-        card.write_mode === "can_save" &&
+        card.preparation_requires_review !== true && card.write_mode === "can_save" &&
         (card.sharing_impact?.active_recipient_count || 0) === 0,
     ),
 }));
@@ -24,6 +24,8 @@ import {
 describe("ingestNaturalLanguagePkm", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.preview.mockReset();
+    mocks.save.mockReset();
   });
 
   it("uses the shared proposal cards for independently encrypted PKM writes", async () => {
@@ -220,6 +222,44 @@ describe("ingestNaturalLanguagePkm", () => {
     expect(mocks.preview).toHaveBeenCalledTimes(3);
   });
 
+  it("previews independent source blocks with bounded concurrency and stable order", async () => {
+    const sections = Array.from(
+      { length: 7 },
+      (_, index) => `${index + 1}. Section ${index + 1}\nFact number ${index + 1} about me.`,
+    );
+    let active = 0;
+    let maxActive = 0;
+    mocks.preview.mockImplementation(async ({ message }: { message: string }) => {
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      active -= 1;
+      return {
+        cards: [{ card_id: "section", source_text: message, write_mode: "can_save" }],
+        preview_summary: { total_segments_detected: 1 },
+      };
+    });
+
+    const prepared = await prepareNaturalLanguagePkm({
+      userId: "user_1",
+      message: sections.join("\n\n"),
+      currentDomains: [],
+      vaultOwnerToken: "owner-token",
+      source: "agent_chat_profile_import",
+    });
+
+    expect(maxActive).toBe(2);
+    expect(mocks.preview).toHaveBeenCalledTimes(2);
+    expect(prepared.sourceCoverage).toHaveLength(2);
+    expect(prepared.sourceCoverage[0]?.sourceRange?.start).toBe(0);
+    expect(prepared.sourceCoverage[1]?.sourceRange?.start).toBeGreaterThan(
+      prepared.sourceCoverage[0]?.sourceRange?.start ?? -1,
+    );
+    expect(prepared.cards).toHaveLength(2);
+    expect(prepared.cards[0]?.source_text).toContain("Section 1");
+    expect(prepared.cards[1]?.source_text).toContain("Section 7");
+  });
+
   it("keeps usable LLM cards when an advisory segment count remains mismatched", async () => {
     mocks.preview.mockResolvedValueOnce({
       cards: [{ card_id: "one", source_text: "One represented fact." }],
@@ -235,6 +275,7 @@ describe("ingestNaturalLanguagePkm", () => {
     });
 
     expect(prepared.cards).toHaveLength(1);
+    expect(prepared.cards[0].preparation_requires_review).toBe(true);
     expect(prepared.sourceCoverage).toEqual([
       expect.objectContaining({
         disposition: "review_required",
@@ -244,15 +285,27 @@ describe("ingestNaturalLanguagePkm", () => {
     ]);
   });
 
-  it("keeps other KYC facts when one labelled block has no saveable card", async () => {
+  it.each([34, 96, 97])("does not automatically save incomplete preparation at %i characters", async (length) => {
+    const source = "I prefer tea. I prefer warm rooms.".padEnd(length, ".");
+    mocks.preview.mockResolvedValue({
+      cards: [{ card_id: "one", source_text: "I prefer tea.", write_mode: "can_save" }],
+      preview_summary: { total_segments_detected: 2 },
+    });
+    mocks.save.mockResolvedValue({ attempted: 0, saved: 0, failed: 0, domains: [], results: [] });
+    const result = await ingestNaturalLanguagePkm({
+      userId: "user_1", message: source, currentDomains: [], vaultKey: "test-key",
+      vaultOwnerToken: "test-token", source: "test", writePolicy: "auto_save_only",
+      confirmation: { confirmedByUser: true, surface: "web", source: "test" },
+    });
+    expect(mocks.save).toHaveBeenCalledWith(expect.objectContaining({ cards: [] }));
+    expect(result.sourceCoverage.some(block => block.disposition === "review_required")).toBe(true);
+  });
+
+  it("keeps packed eligible details review-required when source coverage is incomplete", async () => {
     mocks.preview
       .mockResolvedValueOnce({
         cards: [{ card_id: "name", source_text: "**Full Name:** Example Person", write_mode: "confirm_first" }],
-        preview_summary: { total_segments_detected: 1 },
-      })
-      .mockResolvedValueOnce({
-        cards: [],
-        preview_summary: { total_segments_detected: 1 },
+        preview_summary: { total_segments_detected: 2 },
       });
 
     const prepared = await prepareNaturalLanguagePkm({
@@ -268,12 +321,11 @@ describe("ingestNaturalLanguagePkm", () => {
 
     expect(prepared.cards).toHaveLength(1);
     expect(prepared.sourceCoverage).toEqual([
-      expect.objectContaining({ disposition: "review_required", accountedFactCount: 1 }),
-      expect.objectContaining({ disposition: "review_required", accountedFactCount: 0 }),
+      expect.objectContaining({ disposition: "review_required", detectedFactCount: 2, accountedFactCount: 1 }),
     ]);
   });
 
-  it("sends each labeled KYC field through the segmentation model independently", async () => {
+  it("packs adjacent labeled fields without inventing separators or individual requests", async () => {
     mocks.preview.mockImplementation(async ({ message }: { message: string }) => ({
       cards: [{ card_id: "field", source_text: message, write_mode: "confirm_first" }],
       preview_summary: { total_segments_detected: 1 },
@@ -291,13 +343,11 @@ describe("ingestNaturalLanguagePkm", () => {
       source: "kyc_identity_onboarding",
     });
 
-    expect(mocks.preview).toHaveBeenCalledTimes(3);
+    expect(mocks.preview).toHaveBeenCalledTimes(1);
     expect(mocks.preview.mock.calls.map(([params]) => params.message)).toEqual([
-      "**Full Name:** Example Person",
-      "**Educational Institution:** Example University",
-      "**Program:** Mechanical Engineering",
+      "**Full Name:** Example Person\n**Educational Institution:** Example University\n**Program:** Mechanical Engineering",
     ]);
-    expect(prepared.cards).toHaveLength(3);
+    expect(prepared.cards).toHaveLength(1);
   });
 
   it("retries a long unaccounted section as smaller proposal blocks", async () => {
@@ -347,18 +397,112 @@ describe("ingestNaturalLanguagePkm", () => {
     expect(prepared.sourceCoverage).toEqual([
       {
         sourceBlockId: "source_block_001",
+        sourceRange: { start: 0, end: 12 },
         disposition: "proposed",
         detectedFactCount: 1,
         accountedFactCount: 1,
       },
     ]);
   });
+
+  it("bounds a stalled preparation and marks every unfinished source block for review", async () => {
+    mocks.preview.mockImplementation(({ signal }: { signal?: AbortSignal }) => new Promise((resolve, reject) => {
+      const timer = setTimeout(() => resolve({
+        cards: [{ card_id: "late", source_text: "Late detail.", write_mode: "can_save" }],
+        preview_summary: { total_segments_detected: 1 },
+      }), 250);
+      signal?.addEventListener("abort", () => {
+        clearTimeout(timer);
+        reject(new DOMException("Preparation timed out", "TimeoutError"));
+      }, { once: true });
+    }));
+
+    const prepared = await prepareNaturalLanguagePkm({
+      userId: "user_1",
+      message: Array.from({ length: 7 }, (_, index) => `${index + 1}. Section ${index + 1}\nA durable synthetic detail.`).join("\n\n"),
+      currentDomains: [],
+      vaultOwnerToken: "owner-token",
+      source: "agent_chat_profile_import",
+      allowEmpty: true,
+      preparationBudgetMs: 50,
+    });
+
+    expect(prepared.cards).toHaveLength(0);
+    expect(prepared.sourceCoverage.length).toBeGreaterThan(0);
+    expect(prepared.sourceCoverage.every((block) => block.preparationIssue === "preparation_timeout")).toBe(true);
+    expect(mocks.preview).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe("prepareNaturalLanguagePkm large-paste behavior", () => {
+  it("does not hide unaccounted facts when the returned card is already saved", async () => {
+    mocks.preview.mockResolvedValue({
+      cards: [{ card_id: "known", source_text: "I prefer tea.", write_mode: "can_save" }],
+      preview_summary: { total_segments_detected: 2 }, used_fallback: false,
+    });
+    const result = await prepareNaturalLanguagePkm({
+      userId: "user_1", message: "I prefer tea. I prefer warm rooms.", currentDomains: [],
+      vaultOwnerToken: "owner-token", source: "test", allowEmpty: true,
+      findDuplicate: () => ({ kind: "exact", domain: "preferences", path: ["tea"] }),
+    });
+    expect(result.cards).toHaveLength(0);
+    expect(result.sourceCoverage[0]).toMatchObject({ disposition: "review_required", duplicateCount: 1 });
+  });
+
+  it("reports an oversized protected section instead of sending a detached body", async () => {
+    const result = await prepareNaturalLanguagePkm({
+      userId: "user_1", message: "# Historical project\n" + "A qualified detail. ".repeat(400),
+      currentDomains: [], vaultOwnerToken: "owner-token", source: "test", allowEmpty: true,
+    });
+    expect(result.cards).toHaveLength(0);
+    expect(result.sourceCoverage[0]).toMatchObject({ disposition: "review_required", preparationIssue: "context_span_too_large" });
+    expect(mocks.preview).not.toHaveBeenCalled();
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
   beforeEach(() => {
     mocks.preview.mockReset();
     mocks.save.mockReset();
+  });
+
+  it.each([
+    { error: "provider_failure" },
+    { used_fallback: true },
+    { preview_summary: { total_segments_detected: 1 } },
+  ])("does not report a degraded empty capture as intentionally ignored: %j", async (failure) => {
+    mocks.preview.mockResolvedValueOnce({ cards: [], ...failure });
+    const result = await prepareNaturalLanguagePkm({
+      userId: "user_1", message: "I prefer brief answers.", currentDomains: [],
+      vaultOwnerToken: "owner-token", source: "agent_chat", allowEmpty: true,
+    });
+    expect(result.sourceCoverage[0].disposition).toBe("review_required");
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
+
+  it("keeps a successful empty capture quiet", async () => {
+    mocks.preview.mockResolvedValueOnce({
+      cards: [], used_fallback: false, preview_summary: { total_segments_detected: 0 },
+    });
+    const result = await prepareNaturalLanguagePkm({
+      userId: "user_1", message: "Thanks!", currentDomains: [],
+      vaultOwnerToken: "owner-token", source: "agent_chat", allowEmpty: true,
+    });
+    expect(result.sourceCoverage[0].disposition).toBe("intentionally_ignored");
+    expect(mocks.preview).toHaveBeenCalledTimes(1);
+  });
+
+  it("never logs private provider error text", async () => {
+    const log = vi.spyOn(console, "info").mockImplementation(() => {});
+    mocks.preview.mockRejectedValueOnce(new Error("PRIVATE_SOURCE_SENTINEL"));
+    try {
+      await expect(prepareNaturalLanguagePkm({
+        userId: "user_1", message: "I prefer brief answers.", currentDomains: [],
+        vaultOwnerToken: "owner-token", source: "agent_chat", allowEmpty: true,
+      })).rejects.toThrow("failed for every section");
+      expect(JSON.stringify(log.mock.calls)).not.toContain("PRIVATE_SOURCE_SENTINEL");
+      expect(log).toHaveBeenCalledWith("[PKM_INGEST] chunk_failed", expect.objectContaining({ error_code: "proposal_failed" }));
+    } finally {
+      log.mockRestore();
+    }
   });
 
   it("keeps the blocks that prepared when one block fails, and reports the failure", async () => {

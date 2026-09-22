@@ -131,6 +131,20 @@ describe("Top app bar responsive contract", () => {
     expect(providers).not.toContain("<TopAppBar />");
   });
 
+  it("renders every signed-in hub tab set as the one segmented strip", () => {
+    // Finance used to take the underline arm while Connect and Consent took
+    // the segmented pill; one signed-in shell, one tab style.
+    const tabs = read("components/app-ui/top-shell-tabs.tsx");
+    const branch = tabs.slice(
+      tabs.indexOf("const usesModuleSegmentedTabs ="),
+      tabs.indexOf("const usesCompactLabels"),
+    );
+    for (const id of ["location", "connect", "consent", "finance", "ria"]) {
+      expect(branch).toContain(`tabSet.id === "${id}"`);
+    }
+    expect(branch).not.toContain('tabSet.id === "public"');
+  });
+
   it("keeps the top-shell scroll lifecycle stable across route swaps", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
     const effectStart = source.indexOf("const hasBackControlRef");
@@ -483,11 +497,35 @@ describe("Top app bar responsive contract", () => {
     expect(update).toContain("if (hasBackControlRef.current)");
     expect(update).toContain("topChromeProgress = 0;");
 
-    expect(update).toContain("if (nextProgress !== lastWrittenProgress)");
-    expect(update).toContain("if (nextCollapsePx !== lastWrittenCollapsePx)");
+    expect(update).toContain(
+      "if (nextProgress !== lastWrittenProgress || nextCollapsePx !== lastWrittenCollapsePx)",
+    );
     // The bar row is measured on every call; re-querying it each time is a
     // document-wide lookup for a node that almost never changes.
     expect(update).toContain("if (!barRow?.isConnected)");
     expect(update).toContain("barRow?.getBoundingClientRect().height");
+    // Reads before writes: the header check reads a rect, so it runs before
+    // any custom-property write or a scroll event forces a layout of its own.
+    expect(update.indexOf("isPrimaryHeaderOutOfView(header)")).toBeLessThan(
+      update.indexOf("writeCollapse(element"),
+    );
+    // Per-frame writes land on the consumers, never on <html>; the root gets
+    // the settled value once the scroll is quiet.
+    expect(update).not.toContain("document.documentElement");
+    expect(update).toContain("scheduleRootWrite()");
+  });
+
+  it("re-resolves the derived top-shell heights on the collapse consumers", () => {
+    const css = read("app/globals.css");
+    const rule = css.slice(
+      css.indexOf('[data-testid="app-top-shell-layout"],\n.ambient-chrome-mask--top,\n[data-top-chrome-collapse-consumer] {'),
+    );
+    expect(rule).toContain("--top-shell-live-height: calc(");
+    expect(rule).toContain("--top-shell-mask-solid-height: calc(");
+    expect(rule).toContain("--top-shell-mask-visible-height: calc(");
+    // The Connect sticky headers pin to --top-shell-mask-solid-height and
+    // must register, or they would follow the settled root value only.
+    const connect = read("app/connect/page-client.tsx");
+    expect(connect.split("data-top-chrome-collapse-consumer").length - 1).toBe(2);
   });
 });

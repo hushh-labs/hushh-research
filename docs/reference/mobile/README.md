@@ -169,4 +169,5 @@ host stops.
 
 - [capacitor-parity-audit.md](./capacitor-parity-audit.md): parity contract and audit gate.
 - [capacitor-parity-audit-report.md](./capacitor-parity-audit-report.md): latest release-ready audit findings.
+- [render-performance-charter.md](./render-performance-charter.md): the frame-pacing bar in numbers, the in-app probe, the native instruments, and the ratchet that defends it.
 - [../architecture/frontend-native-surface-map.md](../architecture/frontend-native-surface-map.md): route to API/native/plugin/voice mapper scaffold.

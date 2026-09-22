@@ -2523,7 +2523,7 @@
         "voice": false,
         "web": false
       },
-      "system_instruction_sha256": "8aa618e35814e9fff42dc12bf336007c1ca4febcbcb29048a5dc41d9dd3e38eb",
+      "system_instruction_sha256": "fdef36c87ae0c05479264102e3d144ad90aad67e3e5e3e38e59d33022aa45636",
       "telemetry_namespace": "agent.unclassified",
       "tools": [],
       "ui_type": "chat",
@@ -2682,7 +2682,7 @@
         "voice": false,
         "web": false
       },
-      "system_instruction_sha256": "065474c6b5cc091c4cef11a7aa6ccc61b8692de872ee5b3aee44635fafffd4d9",
+      "system_instruction_sha256": "6d1a1cb99a905803d7fd3bc3cdd11c03ab0abb927c1db1bc7b89e58a686d30a6",
       "telemetry_namespace": "agent.unclassified",
       "tools": [],
       "ui_type": "chat",
@@ -2757,6 +2757,11 @@
           "description": null,
           "name": "contract_version",
           "type": "integer"
+        },
+        {
+          "description": null,
+          "name": "has_more_candidates",
+          "type": "boolean"
         }
       ],
       "owner": "backend",
@@ -2801,7 +2806,7 @@
         "voice": false,
         "web": false
       },
-      "system_instruction_sha256": "44f8f84be468807b58660c9369b9594a1e686b0456587e9240d80b5d29dc9750",
+      "system_instruction_sha256": "1b6beea0cb21e033646338f21c888a94185a3565024396894e40c29813db853f",
       "telemetry_namespace": "agent.unclassified",
       "tools": [],
       "ui_type": "chat",
@@ -3323,7 +3328,7 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "b51256b6b431ddb63d97d29e21e57f16c5bb1899ab91ad2b8a4615c7e8c459e5",
+      "system_instruction_sha256": "24c1f472ae7e050ed6bc7bf7a58532f089edb0f214a9f0ed19e7ad8c472422a3",
       "telemetry_namespace": "agent.one",
       "tools": [],
       "ui_type": "chat",
@@ -3681,7 +3686,7 @@
         "voice": false,
         "web": false
       },
-      "system_instruction_sha256": "80d18a4f7c8bb1c4df291a688a86b08140c0ef81602494376dc508ccf693b1a9",
+      "system_instruction_sha256": "af8d048bb4938add9dee6f32ff544da77f9fedd8b7c77bc7b03b6db7ab58836e",
       "telemetry_namespace": "agent.unclassified",
       "tools": [],
       "ui_type": "chat",

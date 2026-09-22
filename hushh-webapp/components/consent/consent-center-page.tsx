@@ -2959,7 +2959,7 @@ export function ConsentCenterPage() {
                       commitConsentTab(value as ConsentTab)
                     }
                     panelInset="none"
-                    viewportMinHeight="0px"
+                    viewportMinHeight="fill"
                     heightMode="active"
                   >
                     <ConsentSurfaceListSection

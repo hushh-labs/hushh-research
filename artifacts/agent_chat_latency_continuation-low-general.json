@@ -1,0 +1,93 @@
+{
+  "base_url": "http://127.0.0.1:8003",
+  "gap_seconds": 0.0,
+  "generated_at": "2026-09-22T03:21:06+00:00",
+  "label": "continuation-low-general",
+  "outcomes": {
+    "finished": 1
+  },
+  "per_prompt": {
+    "general_help": {
+      "category": "general",
+      "client": {
+        "first_visible": {
+          "count": 1,
+          "max": 17910.0,
+          "p50": 17910.0,
+          "p95": 17910.0
+        },
+        "total": {
+          "count": 1,
+          "max": 21166.5,
+          "p50": 21166.5,
+          "p95": 21166.5
+        }
+      },
+      "server": {
+        "elapsed": {
+          "count": 0,
+          "max": null,
+          "p50": null,
+          "p95": null
+        },
+        "first_visible": {
+          "count": 0,
+          "max": null,
+          "p50": null,
+          "p95": null
+        }
+      }
+    }
+  },
+  "prompt_count": 12,
+  "reps": 1,
+  "route": "/api/one/agent-chat",
+  "sample_count": 1,
+  "samples": [
+    {
+      "category": "general",
+      "client_first_visible_ms": 17910.0,
+      "client_total_ms": 21166.5,
+      "detail": "",
+      "event_count": 16,
+      "first_visible_event": "TEXT_MESSAGE_CONTENT",
+      "outcome": "finished",
+      "prompt_id": "general_help",
+      "rep": 0,
+      "run": "da416b1c",
+      "server_elapsed_ms": null,
+      "server_first_visible_ms": null
+    }
+  ],
+  "server_log_matched": null,
+  "summary": {
+    "client": {
+      "first_visible": {
+        "count": 1,
+        "max": 17910.0,
+        "p50": 17910.0,
+        "p95": 17910.0
+      },
+      "total": {
+        "count": 1,
+        "max": 21166.5,
+        "p50": 21166.5,
+        "p95": 21166.5
+      }
+    },
+    "server": {
+      "elapsed": {
+        "count": 0,
+        "max": null,
+        "p50": null,
+        "p95": null
+      },
+      "first_visible": {
+        "count": 0,
+        "max": null,
+        "p50": null,
+        "p95": null
+      }
+    }
+  }
+}

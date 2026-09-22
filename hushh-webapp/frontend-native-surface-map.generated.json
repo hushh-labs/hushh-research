@@ -7378,71 +7378,6 @@
       }
     },
     {
-      "route": "/one/setup/capabilities",
-      "page_file": "app/one/setup/capabilities/page.tsx",
-      "physical_page_exists": true,
-      "route_contract": {
-        "mode": "standard",
-        "exemption_reason": null,
-        "shell_verification_file": "components/onboarding/setup/one-setup-capabilities-screen.tsx",
-        "shell_verification_includes": [
-          "AppPageShell",
-          "AppPageHeaderRegion",
-          "AppPageContentRegion",
-          "PageHeader"
-        ],
-        "interaction_layer_policy": {
-          "allowed_families": []
-        },
-        "voice_playbook": {
-          "playbook_id": "route.one.setup.capabilities",
-          "purpose": "Help the person connect or dismiss any of the optional One capabilities, opened from the dashboard's setup tile.",
-          "screen": "one_setup_capabilities",
-          "entry_cue": "",
-          "proactivity": "ambient",
-          "primary_action_id": null,
-          "happy_path_action_ids": [],
-          "required_inputs": [],
-          "recoveries": {
-            "blocked": "Explain the current guard and retain the goal.",
-            "cancelled": "Respect the cancellation and retain a safe next step.",
-            "failed": "Acknowledge the failure without claiming completion.",
-            "timeout": "Retain the goal and offer one safe retry.",
-            "callback_error": "Return to the verified callback recovery path without claiming success.",
-            "route_mismatch": "Use the verified current route and its generated actions only."
-          },
-          "completion_boundary": "This screen has no separate completion of its own -- each capability's own setup or dismiss is what changes state.",
-          "next_route": "/one",
-          "return_policy": "navigate",
-          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
-        }
-      },
-      "native": {
-        "route": "/one/setup/capabilities",
-        "classification": "native-required-functional",
-        "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Fcapabilities",
-        "expectedMarker": "native-route-setup-capabilities",
-        "expectedRoute": "/one/setup/capabilities",
-        "autoReviewerLogin": true,
-        "expectedAuth": "authenticated",
-        "allowedDataStates": [
-          "loaded"
-        ]
-      },
-      "shell": {
-        "app_page_shell": false,
-        "page_header": false,
-        "settings_ui": false,
-        "shared_loader": false,
-        "back_button_pattern": "shared-shell"
-      },
-      "voice_action_contract_file": null,
-      "voice_action_contract_ids": [],
-      "api_dependencies": [],
-      "native_plugin_dependencies": [],
-      "thread_and_consent_contract": null
-    },
-    {
       "route": "/one/setup/connected-systems",
       "page_file": "app/one/setup/connected-systems/page.tsx",
       "physical_page_exists": true,
@@ -9642,5 +9577,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "9cba1a5557a1f0dca2232fe5766644ce2b4c588653fa7f8716e9ea9cbb3b3fbd"
+  "content_sha256": "cd29f3fedd4a1237b8ae5b02821bfc43653ddaae314ff44fa8abd72cc3512561"
 }

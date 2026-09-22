@@ -386,10 +386,10 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
             if (err instanceof ConsentExportNoDataError) {
               // The builder's sentences name what it could not build, in
               // developer words; the owner only needs to know nothing left.
-              console.info("[Consent] Nothing to share for scope:", consent.scope, err.message);
+              console.warn("[Consent] Export unavailable", err.diagnostics || { stage: "eligible_scope" });
               throw new OwnerFacingConsentError(NOTHING_TO_SHARE);
             }
-            console.error("[Consent] PKM export build failed:", err);
+            console.error("[Consent] PKM export build failed", { errorClass: err instanceof Error ? err.name : "UnknownError" });
             throw new OwnerFacingConsentError(
               "Could not load your saved details. Try again."
             );
@@ -618,7 +618,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         markAsHandled(consent.id);
         emitSuccessfulMutation({ action: "approve", requestId: consent.id });
       } catch (err) {
-        console.error("Error approving consent:", err);
+        console.error("Error approving consent", { errorClass: err instanceof Error ? err.name : "UnknownError" });
         markAsPending(consent.id);
         if (options?.quiet) {
           throw quietConsentError(err, APPROVE_FAILED);

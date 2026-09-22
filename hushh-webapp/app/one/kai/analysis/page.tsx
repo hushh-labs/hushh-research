@@ -1236,7 +1236,7 @@ export function KaiAnalysisPageContent() {
                 activeValue={workspaceTab}
                 options={workspaceTabOptions}
                 heightMode="active"
-                viewportMinHeight="0px"
+                viewportMinHeight="fill"
                 onSelectionChange={(value) => setWorkspaceTab(value as WorkspaceTab)}
                 onSelectionCommit={(value) => setWorkspaceView(value as WorkspaceTab)}
               >

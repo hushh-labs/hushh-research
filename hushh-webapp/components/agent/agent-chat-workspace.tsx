@@ -14,6 +14,9 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { AgentMemoryCaptureStatus } from "@/components/agent/agent-memory-capture-status";
+import { aggregateAgentPkmCaptures, createAgentPkmCaptureGuard, describeAgentPkmCapture, isAgentPkmProcessingReady, type AgentPkmCaptureStatus } from "@/lib/agent/agent-pkm-capture-runtime";
+import { AgentPersonSelectionContext } from "@/components/agent/agent-structured-experience";
 import {
   Check,
   ChevronRight,
@@ -45,6 +48,7 @@ import { SegmentedControl } from "@/lib/morphy-ux/ui/segmented-control";
 import {
   mergeScopeItems,
   scopeItemFromPendingConsent,
+  type ConsentScopeItem,
 } from "@/lib/consent/consent-scope-items";
 import {
   Select,
@@ -65,13 +69,17 @@ import { loadPkmAgentLabContext } from "@/lib/profile/pkm-agent-lab-capture";
 import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
 import { SecureCardAddForm } from "@/components/wallet/secure-card-add-form";
 import { SecureCardReveal } from "@/components/wallet/secure-card-reveal";
-import { detectLikelyPan } from "@/lib/wallet/pan-paste-guard";
+import {
+  detectLikelyPan,
+  redactLikelyPans,
+} from "@/lib/wallet/pan-paste-guard";
 import {
   WalletService,
   type WalletCardSecrets,
   type WalletCardSummary,
 } from "@/lib/services/wallet-service";
 import { OneKycClientZkService } from "@/lib/services/one-kyc-client-zk-service";
+import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 import {
   CardNetworkMark,
   cardNetworkLabel,
@@ -87,6 +95,8 @@ import {
   SpecialistFreeTextPromptCard,
   SpecialistPendingConsentRequestCard,
   SpecialistPromptCard,
+  normalizePendingConsentCardStatus,
+  type PendingConsentCardStatus,
   type SpecialistConsentActionItem,
   type SpecialistPendingConsentRequestItem,
 } from "@/components/agent/specialist-directive-card";
@@ -102,7 +112,11 @@ import {
 } from "@/components/agent/agent-turn-stream-panel";
 import { describeSelection } from "@/lib/agent/describe-selection";
 import { useEntryWelcome, type EntryWelcome } from "@/lib/agent/use-entry-welcome";
-import type { AgentStructuredExperience } from "@/lib/agent/agui-structured-experiences";
+import {
+  parseAgentActivityExperience,
+  type AgentStructuredExperience,
+  type AgentStructuredExperienceWithPresentation,
+} from "@/lib/agent/agui-structured-experiences";
 import {
   getWelcomePromptSetIndex,
   getWelcomePrompts,
@@ -120,20 +134,19 @@ import {
 import {
   addToPKM,
   clearAgentPkmContext,
-  formatAgentPkmSaveSummary,
+  getPkmConfirmationCards,
   getPkmAutoSaveCards,
-  getIgnoredPkmCards,
   loadAgentPkmContext,
   peekAgentPkmContext,
   warmAgentPkmContext,
   type AgentPkmContext,
-  type AgentPkmPreviewCard,
 } from "@/lib/agent/agent-pkm-memory";
 import { prepareNaturalLanguagePkm } from "@/lib/pkm/pkm-natural-language-ingestion";
 import {
   DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY,
   AGENT_PKM_PRODUCT_DEFAULT_EFFECTIVE_AT,
   loadAgentPkmAutoSavePolicy,
+  subscribeAgentPkmAutoSavePolicyInvalidation,
   type AgentPkmAutoSavePolicy,
 } from "@/lib/agent/agent-pkm-auto-save-policy";
 import {
@@ -197,8 +210,11 @@ import {
   ConsentCenterService,
   type PendingConsentLookupItem,
 } from "@/lib/services/consent-center-service";
+import { ApiService } from "@/lib/services/api-service";
+import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
+import { useRootChatDeferredReady } from "@/lib/navigation/use-root-chat-deferred-ready";
 import { useAgentRuntimeStateOptional } from "@/lib/agent/agent-runtime-context";
 import {
   useOneConversationSession,
@@ -238,6 +254,7 @@ type AgentMessage = {
   timestamp: string;
   status?: "streaming" | "done" | "error";
   ephemeral?: boolean;
+  memoryCapture?: AgentPkmCaptureStatus;
   kind?: "selection";
   // Calendar proposal status is already a bounded confirmation/result. Keep
   // that one message on the regular assistant surface instead of wrapping it
@@ -248,7 +265,32 @@ type AgentMessage = {
   thought?: string;
   sources?: AgentSource[];
   structuredExperience?: AgentStructuredExperience | null;
+  structuredExperiences?: AgentStructuredExperienceEntry[];
 };
+
+export type AgentStructuredExperienceEntry = {
+  id: string;
+  experience: AgentStructuredExperienceWithPresentation;
+};
+
+/**
+ * Upsert a transport-identified AGUI card without silently dropping earlier
+ * cards from the same turn. The server may emit several distinct activities;
+ * only a repeated identity is a revision of an existing card.
+ */
+export function upsertAgentStructuredExperience(
+  current: readonly AgentStructuredExperienceEntry[],
+  id: string,
+  experience: AgentStructuredExperienceWithPresentation,
+): AgentStructuredExperienceEntry[] {
+  const existingIndex = current.findIndex((entry) => entry.id === id);
+  if (existingIndex < 0) {
+    return [...current, { id, experience }];
+  }
+  return current.map((entry, index) =>
+    index === existingIndex ? { id, experience } : entry,
+  );
+}
 
 type EmailDeliveryTimelineItem = EmailDeliveryHistoryItem & {
   anchorMessageId: string | null;
@@ -315,8 +357,10 @@ type AgentWalletWidget =
 type AgentTurnSource = "typed";
 type AgentRunTurnOptions = {
   source: AgentTurnSource;
+  personSelectionHandle?: string;
   appendUserMessage?: boolean;
   replaceAssistantMessageId?: string | null;
+  deferPkmContext?: boolean;
 };
 
 type ConsentRequiredDirectivePayload = {
@@ -548,6 +592,48 @@ function getConsentActionsPayload(
   return { kind: "consent_actions", items };
 }
 
+function pendingConsentScopeItemFromUnknown(
+  value: unknown,
+): ConsentScopeItem | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const raw = value as Record<string, unknown>;
+  const id = typeof raw.id === "string" ? raw.id.trim() : "";
+  const label = typeof raw.label === "string" ? raw.label.trim() : "";
+  const domainKey =
+    typeof raw.domainKey === "string" ? raw.domainKey.trim() : "";
+  const domainLabel =
+    typeof raw.domainLabel === "string" ? raw.domainLabel.trim() : "";
+  if (!id || !label || !domainKey || !domainLabel) return null;
+  const pathSegments = Array.isArray(raw.pathSegments)
+    ? raw.pathSegments.filter(
+        (segment): segment is string =>
+          typeof segment === "string" && Boolean(segment.trim()),
+      )
+    : [];
+  const description =
+    typeof raw.description === "string" ? raw.description : null;
+  const badge = typeof raw.badge === "string" ? raw.badge : null;
+  return {
+    id,
+    label,
+    description,
+    domainKey,
+    pathSegments,
+    domainLabel,
+    badge,
+    disabled: raw.disabled === true,
+    searchText:
+      typeof raw.searchText === "string"
+        ? raw.searchText
+        : [label, description, domainKey, domainLabel]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase(),
+  };
+}
+
 /**
  * Re-reads a pending consent card item out of the directive payload it was
  * embedded in. The card item is stored as an untyped payload, so every field
@@ -555,13 +641,9 @@ function getConsentActionsPayload(
  * field dropped at this hop is dropped for good, however faithfully the
  * mappers before it copied it.
  *
- * The bundle fields (bundleId, bundleLabel, bundleScopeCount,
- * bundledRequestIds, bundledScopes) are deliberately NOT re-emitted. The fold
- * below compares `payload.item.bundleId` to decide whether a later request in
- * the same bundle merges into an existing card; leaving it null here keeps
- * that fold inert, so a bundle of N requests renders N cards, each approvable
- * on its own. Re-emitting them would fold the cards while Approve only acted
- * on the head request; folding needs handleApproveBundle wired first.
+ * Bundle metadata is presentation-only and is retained as sanitized
+ * descriptors. Live approval still re-looks up every request id, so restored
+ * card payloads cannot grant access from stale transcript data.
  */
 export function getPendingConsentRequestPayload(
   event: SpecialistDirectiveEvent | null,
@@ -576,10 +658,7 @@ export function getPendingConsentRequestPayload(
   if (!rawItem) return null;
   const id = typeof rawItem.id === "string" ? rawItem.id.trim() : "";
   if (!id) return null;
-  const status =
-    rawItem.status === "approved" || rawItem.status === "denied"
-      ? rawItem.status
-      : "pending";
+  const status = normalizePendingConsentCardStatus(rawItem.status);
   return {
     kind: "pending_consent_request",
     item: {
@@ -632,6 +711,35 @@ export function getPendingConsentRequestPayload(
         !Array.isArray(rawItem.metadata)
           ? (rawItem.metadata as Record<string, unknown>)
           : null,
+      bundleId:
+        typeof rawItem.bundleId === "string" && rawItem.bundleId.trim()
+          ? rawItem.bundleId.trim()
+          : null,
+      bundleLabel:
+        typeof rawItem.bundleLabel === "string" && rawItem.bundleLabel.trim()
+          ? rawItem.bundleLabel.trim()
+          : null,
+      bundleScopeCount:
+        typeof rawItem.bundleScopeCount === "number" &&
+        Number.isFinite(rawItem.bundleScopeCount)
+          ? rawItem.bundleScopeCount
+          : null,
+      bundledRequestIds: Array.isArray(rawItem.bundledRequestIds)
+        ? Array.from(
+            new Set(
+              rawItem.bundledRequestIds.filter(
+                (requestId): requestId is string =>
+                  typeof requestId === "string" && Boolean(requestId.trim()),
+              ),
+            ),
+          )
+        : [],
+      bundledScopes: Array.isArray(rawItem.bundledScopes)
+        ? rawItem.bundledScopes.flatMap((scope) => {
+            const parsed = pendingConsentScopeItemFromUnknown(scope);
+            return parsed ? [parsed] : [];
+          })
+        : [],
     },
   };
 }
@@ -739,8 +847,8 @@ export function pendingConsentCardRequestIds(
  * request's metadata only (the others were folded in by id and scope), and
  * Approve wraps the vault key to the key in each request's own metadata, so a
  * folded card looks every member up again and acts on whichever are still
- * pending. A single-request card needs no lookup: the card item already holds
- * everything the hook reads.
+ * pending. Single requests also revalidate current authority; retained card
+ * metadata is presentation, never a substitute for the live request.
  */
 export async function resolvePendingConsentCardTargets(input: {
   userId: string;
@@ -748,10 +856,7 @@ export async function resolvePendingConsentCardTargets(input: {
   item: SpecialistPendingConsentRequestItem;
 }): Promise<PendingConsent[]> {
   const requestIds = pendingConsentCardRequestIds(input.item);
-  if (requestIds.length < 2) {
-    return [pendingConsentCardItemToPendingConsent(input.item)];
-  }
-  if (!input.vaultOwnerToken) {
+  if (!input.userId.trim() || !input.vaultOwnerToken?.trim()) {
     throw new Error("Unlock your vault first.");
   }
   const result = await ConsentCenterService.lookupPendingRequests({
@@ -781,10 +886,51 @@ function agentMessagePendingConsentRequestId(
   return payload?.item.id ?? null;
 }
 
+/**
+ * Keep consent cards that arrived while history was warming.
+ *
+ * Pending requests are owner-scoped live state, while the conversation
+ * snapshot is an eventually-consistent transcript. A snapshot must not erase
+ * a card that was just hydrated, and a newer local status (approve/deny) must
+ * win over an older transcript copy. This merges only safe card descriptors;
+ * it never merges decrypted information or replays an action.
+ */
+export function mergePendingConsentMessages(
+  restored: AgentMessage[],
+  current: readonly AgentMessage[],
+): AgentMessage[] {
+  const merged = [...restored];
+
+  for (const candidate of current) {
+    const payload = getPendingConsentRequestPayload(
+      candidate.specialistDirective ?? null,
+    );
+    if (!payload) continue;
+    const candidateIds = new Set(pendingConsentCardRequestIds(payload.item));
+    const existingIndex = merged.findIndex((message) => {
+      const existing = getPendingConsentRequestPayload(
+        message.specialistDirective ?? null,
+      );
+      if (!existing) return false;
+      return pendingConsentCardRequestIds(existing.item).some((id) =>
+        candidateIds.has(id),
+      );
+    });
+
+    if (existingIndex >= 0) {
+      merged[existingIndex] = candidate;
+    } else {
+      merged.push(candidate);
+    }
+  }
+
+  return merged;
+}
+
 function markPendingConsentRequestDirectiveStatus(
   event: SpecialistDirectiveEvent | null | undefined,
   itemId: string,
-  status: "approved" | "denied",
+  status: Exclude<PendingConsentCardStatus, "pending">,
 ): SpecialistDirectiveEvent | null | undefined {
   if (!event || event.directive.kind !== "prompt") return event;
   const payload = event.directive.payload as Record<string, unknown>;
@@ -1250,14 +1396,26 @@ function AgentBubble({
   const isUser = message.role === "user";
   const isStreaming = message.status === "streaming";
   const isError = message.status === "error";
-  const streamEvents = message.streamEvents ?? [];
+  const streamEvents = (message.streamEvents ?? []).filter(
+    (event) => !message.memoryCapture || event.label !== "Memory",
+  );
+  const structuredExperiences =
+    message.structuredExperiences ??
+    (message.structuredExperience
+      ? [
+          {
+            id: "legacy-structured-experience",
+            experience: message.structuredExperience,
+          },
+        ]
+      : []);
   // Use the activity surface only while a turn is active or when the settled
   // turn has safe, inspectable activity. Plain completed answers stay readable.
   const hasStreamContent =
     isStreaming ||
     streamEvents.length > 0 ||
     Boolean(message.sources?.length) ||
-    Boolean(message.structuredExperience);
+    structuredExperiences.length > 0;
   const shouldRenderStreamPanel =
     !isUser && !isError && hasStreamContent && !message.renderAsPlainAssistantMessage;
   const animated = useAnimatedAssistantText(
@@ -1326,6 +1484,7 @@ function AgentBubble({
       >
         <div
           aria-live={!isUser && isStreaming ? "polite" : undefined}
+          data-agent-streaming={!isUser && isStreaming ? "true" : undefined}
           className={cn(
             "text-sm leading-6",
             isUser
@@ -1347,6 +1506,7 @@ function AgentBubble({
               thinkingText={message.thought}
               sources={message.sources}
               structuredExperience={message.structuredExperience}
+              structuredExperiences={structuredExperiences}
               responseText={assistantText}
               isStreaming={isStreaming}
               isError={isError}
@@ -1362,6 +1522,7 @@ function AgentBubble({
             <AgentThinkingDots />
           )}
         </div>
+        {!isUser && message.memoryCapture ? <AgentMemoryCaptureStatus status={message.memoryCapture} /> : null}
         <div
           className={cn(
             "mt-1 flex items-center gap-2 text-[11px] text-[rgba(0,0,0,0.46)] dark:text-zinc-500",
@@ -1490,6 +1651,7 @@ const LEGACY_SELECTION_SEED = /^I selected:.*do not guess/s;
 
 export function storedMessageToAgentMessage(
   message: StoredAgentChatMessage,
+  seenExperienceIds: Set<string> = new Set(),
 ): AgentMessage | null {
   if (message.role !== "user" && message.role !== "assistant") return null;
   const createdAt = message.created_at ? new Date(message.created_at) : null;
@@ -1510,6 +1672,40 @@ export function storedMessageToAgentMessage(
       : isLegacySelectionSeed
         ? "Your selection"
         : message.content;
+  const descriptor = message.metadata?.structuredExperience;
+  const restoredExperience =
+    descriptor && typeof descriptor.activityType === "string"
+      ? parseAgentActivityExperience(descriptor.activityType, descriptor.content)
+      : null;
+  const orderedExperiences = message.metadata?.structuredExperiences?.flatMap((entry, index) => {
+    if (!entry || typeof entry.activityType !== "string") return [];
+    const experience = parseAgentActivityExperience(entry.activityType, entry.content);
+    return experience ? [{
+      id: (typeof entry.id === "string" ? entry.id.trim() : "") ||
+        `${message.id}:structured-experience:${index}`,
+      experience,
+    }] : [];
+  });
+  const candidates = orderedExperiences?.length ? orderedExperiences : restoredExperience
+    ? [
+        {
+          id:
+            (typeof message.metadata?.structuredExperienceId === "string"
+              ? message.metadata.structuredExperienceId.trim()
+              : "") ||
+            `${message.id}:structured-experience`,
+          experience: restoredExperience,
+        },
+      ]
+    : [];
+  const structuredExperiences = candidates.filter(entry => {
+    if (seenExperienceIds.has(entry.id)) return false;
+    seenExperienceIds.add(entry.id);
+    return true;
+  });
+  // Do not resurrect a duplicate through the legacy descriptor, or leave an
+  // empty thinking bubble. Prose and all distinct cards retain source order.
+  if (candidates.length && !structuredExperiences.length && !displayText.trim()) return null;
   return {
     id: message.id,
     role: message.role,
@@ -1525,7 +1721,15 @@ export function storedMessageToAgentMessage(
     ...(isSelection || isLegacySelectionSeed
       ? { kind: "selection" as const }
       : {}),
+    ...(structuredExperiences.length ? { structuredExperiences } : {}),
   };
+}
+
+export function storedMessagesToAgentMessages(messages: StoredAgentChatMessage[]): AgentMessage[] {
+  const seenExperienceIds = new Set<string>();
+  return messages
+    .map(message => storedMessageToAgentMessage(message, seenExperienceIds))
+    .filter((message): message is AgentMessage => Boolean(message));
 }
 
 export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
@@ -1534,7 +1738,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const isCanonicalChatRoute = pathname === ROUTES.HOME;
   const searchParams = useSearchParams();
   const localCrmEnabled = isLocalCrmBuildEnabled();
-  const { user, loading: authLoading, phoneNumber } = useAuth();
+  const { user, loading: authLoading, phoneNumber, sessionVerificationRequired } = useAuth();
   const {
     isVaultUnlocked,
     vaultKey,
@@ -1728,6 +1932,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [walletWidgets, setWalletWidgets] = useState<AgentWalletWidget[]>([]);
   const [pkmAutoSavePolicy, setPkmAutoSavePolicy] =
     useState<AgentPkmAutoSavePolicy>(DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY);
+  const [pkmPolicyReady, setPkmPolicyReady] = useState(false);
+  const [pkmPolicyRevision, setPkmPolicyRevision] = useState(0);
+  const [pkmPolicyOwnerId, setPkmPolicyOwnerId] = useState<string | null>(null);
+  const pkmCapturePolicyRef = useRef(pkmAutoSavePolicy);
+  pkmCapturePolicyRef.current = pkmAutoSavePolicy;
+  const pkmCaptureEnabledRef = useRef(false);
+  pkmCaptureEnabledRef.current = pkmPolicyReady && pkmPolicyOwnerId === user?.uid && pkmAutoSavePolicy.enabled && isVaultUnlocked;
+  const pkmCaptureReadinessRef = useRef({ authLoading, sessionVerificationRequired, isVaultUnlocked, vaultOwnerToken, tokenExpiresAt });
+  pkmCaptureReadinessRef.current = { authLoading, sessionVerificationRequired, isVaultUnlocked, vaultOwnerToken, tokenExpiresAt };
   // A specialist (e.g. agent_location) can return a directive that must be
   // explicitly confirmed by the user before it runs. Stored here and rendered
   // as an inline card; never auto-fired for kind:"action".
@@ -1768,6 +1981,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     ((prompt: string) => Promise<void>) | null
   >(null);
   const pkmAbortControllersRef = useRef<Set<AbortController>>(new Set());
+  const pkmCaptureJobsRef = useRef(new Map<string, Promise<AgentPkmCaptureStatus>>());
+  const pkmCaptureReceiptsRef = useRef(new Map<string, Map<string, AgentPkmCaptureStatus>>());
   const latestVisibleTurnIdRef = useRef<string | null>(null);
   const inlineConsentRequestIdsRef = useRef<Set<string>>(new Set());
   // Set by the FCM effect below; lets a server tool result (pending requests
@@ -1809,6 +2024,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const voiceLevel = useAgentVoiceState((state) => state.level);
   const isToolWorking = activeFrontendToolCount > 0;
   const isPkmMemoryWorking = activePkmToolCount > 0;
+  const rootChatReady = useRootChatDeferredReady();
   const tokenIsFresh = !tokenExpiresAt || Date.now() < tokenExpiresAt;
   const agentVoiceEnabled = isAgentCommandEnabled();
   const abortAgentTurnWork = useCallback(() => {
@@ -1818,7 +2034,25 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       controller.abort();
     }
     pkmAbortControllersRef.current.clear();
+    pkmCaptureJobsRef.current.clear();
+    pkmCaptureReceiptsRef.current.clear();
+    setActivePkmToolCount(0);
   }, []);
+
+  useEffect(() => {
+    // Token renewal invalidates the captured vault generation, but must not
+    // cancel the answer stream or replay the underlying route transition.
+    for (const controller of pkmAbortControllersRef.current) controller.abort();
+    pkmAbortControllersRef.current.clear();
+    pkmCaptureJobsRef.current.clear();
+    pkmCaptureReceiptsRef.current.clear();
+    setActivePkmToolCount(0);
+    setMessages((current) => current.map((message) =>
+      message.memoryCapture?.phase === "preparing" || message.memoryCapture?.phase === "saving"
+        ? { ...message, memoryCapture: { phase: message.memoryCapture.saved ? "partial" : "canceled", saved: message.memoryCapture.saved } }
+        : message,
+    ));
+  }, [vaultOwnerToken, pkmAutoSavePolicy, isVaultUnlocked, pkmPolicyReady, authLoading, sessionVerificationRequired]);
 
   useEffect(() => {
     if (user?.uid && isVaultUnlocked && vaultKey) {
@@ -1832,7 +2066,18 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   }, [isVaultUnlocked, user?.uid, vaultKey]);
 
   useEffect(() => {
+    if (!user?.uid) return;
+    return subscribeAgentPkmAutoSavePolicyInvalidation(user.uid, () => {
+      pkmCaptureEnabledRef.current = false;
+      setPkmPolicyReady(false);
+      setPkmPolicyRevision((revision) => revision + 1);
+    });
+  }, [user?.uid]);
+
+  useEffect(() => {
     let cancelled = false;
+    setPkmPolicyReady(false);
+    setPkmPolicyOwnerId(null);
     if (!user?.uid || !isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
       setPkmAutoSavePolicy(DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY);
       return undefined;
@@ -1843,7 +2088,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       vaultOwnerToken,
     })
       .then((policy) => {
-        if (!cancelled) setPkmAutoSavePolicy(policy);
+        if (!cancelled) {
+          setPkmAutoSavePolicy(policy);
+          setPkmPolicyOwnerId(user.uid);
+          setPkmPolicyReady(true);
+        }
       })
       .catch(() => {
         if (!cancelled)
@@ -1852,7 +2101,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     return () => {
       cancelled = true;
     };
-  }, [isVaultUnlocked, user?.uid, vaultKey, vaultOwnerToken]);
+  }, [isVaultUnlocked, user?.uid, vaultKey, vaultOwnerToken, pkmPolicyRevision]);
 
   useEffect(() => {
     if (!user?.uid || !isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
@@ -2100,7 +2349,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     if (voiceState === "error") return "Voice error";
     if (isVoiceConnecting) return "Voice connecting";
     if (isToolWorking) return "Working";
-    if (isPkmMemoryWorking) return "Saving memory";
+    if (isPkmMemoryWorking) return "Updating Memory";
     if (queuedPrompts.length > 0) return `${queuedPrompts.length} queued`;
     if (isChatLoading) return "Thinking";
     if (isStreaming) return "Streaming";
@@ -2212,7 +2461,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // is idempotent: it reuses the stored keypair and re-registers the public half.
   useEffect(() => {
     const token = getVaultOwnerToken();
-    if (!user?.uid || !vaultKey || !token) return;
+    if (
+      !user?.uid ||
+      !vaultKey ||
+      !token ||
+      shouldSkipReviewerBackgroundWritesForAutomation()
+    ) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -2856,7 +3110,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   ]);
 
   useEffect(() => {
-    if (!user?.uid || !isVaultUnlocked) return;
+    if (!user?.uid || !isVaultUnlocked || !rootChatReady) return;
 
     let cancelled = false;
 
@@ -3016,14 +3270,53 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       }
     };
 
+    const reconcilePendingConsentRequests = async () => {
+      const token = getVaultOwnerToken();
+      if (!token) return;
+      try {
+        const response = await ApiService.getPendingConsents(user.uid, token);
+        const payload = (await response.json().catch(() => ({}))) as {
+          pending?: Array<{ id?: string; request_id?: string }>;
+        };
+        if (!response.ok || cancelled) return;
+        for (const item of Array.isArray(payload.pending) ? payload.pending : []) {
+          const requestId = String(item.id || item.request_id || "").trim();
+          if (requestId) void appendPendingConsentRequest(requestId);
+        }
+      } catch {
+        // FCM and the next explicit consent refresh remain authoritative. A
+        // failed reconciliation must not block Chat or create a fake card.
+      }
+    };
+
+    const handleConsentStateChanged = (event: Event) => {
+      const detail = (event as CustomEvent<Record<string, unknown>>).detail;
+      const requestId = String(detail?.requestId || "").trim();
+      const action = String(detail?.action || "").trim().toLowerCase();
+      if (!requestId || (action !== "approve" && action !== "deny")) return;
+      setMessages((current) =>
+        current.map((message) => ({
+          ...message,
+          specialistDirective: markPendingConsentRequestDirectiveStatus(
+            message.specialistDirective,
+            requestId,
+            action === "approve" ? "approved" : "denied",
+          ),
+        })),
+      );
+    };
+
     appendPendingConsentRequestRef.current = appendPendingConsentRequest;
     window.addEventListener(FCM_MESSAGE_EVENT, handleConsentMessage);
+    window.addEventListener(CONSENT_STATE_CHANGED_EVENT, handleConsentStateChanged);
+    void reconcilePendingConsentRequests();
     return () => {
       cancelled = true;
       appendPendingConsentRequestRef.current = null;
       window.removeEventListener(FCM_MESSAGE_EVENT, handleConsentMessage);
+      window.removeEventListener(CONSENT_STATE_CHANGED_EVENT, handleConsentStateChanged);
     };
-  }, [getVaultOwnerToken, isVaultUnlocked, user?.uid]);
+  }, [getVaultOwnerToken, isVaultUnlocked, rootChatReady, user?.uid]);
 
   const appendDebugEvent = useCallback(
     (
@@ -3064,14 +3357,19 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       setConversations(snapshot.conversations);
       if (!snapshot.latestConversationId) {
         updateConversationId(null);
-        setMessages([createGreetingMessage()]);
+        setMessages((current) =>
+          mergePendingConsentMessages([createGreetingMessage()], current),
+        );
         return;
       }
-      const restored = snapshot.latestMessages
-        .map(storedMessageToAgentMessage)
-        .filter((message): message is AgentMessage => Boolean(message));
+      const restored = storedMessagesToAgentMessages(snapshot.latestMessages);
       updateConversationId(snapshot.latestConversationId);
-      setMessages(restored.length > 0 ? restored : [createGreetingMessage()]);
+      setMessages((current) =>
+        mergePendingConsentMessages(
+          restored.length > 0 ? restored : [createGreetingMessage()],
+          current,
+        ),
+      );
     };
 
     if (cached) applySnapshot(cached);
@@ -3128,9 +3426,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         conversationId: nextConversationId,
         vaultOwnerToken: token,
       });
-      const restored = history
-        .map(storedMessageToAgentMessage)
-        .filter((message): message is AgentMessage => Boolean(message));
+      const restored = storedMessagesToAgentMessages(history);
       latestVisibleTurnIdRef.current = null;
       updateConversationId(nextConversationId);
       setMessages(restored.length > 0 ? restored : [createGreetingMessage()]);
@@ -3382,153 +3678,105 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     [conversationId, getVaultOwnerToken, messageRatings],
   );
 
-  /**
-   * Automatic writes are deliberately detached from the response stream. The
-   * chat remains responsive, while the receipt or a failure notification
-   * records the eventual outcome.
-   */
-  const saveEligiblePkmCardsInBackground = useCallback(
+  // One memory-only job belongs to its originating turn. Later turns may
+  // continue; a conversation/owner/vault change cancels pending effects.
+  const captureEligiblePkmFactsInBackground = useCallback(
     (params: {
       turnId: string;
+      assistantMessageId: string;
       sourceMessage: string;
-      cards: AgentPkmPreviewCard[];
-      policy: AgentPkmAutoSavePolicy;
-    }) => {
+      currentDomains: string[];
+    }): Promise<AgentPkmCaptureStatus> => {
+      // Private source text is used only in this transient deduplication key.
+      const jobKey = JSON.stringify([params.assistantMessageId, params.sourceMessage]);
+      const existing = pkmCaptureJobsRef.current.get(jobKey);
+      if (existing) return existing;
       const token = getVaultOwnerToken();
-      if (
-        !user?.uid ||
-        !vaultKey ||
-        !token ||
-        !params.policy.enabled ||
-        params.cards.length === 0
-      ) {
-        return;
+      if (!user?.uid || !vaultKey || !token || !pkmCaptureEnabledRef.current) {
+        return Promise.resolve({ phase: "review", saved: 0 });
       }
-      setActivePkmToolCount((count) => count + 1);
-      appendDebugEvent(params.turnId, "pkm_auto_save_start", {
-        candidate_count: params.cards.length,
-        policy_version: params.policy.version,
+      const userId = user.uid;
+      const policy = pkmCapturePolicyRef.current;
+      const controller = new AbortController();
+      const guard = createAgentPkmCaptureGuard({
+        userId, signal: controller.signal,
+        isEnabled: () => pkmCaptureEnabledRef.current && pkmCapturePolicyRef.current === policy &&
+          isAgentPkmProcessingReady(pkmCaptureReadinessRef.current, token),
       });
-
-      window.setTimeout(() => {
-        void (async () => {
-          try {
-            const result = await addToPKM({
-              userId: user.uid,
-              cards: params.cards,
-              sourceMessage: params.sourceMessage,
-              vaultKey,
-              vaultOwnerToken: token,
-              source: "agent_chat_auto_save",
-              confirmation:
-                params.policy.source === "owner_choice" && params.policy.enabledAt
-                  ? {
-                      authorizationMode: "owner_auto_save_policy",
-                      surface: "chat",
-                      source: "agent_chat_auto_save_policy",
-                      autoSavePolicyVersion: params.policy.version,
-                      autoSavePolicyEnabledAt: params.policy.enabledAt,
-                    }
-                  : {
-                      authorizationMode: "product_default_auto_save_policy",
-                      surface: "chat",
-                      source: "agent_chat_product_default_auto_save",
-                      autoSavePolicyVersion: params.policy.version,
-                      productDefaultEffectiveAt: AGENT_PKM_PRODUCT_DEFAULT_EFFECTIVE_AT,
-                    },
-            });
-            appendDebugEvent(params.turnId, "pkm_auto_save_result", result);
-            trackEvent("agent_pkm_save_confirmation_completed", {
-              route_id: "agent",
-              result: result.saved > 0 ? "success" : "expected_error",
-              saved_count_bucket: toPkmFactCountBucket(result.saved),
-              failed_count_bucket: toPkmFactCountBucket(result.failed),
-              has_active_recipients: false,
-            });
-            if (result.saved > 0) {
-              setMessages((current) => [
-                ...current,
-                {
-                  id: `pkm-auto-save-receipt-${Date.now()}`,
-                  role: "assistant",
-                  text: formatAgentPkmSaveSummary(result),
-                  timestamp: formatNow(),
-                  status: "done",
-                },
-              ]);
-              // addToPKM invalidates the local PKM context. A later targeted
-              // KYC lookup refreshes just the changed identity segments.
-            }
-            if (result.failed > 0) {
-              toast.error("Some eligible details could not be saved. Nothing else was added.");
-            }
-          } catch (error) {
-            const message =
-              error instanceof Error
-                ? error.message
-                : "Automatic memory saving failed.";
-            appendDebugEvent(params.turnId, "pkm_auto_save_failed", {
-              message,
-            });
-          } finally {
+      pkmAbortControllersRef.current.add(controller);
+      setActivePkmToolCount((count) => count + 1);
+      const settle = (status: AgentPkmCaptureStatus) => {
+        if (guard.isCurrent()) {
+          const receipts = pkmCaptureReceiptsRef.current.get(params.assistantMessageId) || new Map<string, AgentPkmCaptureStatus>();
+          receipts.set(jobKey, status);
+          pkmCaptureReceiptsRef.current.set(params.assistantMessageId, receipts);
+          const aggregate = aggregateAgentPkmCaptures([...receipts.values()]);
+          setMessages((current) => current.map((message) =>
+            message.id === params.assistantMessageId ? { ...message, memoryCapture: aggregate } : message,
+          ));
+        }
+        return status;
+      };
+      const job = (async (): Promise<AgentPkmCaptureStatus> => {
+        try {
+          // Yield presentation without creating an untracked detached timer.
+          await guard.assertCurrent();
+          settle({ phase: "preparing", saved: 0 });
+          const labContext = await loadPkmAgentLabContext({ userId, vaultOwnerToken: token });
+          await guard.assertCurrent();
+          const prepared = await prepareNaturalLanguagePkm({
+            userId, message: params.sourceMessage, currentDomains: params.currentDomains,
+            currentManifests: Object.values(labContext.manifests || {}).filter(Boolean),
+            findDuplicate: (candidate) => AgentPkmContextStore.findLocalDuplicate({ userId, candidate }),
+            vaultOwnerToken: token, source: "agent_chat_auto_capture", allowEmpty: true,
+            beforeEffect: guard.assertCurrent,
+            isEffectCurrent: guard.isCurrent,
+          });
+          await guard.assertCurrent();
+          const needsAttention = prepared.sourceCoverage.some((block) =>
+            block.disposition === "failed" || block.disposition === "review_required",
+          );
+          // A malformed/degraded proposal cannot authorize automatic effects.
+          const degraded = prepared.previews.some((preview) => preview.error || preview.used_fallback);
+          const reviewRequired =
+            needsAttention ||
+            degraded ||
+            getPkmConfirmationCards(prepared.cards).length > 0;
+          const cards = degraded ? [] : getPkmAutoSaveCards(prepared.cards);
+          if (!cards.length) return settle({ phase: reviewRequired ? "review" : "skipped", saved: 0 });
+          settle({ phase: "saving", saved: 0 });
+          const result = await addToPKM({
+            userId, cards, sourceMessage: params.sourceMessage, vaultKey, vaultOwnerToken: token,
+            source: "agent_chat_auto_save", beforeEffect: guard.assertCurrent,
+            mayPublish: guard.isCurrent,
+            confirmation: policy.source === "owner_choice" && policy.enabledAt
+              ? { authorizationMode: "owner_auto_save_policy", surface: "chat", source: "agent_chat_auto_save_policy",
+                  autoSavePolicyVersion: policy.version, autoSavePolicyEnabledAt: policy.enabledAt }
+              : { authorizationMode: "product_default_auto_save_policy", surface: "chat", source: "agent_chat_product_default_auto_save",
+                  autoSavePolicyVersion: policy.version, productDefaultEffectiveAt: AGENT_PKM_PRODUCT_DEFAULT_EFFECTIVE_AT },
+          });
+          // Preserve confirmed receipts even if publication is no longer allowed.
+          // Never log the result's decrypted fullBlob or item-level summaries.
+          appendDebugEvent(params.turnId, "pkm_auto_save_result", { saved: result.saved, failed: result.failed });
+          trackEvent("agent_pkm_save_confirmation_completed", {
+            route_id: "agent", result: result.saved > 0 ? "success" : "expected_error",
+            saved_count_bucket: toPkmFactCountBucket(result.saved), failed_count_bucket: toPkmFactCountBucket(result.failed),
+            has_active_recipients: false,
+          });
+          return settle({ phase: result.saved > 0 ? (result.failed || reviewRequired ? "partial" : "saved") : "failed", saved: result.saved });
+        } catch {
+          return settle({ phase: "failed", saved: 0 });
+        } finally {
+          // A canceled old job must not decrement a new conversation's count.
+          if (pkmAbortControllersRef.current.delete(controller)) {
             setActivePkmToolCount((count) => Math.max(0, count - 1));
           }
-        })();
-      }, 0);
+        }
+      })();
+      pkmCaptureJobsRef.current.set(jobKey, job);
+      return job;
     },
     [appendDebugEvent, getVaultOwnerToken, user?.uid, vaultKey],
-  );
-
-  const captureEligiblePkmFactsInBackground = useCallback(
-    (params: { turnId: string; sourceMessage: string; currentDomains: string[] }) => {
-      if (!pkmAutoSavePolicy.enabled || !user?.uid || !vaultKey) return;
-      const token = getVaultOwnerToken();
-      if (!token) return;
-      window.setTimeout(() => {
-        void (async () => {
-          try {
-            const labContext = await loadPkmAgentLabContext({
-              userId: user.uid,
-              vaultOwnerToken: token,
-            }).catch(() => null);
-            const prepared = await prepareNaturalLanguagePkm({
-              userId: user.uid,
-              message: params.sourceMessage,
-              currentDomains: params.currentDomains,
-              currentManifests: Object.values(labContext?.manifests || {}).filter(Boolean),
-              findDuplicate: (candidate) =>
-                AgentPkmContextStore.findLocalDuplicate({ userId: user.uid, candidate }),
-              vaultOwnerToken: token,
-              source: "agent_chat_auto_capture",
-              allowEmpty: true,
-            });
-            const autoSaveCards = getPkmAutoSaveCards(prepared.cards);
-            // Chat's automatic lane saves only the semantic gate's eligible
-            // cards. Ambiguous, sensitive, shared, and financial candidates
-            // are intentionally skipped instead of interrupting the chat with
-            // a second review workflow.
-            saveEligiblePkmCardsInBackground({
-              turnId: params.turnId,
-              sourceMessage: params.sourceMessage,
-              cards: autoSaveCards,
-              policy: pkmAutoSavePolicy,
-            });
-          } catch (error) {
-            const message = error instanceof Error ? error.message : "Automatic memory saving failed.";
-            appendDebugEvent(params.turnId, "pkm_auto_capture_failed", { message });
-            toast.error("We couldn't save eligible details to Memory. Nothing new was added.");
-          }
-        })();
-      }, 0);
-    },
-    [
-      appendDebugEvent,
-      getVaultOwnerToken,
-      pkmAutoSavePolicy,
-      saveEligiblePkmCardsInBackground,
-      user?.uid,
-      vaultKey,
-    ],
   );
 
   const runAgentTurn = async (
@@ -3684,17 +3932,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
 
     const executePkmAddTool = async (toolEvent: AgentChatToolEvent) => {
       if (!vaultKey || !token) {
-        appendDebugEvent(debugTurnId, "pkm_tool_skipped", {
-          reason: !vaultKey
-            ? "vault_key_unavailable"
-            : "vault_owner_token_unavailable",
-          tool: toolEvent,
-        });
         upsertPkmStatusMessage(
           "Unlock your vault before saving to Memory.",
           "error",
         );
-        return;
+        return { phase: "failed", saved: 0 } as AgentPkmCaptureStatus;
       }
 
       const sourceText =
@@ -3702,82 +3944,16 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         toolEvent.slots.source_text.trim()
           ? toolEvent.slots.source_text.trim()
           : text;
-      pkmToolHandledFullTurn = sourceText === text;
+      // One already chose capture passages. Do not run a second full-turn
+      // extraction over those passages after its explicit capture invocations.
+      pkmToolHandledFullTurn = true;
 
-      setActivePkmToolCount((count) => count + 1);
-      appendDebugEvent(debugTurnId, "pkm_tool_preview_start", {
-        tool: "pkm.add",
-        current_domains: turnPkmContext.domains,
-        source_text: sourceText,
+      return captureEligiblePkmFactsInBackground({
+        turnId: `${debugTurnId}:${toolEvent.callId || "pkm.add"}`,
+        assistantMessageId,
+        sourceMessage: sourceText,
+        currentDomains: turnPkmContext.domains,
       });
-      upsertPkmStatusMessage("Checking what belongs in Memory...", "streaming");
-
-      try {
-        const labContext = await loadPkmAgentLabContext({
-          userId,
-          vaultOwnerToken: token,
-        }).catch(() => null);
-        const preview = await prepareNaturalLanguagePkm({
-          userId,
-          message: sourceText,
-          currentDomains: turnPkmContext.domains,
-          currentManifests: Object.values(labContext?.manifests || {}).filter(Boolean),
-          findDuplicate: (candidate) =>
-            AgentPkmContextStore.findLocalDuplicate({ userId, candidate }),
-          vaultOwnerToken: token,
-          source: "agent_chat_explicit_memory",
-          onProgress: ({ chunkIndex, chunkCount, cardCount, phase }) => {
-            upsertPkmStatusMessage(
-              phase === "prepared"
-                ? `Found ${cardCount} ${cardCount === 1 ? "detail" : "details"} that can be saved.`
-                : `Organizing memory ${Math.min(chunkIndex + 1, chunkCount)} of ${chunkCount}…`,
-              phase === "prepared" ? "done" : "streaming",
-            );
-          },
-        });
-        const autoSaveCards = getPkmAutoSaveCards(preview.cards);
-        const ignoredCards = getIgnoredPkmCards(preview.cards);
-
-        appendDebugEvent(debugTurnId, "pkm_tool_preview_result", {
-          model: preview.preview.model,
-          used_fallback: preview.preview.used_fallback,
-          total_cards: preview.cards.length,
-          eligible_count: autoSaveCards.length,
-          ignored_count: ignoredCards.length,
-          preview_summary: preview.preview.preview_summary || null,
-          cards: preview.cards,
-        });
-
-        if (autoSaveCards.length > 0) {
-          saveEligiblePkmCardsInBackground({
-            turnId: debugTurnId,
-            sourceMessage: sourceText,
-            cards: autoSaveCards,
-            policy: pkmAutoSavePolicy,
-          });
-          upsertPkmStatusMessage(
-            "Saving eligible details privately…",
-            "done",
-          );
-        } else {
-          upsertPkmStatusMessage(
-            "No new details were eligible to save.",
-            "done",
-          );
-        }
-      } catch (error) {
-        const message =
-          error instanceof Error && error.message
-            ? error.message
-            : "One could not save that memory.";
-        appendDebugEvent(debugTurnId, "pkm_tool_failed", {
-          message,
-          tool: toolEvent,
-        });
-        upsertPkmStatusMessage("One could not save that memory.", "error");
-      } finally {
-        setActivePkmToolCount((count) => Math.max(0, count - 1));
-      }
     };
 
     const executeFrontendTool = async (
@@ -3789,13 +3965,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       appendDebugEvent(debugTurnId, "frontend_execute_start", toolEvent);
 
       if (toolEvent.actionId === "pkm.add") {
-        await executePkmAddTool(toolEvent);
+        const capture = await executePkmAddTool(toolEvent);
         return {
-          status: "succeeded",
+          status: capture.phase === "saved" || capture.phase === "skipped" ? "succeeded" : "blocked",
           actionId: toolEvent.actionId,
           label: toolEvent.label,
           routeBefore: pathname,
-          resultSummary: "Eligible details are being saved privately.",
+          resultSummary: describeAgentPkmCapture(capture),
         };
       }
 
@@ -4032,6 +4208,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               status: result.status,
               summary: result.resultSummary,
               actionId: result.actionId,
+              ...(result.actionId === "consent.request" && result.data
+                ? { data: result.data }
+                : {}),
             });
             return result;
           },
@@ -4113,6 +4292,24 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           message: text,
         }).catch(() => undefined);
         return cachedContext;
+      }
+
+      // Large pasted context is already in the user turn and is handled by the
+      // guarded background capture lane after the answer starts. Do not make a
+      // foreground paste wait for a full decrypted inventory to hydrate. A
+      // warm session cache is still useful, but it is not required for this
+      // explicitly deferred lane.
+      if (options.deferPkmContext) {
+        if (cachedContext?.text) {
+          void loadAgentPkmContext({
+            userId,
+            vaultOwnerToken: token,
+            vaultKey,
+            message: text,
+          }).catch(() => undefined);
+          return cachedContext;
+        }
+        return EMPTY_PKM_CONTEXT;
       }
 
       // A warm cache returns immediately. A cold unlocked turn waits for the
@@ -4200,6 +4397,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         conversationId: conversationIdRef.current,
         vaultOwnerToken: token,
         pkmContext: agentPkmContext.text || undefined,
+        personSelectionHandle: options.personSelectionHandle,
         screenContext: buildOneVoiceStructuredScreenContext({
           appRuntimeState: appRuntimeStateRef.current,
           state: useAgentVoiceState.getState().oneVoiceState,
@@ -4283,16 +4481,45 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               sources,
             }));
           },
-          onStructuredExperience: (structuredExperience) => {
+          onStructuredExperience: (structuredExperience, eventId) => {
             if (streamAbortController.signal.aborted) return;
-            updateMessage(assistantMessageId, (message) => ({
-              ...message,
-              structuredExperience,
-            }));
+            const stableId =
+              eventId || `${assistantMessageId}:${structuredExperience.type}`;
+            updateMessage(assistantMessageId, (message) => {
+              const current = message.structuredExperiences ?? [];
+              return {
+                ...message,
+                structuredExperiences: upsertAgentStructuredExperience(
+                  current,
+                  stableId,
+                  structuredExperience,
+                ),
+              };
+            });
           },
           onSpecialistDirective: (directive) => {
             if (streamAbortController.signal.aborted) return;
             setPendingSpecialistDirective(directive);
+          },
+          onInterrupt: ({ conversationId: nextConversationId }) => {
+            if (streamAbortController.signal.aborted) return;
+            // AG-UI interrupts are the normal boundary for a visible action
+            // card. The card remains actionable, but the assistant turn has
+            // finished thinking until the owner confirms or cancels it.
+            flushAssistantDelta();
+            if (nextConversationId) {
+              updateConversationId(nextConversationId);
+            }
+            updateMessage(assistantMessageId, (message) => ({
+              ...message,
+              status: "done",
+              streamEvents: settleVisibleStreamEvents(
+                message.streamEvents,
+                "done",
+              ),
+            }));
+            setIsChatLoading(false);
+            setIsStreaming(false);
           },
           onComplete: ({ conversationId: nextConversationId }) => {
             if (streamAbortController.signal.aborted) return;
@@ -4332,6 +4559,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         finishCanceledTurn();
         return;
       }
+      if (streamResult.interrupted) {
+        // The confirmation card is now the active surface. Do not append a
+        // fabricated fallback sentence or start background capture while the
+        // resumable action is waiting for the owner's tap.
+        return;
+      }
       flushAssistantDelta();
       if (streamResult.conversationId) {
         updateConversationId(streamResult.conversationId);
@@ -4349,8 +4582,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       // for automatic capture. Assistant output, tool events, and Gmail
       // content never enter this client-side proposal path.
       if (options.source === "typed" && !pkmToolHandledFullTurn) {
-        captureEligiblePkmFactsInBackground({
+        void captureEligiblePkmFactsInBackground({
           turnId: debugTurnId,
+          assistantMessageId,
           sourceMessage: text,
           currentDomains: turnPkmContext.domains,
         });
@@ -4790,20 +5024,29 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     void drainOperationQueue();
   };
 
-  const enqueuePrompt = (textInput: string) => {
+  const enqueuePrompt = (
+    textInput: string,
+    personSelectionHandle?: string,
+    options: Pick<AgentRunTurnOptions, "deferPkmContext"> = {},
+  ) => {
     const text = textInput.trim();
     if (!text) return;
     const prompt: QueuedAgentPrompt = {
       id: crypto.randomUUID(),
       text,
       createdAtMs: Date.now(),
+      deferPkmContext: options.deferPkmContext,
     };
     const operation: QueuedWorkspaceOperation = {
       id: prompt.id,
       prompt,
       run: async () => {
         if (hasChatAccess) {
-          await runAgentTurn(operation.prompt?.text ?? "", { source: "typed" });
+          await runAgentTurn(operation.prompt?.text ?? "", {
+            source: "typed",
+            personSelectionHandle,
+            deferPkmContext: operation.prompt?.deferPkmContext,
+          });
           return;
         }
         await runIntroTurn(operation.prompt?.text ?? "");
@@ -4927,7 +5170,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setInput("");
     setLongPromptAttachment(null);
     setComposerExpanded(false);
-    if (detectLikelyPan(text)) {
+    // A large paste is a dedicated browser-memory import lane. Redact payment
+    // card numbers before the text can enter Chat, history, telemetry, or the
+    // guarded background PKM proposal flow; ordinary typed PAN input remains a
+    // hard block and is routed to the secure card form.
+    const submittedText =
+      attachment && detectLikelyPan(text) ? redactLikelyPans(text) : text;
+    if (detectLikelyPan(submittedText)) {
       appendMessage({
         id: `msg-${Date.now()}-pan-blocked`,
         role: "assistant",
@@ -4948,7 +5197,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       await submitGmailKycDetails(text);
       return;
     }
-    enqueuePrompt(text);
+    enqueuePrompt(submittedText, undefined, {
+      deferPkmContext: attachment !== null,
+    });
   };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -5293,6 +5544,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         disabled={!canSend}
         aria-label="Send message"
         title="Send message"
+        onClick={(event) => {
+          // Keep the form path for keyboard/assistive submission, but do not
+          // rely on the wrapped shell/ripple button's native submit default.
+          // A real pointer click can otherwise release without dispatching
+          // submit while the control is visibly enabled.
+          event.preventDefault();
+          void submitComposerText();
+        }}
       >
         <Send className="h-4 w-4" />
       </ShellActionSurface>
@@ -5330,6 +5589,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       data-agent-chat-route={isCanonicalChatRoute ? "root" : "embedded"}
       data-agent-history-drawer-open={isHistoryDrawerOpen ? "true" : undefined}
     >
+      <AgentPersonSelectionContext.Provider value={hasChatAccess && !isStreaming
+        ? (handle, name) => enqueuePrompt(`Check what I can ask ${name} for.`, handle)
+        : null}>
       <div
         className={cn(
           "relative flex min-h-0 flex-1",
@@ -6889,6 +7151,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         open={connectorsPanelOpen}
         onOpenChange={setConnectorsPanelOpen}
       />
+      </AgentPersonSelectionContext.Provider>
     </div>
   );
 }

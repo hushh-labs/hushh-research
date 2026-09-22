@@ -821,6 +821,33 @@ const NEARBY_CHECK_IN_SOURCE = "nearby";
 // arrow agreeing with the chrome and OS back buttons, which follow real history.
 const SOS_FLOW_SOURCE = "sos";
 
+/**
+ * Commit query-only Location flows synchronously.
+ *
+ * These screens are local states of `/one/location`, not server routes. Using
+ * `router.push` for them left an asynchronous RSC navigation in flight after
+ * the next flow was already visible. A quick Shared-with-me -> Ask transition
+ * could therefore be overwritten when the older Shared-with-me navigation
+ * settled, and the URL-sync effect faithfully reopened the wrong screen.
+ *
+ * Next's patched native History API updates `useSearchParams` without a full
+ * document navigation. Writing the URL in the same turn as the local state
+ * removes that stale-navigation window while preserving push/replace history
+ * semantics and the memory-only vault session.
+ */
+function commitLocationFlowHistory(
+  href: string,
+  navigation: "push" | "replace",
+): boolean {
+  if (typeof window === "undefined") return false;
+  if (navigation === "replace") {
+    window.history.replaceState(window.history.state, "", href);
+  } else {
+    window.history.pushState(window.history.state, "", href);
+  }
+  return true;
+}
+
 const FLOW_TO_ACTION: Record<Exclude<FlowKind, "none">, string> = {
   share: "share",
   ask: "ask",
@@ -1316,7 +1343,10 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
       }
       params.set(FLOW_ACTION_PARAM, FLOW_TO_ACTION[next]);
       params.delete("circleId");
-      router[navigation](`${pathname}?${params.toString()}`, { scroll: false });
+      const href = `${pathname}?${params.toString()}`;
+      if (!commitLocationFlowHistory(href, navigation)) {
+        router[navigation](href, { scroll: false });
+      }
     },
     [pathname, router, searchParams],
   );
@@ -1842,7 +1872,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
           activeValue={tab}
           options={LOCATION_SWIPE_OPTIONS}
           onSelectionChange={(value) => setTab(value as LocationHubTab)}
-          viewportMinHeight="0px"
+          viewportMinHeight="fill"
           heightMode="active"
         >
           <LocationHubPanel>
@@ -3144,8 +3174,8 @@ function LocationToggle({
     >
       <span
         className={cn(
-          "absolute top-[2px] h-[27px] w-[27px] rounded-full bg-[color:var(--switch-thumb)] shadow-[0_1px_3px_rgba(0,0,0,0.15)] transition-[left] duration-150",
-          checked ? "left-[22px]" : "left-[2px]",
+          "absolute top-[2px] left-[2px] h-[27px] w-[27px] rounded-full bg-[color:var(--switch-thumb)] shadow-[0_1px_3px_rgba(0,0,0,0.15)] transition-transform duration-150",
+          checked ? "translate-x-[20px]" : "translate-x-0",
         )}
       />
     </button>
@@ -5078,6 +5108,11 @@ function ShareFlow({
   // another thirty seconds -- long enough to read a wrong end time, and long
   // enough for the replacement warning below to compare against a share that
   // has less left than it thinks.
+  // Main scoped this tick to the details step and resyncs it on entry, which
+  // is tighter than a clock that runs on every step: somebody who spent ten
+  // minutes picking people arrives with a fresh "now" to compare against.
+  // Its contract test pins that shape, so this component keeps its own clock
+  // rather than the shared coarse one.
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
     if (step !== "details") return;
