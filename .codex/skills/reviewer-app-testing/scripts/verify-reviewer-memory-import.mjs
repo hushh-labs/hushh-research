@@ -12,6 +12,12 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 import { createReviewerSessionHarness } from "./reviewer-session-harness.mjs";
 import { prepareReviewerRehearsal } from "./reviewer-rehearsal-preflight.mjs";
+import { safeFailureCode } from "./consent-rehearsal-contract.mjs";
+
+if (process.env.REVIEWER_ALLOW_SHARED_MUTATIONS !== "true") {
+  process.stdout.write(JSON.stringify({ passed: false, code: "MUTATION_AUTHORITY_REQUIRED" }) + "\n");
+  process.exit(1);
+}
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "../../../..");
@@ -31,7 +37,7 @@ async function step(name, fn) {
     const note = await fn();
     record(name, true, note ? { note: String(note) } : {});
   } catch (error) {
-    record(name, false, { note: String(error?.message || error).slice(0, 400) });
+    record(name, false, { code: safeFailureCode(error) });
   }
 }
 
@@ -39,23 +45,11 @@ const preflight = await prepareReviewerRehearsal({ repoRoot, appOrigin });
 const reviewer = await createReviewerSessionHarness({ repoRoot, appOrigin, timeoutMs });
 const browser = await reviewer.chromium.launch({ headless: process.env.PLAYWRIGHT_HEADLESS !== "0" });
 let session;
-let ownerToken = "";
-let baselineConversationIds = new Set();
 const recap = fs.readFileSync(fixturePath, "utf8");
 
 try {
   session = await reviewer.openSession(browser, "/");
   const { page } = session;
-  ownerToken = await session.capture.ownerToken();
-  const conversationIds = async () => {
-    const response = await fetch(`${appOrigin}/api/one/agent-chat/conversations/${encodeURIComponent(reviewer.reviewerUid)}?limit=20`, {
-      headers: { Authorization: `Bearer ${ownerToken}`, Accept: "application/json" },
-    });
-    if (!response.ok) return new Set();
-    const payload = await response.json();
-    return new Set((payload.conversations || []).map((item) => String(item.id)));
-  };
-  baselineConversationIds = await conversationIds();
 
   await step("a long paste switches the composer to the Memory lane", async () => {
     const composer = page.getByTestId("agent-chat-composer-textarea");
@@ -110,18 +104,10 @@ try {
   });
   session.capture.assertNoCriticalApiFailures("memory import review");
 } catch (error) {
-  record("rehearsal aborted", false, { note: String(error?.stack || error?.message || error).slice(0, 600) });
+  record("rehearsal aborted", false, { code: safeFailureCode(error) });
 } finally {
-  if (ownerToken) {
-    const response = await fetch(`${appOrigin}/api/one/agent-chat/conversations/${encodeURIComponent(reviewer.reviewerUid)}?limit=20`, {
-      headers: { Authorization: `Bearer ${ownerToken}`, Accept: "application/json" },
-    }).catch(() => null);
-    if (response?.ok) {
-      const payload = await response.json().catch(() => ({ conversations: [] }));
-      const ids = (payload.conversations || []).map((item) => String(item.id)).filter((id) => !baselineConversationIds.has(id));
-      await Promise.all(ids.map((id) => fetch(`${appOrigin}/api/one/agent-chat/conversations/${encodeURIComponent(id)}`, { method: "DELETE", headers: { Authorization: `Bearer ${ownerToken}`, Accept: "application/json" } }).catch(() => undefined)));
-    }
-  }
+  // Retain this rehearsal's history. A listing delta is not ownership proof:
+  // another reviewer may create conversations while this run is in flight.
   await session?.context.close().catch(() => undefined);
   await browser.close().catch(() => undefined);
   fs.mkdirSync(path.dirname(reportPath), { recursive: true });

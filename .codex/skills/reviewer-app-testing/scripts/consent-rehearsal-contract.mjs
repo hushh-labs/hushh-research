@@ -27,6 +27,51 @@ export function safeFailureCode(error) {
   return error instanceof ConsentRehearsalFailure ? error.code : "REHEARSAL_UNEXPECTED_FAILURE";
 }
 
+/** Admission for one reviewed synthetic Memory write; never product authority. */
+export function createFixtureMutationAdmission(expected) {
+  requireEvidence([expected?.ownerUid, expected?.domain, expected?.scope].every(
+    value => typeof value === "string" && value.trim().length > 0), "FIXTURE_TARGET_REQUIRED");
+  const sameIds = (actual, wanted) => Array.isArray(actual) && Array.isArray(wanted) &&
+    actual.every(id => typeof id === "string" && id.length > 0) &&
+    new Set(actual).size === actual.length &&
+    JSON.stringify([...actual].sort()) === JSON.stringify([...wanted].sort());
+  requireEvidence(sameIds(expected.grantIds, expected.grantIds) &&
+    sameIds(expected.exportIds, expected.exportIds), "FIXTURE_IMPACT_REQUIRED");
+  const target = { ...expected, grantIds: [...expected.grantIds], exportIds: [...expected.exportIds] };
+  let admitted = null;
+  return body => {
+    const plan = body?.mutation_plan;
+    const receipt = plan?.confirmation_receipt;
+    requireEvidence(body?.user_id === target.ownerUid && body.domain === target.domain &&
+      plan?.proposed_domain === target.domain && plan.proposed_scope === target.scope &&
+      receipt?.displayed_domain === target.domain && receipt.displayed_scope === target.scope,
+    "FIXTURE_TARGET_MISMATCH");
+    requireEvidence(plan.operation === "create" && typeof plan.plan_id === "string" && plan.plan_id.length > 0 &&
+      receipt.plan_id === plan.plan_id && receipt.confirmed_by_user_id === target.ownerUid &&
+      receipt.authorization_mode === "owner_confirmed", "FIXTURE_CONFIRMATION_MISMATCH");
+    requireEvidence(sameIds(plan.affected_grant_ids, target.grantIds) &&
+      sameIds(plan.affected_export_ids, target.exportIds) &&
+      (!target.grantIds.length || receipt.sharing_impact_acknowledged === true), "FIXTURE_IMPACT_MISMATCH");
+    const serialized = JSON.stringify(body);
+    requireEvidence(admitted === null || admitted === serialized, "FIXTURE_CONFIRMATION_ALREADY_USED");
+    admitted = serialized;
+  };
+}
+
+export function createFixtureReviewGate() {
+  let admission = null;
+  return {
+    review(expected) {
+      requireEvidence(admission === null, "FIXTURE_REVIEW_ALREADY_BOUND");
+      admission = createFixtureMutationAdmission(expected);
+    },
+    admit(body) {
+      requireEvidence(admission !== null, "FIXTURE_REVIEW_REQUIRED");
+      admission(body);
+    },
+  };
+}
+
 export function matchesOwnerBinding(items, ownerUid, ownerRef) {
   requireEvidence(Array.isArray(items), "OWNER_BINDING_UNAVAILABLE");
   const selected = items.filter(item => item.userId === ownerUid);

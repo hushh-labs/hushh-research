@@ -4,7 +4,7 @@ import path from "node:path";
 import {
   assertRequestDraft, assertRequestState, assertStreamProof,
   createDraftAdmission, safeFailureCode, matchesExpectedJson, assertConfirmationReview, assertAllStreamProofs,
-  matchesOwnerBinding, assertGrantTiming,
+  matchesOwnerBinding, assertGrantTiming, createFixtureMutationAdmission, createFixtureReviewGate,
 } from "../../../.codex/skills/reviewer-app-testing/scripts/consent-rehearsal-contract.mjs";
 import { installConsentStreamProbe } from "../../../.codex/skills/reviewer-app-testing/scripts/consent-rehearsal-stream-probe.mjs";
 
@@ -19,6 +19,15 @@ const payload = () => ({
 });
 
 describe("Profile rehearsal startup safety", () => {
+  it("refuses Memory import before authentication without explicit mutation authority", () => {
+    const script = path.resolve(process.cwd(), "../.codex/skills/reviewer-app-testing/scripts/verify-reviewer-memory-import.mjs");
+    const result = spawnSync(process.execPath, [script], {
+      env: { REVIEWER_ALLOW_SHARED_MUTATIONS: "false" }, encoding: "utf8", timeout: 10000,
+    });
+    expect(result.status).toBe(1);
+    expect(result.stderr).toBe("");
+    expect(JSON.parse(result.stdout)).toEqual({ passed: false, code: "MUTATION_AUTHORITY_REQUIRED" });
+  });
   it.each([
     [{ REVIEWER_ALLOW_SHARED_MUTATIONS: "false" }, "MUTATION_AUTHORITY_REQUIRED"],
     [{ REVIEWER_ALLOW_SHARED_MUTATIONS: "true" }, "EXPLICIT_PAIR_AND_SCOPE_REQUIRED"],
@@ -39,6 +48,46 @@ describe("Profile rehearsal startup safety", () => {
 });
 
 describe("consent rehearsal evidence", () => {
+  it("pins one synthetic mutation to the reviewed owner/root/impact and identical retries", () => {
+    const target = { ownerUid: "owner", domain: "professional", scope: "projects", grantIds: ["grant"], exportIds: ["export"] };
+    const body = { user_id: "owner", domain: "professional", encrypted_blob: { ciphertext: "ciphertext" }, mutation_plan: {
+      plan_id: "plan", operation: "create", proposed_domain: "professional", proposed_scope: "projects",
+      affected_grant_ids: ["grant"], affected_export_ids: ["export"], confirmation_receipt: {
+        plan_id: "plan", confirmed_by_user_id: "owner", displayed_domain: "professional", displayed_scope: "projects",
+        authorization_mode: "owner_confirmed", sharing_impact_acknowledged: true,
+      },
+    } };
+    expect(() => createFixtureMutationAdmission({ ...target, domain: "" })).toThrow("FIXTURE_TARGET_REQUIRED");
+    const admit = createFixtureMutationAdmission(target);
+    const wrongRoot = structuredClone(body);
+    wrongRoot.mutation_plan.proposed_scope = "profile";
+    expect(() => admit(wrongRoot)).toThrow("FIXTURE_TARGET_MISMATCH");
+    const wrongReceipt = structuredClone(body);
+    wrongReceipt.mutation_plan.confirmation_receipt.displayed_scope = "profile";
+    expect(() => admit(wrongReceipt)).toThrow("FIXTURE_TARGET_MISMATCH");
+    const automatic = structuredClone(body);
+    automatic.mutation_plan.confirmation_receipt.authorization_mode = "auto_save";
+    expect(() => admit(automatic)).toThrow("FIXTURE_CONFIRMATION_MISMATCH");
+    const otherGrant = structuredClone(body);
+    otherGrant.mutation_plan.affected_grant_ids = ["outside-grant"];
+    expect(() => admit(otherGrant)).toThrow("FIXTURE_IMPACT_MISMATCH");
+    expect(() => admit(body)).not.toThrow();
+    expect(() => admit(structuredClone(body))).not.toThrow();
+    const secondPlan = structuredClone(body);
+    secondPlan.mutation_plan.plan_id = "second";
+    secondPlan.mutation_plan.confirmation_receipt.plan_id = "second";
+    expect(() => admit(secondPlan)).toThrow("FIXTURE_CONFIRMATION_ALREADY_USED");
+    const changedCiphertext = structuredClone(body);
+    changedCiphertext.encrypted_blob.ciphertext = "different";
+    expect(() => admit(changedCiphertext)).toThrow("FIXTURE_CONFIRMATION_ALREADY_USED");
+    const gate = createFixtureReviewGate();
+    expect(() => gate.admit(body)).toThrow("FIXTURE_REVIEW_REQUIRED");
+    gate.review(target);
+    gate.admit(body);
+    expect(() => gate.review(target)).toThrow("FIXTURE_REVIEW_ALREADY_BOUND");
+    expect(() => gate.admit(secondPlan)).toThrow("FIXTURE_CONFIRMATION_ALREADY_USED");
+    expect(() => gate.admit(changedCiphertext)).toThrow("FIXTURE_CONFIRMATION_ALREADY_USED");
+  });
   it("binds public references to the exact authorized UID, never first candidate or name", () => {
     const rows = [{ userId: "other", publicPersonRef: "other-ref" }, { userId: "owner", publicPersonRef: "owner-ref" }];
     expect(matchesOwnerBinding(rows, "owner", "owner-ref")).toBe(true);
