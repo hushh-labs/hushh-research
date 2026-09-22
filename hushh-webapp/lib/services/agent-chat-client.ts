@@ -95,6 +95,27 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
 }
 
+function parseRecord(value: unknown): Record<string, unknown> | null {
+  if (typeof value === "string") {
+    try {
+      return asRecord(JSON.parse(value));
+    } catch {
+      return null;
+    }
+  }
+  return asRecord(value);
+}
+
+function unwrapParkedActionResult(value: unknown): Record<string, unknown> | null {
+  const record = parseRecord(value);
+  if (!record) return null;
+  for (const key of ["result", "content", "data"] as const) {
+    const nested = parseRecord(record[key]);
+    if (nested?.status || nested?.directive || nested?.action_id) return nested;
+  }
+  return record;
+}
+
 function readString(record: Record<string, unknown>, key: string): string {
   const value = record[key];
   return typeof value === "string" ? value : "";
@@ -161,15 +182,7 @@ function parseStateActionDirective(
 
 /** Reads the directive a run_app_action result carries when it parked an action for the browser. */
 export function parseParkedAppActionDirective(content: unknown): ParkedAppActionDirective | null {
-  let result: unknown = content;
-  if (typeof result === "string") {
-    try {
-      result = JSON.parse(result);
-    } catch {
-      return null;
-    }
-  }
-  const record = asRecord(result);
+  const record = unwrapParkedActionResult(content);
   if (!record) return null;
   const status = String(record.status || "");
   const isProposalDirective = status === "proposal_ready";
@@ -179,16 +192,22 @@ export function parseParkedAppActionDirective(content: unknown): ParkedAppAction
     !isProposalDirective
   ) return null;
   const directive = asRecord(record.directive);
-  const actionId = String(directive?.actionId || record.action_id || "").trim();
+  const actionId = String(
+    directive?.actionId || directive?.action_id || record.action_id || "",
+  ).trim();
   if (!actionId || (isProposalDirective && actionId !== "consent.request")) return null;
-  const slots = asRecord(directive?.slots) || {};
-  if (isProposalDirective && directive?.needsConfirmation !== true) return null;
+  const slots = asRecord(directive?.slots || directive?.slot_values) || {};
+  const needsConfirmation =
+    directive?.needsConfirmation === true || directive?.needs_confirmation === true;
+  if (isProposalDirective && !needsConfirmation) return null;
   return {
     actionId,
     slots,
     needsConfirmation:
-      directive?.needsConfirmation === true || status === "confirm_pending",
-    trustedActivationRequired: directive?.trustedActivationRequired === true,
+      needsConfirmation || status === "confirm_pending",
+    trustedActivationRequired:
+      directive?.trustedActivationRequired === true ||
+      directive?.trusted_activation_required === true,
     message: String(record.message || ""),
   };
 }

@@ -419,6 +419,32 @@ describe("AG-UI Agent One client", () => {
       }),
     ).toBeNull();
   });
+
+  it("unwraps the canonical nested and snake-case parked action result without authorizing it", async () => {
+    const { parseParkedAppActionDirective } = await import(
+      "@/lib/services/agent-chat-client"
+    );
+    expect(
+      parseParkedAppActionDirective(
+        JSON.stringify({
+          result: {
+            status: "confirm_pending",
+            directive: {
+              action_id: "consent.cancel_request",
+              slot_values: { bundle_id: "opaque-bundle" },
+              needs_confirmation: true,
+              trusted_activation_required: false,
+            },
+          },
+        }),
+      ),
+    ).toMatchObject({
+      actionId: "consent.cancel_request",
+      needsConfirmation: true,
+      slots: { bundle_id: "opaque-bundle" },
+      trustedActivationRequired: false,
+    });
+  });
 });
 
 describe("parsePendingConsentRequestIds", () => {
