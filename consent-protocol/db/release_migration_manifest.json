@@ -201,7 +201,10 @@
     "226_pkm_manifest_path_repair.sql",
     "227_external_connector_lifecycle.sql",
     "228_selected_drive_documents.sql",
-    "229_drive_document_chunks.sql"
+    "229_drive_document_chunks.sql",
+    "230_drive_processing_consent.sql",
+    "231_document_review_authority.sql",
+    "232_drive_document_sharing.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -391,10 +394,16 @@
       "225_external_mcp_connectors.sql",
       "227_external_connector_lifecycle.sql",
       "228_selected_drive_documents.sql",
-      "229_drive_document_chunks.sql"
+      "229_drive_document_chunks.sql",
+      "230_drive_processing_consent.sql",
+      "231_document_review_authority.sql",
+      "232_drive_document_sharing.sql"
     ]
   },
   "rollback_migrations": {
+    "232_drive_document_sharing.sql": "rollback/232_drive_document_sharing.rollback.sql",
+    "231_document_review_authority.sql": "rollback/231_document_review_authority.rollback.sql",
+    "230_drive_processing_consent.sql": "rollback/230_drive_processing_consent.rollback.sql",
     "229_drive_document_chunks.sql": "rollback/229_drive_document_chunks.rollback.sql",
     "203_feed_counterpart_recipient_index.sql": "rollback/203_feed_counterpart_recipient_index.rollback.sql",
     "204_feed_counterpart_indexed_lookup.sql": "rollback/204_feed_counterpart_indexed_lookup.rollback.sql",

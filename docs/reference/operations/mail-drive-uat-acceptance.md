@@ -32,7 +32,7 @@ parsing, embeddings and document access control remain outside Google AI service
   remote MCP and provider writes are absent.
 - The adapter caps metadata at 256 KiB, ingestion bytes at 4 MiB and each operation/selection
   at 20 seconds. It rejects compressed responses, policy denials, CSE and shortcuts; checks
-  source metadata both before and after fetch. PDF/DOCX bytes are not parsed in this checkpoint.
+  source metadata both before and after fetch. The local processing checkpoint below adds bounded PDF/DOCX parsing.
 - Catalog concurrency tests cover single-use selection, wrong owner, expiry, policy drift,
   disconnect/account switch, removal during in-flight selection, and removal after reauth failure.
   Source metadata uses a separate server-processing key, not a vault key or OAuth key.
@@ -52,8 +52,8 @@ parsing, embeddings and document access control remain outside Google AI service
   crash recovery and generation/policy/lease checks before processing and publication.
   Publication switches complete versions atomically; text, source ranges and embeddings
   are encrypted together. Source denial purges the prior index; transient failures preserve it.
-  The orchestration has an explicit processor port, not a production default or startup hook.
-  No real document has been parsed/embedded, and no scheduler is activated by this checkpoint.
+  The dedicated finite worker selects the scanner/parser/embedding implementation; no
+  API startup hook or live scheduler is activated by this source checkpoint.
 - Mail chat checkpoint: the registered typed-chat Email specialist now performs only
   metadata-only `list_needs_reply` / `search_inbox`, behind the default-off Mail flag,
   internal cohort and owner/task/call-bound invocation authority. It reuses Gmail grants,
@@ -71,6 +71,44 @@ parsing, embeddings and document access control remain outside Google AI service
   span-export tests include a positive control for exception leakage; no cloud exporter
   or live mailbox is used. Mounted browser tests verify the Mail recovery button, immediate
   Escape/focus restoration and retained drafts without waits or test retries.
+- Processing checkpoint: migration 230 defaults legacy selections to background-off.
+  Selection is not consent. Per-file versioned disclosure, pause/resume, revision fencing,
+  manual sync and six-hour due checks retain stale-worker suppression. A finite worker
+  performs at most eight owner jobs within nine minutes; no Vault Owner session is retained.
+  ClamAV must approve bytes before parsing. Credential-free leaf subprocesses bound PDF
+  pages, DOCX archive/XML work, text, time and local pinned E5 embeddings. Synthetic real
+  PDF/DOCX fixtures pass; scanner/image capacity and live processing are still unverified.
+- Retrieval checkpoint: authored Documents specialist and tool-less interpreter use the
+  owner's encrypted selected index only. Admission enforces task/owner/expiry, generation,
+  policy and current Google eligibility before releasing excerpts and answers. Candidate
+  count/ciphertext/context budgets fail closed with a narrowing directive. One retains its
+  conversation, citations include bounded page numbers, and raw document tool results never
+  enter durable history. Registered real-SDK dispatch tests use synthetic model boundaries;
+  no authenticated Drive Q&A acceptance is claimed.
+- Sharing-domain checkpoint (not yet exposed through routes/Consent Center): encrypted
+  requests, source-bound reviews, atomic one-use confirmation claims and per-file pending
+  operations in migrations 231/232. Requests reveal no private suggestions to the recipient.
+  The separate fixed Google permission adapter permits only individual Viewer creation and
+  recorded-permission removal. Whole-batch invalidation prevents further dispatch after a
+  known stale source; in-flight successes remain accurately recorded. Abandoned, proven
+  undispatched claims terminate with aggregate outcomes instead of locking a file forever.
+- Revocation-domain checkpoint: fresh owner review binds the current generation, exact
+  recorded grants and original verified Google issuer/client. Disconnect and catalog removal
+  do not delete encrypted management receipts. Reconnecting the same Google account can
+  reconcile uncertain outcomes with GET only; neither POST nor DELETE is blindly retried.
+  Existing/unattributed permissions are never automatically adopted. Revocation checks the
+  current direct individual Viewer ACL and refuses observable role/recipient/inheritance drift.
+  Google permission IDs identify grantees, not immutable grant instances: a fresh review must
+  explicitly disclose removal of the current matching direct ACL, not promise detection of
+  an indistinguishable external delete/recreate. Other inherited/group access may remain.
+  Grant/revoke outcome events are independent; delivery into Feed/push remains unimplemented.
+
+Latest integrated local evidence (2026-09-23): 543 focused backend tests passed, including
+real disposable PostgreSQL concurrency and synthetic Google/Firebase boundaries; 110 web
+tests, typecheck, and 24 mounted Chromium/WebKit checks passed. These are not native artifacts,
+live malware-scanner/model capacity evidence, authenticated A/B acceptance or a UAT release.
+Sharing/revocation routes, background suggestion orchestration, Consent Center/notification
+delivery and account-reset/erasure integration remain required before exposing this domain.
 
 Focused automated coverage includes a disposable socket-only PostgreSQL cluster (or the
 existing explicitly test-only CI PostgreSQL service), real concurrent claim/refresh tests,
@@ -144,16 +182,25 @@ revoke a provider grant or mutate an active connection.
 - [ ] Internal connection cohort first, reads only after acceptance; redacted monitoring and
   tested feature-disable/revision rollback. No destructive schema rollback.
 
-Drive writes/download UI/voice execution and production deployment remain out of scope.
+Only exact-file owner-approved individual Google Viewer grants and removal of recorded
+Hussh-created permissions enter the new sharing scope. General Drive writes, download UI,
+voice execution and production deployment remain out of scope. Disconnect stops One, not
+existing Google ACLs. Sharing originals exposes later edits until the grant is revoked.
 
-## Latest read-only release preflight (2026-09-22)
+## Latest read-only release preflight (2026-09-23 local)
 
-The observed UAT backend served main SHA `76b37d6f`, revision suffix `01337-quj`, not this
-branch. Runtime metadata did not contain direct bindings for `GOOGLE_DRIVE_OAUTH_CLIENT_ID`,
+The observed UAT backend served main SHA `8d132654a`, revision `consent-protocol-01340-noh`;
+web served `09db752f`, revision `hushh-webapp-00884-87w`, each with 100% traffic. Neither
+contains this branch. Runtime metadata did not contain direct bindings for `GOOGLE_DRIVE_OAUTH_CLIENT_ID`,
 `GOOGLE_DRIVE_OAUTH_CLIENT_SECRET`, `GOOGLE_DRIVE_PICKER_API_KEY`, `DRIVE_DOCUMENT_KEY_V1`
-or `EXTERNAL_CONNECTOR_CREDENTIAL_KEY`; matching secrets were absent from the inspected
+`DRIVE_SHARING_KEY_V1` or `EXTERNAL_CONNECTOR_CREDENTIAL_KEY`; matching secrets were absent from the inspected
 runtime-project metadata. No secret payload was read. Existing Gmail bindings were present.
 The inspected Scheduler inventory had no connector cleanup or Drive ingestion job.
+The dedicated Drive project's Secret Manager API was disabled; its OAuth client existing
+does not prove runtime bindings. Main was freshly fetched at `09db752f65582011559f02ec053f9c6abd139777`.
+No migration 230–232 collision was found in current main or the 56 inspected main-targeted
+open PRs. Authentication/runtime, generated registry and schema-contract overlap remains
+with other open work and must be rechecked at the final candidate.
 
 Owner consent, cohort values, registry policy and applied migrations remain unverified,
 not proven absent. Callback sink exclusions, a restricted Picker key, native artifacts and

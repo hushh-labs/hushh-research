@@ -87,6 +87,7 @@ function OwnerConnectorsPanel({
   const { vaultOwnerToken } = useVault();
   const [overview, setOverview] = useState<ConnectorOverview | null>(null);
   const [documents, setDocuments] = useState<DriveDocument[]>([]);
+  const [allowBackground, setAllowBackground] = useState(false);
   const [loading, setLoading] = useState(false);
   const [statusChecked, setStatusChecked] = useState(false);
   const [driveMessage, setDriveMessage] = useState("");
@@ -209,6 +210,7 @@ function OwnerConnectorsPanel({
   }, [open, hasDriveGrant, refreshDocuments]);
   useEffect(() => {
     if (!pending) return;
+    setAllowBackground(false);
     const timer = window.setTimeout(
       () => {
         setPending(null);
@@ -654,6 +656,24 @@ function OwnerConnectorsPanel({
                       </li>
                     ))}
                   </ul>
+                  {overview?.features.drive_document_indexing && (
+                    <label className="flex min-h-11 items-start gap-3 text-sm">
+                      <input
+                        type="checkbox"
+                        className="mt-1 size-5 shrink-0"
+                        checked={allowBackground}
+                        disabled={driveBusy}
+                        onChange={(event) =>
+                          setAllowBackground(event.target.checked)
+                        }
+                      />
+                      <span>
+                        Allow One to process these files while Hushh is closed
+                        and prepare suggestions for requests. Sharing still
+                        needs your approval.
+                      </span>
+                    </label>
+                  )}
                   <div className="flex flex-wrap gap-2">
                     <Button
                       className={touch}
@@ -664,6 +684,7 @@ function OwnerConnectorsPanel({
                             token,
                             pending.sessionId,
                             pending.files.map((file) => file.id),
+                            allowBackground,
                           );
                           if (!signal.aborted) {
                             setPending(null);
@@ -694,8 +715,58 @@ function OwnerConnectorsPanel({
                     >
                       <p className="break-all text-sm">{item.name}</p>
                       <p className="text-xs text-muted-foreground">
-                        {labels[item.status] ?? "Status unavailable"}
+                        {!item.backgroundProcessing && item.status === "queued"
+                          ? "Background processing is off"
+                          : (labels[item.status] ?? "Status unavailable")}
                       </p>
+                      {(overview?.features.drive_document_indexing ||
+                        item.backgroundProcessing) && (
+                        <label className="flex min-h-11 items-start gap-3 text-sm">
+                          <input
+                            type="checkbox"
+                            className="mt-1 size-5 shrink-0"
+                            checked={item.backgroundProcessing === true}
+                            aria-label={`Background processing for ${item.name}`}
+                            disabled={driveBusy}
+                            onChange={(event) => {
+                              const enabled = event.target.checked;
+                              void runDrive(async (token, signal) => {
+                                await ExternalConnectorService.setDocumentProcessing(
+                                  token,
+                                  item.documentId,
+                                  enabled,
+                                );
+                                await refreshDocuments(signal);
+                              });
+                            }}
+                          />
+                          <span>
+                            Process this file while Hushh is closed. Prepare
+                            suggestions, never share without approval. Turning
+                            this off keeps the existing private index.
+                          </span>
+                        </label>
+                      )}
+                      {item.backgroundProcessing &&
+                        overview?.features.drive_document_indexing && (
+                          <Button
+                            variant="ghost"
+                            className={touch}
+                            aria-label={`Sync ${item.name} now`}
+                            disabled={driveBusy}
+                            onClick={() =>
+                              void runDrive(async (token, signal) => {
+                                await ExternalConnectorService.syncDocument(
+                                  token,
+                                  item.documentId,
+                                );
+                                await refreshDocuments(signal);
+                              })
+                            }
+                          >
+                            Sync now
+                          </Button>
+                        )}
                       <Button
                         variant="ghost"
                         className={touch}
@@ -719,7 +790,7 @@ function OwnerConnectorsPanel({
                   {confirm === "mail"
                     ? "Disconnect Mail? Drive stays connected."
                     : confirm === "drive"
-                      ? "Disconnect Drive and remove its selected files from One? Mail stays connected."
+                      ? "Disconnect Drive and remove its selected files from One? Existing Google sharing stays active until you revoke it. Mail stays connected."
                       : "Remove this file from One? The original in Google Drive is unchanged."}
                 </p>
                 <div className="flex flex-wrap gap-2">

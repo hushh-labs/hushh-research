@@ -19,19 +19,35 @@ from hushh_mcp.services.document_index_service import (
     IndexedChunk,
     PreparedIndex,
 )
+from hushh_mcp.services.drive_document_store import PROCESSING_DISCLOSURE_VERSION
 from hushh_mcp.services.drive_ingestion_service import DriveIngestionService
 from hushh_mcp.services.drive_ingestion_store import DriveIngestionStore
 from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
-from hushh_mcp.services.google_drive_adapter import DriveContent, DriveReadError
+from hushh_mcp.services.google_drive_adapter import DriveContent, DriveReadError, GoogleDriveAdapter
 from tests.services.test_drive_document_selection import (  # noqa: F401
     connector_postgres_url,
     documents,
     drive,
     drive_connect,
     lifecycle,
-    pick,
     source,
 )
+from tests.services.test_drive_document_selection import (
+    pick as select_files,
+)
+
+
+async def pick(store, files=None):
+    session, result = await select_files(store, files)
+    for item in result:
+        await store.set_processing(
+            user_id="owner",
+            generation=1,
+            document_id=item["documentId"],
+            enabled=True,
+            disclosure=PROCESSING_DISCLOSURE_VERSION,
+        )
+    return session, result
 
 
 def index(value="Private synthetic document content"):
@@ -70,6 +86,130 @@ async def test_competing_claims_have_one_owner_winner(ingestion):
         *[ingestion.claim(user_id="owner", generation=1) for _ in range(4)]
     )
     assert sum(value is not None for value in claims) == 1
+
+
+@pytest.mark.asyncio
+async def test_selection_is_not_background_consent(ingestion):
+    _, selected = await select_files(ingestion)
+    assert await ingestion.claim(user_id="owner", generation=1) is None
+    assert selected[0]["backgroundProcessing"] is False
+    with pytest.raises(DriveReadError, match="processing_consent_required"):
+        await ingestion.set_processing(
+            user_id="owner",
+            generation=1,
+            document_id=selected[0]["documentId"],
+            enabled=True,
+            disclosure="wrong-disclosure",
+        )
+
+
+@pytest.mark.asyncio
+async def test_disable_reenable_cannot_publish_pre_disable_work(ingestion):
+    old = await job(ingestion)
+    for enabled in (False, True):
+        await ingestion.set_processing(
+            user_id="owner",
+            generation=1,
+            document_id=str(old["document_id"]),
+            enabled=enabled,
+            disclosure=PROCESSING_DISCLOSURE_VERSION if enabled else None,
+        )
+    replacement = await ingestion.claim(user_id="owner", generation=1)
+    assert replacement["processing_revision"] > old["processing_revision"]
+    with pytest.raises(DriveReadError, match="ingestion_superseded"):
+        await ingestion.publish(old, metadata=source(), index=index())
+    await ingestion.publish(replacement, metadata=source(), index=index())
+
+
+@pytest.mark.asyncio
+async def test_disable_works_when_rollout_off_and_preserves_index(ingestion, monkeypatch):
+    current = await job(ingestion)
+    await ingestion.publish(current, metadata=source(), index=index())
+    monkeypatch.setenv("DRIVE_DOCUMENT_INDEXING", "false")
+    await ingestion.set_processing(
+        user_id="owner", generation=1, document_id=str(current["document_id"]), enabled=False
+    )
+    assert len(chunks(ingestion)) == 1
+    assert (await ingestion.list_documents(user_id="owner", generation=1))[0][
+        "backgroundProcessing"
+    ] is False
+
+
+@pytest.mark.asyncio
+async def test_background_revocation_while_refreshing_prevents_download(ingestion, drive):
+    _, selected = await pick(ingestion)
+    original = drive.current_credential
+
+    async def refresh(**kwargs):
+        result = await original(**kwargs)
+        await ingestion.set_processing(
+            user_id="owner", generation=1, document_id=selected[0]["documentId"], enabled=False
+        )
+        return result
+
+    oauth = SimpleNamespace(lifecycle=drive.lifecycle, current_credential=refresh)
+    adapter = SimpleNamespace(fetch_content=AsyncMock(), get_metadata=AsyncMock())
+    result = await DriveIngestionService(
+        processor=SimpleNamespace(prepare=AsyncMock()),
+        oauth=oauth,
+        store=ingestion,
+        adapter=adapter,
+    ).run_one(user_id="owner")
+    assert result == {"status": "superseded"}
+    adapter.fetch_content.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_pause_during_metadata_prevents_next_download(ingestion, drive):
+    _, selected = await pick(ingestion)
+    adapter = GoogleDriveAdapter()
+
+    async def metadata(**kwargs):
+        await ingestion.set_processing(
+            user_id="owner", generation=1, document_id=selected[0]["documentId"], enabled=False
+        )
+        return source()
+
+    adapter.get_metadata = metadata
+    adapter._get = AsyncMock()
+    processor = SimpleNamespace(prepare=AsyncMock())
+    result = await DriveIngestionService(
+        processor=processor, oauth=drive, store=ingestion, adapter=adapter
+    ).run_one(user_id="owner")
+    assert result == {"status": "superseded"}
+    adapter._get.assert_not_awaited()
+    processor.prepare.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_due_ready_unchanged_metadata_skips_bytes_and_reembedding(ingestion, drive):
+    first = await job(ingestion)
+    prepared = index()
+    await ingestion.publish(first, metadata=source(), index=prepared)
+    with ingestion.db.engine.begin() as connection:
+        before = connection.execute(
+            text("SELECT last_indexed_at FROM connected_documents")
+        ).scalar_one()
+        connection.execute(
+            text(
+                "UPDATE connected_documents SET next_attempt_at=clock_timestamp()-interval '1 second'"
+            )
+        )
+    adapter = SimpleNamespace(
+        fetch_content=AsyncMock(), get_metadata=AsyncMock(return_value=source())
+    )
+    processor = SimpleNamespace(profile=prepared.profile, prepare=AsyncMock())
+    result = await DriveIngestionService(
+        processor=processor, oauth=drive, store=ingestion, adapter=adapter
+    ).run_one(user_id="owner")
+    assert result == {"status": "unchanged"}
+    adapter.fetch_content.assert_not_awaited()
+    processor.prepare.assert_not_awaited()
+    with ingestion.db.engine.connect() as connection:
+        row = connection.execute(text("SELECT * FROM connected_documents")).mappings().one()
+        assert row["last_indexed_at"] == before
+        assert row["last_checked_at"] >= before
+        assert row["status"] == "ready"
 
 
 @pytest.mark.asyncio

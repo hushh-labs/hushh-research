@@ -104,7 +104,14 @@ class DriveSelectionService:
             "origin": origin,
         }
 
-    async def select(self, *, user_id: str, session_id: str, file_ids: list[str]) -> list[dict]:
+    async def select(
+        self,
+        *,
+        user_id: str,
+        session_id: str,
+        file_ids: list[str],
+        processing_consent: str | None = None,
+    ) -> list[dict]:
         ids = selected_file_ids(file_ids)
         _, row, credential = await self._current(user_id)
         generation = row["connection_generation"]
@@ -126,7 +133,11 @@ class DriveSelectionService:
             raise DriveReadError("provider_unavailable", retryable=True) from None
         await self._fence(user_id=user_id, generation=generation)
         result = await self.store.select(
-            user_id=user_id, generation=generation, session_id=session_id, files=files
+            user_id=user_id,
+            generation=generation,
+            session_id=session_id,
+            files=files,
+            processing_consent=processing_consent,
         )
         await self._fence(user_id=user_id, generation=generation)
         return result
@@ -146,3 +157,27 @@ class DriveSelectionService:
             await self.store.remove(
                 user_id=user_id, generation=row["connection_generation"], document_id=document_id
             )
+
+    async def set_processing(
+        self, *, user_id: str, document_id: str, enabled: bool, disclosure: str | None
+    ) -> None:
+        row = await self.oauth.lifecycle.read(user_id=user_id, connector_id=CONNECTOR_ID)
+        if not row:
+            raise DriveReadError("source_unavailable")
+        await self.store.set_processing(
+            user_id=user_id,
+            generation=row["connection_generation"],
+            document_id=document_id,
+            enabled=enabled,
+            disclosure=disclosure,
+        )
+
+    async def sync(self, *, user_id: str, document_id: str) -> None:
+        from hushh_mcp.services.drive_ingestion_store import DriveIngestionStore
+
+        row = await self.oauth.lifecycle.read(user_id=user_id, connector_id=CONNECTOR_ID)
+        if not row:
+            raise DriveReadError("source_unavailable")
+        await DriveIngestionStore(db=self.store.db, cipher=self.store.cipher).resync(
+            user_id=user_id, generation=row["connection_generation"], document_id=document_id
+        )

@@ -11,6 +11,7 @@ import asyncio
 import hashlib
 import json
 import re
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -254,11 +255,21 @@ class GoogleDriveAdapter:
             raise DriveReadError("provider_response_invalid")
         return DriveMetadata(file_id, name, mime, version, modified, size, checksum)
 
-    async def fetch_content(self, *, file_id: str, access_token: str) -> DriveContent:
+    async def fetch_content(
+        self,
+        *,
+        file_id: str,
+        access_token: str,
+        require_current: Callable[[], Awaitable[object]] | None = None,
+    ) -> DriveContent:
         try:
             async with asyncio.timeout(DEADLINE_SECONDS):
+                if require_current:
+                    await require_current()
                 before = await self.get_metadata(file_id=file_id, access_token=access_token)
                 export_mime = EXPORTS.get(before.mime_type)
+                if require_current:
+                    await require_current()
                 content = await self._get(
                     _file_path(file_id) + ("/export" if export_mime else ""),
                     access_token=access_token,
@@ -268,7 +279,11 @@ class GoogleDriveAdapter:
                     limit=CONTENT_LIMIT,
                 )
                 # Permission and version recheck is mandatory even for empty bytes.
+                if require_current:
+                    await require_current()
                 after = await self.get_metadata(file_id=file_id, access_token=access_token)
+                if require_current:
+                    await require_current()
                 if before != after:
                     raise DriveReadError("source_changed", retryable=True)
                 return DriveContent(before, export_mime or before.mime_type, content)

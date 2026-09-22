@@ -515,23 +515,28 @@ export async function streamAgentChat(input: {
       handlers.onToolStart?.(toolPayload(event.toolCallId, event.toolCallName));
     },
     onToolCallEndEvent: ({ event, toolCallName, toolCallArgs }) => {
-      toolArgs.set(event.toolCallId, toolCallArgs);
+      const safeArgs = toolCallName === "ask_email_agent" || toolCallName === "ask_documents_agent"
+        ? {} : toolCallArgs;
+      toolArgs.set(event.toolCallId, safeArgs);
       handlers.onToolWaiting?.(
-        toolPayload(event.toolCallId, toolCallName, toolCallArgs),
+        toolPayload(event.toolCallId, toolCallName, safeArgs),
       );
     },
     onToolCallResultEvent: ({ event }) => {
       const toolName = toolNames.get(event.toolCallId) || "";
-      // A Mail receipt is display-only, even if an invalid result attempts to
+      // External-read receipts are display-only, even if an invalid result attempts to
       // smuggle a parked navigation/send directive alongside it.
-      if (toolName === "ask_email_agent") {
+      if (toolName === "ask_email_agent" || toolName === "ask_documents_agent") {
         const experience = parseAgentToolResultExperience(toolName, event.content);
         const payload = toolPayload(event.toolCallId, toolName);
         payload.execution = "server";
-        payload.message = experience ? "Mail read finished." : "Mail could not complete that read.";
+        const source = toolName === "ask_email_agent" ? "Mail" : "Drive";
+        payload.message = experience ? `${source} read finished.` : `${source} could not complete that read.`;
         payload.raw = { protocol: "ag-ui", toolName };
         handlers.onToolResult?.(payload);
-        if (experience) handlers.onStructuredExperience?.(experience);
+        if (experience) {
+          handlers.onStructuredExperience?.(experience, event.toolCallId);
+        }
         return;
       }
       const payload = toolPayload(

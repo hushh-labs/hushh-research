@@ -1,16 +1,16 @@
 """Bounded ingestion over durable leases, not a fire-and-forget task queue.
 
-No production processor is selected by this foundation. Callers MUST supply a
-separately verified scanner/parser/embedding implementation. No API/startup
-hook can activate this path accidentally; scheduler wiring follows acceptance.
+The dedicated worker supplies the local scanner/parser/embedding implementation.
+No API/startup hook activates processing, and selection alone is not consent.
 """
 
 from __future__ import annotations
 
 import asyncio
+from dataclasses import asdict
 from typing import Protocol
 
-from hushh_mcp.services.document_index_service import PreparedIndex
+from hushh_mcp.services.document_index_service import PreparedIndex, index_version
 from hushh_mcp.services.drive_ingestion_store import DriveIngestionStore
 from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
 from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
@@ -34,14 +34,31 @@ class DriveIngestionService:
         self.store = store or DriveIngestionStore(db=self.oauth.lifecycle.db)
         self.adapter = adapter or GoogleDriveAdapter()
 
-    async def _fetch(self, job: dict) -> DriveContent:
+    async def _fetch(self, job: dict) -> DriveContent | None:
         await self.store.current(job)
         row, credential = await self.oauth.current_credential(user_id=job["user_id"])
         if row["connection_generation"] != job["connection_generation"]:
             raise DriveReadError("connection_changed")
+        await self.store.current(job)
         metadata = self.store.cipher.open(job)
+        profile = getattr(self.processor, "profile", None)
+        if isinstance(profile, str) and job.get("active_version"):
+            fresh = await self.adapter.get_metadata(
+                file_id=metadata["file_id"], access_token=credential["accessToken"]
+            )
+            expected = index_version(
+                source_fingerprint=job["source_fingerprint"],
+                source_version=fresh.version,
+                profile=profile,
+            )
+            if asdict(fresh) == metadata and job["active_version"] == expected:
+                await self.store.unchanged(job)
+                return None
+            await self.store.current(job)
         return await self.adapter.fetch_content(
-            file_id=metadata["file_id"], access_token=credential["accessToken"]
+            file_id=metadata["file_id"],
+            access_token=credential["accessToken"],
+            require_current=lambda: self.store.current(job),
         )
 
     async def run_one(self, *, user_id: str) -> dict[str, str]:
@@ -56,6 +73,8 @@ class DriveIngestionService:
             # reclaimable job; no late publish can acquire a replacement lease.
             async with asyncio.timeout(90):
                 content = await self._fetch(job)
+                if content is None:
+                    return {"status": "unchanged"}
                 await self.store.stage(job, "parsing")
                 prepared = await self.processor.prepare(
                     content=content.content, mime_type=content.mime_type
@@ -65,6 +84,7 @@ class DriveIngestionService:
                 current, credential = await self.oauth.current_credential(user_id=user_id)
                 if current["connection_generation"] != job["connection_generation"]:
                     raise DriveReadError("connection_changed")
+                await self.store.current(job)
                 after = await self.adapter.get_metadata(
                     file_id=content.metadata.file_id, access_token=credential["accessToken"]
                 )

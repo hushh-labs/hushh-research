@@ -35,7 +35,7 @@ from hushh_mcp.one_adk.agent_tree import (
 from hushh_mcp.one_adk.agui_action_tools import action_id_from_tool_name
 from hushh_mcp.one_adk.agui_turn_timing import HEAD_INTRO, HEAD_ONE, TimedADKAgent
 from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionService
-from hushh_mcp.one_adk.external_read_boundary import STATE_EXECUTION_SURFACE
+from hushh_mcp.one_adk.external_read_boundary import READ_TOOLS, STATE_EXECUTION_SURFACE
 from hushh_mcp.one_adk.external_read_projection import redacted_read_receipt
 from hushh_mcp.one_adk.request_secrets import store_request_secret
 from hushh_mcp.services.action_gateway import get_action_gateway_action, list_action_gateway_actions
@@ -683,7 +683,7 @@ async def conversation_history(
             last_answer[event.invocation_id] = index
         for part in event.content.parts or [] if event.content else []:
             response = part.function_response
-            if response and response.name == "ask_email_agent":
+            if response and response.name in READ_TOOLS:
                 receipt = redacted_read_receipt(response.response)
                 if isinstance(receipt.get("structured"), dict):
                     receipts[event.invocation_id] = receipt["structured"]

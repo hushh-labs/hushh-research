@@ -108,6 +108,14 @@ class SelectDriveDocumentsRequest(BaseModel):
     sessionId: UUID
     fileIds: list[str] = Field(min_length=1, max_length=25)
     confirmed: Literal[True]
+    processingConsent: Literal["selected-files-background-v1"] | None = None
+
+
+class DriveProcessingRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool
+    disclosure: Literal["selected-files-background-v1"] | None = None
+    confirmed: Literal[True]
 
 
 class RemoveDriveDocumentRequest(BaseModel):
@@ -156,7 +164,10 @@ async def select_drive_documents(
     response.headers["Cache-Control"] = "no-store"
     try:
         documents = await DriveSelectionService().select(
-            user_id=_user_id(token_data), session_id=str(body.sessionId), file_ids=body.fileIds
+            user_id=_user_id(token_data),
+            session_id=str(body.sessionId),
+            file_ids=body.fileIds,
+            processing_consent=body.processingConsent,
         )
         return {"documents": documents}
     except _DRIVE_ERRORS as error:
@@ -185,6 +196,40 @@ async def remove_drive_document(
             user_id=_user_id(token_data), document_id=str(document_id)
         )
         return {"status": "removed"}
+    except _DRIVE_ERRORS as error:
+        raise _drive_selection_error(error) from None
+
+
+@router.post("/google_drive/documents/{document_id}/processing")
+async def set_drive_processing(
+    document_id: UUID,
+    body: DriveProcessingRequest,
+    response: Response,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        await DriveSelectionService().set_processing(
+            user_id=_user_id(token_data),
+            document_id=str(document_id),
+            enabled=body.enabled,
+            disclosure=body.disclosure,
+        )
+        return {"status": "enabled" if body.enabled else "paused"}
+    except _DRIVE_ERRORS as error:
+        raise _drive_selection_error(error) from None
+
+
+@router.post("/google_drive/documents/{document_id}/sync")
+async def sync_drive_document(
+    document_id: UUID, response: Response, token_data: dict = Depends(require_vault_owner_token)
+):
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        await DriveSelectionService().sync(
+            user_id=_user_id(token_data), document_id=str(document_id)
+        )
+        return {"status": "queued"}
     except _DRIVE_ERRORS as error:
         raise _drive_selection_error(error) from None
 

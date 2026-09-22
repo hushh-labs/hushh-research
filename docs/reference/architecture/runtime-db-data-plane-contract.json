@@ -946,10 +946,36 @@
       "exact_tables": ["connected_documents", "document_chunks"],
       "primary_access_path": "Owner-authenticated selection/management and durable connection-first ingestion leases. Atomic versioned publication via drive_ingestion_store.py; no global vector search or client database access.",
       "retention_policy": "Keep encrypted source metadata and at most 128 encrypted chunks per selected document while the connection generation remains active. Prior versions are removed atomically on successful publication. Failed retryable refresh preserves the previous version; provider denial deletes it. Runtime processor and retention scheduler acceptance remain rollout prerequisites.",
-      "deletion_behavior": "Connection-generation/status trigger deletes sources atomically on disconnect/account switch; connection deletion cascades to sources and composite owner/document FK cascades to chunks. Owner removal is repeat-safe and does not need the processing key. Future grants must cascade from document/owner.",
+      "deletion_behavior": "Connection-generation/status trigger deletes sources atomically on disconnect/account switch; connection deletion cascades to sources and composite owner/document FK cascades to chunks. Owner removal is repeat-safe and does not need the processing key. Original-file Google sharing receipts are independent of the removable index; deleting a selection does not revoke an existing Google ACL.",
       "trust_boundary": "Separate server-readable processing domain, not client-key PKM. Source IDs/names, text, provenance and vectors use DRIVE_DOCUMENT_KEY_V1 AES-256-GCM with purpose/owner/document/generation AAD; chunks additionally bind version/ordinal. Owner-keyed HMAC source fingerprints support idempotency; no plaintext content hashes, OAuth credentials or vault keys.",
       "plaintext_posture": "encrypted_source_metadata_content_and_vectors_with_bounded_workflow_status_only",
       "expected_row_growth": "bounded_100_documents_128_chunks_each_per_owner"
+    },
+    {
+      "id": "drive_original_sharing_records",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_encrypted",
+      "lifecycle_status": "customer0",
+      "exact_tables": ["drive_share_requests", "drive_share_reviews", "drive_share_permission_operations"],
+      "primary_access_path": "Default-off private domain stores for participant requests, exact-file owner review and durable fixed Google Viewer permission operations. No routes, Feed delivery or active background dispatcher yet.",
+      "retention_policy": "Requests have a 30-day authority lifetime and reviews five minutes; those bounds do not themselves delete records. Encrypted management receipts survive ordinary disconnect/index removal. Hard retention and account erasure integration remain mandatory release prerequisites.",
+      "deletion_behavior": "No cascade from connector credentials, catalog or conversation. Explicit account-reset/deletion and recipient-erasure handling is not implemented yet: do not expose this domain until tested erasure removes private request data while preserving another owner's minimal ACL-management authority.",
+      "trust_boundary": "DRIVE_SHARING_KEY_V1 is independent of document/OAuth keys. AES-256-GCM envelopes bind owner, resource and purpose. Google IDs, names, verified account identity, purpose, coverage, exact approval and permission receipts remain encrypted; only opaque workflow IDs, statuses and keyed binding digests are plaintext. A confirmation claim and pending work commit atomically before external calls.",
+      "plaintext_posture": "encrypted_private_request_approval_and_provider_evidence_with_workflow_metadata",
+      "expected_row_growth": "up_to_25_operations_per_review_retention_gate_before_enablement"
+    },
+    {
+      "id": "drive_original_sharing_coordination",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "customer0",
+      "exact_tables": ["drive_share_file_claims", "drive_share_events"],
+      "primary_access_path": "PostgreSQL file-level mutation serialization and transactional generic notification outbox; no model/caller-controlled provider endpoint.",
+      "retention_policy": "A file claim remains through uncertain outcomes until GET-only reconciliation; never expire a potentially dispatched mutation into an automatic retry. Outbox delivery and bounded cleanup are release prerequisites, not active jobs.",
+      "deletion_behavior": "Terminal known operations remove matching file claims. Account erasure must suppress late results and erase private linkage without recreating accounts; integration is pending and rollout remains disabled.",
+      "trust_boundary": "Only opaque request/operation/event IDs, owner linkage, timestamps and keyed file equality HMACs. No filenames, purpose, emails, provider IDs, credentials or content in queued notification metadata.",
+      "plaintext_posture": "opaque_workflow_identifiers_keyed_equality_digests_and_status_only",
+      "expected_row_growth": "one_active_claim_per_file_and_deduplicated_events_per_request_revision"
     },
     {
       "id": "drive_picker_selection_sessions",

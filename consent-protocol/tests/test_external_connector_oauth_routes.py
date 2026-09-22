@@ -104,8 +104,40 @@ def test_selection_routes_derive_owner_reject_unknown_fields_and_do_not_cache_to
         client.post("/api/connectors/google_drive/documents/select", json=body).status_code == 200
     )
     service.select.assert_awaited_once_with(
-        user_id="verified-owner", session_id=body["sessionId"], file_ids=["file-one"]
+        user_id="verified-owner",
+        session_id=body["sessionId"],
+        file_ids=["file-one"],
+        processing_consent=None,
     )
+
+
+def test_processing_and_resync_are_owner_bound(route_client, monkeypatch):
+    client, app, _ = route_client
+    service = SimpleNamespace(set_processing=AsyncMock(), sync=AsyncMock())
+    monkeypatch.setattr(routes, "DriveSelectionService", lambda: service)
+    document = "550e8400-e29b-41d4-a716-446655440000"
+    path = f"/api/connectors/google_drive/documents/{document}"
+    assert (
+        client.post(path + "/processing", json={"enabled": True, "confirmed": True}).status_code
+        == 401
+    )
+    assert client.post(path + "/sync").status_code == 401
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "verified-owner"}
+    for extra in ({"ownerId": "wrong"}, {"confirmed": False}, {"disclosure": "wrong"}):
+        assert (
+            client.post(
+                path + "/processing", json={"enabled": True, "confirmed": True, **extra}
+            ).status_code
+            == 422
+        )
+    body = {"enabled": True, "confirmed": True, "disclosure": "selected-files-background-v1"}
+    response = client.post(path + "/processing", json=body)
+    assert response.status_code == 200 and response.headers["Cache-Control"] == "no-store"
+    service.set_processing.assert_awaited_once_with(
+        user_id="verified-owner", document_id=document, enabled=True, disclosure=body["disclosure"]
+    )
+    assert client.post(path + "/sync").status_code == 200
+    service.sync.assert_awaited_once_with(user_id="verified-owner", document_id=document)
 
 
 def test_popup_completion_uses_firebase_owner_not_an_opener_token(route_client):

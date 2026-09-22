@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 229,
+  "expected_migration_version": 232,
   "migration_version_policy": "minimum",
   "required_functions": [
     "invalidate_selected_drive_documents",
@@ -159,7 +159,12 @@
       "last_error_code",
       "created_at",
       "updated_at",
-      "last_indexed_at"
+      "last_indexed_at",
+      "processing_enabled",
+      "processing_disclosure_version",
+      "processing_accepted_at",
+      "processing_revision",
+      "last_checked_at"
     ],
     "connected_system_audit_events": [
       "event_id",
@@ -381,6 +386,73 @@
       "created_at",
       "expires_at",
       "consumed_at"
+    ],
+    "drive_share_events": [
+      "event_id",
+      "request_id",
+      "user_id",
+      "revision",
+      "event_type",
+      "created_at",
+      "delivered_at"
+    ],
+    "drive_share_file_claims": [
+      "file_lock_hmac",
+      "operation_id",
+      "created_at"
+    ],
+    "drive_share_permission_operations": [
+      "operation_id",
+      "user_id",
+      "request_id",
+      "review_revision",
+      "batch_id",
+      "document_id",
+      "connection_generation",
+      "file_lock_hmac",
+      "kind",
+      "parent_operation_id",
+      "plan_envelope",
+      "receipt_envelope",
+      "state",
+      "lease_id",
+      "lease_expires_at",
+      "safe_error_code",
+      "created_at",
+      "updated_at",
+      "dispatched_at",
+      "settled_at"
+    ],
+    "drive_share_requests": [
+      "request_id",
+      "user_id",
+      "recipient_user_id",
+      "client_request_id",
+      "request_envelope",
+      "recipient_binding",
+      "request_digest",
+      "status",
+      "revision",
+      "revocation_revision",
+      "approval_invalidated_at",
+      "preparation_lease_id",
+      "preparation_lease_expires_at",
+      "created_at",
+      "updated_at",
+      "expires_at"
+    ],
+    "drive_share_reviews": [
+      "request_id",
+      "revision",
+      "user_id",
+      "connection_generation",
+      "review_envelope",
+      "review_digest",
+      "directive_id",
+      "decision",
+      "created_at",
+      "expires_at",
+      "decided_at"
     ],
     "enterprise_crm_registry": [
       "crm_id",
@@ -756,6 +828,8 @@
       "metadata"
     ],
     "one_action_directive_ledger": [
+      "document_request_id",
+      "document_request_revision",
       "directive_id",
       "schema_version",
       "user_id",

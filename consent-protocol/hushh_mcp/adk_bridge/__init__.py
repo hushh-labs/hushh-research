@@ -5,6 +5,7 @@ chat's dispatch seam can reach them.
 """
 
 from hushh_mcp.adk_bridge.dispatch import register_specialist
+from hushh_mcp.adk_bridge.documents_agent import DocumentsAgentA2A
 from hushh_mcp.adk_bridge.email_agent import get_email_a2a
 from hushh_mcp.adk_bridge.location_agent import get_location_a2a
 from hushh_mcp.adk_bridge.nav_agent import get_nav_a2a
@@ -29,6 +30,11 @@ def _register_builtin_specialists() -> None:
     # Mail and Nav enforce independently bound, attenuated authority on every
     # hop. Connected Systems remains unwired; a raw One invocation token must
     # never reach an ambient user-id service method.
+    register_specialist(
+        "agent_documents",
+        lambda task: DocumentsAgentA2A().handle(task),
+        service_handler=_with_service("hushh_mcp.adk_bridge.documents_agent", "DocumentsAgentA2A"),
+    )
     register_specialist(
         "agent_location",
         lambda task: get_location_a2a().handle(task),

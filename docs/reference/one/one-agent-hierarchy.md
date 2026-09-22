@@ -73,6 +73,7 @@ This page is current-state implementation truth. It does not rename runtime iden
 | Connections subagent | `agent_connections` | Nav's trusted-connection graph specialist; the Connections UI owns private runtime configuration | Exact specialist and `attr.*` authority per hop; never receives provider credentials |
 | Connected systems | `agent_connected_systems` | CRM and connected-system workflow planning | Exact specialist and `attr.*` authority per hop |
 | Email specialist | `agent_email` | Owner metadata-only inbox reads behind One's default-off typed-chat lane; existing receipts and reviewed sending remain separate | Exact `cap.email.metadata.read` invocation bound to owner, task, call and expiry; no inherited Mail write authority |
+| Documents specialist | `agent_documents` | Default-off typed-chat answers from the owner's selected, encrypted Drive index; no sharing tool | Exact `cap.documents.selected.read` invocation plus current owner token, connection generation, selected index version and live Google eligibility |
 | Memory Agent | `agent_personal_information` | Owner memory summaries plus consented information-slice workflows, reachable from One through `ask_memory_agent` | `cap.pkm.marketplace.view` plus exact per-hop information authority; PKM summaries retain the internal `pkm.read` gate |
 | Information Marketplace | standalone product surface | Separate consent-first Marketplace routes and APIs remain available; its conversational specialist is the Memory Agent | Admitted to One's typed specialist roster; route-specific marketplace pages remain separate |
 | World Model agents | `agent_memory_intent`, `agent_memory_segmentation`, `agent_memory_merge`, `agent_pkm_structure` | Semantic memory shaping | Must stay under vault/PKM consent and redaction boundaries |
@@ -125,6 +126,14 @@ and the legacy Kai compatibility server are not advertised as official v1.
 | `agent_personal_information` | `cap.pkm.marketplace.view` plus exact per-hop information authority; PKM summary reads use `pkm.read` |
 
 ### In-process dispatch registry
+
+`agent_documents` is also registered through `ask_documents_agent` for typed chat.
+It preserves One's conversation and uses the shared external-read tool barrier and
+redacted durable receipts. The manifest-owned `agent_documents_interpreter` has no
+tools and returns `DocumentAnswer` (answer plus exact source refs). Validators reject
+invented citations, oversized data, changed selection/generation, and provider denial;
+they do not infer statement coverage. Live two-account selected-file acceptance is
+required before promotion. This is implemented source, not deployed UAT evidence.
 
 The in-process `dispatch` table wires `agent_location`, `agent_nav`, `agent_personal_information` and `agent_email`. Memory is reached through `ask_memory_agent`; Marketplace pages remain standalone product surfaces. Email's `ask_email_agent` path admits only owner-authorized typed-chat metadata reads when the Mail read flag and internal cohort both allow them. It preserves One's conversation, permits only `list_needs_reply` / `search_inbox`, and closes further tool execution for that invocation before exposing external content. Its interpreter has no tools; durable tool history contains a redacted receipt, not mailbox metadata. Reviewed sending and receipt/sync tools are not admitted through this lane. Connected Systems remains authority-ingress-only. Connections is reached through Nav; its separate legacy mutation adapter retains its full information/action authority gate. There is no separate Gmail specialist roster entry.
 

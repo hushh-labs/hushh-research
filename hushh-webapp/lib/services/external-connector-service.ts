@@ -30,6 +30,7 @@ export type ConnectorFeatures = Partial<
     | "google_drive_connection"
     | "google_drive_picker"
     | "drive_document_indexing"
+    | "drive_document_sharing"
     | "gmail_chat_reads"
     | "google_drive_chat_reads",
     boolean
@@ -44,6 +45,7 @@ export type DriveDocument = {
   name: string;
   mimeType: string;
   status: string;
+  backgroundProcessing?: boolean;
 };
 /** Never persist this response, put it in React state, or send it through messages. */
 export type DrivePickerSession = {
@@ -231,6 +233,7 @@ export class ExternalConnectorService {
     vaultOwnerToken: string,
     sessionId: string,
     fileIds: string[],
+    backgroundProcessing = false,
   ): Promise<DriveDocument[]> {
     const result = await readJsonOrThrow<{ documents: DriveDocument[] }>(
       await ApiService.apiFetch(
@@ -241,7 +244,14 @@ export class ExternalConnectorService {
             ...authHeaders(vaultOwnerToken),
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({ sessionId, fileIds, confirmed: true }),
+          body: JSON.stringify({
+            sessionId,
+            fileIds,
+            confirmed: true,
+            ...(backgroundProcessing
+              ? { processingConsent: "selected-files-background-v1" }
+              : {}),
+          }),
         },
       ),
     );
@@ -273,6 +283,42 @@ export class ExternalConnectorService {
           },
           body: JSON.stringify({ confirmed: true }),
         },
+      ),
+    );
+  }
+
+  static async setDocumentProcessing(
+    vaultOwnerToken: string,
+    documentId: string,
+    enabled: boolean,
+  ): Promise<void> {
+    await readJsonOrThrow(
+      await ApiService.apiFetch(
+        `/api/connectors/google_drive/documents/${encodeURIComponent(documentId)}/processing`,
+        {
+          method: "POST",
+          headers: {
+            ...authHeaders(vaultOwnerToken),
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            enabled,
+            confirmed: true,
+            ...(enabled ? { disclosure: "selected-files-background-v1" } : {}),
+          }),
+        },
+      ),
+    );
+  }
+
+  static async syncDocument(
+    vaultOwnerToken: string,
+    documentId: string,
+  ): Promise<void> {
+    await readJsonOrThrow(
+      await ApiService.apiFetch(
+        `/api/connectors/google_drive/documents/${encodeURIComponent(documentId)}/sync`,
+        { method: "POST", headers: authHeaders(vaultOwnerToken) },
       ),
     );
   }

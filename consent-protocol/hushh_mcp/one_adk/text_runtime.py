@@ -162,6 +162,7 @@ def _event_text(event: Any) -> str:
 # subagents (and web search) become sources; app-action tools do not.
 _SPECIALIST_TOOL_SOURCES: dict[str, tuple[str, str]] = {
     "ask_email_agent": ("agent_email", "Email"),
+    "ask_documents_agent": ("agent_documents", "Documents"),
     "ask_location_agent": ("agent_location", "Location"),
     "ask_memory_agent": ("agent_personal_information", "Memory"),
     "ask_connected_systems_agent": ("agent_connected_systems", "Connected Systems"),

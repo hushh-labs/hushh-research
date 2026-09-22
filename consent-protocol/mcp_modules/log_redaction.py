@@ -26,6 +26,11 @@ _QUERY_SECRET_RE = re.compile(
     r"([^&\s\"'<>]+)",
     flags=re.IGNORECASE,
 )
+_DRIVE_PERMISSION_PATH_RE = re.compile(
+    r"(https://www\.googleapis\.com/drive/v3/files/)[^/?\s\"'<>]+"
+    r"(/permissions/)[^/?\s\"'<>]+",
+    re.IGNORECASE,
+)
 _DRIVE_FILE_PATH_RE = re.compile(
     r"(https://www\.googleapis\.com/drive/v3/files/)[^/?\s\"'<>]+", re.IGNORECASE
 )
@@ -132,6 +137,9 @@ def _redact_sql_bound_parameters(value: str) -> str:
 
 def _redact_sensitive_substrings(value: str) -> str:
     redacted = _TOKEN_VALUE_RE.sub(REDACTED, value)
+    redacted = _DRIVE_PERMISSION_PATH_RE.sub(
+        lambda match: f"{match.group(1)}{REDACTED}{match.group(2)}{REDACTED}", redacted
+    )
     redacted = _DRIVE_FILE_PATH_RE.sub(lambda match: f"{match.group(1)}{REDACTED}", redacted)
     redacted = _GMAIL_RESOURCE_PATH_RE.sub(
         lambda match: f"{match.group(1)}me{match.group(2)}{REDACTED}", redacted

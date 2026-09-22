@@ -17,12 +17,15 @@ from hushh_mcp.services.document_index_service import (
     PreparedIndex,
     index_version,
 )
-from hushh_mcp.services.drive_document_store import DriveDocumentStore
+from hushh_mcp.services.drive_document_store import (
+    PROCESSING_DISCLOSURE_VERSION,
+    DriveDocumentStore,
+)
 from hushh_mcp.services.google_drive_adapter import DriveMetadata, DriveReadError
 
 LEASE_SECONDS = 120
 MAX_ATTEMPTS = 5
-PURGE_ERRORS = frozenset({"source_unavailable", "reconnect_required"})
+PURGE_ERRORS = frozenset({"source_unavailable", "reconnect_required", "unsafe_document"})
 RETRYABLE_ERRORS = frozenset(
     {
         "provider_unavailable",
@@ -31,6 +34,7 @@ RETRYABLE_ERRORS = frozenset(
         "processing_timeout",
         "connector_unavailable",
         "connector_policy_changed",
+        "scanner_unavailable",
     }
 )
 TERMINAL_ERRORS = frozenset(
@@ -42,6 +46,8 @@ TERMINAL_ERRORS = frozenset(
         "no_extractable_text",
         "reconnect_required",
         "index_response_invalid",
+        "unsafe_document",
+        "encrypted_document",
     }
 )
 
@@ -85,7 +91,8 @@ class DriveIngestionStore(DriveDocumentStore):
                 WITH candidate AS (
                   SELECT document_id FROM connected_documents
                   WHERE user_id=:user AND connection_generation=:generation
-                    AND status IN ('queued','stale','failed_retryable','fetching','parsing','indexing')
+                    AND processing_enabled AND processing_disclosure_version=:disclosure
+                    AND status IN ('ready','queued','stale','failed_retryable','fetching','parsing','indexing')
                     AND next_attempt_at <= clock_timestamp() AND attempt_count < :attempts
                     AND (lease_id IS NULL OR lease_expires_at <= clock_timestamp())
                   ORDER BY next_attempt_at, created_at, document_id LIMIT 1 FOR UPDATE SKIP LOCKED
@@ -100,6 +107,7 @@ class DriveIngestionStore(DriveDocumentStore):
                     "attempts": MAX_ATTEMPTS,
                     "lease": str(uuid.uuid4()),
                     "seconds": LEASE_SECONDS,
+                    "disclosure": PROCESSING_DISCLOSURE_VERSION,
                 },
             )
 
@@ -127,7 +135,30 @@ class DriveIngestionStore(DriveDocumentStore):
         )
         if not row:
             raise DriveReadError("ingestion_superseded")
+        if not management and (
+            not row["processing_enabled"]
+            or row["processing_disclosure_version"] != PROCESSING_DISCLOSURE_VERSION
+            or row["processing_revision"] != job["processing_revision"]
+        ):
+            raise DriveReadError("ingestion_superseded")
         return dict(row)
+
+    async def unchanged(self, job: dict) -> None:
+        def operation(connection):
+            row = self._job(connection, job)
+            if not row["active_version"] or row["active_version"] != job["active_version"]:
+                raise DriveReadError("ingestion_superseded")
+            connection.execute(
+                text("""
+                UPDATE connected_documents SET status='ready', lease_id=NULL, lease_expires_at=NULL,
+                  attempt_count=0, last_error_code=NULL, last_checked_at=clock_timestamp(),
+                  next_attempt_at=clock_timestamp()+interval '6 hours', updated_at=clock_timestamp()
+                WHERE document_id=:id AND user_id=:user
+            """),
+                {"id": row["document_id"], "user": row["user_id"]},
+            )
+
+        await self._transaction(operation)
 
     async def stage(self, job: dict, stage: str) -> None:
         if stage not in {"parsing", "indexing"}:
@@ -200,7 +231,7 @@ class DriveIngestionStore(DriveDocumentStore):
                 UPDATE connected_documents SET status='ready', active_version=:version,
                   source_version=:source, metadata_envelope=CAST(:metadata AS jsonb),
                   lease_id=NULL, lease_expires_at=NULL, attempt_count=0, last_error_code=NULL,
-                  last_indexed_at=clock_timestamp(), updated_at=clock_timestamp(),
+                  last_indexed_at=clock_timestamp(), last_checked_at=clock_timestamp(), updated_at=clock_timestamp(),
                   next_attempt_at=clock_timestamp()+interval '6 hours'
                 WHERE document_id=:id AND user_id=:user
             """),
@@ -270,9 +301,15 @@ class DriveIngestionStore(DriveDocumentStore):
                 UPDATE connected_documents SET status=CASE WHEN active_version IS NULL THEN 'queued' ELSE 'stale' END,
                   lease_id=NULL, lease_expires_at=NULL, attempt_count=0, next_attempt_at=clock_timestamp(),
                   updated_at=clock_timestamp(), last_error_code=NULL
-                WHERE document_id=:id AND user_id=:user AND connection_generation=:generation RETURNING document_id
+                WHERE document_id=:id AND user_id=:user AND connection_generation=:generation
+                  AND processing_enabled AND processing_disclosure_version=:disclosure RETURNING document_id
             """,
-                {"id": document_id, "user": user_id, "generation": generation},
+                {
+                    "id": document_id,
+                    "user": user_id,
+                    "generation": generation,
+                    "disclosure": PROCESSING_DISCLOSURE_VERSION,
+                },
             )
             if not row:
                 raise DriveReadError("source_unavailable")

@@ -194,6 +194,7 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         "google_drive_connection": getattr(args, "google_drive_connection", "false"),
         "google_drive_picker": getattr(args, "google_drive_picker", "false"),
         "drive_document_indexing": getattr(args, "drive_document_indexing", "false"),
+        "drive_document_sharing": getattr(args, "drive_document_sharing", "false"),
         "gmail_chat_reads": getattr(args, "gmail_chat_reads", "false"),
         "google_drive_chat_reads": getattr(args, "google_drive_chat_reads", "false"),
         "connector_internal_owner_cohort": getattr(args, "connector_internal_owner_cohort", ""),
@@ -347,6 +348,7 @@ def main() -> int:
     parser.add_argument("--google-drive-connection", default="false", choices=["true", "false"])
     parser.add_argument("--google-drive-picker", default="false", choices=["true", "false"])
     parser.add_argument("--drive-document-indexing", default="false", choices=["true", "false"])
+    parser.add_argument("--drive-document-sharing", default="false", choices=["true", "false"])
     parser.add_argument("--gmail-chat-reads", default="false", choices=["true", "false"])
     parser.add_argument("--google-drive-chat-reads", default="false", choices=["true", "false"])
     parser.add_argument("--connector-internal-owner-cohort", default="")

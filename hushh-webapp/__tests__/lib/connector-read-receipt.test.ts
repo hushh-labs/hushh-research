@@ -9,6 +9,16 @@ const receipt = {
 };
 
 describe("connector read receipts", () => {
+  it("preserves only opaque Drive citations and bounded page provenance", () => {
+    const ref = `document:${"a".repeat(32)}`;
+    const structured = { ...receipt, connector: "drive", metadata_only: false,
+      sources: [{ source_ref: ref, kind: "document", label: "Document", page: 2 }] };
+    const value = parseAgentToolResultExperience("ask_documents_agent", { text: "PRIVATE DOCUMENT", structured });
+    expect(value).toEqual({ type: "one.connector_read.v1", connector: "drive", status: "ok", sourceRefs: [ref], sourcePages: [2], truncated: true, metadataOnly: false });
+    expect(JSON.stringify(value)).not.toContain("PRIVATE");
+    expect(parseConnectorReadReceipt({ ...structured, sources: [{ ...structured.sources[0], page: 101 }] })).toBeNull();
+    expect(parseConnectorReadReceipt({ ...structured, sources: [{ ...structured.sources[0], label: "PRIVATE FILENAME" }] })).toBeNull();
+  });
   it("adapts only the declared Mail result and drops the outer tool text", () => {
     const value = parseAgentToolResultExperience("ask_email_agent", JSON.stringify({
       text: "PRIVATE_TOOL_TEXT", status: "ok", structured: receipt,

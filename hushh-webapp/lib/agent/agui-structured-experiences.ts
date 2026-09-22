@@ -506,8 +506,10 @@ export function parseAgentToolResultExperience(
   toolName: string,
   content: unknown,
 ): AgentStructuredExperienceWithPresentation | null {
-  if (toolName === "ask_email_agent") {
-    return parseConnectorReadReceipt(unwrapToolResult(content)?.structured);
+  if (toolName === "ask_email_agent" || toolName === "ask_documents_agent") {
+    const receipt = parseConnectorReadReceipt(unwrapToolResult(content)?.structured);
+    return receipt?.connector === (toolName === "ask_email_agent" ? "mail" : "drive")
+      ? receipt : null;
   }
   const supportsPersonSelection =
     toolName === "discover_person_information" ||

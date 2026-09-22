@@ -32,6 +32,7 @@ from hushh_mcp.services.google_drive_adapter import (
 )
 
 MAX_OWNER_DOCUMENTS = 100
+PROCESSING_DISCLOSURE_VERSION = "selected-files-background-v1"
 
 
 class DriveDocumentCipher:
@@ -166,8 +167,16 @@ class DriveDocumentStore(ExternalConnectorLifecycleStore):
         return await self._transaction(operation)
 
     async def select(
-        self, *, user_id: str, generation: int, session_id: str, files: list[DriveMetadata]
+        self,
+        *,
+        user_id: str,
+        generation: int,
+        session_id: str,
+        files: list[DriveMetadata],
+        processing_consent: str | None = None,
     ) -> list[dict]:
+        if processing_consent is not None and processing_consent != PROCESSING_DISCLOSURE_VERSION:
+            raise DriveReadError("processing_consent_required")
         if not 1 <= len(files) <= MAX_SELECTION or len({file.file_id for file in files}) != len(
             files
         ):
@@ -204,13 +213,40 @@ class DriveDocumentStore(ExternalConnectorLifecycleStore):
                     {"user": user_id, "fingerprint": fingerprint},
                 )
                 if existing:
-                    # Repeat selection is idempotent, not an implicit resync.
+                    # Repeat selection does not resync. Explicit renewed
+                    # background consent may resume a paused selection.
+                    if processing_consent and not existing["processing_enabled"]:
+                        self._selection_policy(
+                            connection, user_id, feature="drive_document_indexing"
+                        )
+                        existing = self._row(
+                            connection,
+                            """
+                            UPDATE connected_documents SET processing_enabled=true,
+                              processing_disclosure_version=:disclosure,
+                              processing_accepted_at=clock_timestamp(),
+                              processing_revision=processing_revision+1,
+                              lease_id=NULL, lease_expires_at=NULL, attempt_count=0,
+                              status=CASE WHEN active_version IS NOT NULL THEN 'ready' ELSE 'queued' END,
+                              next_attempt_at=clock_timestamp(), updated_at=clock_timestamp()
+                            WHERE document_id=:id AND user_id=:user AND connection_generation=:generation
+                            RETURNING *
+                        """,
+                            {
+                                "id": existing["document_id"],
+                                "user": user_id,
+                                "generation": generation,
+                                "disclosure": processing_consent,
+                            },
+                        )
                     result.append(existing)
                     continue
                 count += 1
                 if count > MAX_OWNER_DOCUMENTS:
                     raise DriveReadError("document_limit_reached")
                 document_id = str(uuid.uuid4())
+                if processing_consent:
+                    self._selection_policy(connection, user_id, feature="drive_document_indexing")
                 sealed = self.cipher.seal(
                     metadata, user_id=user_id, document_id=document_id, generation=generation
                 )
@@ -219,8 +255,11 @@ class DriveDocumentStore(ExternalConnectorLifecycleStore):
                         connection,
                         """
                     INSERT INTO connected_documents
-                      (document_id,user_id,connection_generation,source_fingerprint,metadata_envelope,source_version)
-                    VALUES (:id,:user,:generation,:fingerprint,CAST(:envelope AS jsonb),:version)
+                      (document_id,user_id,connection_generation,source_fingerprint,metadata_envelope,source_version,
+                       processing_enabled,processing_disclosure_version,processing_accepted_at,processing_revision)
+                    VALUES (:id,:user,:generation,:fingerprint,CAST(:envelope AS jsonb),:version,
+                            :enabled,:disclosure,CASE WHEN :enabled THEN clock_timestamp() END,
+                            CASE WHEN :enabled THEN 1 ELSE 0 END)
                     RETURNING *
                 """,
                         {
@@ -230,6 +269,8 @@ class DriveDocumentStore(ExternalConnectorLifecycleStore):
                             "fingerprint": fingerprint,
                             "envelope": json.dumps(sealed),
                             "version": metadata.version,
+                            "enabled": processing_consent is not None,
+                            "disclosure": processing_consent,
                         },
                     )
                 )
@@ -246,7 +287,49 @@ class DriveDocumentStore(ExternalConnectorLifecycleStore):
             "status": row["status"],
             "modifiedAt": metadata["modified_time"],
             "lastErrorCode": row["last_error_code"],
+            "backgroundProcessing": bool(row.get("processing_enabled", False)),
         }
+
+    async def set_processing(
+        self,
+        *,
+        user_id: str,
+        generation: int,
+        document_id: str,
+        enabled: bool,
+        disclosure: str | None = None,
+    ) -> None:
+        if type(enabled) is not bool or (enabled and disclosure != PROCESSING_DISCLOSURE_VERSION):
+            raise DriveReadError("processing_consent_required")
+
+        def operation(connection):
+            self._active(connection, user_id, generation, management=not enabled)
+            if enabled:
+                self._selection_policy(connection, user_id, feature="drive_document_indexing")
+            row = self._row(
+                connection,
+                """
+                UPDATE connected_documents SET processing_enabled=:enabled,
+                  processing_disclosure_version=CASE WHEN :enabled THEN :disclosure ELSE processing_disclosure_version END,
+                  processing_accepted_at=CASE WHEN :enabled THEN clock_timestamp() ELSE processing_accepted_at END,
+                  processing_revision=processing_revision+1, lease_id=NULL, lease_expires_at=NULL,
+                  status=CASE WHEN active_version IS NULL THEN 'queued' ELSE 'ready' END,
+                  next_attempt_at=clock_timestamp(), attempt_count=0, updated_at=clock_timestamp()
+                WHERE user_id=:user AND document_id=:id AND connection_generation=:generation
+                RETURNING document_id
+            """,
+                {
+                    "enabled": enabled,
+                    "disclosure": disclosure,
+                    "user": user_id,
+                    "id": document_id,
+                    "generation": generation,
+                },
+            )
+            if not row:
+                raise DriveReadError("source_unavailable")
+
+        await self._transaction(operation)
 
     async def list_documents(self, *, user_id: str, generation: int) -> list[dict]:
         def operation(connection):

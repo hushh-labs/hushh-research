@@ -75,26 +75,29 @@ import {
 import { ApiService } from "@/lib/services/api-service";
 
 describe("AG-UI Agent One client", () => {
-  it("forwards safe Mail provenance without dispatching a smuggled action or storing tool text", async () => {
+  it.each([
+    { toolName: "ask_email_agent", connector: "mail", sourceRef: "mail:1", kind: "metadata", label: "Mail" },
+    { toolName: "ask_documents_agent", connector: "drive", sourceRef: `document:${"a".repeat(32)}`, kind: "document", label: "Document" },
+  ])("forwards safe $connector provenance without dispatching a smuggled action or storing tool text", async ({ toolName, connector, sourceRef, kind, label }) => {
     const onStructuredExperience = vi.fn();
     const onToolResult = vi.fn();
     const onToolWaiting = vi.fn();
     const onSpecialistDirective = vi.fn();
     mockTransport.emitEvents = (subscriber) => {
-      subscriber.onToolCallStartEvent({ event: { toolCallId: "mail-call", toolCallName: "ask_email_agent" } });
+      subscriber.onToolCallStartEvent({ event: { toolCallId: "mail-call", toolCallName: toolName } });
       subscriber.onToolCallResultEvent({ event: { toolCallId: "mail-call", content: JSON.stringify({
         text: "PRIVATE_TOOL_RESULT", status: "ok", structured: {
-          schema_version: "specialist_read.v1", connector: "mail", status: "ok",
-          sources: [{ source_ref: "mail:1", label: "Mail", kind: "metadata" }],
-          truncated: false, metadata_only: true,
+          schema_version: "specialist_read.v1", connector, status: "ok",
+          sources: [{ source_ref: sourceRef, label, kind }],
+          truncated: false, metadata_only: connector === "mail",
         }, directive: { action_id: "route.profile", slots: {}, execution: "frontend" },
       }) } });
     };
     await streamAgentChat({ userId: "u1", message: "Read mail", vaultOwnerToken: "fixture",
       handlers: { onStructuredExperience, onToolResult, onToolWaiting, onSpecialistDirective } });
     expect(onStructuredExperience).toHaveBeenCalledWith(expect.objectContaining({
-      type: "one.connector_read.v1", sourceRefs: ["mail:1"],
-    }));
+      type: "one.connector_read.v1", sourceRefs: [sourceRef],
+    }), "mail-call");
     expect(JSON.stringify(onToolResult.mock.calls)).not.toContain("PRIVATE_TOOL_RESULT");
     expect(onToolWaiting).not.toHaveBeenCalled();
     expect(onSpecialistDirective).not.toHaveBeenCalled();

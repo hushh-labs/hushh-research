@@ -135,6 +135,7 @@ class SpecialistReadSource(BaseModel):
     source_ref: str = Field(pattern=r"^(mail|document):[A-Za-z0-9_-]{1,80}$")
     label: str = Field(max_length=80)
     kind: Literal["metadata", "document"]
+    page: int | None = Field(default=None, ge=1, le=100)
 
 
 class SpecialistReadResult(BaseModel):

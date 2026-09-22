@@ -98,7 +98,7 @@ test.beforeAll(async () => {
 
 test.beforeEach(async ({ page }) => {
   let status = "connected";
-  let documents: { documentId: string; name: string; status: string }[] = [];
+  let documents: { documentId: string; name: string; status: string; backgroundProcessing: boolean }[] = [];
   await page.route("http://localhost/connections-fixture", (route) =>
     route.fulfill({
       contentType: "text/html",
@@ -115,6 +115,7 @@ test.beforeEach(async ({ page }) => {
           connections_panel_v2: true,
           google_drive_connection: true,
           google_drive_picker: true,
+          drive_document_indexing: true,
         },
         connectors: [
           {
@@ -154,9 +155,19 @@ test.beforeEach(async ({ page }) => {
           documentId: "550e8400-e29b-41d4-a716-446655440001",
           name: "<script>untrusted filename</script>",
           status: "queued",
+          backgroundProcessing: request.postDataJSON().processingConsent === "selected-files-background-v1",
         },
       ];
       body = { documents };
+    } else if (url.pathname.endsWith("/processing")) {
+      const input = request.postDataJSON();
+      expect(input).toEqual(input.enabled
+        ? { enabled: true, confirmed: true, disclosure: "selected-files-background-v1" }
+        : { enabled: false, confirmed: true });
+      documents = documents.map((document) => ({ ...document, backgroundProcessing: input.enabled }));
+      body = { status: input.enabled ? "enabled" : "paused" };
+    } else if (url.pathname.endsWith("/sync")) {
+      body = { status: "queued" };
     } else if (request.method() === "DELETE") {
       documents = [];
       body = { status: "removed" };
@@ -303,7 +314,7 @@ test("Picker focus, explicit admission, removal, and independent disconnect", as
   await page.getByRole("button", { name: "Add selected files" }).click();
   await expect(
     page.getByRole("list", { name: "Selected Drive files" }),
-  ).toContainText("Waiting to process");
+  ).toContainText("Background processing is off");
   expect(
     await page.evaluate(() =>
       JSON.stringify({ ...localStorage, ...sessionStorage }),
@@ -317,6 +328,7 @@ test("Picker focus, explicit admission, removal, and independent disconnect", as
     page.getByRole("list", { name: "Selected Drive files" }),
   ).toHaveCount(0);
   await page.getByRole("button", { name: "Disconnect Drive" }).click();
+  await expect(page.getByText(/Existing Google sharing stays active until you revoke it/)).toBeVisible();
   await page.getByRole("button", { name: "Confirm", exact: true }).click();
   await expect(
     page.getByText(/Google revocation was not confirmed/),
@@ -324,6 +336,46 @@ test("Picker focus, explicit admission, removal, and independent disconnect", as
   await expect(
     page.getByRole("button", { name: "Disconnect Mail" }),
   ).toBeEnabled();
+});
+
+test("background processing needs explicit consent and can be paused without removing files", async ({ page }) => {
+  const writes: { url: string; body: Record<string, unknown> }[] = [];
+  page.on("request", (request) => {
+    if (request.method() === "POST" && /documents\/(select|[^/]+\/processing)/.test(request.url()))
+      writes.push({ url: request.url(), body: request.postDataJSON() });
+  });
+  await page.getByRole("textbox", { name: "Chat draft" }).fill("Keep my draft");
+  await page.getByRole("button", { name: "Open drawer", exact: true }).click();
+  await page.getByLabel("Open Connections", { exact: true }).click();
+  const selectFile = async () => {
+    await page.getByRole("button", { name: "Choose files", exact: true }).click();
+    await page.getByRole("button", { name: "Pick synthetic file" }).click();
+  };
+  await selectFile();
+  const consent = page.getByRole("checkbox", { name: /Allow One to process these files/ });
+  await expect(consent).not.toBeChecked();
+  await consent.check();
+  expect(writes).toHaveLength(0);
+  await page.getByRole("button", { name: "Cancel selection" }).click();
+  await selectFile();
+  await expect(consent).not.toBeChecked();
+  await consent.focus();
+  await page.keyboard.press("Space");
+  await page.getByRole("button", { name: "Add selected files" }).click();
+  const processing = page.getByRole("checkbox", { name: /^Background processing for / });
+  await expect(processing).toBeChecked();
+  expect(writes[0].body.processingConsent).toBe("selected-files-background-v1");
+  await expect(page.getByRole("button", { name: /^Sync .+ now$/ })).toBeVisible();
+  await processing.click();
+  await expect(processing).not.toBeChecked();
+  await expect(page.getByRole("button", { name: /^Sync .+ now$/ })).toHaveCount(0);
+  await expect(page.getByRole("list", { name: "Selected Drive files" })).toBeVisible();
+  expect(writes[1].body).toEqual({ enabled: false, confirmed: true });
+  await processing.click();
+  await expect(processing).toBeChecked();
+  expect(writes[2].body).toEqual({ enabled: true, confirmed: true, disclosure: "selected-files-background-v1" });
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("textbox", { name: "Chat draft" })).toHaveValue("Keep my draft");
 });
 
 test("blocked popup keeps draft in chat and makes no start request", async ({

@@ -8,7 +8,7 @@ from google.adk.sessions import Session
 
 from hushh_mcp.adk_bridge.contract import SpecialistReadResult
 from hushh_mcp.one_adk.external_read_boundary import (
-    MAIL_TOOL,
+    READ_TOOLS,
     STATE_EXECUTION_SURFACE,
     STATE_EXTERNAL_READ,
 )
@@ -38,8 +38,8 @@ def durable_external_read_projection(session: Session) -> Session:
         for event in session.events
         if event.content
         for part in (event.content.parts or [])
-        if (part.function_call and part.function_call.name == MAIL_TOOL)
-        or (part.function_response and part.function_response.name == MAIL_TOOL)
+        if (part.function_call and part.function_call.name in READ_TOOLS)
+        or (part.function_response and part.function_response.name in READ_TOOLS)
     }
     if not read_invocations and not any(key in session.state for key in _EPHEMERAL):
         return session
@@ -55,11 +55,14 @@ def durable_external_read_projection(session: Session) -> Session:
             # Keep SDK call names, IDs, associations and opaque thought
             # signatures. Only tool arguments/results are redacted. Ordinary
             # user requests and the encrypted assistant answer are preserved.
-            if part.function_call:
+            # Unrelated tools may have completed before Mail was selected;
+            # retain their governed history cards. After Mail, the invocation
+            # barrier prevents other tools from receiving external content.
+            if part.function_call and part.function_call.name in READ_TOOLS:
                 part.function_call.args = {}
             if part.thought and part.text:
                 part.text = None
-            if part.function_response:
+            if part.function_response and part.function_response.name in READ_TOOLS:
                 part.function_response.response = redacted_read_receipt(
                     part.function_response.response
                 )

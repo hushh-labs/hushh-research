@@ -16,13 +16,14 @@ from dataclasses import asdict, dataclass, field
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
+from hushh_mcp.services.document_index_limits import (
+    CHUNK_CHARACTERS,
+    EMBEDDING_DIMENSIONS,
+    INDEX_TEXT_BYTES,
+    MAX_CHUNKS,
+)
 from hushh_mcp.services.drive_document_store import DriveDocumentCipher
 from hushh_mcp.services.google_drive_adapter import DriveReadError
-
-MAX_CHUNKS = 128
-CHUNK_CHARACTERS = 1600
-EMBEDDING_DIMENSIONS = 384
-INDEX_TEXT_BYTES = 256 * 1024
 
 
 @dataclass(frozen=True)

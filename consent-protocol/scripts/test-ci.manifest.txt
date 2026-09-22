@@ -8,6 +8,16 @@ tests/services/test_external_connector_google_oauth.py
 tests/services/test_google_drive_adapter.py
 tests/services/test_drive_document_selection.py
 tests/services/test_drive_ingestion.py
+tests/services/test_drive_document_processor.py
+tests/services/test_drive_document_retrieval.py
+tests/services/test_drive_document_worker.py
+tests/services/test_google_drive_permission_adapter.py
+tests/services/test_drive_sharing_contract.py
+tests/services/test_document_review_authority_postgres.py
+tests/services/test_drive_sharing_store.py
+tests/services/test_drive_permission_executor.py
+tests/services/test_drive_revocation_executor.py
+tests/test_documents_agent_a2a.py
 tests/services/test_connector_feature_admission.py
 tests/test_external_connector_oauth_routes.py
 tests/services/test_gmail_metadata_reader.py
