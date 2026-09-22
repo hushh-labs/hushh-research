@@ -21,7 +21,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from hushh_mcp.consent.scope_generator import DynamicScopeGenerator
+from hushh_mcp.consent.scope_generator import DynamicScopeGenerator, ScopeCatalogUnavailableError
 
 USER = "user_1"
 
@@ -134,6 +134,66 @@ class _FakeDb:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("mixed", [False, True])
+async def test_domain_wildcard_cannot_bypass_private_sections(mixed):
+    db = _FakeDb()
+    registry = [
+        {
+            "domain": "professional",
+            "scope_handle": "private-work",
+            "scope_label": "Work",
+            "exposure_enabled": True,
+            "visibility_posture": "private",
+            "summary_projection": {"top_level_scope_path": "work", "consumer_visible": True},
+        }
+    ]
+    if mixed:
+        registry.append(
+            {
+                **registry[0],
+                "scope_handle": "public-projects",
+                "scope_label": "Projects",
+                "visibility_posture": "consent_required",
+                "summary_projection": {
+                    "top_level_scope_path": "projects",
+                    "consumer_visible": True,
+                },
+            }
+        )
+    db.TABLES = {
+        "pkm_index": [{"available_domains": ["professional"]}],
+        "pkm_scope_registry": registry,
+    }
+    generator = DynamicScopeGenerator()
+    generator._db = db
+    entries = await generator.get_available_scope_entries(USER)
+    assert "attr.professional.*" not in {entry["scope"] for entry in entries}
+
+
+@pytest.mark.asyncio
+async def test_catalog_read_failure_is_not_reported_as_no_available_information():
+    class UnavailableDb:
+        def table(self, _name):
+            raise RuntimeError("database unavailable")
+
+    generator = DynamicScopeGenerator()
+    generator._db = UnavailableDb()
+    with pytest.raises(ScopeCatalogUnavailableError, match="could not be checked"):
+        await generator.get_available_scope_entries(USER)
+
+
+@pytest.mark.asyncio
+async def test_successful_empty_catalog_remains_empty():
+    class EmptyDb:
+        def table(self, _name):
+            return _Query([])
+
+    generator = DynamicScopeGenerator()
+    generator._db = EmptyDb()
+    assert await generator.get_available_scope_entries(USER) == []
+
+
+@pytest.mark.asyncio
 async def test_a_stored_row_marked_eligible_for_plumbing_is_not_offered():
     generator = DynamicScopeGenerator()
     generator._db = _FakeDb()
@@ -175,3 +235,42 @@ async def test_both_emitters_apply_the_rule_not_only_one():
     assert "portfolio.holdings.equities" in offered
     assert "profile.setup.completed" not in offered
     assert "profile.domain_intent.primary" not in offered
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("use_path_rows", [True, False])
+async def test_collection_paths_survive_but_private_children_do_not(use_path_rows):
+    eligible = "employment.entities._entities.summary"
+    blocked = ["employment._private.summary", "employment.entities._entities.api_key"]
+    paths = [eligible, *blocked]
+    db = _FakeDb()
+    db.TABLES = {
+        "pkm_index": [{"available_domains": ["professional"]}],
+        "pkm_manifests": [
+            {
+                "domain": "professional",
+                "top_level_scope_paths": ["employment"],
+                "externalizable_paths": [] if use_path_rows else paths,
+                "manifest_version": 1,
+                "summary_projection": {},
+            }
+        ],
+        "pkm_manifest_paths": [
+            {
+                "domain": "professional",
+                "json_path": path,
+                "path_type": "leaf",
+                "segment_id": "employment",
+                "exposure_eligibility": True,
+            }
+            for path in paths
+        ]
+        if use_path_rows
+        else [],
+        "pkm_scope_registry": [],
+    }
+    generator = DynamicScopeGenerator()
+    generator._db = db
+    entries = await generator.get_available_scope_entries(USER)
+    offered = {entry["path"]: entry["scope"] for entry in entries if not entry.get("wildcard")}
+    assert offered == {eligible: f"attr.professional.{eligible}"}

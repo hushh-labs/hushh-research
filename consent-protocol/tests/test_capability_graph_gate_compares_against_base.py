@@ -65,6 +65,21 @@ def _graph(revision: str, binding_ref: str, semantic_diff: dict[str, Any]) -> di
     }
 
 
+def _aliased(
+    revision: str,
+    aliases: list[str],
+    *,
+    version: int = 1,
+    binding_ref: str = "binding-a",
+) -> dict[str, Any]:
+    """Graph v1's action plus a spoken-alias list, for the additive rule."""
+
+    graph = _graph(revision, binding_ref, _empty_diff(None))
+    graph["actions"][0]["aliases"] = aliases
+    graph["actions"][0]["version"] = version
+    return graph
+
+
 V1 = _graph(V1_REVISION, "binding-a", {**_empty_diff(None), "added": ["actions:X"]})
 # The author changed X's contract at the same version and recorded no breaking
 # change. This is the exact shape of the historical bypass.
@@ -203,6 +218,68 @@ def test_base_ref_comparison_names_the_changed_action_and_fails(
     assert semantic_diff["from_revision"] == V1_REVISION
     assert semantic_diff["changed"] == ["actions:X"]
     assert semantic_diff["breaking"] == ["actions:X"]
+
+
+def test_an_added_spoken_alias_is_compatible_not_breaking() -> None:
+    """More phrasings reach the same contract, so no paused run is invalidated.
+
+    Without this the only way to regenerate the graph after a wording edit is
+    an evolution-ledger retirement, which rejects in-flight runs -- a false
+    statement about the change, written into the governed ledger.
+    """
+
+    before = _aliased(V1_REVISION, ["cancel my request", "withdraw that request"])
+    after = _aliased(
+        V2_REVISION,
+        ["cancel my request", "cancel that request I just sent", "withdraw that request"],
+    )
+
+    semantic_diff = generator._semantic_diff(before, after, deprecations=())
+
+    assert semantic_diff["changed"] == ["actions:X"]
+    assert semantic_diff["compatible"] == ["actions:X"]
+    assert semantic_diff["breaking"] == []
+    generator._require_acknowledged_semantic_changes(semantic_diff)
+
+
+@pytest.mark.parametrize(
+    ("after", "reason"),
+    [
+        (
+            _aliased(V2_REVISION, ["cancel my request"]),
+            "a removed alias",
+        ),
+        (
+            _aliased(V2_REVISION, ["withdraw that request", "cancel my request", "take it back"]),
+            "a reordered alias",
+        ),
+        (
+            _aliased(
+                V2_REVISION,
+                ["cancel my request", "withdraw that request", "take it back"],
+                version=2,
+            ),
+            "a version bump",
+        ),
+        (
+            _aliased(
+                V2_REVISION,
+                ["cancel my request", "withdraw that request", "take it back"],
+                binding_ref="binding-b",
+            ),
+            "any other field changing",
+        ),
+    ],
+)
+def test_the_additive_alias_rule_stays_narrow(after: dict[str, Any], reason: str) -> None:
+    before = _aliased(V1_REVISION, ["cancel my request", "withdraw that request"])
+
+    semantic_diff = generator._semantic_diff(before, after, deprecations=())
+
+    assert semantic_diff["compatible"] == [], reason
+    assert semantic_diff["breaking"] == ["actions:X"], reason
+    with pytest.raises(RuntimeError, match="unacknowledged breaking changes"):
+        generator._require_acknowledged_semantic_changes(semantic_diff)
 
 
 def test_exact_revision_deprecation_acknowledges_the_change(

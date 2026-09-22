@@ -203,6 +203,15 @@ export interface ConnectionInformationScope {
 export interface ConnectionInformationScopeCatalog {
   counterpartUserId: string;
   items: ConnectionInformationScope[];
+  page?: number;
+  limit?: number;
+  hasMore?: boolean;
+  totalCount?: number;
+  catalogTruncated?: boolean;
+  catalogRevision?: string;
+  paginationReset?: boolean;
+  nextPage?: number | null;
+  domains?: Array<{ domain: string; count: number }>;
 }
 
 export interface ConnectionCircleSummary {
@@ -463,12 +472,16 @@ export class ConnectionsService {
     counterpartUserId: string;
     query?: string;
     domain?: string;
+    page?: number;
     limit?: number;
+    catalogRevision?: string;
   }): Promise<ConnectionInformationScopeCatalog> {
     const params = new URLSearchParams();
     if (opts.query) params.set("query", opts.query);
     if (opts.domain) params.set("domain", opts.domain);
+    if (opts.page) params.set("page", String(opts.page));
     if (opts.limit) params.set("limit", String(opts.limit));
+    if (opts.catalogRevision) params.set("catalog_revision", opts.catalogRevision);
     const response = await ApiService.apiFetch(
       `/api/one/connections/${encodeURIComponent(opts.counterpartUserId)}/information-scopes?${params.toString()}`,
       { method: "GET", headers: authHeaders(opts.idToken) },
@@ -478,6 +491,15 @@ export class ConnectionsService {
     return {
       counterpartUserId: payload.counterpartUserId,
       items: payload.items ?? [],
+      page: payload.page,
+      limit: payload.limit,
+      hasMore: payload.hasMore,
+      totalCount: payload.totalCount,
+      catalogTruncated: payload.catalogTruncated,
+      catalogRevision: payload.catalogRevision,
+      paginationReset: payload.paginationReset,
+      nextPage: payload.nextPage,
+      domains: payload.domains,
     };
   }
 

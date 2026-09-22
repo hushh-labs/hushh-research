@@ -79,6 +79,7 @@ import { AuthService } from "@/lib/services/auth-service";
 import { REQUEST_TIMESTAMP_HEADER } from "@/lib/observability/request-id";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { trackRequestStart } from "@/lib/motion/api-progress-tracker";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -136,9 +137,69 @@ describe("ApiService.apiFetch", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  it("rechecks effect authority after asynchronous transport setup", async () => {
+    let current = true;
+    vi.mocked(trackRequestStart).mockImplementationOnce(() => { current = false; });
+    const beforeDispatch = vi.fn(async () => {
+      if (!current) throw new DOMException("Session changed", "AbortError");
+    });
+    await expect(ApiService.apiFetch("/api/pkm/store-domain", {
+      method: "POST", body: "{}", beforeDispatch,
+    })).rejects.toMatchObject({ name: "AbortError" });
+    expect(beforeDispatch).toHaveBeenCalledOnce();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("does not send an application effect guard over the transport", async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ success: true }));
+    const beforeDispatch = vi.fn(async () => {});
+    await ApiService.apiFetch("/api/pkm/store-domain", { method: "POST", beforeDispatch });
+    expect(beforeDispatch).toHaveBeenCalledOnce();
+    expect(mockFetch.mock.calls[0][1]).not.toHaveProperty("beforeDispatch");
+  });
+
+  it("blocks a session change queued between an async guard and web dispatch", async () => {
+    let current = true;
+    await expect(ApiService.apiFetch("/api/pkm/memory/proposals", {
+      method: "POST",
+      beforeDispatch: async () => { queueMicrotask(() => { current = false; }); },
+      isEffectCurrent: () => current,
+    })).rejects.toMatchObject({ name: "AbortError" });
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])("blocks the same native dispatch race (multipart=%s)", async (multipart) => {
+    vi.stubEnv("NEXT_PUBLIC_BACKEND_URL", "https://uat.example");
+    capacitorMocks.isNativePlatform.mockReturnValue(true);
+    let current = true;
+    await expect(ApiService.apiFetch("/api/pkm/memory/proposals", {
+      method: "POST", body: multipart ? new FormData() : "{}",
+      beforeDispatch: async () => { queueMicrotask(() => { current = false; }); },
+      isEffectCurrent: () => current,
+    })).rejects.toMatchObject({ name: "AbortError" });
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(capacitorMocks.request).not.toHaveBeenCalled();
   });
 
   // 1 – Web platform: calls fetch with relative path (no base URL)
+  it("keeps simultaneous reviewer sessions bound to their requested identities", async () => {
+    const first = deferred<Response>();
+    const second = deferred<Response>();
+    mockFetch.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const a = ApiService.createAppReviewModeSession("reviewer", { reviewerUid: "synthetic-a" });
+    const b = ApiService.createAppReviewModeSession("reviewer", { reviewerUid: "synthetic-b" });
+    await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2));
+    expect(mockFetch.mock.calls.map((call) => JSON.parse(call[1].body).reviewer_uid))
+      .toEqual(["synthetic-a", "synthetic-b"]);
+    second.resolve(jsonResponse({ token: "synthetic-token-b" }));
+    first.resolve(jsonResponse({ token: "synthetic-token-a" }));
+    expect(await a).toEqual({ token: "synthetic-token-a" });
+    expect(await b).toEqual({ token: "synthetic-token-b" });
+  });
+
   it("calls fetch with a relative path on web (no base URL prepended)", async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ ok: true }));
 

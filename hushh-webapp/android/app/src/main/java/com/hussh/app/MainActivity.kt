@@ -28,6 +28,8 @@ import com.getcapacitor.BridgeWebViewClient
 import com.getcapacitor.WebViewListener
 import com.hussh.app.plugins.HushhAuth.HushhAuthPlugin
 import com.hussh.app.plugins.HushhConsent.HushhConsentPlugin
+import com.hussh.app.plugins.HushhStream.HushhStreamPlugin
+import com.hussh.app.plugins.HushhOAuthReturn.HushhOAuthReturnPlugin
 import com.hussh.app.plugins.HushhVault.HushhVaultPlugin
 import com.hussh.app.plugins.HushhKeystore.HushhKeystorePlugin
 import com.hussh.app.plugins.HushhSettings.HushhSettingsPlugin
@@ -55,6 +57,48 @@ object NativeTestModePolicy {
     @JvmStatic
     fun uiFlowRunId(value: String?): String =
         value.orEmpty().filter { it.isLetterOrDigit() || it == '_' || it == '-' }.take(64)
+}
+
+/**
+ * Render-performance probe switch for a launch, mirroring the iOS launch
+ * argument `-CapacitorStorage.hushh_perf_probe 1`. The web probe
+ * (lib/perf/perf-probe-enablement.ts) reads the Capacitor Preferences keys
+ * `hushh_perf_probe` and `hushh_perf_route`, which the Preferences plugin
+ * stores in SharedPreferences("CapacitorStorage"). Same guard as the native
+ * test bridge: only a debuggable build honours the extras, seeding the keys
+ * when asked and clearing them on every other launch so nothing persists past
+ * the run. A non-debuggable build never touches them (the app never writes
+ * these keys itself, and the preferences file is private to its uid); the
+ * attached truth lane's instrumentation, which runs as that uid, seeds and
+ * clears them around its own launches (AttachedRenderPerfTest).
+ */
+object PerfProbeLaunchPolicy {
+    const val PROBE_EXTRA = "HUSHH_PERF_PROBE"
+    const val ROUTE_EXTRA = "HUSHH_PERF_ROUTE"
+    const val PREFERENCES_GROUP = "CapacitorStorage"
+    const val PROBE_PREFERENCE_KEY = "hushh_perf_probe"
+    const val ROUTE_PREFERENCE_KEY = "hushh_perf_route"
+    private val routePattern = Regex("^[A-Za-z0-9/_?=&%.-]+$")
+
+    enum class Action { SEED, CLEAR, LEAVE }
+
+    data class Decision(val action: Action, val route: String?)
+
+    @JvmStatic
+    fun decide(isDebugBuild: Boolean, probeRequested: Boolean, route: String?): Decision {
+        if (!isDebugBuild) return Decision(Action.LEAVE, route = null)
+        if (!probeRequested) return Decision(Action.CLEAR, route = null)
+        return Decision(Action.SEED, route = sanitizeRoute(route))
+    }
+
+    /** App-relative paths only, the same rule as the web side's sanitizePerfRoute. */
+    @JvmStatic
+    fun sanitizeRoute(value: String?): String? {
+        val trimmed = value.orEmpty().trim()
+        if (!trimmed.startsWith("/") || trimmed.startsWith("//")) return null
+        if (!routePattern.matches(trimmed)) return null
+        return trimmed
+    }
 }
 
 private object AndroidPersonProfileAssetRouter {
@@ -214,9 +258,13 @@ class MainActivity : BridgeActivity() {
         registerPlugin(HushhVoiceInvocationPlugin::class.java)
         registerPlugin(HushhInvitationsPlugin::class.java) // User-confirmed invitations
         registerPlugin(HushhSessionPrivacyPlugin::class.java) // Resume-time session privacy shield
+        registerPlugin(HushhStreamPlugin::class.java)
+        registerPlugin(HushhOAuthReturnPlugin::class.java) // Provider OAuth returns stay in the app
         
         Log.d("MainActivity", "All 13 plugins registered successfully")
-        
+
+        applyPerfProbeLaunchExtras(intent?.extras)
+
         super.onCreate(savedInstanceState)
 
         installAndroidPersonProfileRouting()
@@ -542,6 +590,40 @@ class MainActivity : BridgeActivity() {
         activeBridge.setWebViewClient(
             AndroidPersonProfileWebViewClient(activeBridge, assets)
         )
+    }
+
+    /**
+     * Seeds the render-performance probe Preferences keys for this launch
+     * (debuggable builds, explicit extras only) or removes them. Runs before
+     * BridgeActivity loads the WebView so the probe reads them at boot;
+     * commit() keeps the write synchronous for the same reason.
+     */
+    private fun applyPerfProbeLaunchExtras(extras: Bundle?) {
+        val isDebuggableBuild =
+            (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
+        val decision = PerfProbeLaunchPolicy.decide(
+            isDebugBuild = isDebuggableBuild,
+            probeRequested = extras?.getBoolean(PerfProbeLaunchPolicy.PROBE_EXTRA, false) ?: false,
+            route = extras?.getString(PerfProbeLaunchPolicy.ROUTE_EXTRA)
+        )
+        if (decision.action == PerfProbeLaunchPolicy.Action.LEAVE) return
+        val editor = getSharedPreferences(
+            PerfProbeLaunchPolicy.PREFERENCES_GROUP,
+            MODE_PRIVATE
+        ).edit()
+        if (decision.action == PerfProbeLaunchPolicy.Action.SEED) {
+            editor.putString(PerfProbeLaunchPolicy.PROBE_PREFERENCE_KEY, "1")
+            if (decision.route != null) {
+                editor.putString(PerfProbeLaunchPolicy.ROUTE_PREFERENCE_KEY, decision.route)
+            } else {
+                editor.remove(PerfProbeLaunchPolicy.ROUTE_PREFERENCE_KEY)
+            }
+            Log.i("HUSHH_PERF", "probe=1 route=${decision.route ?: "-"}")
+        } else {
+            editor.remove(PerfProbeLaunchPolicy.PROBE_PREFERENCE_KEY)
+            editor.remove(PerfProbeLaunchPolicy.ROUTE_PREFERENCE_KEY)
+        }
+        editor.commit()
     }
 
     private fun installNativeTestBridge(config: NativeTestConfiguration) {

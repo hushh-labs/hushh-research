@@ -8,7 +8,10 @@ import {
 } from "@/components/app-ui/stream-progress-panel";
 import { AgentMarkdown } from "@/components/agent/agent-markdown";
 import { AgentStructuredExperienceView } from "@/components/agent/agent-structured-experience";
-import type { AgentStructuredExperience } from "@/lib/agent/agui-structured-experiences";
+import type {
+  AgentStructuredExperience,
+  AgentStructuredExperienceWithPresentation,
+} from "@/lib/agent/agui-structured-experiences";
 import type { AgentChatToolEvent, AgentSource } from "@/lib/services/agent-chat-client";
 
 export type AgentVisibleStreamStatus = "running" | "done" | "blocked" | "error";
@@ -32,6 +35,10 @@ export type AgentTurnStreamPanelProps = {
   thinkingText?: string;
   sources?: AgentSource[];
   structuredExperience?: AgentStructuredExperience | null;
+  structuredExperiences?: Array<{
+    id: string;
+    experience: AgentStructuredExperienceWithPresentation;
+  }>;
 };
 
 const MAX_VISIBLE_SOURCES = 8;
@@ -88,6 +95,22 @@ function normalizeToolLabel(toolEvent: AgentChatToolEvent): string {
   return cleanVisibleText(toolEvent.label, "Action");
 }
 
+/**
+ * A parked browser directive is a continuation of the server tool call that
+ * produced it. The transport gives that continuation a synthetic call id, but
+ * also carries the originating directive id. Use the origin as the visible
+ * activity identity so one invocation evolves from start → waiting → result
+ * instead of rendering a second progress row.
+ */
+function visibleToolEventId(toolEvent: AgentChatToolEvent, nowMs: number): string {
+  const originId = cleanVisibleText(toolEvent.directiveId, "");
+  if (originId) return originId;
+  return cleanVisibleText(
+    toolEvent.callId,
+    `${normalizeToolLabel(toolEvent)}-${nowMs}`,
+  );
+}
+
 function normalizeSpecialistSources(sources: AgentSource[]): AppStreamProgressItem[] {
   const seen = new Set<string>();
   const visible: AppStreamProgressItem[] = [];
@@ -135,7 +158,7 @@ export function agentToolEventToVisibleStreamEvent(
           ? "That step needs attention."
           : "Step complete.";
   return {
-    id: toolEvent.callId || `${normalizeToolLabel(toolEvent)}-${phase}-${nowMs}`,
+    id: visibleToolEventId(toolEvent, nowMs),
     label: normalizeToolLabel(toolEvent),
     message: cleanVisibleText(toolEvent.message, fallback),
     status,
@@ -154,6 +177,7 @@ export function AgentTurnStreamPanel({
   thinkingText,
   sources = [],
   structuredExperience = null,
+  structuredExperiences = [],
 }: AgentTurnStreamPanelProps) {
   const progressItems = useMemo<AppStreamProgressItem[]>(
     () =>
@@ -166,6 +190,15 @@ export function AgentTurnStreamPanel({
     [streamEvents]
   );
   const specialistItems = useMemo(() => normalizeSpecialistSources(sources), [sources]);
+  const experienceItems = useMemo(
+    () =>
+      structuredExperiences.length > 0
+        ? structuredExperiences
+        : structuredExperience
+          ? [{ id: "legacy-structured-experience", experience: structuredExperience }]
+          : [],
+    [structuredExperience, structuredExperiences],
+  );
   // Provider reasoning is rendered again (founder directive 2026-09-02): the
   // owner asked to see the agent think. It stays inside the activity panel,
   // below the sanitized tool/memory/specialist lifecycle facts, so it is
@@ -178,8 +211,12 @@ export function AgentTurnStreamPanel({
       responseText={responseText}
       response={response}
       structuredContent={
-        structuredExperience ? (
-          <AgentStructuredExperienceView experience={structuredExperience} />
+        experienceItems.length > 0 ? (
+          <div className="space-y-3">
+            {experienceItems.map(({ id, experience }) => (
+              <AgentStructuredExperienceView key={id} experience={experience} />
+            ))}
+          </div>
         ) : null
       }
       thinkingTitle="One is thinking"

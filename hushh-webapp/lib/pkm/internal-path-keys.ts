@@ -30,7 +30,9 @@ const INTERNAL_KEYS: ReadonlySet<string> = new Set(
 );
 
 const INTERNAL_BRANCHES: ReadonlySet<string> = new Set(
-  (contract.internal_branches as string[]).map((key) => key.trim().toLowerCase()),
+  (contract.internal_branches as string[]).map((key) =>
+    key.trim().toLowerCase(),
+  ),
 );
 
 const INTERNAL_SUFFIXES: readonly string[] = (
@@ -53,10 +55,13 @@ export function isInternalPathSegment(segment: string): boolean {
 
   const normalized = raw.toLowerCase();
   if (!normalized) return true;
-  if (INTERNAL_KEYS.has(normalized) || INTERNAL_BRANCHES.has(normalized)) return true;
+  if (INTERNAL_KEYS.has(normalized) || INTERNAL_BRANCHES.has(normalized))
+    return true;
   if (SECRET_KEY_PATTERN.test(normalized)) return true;
-  if (normalized.endsWith("_id") && !PERSONAL_ID_KEYS.has(normalized)) return true;
-  if (normalized.includes("cipher") || normalized.includes("token")) return true;
+  if (normalized.endsWith("_id") && !PERSONAL_ID_KEYS.has(normalized))
+    return true;
+  if (normalized.includes("cipher") || normalized.includes("token"))
+    return true;
   return INTERNAL_SUFFIXES.some((suffix) => normalized.endsWith(suffix));
 }
 
@@ -68,7 +73,17 @@ export function isInternalPathSegment(segment: string): boolean {
  * level down was enough to publish it.
  */
 export function isInternalManifestPath(path: string): boolean {
-  return String(path ?? "")
+  const segments = String(path ?? "")
     .split(".")
-    .some(isInternalPathSegment);
+    .map((segment) => segment.trim().toLowerCase());
+  return segments.some((segment, index) => {
+    if (contract.schema_collection_segments.includes(segment)) {
+      return (
+        index === 0 ||
+        (segment === "_entities" &&
+          (index === segments.length - 1 || segments[index - 1] !== "entities"))
+      );
+    }
+    return isInternalPathSegment(segment);
+  });
 }

@@ -30,6 +30,7 @@ from hushh_mcp.one_adk.action_tools import (
     _STATE_PENDING_TOOL_TRACE,
     _STATE_SCREEN,
     _STATE_TIMEZONE,
+    _STATE_TYPED_CHAT_CONTEXT,
     _STATE_USER_ID,
     BACKEND_DIRECT_ACTION_IDS,
     BACKEND_DIRECT_WHEN_PERSON_NAMED_ACTION_IDS,
@@ -63,6 +64,7 @@ from hushh_mcp.one_adk.agent_tree import (
     STATE_USER_ID,
     STATE_VOICE_CONTEXT,
     _intro_navigable,
+    _one_chat_thinking_config,
     _one_runtime_instruction,
     _specialist_turn,
     ask_consent_agent,
@@ -89,6 +91,26 @@ from hushh_mcp.services.one_location_circle_service import OneLocationCircleServ
 
 
 class TestAgentTreeShape:
+    def test_chat_thinking_policy_preserves_provider_baseline_by_default(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.delenv("HUSHH_ONE_CHAT_THINKING_LEVEL", raising=False)
+
+        config = _one_chat_thinking_config()
+
+        assert config.include_thoughts is True
+        assert getattr(config, "thinking_level", None) is None
+
+    def test_chat_thinking_policy_can_request_low_without_affecting_other_heads(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("HUSHH_ONE_CHAT_THINKING_LEVEL", "low")
+
+        config = _one_chat_thinking_config()
+
+        assert config.include_thoughts is True
+        assert getattr(getattr(config, "thinking_level", None), "value", None) == "LOW"
+
     def test_root_agent_is_one_with_full_roster(self):
         agent = build_one_root_agent()
         assert agent.name == "one"
@@ -249,6 +271,9 @@ class TestAgentTreeShape:
             "close match to one of the visible labels" in ONE_IDENTITY_INSTRUCTION
         )
         assert "correlated app action settlement" in ONE_IDENTITY_INSTRUCTION
+        assert "Consent cancellation is an explicit exception" in ONE_IDENTITY_INSTRUCTION
+        assert "cancel that request I just sent" in ONE_IDENTITY_INSTRUCTION
+        assert "CONSENT CANCELLATION PRIORITY" in ONE_IDENTITY_INSTRUCTION
         assert "Conversation comes before workflow" in ONE_IDENTITY_INSTRUCTION
         assert "so what?" in ONE_IDENTITY_INSTRUCTION
         assert "Use your intelligence in the current turn" in ONE_IDENTITY_INSTRUCTION
@@ -269,6 +294,19 @@ class TestAgentTreeShape:
         assert (
             "Whenever the person's own words are not a close match to one of "
             "the visible labels, call list_app_actions" in ONE_IDENTITY_INSTRUCTION
+        )
+        # Requestable-information follow-ups must remain tool-backed even when
+        # the model believes it already knows the person's catalog.
+        assert "Requestable-information discovery has a mandatory tool boundary" in (
+            ONE_IDENTITY_INSTRUCTION
+        )
+        assert (
+            'Follow-ups such as "list the fields", "what can I request", '
+            '"check financial information"' in ONE_IDENTITY_INSTRUCTION
+        )
+        assert (
+            "Never answer this intent from memory, prior prose, PKM context, "
+            "cached labels, or guessed fields" in ONE_IDENTITY_INSTRUCTION
         )
 
     def test_identity_instruction_carries_persona_grounding(self):
@@ -476,8 +514,9 @@ class TestAgentTreeShape:
             _tree.build_one_live_runner(runtime_mode="byok", runtime_credential="unused")
 
 
-def _tool_context(state: dict) -> SimpleNamespace:
-    return SimpleNamespace(state=state)
+def _tool_context(state: dict, *, session_id: str | None = None) -> SimpleNamespace:
+    session = SimpleNamespace(id=session_id) if session_id else None
+    return SimpleNamespace(state=state, session=session)
 
 
 class TestSpecialistTurn:
@@ -964,6 +1003,8 @@ class TestRunAppAction:
         assert result["status"] == "confirm_pending"
         assert result["directive"]["needsConfirmation"] is True
         assert result["directive"]["slots"] == {"duration_hours": "1"}
+        assert "control they must tap" in result["next_step"]
+        assert "spoken approval" in result["next_step"]
 
     @pytest.mark.asyncio
     async def test_unwired_specialist_action_is_not_advertised_as_executable(self):
@@ -1178,6 +1219,33 @@ class TestRunAppAction:
         result = await run_app_action("analysis.start", {"symbol": "NVDA"}, _tool_context(state))
         assert result["status"] == "settling"
         assert not any(k.startswith(f"{_STATE_PENDING_DIRECTIVE}:") for k in state)
+
+    @pytest.mark.asyncio
+    async def test_typed_chat_uses_current_context_over_stale_live_publication(self):
+        state = {
+            _STATE_TYPED_CHAT_CONTEXT: True,
+            "hussh:voice_context": {
+                "available_action_ids": ["analysis.start"],
+                "pending_settlement": False,
+            },
+        }
+        session_id = "typed_chat_context_test"
+        publish_live_voice_context(
+            session_id,
+            {
+                "available_action_ids": ["analysis.start"],
+                "pending_settlement": True,
+            },
+        )
+        try:
+            result = await run_app_action(
+                "analysis.start",
+                {"symbol": "NVDA"},
+                _tool_context(state, session_id=session_id),
+            )
+        finally:
+            clear_live_voice_context(session_id)
+        assert result["status"] == "ready_to_run"
 
     @pytest.mark.asyncio
     async def test_context_pending_marker_reports_recoverable_not_ready(self):
@@ -3844,6 +3912,7 @@ class TestBackendDirectConnectionReadTools:
     async def test_discovers_exact_opaque_scopes_for_one_connected_person(self):
         state = self._authorized_state()
         profile = {
+            "personRef": "11111111-1111-4111-8111-111111111111",
             "displayName": "Sarah Chen",
             "relationship": {"status": "connected"},
             "requestableScopes": [
@@ -3892,6 +3961,7 @@ class TestBackendDirectConnectionReadTools:
                 "description": "Current employment standing",
                 "domain": "professional",
                 "sensitivity": "confidential",
+                "pathSegments": [],
             }
         ]
         assert "attr." not in str(result)
@@ -3915,9 +3985,11 @@ class TestBackendDirectConnectionReadTools:
                 new=AsyncMock(),
             ) as profile_mock,
         ):
-            result = await discover_person_information("Alex", _tool_context(state))
+            context = _tool_context(state)
+            context.session = SimpleNamespace(id="selection-test-thread")
+            result = await discover_person_information("Alex", context)
         assert result["status"] == "needs_clarification"
-        assert "Alex Kim" in result["message"]
+        assert [item["displayName"] for item in result["candidates"]] == ["Alex Kim", "Alex Singh"]
         profile_mock.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -5032,6 +5104,21 @@ class TestNamedShareChain:
 
         assert instruction.count("ASK FOR IT OUT LOUD") >= 3
         assert "then STOP and wait" in instruction
+
+    def test_consent_actions_have_one_app_confirmation_owner(self):
+        """Consent cards must not be followed by a second spoken approval.
+
+        The authored manifest already owns this distinction. Keep the dynamic
+        runtime instruction aligned with it so the generic confirmation rule
+        cannot make Chat ask for a redundant yes before the app card appears.
+        """
+        instruction = ONE_IDENTITY_INSTRUCTION
+        start = instruction.index("The four consent actions")
+        consent_rule = instruction[start : start + 700]
+        assert "one app confirmation" in consent_rule
+        assert "consent.request" in consent_rule
+        assert "do not ask for a spoken yes" in consent_rule
+        assert "non-consent action needs spoken confirmation" in instruction
 
     def test_circle_creation_and_adding_use_the_surface_or_authored_journey(self):
         """Circle actions must not bypass the current executable inventory."""

@@ -373,20 +373,20 @@ describe("top shell breadcrumbs", () => {
     });
   });
 
-  it("retraces a capability setup step to the capabilities checklist it was opened from", () => {
-    const fromCapabilities = new URLSearchParams();
-    fromCapabilities.set("from", "/one/setup/capabilities");
+  it("retraces a capability setup step to the internal origin that opened it", () => {
+    const fromDashboard = new URLSearchParams();
+    fromDashboard.set("from", "/one");
 
     expect(
-      resolveTopShellBreadcrumb("/one/setup/gmail", fromCapabilities),
+      resolveTopShellBreadcrumb("/one/setup/gmail", fromDashboard),
     ).toEqual({
-      backHref: "/one/setup/capabilities",
+      backHref: "/one",
       width: "content",
       align: "center",
       hideBack: false,
       items: [
         { label: "One", href: "/one" },
-        { label: "Setup", href: "/one/setup/capabilities" },
+        { label: "Setup", href: "/one" },
         { label: "Mail" },
       ],
     });
@@ -402,16 +402,6 @@ describe("top shell breadcrumbs", () => {
         { label: "Set up", href: "/one/setup" },
         { label: "Choose your AI" },
       ],
-    });
-  });
-
-  it("returns the dashboard's optional-capabilities checklist to the dashboard, not the hub it wasn't opened from", () => {
-    expect(resolveTopShellBreadcrumb("/one/setup/capabilities")).toEqual({
-      backHref: "/one",
-      width: "content",
-      align: "center",
-      hideBack: false,
-      items: [{ label: "One", href: "/one" }, { label: "Setup" }],
     });
   });
 

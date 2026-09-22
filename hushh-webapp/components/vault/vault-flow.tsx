@@ -44,6 +44,10 @@ import type { GeneratedVaultKeyMode } from "@/lib/services/vault-bootstrap-servi
 import { VaultBootstrapService } from "@/lib/services/vault-bootstrap-service";
 import { VaultMethodService, type VaultMethod } from "@/lib/services/vault-method-service";
 import { VaultMethodPromptLocalService } from "@/lib/services/vault-method-prompt-local-service";
+import {
+  isQuickUnlockTrustRequired,
+  VaultQuickUnlockTrustLocalService,
+} from "@/lib/services/vault-quick-unlock-trust-local-service";
 import { resolvePasskeyRpId } from "@/lib/vault/passkey-rp";
 import { checkPrfSupport } from "@/lib/vault/prf-auth";
 import { copyToClipboard } from "@/lib/utils/clipboard";
@@ -341,6 +345,10 @@ export function VaultFlow({
     useState<GeneratedVaultKeyMode | null>(null);
   const [unlockWithPassphraseFallback, setUnlockWithPassphraseFallback] =
     useState(() => shouldSkipGeneratedVaultUnlockForAutomation());
+  // True while the quick method has not yet unlocked the vault on this device
+  // (native only): the gate opens on the passphrase form with the quick
+  // method one tap away instead of starting its ceremony.
+  const [quickUnlockUntrusted, setQuickUnlockUntrusted] = useState(false);
   const [pendingUnlockKey, setPendingUnlockKey] = useState<string | null>(null);
   const pendingUnlockOwnerRef = useRef<string | null>(null);
   const biometricEnrollmentMissingRef = useRef(false);
@@ -594,9 +602,11 @@ export function VaultFlow({
     hasGeneratedUnlockAlternative &&
     !unlockWithPassphraseFallback &&
     !webPasskeyUnsupported;
+  // While the quick method is not yet trusted on this device, its button is
+  // the way in and stays visible past a wrong passphrase.
   const showPasskeyFallbackAlternative =
     !webPasskeyUnsupported &&
-    !error &&
+    (!error || quickUnlockUntrusted) &&
     ((hasActiveGeneratedWrapper && unlockWithPassphraseFallback) ||
       showPasskeyAlternative);
   const showRecoveryAlternative = true;
@@ -700,9 +710,14 @@ export function VaultFlow({
                 "generated_default_native_passkey_prf",
               ]
             : ["generated_default_web_prf"];
-          const deviceWrapperId = Capacitor.isNativePlatform()
-            ? await VaultBootstrapService.getDeviceBiometricWrapperId(user.uid).catch(() => "default")
-            : "default";
+          const [deviceWrapperId, quickUnlockTrust] = await Promise.all([
+            Capacitor.isNativePlatform()
+              ? VaultBootstrapService.getDeviceBiometricWrapperId(user.uid).catch(() => "default")
+              : Promise.resolve("default"),
+            isQuickUnlockTrustRequired()
+              ? VaultQuickUnlockTrustLocalService.load(user.uid)
+              : Promise.resolve(null),
+          ]);
           if (cancelled) return;
           const quickMethod =
             quickMethodCandidates
@@ -711,6 +726,14 @@ export function VaultFlow({
               .find((wrapper) => !!wrapper) ?? null;
           const nextQuickMethod = (quickMethod?.method as GeneratedVaultKeyMode | undefined) ?? null;
           setAvailableGeneratedMethod(nextQuickMethod);
+          // On the phone the quick method starts by itself only once it has
+          // unlocked the vault on this device; before that the gate opens on
+          // the passphrase form with the quick method one tap away (B38).
+          const quickUnlockUntrusted =
+            isQuickUnlockTrustRequired() &&
+            !!nextQuickMethod &&
+            quickUnlockTrust?.method !== nextQuickMethod;
+          setQuickUnlockUntrusted(quickUnlockUntrusted);
           const primaryPrefersQuickMethod =
             vaultData.primaryMethod === "generated_default_native_biometric" ||
             vaultData.primaryMethod === "generated_default_web_prf" ||
@@ -730,14 +753,18 @@ export function VaultFlow({
             setUnlockWithPassphraseFallback(true);
           } else if (primaryPrefersQuickMethod && nextQuickMethod) {
             setVaultMode(nextQuickMethod);
-            setUnlockWithPassphraseFallback(preferPassphraseForAutomation || isGeneratedUnlockCancelled(user.uid, nextQuickMethod));
+            setUnlockWithPassphraseFallback(
+              preferPassphraseForAutomation ||
+                quickUnlockUntrusted ||
+                isGeneratedUnlockCancelled(user.uid, nextQuickMethod),
+            );
           } else if (
             primaryWrapper.method === "generated_default_native_biometric" ||
             primaryWrapper.method === "generated_default_web_prf" ||
             primaryWrapper.method === "generated_default_native_passkey_prf"
           ) {
             setVaultMode(primaryWrapper.method);
-            setUnlockWithPassphraseFallback(preferPassphraseForAutomation);
+            setUnlockWithPassphraseFallback(preferPassphraseForAutomation || quickUnlockUntrusted);
           } else {
             setVaultMode(vaultData.primaryMethod);
             setUnlockWithPassphraseFallback(false);
@@ -1106,6 +1133,10 @@ export function VaultFlow({
         if (!(await finalizeUnlock(decryptedKey, attempt))) {
           throw new Error("We could not complete Vault access. Please try again.");
         }
+        // This device has now unlocked with the quick method: from the next
+        // launch on the gate may start it by itself.
+        void VaultQuickUnlockTrustLocalService.mark(user.uid, generatedMode);
+        setQuickUnlockUntrusted(false);
       } catch (err: any) {
         if (!isCurrentAttempt(attempt)) return;
         if (err?.code === "VAULT_DEVICE_WRAPPER_UNAVAILABLE") biometricEnrollmentMissingRef.current = true;

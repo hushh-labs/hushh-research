@@ -147,12 +147,19 @@ export function resolveConsentScopeLevel(params: {
 
   // A scope whose path ENDS exactly at this level is the broad grant on this
   // branch. It is shown here, above the children it contains.
-  const terminal = matching.filter((item) => fullPath(item).length === depth);
+  const terminal = matching.filter(
+    (item) =>
+      fullPath(item).length === depth ||
+      (depth === 0 &&
+        item.pathSegments.length === 0 &&
+        item.id.endsWith(".*")),
+  );
 
   const buckets = new Map<string, ConsentScopeItem[]>();
+  const terminalIds = new Set(terminal.map((item) => item.id));
   for (const item of matching) {
     const path = fullPath(item);
-    if (path.length <= depth) continue;
+    if (path.length <= depth || terminalIds.has(item.id)) continue;
     const segment = path[depth]!;
     const bucket = buckets.get(segment);
     if (bucket) bucket.push(item);
@@ -161,14 +168,26 @@ export function resolveConsentScopeLevel(params: {
 
   const entries: ConsentScopeLevelEntry[] = [];
 
-  for (const item of terminal) {
-    entries.push({ kind: "leaf", key: item.id, item });
-  }
+  const appendTerminalEntries = () => {
+    for (const item of terminal) {
+      entries.push({ kind: "leaf", key: item.id, item });
+    }
+  };
+
+  // The root is a directory of domains, so keep domain groups together before
+  // a root-level broad grant. Within a domain, terminal grants remain first so
+  // a wider decision is visible before the narrower branches beneath it.
+  if (depth > 0) appendTerminalEntries();
 
   for (const [segment, bucket] of buckets) {
     const goesDeeper = bucket.some((item) => fullPath(item).length > depth + 1);
 
-    if (!goesDeeper) {
+    // The root is always one row per domain, even when that domain currently
+    // contains one leaf. That keeps Chat and Profile aligned and gives the
+    // person a stable area-level navigation surface as the catalogue grows.
+    // Below the root, a single terminal scope remains a leaf to avoid a
+    // folder containing one row.
+    if (!goesDeeper && bucket.length === 1 && depth > 0) {
       // Exactly one scope lives here and nothing extends it. A folder holding a
       // single row costs a tap and hides nothing, so render the row itself.
       const item = bucket[0]!;
@@ -187,6 +206,8 @@ export function resolveConsentScopeLevel(params: {
       childCount: bucket.length,
     });
   }
+
+  if (depth === 0) appendTerminalEntries();
 
   return { crumbs, title, parentLabel, entries, notFound: false, descendantItems: matching };
 }

@@ -19,6 +19,8 @@ from api.routes.pkm_routes_shared import (
     DomainRegistryEntryResponse,
     DomainRegistryResponse,
     EncryptedBlob,
+    ManifestPathRepairRequest,
+    ManifestPathRepairResponse,
     PathDescriptorPayload,
     PersonalKnowledgeModelMetadataResponse,
     PublicProfileProjectionRequest,
@@ -572,6 +574,33 @@ class TestScopeExposureResponse:
                 success=True,
                 message="A" * 513,
             )
+
+
+class TestManifestPathRepairContracts:
+    """Owner repair request/response fields remain bounded."""
+
+    def test_valid_request_and_response(self):
+        request = ManifestPathRepairRequest(
+            user_id="user-123",
+            expected_content_revision=7,
+            expected_manifest_revision=2,
+        )
+        response = ManifestPathRepairResponse(success=True, changed=False)
+        assert request.user_id == "user-123"
+        assert response.success is True
+
+    @pytest.mark.parametrize("field", ["user_id"])
+    def test_user_id_is_bounded(self, field):
+        with pytest.raises(ValidationError):
+            ManifestPathRepairRequest(**{field: "A" * 257})
+
+    def test_revisions_reject_negative_values(self):
+        with pytest.raises(ValidationError):
+            ManifestPathRepairRequest(user_id="user-123", expected_content_revision=-1)
+
+    def test_response_message_is_bounded(self):
+        with pytest.raises(ValidationError):
+            ManifestPathRepairResponse(success=False, message="A" * 513)
 
     def test_revoked_grant_ids_list_max_length(self):
         """Revoked grant IDs list bounded to 10000 items."""

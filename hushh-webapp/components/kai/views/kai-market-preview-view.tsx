@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CHART_RESIZE_DEBOUNCE_MS } from "@/components/ui/chart";
 import { usePathname, useSearchParams } from "next/navigation";
 import {
   Activity,
@@ -554,7 +555,7 @@ function IndexSparkline({
 
   return (
     <div className="mt-2 w-full" style={{ height }} aria-hidden="true">
-      <ResponsiveContainer width="100%" height="100%">
+      <ResponsiveContainer width="100%" height="100%" debounce={CHART_RESIZE_DEBOUNCE_MS}>
         <RechartsLineChart
           data={chartData}
           margin={{ top: 1, right: 1, left: 1, bottom: 1 }}
@@ -726,7 +727,7 @@ function OneMarketNewsCover({
       style={{ color: coverInk }}
       className={cn(
         "relative flex h-[116px] items-center justify-center overflow-hidden",
-        "after:pointer-events-none after:absolute after:inset-y-0 after:-left-[80%] after:w-[60%] after:skew-x-[-20deg] after:bg-[linear-gradient(105deg,transparent,rgba(255,255,255,0.44),transparent)] after:transition-[left] after:duration-700 group-hover/news:after:left-[130%]",
+        "after:pointer-events-none after:absolute after:inset-y-0 after:left-0 after:w-[60%] after:skew-x-[-20deg] after:bg-[linear-gradient(105deg,transparent,rgba(255,255,255,0.44),transparent)] after:translate-x-[-150%] after:transition-transform after:duration-700 group-hover/news:after:translate-x-[350%]",
         showLogo ? "bg-white" : oneMarketNewsCoverClassName(row),
       )}
     >
@@ -792,7 +793,7 @@ function SectorRotationChart({ rows }: { rows: KaiHomeSectorItem[] }) {
       className="w-full"
       style={{ height: Math.max(180, chartRows.length * 34) }}
     >
-      <ResponsiveContainer width="100%" height="100%">
+      <ResponsiveContainer width="100%" height="100%" debounce={CHART_RESIZE_DEBOUNCE_MS}>
         <BarChart
           data={chartRows}
           layout="vertical"

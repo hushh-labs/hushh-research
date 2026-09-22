@@ -56,6 +56,9 @@ class TurnTiming:
     run: str
     started_at: float
     first_visible_at: float | None = None
+    first_activity_at: float | None = None
+    first_answer_token_at: float | None = None
+    first_tool_call_at: float | None = None
     events: int = 0
     tool_calls: int = 0
     specialist_calls: int = 0
@@ -67,6 +70,13 @@ class TurnTiming:
         event_type = getattr(event, "type", None)
         if self.first_visible_at is None and event_type in _FIRST_VISIBLE_EVENT_TYPES:
             self.first_visible_at = time.perf_counter()
+        if self.first_activity_at is None and event_type in {
+            EventType.ACTIVITY_SNAPSHOT,
+            EventType.ACTIVITY_DELTA,
+        }:
+            self.first_activity_at = time.perf_counter()
+        if self.first_answer_token_at is None and event_type == EventType.TEXT_MESSAGE_CONTENT:
+            self.first_answer_token_at = time.perf_counter()
         if event_type == EventType.RUN_ERROR:
             self.terminal_observed = True
             self.outcome = OUTCOME_ERROR
@@ -74,6 +84,8 @@ class TurnTiming:
             self.terminal_observed = True
         if event_type != EventType.TOOL_CALL_START:
             return
+        if self.first_tool_call_at is None:
+            self.first_tool_call_at = time.perf_counter()
         self.tool_calls += 1
         tool_name = str(getattr(event, "tool_call_name", "") or "")
         if tool_name.startswith(_SPECIALIST_TOOL_PREFIX):
@@ -81,11 +93,15 @@ class TurnTiming:
 
     def log(self) -> None:
         logger.info(
-            "one_agent_chat_turn_complete head=%s run=%s first_visible_ms=%s elapsed_ms=%s "
+            "one_agent_chat_turn_complete head=%s run=%s first_visible_ms=%s "
+            "first_activity_ms=%s first_answer_token_ms=%s first_tool_call_ms=%s elapsed_ms=%s "
             "events=%s tool_calls=%s specialist_calls=%s outcome=%s",
             self.head,
             self.run,
             _ms_since(self.started_at, self.first_visible_at),
+            _ms_since(self.started_at, self.first_activity_at),
+            _ms_since(self.started_at, self.first_answer_token_at),
+            _ms_since(self.started_at, self.first_tool_call_at),
             _ms_since(self.started_at, time.perf_counter()),
             self.events,
             self.tool_calls,

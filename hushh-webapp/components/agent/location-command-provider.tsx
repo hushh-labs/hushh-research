@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   createContext,
@@ -55,9 +56,25 @@ import { hasMountedLocalOnboardingHandler } from "@/lib/agent/local-onboarding-a
 import { useOptionalOneLocationInteractionSurface } from "@/components/one-location/onboarding/location-onboarding-interaction-surface";
 import type { LocationOnboardingRunResultV1 } from "@/lib/services/one-location-onboarding-run-client";
 
-const LocationCommandContext = createContext<ReturnType<
-  typeof useCommandController
-> | null>(null);
+const LocationCommandContext = createContext<
+  ReturnType<typeof useCommandController>["controller"] | null
+>(null);
+
+/**
+ * The two fields that change at microphone cadence (up to ~12 times a
+ * second while recording). They live in their own context so the bottom
+ * shell, the command card and the device bridge, which never show them, do
+ * not re-render on every audio frame. Only the agent bar's meter reads them.
+ */
+type LocationCommandLive = { level: number; elapsedMs: number };
+const LOCATION_COMMAND_LIVE_IDLE: LocationCommandLive = { level: 0, elapsedMs: 0 };
+const LocationCommandLiveContext = createContext<LocationCommandLive>(
+  LOCATION_COMMAND_LIVE_IDLE,
+);
+
+export function useLocationCommandLive(): LocationCommandLive {
+  return useContext(LocationCommandLiveContext);
+}
 
 export function useLocationCommand() {
   const value = useContext(LocationCommandContext);
@@ -654,35 +671,66 @@ function useCommandController(enabled = true) {
           } as Record<string, string>
         )[workflowDirective.serverDirective.contractId]
       : undefined;
-  const visibleView: CommandPresentation = progress
-    ? { ...view, phase: "working", message: progress, gate: undefined }
-    : view;
-  return {
-    command,
-    workflowResult,
-    view: visibleView,
-    recording,
-    level,
-    elapsedMs,
-    collapsed,
-    setCollapsed,
-    startCapture,
-    finishCapture,
-    cancelCapture,
-    cancelTask,
-    dismissResult,
-    run,
-    hapticCancel: () => capture.haptic("cancel"),
-    active: Boolean(
-      recording ||
+  const visibleView = useMemo<CommandPresentation>(
+    () =>
+      progress
+        ? { ...view, phase: "working", message: progress, gate: undefined }
+        : view,
+    [progress, view],
+  );
+  const hapticCancel = useCallback(() => capture.haptic("cancel"), [capture]);
+  const active = Boolean(
+    recording ||
       view.phase === "working" ||
       view.phase === "gate" ||
       view.phase === "recovery",
-    ),
-    user,
-    unlockOpen,
-    setUnlockOpen,
-  };
+  );
+  // Memoised: this value reaches the bottom shell and the agent bar on every
+  // persistent-chrome route. Without the memo a new object per render (and
+  // there was one per microphone level event) re-rendered both of them.
+  const controller = useMemo(
+    () => ({
+      command,
+      workflowResult,
+      view: visibleView,
+      recording,
+      collapsed,
+      setCollapsed,
+      startCapture,
+      finishCapture,
+      cancelCapture,
+      cancelTask,
+      dismissResult,
+      run,
+      hapticCancel,
+      active,
+      user,
+      unlockOpen,
+      setUnlockOpen,
+    }),
+    [
+      command,
+      workflowResult,
+      visibleView,
+      recording,
+      collapsed,
+      startCapture,
+      finishCapture,
+      cancelCapture,
+      cancelTask,
+      dismissResult,
+      run,
+      hapticCancel,
+      active,
+      user,
+      unlockOpen,
+    ],
+  );
+  const live = useMemo<LocationCommandLive>(
+    () => ({ level, elapsedMs }),
+    [level, elapsedMs],
+  );
+  return { controller, live };
 }
 
 export function LocationCommandProvider({
@@ -692,10 +740,12 @@ export function LocationCommandProvider({
   children: ReactNode;
   enabled?: boolean;
 }) {
-  const controller = useCommandController(enabled);
+  const { controller, live } = useCommandController(enabled);
   return (
     <LocationCommandContext.Provider value={controller}>
-      {children}
+      <LocationCommandLiveContext.Provider value={live}>
+        {children}
+      </LocationCommandLiveContext.Provider>
       {controller.user ? (
         <VaultUnlockDialog
           user={controller.user}

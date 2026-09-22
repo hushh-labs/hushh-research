@@ -6,6 +6,7 @@ import {
   resetKaiBottomChromeVisibility,
   snapKaiBottomChromeVisible,
   syncKaiBottomChromeVisibilityToScroll,
+  useKaiBottomChromeProgressCssVar,
   useKaiBottomChromeVisibility,
 } from "@/lib/navigation/kai-bottom-chrome-visibility";
 
@@ -54,6 +55,45 @@ describe("kai bottom chrome visibility singleton", () => {
       root.remove();
     });
     vi.useRealTimers();
+  });
+
+  it("writes the per-frame value to a chat composer that mounts after the shell collected its consumers", () => {
+    mountScrollRoot(0);
+    // The writer paces its composer lookup on performance.now(); let it follow
+    // the faked clock.
+    const nowSpy = vi.spyOn(performance, "now").mockImplementation(() => Date.now());
+    const shell = document.createElement("div");
+    shell.dataset.bottomChromeProgressConsumer = "";
+    document.body.append(shell);
+    // The shell is up and has written once; no composer exists yet.
+    const { unmount } = renderHook(() => useKaiBottomChromeProgressCssVar(true));
+    act(() => {
+      onScroll(0);
+      onScroll(40);
+      onScroll(120);
+    });
+    expect(shell.style.getPropertyValue("--bottom-chrome-progress")).not.toBe("");
+
+    // The chat route resolves later and mounts its composer.
+    const composer = document.createElement("form");
+    composer.dataset.agentChatComposerForm = "root";
+    document.body.append(composer);
+    act(() => {
+      vi.advanceTimersByTime(300);
+      // Scrolling back up moves progress off its clamp, so a write happens.
+      onScroll(80);
+      onScroll(60);
+    });
+    const shellValue = shell.style.getPropertyValue("--bottom-chrome-progress");
+    // Same value, same write: the composer rides the navigation frame for frame.
+    expect(composer.style.getPropertyValue("--bottom-chrome-progress")).toBe(shellValue);
+    expect(Number(shellValue)).toBeGreaterThan(0);
+    expect(Number(shellValue)).toBeLessThan(1);
+
+    unmount();
+    shell.remove();
+    composer.remove();
+    nowSpy.mockRestore();
   });
 
   it("hides chrome (progress -> 1) on downward scroll and shows it on upward scroll", () => {

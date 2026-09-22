@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 /**
  * Consent lifecycle from Agent chat, end to end on localhost:
- * discover a person's requestable fields, propose + send a request after a spoken
- * yes (backend-direct, the requester's own connector key), list what is waiting,
- * and cancel the sent request from chat. Values never appear: every assertion is
- * on labels, statuses, and the absence of raw scope identifiers.
+ * discover a person's requestable fields, propose + send a request after the
+ * visible app confirmation (backend-direct, the requester's own connector key),
+ * list what is waiting, and cancel the sent request from chat. Values never
+ * appear: every assertion is on labels, statuses, and the absence of raw scope
+ * identifiers.
  */
 import fs from "node:fs";
 import path from "node:path";
@@ -70,7 +71,10 @@ async function waitForAssistantSettled(page, baselineAssistant) {
     ({ baselineCount }) => {
       const turns = [...document.querySelectorAll('[data-message-role="assistant"]')];
       const latest = turns.at(-1);
-      return turns.length > baselineCount && latest?.getAttribute("data-message-status") !== "streaming" && Boolean(latest?.textContent?.trim());
+      // Structured experiences are the authoritative response surface for
+      // consent discovery/proposals. They may intentionally have no prose;
+      // waiting for text here can time out a completed AG-UI turn forever.
+      return turns.length > baselineCount && latest?.getAttribute("data-message-status") !== "streaming";
     },
     { baselineCount: baselineAssistant },
     { timeout: turnTimeoutMs },
@@ -113,6 +117,19 @@ function assertNoLeak(text, label) {
     throw new Error(`${label} exposed an internal scope identifier`);
   }
 }
+async function visibleSurfaceText(page) {
+  return page.locator("body").innerText();
+}
+async function selectFirstPersonCandidate(page) {
+  const picker = page.locator("section").filter({ hasText: "Who do you mean?" }).last();
+  if (!(await picker.isVisible().catch(() => false))) return "";
+  const candidate = picker.getByRole("button").first();
+  const name = clean(await candidate.locator("span").first().innerText().catch(() => ""));
+  const baseline = await page.locator('[data-message-role="assistant"]').count();
+  await candidate.click();
+  await waitForAssistantSettled(page, baseline);
+  return name;
+}
 async function findOurBundle(personRef) {
   const profile = await identityJson(`/api/one/people/${encodeURIComponent(personRef)}`);
   const history = Array.isArray(profile?.requestHistory) ? profile.requestHistory : [];
@@ -133,6 +150,16 @@ try {
   session = await reviewer.openSession(browser, "/");
   const { page } = session;
   ownerToken = await session.capture.ownerToken();
+  if (process.env.REVIEWER_START_NEW_CHAT === "true") {
+    // A lifecycle rehearsal must not inherit a parked tool run or stale
+    // conversational selection from another rehearsal. This only resets the
+    // in-memory workspace; the existing encrypted conversation history remains
+    // untouched and is covered by separate restoration checks.
+    await page.getByRole("button", { name: "Open chat history" }).click();
+    await page
+      .getByRole("button", { name: "Create new chat" })
+      .click();
+  }
   // The identity token is observed on a Firebase-authenticated request; the
   // Connect tab issues one on entry, root Chat does not. Same-session navigation
   // keeps the vault key.
@@ -206,25 +233,71 @@ try {
   await step("chat: discovery names the requestable field and links the profile", async () => {
     const reply = await turn(page, `What information can I request from ${fixture.displayName}?`);
     assertNoLeak(reply, "discovery reply");
-    if (!reply.includes(scopeLabel)) throw new Error(`reply lacks the field label: ${clean(reply).slice(0, 200)}`);
+    await selectFirstPersonCandidate(page);
+    const surface = await visibleSurfaceText(page);
+    if (!reply.includes(scopeLabel) && !surface.includes(scopeLabel)) {
+      throw new Error(`chat surface lacks the field label: ${clean(reply).slice(0, 200)}`);
+    }
   });
 
-  await step("chat: a request is proposed, read back, and sent only after a spoken yes", async () => {
+  await step("chat: a request is proposed, read back, and sent only after visible confirmation", async () => {
     const proposal = await turn(page, `Request ${fixture.displayName}'s ${scopeLabel} for 2 days. Purpose: ${PURPOSE}`);
     assertNoLeak(proposal, "proposal reply");
-    if (!proposal.includes(scopeLabel)) throw new Error(`proposal did not read back the field: ${clean(proposal).slice(0, 200)}`);
+    const surface = await visibleSurfaceText(page);
+    if (!proposal.includes(scopeLabel) && !surface.includes(scopeLabel)) {
+      throw new Error(`proposal did not read back the field: ${clean(proposal).slice(0, 200)}`);
+    }
     const before = await findOurBundle(fixture.personRef);
-    if (before && before.status === "pending") throw new Error("request was sent before the yes");
-    const sent = await turn(page, "Yes, send it.");
-    assertNoLeak(sent, "send reply");
-    let found = null;
+    if (before && before.status === "pending") throw new Error("request was sent before confirmation");
+    const confirm = page.getByTestId("specialist-directive-confirm");
+    // One confirmation owner: the proposal should stage the card directly.
+    // Older runtimes asked for a spoken yes before staging it, so retain a
+    // bounded compatibility fallback without ever treating prose as authority.
+    let confirmationReply = proposal;
+    const stagedImmediately = await confirm
+      .waitFor({ state: "visible", timeout: 10_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (!stagedImmediately) {
+      confirmationReply = await turn(page, "Yes, send it.");
+      assertNoLeak(confirmationReply, "confirmation reply");
+      await confirm.waitFor({ state: "visible", timeout: turnTimeoutMs });
+    }
+    const created = page.waitForResponse(
+      (response) =>
+        response.url().includes("/api/one/information-requests") &&
+        response.request().method() === "POST",
+      { timeout: turnTimeoutMs },
+    );
+    await confirm.click();
+    const createdResponse = await created;
+    if (!createdResponse.ok()) {
+      throw new Error(`chat request failed with HTTP ${createdResponse.status()}`);
+    }
+    const createdPayload = await createdResponse.json().catch(() => null);
+    const responseBundleId = clean(createdPayload?.bundleId || createdPayload?.bundle_id);
+    let found = responseBundleId
+      ? { bundleId: responseBundleId, status: "pending" }
+      : null;
+    if (responseBundleId) {
+      const current = await ownerJson(
+        "/api/one/information-requests/" + encodeURIComponent(responseBundleId),
+      );
+      const currentStatus = clean(current.payload?.status || current.payload?.bundle?.status);
+      if (current.ok && currentStatus) {
+        found.status = currentStatus;
+      }
+    }
     for (let attempt = 0; attempt < 10 && !found; attempt += 1) {
       found = await findOurBundle(fixture.personRef);
       if (!found) await page.waitForTimeout(1500);
     }
-    if (!found) throw new Error(`no pending bundle with the rehearsal purpose after: ${clean(sent).slice(0, 200)}`);
+    if (!found) {
+      throw new Error(
+        `no pending bundle with the rehearsal purpose after: ${clean(confirmationReply).slice(0, 200)}`,
+      );
+    }
     createdBundleId = found.bundleId;
-    if (!/sent/i.test(sent)) throw new Error(`reply did not confirm the send: ${clean(sent).slice(0, 200)}`);
     return `bundle status=${found.status}`;
   });
 
@@ -235,11 +308,37 @@ try {
     if (!/waiting|no information requests|nothing/i.test(reply)) throw new Error(`reply did not answer the question: ${clean(reply).slice(0, 200)}`);
   });
 
-  await step("chat: the sent request is cancelled after a spoken yes", async () => {
+  await step("chat: the sent request is cancelled after visible confirmation", async () => {
+    if (!createdBundleId) {
+      throw new Error("No request was created by this rehearsal; refusing to cancel an older request.");
+    }
     const ask = await turn(page, "Cancel that request I just sent.");
     assertNoLeak(ask, "cancel prompt reply");
-    const done = await turn(page, "Yes, cancel it.");
-    assertNoLeak(done, "cancel reply");
+    const confirm = page.getByTestId("specialist-directive-confirm");
+    const stagedImmediately = await confirm
+      .waitFor({ state: "visible", timeout: 10_000 })
+      .then(() => true)
+      .catch(() => false);
+    if (!stagedImmediately) {
+      // Compatibility only for an older served runtime. Spoken text never
+      // authorizes the mutation; it may only cause the old runtime to stage
+      // the same visible confirmation card.
+      const compatibilityReply = await turn(page, "Yes, cancel it.");
+      assertNoLeak(compatibilityReply, "legacy cancel prompt reply");
+      await confirm.waitFor({ state: "visible", timeout: turnTimeoutMs });
+    }
+    const cancelled = page.waitForResponse(
+      (response) =>
+        response.url().includes("/api/one/information-requests/") &&
+        response.url().endsWith("/cancel") &&
+        response.request().method() === "POST",
+      { timeout: turnTimeoutMs },
+    );
+    await confirm.click();
+    const cancelledResponse = await cancelled;
+    if (!cancelledResponse.ok()) {
+      throw new Error(`chat cancellation failed with HTTP ${cancelledResponse.status()}`);
+    }
     let state = null;
     for (let attempt = 0; attempt < 10; attempt += 1) {
       const result = await ownerJson(`/api/one/information-requests/${encodeURIComponent(createdBundleId)}`);
@@ -247,7 +346,7 @@ try {
       if (result.ok && !state.includes('"pending"')) break;
       await page.waitForTimeout(1500);
     }
-    if (!state || state.includes('"pending"')) throw new Error(`bundle still pending after: ${clean(done).slice(0, 200)}`);
+    if (!state || state.includes('"pending"')) throw new Error("bundle still pending after visible cancellation");
     createdBundleId = "";
     return "bundle no longer pending";
   });

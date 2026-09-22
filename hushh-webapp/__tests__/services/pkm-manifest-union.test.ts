@@ -73,4 +73,37 @@ describe("PKM manifest heterogeneous array union", () => {
       ])
     );
   });
+
+  it("keeps leaf exposure stable when an empty occurrence precedes a populated one", () => {
+    const build = (accounts: unknown[]) =>
+      buildPersonalKnowledgeModelStructureArtifacts({
+        domain: "financial",
+        domainData: { accounts },
+      }).manifest;
+
+    const firstEmpty = build([{ profile: { professional: null } }, { profile: { professional: "Engineer" } }]);
+    const firstPopulated = build([{ profile: { professional: "Engineer" } }, { profile: { professional: null } }]);
+    const path = "accounts._items.profile.professional";
+
+    expect(firstEmpty.paths.find((item) => item.json_path === path)?.exposure_eligibility).toBe(true);
+    expect(firstPopulated.paths.find((item) => item.json_path === path)?.exposure_eligibility).toBe(true);
+    expect(firstEmpty.externalizable_paths).toContain(path);
+    expect(firstPopulated.externalizable_paths).toContain(path);
+  });
+
+  it("unions entity-map materialization without exposing entity identifiers", () => {
+    const { manifest } = buildPersonalKnowledgeModelStructureArtifacts({
+      domain: "professional",
+      domainData: {
+        entities: {
+          first: { title: null },
+          second: { title: "Staff engineer" },
+        },
+      },
+    });
+    const path = "entities._entities.title";
+
+    expect(manifest.externalizable_paths).toContain(path);
+    expect(manifest.externalizable_paths.some((item) => item.includes("first") || item.includes("second"))).toBe(false);
+  });
 });

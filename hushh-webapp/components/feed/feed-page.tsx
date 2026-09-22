@@ -217,11 +217,6 @@ function FeedPageSession({
   // Remove the old timestamp key on sight. It cannot be losslessly translated
   // to an id: a row appended later may carry an equal/older timestamp. Showing
   // old history once is safer than silently losing a genuinely new alert.
-  const [clearedThroughId, setClearedThroughId] = useState<string | null>(null);
-  const [clearWatermarkHydrated, setClearWatermarkHydrated] = useState(false);
-  const [clearing, setClearing] = useState(false);
-  const [clearArmed, setClearArmed] = useState(false);
-
   const clearedIdStorageKey = user?.uid
     ? `hushh:feed-cleared-through-id:${user.uid}`
     : null;
@@ -229,22 +224,42 @@ function FeedPageSession({
     ? `hushh:feed-cleared-at:${user.uid}`
     : null;
 
-  // Hydrate the persisted watermark once the signed-in user is known. Reading in
-  // an effect (not the initializer) avoids any SSR/hydration mismatch, since the
-  // feed only renders meaningfully after auth resolves client-side.
+  // The persisted watermark is read in the state initialiser. This session
+  // component is remounted per account (`key={user?.uid}`) after auth has
+  // resolved on the client, so there is no server-rendered list to mismatch;
+  // reading it in an effect instead forced every visit to paint the skeleton
+  // first and the warm cached list one commit later (two full layouts per
+  // tab switch). Storage can be disabled; that falls back to no clear.
+  const readPersistedWatermark = () => {
+    if (!clearedIdStorageKey || typeof window === "undefined") return null;
+    try {
+      return window.localStorage.getItem(clearedIdStorageKey);
+    } catch {
+      return null;
+    }
+  };
+  const [clearedThroughId, setClearedThroughId] = useState<string | null>(
+    readPersistedWatermark,
+  );
+  const [clearWatermarkHydrated, setClearWatermarkHydrated] = useState(
+    () => !clearedIdStorageKey || typeof window !== "undefined",
+  );
+  const [clearing, setClearing] = useState(false);
+  const [clearArmed, setClearArmed] = useState(false);
+
+  // Retire the legacy timestamp key on sight (it cannot be translated to an
+  // id); a storage failure here changes nothing the initialiser decided.
   useEffect(() => {
     if (!clearedIdStorageKey || !legacyClearedStorageKey) {
       setClearWatermarkHydrated(true);
       return;
     }
     try {
-      setClearedThroughId(window.localStorage.getItem(clearedIdStorageKey));
       window.localStorage.removeItem(legacyClearedStorageKey);
     } catch {
-      // Storage can be disabled; fall back to no persisted clear.
-    } finally {
-      setClearWatermarkHydrated(true);
+      // Storage can be disabled; nothing to retire.
     }
+    setClearWatermarkHydrated(true);
   }, [clearedIdStorageKey, legacyClearedStorageKey]);
 
   useEffect(() => {
@@ -399,6 +414,10 @@ function FeedPageSession({
     if (data?.items[0]?.id) markSeen();
   }, [data?.items, markSeen]);
 
+  // A poll that returns the same rows must not hand FeedRow new objects: the
+  // rows are memoised on their item, so a row whose id, read flag and time
+  // are unchanged keeps its previous object and skips its render.
+  const previousItemsRef = useRef<Map<string, FeedItem>>(new Map());
   const items = useMemo(() => {
     // useStaleResource can synchronously expose a warm first page. Do not let
     // that cached history render for one frame before the device-local clear
@@ -425,8 +444,18 @@ function FeedPageSession({
         continue;
       }
       seen.add(item.id);
-      merged.push(item);
+      const previous = previousItemsRef.current.get(item.id);
+      merged.push(
+        previous &&
+          previous.read === item.read &&
+          previous.created_at === item.created_at &&
+          previous.event_type === item.event_type &&
+          previous.actor_label === item.actor_label
+          ? previous
+          : item,
+      );
     }
+    previousItemsRef.current = new Map(merged.map((item) => [item.id, item]));
     return merged;
   }, [
     data,

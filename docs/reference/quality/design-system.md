@@ -322,6 +322,22 @@ of automatic enters and may animate a stable inner layout root only.
 
 `SettingsGroup` and `SettingsRow` are the standard responsive list system for Profile, agents, and Connected Systems. Groups use the compact utility radius, inset separators, text truncation, and mobile-stacked trailing controls. Do not make a desktop `DataTable` the only way to operate a narrow route.
 
+## Layer Ladder
+
+Every floating primitive in `components/ui` takes its z-index from the
+`--z-*` tokens declared at the top of `app/globals.css`, never from a literal.
+The order is: persistent chrome, then sheets and drawers, then dialogs, then
+the Location onboarding takeover, then the system banner, then the transient
+tier (menus, popovers, selects, comboboxes, tooltips). Transient surfaces
+portal to `<body>`, so the ladder is the only thing that decides whether a
+menu opened inside a sheet is visible; when the dialog tier was lifted above
+sheets and the transient tier was left at its shadcn defaults, every dropdown
+inside the profile pane rendered behind the pane. `__tests__/ui/layer-order.contract.test.ts`
+pins the token order and which primitive consumes which token, and
+`e2e/profile-pane-layer-order.spec.ts` proves the browser stacks them that way
+by opening the Accent picker inside the pane. A surface that must sit above a
+sheet passes a higher token, never a fresh number.
+
 ## Bounded Managers And Decision Sheets
 
 Tabbed managers with a dense row rail (including Consent Center) keep their list

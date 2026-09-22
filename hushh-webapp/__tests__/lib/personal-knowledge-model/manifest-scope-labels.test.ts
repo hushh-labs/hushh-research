@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildPersonalKnowledgeModelStructureArtifacts } from "@/lib/personal-knowledge-model/manifest";
+import { buildPersonalKnowledgeModelStructureArtifacts, projectDomainDataForScope } from "@/lib/personal-knowledge-model/manifest";
 
 /**
  * The manifest walk is the only place a stored key and its normalized form
@@ -31,6 +31,23 @@ function manifestOf(domainData: Record<string, unknown>) {
 }
 
 describe("manifest scope labels", () => {
+  it("projects normalized paths back to the unique stored spelling", () => {
+    const domainData = { workDetails: { employerName: "Synthetic employer", privateNote: "unselected" } };
+    const manifest = manifestOf(domainData);
+    const selected = "workdetails.employername";
+    expect(manifest.externalizable_paths).toContain(selected);
+    expect(projectDomainDataForScope({ domain: "location", scope: `attr.location.${selected}`, domainData, approvedPaths: [selected] })).toEqual({ location: { workdetails: { employername: "Synthetic employer" } } });
+  });
+
+  it("does not select one of two stored keys with the same canonical path", () => {
+    const domainData = { workdetails: { employerName: "first", employername: "second" } };
+    expect(projectDomainDataForScope({ domain: "location", scope: "attr.location.workdetails.employername", domainData, approvedPaths: ["workdetails.employername"] })).toEqual({ location: {} });
+  });
+
+  it("does not unmask private keys during manifest normalization", () => {
+    expect(manifestOf({ work: { _privateNote: "not requestable", title: "Synthetic title" } }).externalizable_paths).toEqual(["work.title"]);
+  });
+
   it("authors the label from the key as written, not the normalized path", () => {
     const manifest = manifestOf(SAVED_PLACES);
     const byPath = new Map(manifest.paths.map((path) => [path.json_path, path]));

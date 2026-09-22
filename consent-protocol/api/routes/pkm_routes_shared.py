@@ -1164,6 +1164,23 @@ class ScopeExposureResponse(BaseModel):
     manifest: dict = Field(default_factory=dict)
 
 
+class ManifestPathRepairRequest(BaseModel):
+    user_id: str = Field(..., min_length=1, max_length=256, description="User's ID")
+    expected_content_revision: Optional[int] = Field(default=None, ge=0, le=1000000)
+    expected_manifest_revision: Optional[int] = Field(default=None, ge=0, le=1000000)
+
+
+class ManifestPathRepairResponse(BaseModel):
+    success: bool
+    conflict: bool = False
+    idempotent_replay: bool = False
+    changed: bool = False
+    code: Optional[str] = Field(default=None, max_length=128)
+    message: Optional[str] = Field(default=None, max_length=512)
+    data_version: Optional[int] = Field(default=None, ge=0, le=1000000)
+    manifest_revision: Optional[int] = Field(default=None, ge=0, le=1000000)
+
+
 class PublicProfileProjectionRequest(BaseModel):
     user_id: str = Field(..., min_length=1, max_length=256, description="User's ID")
     scope_handle: Optional[str] = Field(default=None, max_length=256)
@@ -1261,6 +1278,46 @@ async def update_scope_exposure(
         revoked_grant_ids=list(result.get("revoked_grant_ids") or []),
         manifest=dict(result.get("manifest") or {}),
     )
+
+
+@router.post(
+    "/domains/{domain}/repair-manifest-paths",
+    response_model=ManifestPathRepairResponse,
+)
+async def repair_manifest_paths(
+    domain: _Domain,
+    request: ManifestPathRepairRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Repair only the owner-scoped historical `_entities` path shape."""
+    if token_data.get("user_id") != request.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token user_id does not match request user_id",
+        )
+
+    result = await get_pkm_service().repair_historical_manifest_paths(
+        user_id=request.user_id,
+        domain=canonical_top_level_domain(domain),
+        expected_content_revision=request.expected_content_revision,
+        expected_manifest_revision=request.expected_manifest_revision,
+    )
+    if result.get("code") == "repair_unavailable":
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=result.get("message") or "The PKM manifest repair is temporarily unavailable.",
+        )
+    if result.get("conflict"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "PKM_MANIFEST_REPAIR_CONFLICT",
+                "message": result.get("message") or "PKM state changed. Refresh and retry.",
+                "data_version": result.get("data_version"),
+                "manifest_revision": result.get("manifest_revision"),
+            },
+        )
+    return ManifestPathRepairResponse(**result)
 
 
 @router.post(
@@ -1756,13 +1813,27 @@ async def get_metadata(
     upgrade_service = get_pkm_upgrade_service()
 
     try:
-        # These reads are independent and each may touch the UAT data plane.
-        # Start them together so Memory readiness is bounded by the slowest
-        # authority read instead of their sum.
-        metadata, resolved_index, upgrade_status_payload = await asyncio.gather(
-            pkm_service.get_user_metadata(user_id),
-            pkm_service.resolve_metadata_index(user_id, schedule_self_heal=False),
-            upgrade_service.build_status(user_id),
+        # Resolve the discovery index once. Metadata shaping also needs this
+        # index; passing it through avoids duplicate index/manifest reads under
+        # the same request while preserving the standalone service contract.
+        resolved_index = await pkm_service.resolve_metadata_index(
+            user_id,
+            schedule_self_heal=False,
+        )
+        domain_manifests = await pkm_service.get_domain_manifests(
+            user_id,
+            resolved_index.available_domains if resolved_index else [],
+        )
+        metadata, upgrade_status_payload = await asyncio.gather(
+            pkm_service.get_user_metadata(
+                user_id,
+                resolved_index=resolved_index,
+            ),
+            upgrade_service.build_status(
+                user_id,
+                resolved_index=resolved_index,
+                domain_manifests=domain_manifests,
+            ),
         )
         upgrade_status_payload = await _maybe_reconcile_upgrade_status(
             upgrade_service, user_id, upgrade_status_payload

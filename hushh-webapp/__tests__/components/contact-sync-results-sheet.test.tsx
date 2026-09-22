@@ -110,11 +110,11 @@ describe("ContactSyncResultsSheet", () => {
         expect(sheet).toHaveClass("z-[9101]");
         expect(overlay).toHaveClass("z-[9100]");
       } else {
-        // The normal surface uses the shared stack, but it is still modal:
-        // while results are open the Connect/Location page behind them is
-        // blurred, inaccessible and cannot receive pointer input.
-        expect(sheet).toHaveClass("z-[712]");
-        expect(overlay).toHaveClass("z-[711]");
+        // The normal surface uses the shared stack (the --z-* ladder), but it
+        // is still modal: while results are open the Connect/Location page
+        // behind them is blurred, inaccessible and cannot receive pointer input.
+        expect(sheet).toHaveClass("z-(--z-sheet)");
+        expect(overlay).toHaveClass("z-(--z-sheet-overlay)");
         expect(document.body).toHaveStyle({ pointerEvents: "none" });
       }
     },

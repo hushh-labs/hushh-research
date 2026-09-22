@@ -76,7 +76,7 @@ function SheetOverlay({
       data-slot="sheet-overlay"
       className={cn(
         // Blur/scrim rides the Radix overlay lifecycle so it fades OUT on close.
-        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-[711] touch-none bg-black/24 backdrop-blur-[12px] [-webkit-backdrop-filter:blur(12px)] data-[state=closed]:duration-100 data-[state=closed]:ease-[cubic-bezier(0.4,0,1,1)] data-[state=open]:duration-140 data-[state=open]:ease-[cubic-bezier(0.16,1,0.3,1)]",
+        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-(--z-sheet-overlay) touch-none bg-black/24 backdrop-blur-[12px] [-webkit-backdrop-filter:blur(12px)] data-[state=closed]:duration-100 data-[state=closed]:ease-[cubic-bezier(0.4,0,1,1)] data-[state=open]:duration-140 data-[state=open]:ease-[cubic-bezier(0.16,1,0.3,1)]",
         className
       )}
       {...props}
@@ -140,7 +140,7 @@ type SheetContentProps =
      * inert.
      *
      * A sheet anchored to a live surface is the exception, and it is not a
-     * cosmetic one: the scrim is `fixed inset-0 z-[711] touch-none`, so it
+     * cosmetic one: the scrim is `fixed inset-0 z-(--z-sheet-overlay) touch-none`, so it
      * covers -- and swallows every tap on -- anything the host screen keeps
      * on top, no matter how the host layers it. On the Location map that meant
      * the close X, Locate and Check-in controls stayed fully visible through a
@@ -207,13 +207,18 @@ function SheetContent(
         ref={setSheetContentRef}
         data-slot="sheet-content"
         className={cn(
-          "data-[state=open]:animate-in data-[state=closed]:animate-out fixed z-[712] flex flex-col gap-4 border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-feature)] transition data-[state=closed]:duration-100 data-[state=closed]:ease-[cubic-bezier(0.4,0,1,1)] data-[state=open]:duration-140 data-[state=open]:ease-[cubic-bezier(0.16,1,0.3,1)]",
+          "data-[state=open]:animate-in data-[state=closed]:animate-out fixed z-(--z-sheet) flex flex-col gap-4 border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-feature)] transition-[transform,opacity] data-[state=closed]:duration-100 data-[state=closed]:ease-[cubic-bezier(0.4,0,1,1)] data-[state=open]:duration-140 data-[state=open]:ease-[cubic-bezier(0.16,1,0.3,1)]",
+          // A full-height side sheet reaches the top of the window; on the
+          // phone that is under the status bar and the Dynamic Island unless
+          // it pads by the safe area (0 on the web, so nothing changes there).
+          // Measured on the iPhone: the MCP connections title and its close
+          // control sat at y = 15 pt, under the clock and the battery.
           side === "right" &&
-            "data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right inset-y-0 right-0 h-full w-3/4 border-l sm:max-w-sm sm:rounded-l-[var(--app-card-radius-feature)]",
+            "data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right inset-y-0 right-0 h-full w-3/4 border-l pt-[var(--app-safe-area-top-effective,0px)] pb-[var(--app-safe-area-bottom-effective,0px)] sm:max-w-sm sm:rounded-l-[var(--app-card-radius-feature)]",
           side === "left" &&
-            "data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left inset-y-0 left-0 h-full w-3/4 border-r sm:max-w-sm sm:rounded-r-[var(--app-card-radius-feature)]",
+            "data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left inset-y-0 left-0 h-full w-3/4 border-r pt-[var(--app-safe-area-top-effective,0px)] pb-[var(--app-safe-area-bottom-effective,0px)] sm:max-w-sm sm:rounded-r-[var(--app-card-radius-feature)]",
           side === "top" &&
-            "data-[state=closed]:slide-out-to-top data-[state=open]:slide-in-from-top inset-x-0 top-0 h-auto border-b rounded-b-[var(--app-card-radius-feature)]",
+            "data-[state=closed]:slide-out-to-top data-[state=open]:slide-in-from-top inset-x-0 top-0 h-auto border-b pt-[var(--app-safe-area-top-effective,0px)] rounded-b-[var(--app-card-radius-feature)]",
           // bottom sheet lifts above the on-screen keyboard by --kb-height
           // (KeyboardInsetManager; 0 on desktop → inert), max-h shrinks to match.
           side === "bottom" &&
@@ -281,7 +286,18 @@ function SheetContent(
           the handle draggable everywhere except the corner it never owned.
         */}
         {showCloseButton && (
-          <SheetPrimitive.Close className="ring-offset-background focus:ring-ring absolute top-4 right-4 z-10 rounded-full border border-transparent bg-transparent p-2 text-[color:var(--app-secondary-label)] transition-colors after:absolute after:-inset-1.5 after:content-[''] hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-label)] focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none">
+          <SheetPrimitive.Close
+            className={cn(
+              "ring-offset-background focus:ring-ring absolute right-4 z-10 rounded-full border border-transparent bg-transparent p-2 text-[color:var(--app-secondary-label)] transition-colors after:absolute after:-inset-1.5 after:content-[''] hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-label)] focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none",
+              // Absolute against the sheet's box, so the padding above does
+              // not move it: a sheet that reaches the top of the window keeps
+              // its close control below the status bar (bottom sheets start
+              // mid-screen and keep the plain offset).
+              side === "bottom"
+                ? "top-4"
+                : "top-[calc(1rem+var(--app-safe-area-top-effective,0px))]"
+            )}
+          >
             <XIcon className="size-4" />
             <span className="sr-only">Close</span>
           </SheetPrimitive.Close>

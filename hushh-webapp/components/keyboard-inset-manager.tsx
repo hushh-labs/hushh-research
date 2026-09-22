@@ -40,6 +40,10 @@ function isMobileWebEnv(): boolean {
 
 function setKeyboardHeight(px: number): void {
   const root = document.documentElement;
+  // Render-performance attribution only (the probe sets this for one launch
+  // of a lane run; never in a normal session): leave the inset alone so the
+  // keyboard's own presentation can be told apart from the page's response.
+  if (root.dataset.perfExperiment?.split(",").includes("kb-inset-off")) return;
   const clamped = px > 0 ? Math.round(px) : 0;
   root.style.setProperty("--kb-height", `${clamped}px`);
   root.classList.toggle("kb-open", clamped > 0);

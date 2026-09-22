@@ -32,6 +32,7 @@ import {
   type OneLocationStateChangedDetail,
   type OneLocationStateDomain,
 } from "@/lib/one-location/one-location-state-events";
+import { dispatchAgentChatHistoryInvalidated } from "@/lib/agent/agent-chat-history-events";
 
 type DomainSummaryPatch = Record<string, unknown>;
 
@@ -650,6 +651,10 @@ export class CacheSyncService {
 
   static onConsentMutated(userId: string): void {
     const cache = CacheService.getInstance();
+    // Consent changes alter which lifecycle cards and safe descriptors are
+    // authoritative. The Chat-history owner clears its own snapshot without
+    // making this cache owner import native-capacitor modules.
+    dispatchAgentChatHistoryInvalidated(userId);
     cache.invalidate(CACHE_KEYS.ACTIVE_CONSENTS(userId));
     cache.invalidate(CACHE_KEYS.PENDING_CONSENTS(userId));
     cache.invalidate(CACHE_KEYS.CONSENT_AUDIT_LOG(userId));

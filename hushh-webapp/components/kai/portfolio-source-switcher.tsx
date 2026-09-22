@@ -19,7 +19,6 @@ import type {
 } from "@/lib/kai/brokerage/portfolio-sources";
 import {
   Building2,
-  Link2,
   RefreshCw,
   ScrollText,
   Trash2,
@@ -61,14 +60,13 @@ function formatRelativeTimestamp(value: string | null | undefined): string {
   });
 }
 
-function sourceLabel(source: PortfolioSource): string {
-  return source === "plaid" ? "Connected brokerage" : "Statement";
-}
-
 /**
- * A compact source manager for the Portfolio detail route. Durable source
- * selection stays in the hook; this component only renders confirmed state and
- * disables competing actions while a selection is settling.
+ * The Portfolio source screen: what the portfolio reads from now, every way
+ * to add a source, and removal last. Durable source selection stays in the
+ * hook; this component only renders confirmed state and disables competing
+ * actions while a selection is settling. One title per idea: the route
+ * header already says "Portfolio source", so no row repeats it, and the
+ * bank door is on this screen whatever is active.
  */
 export function PortfolioSourceSwitcher({
   activeSource,
@@ -121,6 +119,20 @@ export function PortfolioSourceSwitcher({
     void onStatementSnapshotChange(snapshotId).catch(() => undefined);
   };
 
+  const statementTitle = activeStatement?.label || "Saved statement";
+  const brokerageCount = freshness?.itemCount || 0;
+  const brokerageTitle = `${brokerageCount} connected ${brokerageCount === 1 ? "brokerage" : "brokerages"}`;
+  const nowUsingDescription = selectionBusy
+    ? "Saving your choice."
+    : !canChangePortfolioSource
+      ? "Unlock your Vault to change the active portfolio."
+      : activeSource === "plaid"
+        ? `Read-only, synced ${formatRelativeTimestamp(freshness?.lastSyncedAt || null)}.`
+        : "Editable, from a statement you uploaded.";
+  const showRemove =
+    Boolean(onDeletePortfolio) ||
+    Boolean(activeSource === "statement" && activeStatementId && onDeleteStatementSnapshot);
+
   return (
     <section
       className="w-full space-y-5"
@@ -128,28 +140,15 @@ export function PortfolioSourceSwitcher({
       aria-label="Portfolio source settings"
       data-testid="portfolio-source-switcher"
     >
-      <SettingsGroup
-        title="Active portfolio"
-        description={
-          selectionBusy
-            ? "Saving your portfolio choice."
-            : !canChangePortfolioSource
-              ? "Unlock your Vault to change the active portfolio."
-            : "Choose the holdings you want to review."
-        }
-        separatorInset
-        testId="portfolio-source-active-group"
-      >
+      {/* What the portfolio reads from right now: one row that names it,
+          the switch only when there is something to switch to. */}
+      <SettingsGroup title="Now using" separatorInset testId="portfolio-source-active-group">
         <SettingsRow
           icon={activeSource === "plaid" ? Building2 : ScrollText}
           iconTone={activeSource === "plaid" ? "blue" : "accent"}
-          title="Portfolio source"
-          description={
-            activeSource === "plaid"
-              ? "Connected brokerage holdings are read-only."
-              : "Saved-statement holdings are editable."
-          }
-          stackTrailingOnMobile={sourceOptions.length > 1}
+          title={activeSource === "plaid" ? brokerageTitle : statementTitle}
+          description={nowUsingDescription}
+          stackTrailingOnMobile
           trailing={
             sourceOptions.length > 1 ? (
               <SegmentedTabs
@@ -159,94 +158,43 @@ export function PortfolioSourceSwitcher({
                 disabled={interactionBusy || !canChangePortfolioSource}
                 className="w-full sm:w-[18rem]"
               />
-            ) : (
-              <span className="text-sm text-muted-foreground">
-                {sourceLabel(activeSource)}
-              </span>
-            )
+            ) : undefined
           }
           testId="portfolio-source-active-row"
         />
-      </SettingsGroup>
-
-      {activeSource === "statement" && hasStatementSnapshots ? (
-        <SettingsGroup
-          title="Saved statements"
-          description="Choose the statement that drives your editable portfolio."
-          separatorInset
-          testId="portfolio-source-statements-group"
-        >
+        {activeSource === "statement" && hasMultipleStatements ? (
           <SettingsRow
             icon={ScrollText}
             iconTone="accent"
-            title="Selected statement"
-            description="This statement drives your editable holdings."
-            stackTrailingOnMobile={hasMultipleStatements}
+            title="Switch statement"
+            stackTrailingOnMobile
             trailing={
-              hasMultipleStatements ? (
-                <Select
-                  value={activeStatementId || undefined}
-                  onValueChange={requestStatementChange}
-                  disabled={interactionBusy || !canChangePortfolioSource}
+              <Select
+                value={activeStatementId || undefined}
+                onValueChange={requestStatementChange}
+                disabled={interactionBusy || !canChangePortfolioSource}
+              >
+                <SelectTrigger
+                  size="sm"
+                  className="w-full min-w-0 sm:w-[18rem]"
+                  aria-label="Selected statement"
                 >
-                  <SelectTrigger
-                    size="sm"
-                    className="w-full min-w-0 sm:w-[18rem]"
-                    aria-label="Selected statement"
-                  >
-                    <SelectValue placeholder="Select statement" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {statementSnapshots.map((snapshot) => (
-                      <SelectItem key={snapshot.id} value={snapshot.id}>
-                        {snapshot.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <span className="text-sm text-muted-foreground">
-                  {activeStatement?.label || "Current"}
-                </span>
-              )
+                  <SelectValue placeholder="Select statement" />
+                </SelectTrigger>
+                <SelectContent>
+                  {statementSnapshots.map((snapshot) => (
+                    <SelectItem key={snapshot.id} value={snapshot.id}>
+                      {snapshot.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             }
             testId="portfolio-source-selected-statement"
           />
-          {onImportStatement ? (
-            <SettingsRow
-              icon={Upload}
-              iconTone="accent"
-              title="Import another statement"
-              description="Add a PDF or CSV from your brokerage."
-              onClick={onImportStatement}
-              disabled={interactionBusy}
-              chevron
-              voiceControlId="import_portfolio"
-              testId="portfolio-source-import-statement"
-            />
-          ) : null}
-        </SettingsGroup>
-      ) : null}
-
-      {activeSource === "plaid" && hasPlaidSource ? (
-        <SettingsGroup
-          title="Connected brokerage"
-          description="Brokerage holdings stay read-only here."
-          separatorInset
-          testId="portfolio-source-plaid-group"
-        >
-          <SettingsRow
-            icon={Building2}
-            iconTone="blue"
-            title={`${freshness?.itemCount || 0} connected ${
-              (freshness?.itemCount || 0) === 1 ? "brokerage" : "brokerages"
-            }`}
-            description={`Last synced ${formatRelativeTimestamp(
-              freshness?.lastSyncedAt || null,
-            )}.`}
-            testId="portfolio-source-plaid-status"
-          />
-          {isRefreshing && onCancelRefreshPlaid ? (
+        ) : null}
+        {activeSource === "plaid" && hasPlaidSource ? (
+          isRefreshing && onCancelRefreshPlaid ? (
             <SettingsRow
               icon={X}
               title="Refresh in progress"
@@ -265,63 +213,67 @@ export function PortfolioSourceSwitcher({
               chevron
               testId="portfolio-source-refresh-plaid"
             />
-          ) : null}
+          ) : null
+        ) : null}
+      </SettingsGroup>
+
+      {/* Every way in, on this screen, whatever is active. */}
+      {onManageConnections || onImportStatement ? (
+        <SettingsGroup title="Add a source" separatorInset testId="portfolio-source-add-group">
           {onManageConnections ? (
             <SettingsRow
-              icon={Link2}
-              title="Manage connections"
-              description="Connect or update a brokerage."
+              icon={Building2}
+              iconTone="blue"
+              title={hasPlaidSource ? "Manage connections" : "Connect a bank or brokerage"}
+              description="Read-only sync through Plaid."
               onClick={onManageConnections}
               disabled={interactionBusy}
               chevron
               testId="portfolio-source-manage-connections"
             />
           ) : null}
-        </SettingsGroup>
-      ) : null}
-
-      {activeSource !== "statement" && onImportStatement ? (
-        <SettingsGroup title="Statements" separatorInset testId="portfolio-source-add-statement-group">
-          <SettingsRow
-            icon={Upload}
-            iconTone="accent"
-            title="Add a statement"
-            description="Import a PDF or CSV for an editable portfolio."
-            onClick={onImportStatement}
-            disabled={interactionBusy}
-            chevron
-            voiceControlId="import_portfolio"
-            testId="portfolio-source-add-statement"
-          />
-        </SettingsGroup>
-      ) : null}
-
-      {onDeletePortfolio || (activeSource === "statement" && activeStatementId && onDeleteStatementSnapshot) ? (
-        <SettingsGroup title="Remove data" separatorInset testId="portfolio-source-remove-group">
-          {onDeletePortfolio ? (
+          {onImportStatement ? (
             <SettingsRow
-              icon={Trash2}
-              title="Delete active portfolio"
-              description="This opens a confirmation before anything is removed."
-              onClick={onDeletePortfolio}
+              icon={Upload}
+              iconTone="accent"
+              title={activeSource === "statement" && hasStatementSnapshots ? "Import another statement" : "Upload a statement"}
+              description="PDF or CSV from your brokerage; editable once imported."
+              onClick={onImportStatement}
               disabled={interactionBusy}
-              tone="destructive"
               chevron
-              voiceControlId="delete_imported_data"
-              testId="portfolio-source-delete-portfolio"
+              voiceControlId="import_portfolio"
+              testId="portfolio-source-import-statement"
             />
           ) : null}
+        </SettingsGroup>
+      ) : null}
+
+      {showRemove ? (
+        <SettingsGroup title="Remove" separatorInset testId="portfolio-source-remove-group">
           {activeSource === "statement" && activeStatementId && onDeleteStatementSnapshot ? (
             <SettingsRow
               icon={Trash2}
-              title="Delete selected statement"
-              description={activeStatement?.label || "Remove this saved statement."}
+              title="Delete this statement"
+              description={statementTitle}
               onClick={() => onDeleteStatementSnapshot(activeStatementId)}
               disabled={interactionBusy}
               tone="destructive"
               chevron
               voiceControlId="delete_statement_snapshot"
               testId="portfolio-source-delete-statement"
+            />
+          ) : null}
+          {onDeletePortfolio ? (
+            <SettingsRow
+              icon={Trash2}
+              title="Delete active portfolio"
+              description="Asks before anything is removed."
+              onClick={onDeletePortfolio}
+              disabled={interactionBusy}
+              tone="destructive"
+              chevron
+              voiceControlId="delete_imported_data"
+              testId="portfolio-source-delete-portfolio"
             />
           ) : null}
         </SettingsGroup>

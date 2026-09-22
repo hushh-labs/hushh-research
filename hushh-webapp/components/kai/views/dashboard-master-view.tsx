@@ -2507,7 +2507,7 @@ export function DashboardMasterView({
               ? "How your portfolio value is distributed."
               : section === "performance"
                 ? "Value and change from real portfolio history."
-                : "Choose and manage the active portfolio source."
+                : "Where your holdings come from."
         }
         actions={
           <ShellActionSurface

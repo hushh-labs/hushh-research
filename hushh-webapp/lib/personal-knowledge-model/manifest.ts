@@ -103,6 +103,8 @@ export type DomainManifest = {
 const ENTITY_MAP_KEY = "entities";
 /** One representative subtree standing for every entry of an `entities` map. */
 const ENTITY_COLLECTION_SEGMENT = "_entities";
+/** The Financial contract stores one analysis-history array per ticker. */
+const ANALYSIS_HISTORY_MAP_KEY = "analysis_history";
 
 function normalizePathSegment(segment: string): string {
   const normalized = String(segment).trim().toLowerCase();
@@ -110,6 +112,9 @@ function normalizePathSegment(segment: string): string {
   // their leading underscore and turn them into ordinary keys.
   if (normalized === "_items") return "_items";
   if (normalized === ENTITY_COLLECTION_SEGMENT) return ENTITY_COLLECTION_SEGMENT;
+  // Private-key spelling is authority-bearing. Never turn `_private` into an
+  // ordinary public path while preparing a manifest or resolving one.
+  if (normalized.startsWith("_")) return normalized;
   return String(segment)
     .trim()
     .toLowerCase()
@@ -137,6 +142,7 @@ function titleizePath(path: string): string {
 }
 
 function cloneValue<T>(value: T): T {
+  if (value === undefined) return value;
   if (typeof globalThis.structuredClone === "function") {
     try {
       return globalThis.structuredClone(value);
@@ -324,6 +330,20 @@ function walkValue(
             : existingDescriptor.path_type,
         exposure_eligibility: false,
       });
+    } else {
+      // Collection walks are intentionally order-independent. A null, empty,
+      // or otherwise non-materialized occurrence must not hide a populated
+      // sibling that resolves to the same logical path later in the array or
+      // entity map. Keep the first safe presentation metadata, but union the
+      // independently computed eligibility/materialization signal.
+      descriptors.set(pathKey, {
+        ...existingDescriptor,
+        exposure_eligibility:
+          existingDescriptor.exposure_eligibility || nextDescriptor.exposure_eligibility,
+        consent_label: existingDescriptor.consent_label || nextDescriptor.consent_label,
+        sensitivity_label:
+          existingDescriptor.sensitivity_label || nextDescriptor.sensitivity_label,
+      });
     }
   }
 
@@ -342,21 +362,34 @@ function walkValue(
 
   const record = value as Record<string, unknown>;
   // An `entities` map is a homogeneous collection keyed by entity id -- the
-  // same shape as an array, just keyed. Walking each key made the manifest grow
-  // with the DATA rather than the SHAPE: a portfolio of a hundred holdings
-  // emitted a hundred near-identical subtrees, pushed the path list past the
-  // server's 1000-path cap, and the save died with a 422 that got surfaced as
-  // "Backend returned failure on store". It also wrote every ticker the person
-  // owns into the manifest, which is holdings data sitting in a structure
-  // descriptor. Collapse to one representative subtree, exactly as arrays do.
-  if (path[path.length - 1] === ENTITY_MAP_KEY) {
-    for (const childValue of Object.values(record)) {
-      if (childValue !== undefined) {
-        walkValue(childValue, [...path, ENTITY_COLLECTION_SEGMENT], descriptors, [
-          ...displayPath,
-          ENTITY_COLLECTION_SEGMENT,
-        ]);
+  // same shape as an array, just keyed. Financial analysis history has the
+  // same shape one level earlier: its ticker keys each contain an array of
+  // history entries, alongside a domain_intent metadata object. Walking each
+  // key made the manifest grow with the DATA rather than the SHAPE: a real
+  // reviewer portfolio emitted 1,043 paths, pushed the request past the
+  // server's 1000-path cap, and the save died with a 422. Collapse only the
+  // collection entries and continue walking metadata siblings normally.
+  const mapKey = path[path.length - 1];
+  const isAnalysisHistoryMap =
+    mapKey === ANALYSIS_HISTORY_MAP_KEY &&
+    Object.values(record).some((childValue) => Array.isArray(childValue));
+  if (mapKey === ENTITY_MAP_KEY || isAnalysisHistoryMap) {
+    for (const [rawKey, childValue] of Object.entries(record)) {
+      if (childValue === undefined || rawKey.trim().startsWith("_")) continue;
+      // `domain_intent` is metadata on the analysis-history map, not an
+      // entity. Keep its authored path so it remains available to internal
+      // reconciliation while ticker entries share one safe descriptor tree.
+      if (isAnalysisHistoryMap && !Array.isArray(childValue)) {
+        const normalizedKey = normalizePathSegment(rawKey);
+        if (normalizedKey) {
+          walkValue(childValue, [...path, normalizedKey], descriptors, [...displayPath, rawKey]);
+        }
+        continue;
       }
+      walkValue(childValue, [...path, ENTITY_COLLECTION_SEGMENT], descriptors, [
+        ...displayPath,
+        ENTITY_COLLECTION_SEGMENT,
+      ]);
     }
     return;
   }
@@ -479,6 +512,9 @@ export function buildPersonalKnowledgeModelStructureArtifacts(params: {
 
 function extractPathValue(value: unknown, segments: string[]): unknown {
   if (!segments.length) {
+    // An eligible leaf may have changed since review. Never export a newly
+    // introduced subtree under authority that described a scalar field.
+    if (value !== null && typeof value === "object") return undefined;
     return cloneValue(value);
   }
 
@@ -488,10 +524,10 @@ function extractPathValue(value: unknown, segments: string[]): unknown {
     if (!Array.isArray(value)) {
       return undefined;
     }
-    const extracted = value
-      .map((item) => extractPathValue(item, rest))
-      .filter((item) => item !== undefined);
-    return extracted.length ? extracted : undefined;
+    const extracted = value.map((item) => extractPathValue(item, rest));
+    // Preserve slots until all selected paths have been merged. Compacting
+    // each column separately can attach one item's field to another item.
+    return extracted.some(item => item !== undefined) ? extracted : undefined;
   }
   if (segment === ENTITY_COLLECTION_SEGMENT) {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -502,6 +538,7 @@ function extractPathValue(value: unknown, segments: string[]): unknown {
     // projected data still has to say which entity each value belongs to.
     const extracted: Record<string, unknown> = {};
     for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      if (key.trim().startsWith("_")) continue;
       const child = extractPathValue(item, rest);
       if (child !== undefined) {
         extracted[key] = child;
@@ -515,13 +552,16 @@ function extractPathValue(value: unknown, segments: string[]): unknown {
   }
 
   const record = value as Record<string, unknown>;
-  if (!Object.prototype.hasOwnProperty.call(record, segment)) {
-    return undefined;
-  }
-  return extractPathValue(record[segment], rest);
+  // The manifest uses canonical spelling; encrypted records retain the
+  // original spelling. This is the same codec as the manifest walk, not a
+  // semantic alias. Collisions are ambiguous even if one key is an exact hit.
+  const keys = Object.keys(record).filter(key => normalizePathSegment(key) === segment);
+  if (keys.length !== 1 || keys[0]!.trim().startsWith("_")) return undefined;
+  return extractPathValue(record[keys[0]!], rest);
 }
 
 function rebuildProjectedValue(segments: string[], value: unknown): unknown {
+  if (value === undefined) return undefined;
   if (!segments.length) {
     return cloneValue(value);
   }
