@@ -119,13 +119,13 @@ def is_trusted_for_scope(
     # a `vault.owner` link would start delegating everything via that
     # function's master-key short circuit.
     if link.scope_str and ConsentScope.is_dynamic_scope(link.scope_str):
-        return scope_matches(link.scope_str, required)
+        return bool(scope_matches(link.scope_str, required))
 
     # Resolve before comparing: callers pass a raw string, and a legacy link
     # for a dynamic scope recorded only PKM_READ. Comparing the raw string to
     # `link.scope.value` would make every such link authorize nothing.
     try:
-        return link.scope == resolve_scope_to_enum(required)
+        return bool(link.scope == resolve_scope_to_enum(required))
     except (KeyError, ValueError):
         return False
 
