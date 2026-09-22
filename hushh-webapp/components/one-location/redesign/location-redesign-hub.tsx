@@ -70,10 +70,7 @@ import {
   shareReplacementsLosingTime,
 } from "@/lib/one-location/share-replacement";
 import { ActionMenu } from "@/components/app-ui/action-menu";
-import {
-  FlowActionGroup,
-  FlowSelectionSummary,
-} from "@/components/app-ui/flow-actions";
+import { FlowActionGroup } from "@/components/app-ui/flow-actions";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { TopShellTabs } from "@/components/app-ui/top-shell-tabs";
@@ -5945,16 +5942,11 @@ function RequestRecipientListRow({
         selected && selectable && "bg-[color:var(--app-accent)]/[0.045]",
       )}
     >
-      <div className="flex min-h-[58px] items-center gap-3 px-3.5 py-2">
+      <div className="grid min-h-[58px] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 px-3.5 py-2 sm:grid-cols-[auto_minmax(0,1fr)_auto_auto]">
         <ContactAvatar label={name} photoUrl={photoUrl} verified={verified} />
         <span className="min-w-0 flex-1">
-          <span className="flex min-w-0 items-start gap-1.5">
-            <span className="min-w-0 flex-1 truncate text-[17px] font-normal leading-[22px] text-foreground">
-              {name}
-            </span>
-            {fromContacts ? (
-              <ContactSourceBadge className="mt-px shrink-0" />
-            ) : null}
+          <span className="block truncate text-[17px] font-normal leading-[22px] text-foreground">
+            {name}
           </span>
           {subtitle ? (
             <span className="mt-0.5 block truncate text-[13px] leading-4 text-muted-foreground">
@@ -5962,7 +5954,10 @@ function RequestRecipientListRow({
             </span>
           ) : null}
         </span>
-        <span className="flex shrink-0 items-center gap-1.5">
+        {fromContacts ? (
+          <ContactSourceBadge className="col-start-2 row-start-2 mt-1 w-fit shrink-0 sm:col-start-3 sm:row-start-1 sm:mt-0" />
+        ) : null}
+        <span className="col-start-3 row-span-2 row-start-1 flex shrink-0 items-center gap-1.5 sm:col-start-4 sm:row-span-1">
           {statusLabel ? (
             <StatusPill tone={pillTone} className="px-2 py-0 text-[12px]">
               {statusLabel}
@@ -6323,7 +6318,7 @@ function AskFlow({
         <TaskFlowHeader eyebrow="Step 2 of 2" title="Who, then how long?" />
 
         <SelectedRecipientsRail
-          title="Asking"
+          title="Request Location"
           ariaLabel="People you are asking for location"
           recipients={selectedRequestRecipients}
           recipientLabel={vm.recipientLabel}
@@ -6390,13 +6385,8 @@ function AskFlow({
 
         <div
           data-testid="one-location-ask-send-bar"
-          className={cn(STICKY_FLOW_ACTION_CLASSNAME, "space-y-2.5")}
+          className={STICKY_FLOW_ACTION_CLASSNAME}
         >
-          <FlowSelectionSummary
-            label="Requesting"
-            value={`${selectedRequestRecipients.length} ${selectedRequestRecipients.length === 1 ? "person" : "people"}`}
-            detail={formatLocationDurationLabel(Number(vm.durationHours))}
-          />
           <FlowActionGroup
             stacked
             primary={

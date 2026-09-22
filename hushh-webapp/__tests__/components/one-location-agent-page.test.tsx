@@ -7087,6 +7087,9 @@ describe("OneLocationAgentPage", () => {
         }),
       ).getByText("Trusted B"),
     ).toBeTruthy();
+    expect(screen.getByText("Request Location")).toBeTruthy();
+    expect(screen.queryByText("Asking", { exact: true })).toBeNull();
+    expect(screen.queryByText("Requesting", { exact: true })).toBeNull();
     expect(
       screen.queryByTestId("one-location-ask-selection-summary"),
     ).toBeNull();
@@ -7108,6 +7111,11 @@ describe("OneLocationAgentPage", () => {
               photoUrl: "https://cdn.example.test/investor-d-avatar.jpg",
               isRia: true,
             }
+          : recipient.userId === "user_c"
+            ? {
+                ...recipient,
+                connectedFromContacts: true,
+              }
           : recipient,
       ),
       // The page derives `requestedByMe` from `requests`, filtered to the ones
@@ -7138,9 +7146,21 @@ describe("OneLocationAgentPage", () => {
     expect(within(list).getAllByRole("listitem").length).toBeGreaterThanOrEqual(
       1,
     );
+    const advisorAction = within(list).getByRole("button", {
+      name: /Select Advisor C/i,
+    });
+    const advisorRow = advisorAction.closest('[role="listitem"]');
+    expect(advisorRow).toBeTruthy();
     expect(
-      within(list).getByRole("button", { name: /Select Advisor C/i }),
-    ).toBeTruthy();
+      within(advisorRow as HTMLElement).getByLabelText(
+        "Connected from your contacts",
+      ),
+    ).toHaveClass(
+      "col-start-2",
+      "row-start-2",
+      "sm:col-start-3",
+      "sm:row-start-1",
+    );
     expect(within(list).queryByText("Trusted B")).toBeNull();
     expect(
       screen.getByTestId("one-location-ask-waiting-summary"),
