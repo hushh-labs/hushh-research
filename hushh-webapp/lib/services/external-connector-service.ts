@@ -5,6 +5,8 @@ export type ExternalConnectorAuthStyle = "api_key" | "oauth";
 export type ExternalConnectorStatus =
   | "not_connected"
   | "connected"
+  | "verifying"
+  | "needs_reauth"
   | "revoked"
   | "error";
 
@@ -16,6 +18,41 @@ export type ExternalConnectorSummary = {
   status: ExternalConnectorStatus;
   accountLabel?: string | null;
   connectedAt?: string | null;
+  validationState?: string;
+  revocationOutcome?: string;
+  lastErrorCode?: string | null;
+  available?: boolean;
+};
+
+export type ConnectorFeatures = Partial<
+  Record<
+    | "connections_panel_v2"
+    | "google_drive_connection"
+    | "google_drive_picker"
+    | "gmail_chat_reads"
+    | "google_drive_chat_reads",
+    boolean
+  >
+>;
+export type ConnectorOverview = {
+  connectors: ExternalConnectorSummary[];
+  features: ConnectorFeatures;
+};
+export type DriveDocument = {
+  documentId: string;
+  name: string;
+  mimeType: string;
+  status: string;
+};
+/** Never persist this response, put it in React state, or send it through messages. */
+export type DrivePickerSession = {
+  sessionId: string;
+  expiresAt: string;
+  accessToken: string;
+  tokenExpiresAt: string;
+  developerKey: string;
+  appId: string;
+  origin: string;
 };
 
 function authHeaders(vaultOwnerToken: string): HeadersInit {
@@ -49,14 +86,22 @@ export class ExternalConnectorService {
   static async list(
     vaultOwnerToken: string,
   ): Promise<ExternalConnectorSummary[]> {
+    return (await this.overview(vaultOwnerToken)).connectors;
+  }
+
+  static async overview(vaultOwnerToken: string): Promise<ConnectorOverview> {
     const response = await ApiService.apiFetch("/api/connectors", {
       method: "GET",
       headers: authHeaders(vaultOwnerToken),
     });
     const payload = await readJsonOrThrow<{
       connectors?: ExternalConnectorSummary[];
+      features?: ConnectorFeatures;
     }>(response);
-    return Array.isArray(payload.connectors) ? payload.connectors : [];
+    return {
+      connectors: Array.isArray(payload.connectors) ? payload.connectors : [],
+      features: payload.features ?? {},
+    };
   }
 
   static async connectWithApiKey(input: {
@@ -86,7 +131,12 @@ export class ExternalConnectorService {
     vaultOwnerToken: string;
     connectorId: string;
     redirectUri: string;
-  }): Promise<{ authorizeUrl: string; expiresAt: string }> {
+  }): Promise<{
+    authorizeUrl: string;
+    expiresAt: string;
+    attemptId?: string;
+    connectorId?: string;
+  }> {
     const response = await ApiService.apiFetch(
       `/api/connectors/${encodeURIComponent(input.connectorId)}/connect/oauth/start`,
       {
@@ -106,21 +156,28 @@ export class ExternalConnectorService {
     state: string;
     code: string;
   }): Promise<{ status: string; connectorId: string }> {
-    const response = await ApiService.apiFetch("/api/connectors/oauth/complete", {
-      method: "POST",
-      headers: {
-        ...authHeaders(input.vaultOwnerToken),
-        "Content-Type": "application/json",
+    const response = await ApiService.apiFetch(
+      "/api/connectors/oauth/complete",
+      {
+        method: "POST",
+        headers: {
+          ...authHeaders(input.vaultOwnerToken),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ state: input.state, code: input.code }),
       },
-      body: JSON.stringify({ state: input.state, code: input.code }),
-    });
+    );
     return readJsonOrThrow(response);
   }
 
   static async disconnect(input: {
     vaultOwnerToken: string;
     connectorId: string;
-  }): Promise<{ status: string; connectorId: string }> {
+  }): Promise<{
+    status: string;
+    connectorId: string;
+    revocationOutcome?: string;
+  }> {
     const response = await ApiService.apiFetch(
       `/api/connectors/${encodeURIComponent(input.connectorId)}/disconnect`,
       {
@@ -129,5 +186,93 @@ export class ExternalConnectorService {
       },
     );
     return readJsonOrThrow(response);
+  }
+
+  static async completeWebOAuth(input: {
+    idToken: string;
+    state: string;
+    code: string;
+    attemptId: string;
+  }): Promise<{ status: string; connectorId: string }> {
+    return readJsonOrThrow(
+      await ApiService.apiFetch("/api/connectors/oauth/complete/web", {
+        method: "POST",
+        headers: {
+          ...authHeaders(input.idToken),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          state: input.state,
+          code: input.code,
+          attemptId: input.attemptId,
+        }),
+      }),
+    );
+  }
+
+  static async pickerSession(
+    vaultOwnerToken: string,
+    origin: string,
+  ): Promise<DrivePickerSession> {
+    return readJsonOrThrow(
+      await ApiService.apiFetch("/api/connectors/google_drive/picker/session", {
+        method: "POST",
+        headers: {
+          ...authHeaders(vaultOwnerToken),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ origin }),
+      }),
+    );
+  }
+
+  static async selectDocuments(
+    vaultOwnerToken: string,
+    sessionId: string,
+    fileIds: string[],
+  ): Promise<DriveDocument[]> {
+    const result = await readJsonOrThrow<{ documents: DriveDocument[] }>(
+      await ApiService.apiFetch(
+        "/api/connectors/google_drive/documents/select",
+        {
+          method: "POST",
+          headers: {
+            ...authHeaders(vaultOwnerToken),
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ sessionId, fileIds, confirmed: true }),
+        },
+      ),
+    );
+    return result.documents;
+  }
+
+  static async documents(vaultOwnerToken: string): Promise<DriveDocument[]> {
+    const result = await readJsonOrThrow<{ documents: DriveDocument[] }>(
+      await ApiService.apiFetch("/api/connectors/google_drive/documents", {
+        method: "GET",
+        headers: authHeaders(vaultOwnerToken),
+      }),
+    );
+    return result.documents;
+  }
+
+  static async removeDocument(
+    vaultOwnerToken: string,
+    documentId: string,
+  ): Promise<void> {
+    await readJsonOrThrow(
+      await ApiService.apiFetch(
+        `/api/connectors/google_drive/documents/${encodeURIComponent(documentId)}`,
+        {
+          method: "DELETE",
+          headers: {
+            ...authHeaders(vaultOwnerToken),
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ confirmed: true }),
+        },
+      ),
+    );
   }
 }

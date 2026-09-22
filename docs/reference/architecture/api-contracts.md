@@ -983,10 +983,10 @@ routes remain default-off and do **not** enable chat reads or indexing.
 
 | Route | Authority | Contract |
 | --- | --- | --- |
-| `GET /api/connectors` | Vault Owner | Existing catalog/status plus redacted validation/revocation state and computed rollout flags; no endpoints, scopes, raw policy, provider subject or credentials. |
+| `GET /api/connectors` | Vault Owner | Existing catalog/status plus redacted validation/revocation state, `available`, and computed rollout flags; deactivated Drive keeps owner recovery status with `available=false`. No endpoints, scopes, raw policy, provider subject or credentials. |
 | `POST /api/connectors/google_drive/connect/oauth/start` | Vault Owner + internal cohort/connection flag | Registered `redirectUri`, optional `flow=web\|native`; returns authorization URL, opaque `attemptId`, connector and ten-minute expiry. |
 | `POST /api/connectors/oauth/complete` | Vault Owner | Existing owner completion remains compatible. Drive uses atomic single-use claims and verified Google identity/scopes. |
-| `POST /api/connectors/oauth/complete/web` | Verified Firebase identity matching an existing unexpired Vault-authorized Drive attempt | Popup-only completion exception; no opener Vault Owner token transfer. |
+| `POST /api/connectors/oauth/complete/web` | Verified Firebase identity matching an existing unexpired Vault-authorized Drive attempt | Requires `code`, signed `state` and matching opaque `attemptId` before exchange. Popup-only completion exception; no opener Vault Owner token transfer. |
 | `GET /api/connectors/oauth/native/callback` | Signed state + atomic native attempt claim | Backend code exchange; encrypted pending credentials only. Fixed `hushh://connectors/return` handoff contains only opaque attempt/outcome. Invalid state has no redirect. |
 | `POST /api/connectors/oauth/native/finalize` | Original Vault Owner | Accepts `attemptId`; checks expiry, generation, client/redirect configuration and current cohort admission before activation. |
 | `POST /api/connectors/google_drive/disconnect` | Vault Owner; remains available when rollout is off | Immediately disables local execution, invalidates attempts, clears credentials, then makes a bounded in-memory provider revocation attempt. Reports `revocationOutcome`; no background retry is promised. |
@@ -1020,7 +1020,15 @@ client-key PKM or OAuth credential storage. Source metadata is owner/document/ge
 source IDs are owner-keyed HMAC fingerprints. Disconnect/account switch atomically deletes
 selected sources and sessions. This checkpoint stores no raw content, chunks or embeddings.
 
-Release prerequisites still include web/native Picker callers, ingestion/index/search/grants,
+The existing left drawer mounts Chats and Connections together. Mail uses the existing
+Gmail connection service; Drive uses a synchronously opened popup with exact origin/source/
+attempt/expiry settlement checks and owner-status reconciliation. The exact callback shell
+does not require an opener vault key; Firebase identity and the prior attempt authorize the
+server completion. Other management routes retain their vault gates. The official web Picker
+receives an in-memory short-lived token only, and selection needs a separate explicit owner
+confirmation. Blocked popups remain in chat; no unencrypted full-page recovery is used.
+
+Release prerequisites still include native Picker, encrypted full-page recovery, ingestion/index/search/grants,
 scheduled retention, and OAuth callback ingress-log routing evidence. Native Picker requires a
 separate drive.file-only system-browser flow; the existing staged native OAuth foundation alone
 is not native Picker completion. Application redaction covers query `code`/`state`/`picked_file_ids`

@@ -110,13 +110,61 @@ def test_selection_routes_derive_owner_reject_unknown_fields_and_do_not_cache_to
 
 def test_popup_completion_uses_firebase_owner_not_an_opener_token(route_client):
     client, app, drive = route_client
-    body = {"state": "signed-synthetic-state", "code": "synthetic-code"}
+    body = {
+        "state": "signed-synthetic-state",
+        "code": "synthetic-code",
+        "attemptId": "synthetic-attempt",
+    }
     assert client.post("/api/connectors/oauth/complete/web", json=body).status_code == 401
     app.dependency_overrides[require_firebase_auth] = lambda: "verified-owner"
     response = client.post("/api/connectors/oauth/complete/web", json=body)
     assert response.status_code == 200
-    drive.complete.assert_awaited_once_with(**body, expected_user_id="verified-owner")
+    drive.complete.assert_awaited_once_with(
+        state=body["state"], code=body["code"], expected_user_id="verified-owner"
+    )
     assert "token" not in response.text
+
+
+def test_web_popup_rejects_another_attempt_before_exchange(route_client):
+    client, app, drive = route_client
+    app.dependency_overrides[require_firebase_auth] = lambda: "verified-owner"
+    response = client.post(
+        "/api/connectors/oauth/complete/web",
+        json={
+            "state": "signed-synthetic-state",
+            "code": "synthetic-code",
+            "attemptId": "different-attempt",
+        },
+    )
+    assert response.status_code == 409
+    drive.complete.assert_not_called()
+
+
+def test_deactivation_does_not_hide_owner_disconnect_status(route_client, monkeypatch):
+    client, app, _ = route_client
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "verified-owner"}
+    monkeypatch.setattr(
+        routes,
+        "get_external_connector_registry_service",
+        lambda: SimpleNamespace(list_active_connectors=AsyncMock(return_value=[])),
+    )
+    credentials = SimpleNamespace(
+        list_statuses=AsyncMock(
+            return_value=[
+                {
+                    "connectorId": "google_drive",
+                    "status": "needs_reauth",
+                    "accountLabel": "owner@example.invalid",
+                }
+            ]
+        )
+    )
+    monkeypatch.setattr(routes, "get_external_connector_credentials_service", lambda: credentials)
+    response = client.get("/api/connectors")
+    assert response.status_code == 200
+    assert response.json()["connectors"][0]["available"] is False
+    assert response.json()["connectors"][0]["status"] == "needs_reauth"
+    credentials.list_statuses.assert_awaited_once_with(user_id="verified-owner")
 
 
 @pytest.mark.parametrize("provider_error", [False, True])

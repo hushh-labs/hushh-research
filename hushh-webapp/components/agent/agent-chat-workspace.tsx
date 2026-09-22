@@ -11,7 +11,6 @@ import {
   useState,
   type ReactNode,
   type ClipboardEvent as ReactClipboardEvent,
-  type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AgentMemoryCaptureStatus } from "@/components/agent/agent-memory-capture-status";
@@ -44,6 +43,10 @@ import { requestProfilePaneOpen } from "@/lib/navigation/profile-pane";
 import { Button } from "@/components/ui/button";
 import { AgentHistorySidebar } from "@/components/agent/agent-history-sidebar";
 import { ConnectorsPanel } from "@/components/agent/connectors-panel";
+import {
+  AgentConnectionsDrawer,
+  type ConnectionsDrawerMode,
+} from "@/components/agent/agent-connections-drawer";
 import { SegmentedControl } from "@/lib/morphy-ux/ui/segmented-control";
 import {
   mergeScopeItems,
@@ -1026,8 +1029,6 @@ function markConsentDirectiveItemRevoked(
     },
   };
 }
-const FOCUSABLE_SELECTOR =
-  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 function formatNow(): string {
   return new Intl.DateTimeFormat(undefined, {
@@ -1044,42 +1045,6 @@ function createGreetingMessage(): AgentMessage {
     timestamp: AGENT_GREETING_TIMESTAMP,
     status: "done",
   };
-}
-
-function getFocusableElements(container: HTMLElement | null): HTMLElement[] {
-  if (!container) return [];
-  return Array.from(
-    container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
-  ).filter(
-    (element) =>
-      !element.hasAttribute("disabled") &&
-      element.getAttribute("aria-hidden") !== "true" &&
-      element.offsetParent !== null,
-  );
-}
-
-function trapFocusWithin(
-  event: ReactKeyboardEvent,
-  container: HTMLElement | null,
-): void {
-  if (event.key !== "Tab") return;
-  const focusable = getFocusableElements(container);
-  if (focusable.length === 0) {
-    event.preventDefault();
-    return;
-  }
-  const first = focusable[0]!;
-  const last = focusable[focusable.length - 1]!;
-  const active = document.activeElement;
-  if (event.shiftKey && active === first) {
-    event.preventDefault();
-    last.focus();
-    return;
-  }
-  if (!event.shiftKey && active === last) {
-    event.preventDefault();
-    first.focus();
-  }
 }
 
 function formatAgentDisplayName(
@@ -1877,13 +1842,17 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isHistoryDrawerOpen, setIsHistoryDrawerOpen] = useState(false);
-  const [connectorsPanelOpen, setConnectorsPanelOpen] = useState(false);
+  const [drawerMode, setDrawerMode] = useState<ConnectionsDrawerMode>("chats");
+  const [connectionsAvailable, setConnectionsAvailable] = useState(false);
+  const [connectorExternalModalOpen, setConnectorExternalModalOpen] =
+    useState(false);
   useEffect(() => {
     // `?panel=connectors` is the connector OAuth-return flow's landing signal
     // -- connectors live in this sidebar panel now, not a dedicated route, so
     // completing a connect has to reopen it here instead of navigating to one.
     if (searchParams?.get("panel") !== "connectors") return;
-    setConnectorsPanelOpen(true);
+    setDrawerMode("connections");
+    setIsHistoryDrawerOpen(true);
     const next = new URLSearchParams(searchParams.toString());
     next.delete("panel");
     const query = next.toString();
@@ -1963,8 +1932,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const activeActionRun = useActiveActionRun();
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const historyDrawerRef = useRef<HTMLDivElement | null>(null);
-  const historyDrawerReturnFocusRef = useRef<HTMLElement | null>(null);
+  const historyDrawerTriggerRef = useRef<HTMLButtonElement | null>(null);
   const historyLoadKeyRef = useRef<string | null>(null);
   const welcomePromptSetInitializedRef = useRef(false);
   const historyRestoreEpochRef = useRef(0);
@@ -2522,30 +2490,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     );
     return () => window.cancelAnimationFrame(frame);
   }, [composerExpanded]);
-
-  useEffect(() => {
-    if (!isHistoryDrawerOpen) return;
-    historyDrawerReturnFocusRef.current =
-      document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setIsHistoryDrawerOpen(false);
-      }
-    };
-    window.requestAnimationFrame(() => {
-      getFocusableElements(historyDrawerRef.current)[0]?.focus();
-    });
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isHistoryDrawerOpen]);
-
-  useEffect(() => {
-    if (isHistoryDrawerOpen) return;
-    historyDrawerReturnFocusRef.current?.focus();
-    historyDrawerReturnFocusRef.current = null;
-  }, [isHistoryDrawerOpen]);
 
   useEffect(() => {
     return () => {
@@ -5446,26 +5390,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const toggleHistoryDrawer = useCallback(() => {
     setIsHistoryDrawerOpen((prev) => {
       if (!prev) {
-        historyDrawerReturnFocusRef.current =
-          document.activeElement instanceof HTMLElement
-            ? document.activeElement
-            : null;
         if (!isPuppySurface) void loadConversationList().catch(() => undefined);
       }
       return !prev;
     });
   }, [isPuppySurface, loadConversationList]);
-  const handleHistoryDrawerKeyDown = useCallback(
-    (event: ReactKeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.stopPropagation();
-        setIsHistoryDrawerOpen(false);
-        return;
-      }
-      trapFocusWithin(event, historyDrawerRef.current);
-    },
-    [],
-  );
   const renderHistorySidebar = (
     sidebarClassName?: string,
     onClose?: () => void,
@@ -5485,11 +5414,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       surface={agentSurface}
       onClose={onClose}
       onToggleCollapsed={toggleHistoryDrawer}
-      // MCP connections isn't ready to surface in the chat sidebar yet --
-      // omitting onOpenConnectors hides AgentHistorySidebar's button (it
-      // renders only when the prop is passed). The panel, the deep-link
-      // effect below, and the OAuth-return route stay intact so re-enabling
-      // this is a one-line change, not a re-build.
+      onOpenConnectors={
+        !isPuppySurface && connectionsAvailable
+          ? () => setDrawerMode("connections")
+          : undefined
+      }
       onCreateNew={handleSidebarCreateNewChat}
       onSelectConversation={handleSidebarSelectConversation}
       onRenameConversation={isPuppySurface ? handleRenamePuppyConversation : handleRenameConversation}
@@ -5584,36 +5513,27 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           "overflow-hidden",
         )}
       >
-        <div
-          className={cn(
-            "fixed inset-0 z-[520] bg-black/35 transition-opacity duration-150 motion-reduce:transition-none dark:bg-black/55",
-            isHistoryDrawerOpen
-              ? "opacity-100"
-              : "pointer-events-none opacity-0",
-          )}
-          aria-hidden="true"
-          onClick={() => setIsHistoryDrawerOpen(false)}
-        />
-        <div
-          ref={historyDrawerRef}
-          className={cn(
-            "absolute bottom-0 left-0 top-[var(--agent-chat-header-height)] z-[530] w-[min(88vw,320px)] transform transition-transform duration-150 motion-reduce:transition-none ease-out",
-            isHistoryDrawerOpen ? "translate-x-0" : "-translate-x-full",
-          )}
-          role="dialog"
-          aria-modal="true"
-          aria-hidden={!isHistoryDrawerOpen}
-          aria-label="Agent chat history"
-          inert={!isHistoryDrawerOpen}
-          onKeyDown={handleHistoryDrawerKeyDown}
-        >
-          {renderHistorySidebar(
+        <AgentConnectionsDrawer
+          triggerRef={historyDrawerTriggerRef}
+          open={isHistoryDrawerOpen}
+          onOpenChange={setIsHistoryDrawerOpen}
+          mode={drawerMode}
+          externalModalOpen={connectorExternalModalOpen}
+          chats={renderHistorySidebar(
             "h-full w-full",
             () => setIsHistoryDrawerOpen(false),
             false,
             "mobile",
           )}
-        </div>
+          connections={
+            <ConnectorsPanel
+              open={isHistoryDrawerOpen && drawerMode === "connections"}
+              onBack={() => setDrawerMode("chats")}
+              onAvailableChange={setConnectionsAvailable}
+              onExternalModalChange={setConnectorExternalModalOpen}
+            />
+          }
+        />
 
         <section
           className={cn(
@@ -5629,6 +5549,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             <div className="flex min-w-0 items-center gap-3">
               <ShellActionSurface
                 variant="icon"
+                ref={historyDrawerTriggerRef}
                 onClick={toggleHistoryDrawer}
                 aria-label={isHistoryDrawerOpen ? "Close chat history" : "Open chat history"}
                 title={isHistoryDrawerOpen ? "Close chat history" : "Open chat history"}
@@ -7131,10 +7052,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           onSuccess={() => setVaultDialogOpen(false)}
         />
       ) : null}
-      <ConnectorsPanel
-        open={connectorsPanelOpen}
-        onOpenChange={setConnectorsPanelOpen}
-      />
       </AgentPersonSelectionContext.Provider>
     </div>
   );

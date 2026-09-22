@@ -69,6 +69,12 @@ if has_match '^hushh-webapp/(components/(consent/|profile/)|lib/(consent/|pkm/|p
   ran=1
 fi
 
+if has_match '^hushh-webapp/(components/agent/(agent-connections-drawer|connectors-panel|agent-chat-workspace|agent-history-sidebar)\.tsx|lib/(profile/drive-oauth-popup|services/(external-connector-service|google-drive-picker-service))\.ts|app/one/(one-auth-gate\.tsx|profile/connectors/)|e2e/(connections-drawer\.layout\.spec\.ts|fixtures/connections-)|__tests__/.*(connections-panel|one-auth-gate|drive-popup|drive-oauth|google-drive-picker))'; then
+  run_check "Connections web boundary" npm run test:connections-web
+  run_check "Connections mounted browser layout" npm run test:connections-layout
+  ran=1
+fi
+
 if has_match '^hushh-webapp/(lib/voice/|lib/one-voice/|components/one-voice/|components/agent/|components/one-location/onboarding/(location-command-device-bridge|location-onboarding-interaction-surface)\.tsx|lib/services/(gemini-live-client|one-location-onboarding-device-orchestrator|one-location-onboarding-run-client)\.ts|scripts/voice/|e2e/one-voice-panel\.layout\.spec\.ts|__tests__/.*(voice|agent)|app/api/(kai|one)/.*(voice|realtime)|\.voice-action-contract\.json)'; then
   run_check "voice gateway" npm run verify:voice-gateway
   run_check "One Voice runtime evaluations" npm run verify:one-voice

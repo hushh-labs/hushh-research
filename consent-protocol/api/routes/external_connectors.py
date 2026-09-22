@@ -54,6 +54,7 @@ class ConnectorSummary(BaseModel):
     validationState: str = "unverified"
     revocationOutcome: str = "not_attempted"
     lastErrorCode: Optional[str] = None
+    available: bool = True
 
 
 class ConnectorsResponse(BaseModel):
@@ -87,6 +88,10 @@ class StartOAuthResponse(BaseModel):
 class CompleteOAuthRequest(BaseModel):
     state: str = Field(min_length=1, max_length=4096)
     code: str = Field(min_length=1, max_length=4096)
+
+
+class CompleteWebOAuthRequest(CompleteOAuthRequest):
+    attemptId: str = Field(min_length=16, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
 
 
 class FinalizeNativeRequest(BaseModel):
@@ -196,7 +201,7 @@ async def list_connectors(token_data: dict = Depends(require_vault_owner_token))
     credentials = get_external_connector_credentials_service()
     connectors = await registry.list_active_connectors()
     statuses = {row["connectorId"]: row for row in await credentials.list_statuses(user_id=user_id)}
-    return ConnectorsResponse(
+    result = ConnectorsResponse(
         features=connector_features(user_id),
         connectors=[
             ConnectorSummary(
@@ -218,6 +223,28 @@ async def list_connectors(token_data: dict = Depends(require_vault_owner_token))
             for connector in connectors
         ],
     )
+    # Deactivation stops new execution, not owner recovery. The registry may
+    # disappear from the active catalog while this owner still has a grant.
+    if "google_drive" in statuses and not any(
+        item.connectorId == "google_drive" for item in result.connectors
+    ):
+        status = statuses["google_drive"]
+        result.connectors.append(
+            ConnectorSummary(
+                connectorId="google_drive",
+                displayName="Drive",
+                description="Selected files only",
+                authStyle="oauth",
+                status=status["status"],
+                accountLabel=status.get("accountLabel"),
+                connectedAt=status.get("connectedAt"),
+                validationState=status.get("validationState", "unverified"),
+                revocationOutcome=status.get("revocationOutcome", "not_attempted"),
+                lastErrorCode=status.get("lastErrorCode"),
+                available=False,
+            )
+        )
+    return result
 
 
 @router.post("/{connector_id}/connect/api-key", response_model=ConnectResultResponse)
@@ -298,16 +325,17 @@ async def complete_oauth_connect(
 
 @router.post("/oauth/complete/web", response_model=ConnectResultResponse)
 async def complete_web_popup(
-    body: CompleteOAuthRequest, user_id: str = Depends(require_firebase_auth)
+    body: CompleteWebOAuthRequest, user_id: str = Depends(require_firebase_auth)
 ):
     # Only Drive's v2 path accepts this exception. It atomically claims an
     # unexpired attempt previously created by this owner using Vault Owner auth.
     # No opener token is copied into the popup or persisted in attempt state.
     try:
-        return (
-            await get_external_connector_oauth_service()
-            .drive()
-            .complete(state=body.state, code=body.code, expected_user_id=user_id)
+        oauth = get_external_connector_oauth_service()
+        if oauth._verify_state(body.state) != body.attemptId:
+            raise DriveOAuthError("attempt_unavailable", status_code=409)
+        return await oauth.drive().complete(
+            state=body.state, code=body.code, expected_user_id=user_id
         )
     except (
         ExternalConnectorOAuthError,

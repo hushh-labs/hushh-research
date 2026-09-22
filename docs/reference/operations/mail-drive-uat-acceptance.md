@@ -38,6 +38,15 @@ parsing, embeddings and document access control remain outside Google AI service
   Source metadata uses a separate server-processing key, not a vault key or OAuth key.
 - Existing hosted feature config has five independent default-off flags plus a strict
   internal owner cohort. No registry seed, grant, transport, or feature is enabled.
+- Web checkpoint: existing left drawer has mounted Chats/Connections views and exactly
+  Mail/Drive cards. Web OAuth uses retained popups, exact settlement checks and status
+  reconciliation; blocked popups keep chat/drafts in place. The Google web Picker keeps its
+  short-lived token out of storage and asks for explicit confirmation before catalog admission.
+  Independent disconnect, truthful revocation outcomes, stale-result fencing, owner changes,
+  keyboard focus and deactivated-connection recovery have focused automated coverage.
+- Mounted Chromium/WebKit contracts exercise 320, 390, 768 and 1440px, real popup windows,
+  synthetic external Google boundaries, file confirmation/removal and retained chat state.
+  These are component-integration checks, not live-provider or native acceptance.
 
 Focused automated coverage includes a disposable socket-only PostgreSQL cluster (or the
 existing explicitly test-only CI PostgreSQL service), real concurrent claim/refresh tests,
@@ -91,12 +100,14 @@ revoke a provider grant or mutate an active connection.
   grants, immediate revocation and metadata-only audit in the existing Consent Center.
 - [ ] Mail metadata-only delegated reads with stable One conversation identity; unchanged
   receipts, Calendar, Firebase and reviewed Send.
-- [ ] Mounted left-drawer Chats/Connections UI with independent Mail/Drive cards; popup
-  settlement, encrypted one-use recovery and draft preservation.
+- [x] Mounted left-drawer Chats/Connections UI with independent Mail/Drive cards; web popup
+  settlement and in-place draft preservation. No permanent desktop sidebar.
+- [ ] Encrypted one-use full-page recovery; currently blocked popups offer retry in chat.
 - [ ] Native `connectDrive` bridges/coordinators, drive.file-only system-browser Picker,
   authenticated About identity and encrypted pending selection confirmation; real iOS/Android
   test/build artifacts. Existing staged OAuth completion is not native Picker proof.
-- [ ] Chromium/WebKit mounted acceptance at 320/390/768/desktop widths.
+- [x] Chromium/WebKit mounted web checkpoint at 320/390/768/desktop widths. Full end-to-end
+  acceptance remains required after ingestion/retrieval/sharing and native parity are complete.
 - [ ] Callback log-routing and scheduled retention proof before granting access.
 - [ ] Required CI/review, final overlap reconciliation, protected merge, green containing main
   SHA with its own Main Post-Merge Smoke Gate, serialized immutable-SHA UAT deployment.
