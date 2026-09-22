@@ -139,9 +139,13 @@ function DecryptedRecordContent({ data }: { data: Record<string, unknown> }) {
   const tagSections: { label: string; tags: string[] }[] = [];
   const kvPairs: { key: string; val: string }[] = [];
 
-  const inspectLevel = (obj: Record<string, unknown>, prefix = "") => {
+  const inspectLevel = (obj: Record<string, unknown>, prefix = "", isRoot = true) => {
     for (const [key, val] of Object.entries(obj)) {
-      if (key === "summary" || key === "description") continue;
+      // Root summaries are rendered as the card headline above. Nested
+      // summaries/descriptions are real approved values and must remain
+      // visible; suppressing them here made valid scoped exports render as a
+      // blank card when the selected field lived below a profile/entity node.
+      if (isRoot && (key === "summary" || key === "description")) continue;
       const displayKey = prefix ? `${prefix} · ${key}` : key;
 
       if (Array.isArray(val)) {
@@ -153,7 +157,7 @@ function DecryptedRecordContent({ data }: { data: Record<string, unknown> }) {
           });
         }
       } else if (typeof val === "object" && val !== null) {
-        inspectLevel(val as Record<string, unknown>, displayKey);
+        inspectLevel(val as Record<string, unknown>, displayKey, false);
       } else if (val !== null && val !== undefined) {
         kvPairs.push({
           key: displayKey.replace(/_/g, " "),

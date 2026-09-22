@@ -652,6 +652,52 @@ describe("PersonProfilePage request catalog tools", () => {
     );
   });
 
+  it("keeps nested approved summaries visible in an encrypted grant", async () => {
+    const { PersonProfileService } = await import("@/lib/services/person-profile-service");
+    const { OneKycClientZkService } = await import("@/lib/services/one-kyc-client-zk-service");
+    (OneKycClientZkService.ensureConnector as ReturnType<typeof vi.fn>).mockResolvedValue({ connector_key_id: "ck_1" });
+    (PersonProfileService.getInformationRequestExports as ReturnType<typeof vi.fn>).mockResolvedValue([
+      { requestId: "req-nested", encryptedExport: { sealed: true } },
+    ]);
+    (OneKycClientZkService.decryptScopedExport as ReturnType<typeof vi.fn>).mockResolvedValue({
+      professional: { profile: { summary: "Synthetic nested detail" } },
+      __export_metadata: { source_domain: "professional" },
+    });
+    mocks.getViewer.mockResolvedValue(
+      viewerProfile({
+        requestableScopes: manyScopes(2),
+        grants: [{
+          scopeRef: "scope-0",
+          label: "Professional detail",
+          domain: "Professional",
+          requestId: "req-nested",
+          issuedAt: null,
+          expiresAt: null,
+          status: "granted",
+          encryptedExportAvailable: true,
+        }],
+        requestHistory: [{
+          bundleId: "bundle-nested",
+          requestId: "req-nested",
+          scopeRef: "scope-0",
+          label: "Professional detail",
+          sensitivity: "standard",
+          purpose: "Reviewing a professional detail",
+          durationSeconds: 24 * 3600,
+          createdAt: null,
+          expiresAt: null,
+          status: "approved",
+        }],
+      }),
+    );
+
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+
+    expect(await screen.findByTestId("person-profile-grant-value")).toHaveTextContent(
+      "Synthetic nested detail",
+    );
+  });
+
   it("keeps a backend detail out of the toast when a grant cannot be opened", async () => {
     const { PersonProfileService } = await import("@/lib/services/person-profile-service");
     const { OneKycClientZkService } = await import("@/lib/services/one-kyc-client-zk-service");
