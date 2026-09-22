@@ -1,6 +1,9 @@
 package com.hussh.app.plugins.HushhAuth
 
 import android.content.Intent
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import android.util.Base64
 import android.util.Log
 import androidx.activity.result.ActivityResultLauncher
@@ -63,6 +66,16 @@ class HushhAuthPlugin : Plugin() {
     private lateinit var signInLauncher: ActivityResultLauncher<Intent>
     private lateinit var gmailConnectLauncher: ActivityResultLauncher<Intent>
     private lateinit var calendarConnectLauncher: ActivityResultLauncher<Intent>
+    private lateinit var identityLauncher: ActivityResultLauncher<Intent>
+    private val identityHandler = Handler(Looper.getMainLooper())
+    private class IdentityReauthentication(
+        val call: PluginCall,
+        val user: FirebaseUser,
+        val googleSubject: String
+    ) {
+        val fence = GoogleIdentityReauthenticationFence(user.uid, SystemClock.elapsedRealtime())
+    }
+    private var identityReauthentication: IdentityReauthentication? = null
 
     // Current user data
     private var currentIdToken: String? = null
@@ -103,6 +116,9 @@ class HushhAuthPlugin : Plugin() {
         ) { result ->
             handleCalendarConnectResult(result.data)
         }
+        identityLauncher = activity.registerForActivityResult(
+            ActivityResultContracts.StartActivityForResult()
+        ) { result -> handleIdentityResult(result.data) }
     }
 
     /**
@@ -129,6 +145,11 @@ class HushhAuthPlugin : Plugin() {
 
     @PluginMethod
     fun signIn(call: PluginCall) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            activity.runOnUiThread { signIn(call) }
+            return
+        }
+        if (rejectWhileVerifyingIdentity(call)) return
         Log.d(TAG, "🤖 [HushhAuth] signIn() CALLED - Native plugin invoked!")
 
         pendingCall = call
@@ -251,6 +272,11 @@ class HushhAuthPlugin : Plugin() {
      */
     @PluginMethod
     fun connectGmail(call: PluginCall) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            activity.runOnUiThread { connectGmail(call) }
+            return
+        }
+        if (rejectWhileVerifyingIdentity(call)) return
         val serverClientId = call.getString("serverClientId")?.trim()
         val purpose = call.getString("purpose")?.trim() ?: "read"
         if (serverClientId.isNullOrEmpty()) {
@@ -311,6 +337,11 @@ class HushhAuthPlugin : Plugin() {
     /** Requests the least-privileged Calendar scope set for the selected action. */
     @PluginMethod
     fun connectCalendar(call: PluginCall) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            activity.runOnUiThread { connectCalendar(call) }
+            return
+        }
+        if (rejectWhileVerifyingIdentity(call)) return
         val serverClientId = call.getString("serverClientId")?.trim()
         val accessLevel = call.getString("accessLevel")?.trim() ?: "read"
         if (serverClientId.isNullOrEmpty()) {
@@ -374,10 +405,139 @@ class HushhAuthPlugin : Plugin() {
         }
     }
 
+    // ==================== Fresh same-user Google proof ====================
+
+    private fun rejectWhileVerifyingIdentity(call: PluginCall): Boolean {
+        if (identityReauthentication == null && pendingCall == null &&
+            pendingGmailConnectCall == null && pendingCalendarConnectCall == null
+        ) return false
+        call.reject("Identity verification is already in progress.", "identity_busy")
+        return true
+    }
+
+    @PluginMethod
+    fun reauthenticateGoogleIdentity(call: PluginCall) {
+        activity.runOnUiThread {
+            if (identityReauthentication != null || pendingCall != null ||
+                pendingGmailConnectCall != null || pendingCalendarConnectCall != null
+            ) {
+                call.reject("Identity verification is already in progress.", "identity_busy")
+                return@runOnUiThread
+            }
+            val expectedUserId = call.getString("expectedUserId")
+            val user = firebaseAuth.currentUser
+            val google = user?.providerData?.firstOrNull { it.providerId == "google.com" }
+            if (expectedUserId.isNullOrBlank() || user == null ||
+                user.uid != expectedUserId || google == null
+            ) {
+                call.reject("Verify the current Google identity.", "google_identity_required")
+                return@runOnUiThread
+            }
+            if (getWebClientId().isNullOrBlank()) {
+                call.reject("Identity verification is unavailable.", "identity_verification_failed")
+                return@runOnUiThread
+            }
+            val operation = IdentityReauthentication(call, user, google.uid)
+            identityReauthentication = operation
+            identityHandler.postDelayed({ finishIdentity(operation, "identity_timeout") }, 120_000L)
+            try {
+                identityLauncher.launch(googleSignInClient.signInIntent)
+            } catch (_: Exception) {
+                operation.fence.drainProvider()
+                finishIdentity(operation, "identity_verification_failed")
+            }
+        }
+    }
+
+    private fun handleIdentityResult(data: Intent?) {
+        val operation = identityReauthentication ?: return // A restarted activity has no authority.
+        if (!operation.fence.drainProvider()) return
+        if (operation.fence.settled) {
+            identityReauthentication = null // Drain the quarantined launcher; never use its result.
+            return
+        }
+        if (!claimIdentity(operation, 0)) return
+        val account = try {
+            GoogleSignIn.getSignedInAccountFromIntent(data).getResult(ApiException::class.java)
+        } catch (error: ApiException) {
+            finishIdentity(operation, if (error.statusCode == 12501) "identity_cancelled" else "identity_verification_failed")
+            return
+        } catch (_: Exception) {
+            finishIdentity(operation, "identity_verification_failed")
+            return
+        }
+        if (account.id != operation.googleSubject) {
+            finishIdentity(operation, "identity_mismatch")
+            return
+        }
+        val idToken = account.idToken
+        if (idToken.isNullOrBlank()) {
+            finishIdentity(operation, "identity_verification_failed")
+            return
+        }
+        // Never use signInWithCredential: it would replace the current owner.
+        operation.user.reauthenticate(GoogleAuthProvider.getCredential(idToken, null))
+            .addOnCompleteListener { task ->
+                if (!claimIdentity(operation, 1)) return@addOnCompleteListener
+                if (!task.isSuccessful) {
+                    finishIdentity(operation, "identity_verification_failed")
+                    return@addOnCompleteListener
+                }
+                operation.user.getIdToken(true).addOnCompleteListener tokenResult@{ tokenTask ->
+                    if (!claimIdentity(operation, 2)) return@tokenResult
+                    val token = if (tokenTask.isSuccessful) tokenTask.result?.token else null
+                    if (token.isNullOrBlank()) {
+                        finishIdentity(operation, "identity_verification_failed")
+                        return@tokenResult
+                    }
+                    if (!operation.fence.settle()) return@tokenResult
+                    identityReauthentication = null
+                    // No new credential persistence, cached fallback, or auth publication.
+                    operation.call.resolve(JSObject().put("userId", operation.user.uid).put("idToken", token))
+                }
+            }
+    }
+
+    private fun claimIdentity(operation: IdentityReauthentication, phase: Int): Boolean {
+        if (identityReauthentication !== operation) return false
+        val current = firebaseAuth.currentUser
+        return when (operation.fence.claim(
+            phase, current?.uid, current === operation.user, SystemClock.elapsedRealtime()
+        )) {
+            GoogleIdentityReauthenticationFence.Claim.ACCEPTED -> true
+            GoogleIdentityReauthenticationFence.Claim.IGNORED -> false
+            GoogleIdentityReauthenticationFence.Claim.STALE -> {
+                finishIdentity(operation, "session_changed")
+                false
+            }
+        }
+    }
+
+    private fun finishIdentity(operation: IdentityReauthentication, code: String) {
+        if (!operation.fence.settle()) return
+        // Activity results have no request ID. Never reuse the slot until an
+        // outstanding result drains, even after timeout/sign-out rejects JS.
+        if (operation.fence.canRelease && identityReauthentication === operation) {
+            identityReauthentication = null
+        }
+        operation.call.reject("Google identity verification did not complete.", code)
+    }
+
+    override fun handleOnDestroy() {
+        identityReauthentication?.let { finishIdentity(it, "session_changed") }
+        identityHandler.removeCallbacksAndMessages(null)
+        super.handleOnDestroy()
+    }
+
     // ==================== Sign Out ====================
 
     @PluginMethod
     fun signOut(call: PluginCall) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            activity.runOnUiThread { signOut(call) }
+            return
+        }
+        identityReauthentication?.let { finishIdentity(it, "session_changed") }
         Log.d(TAG, "🤖 [HushhAuth] signOut() called")
 
         // Sign out from Firebase
@@ -537,6 +697,11 @@ class HushhAuthPlugin : Plugin() {
 
     @PluginMethod
     fun signInWithApple(call: PluginCall) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            activity.runOnUiThread { signInWithApple(call) }
+            return
+        }
+        if (rejectWhileVerifyingIdentity(call)) return
         Log.d(TAG, "🍎 [HushhAuth] signInWithApple() CALLED - Using Firebase OAuthProvider")
 
         pendingCall = call

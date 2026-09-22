@@ -2,10 +2,11 @@
 
 # ruff: noqa: F811 -- imported pytest fixtures
 
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import create_engine, text
 
 from hushh_mcp.services.consent_center_service import ConsentCenterService
 from hushh_mcp.services.drive_sharing_center_contributor import DriveSharingCenterContributor
@@ -20,6 +21,36 @@ from tests.services.test_drive_permission_executor import (  # noqa: F401
     sharing,
 )
 from tests.services.test_drive_sharing_store import request, review
+
+
+@pytest.mark.asyncio
+async def test_legacy_sqlite_has_no_drive_projection_or_postgres_transaction():
+    engine = create_engine("sqlite://")
+    try:
+        projection = DriveSharingCenterContributor(db=SimpleNamespace(engine=engine))
+        with patch.object(projection, "_transaction", new_callable=AsyncMock) as transaction:
+            counts = await projection.counts("owner")
+            assert counts == {
+                "incoming_requests": 0,
+                "outgoing_requests": 0,
+                "active_grants": 0,
+                "history": 0,
+                "schema_available": False,
+            }
+            assert await projection.page("owner", bucket="history", limit=10) == {
+                "total": 0,
+                "items": [],
+                "schema_available": False,
+            }
+            preview = await projection.preview("owner")
+            assert preview["schema_available"] is False
+            assert all(value == [] for value in preview["buckets"].values())
+            assert all(value == 0 for value in preview["counts"].values())
+            with pytest.raises(ValueError, match="invalid_document_projection_page"):
+                await projection.page("owner", bucket="arbitrary", limit=10)
+            transaction.assert_not_called()
+    finally:
+        engine.dispose()
 
 
 def center(store):

@@ -140,7 +140,8 @@ parsing, embeddings and document access control remain outside Google AI service
   reuse their request ID, dismissal/navigation is disabled during submission, and cancellation
   does not falsely deny an earlier uncertain submission. Sent documents in the existing
   Consent Center uses separate bounded counts/pages; no new inbox or incoming approval count.
-  Native identity verification remains explicitly unavailable until its bridge is implemented.
+  Native identity verification uses an additive same-user reauthentication bridge;
+  it does not imply native Drive OAuth/Picker completion.
 
 Latest integrated local evidence (2026-09-23): 543 focused backend tests passed, including
 real disposable PostgreSQL concurrency and synthetic Google/Firebase boundaries; 110 web
@@ -160,6 +161,19 @@ The subsequent requester checkpoint passed 45 backend tests (including real Post
 Chromium/WebKit cases across the same four widths. Bandit static-fragment false positives
 are narrowly annotated; all caller values remain parameter-bound. Typecheck, changed-file
 lint and canonical Mypy passed. These checks are synthetic at the Firebase/Google boundary.
+The native identity checkpoint adds iOS/Android same-user reauthentication with main-thread
+admission, callback/expiry/account fences, timeout quarantine and no replacement sign-in.
+Local synthetic Capacitor export/sync and unsigned iOS `build-for-testing` passed; this is
+compile evidence, not an XCTest execution or UAT artifact. Focused web service/component
+tests include native proof, cancellation, lock, unmount and idempotent retry. A dedicated
+path-filtered Android PR compile/JUnit lane uses a non-authorizing fixture, no signing or
+deployment secrets, and is required by CI Status Gate when Android contracts change.
+Its execution and the new native tests must pass on the exact candidate SHA before merge.
+This checkpoint passed 102 focused web tests, 75 backend projection/legacy-sharing tests,
+14 native-CI contract tests, TypeScript, native static/plugin contracts, changed-file lint,
+canonical Mypy and governance. The prior CI's person-profile vault mock and offline SQLite
+projection failures are covered by those regression suites; real PostgreSQL errors still
+propagate. Android compilation and XCTest execution are delegated to the exact-head CI run.
 Notification delivery, native recovery, deployed worker isolation/configuration
 and authenticated A/B acceptance remain required before exposing this domain.
 

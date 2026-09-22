@@ -1117,8 +1117,16 @@ only. Sent remains discoverable after disconnect or a feature pause. The UI uses
 `requestView=sent`, not the legacy RIA route. Connected person profiles offer a default-off
 request form with same-current-user Google reauthentication and independent Firebase/Vault
 headers. An unchanged in-memory retry reuses its client request ID; lock clears the draft.
-Web reauthentication is implemented; native reauthentication remains unavailable pending
-the additive bridge. No Google consent or grant is inferred from a submitted request.
+Web uses Firebase popup reauthentication; native uses the additive
+`HushhAuth.reauthenticateGoogleIdentity({expectedUserId})` bridge. iOS/Android capture
+the existing native Firebase user and linked Google subject, reauthenticate that user
+without replacement sign-in, then return only `{userId,idToken}` with fresh Firebase proof.
+Interactive native auth is single-flight on the main thread. Three callback stages check
+owner/session identity, deadline and single settlement; Android retains a timed-out result
+slot until the outstanding provider callback drains. Lock/session changes suppress the JS
+result and POST. No new credential persistence, cached-token fallback or React identity
+publication is introduced. Older shells fail closed with bounded retry/update guidance.
+This identity check grants no Drive scopes, consent or file permissions.
 
 Migration 234 separates A's minimal removal receipts from B's removable private request.
 Account reset/erasure removes request narratives, reviews, B's app identity and raw ACL snapshots;

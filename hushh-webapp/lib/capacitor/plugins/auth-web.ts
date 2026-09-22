@@ -25,6 +25,13 @@ import {
 import { auth } from "@/lib/firebase/config";
 
 export class HushhAuthWeb implements HushhAuthPlugin {
+  async reauthenticateGoogleIdentity(_options: {
+    expectedUserId: string;
+  }): Promise<{ userId: string; idToken: string }> {
+    // AuthService owns web popup/session guards; do not create a second path.
+    throw new Error("Use AuthService for web identity verification.");
+  }
+
   private currentUser: AuthUser | null = null;
   private currentIdToken: string | null = null;
   private currentAccessToken: string | null = null;

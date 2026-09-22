@@ -163,7 +163,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ============================================================================
-  # Path filters: run frontend/backend/iOS jobs only when their paths change (or manual scope)
+  # Path filters: run platform jobs only when their paths change (or manual scope)
   # ============================================================================
   paths:
     name: "Path filters"
@@ -173,6 +173,7 @@ jobs:
       frontend: ${{ steps.resolve.outputs.frontend }}
       backend: ${{ steps.resolve.outputs.backend }}
       ios: ${{ steps.resolve.outputs.ios }}
+      android: ${{ steps.resolve.outputs.android }}
     steps:
       - uses: actions/checkout@v6
 
@@ -219,15 +220,24 @@ jobs:
               - 'hushh-webapp/app/providers.tsx'
               - 'hushh-webapp/components/one-location/onboarding/location-picker-map.tsx'
               - '.github/workflows/ci.yml'
+            android:
+              - 'hushh-webapp/android/**'
+              - 'hushh-webapp/lib/capacitor/**'
+              - 'hushh-webapp/scripts/native/**'
+              - 'hushh-webapp/__tests__/fixtures/native/**'
+              - 'hushh-webapp/capacitor.config.ts'
+              - 'hushh-webapp/package.json'
+              - 'hushh-webapp/package-lock.json'
+              - '.github/workflows/ci.yml'
 
       - id: override
         if: github.event_name == 'workflow_dispatch'
         run: |
           scope="${{ github.event.inputs.scope }}"
           case "$scope" in
-            frontend) echo "frontend=true" >> "$GITHUB_OUTPUT"; echo "backend=false" >> "$GITHUB_OUTPUT"; echo "ios=true" >> "$GITHUB_OUTPUT" ;;
-            backend) echo "frontend=false" >> "$GITHUB_OUTPUT"; echo "backend=true" >> "$GITHUB_OUTPUT"; echo "ios=false" >> "$GITHUB_OUTPUT" ;;
-            *) echo "frontend=true" >> "$GITHUB_OUTPUT"; echo "backend=true" >> "$GITHUB_OUTPUT"; echo "ios=true" >> "$GITHUB_OUTPUT" ;;
+            frontend) echo "frontend=true" >> "$GITHUB_OUTPUT"; echo "backend=false" >> "$GITHUB_OUTPUT"; echo "ios=true" >> "$GITHUB_OUTPUT"; echo "android=true" >> "$GITHUB_OUTPUT" ;;
+            backend) echo "frontend=false" >> "$GITHUB_OUTPUT"; echo "backend=true" >> "$GITHUB_OUTPUT"; echo "ios=false" >> "$GITHUB_OUTPUT"; echo "android=false" >> "$GITHUB_OUTPUT" ;;
+            *) echo "frontend=true" >> "$GITHUB_OUTPUT"; echo "backend=true" >> "$GITHUB_OUTPUT"; echo "ios=true" >> "$GITHUB_OUTPUT"; echo "android=true" >> "$GITHUB_OUTPUT" ;;
           esac
 
       - id: resolve
@@ -236,10 +246,12 @@ jobs:
             echo "frontend=${{ steps.override.outputs.frontend }}" >> "$GITHUB_OUTPUT"
             echo "backend=${{ steps.override.outputs.backend }}" >> "$GITHUB_OUTPUT"
             echo "ios=${{ steps.override.outputs.ios }}" >> "$GITHUB_OUTPUT"
+            echo "android=${{ steps.override.outputs.android }}" >> "$GITHUB_OUTPUT"
           else
             echo "frontend=${{ steps.filter.outputs.frontend }}" >> "$GITHUB_OUTPUT"
             echo "backend=${{ steps.filter.outputs.backend }}" >> "$GITHUB_OUTPUT"
             echo "ios=${{ steps.filter.outputs.ios }}" >> "$GITHUB_OUTPUT"
+            echo "android=${{ steps.filter.outputs.android }}" >> "$GITHUB_OUTPUT"
           fi
         if: always()
 
@@ -259,6 +271,7 @@ jobs:
       frontend: ${{ needs.paths.outputs.frontend }}
       backend: ${{ needs.paths.outputs.backend }}
       ios: ${{ needs.paths.outputs.ios }}
+      android: ${{ needs.paths.outputs.android }}
     steps:
       - name: Validate cheap authority checks before expensive lanes
         shell: bash
@@ -619,6 +632,61 @@ jobs:
           retention-days: 7
 
   # ============================================================================
+  # Android compile/unit verification, without signing, device installs or deploy secrets.
+  # This deliberately does not claim bundled-UI or authenticated-provider acceptance.
+  # ============================================================================
+  android-native-check:
+    name: "Android Native (Gradle)"
+    needs: [preflight-gate]
+    if: >-
+      !cancelled() && needs['preflight-gate'].result == 'success' &&
+      (needs['preflight-gate'].outputs.android == 'true')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      NEXT_PUBLIC_BACKEND_URL: https://api.example.com
+      CAPACITOR_PLATFORM: android
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: hushh-webapp/package-lock.json
+
+      - name: Install web and Capacitor dependencies
+        run: npm ci --prefix hushh-webapp
+
+      - name: Prepare compile-only Android project
+        working-directory: hushh-webapp
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp __tests__/fixtures/native/google-services.compile-only.json android/app/google-services.json
+          mkdir -p android/app/src/main/assets/public
+          npx cap update android
+          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Compile app and run native Android unit tests
+        working-directory: hushh-webapp/android
+        run: ./gradlew :app:testDebugUnitTest --no-daemon
+
+      - name: Upload native Android unit results
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: android-native-unit-tests
+          path: hushh-webapp/android/app/build/test-results/testDebugUnitTest
+          if-no-files-found: ignore
+          retention-days: 7
+
+  # ============================================================================
   # Backend (Python FastAPI) -- same shared script as upstream consent-protocol CI
   # ============================================================================
   protocol-check:
@@ -840,6 +908,7 @@ jobs:
       - web-core-check
       - web-targeted-check
       - ios-native-check
+      - android-native-check
       - protocol-check
       - mcp-package-check
       - integration-check
@@ -860,6 +929,7 @@ jobs:
           WEB_CORE="${{ needs['web-core-check'].result }}"
           WEB_TARGETED="${{ needs['web-targeted-check'].result }}"
           IOS_NATIVE="${{ needs['ios-native-check'].result }}"
+          ANDROID_NATIVE="${{ needs['android-native-check'].result }}"
           PROTOCOL="${{ needs['protocol-check'].result }}"
           MCP_PACKAGE="${{ needs['mcp-package-check'].result }}"
           INTEGRATION="${{ needs['integration-check'].result }}"
@@ -874,6 +944,7 @@ jobs:
           printf 'web-core-check=%s\n' "$WEB_CORE"
           printf 'web-targeted-check=%s\n' "$WEB_TARGETED"
           printf 'ios-native-check=%s\n' "$IOS_NATIVE"
+          printf 'android-native-check=%s\n' "$ANDROID_NATIVE"
           printf 'protocol-check=%s\n' "$PROTOCOL"
           printf 'mcp-package-check=%s\n' "$MCP_PACKAGE"
           printf 'integration-check=%s\n' "$INTEGRATION"
@@ -884,7 +955,11 @@ jobs:
             echo "Changed iOS sources require a successful native build and XCTest run."
             fail=1
           fi
-          for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$REPO_GOVERNANCE" "$PATHS" "$PREFLIGHT" "$WEB_CORE" "$WEB_TARGETED" "$IOS_NATIVE" "$PROTOCOL" "$MCP_PACKAGE" "$INTEGRATION" "$MAIN_FRESHNESS"; do
+          if [ "${{ needs.paths.outputs.android }}" = "true" ] && [ "$ANDROID_NATIVE" != "success" ]; then
+            echo "Changed Android sources require a successful native compile and unit run."
+            fail=1
+          fi
+          for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$REPO_GOVERNANCE" "$PATHS" "$PREFLIGHT" "$WEB_CORE" "$WEB_TARGETED" "$IOS_NATIVE" "$ANDROID_NATIVE" "$PROTOCOL" "$MCP_PACKAGE" "$INTEGRATION" "$MAIN_FRESHNESS"; do
             if [ "$result" = "failure" ] || [ "$result" = "cancelled" ] || [ "$result" = "timed_out" ]; then
               fail=1
             fi

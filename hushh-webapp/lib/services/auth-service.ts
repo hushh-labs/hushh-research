@@ -486,7 +486,37 @@ export class AuthService {
     expectedUserId: string,
     isCurrent: () => boolean,
   ): Promise<string> {
-    if (Capacitor.isNativePlatform()) throw new Error("native_identity_unavailable");
+    if (!expectedUserId || !isCurrent()) throw new Error("session_changed");
+    if (Capacitor.isNativePlatform()) {
+      // The native Firebase user is authoritative. The web SDK observer may
+      // not have published that identity yet and must not replace its session.
+      let deadline: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const result = await Promise.race([
+          HushhAuth.reauthenticateGoogleIdentity({ expectedUserId }),
+          // Older iOS shells can leave an unknown bridge method unsettled.
+          // This bounds the UI wait without pretending to cancel native OAuth.
+          new Promise<never>((_, reject) => {
+            deadline = setTimeout(() => reject(new Error("identity_timeout")), 125_000);
+          }),
+        ]);
+        if (!isCurrent()) throw new Error("session_changed");
+        if (result.userId !== expectedUserId) throw new Error("identity_mismatch");
+        if (typeof result.idToken !== "string" || !result.idToken.trim()) throw new Error("identity_verification_failed");
+        return result.idToken;
+      } catch (error) {
+        if (!isCurrent()) throw new Error("session_changed");
+        const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
+        const safeCode = code || (error instanceof Error ? error.message : "");
+        if (code === "UNIMPLEMENTED" || code === "UNAVAILABLE") throw new Error("native_identity_unavailable");
+        if (["identity_cancelled", "identity_mismatch", "google_identity_required", "session_changed", "identity_busy", "identity_timeout"].includes(safeCode)) {
+          throw new Error(safeCode);
+        }
+        throw new Error("identity_verification_failed");
+      } finally {
+        clearTimeout(deadline);
+      }
+    }
     const currentUser = auth.currentUser;
     if (!currentUser || currentUser.uid !== expectedUserId ||
         !currentUser.providerData.some((provider) => provider.providerId === "google.com")) {

@@ -104,6 +104,12 @@ def entry(row: Any) -> dict[str, Any]:
 
 
 class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
+    def _supports_projection(self) -> bool:
+        # Existing SQLite-only callers have no Drive domain. Check the dialect
+        # before the lifecycle store issues PostgreSQL transaction settings.
+        # Real PostgreSQL SQL/timeout errors still propagate, never become zero.
+        return self.db.engine.dialect.name == "postgresql"
+
     @staticmethod
     def _installed(connection) -> bool:
         # Rolling deployments may still be on the pre-sharing schema. This is
@@ -119,6 +125,9 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
         )
 
     async def counts(self, user_id: str) -> dict[str, int]:
+        if not self._supports_projection():
+            return {**dict.fromkeys(BUCKETS, 0), "schema_available": False}
+
         def operation(connection):
             if not self._installed(connection):
                 return {**dict.fromkeys(BUCKETS, 0), "schema_available": False}
@@ -140,6 +149,8 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
     ) -> dict[str, Any]:
         if bucket not in BUCKETS or not 1 <= limit <= 100000 or not 0 <= offset <= 100000:
             raise ValueError("invalid_document_projection_page")
+        if not self._supports_projection():
+            return {"total": 0, "items": [], "schema_available": False}
 
         def operation(connection):
             if not self._installed(connection):
@@ -176,6 +187,12 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
 
     async def preview(self, user_id: str) -> dict[str, Any]:
         """A bounded legacy snapshot with exact totals from the same statement."""
+        if not self._supports_projection():
+            return {
+                "buckets": {key: [] for key in BUCKETS},
+                "counts": dict.fromkeys(BUCKETS, 0),
+                "schema_available": False,
+            }
 
         def operation(connection):
             if not self._installed(connection):

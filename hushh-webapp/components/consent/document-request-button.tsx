@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Capacitor } from "@capacitor/core";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import {
@@ -178,10 +177,14 @@ function UnlockedRequestButton({
       setError(
         code === "identity_cancelled"
           ? "Google verification was cancelled. No new attempt was sent. Check Sent documents for any earlier request."
+          : code === "identity_busy"
+            ? "Finish the verification already open, then retry."
+          : code === "identity_timeout"
+            ? "Google verification timed out. Close any open verification window, then retry. Update the app if this continues."
           : code === "identity_mismatch" || code === "google_identity_required"
             ? "Use the Google identity linked to your current One account."
             : code === "native_identity_unavailable"
-              ? "Google identity verification is not available in this build."
+              ? "Update the app to verify your Google identity, then retry."
               : code === "sharing_unavailable" ||
                   code === "connector_unavailable"
                 ? "Document requests are not available for this connection yet."
@@ -312,7 +315,7 @@ function UnlockedRequestButton({
                     type="submit"
                     size="prominent"
                     disabled={
-                      !valid || phase !== "idle" || Capacitor.isNativePlatform()
+                      !valid || phase !== "idle"
                     }
                   >
                     {phase === "verifying"
@@ -344,11 +347,6 @@ function UnlockedRequestButton({
                     Sent documents
                   </Link>
                 </Button>
-              ) : null}
-              {Capacitor.isNativePlatform() ? (
-                <HelperText>
-                  Google identity verification is not available in this build.
-                </HelperText>
               ) : null}
             </form>
           )}

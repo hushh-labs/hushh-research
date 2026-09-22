@@ -2,6 +2,50 @@ import XCTest
 @testable import App
 
 final class NativeSupportTests: XCTestCase {
+    func testGoogleReauthenticationAcceptsEachStageExactlyOnce() {
+        let fence = GoogleIdentityReauthenticationFence(expectedUserID: "a", now: 100)
+        XCTAssertEqual(fence.claim(phase: 1, userID: "a", sameSession: true, now: 101), .ignored)
+        XCTAssertTrue(fence.drainProvider())
+        XCTAssertFalse(fence.drainProvider())
+        for phase in 0...2 {
+            XCTAssertEqual(fence.claim(phase: phase, userID: "a", sameSession: true, now: 101), .accepted)
+            XCTAssertEqual(fence.claim(phase: phase, userID: "a", sameSession: true, now: 101), .ignored)
+        }
+        XCTAssertTrue(fence.settle())
+        XCTAssertFalse(fence.settle())
+        XCTAssertTrue(fence.canRelease)
+        XCTAssertEqual(fence.claim(phase: 3, userID: "a", sameSession: true, now: 101), .ignored)
+    }
+
+    func testGoogleReauthenticationRejectsWrongOwnerReplacementAndExpiry() {
+        for phase in 0...2 {
+            for scenario in 0...3 {
+                let fence = GoogleIdentityReauthenticationFence(expectedUserID: "a", now: 100)
+                for previous in 0..<phase {
+                    XCTAssertEqual(fence.claim(phase: previous, userID: "a", sameSession: true, now: 101), .accepted)
+                }
+                XCTAssertEqual(fence.claim(
+                    phase: phase, userID: scenario == 0 ? "b" : (scenario == 3 ? nil : "a"),
+                    sameSession: scenario != 1, now: scenario == 2 ? 220 : 101
+                ), .stale)
+                XCTAssertTrue(fence.settle())
+                XCTAssertEqual(fence.claim(phase: phase, userID: "a", sameSession: true, now: 101), .ignored)
+            }
+        }
+    }
+
+    func testGoogleReauthenticationQuarantinesTimedOutOrCancelledProvider() {
+        let old = GoogleIdentityReauthenticationFence(expectedUserID: "a", now: 100)
+        XCTAssertTrue(old.settle())
+        XCTAssertFalse(old.canRelease) // A timeout cannot free the uncorrelated native slot.
+        XCTAssertTrue(old.drainProvider())
+        XCTAssertTrue(old.canRelease)
+        let next = GoogleIdentityReauthenticationFence(expectedUserID: "a", now: 221)
+        XCTAssertEqual(old.claim(phase: 0, userID: "a", sameSession: true, now: 222), .ignored)
+        XCTAssertFalse(next.settled)
+        XCTAssertEqual(next.phase, 0)
+    }
+
     func testNativeTestConfigurationParsesArguments() {
         let config = NativeTestConfiguration(arguments: [
             "App",

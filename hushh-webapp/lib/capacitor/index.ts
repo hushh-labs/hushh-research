@@ -80,6 +80,11 @@ export type HushhAuthTokenErrorCode =
   (typeof HUSHH_AUTH_TOKEN_ERROR_CODE)[keyof typeof HUSHH_AUTH_TOKEN_ERROR_CODE];
 
 export interface HushhAuthPlugin {
+  /** Fresh Google proof for the current Firebase user; never replaces sign-in. */
+  reauthenticateGoogleIdentity(options: {
+    expectedUserId: string;
+  }): Promise<{ userId: string; idToken: string }>;
+
   /**
    * Sign in with Google using native iOS/Android UI
    * Returns ID token + access token for Firebase credential exchange

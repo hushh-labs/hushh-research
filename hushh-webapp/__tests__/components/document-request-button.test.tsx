@@ -86,7 +86,8 @@ describe("recipient document request", () => {
     });
   });
   afterEach(cleanup);
-  it("requires explicit submission, current Google verification, and no B Drive connection", async () => {
+  it.each([false, true])("requires explicit submission and single-flight Google verification (native=%s)", async (native) => {
+    state.native = native;
     mount();
     await open();
     expect(state.create).not.toHaveBeenCalled();
@@ -124,7 +125,8 @@ describe("recipient document request", () => {
       screen.getByRole("link", { name: "View request" }).getAttribute("href"),
     ).not.toContain("statements");
   });
-  it("preserves the unchanged retry key on ambiguous acknowledgement; changed terms use a new key", async () => {
+  it.each([false, true])("preserves the unchanged retry key; changed terms use a new key (native=%s)", async (native) => {
+    state.native = native;
     state.create.mockRejectedValue(new Error("private-provider-error"));
     mount();
     await open();
@@ -157,7 +159,7 @@ describe("recipient document request", () => {
     );
     expect(state.create).toHaveBeenCalledOnce();
   });
-  it.each(["identity_popup_blocked", "identity_mismatch"])(
+  it.each(["identity_popup_blocked", "identity_mismatch", "identity_cancelled", "identity_timeout", "native_identity_unavailable"])(
     "never posts after %s",
     async (message) => {
       state.reauthenticate.mockRejectedValueOnce(new Error(message));
@@ -196,7 +198,8 @@ describe("recipient document request", () => {
       window.removeEventListener(CONSENT_ACTION_COMPLETE_EVENT, reconcile);
     }
   });
-  it("clears private draft and suppresses late verification after locking", async () => {
+  it.each([false, true])("clears private draft and suppresses late verification after locking (native=%s)", async (native) => {
+    state.native = native;
     let finish!: (value: string) => void;
     state.reauthenticate.mockImplementationOnce(
       () =>
@@ -239,7 +242,7 @@ describe("recipient document request", () => {
       state.create.mock.calls[0][2].clientRequestId,
     );
   });
-  it("validates dates and keeps native unavailable without replacement sign-in", async () => {
+  it("validates paired dates on native before starting verification", async () => {
     state.native = true;
     mount();
     await open();
@@ -250,6 +253,17 @@ describe("recipient document request", () => {
       screen.getByRole("button", { name: "Verify Google & send" }),
     ).toBeDisabled();
     expect(state.reauthenticate).not.toHaveBeenCalled();
+    expect(state.create).not.toHaveBeenCalled();
+  });
+  it("suppresses proof after the native request component unmounts", async () => {
+    state.native = true;
+    let finish!: (token: string) => void;
+    state.reauthenticate.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+    const rendered = mount();
+    await open();
+    send();
+    rendered.unmount();
+    await act(async () => finish("late-native-proof"));
     expect(state.create).not.toHaveBeenCalled();
   });
   it("does not offer creation when feature admission is unavailable", async () => {
