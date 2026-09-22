@@ -17800,6 +17800,159 @@
     },
     {
       "aliases": [
+        "Reset account",
+        "reset my account",
+        "reset my hussh account"
+      ],
+      "authorization": {
+        "guard_ids": [
+          "auth_signed_in",
+          "explicit_user_confirmation"
+        ],
+        "ownership": "server_resolved_for_target_entity",
+        "predicates": [
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "auth_signed_in"
+          },
+          {
+            "authority": "server",
+            "effect": "required",
+            "id": "explicit_user_confirmation"
+          }
+        ],
+        "server_revalidation": "identity_consent_and_domain_service"
+      },
+      "availability": {
+        "feature_flags": [],
+        "product_available": true
+      },
+      "capability_id": "profile.reset_account",
+      "confirmation": {
+        "mode": "none",
+        "required": false,
+        "requires_trusted_tap": false,
+        "surface": null
+      },
+      "description": "Resets the person's own Hussh account after a tap confirmation: keeps sign-in and vault, clears personal setup and data, and restarts onboarding. Not a deletion.",
+      "execution": {
+        "binding_ref": "render:profile.reset_account",
+        "executor": {
+          "kind": "typed_render",
+          "settlement": "directive_ledger_settlement"
+        },
+        "mode": "client_directive",
+        "outcome": "EXECUTE",
+        "target": {
+          "path": "voice_tool",
+          "status": "wired",
+          "target": "profile.reset_account"
+        }
+      },
+      "goal_id": "goal.profile.reset_account",
+      "idempotency": {
+        "scope": "action_and_normalized_slots",
+        "strategy": "action_directive_ledger"
+      },
+      "inputSchema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "input_schema": {
+        "additionalProperties": false,
+        "properties": {},
+        "required": [],
+        "type": "object"
+      },
+      "kind": "action",
+      "label": "Reset account",
+      "navigation": {
+        "fallback": "profile.reset_account",
+        "routes": [
+          "/one/profile"
+        ],
+        "screens": [
+          "profile_account"
+        ]
+      },
+      "outputSchema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "output_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "action_id": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "type": "object"
+      },
+      "preconditions": {
+        "guard_ids": [
+          "auth_signed_in",
+          "explicit_user_confirmation"
+        ],
+        "mounted_surface_required": true,
+        "requires_signed_in": true,
+        "requires_vault": false
+      },
+      "render_surface": null,
+      "required_entities": [],
+      "search_keywords": [
+        "reset account",
+        "start account over"
+      ],
+      "settlement_proof": "approved_render_acknowledgement",
+      "side_effect": {
+        "classification": "render_or_guidance"
+      },
+      "supported_entrypoints": [
+        "voice",
+        "chat",
+        "typed_search",
+        "command_bar",
+        "ui"
+      ],
+      "technical_interaction": {
+        "allowed_types": [
+          "oauth",
+          "native_permission"
+        ],
+        "policy": "platform_required_only",
+        "requires_user_interaction": false
+      },
+      "telemetry_event": "app_intelligence.action",
+      "version": 1
+    },
+    {
+      "aliases": [
         "Open privacy settings",
         "privacy settings",
         "show my privacy settings"
@@ -38087,7 +38240,7 @@
         }
       ],
       "platform": "ios",
-      "projection_digest": "8ccc1b06f9aacbde703949970d69bc118b173449c9c7a6eaa6b3a4132bec0126",
+      "projection_digest": "29c3fc15a6172e8c3381e4d2ab4af2a57da62b7b96fc26d913e3d2ac93fa54a9",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -38106,7 +38259,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "fc844f2d3e1b73763155fb0708676c62639bbf7115be9f5405553580f01894ba"
       },
-      "source_revision": "771cbd282b3b3c1a",
+      "source_revision": "525e1bea6e22f1da",
       "supported_entrypoints": [
         "typed",
         "voice",
@@ -39624,7 +39777,7 @@
       ]
     },
     "schema_version": "one.capability_platform_projection.v1",
-    "source_revision": "771cbd282b3b3c1a",
+    "source_revision": "525e1bea6e22f1da",
     "web": {
       "actions": [
         {
@@ -39667,7 +39820,7 @@
         }
       ],
       "platform": "web",
-      "projection_digest": "809965f093d4b71224c214cf1ae5bb971191c41830ff0e944a3625884ebe1d89",
+      "projection_digest": "adbabea0dc97158ef28e03254916bccc7c22f50bf6d4674dd1d073f27a857e84",
       "render_surfaces": [
         {
           "capability_id": "render.one_location_workflow_card",
@@ -39686,7 +39839,7 @@
         "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
         "service_knowledge_packages": "fc844f2d3e1b73763155fb0708676c62639bbf7115be9f5405553580f01894ba"
       },
-      "source_revision": "771cbd282b3b3c1a",
+      "source_revision": "525e1bea6e22f1da",
       "supported_entrypoints": [
         "typed",
         "voice"
@@ -41243,7 +41396,7 @@
       "renderer_key": "one_location_workflow_card"
     }
   ],
-  "revision": "771cbd282b3b3c1a",
+  "revision": "525e1bea6e22f1da",
   "schema_version": "one.capability_graph.v1",
   "screens": [
     {
@@ -42115,6 +42268,7 @@
         "help.open_examples",
         "profile.delete_account",
         "profile.marketplace_visibility.toggle",
+        "profile.reset_account",
         "profile.set_contact_discoverable",
         "profile.sign_out",
         "profile.support.submit_message",
@@ -42160,6 +42314,7 @@
         "help.open_examples",
         "profile.delete_account",
         "profile.marketplace_visibility.toggle",
+        "profile.reset_account",
         "profile.set_contact_discoverable",
         "profile.sign_out",
         "profile.support.submit_message",
@@ -42187,6 +42342,7 @@
         "help.open_examples",
         "profile.delete_account",
         "profile.marketplace_visibility.toggle",
+        "profile.reset_account",
         "profile.set_contact_discoverable",
         "profile.sign_out",
         "profile.support.submit_message",
@@ -42947,12 +43103,18 @@
     }
   ],
   "semantic_diff": {
-    "added": [],
+    "added": [
+      "actions:profile.reset_account"
+    ],
     "breaking": [],
-    "changed": [],
+    "changed": [
+      "screens:screen:/one/profile",
+      "screens:screen:/one/profile/account",
+      "screens:screen:/one/profile/account/phone"
+    ],
     "compatible": [],
     "deprecated": [],
-    "from_revision": "f37e6638e90db246",
+    "from_revision": "771cbd282b3b3c1a",
     "migrated": [],
     "removed": []
   },
@@ -45397,18 +45559,18 @@
     "capability_graph_evolution": "3e3740965e1f0de9dd2ca865d2da654766e134479354c17fe562955831a95aaa",
     "capability_runtime_compiler": "9a0b0b573b4e3ae42d2a49ce15f93a7cce70e5dc4046dea14922d7cd6ace9078",
     "capability_runtime_policy": "d3f4ec0d27231ef298372a48696f8ac238f7560d03d8e72c50c7bcb5b0ffd7a9",
-    "kai_action_gateway": "5adaa2adcc83601a993e3b29a4e61dc337fb30b4002b116a66b7108eae8146cb",
+    "kai_action_gateway": "c1a61d2b840eb91fd098c07c12646e4c036fc612beed72c78f8ab0b711b4dd8f",
     "location_agent_manifest": "25952f13232f1d1adb7664da7c037b59cef093a1389caeb46af3d2771a12ff07",
     "location_knowledge_package": "054141b4aaf04ef13ce9bd139a1044287be8703c1e65015cc338a970d4fa51ed",
     "location_onboarding_runtime": "cd911f5e2e0f09352aeb89a74180a66fab79553423b126583f181d858459ae62",
     "location_workflow_api_contract": "4e65e07107cbf9a571c0a471005f18e3b31366fea6a1176b0d745e47a5b3d383",
     "product_agent_registry": "b865a980c4ff47ff91b316a238af7c70cfe01a3a79459199603791428b46a7d4",
-    "route_orchestration_index": "e2bf3a298f738a977174792714f45e872474f65e40427b820ac509a42799ee37",
+    "route_orchestration_index": "825c165d36c9a42c546bbaaaa2a6b3f52a4f831251ef82d09ec6ca75e120168b",
     "service_knowledge_packages": "fc844f2d3e1b73763155fb0708676c62639bbf7115be9f5405553580f01894ba"
   },
-  "source_revision": "771cbd282b3b3c1a",
+  "source_revision": "525e1bea6e22f1da",
   "workflow_revision_compatibility": {
-    "current_graph_revision": "771cbd282b3b3c1a",
+    "current_graph_revision": "525e1bea6e22f1da",
     "schema_version": "one.workflow_revision_compatibility.v1",
     "workflows": [
       {
@@ -45422,6 +45584,7 @@
           "5fe7cf2eaf8964c8",
           "6448b901792d40a4",
           "6be9b0c2414cdb98",
+          "771cbd282b3b3c1a",
           "82e741080f6a22ff",
           "8e37ce83397a3ac7",
           "9195b95c1e25685f",
@@ -45454,6 +45617,7 @@
           "5fe7cf2eaf8964c8",
           "6448b901792d40a4",
           "6be9b0c2414cdb98",
+          "771cbd282b3b3c1a",
           "82e741080f6a22ff",
           "8e37ce83397a3ac7",
           "9195b95c1e25685f",
@@ -45486,6 +45650,7 @@
           "5fe7cf2eaf8964c8",
           "6448b901792d40a4",
           "6be9b0c2414cdb98",
+          "771cbd282b3b3c1a",
           "82e741080f6a22ff",
           "8e37ce83397a3ac7",
           "9195b95c1e25685f",
@@ -45518,6 +45683,7 @@
           "5fe7cf2eaf8964c8",
           "6448b901792d40a4",
           "6be9b0c2414cdb98",
+          "771cbd282b3b3c1a",
           "82e741080f6a22ff",
           "8e37ce83397a3ac7",
           "9195b95c1e25685f",
@@ -45550,6 +45716,7 @@
           "5fe7cf2eaf8964c8",
           "6448b901792d40a4",
           "6be9b0c2414cdb98",
+          "771cbd282b3b3c1a",
           "82e741080f6a22ff",
           "8e37ce83397a3ac7",
           "9195b95c1e25685f",
@@ -45582,6 +45749,7 @@
           "5fe7cf2eaf8964c8",
           "6448b901792d40a4",
           "6be9b0c2414cdb98",
+          "771cbd282b3b3c1a",
           "82e741080f6a22ff",
           "8e37ce83397a3ac7",
           "9195b95c1e25685f",
@@ -45614,6 +45782,7 @@
           "5fe7cf2eaf8964c8",
           "6448b901792d40a4",
           "6be9b0c2414cdb98",
+          "771cbd282b3b3c1a",
           "82e741080f6a22ff",
           "8e37ce83397a3ac7",
           "9195b95c1e25685f",

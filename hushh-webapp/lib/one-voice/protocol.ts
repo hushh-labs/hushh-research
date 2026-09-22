@@ -175,6 +175,8 @@ export type ToolStartedFrame = { type: "tool.started"; call_id: string; tool: st
 export type ToolResultFrame = {
   type: "tool.result";
   call_id: string | null;
+  /** Exact pending confirmation this terminal result settles, when there is one. */
+  pending_action_id?: string | null;
   tool: string;
   status: string;
   ok: boolean;
@@ -304,6 +306,20 @@ export const SOS_STOP_TOOL = "stop_save_my_soul" as const;
 export const SOS_GRANTS_CREATED = "sos_grants_created" as const;
 export const SOS_PUBLISH_STEP_KIND = "publish_location_envelopes" as const;
 export const SOS_PUBLISH_PURPOSE = "sos" as const;
+/** Account reset / deletion: the tap issues a device step; the server verifies. */
+export const ACCOUNT_LIFECYCLE_STEP_KIND = "account_lifecycle" as const;
+export const ACCOUNT_LIFECYCLE_REPORT_TOOL = "report_account_lifecycle" as const;
+export const RESET_STEP_ISSUED = "reset_step_issued" as const;
+export const DELETE_STEP_ISSUED = "delete_step_issued" as const;
+/** The verified lifecycle outcomes; only account_reset / account_deleted are changes. */
+export const ACCOUNT_LIFECYCLE_REPORT_STATUSES = new Set<string>([
+  "account_reset",
+  "account_deleted",
+  "needs_unlock",
+  "blocked_external",
+  "not_changed",
+  "unverified",
+]);
 /** The verified delivery outcomes, and only these, may say who was reached. */
 export const SOS_REPORT_STATUSES = new Set<string>([
   "sos_sent",
@@ -327,6 +343,8 @@ export const NOT_SUCCESS_STATUSES = new Set<string>([
   "grant_created",
   "check_in_created",
   "sos_grants_created",
+  "reset_step_issued",
+  "delete_step_issued",
   "position_publish_pending",
   "location_updates_pending",
   "pending",

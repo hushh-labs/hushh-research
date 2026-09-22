@@ -1136,12 +1136,15 @@ export function buildStructuredScreenContext(args: {
           PUBLISHED_ACTION_IDS_CAP,
         ).filter((actionId) => executableCandidates.includes(actionId))
       : executableCandidates;
+  // The screen's own published actions (its controls, what is focused) come
+  // first: the label list is bounded, and a route that grows a ninth generic
+  // action must not silently push the focused control's action out of it.
   const availableActions = uniqueStrings([
+    ...(publishedSurface?.actions || []).map((action) => action.label),
+    ...(publishedSurface?.availableActions || []),
     ...(underlyingActionsAvailable
       ? routeActions.map((action) => action.label)
       : []),
-    ...(publishedSurface?.actions || []).map((action) => action.label),
-    ...(publishedSurface?.availableActions || []),
     ...(Array.isArray(rawContext.available_actions)
       ? rawContext.available_actions
       : []),

@@ -521,6 +521,48 @@
       "speaker_persona": "nav"
     },
     {
+      "action_id": "profile.reset_account",
+      "label": "Reset account",
+      "meaning": "Resets the person's own Hussh account after a tap confirmation: keeps sign-in and vault, clears personal setup and data, and restarts onboarding. Not a deletion.",
+      "aliases": [
+        "reset my account",
+        "reset my hussh account"
+      ],
+      "search_keywords": [
+        "reset account",
+        "start account over"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/profile"
+        ],
+        "screens": [
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "vault unlock may be required before reset confirmation"
+        ]
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "explicit_user_confirmation"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "execution_target": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "profile.reset_account"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "app/profile/profile-workspace-page.tsx"
+      ],
+      "speaker_persona": "one"
+    },
+    {
       "action_id": "route.profile_privacy",
       "label": "Open privacy settings",
       "meaning": "Opens the Access & sharing panel of Profile, which holds discoverability and sharing controls.",

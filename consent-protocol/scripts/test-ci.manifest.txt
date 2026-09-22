@@ -342,5 +342,7 @@ tests/one_voice/test_tools_sharing.py
 tests/one_voice/test_tools_circles.py
 tests/one_voice/test_tools_sos.py
 tests/one_voice/test_tools_profile.py
+tests/one_voice/test_tools_account_lifecycle.py
+tests/one_voice/test_relay_account_lifecycle.py
 tests/one_voice/test_tools_onboarding.py
 tests/one_voice/test_one_voice_postgres.py

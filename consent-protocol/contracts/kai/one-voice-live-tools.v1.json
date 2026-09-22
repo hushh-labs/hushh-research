@@ -735,6 +735,29 @@
       ]
     },
     {
+      "circle_args": [],
+      "description": "Permanently delete the person's own Hussh account after they tap Confirm. Use only for a clear request to delete the account; a question, a quote, 'do not delete', or an ambiguous 'remove my profile' is not one -- clarify once. Never substitute it for a reset or a sign-out. A spoken yes cannot arm it. It returns delete_step_issued, which means the device is running the deletion; the server then verifies it (report_account_lifecycle). Never say 'deleted' from this result.",
+      "firebase_plane": true,
+      "gateway_action_id": "profile.delete_account",
+      "name": "delete_account",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "confirm_tap",
+      "result_statuses": [
+        "account_deleted",
+        "delete_step_issued",
+        "unavailable"
+      ],
+      "tier": "tap",
+      "ui_refresh": [
+        "profile"
+      ]
+    },
+    {
       "circle_args": [
         "circle"
       ],
@@ -1677,6 +1700,64 @@
     },
     {
       "circle_args": [],
+      "description": "Server-verified outcome of a reset or deletion the device just ran. The runtime calls this after the device step settles; it reads the server, never the device's claim. Not for the person to ask for directly.",
+      "firebase_plane": false,
+      "gateway_action_id": "route.profile",
+      "name": "report_account_lifecycle",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {
+          "client_status": {
+            "description": "What the device reported after running the step. Never trusted on its own.",
+            "enum": [
+              "reset",
+              "not_reset",
+              "deleted",
+              "needs_unlock",
+              "auth_failed",
+              "blocked_external",
+              "failed",
+              "unknown"
+            ],
+            "title": "Client Status",
+            "type": "string"
+          },
+          "issued_at_ms": {
+            "minimum": 0,
+            "title": "Issued At Ms",
+            "type": "integer"
+          },
+          "operation": {
+            "enum": [
+              "reset",
+              "delete"
+            ],
+            "title": "Operation",
+            "type": "string"
+          }
+        },
+        "required": [
+          "operation",
+          "client_status",
+          "issued_at_ms"
+        ],
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "read",
+      "result_statuses": [
+        "account_deleted",
+        "account_reset",
+        "blocked_external",
+        "needs_unlock",
+        "not_changed",
+        "unverified"
+      ],
+      "tier": null,
+      "ui_refresh": []
+    },
+    {
+      "circle_args": [],
       "description": "Verify on the server whether the Save My Soul position actually reached each emergency contact: a contact counts as reached only when an encrypted position envelope is stored on their SOS share. It always checks the whole armed alert. Use it for 'did it go through' after an alert; it never sends or resends anything. Returns sos_sent, sos_partial, sos_not_sent, or sos_unverified (the check itself could not run) with the real names reached and not reached.",
       "firebase_plane": false,
       "gateway_action_id": "location.verify_sos_delivery",
@@ -1775,6 +1856,30 @@
       "tier": "voice",
       "ui_refresh": [
         "location_people"
+      ]
+    },
+    {
+      "circle_args": [],
+      "description": "Reset the person's own Hussh account after they tap Confirm: keeps their sign-in and vault, clears personal setup and data, and restarts onboarding. Use only for a clear request to reset or start the account over -- not for 'start over' about a draft or this conversation, and never as a substitute for deleting. A spoken yes cannot arm it. It returns reset_step_issued, which means the device is running the reset; the server then verifies it (report_account_lifecycle). Never say 'reset' from this result.",
+      "firebase_plane": true,
+      "gateway_action_id": "profile.reset_account",
+      "name": "reset_account",
+      "parameters": {
+        "additionalProperties": false,
+        "properties": {},
+        "type": "object"
+      },
+      "person_args": [],
+      "policy": "confirm_tap",
+      "result_statuses": [
+        "account_deleted",
+        "reset_step_issued",
+        "unavailable"
+      ],
+      "tier": "tap",
+      "ui_refresh": [
+        "profile",
+        "onboarding"
       ]
     },
     {

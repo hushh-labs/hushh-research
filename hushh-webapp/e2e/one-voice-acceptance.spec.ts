@@ -233,7 +233,8 @@ test.describe("Talk to One acceptance (mocked relay, real client + UI)", () => {
         },
       },
     ]);
-    await expect(page.getByTestId("one-voice-pending-resolved")).toContainText(
+    await expect(page.getByTestId("one-voice-pending-action")).toHaveCount(0);
+    await expect(page.getByTestId("one-voice-tool-result")).toContainText(
       /Created the Family circle/,
     );
     await say(page, "Invite Priya to it");

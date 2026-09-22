@@ -172,7 +172,13 @@ async def test_personal_monitor_inbox_page_returns_an_empty_page_tuple(monkeypat
 
 
 @pytest.mark.asyncio
-async def test_personal_monitor_inbox_page_retries_a_transient_message_fetch_failure(monkeypatch):
+async def test_personal_monitor_inbox_page_skips_a_transient_message_fetch_failure(monkeypatch):
+    # This page has no checkpoint to protect (unlike the history page below):
+    # it is a one-shot scan over Gmail's own pagination. A single message's
+    # transient fetch failure (rate limit, a brief 5xx) must not discard the
+    # other messages that fetched fine in the same concurrent batch, or the
+    # mandatory initial scan could get stuck retrying forever against the
+    # same odds.
     service = GmailReceiptsService()
 
     async def ensure_access_token(*, user_id: str):
@@ -180,19 +186,21 @@ async def test_personal_monitor_inbox_page_retries_a_transient_message_fetch_fai
         return "access-token", {}
 
     async def list_messages(**_kwargs):
-        return {"messages": [{"id": "one"}]}
+        return {"messages": [{"id": "one"}, {"id": "two"}]}
 
     async def get_full(*, access_token: str, gmail_message_id: str):
-        raise GmailApiError("temporary provider failure", status_code=503)
+        if gmail_message_id == "one":
+            raise GmailApiError("temporary provider failure", status_code=503)
+        return {"id": "two", "labelIds": ["INBOX"]}
 
     monkeypatch.setattr(service, "_ensure_access_token", ensure_access_token)
     monkeypatch.setattr(service, "_list_messages", list_messages)
     monkeypatch.setattr(service, "_get_message_full", get_full)
 
-    with pytest.raises(GmailApiError) as error:
-        await service.list_personal_inbox_monitor_page(user_id="owner")
+    messages, next_page_token = await service.list_personal_inbox_monitor_page(user_id="owner")
 
-    assert error.value.code == "GMAIL_MONITOR_MESSAGE_FETCH_FAILED"
+    assert [message["id"] for message in messages] == ["two"]
+    assert next_page_token is None
 
 
 @pytest.mark.asyncio

@@ -637,6 +637,38 @@ describe("reduceVoiceSession: tools and success", () => {
     expect(selectSuccessReceipt(done)?.status).toBe("share_created");
   });
 
+  it("keeps a newer confirmation open when a terminal result names an older action", () => {
+    const first = pendingActionFrame({
+      pending_action_id: "11111111-0000-4000-8000-000000000003",
+      summary: "first",
+    });
+    const second = pendingActionFrame({
+      pending_action_id: "11111111-0000-4000-8000-000000000004",
+      summary: "second",
+    });
+    const state = run(
+      [
+        server(first),
+        server(second),
+        server(
+          toolResult({
+            tool: "share_with",
+            pending_action_id: first.pending_action_id,
+            status: "share_created",
+            ok: true,
+            result_public: { status: "share_created" },
+          }),
+        ),
+      ],
+      connected(),
+    );
+
+    expect(state.pendingAction?.pending_action_id).toBe(second.pending_action_id);
+    expect(state.pendingAction?.resolvedStatus).toBeNull();
+    expect(state.pendingAction?.receiptToken).toBe("receipt-1");
+    expect(state.phase).toBe("confirming");
+  });
+
   it("(7) cancel clears the receipt and returns to listening without success", () => {
     const card = pendingActionFrame();
     const cancelled = run(

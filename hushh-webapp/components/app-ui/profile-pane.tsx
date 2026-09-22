@@ -97,11 +97,12 @@ export function ProfilePane({ open, onOpenChange }: ProfilePaneProps) {
         </SheetHeader>
         <SheetClose
           asChild
-          className="absolute right-[max(1rem,env(safe-area-inset-right))] top-[calc(1rem+env(safe-area-inset-top))] z-10"
+          className="absolute top-[calc(1rem+env(safe-area-inset-top))] z-10"
         >
           <button
             type="button"
             aria-label="Close Profile"
+            style={{ right: "max(1rem, env(safe-area-inset-right, 0px))" }}
             className="inline-flex h-11 w-11 items-center justify-center rounded-full bg-[color:var(--app-neutral-fill)] text-muted-foreground transition-colors duration-100 hover:bg-[color:var(--app-neutral-fill-strong)] hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
           >
             <X className="h-4 w-4" />
