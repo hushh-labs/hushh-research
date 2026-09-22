@@ -115,7 +115,17 @@ if (gestures.length) {
   for (const w of windows) byGesture.set(w.kind, [...(byGesture.get(w.kind) ?? []), w]);
 }
 
-const rows = [...byGesture.entries()].map(([name, ws]) => ({ name, ...aggregate(ws) }));
+// A gesture that moves the page (a flick, a pager swipe, a map pan, a tab
+// switch, the profile pane) opens scroll, pager or route windows. When every
+// window it overlapped is a plain tap, nothing moved: the finger landed on a
+// screen that does not scroll, and the numbers describe that screen. On
+// 2026-09-22 a whole Android card measured the vault gate this way and read
+// "good" at 120 Hz. Such a row is reported as not measured, and a card that
+// contains one certifies nothing.
+const MOVEMENT_GESTURE = /flick|swipe|pan|switch|pane/;
+const nothingMoved = (name, ws) => MOVEMENT_GESTURE.test(name) && ws.length > 0 && ws.every((w) => w.kind === "tap");
+const rows = [...byGesture.entries()].map(([name, ws]) => ({ name, ...aggregate(ws), measured: !nothingMoved(name, ws) }));
+const unmeasured = rows.filter((r) => !r.measured).map((r) => r.name);
 const idleRows = idle.map((w) => ({ route: w.route, frames: w.frames, p95_ms: w.p95_ms, max_ms: w.max_ms, over_50_count: w.over_50_count }));
 const hz = runs[0]?.data.raf_hz ?? null;
 // A run certifies only when all three hold: real hardware, a Release build,
@@ -127,10 +137,13 @@ const reactProfiling = runs.some((r) => r.data.react_profiling === true);
 // An attribution experiment changes the page's behaviour for the launch, so
 // its numbers isolate a cost and certify nothing.
 const experiments = [...new Set(runs.flatMap((r) => r.data.experiments ?? []))];
-const certifies = !simulator && configuration === "Release" && !testMode && !reactProfiling && experiments.length === 0;
+const certifies =
+  !simulator && configuration === "Release" && !testMode && !reactProfiling && experiments.length === 0 && unmeasured.length === 0;
 const laneSentence = certifies
   ? "Device run, Release, test mode off: certifying."
-  : simulator
+  : unmeasured.length
+    ? `**Nothing moved during ${unmeasured.join(", ")} (every window a plain tap): the gestures landed on a screen that does not scroll, so this run certifies nothing.**`
+    : simulator
     ? "**Simulator run: attribution only, certifies nothing.**"
     : experiments.length
       ? `**Device run, ${configuration}, experiment ${experiments.join("+")} on: attribution only, certifies nothing.**`
@@ -210,7 +223,9 @@ for (const w of windows) {
   const commits = w.commits?.count ? `${w.commits.count} / ${w.commits.total_ms} ms (max ${w.commits.max_ms})` : "0";
   stallRows.push({ gesture: gesture?.name ?? "(none)", kind: w.kind, worst, event, dom_nodes: w.dom_nodes ?? null, commits });
 }
-const verdict = (r) => (r.over_50_count > 0 || (r.hitch_ms_per_s_median ?? 0) >= 10 ? "critical" : (r.hitch_ms_per_s_median ?? 0) >= 5 || (hz && r.p95_ms_median > hz.budget_ms) ? "warning" : "good");
+// Zero windows is not "good": another app's gesture (Threads, X) has only
+// the platform's own frame numbers, and a gesture the probe never saw has none.
+const verdict = (r) => r.windows === 0 ? "no probe windows" : !r.measured ? "not measured (nothing moved)" : (r.over_50_count > 0 || (r.hitch_ms_per_s_median ?? 0) >= 10 ? "critical" : (r.hitch_ms_per_s_median ?? 0) >= 5 || (hz && r.p95_ms_median > hz.budget_ms) ? "warning" : "good");
 
 const summary = {
   schema_version: "hushh-render-perf-baseline-v1",

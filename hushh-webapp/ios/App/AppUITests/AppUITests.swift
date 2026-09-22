@@ -1153,6 +1153,29 @@ final class AppUITests: XCTestCase {
     /// Release build this is the certifying run the charter names.
     /// Opt-in: HUSHH_ENABLE_PERF_ATTACHED=true. HUSHH_PERF_ATTACHED_SECTION
     /// = feed | chat | kai | location | all (default all).
+    /// Signs the reviewer into the app's data container and leaves the
+    /// session there (-UITestResetAppState false). The Release truth lane
+    /// cannot sign anyone in, by design, so after a sign-out (a /logout
+    /// route, an expired session) this Debug-only step restores it and the
+    /// Release app installed over it keeps the session.
+    /// Driver: scripts/perf/ios-reviewer-signin.sh.
+    func testReviewerSignInForTruthLane() throws {
+        let route = RouteCase(
+            name: "truth-lane-sign-in",
+            initialRoute: "/login?redirect=%2Fone%2Ffeed",
+            expectedMarker: "native-route-feed",
+            expectedRoute: "/one/feed",
+            expectedRoutePrefix: nil,
+            autoReviewerLogin: true,
+            expectedAuth: "authenticated",
+            allowedDataStates: ["loaded"]
+        )
+        let app = launchApp(route)
+        defer { app.terminate() }
+        _ = try waitForSatisfiedStatus(app, route: route, timeout: 150)
+        NSLog("PERF_REVIEWER_SIGNED_IN route=/one/feed")
+    }
+
     func testRenderPerformanceCardAttached() throws {
         let environment = ProcessInfo.processInfo.environment
         guard environment["HUSHH_ENABLE_PERF_ATTACHED"] == "true" else {
@@ -1363,10 +1386,17 @@ final class AppUITests: XCTestCase {
             if list.isEmpty {
                 NSLog("PERF_SKIPPED name=routes reason=no_route_list")
             }
-            for route in list {
+            for (index, route) in list.enumerated() {
                 let app: XCUIApplication
                 do {
                     (app, _) = try launchAttached(route: route, shellOptional: true, failHard: false, unlockTimeout: 90)
+                } catch is PerfSignedOut {
+                    // Every later launch would land on the same screen: stop
+                    // here rather than record the whole list as unreachable.
+                    NSLog("PERF_SWEEP_ABORTED reason=signed-out route=\(route) remaining=\(list.count - index)")
+                    XCUIApplication().terminate()
+                    XCTFail("The app is signed out, so no route can be measured. Restore the reviewer session with scripts/perf/ios-reviewer-signin.sh, then rerun.")
+                    break
                 } catch let unreachable as PerfRouteUnreachable {
                     NSLog("PERF_ROUTE_UNREACHABLE route=\(route) reason=\(unreachable.reason)")
                     XCUIApplication().terminate()
@@ -1528,6 +1558,11 @@ final class AppUITests: XCTestCase {
     /// to record one unreachable route and carry on.
     struct PerfRouteUnreachable: Error { let reason: String }
 
+    /// Thrown to a sweeping caller when the launch sits on the sign-in
+    /// screen: the Release truth lane has no automated sign-in (test mode is
+    /// Debug-only by design), so nothing after it can be measured either.
+    struct PerfSignedOut: Error {}
+
     /// `shellOptional`: the bottom bar's "One" tab is the usual sign that the
     /// app is signed in and unlocked, but a route that hides the shell (an
     /// import flow, a full-screen setup step) never shows it, and waiting for
@@ -1551,9 +1586,25 @@ final class AppUITests: XCTestCase {
         var announced = false
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         var fieldGoneSince: Date?
+        var signInScreenSince: Date?
         while Date() < deadline {
             if perfLabelExists(app, "One") {
                 return
+            }
+            if !failHard {
+                let signIn = app.webViews.buttons.matching(NSPredicate(
+                    format: "label CONTAINS[c] %@ OR label CONTAINS[c] %@", "Continue with Apple", "Continue with Google"
+                )).firstMatch
+                if signIn.exists {
+                    let since = signInScreenSince ?? Date()
+                    signInScreenSince = since
+                    if Date().timeIntervalSince(since) >= 5 {
+                        NSLog("PERF_UNLOCK signed_out=true")
+                        throw PerfSignedOut()
+                    }
+                } else {
+                    signInScreenSince = nil
+                }
             }
             if shellOptional && attempts > 0 {
                 let gateField = app.webViews.secureTextFields.matching(NSPredicate(format: "label == %@ OR placeholderValue == %@", "Vault passphrase", "Enter passphrase")).firstMatch
