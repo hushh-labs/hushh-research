@@ -5583,7 +5583,10 @@ class PKMAgentLabService:
 
         async def _build_preview() -> dict[str, Any]:
             errors: list[str] = []
-            execution_trace: list[dict[str, Any]] | None = [] if capture_execution_trace else None
+            # These records contain only stage outcomes/timings, never model
+            # values. Keep them on normal responses so failures are diagnosable
+            # without trace mode's deliberate cache/inflight bypass.
+            execution_trace: list[dict[str, Any]] = []
             if memory_profile == "kyc_identity_v1":
                 response_payload = await self._generate_kyc_identity_preview(
                     user_id=user_id,

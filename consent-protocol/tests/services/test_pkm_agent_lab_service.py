@@ -2043,6 +2043,39 @@ async def test_generate_structure_preview_keeps_eight_segment_imports(
 
 
 @pytest.mark.asyncio
+async def test_normal_preview_returns_safe_stage_outcomes_and_preserves_cache(monkeypatch):
+    service = PKMAgentLabService()
+    outcome = {
+        "agent_id": "agent_memory_segmentation",
+        "status": "success",
+        "attempts": 1,
+        "latency_ms": 12.0,
+        "error_type": "",
+    }
+
+    async def contract(**kwargs):
+        kwargs["execution_trace"].append(dict(outcome))
+        return {
+            "segments": [],
+            "has_more_candidates": False,
+            "contract_version": 1,
+            "source_agent": "memory_segmentation_agent",
+        }
+
+    runner = AsyncMock(side_effect=contract)
+    monkeypatch.setattr(service, "_run_agent_contract", runner)
+    monkeypatch.setattr(service, "_load_domain_registry_choices", AsyncMock(return_value=[]))
+    args = {"user_id": "safe-diagnostics-cache-owner", "message": "Hello, thanks."}
+    first = await service.generate_structure_preview(**args)
+    second = await service.generate_structure_preview(**args)
+    assert first["performance"]["agent_execution"] == [outcome]
+    assert second["performance"]["agent_execution"] == [outcome]
+    assert runner.await_count == 1
+    first["performance"]["agent_execution"].clear()
+    assert second["performance"]["agent_execution"] == [outcome]
+
+
+@pytest.mark.asyncio
 async def test_generate_structure_preview_dedupes_inflight_requests(monkeypatch):
     service = PKMAgentLabService()
 
