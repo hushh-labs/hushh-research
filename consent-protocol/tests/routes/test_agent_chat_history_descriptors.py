@@ -27,6 +27,7 @@ def test_history_descriptor_keeps_discovery_card_metadata_but_not_values() -> No
                 "status": "ok",
                 "person": {
                     "displayName": "Alex Morgan",
+                    "personRef": "1234567890abcdef",
                     "profilePath": "/people/1234567890abcdef",
                     "relationship": "connected",
                 },
@@ -50,6 +51,7 @@ def test_history_descriptor_keeps_discovery_card_metadata_but_not_values() -> No
     descriptor = metadata["structuredExperience"]
     assert isinstance(descriptor, dict)
     assert descriptor["activityType"] == "one.scope_discovery.v1"
+    assert descriptor["content"]["person"]["personRef"] == "1234567890abcdef"
     assert "must-not-leave-the-server" not in json.dumps(metadata)
 
 
@@ -60,6 +62,7 @@ def test_history_descriptor_retains_safe_catalog_pagination_metadata() -> None:
                 "status": "ok",
                 "person": {
                     "displayName": "Alex Morgan",
+                    "personRef": "1234567890abcdef",
                     "profilePath": "/people/1234567890abcdef",
                 },
                 "requestableScopes": [
@@ -86,6 +89,7 @@ def test_history_descriptor_retains_safe_catalog_pagination_metadata() -> None:
 
     assert metadata is not None
     content = metadata["structuredExperience"]["content"]
+    assert content["person"]["personRef"] == "1234567890abcdef"
     assert content["scopeCatalog"] == {
         "page": 2,
         "nextPage": 3,

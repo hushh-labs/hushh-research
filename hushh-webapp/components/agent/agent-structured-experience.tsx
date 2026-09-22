@@ -141,8 +141,8 @@ function ScopeDiscoveryView({
 }) {
   const { user } = useAuth();
   const { isVaultUnlocked } = useVault();
-  const personRef = experience.person.profilePath.split("/")[2] || "";
-  const request = usePersonInformationRequest(personRef);
+  const personRef = experience.person.personRef;
+  const request = usePersonInformationRequest(personRef ?? "");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [reviewing, setReviewing] = useState(false);
   const [purpose, setPurpose] = useState("");
@@ -154,7 +154,7 @@ function ScopeDiscoveryView({
   const [loading, setLoading] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
   const [retry, setRetry] = useState(0);
-  const profile = isVaultUnlocked && current && current.owner === user?.uid && current.profile.personRef === personRef
+  const profile = personRef && isVaultUnlocked && current && current.owner === user?.uid && current.profile.personRef === personRef
     ? current.profile : null;
 
   useEffect(() => {
@@ -167,8 +167,8 @@ function ScopeDiscoveryView({
     setDurationHours(DEFAULT_REQUEST_DURATION_HOURS);
     setSent(false);
     setUnavailable(false);
-    setLoading(Boolean(user && isVaultUnlocked));
-    if (user && isVaultUnlocked) {
+    setLoading(Boolean(user && isVaultUnlocked && personRef));
+    if (user && isVaultUnlocked && personRef) {
       void user.getIdToken().then(token => PersonProfileService.getViewer(personRef, token, {
         domain: experience.domainFilter || "",
       })).then(value => {
@@ -183,7 +183,7 @@ function ScopeDiscoveryView({
   }, [user, isVaultUnlocked, personRef, experience.domainFilter, retry]);
 
   async function loadMore() {
-    if (!user || !profile?.scopeCatalog?.nextPage || inFlight.current) return;
+    if (!personRef || !user || !profile?.scopeCatalog?.nextPage || inFlight.current) return;
     const run = generation.current;
     inFlight.current = true;
     setLoading(true);
@@ -243,7 +243,7 @@ function ScopeDiscoveryView({
             What {personName(profile?.displayName || experience.person.displayName)} can share with you
           </h3>
           <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
-            {!profile ? !user ? "Sign in to check what is available." : !isVaultUnlocked ? "Unlock your vault to continue here." : "Checking what is currently available to request."
+            {!profile ? !personRef ? "This saved card cannot be used to make a request. Ask One to check again." : !user ? "Sign in to check what is available." : !isVaultUnlocked ? "Unlock your vault to continue here." : "Checking what is currently available to request."
               : total === 0
               ? "Nothing is currently available to request."
               : `${total} ${total === 1 ? "thing" : "things"} you can ask for. They decide what to share, and for how long.`}

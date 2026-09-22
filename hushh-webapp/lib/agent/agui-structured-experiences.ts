@@ -4,7 +4,7 @@ export const SCOPE_DISCOVERY_EXPERIENCE_TYPE = "one.scope_discovery.v1" as const
 export const PERSON_SELECTION_EXPERIENCE_TYPE = "one.person_selection.v1" as const;
 export type PersonSelectionExperience = {
   type: typeof PERSON_SELECTION_EXPERIENCE_TYPE;
-  candidates: Array<{ selectionHandle: string; displayName: string; profilePath: string; detail: string | null }>;
+  candidates: Array<{ selectionHandle: string; personRef: string; displayName: string; profilePath: string; detail: string | null }>;
   candidatesIncomplete?: boolean;
 };
 export const INFORMATION_REQUEST_REVIEW_EXPERIENCE_TYPE = "one.information_request_review.v1" as const;
@@ -14,6 +14,7 @@ export const EVIDENCE_BRIEF_EXPERIENCE_TYPE = "one.evidence_brief.v1" as const;
 
 const MAX_SCOPES = 250;
 const PROFILE_PATH_PATTERN = /^\/people\/[A-Za-z0-9_-]{16,128}$/;
+const PUBLIC_PERSON_REF_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
 
 /**
  * A turn may carry an authored card and a short prose note. This role is
@@ -38,6 +39,8 @@ export type ScopeDiscoveryItem = {
 export type ScopeDiscoveryExperience = {
   type: typeof SCOPE_DISCOVERY_EXPERIENCE_TYPE;
   person: {
+    /** Public subject reference retained for authority binding; never rendered as an identifier. */
+    personRef: string | null;
     displayName: string;
     profilePath: string;
     relationship: string | null;
@@ -380,6 +383,16 @@ function parseScopeDiscovery(
   ) {
     return null;
   }
+  const profilePersonRef = profilePath.slice("/people/".length);
+  const rawPersonRef = boundedString(person.personRef, 128);
+  const personRef = rawPersonRef && PUBLIC_PERSON_REF_PATTERN.test(rawPersonRef)
+    && rawPersonRef === profilePersonRef
+    ? rawPersonRef
+    : null;
+  // A supplied subject reference is security-relevant. A malformed or
+  // mismatched reference must invalidate the card instead of falling back to
+  // identity reconstructed from a display route.
+  if (rawPersonRef && !personRef) return null;
 
   const rawScopes = Array.isArray(record.requestableScopes)
     ? record.requestableScopes.slice(0, MAX_SCOPES)
@@ -417,6 +430,7 @@ function parseScopeDiscovery(
   return {
     type: SCOPE_DISCOVERY_EXPERIENCE_TYPE,
     person: {
+      personRef,
       displayName,
       profilePath,
       relationship: boundedString(person.relationship, 64),
@@ -472,11 +486,14 @@ export function parseAgentToolResultExperience(
     const candidates = result.candidates.slice(0, 20).flatMap((value) => {
       const candidate = asRecord(value);
       const selectionHandle = boundedString(candidate?.selectionHandle, 64);
+      const personRef = boundedString(candidate?.personRef, 128);
       const displayName = boundedString(candidate?.displayName, 120);
       const profilePath = boundedString(candidate?.profilePath, 180);
+      const profilePersonRef = profilePath?.slice("/people/".length);
       if (!selectionHandle || !/^[a-f0-9]{32}$/.test(selectionHandle) || !displayName ||
-          !profilePath || !PROFILE_PATH_PATTERN.test(profilePath)) return [];
-      return [{ selectionHandle, displayName, profilePath, detail: boundedString(candidate?.detail, 120) }];
+          !personRef || !PUBLIC_PERSON_REF_PATTERN.test(personRef) || !profilePath ||
+          !PROFILE_PATH_PATTERN.test(profilePath) || personRef !== profilePersonRef) return [];
+      return [{ personRef, selectionHandle, displayName, profilePath, detail: boundedString(candidate?.detail, 120) }];
     });
     return candidates.length
       ? {

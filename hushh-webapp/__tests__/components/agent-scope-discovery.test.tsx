@@ -30,7 +30,7 @@ import { AgentStructuredExperienceView } from "@/components/agent/agent-structur
 
 const person = "1234567890abcdef";
 const experience: ScopeDiscoveryExperience = {
-  type: "one.scope_discovery.v1", person: { displayName: "Synthetic Recipient", profilePath: `/people/${person}`, relationship: "connected" },
+  type: "one.scope_discovery.v1", person: { personRef: person, displayName: "Synthetic Recipient", profilePath: `/people/${person}`, relationship: "connected" },
   domainFilter: null,
   scopes: [{ scopeRef: "stale-field", label: "Stale history label", description: null, domain: "professional", sensitivity: "standard" }],
 };
@@ -94,6 +94,13 @@ describe("current-authority inline Chat catalog", () => {
     render(<AgentStructuredExperienceView experience={experience} />);
     expect(await screen.findByRole("alert")).toHaveTextContent("couldn’t check");
     expect(screen.queryByText("Nothing is currently available to request.")).not.toBeInTheDocument();
+  });
+
+  it("keeps a legacy card display-only when it has no bound subject reference", async () => {
+    const legacy = { ...experience, person: { ...experience.person, personRef: null } };
+    render(<AgentStructuredExperienceView experience={legacy} />);
+    expect(await screen.findByText("This saved card cannot be used to make a request. Ask One to check again.")).toBeInTheDocument();
+    expect(mocks.getViewer).not.toHaveBeenCalled();
   });
 
   it("discards a late catalog after lock instead of displaying private-session state", async () => {

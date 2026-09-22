@@ -9,7 +9,7 @@ const scopeResult = {
   status: "ok",
   person: {
     displayName: "Alex Morgan",
-    personRef: "not-for-display",
+    personRef: "1234567890abcdef",
     profilePath: "/people/1234567890abcdef",
     relationship: "connected",
   },
@@ -42,7 +42,7 @@ describe("AG-UI structured experience registry", () => {
     expect(legacy).toMatchObject({ catalogIncomplete: true });
   });
   it("parses server-issued person choices without accepting arbitrary profile links", () => {
-    const candidate = { selectionHandle: "a".repeat(32), displayName: "Alex Morgan",
+    const candidate = { selectionHandle: "a".repeat(32), personRef: "1234567890abcdef", displayName: "Alex Morgan",
       profilePath: "/people/1234567890abcdef", detail: "a***@example.test" };
     const result = parseAgentToolResultExperience("discover_person_information", {
       status: "needs_clarification", candidates: [candidate,
@@ -54,6 +54,7 @@ describe("AG-UI structured experience registry", () => {
   it("preserves an incomplete candidate signal for the picker", () => {
     const candidate = {
       selectionHandle: "c".repeat(32),
+      personRef: "1234567890abcdef",
       displayName: "Alex Morgan",
       profilePath: "/people/1234567890abcdef",
       detail: null,
@@ -73,6 +74,7 @@ describe("AG-UI structured experience registry", () => {
   it("keeps person choices visible when shared-information listing needs clarification", () => {
     const candidate = {
       selectionHandle: "b".repeat(32),
+      personRef: "1234567890abcdef",
       displayName: "Alex Morgan",
       profilePath: "/people/1234567890abcdef",
       detail: "a***@example.test",
@@ -157,6 +159,7 @@ describe("AG-UI structured experience registry", () => {
     ).toEqual({
       type: "one.scope_discovery.v1",
       person: {
+        personRef: "1234567890abcdef",
         displayName: "Alex Morgan",
         profilePath: "/people/1234567890abcdef",
         relationship: "connected",
@@ -192,6 +195,12 @@ describe("AG-UI structured experience registry", () => {
       parseAgentToolResultExperience("discover_person_information", {
         ...scopeResult,
         person: { ...scopeResult.person, profilePath: "https://attacker.example" },
+      }),
+    ).toBeNull();
+    expect(
+      parseAgentToolResultExperience("discover_person_information", {
+        ...scopeResult,
+        person: { ...scopeResult.person, personRef: "fedcba9876543210" },
       }),
     ).toBeNull();
   });

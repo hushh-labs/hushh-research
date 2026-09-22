@@ -340,6 +340,13 @@ def _safe_discovery_descriptor(
         profile_path = _bounded_text(person.get("profilePath"), 180)
         if not display_name or not profile_path or not _SAFE_PROFILE_PATH.fullmatch(profile_path):
             return None
+        profile_person_ref = profile_path.rsplit("/", 1)[-1]
+        person_ref = _bounded_text(person.get("personRef"), 128)
+        if person_ref and (
+            not re.fullmatch(r"[A-Za-z0-9_-]{16,128}", person_ref)
+            or person_ref != profile_person_ref
+        ):
+            return None
         scopes: list[dict[str, Any]] = []
         raw_scopes = result.get("requestableScopes")
         if isinstance(raw_scopes, list):
@@ -377,6 +384,7 @@ def _safe_discovery_descriptor(
                 "person": {
                     "displayName": display_name,
                     "profilePath": profile_path,
+                    **({"personRef": person_ref} if person_ref else {}),
                     "relationship": _bounded_text(person.get("relationship"), 64),
                 },
                 "domainFilter": _bounded_text(result.get("domainFilter"), 80),
