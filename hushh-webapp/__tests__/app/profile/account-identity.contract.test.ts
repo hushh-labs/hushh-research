@@ -41,3 +41,43 @@ describe("Profile account identity contract", () => {
     expect(refresh).toBeGreaterThan(global);
   });
 });
+
+describe("Profile account lifecycle voice bridge contract", () => {
+  const bridge = readFileSync(
+    join(process.cwd(), "components/profile/account-lifecycle-step-bridge.tsx"),
+    "utf8",
+  );
+
+  it("is mounted once, inside VaultProvider, so an unlocked vault's token is used", () => {
+    expect(providersSource).toContain("<AccountLifecycleStepBridge />");
+    const vault = providersSource.indexOf("<VaultProvider");
+    const consent = providersSource.indexOf("<GlobalConsentActionHandlers />");
+    const bridgeAt = providersSource.indexOf("<AccountLifecycleStepBridge />");
+    const vaultClose = providersSource.indexOf("</VaultProvider>");
+    expect(vault).toBeGreaterThan(-1);
+    expect(bridgeAt).toBeGreaterThan(consent);
+    expect(bridgeAt).toBeLessThan(vaultClose);
+    expect(providersSource.match(/<AccountLifecycleStepBridge \/>/g)?.length).toBe(1);
+  });
+
+  it("binds the same lifecycle flows the Profile screen uses, and nothing else", () => {
+    expect(bridge).toContain("resolveAuth: resolveDeleteAccountAuth,");
+    expect(bridge).toContain("AccountService.resetAccount(token)");
+    expect(bridge).toContain("executeVerifiedAccountDeletion({");
+    expect(bridge).toContain('useVault()');
+    // The runner is the only place decisions are made.
+    expect(bridge).toContain("runAccountLifecycleStep(step, {");
+    expect(bridge).not.toContain("resolveResetOutcome(");
+    expect(bridge).not.toContain("classifyDeletionError(");
+    // Deletion reports before sign-out; the bridge never reorders that.
+    expect(bridge).toContain("afterDelete: async (uid) => {");
+    expect(bridge).toContain('buildLoginRouteWithAuthSessionNotice("account_deleted")');
+  });
+
+  it("the protocol marks the issued statuses as not-success and knows the step kind", () => {
+    const protocol = readFileSync(join(process.cwd(), "lib/one-voice/protocol.ts"), "utf8");
+    expect(protocol).toContain('"reset_step_issued",');
+    expect(protocol).toContain('"delete_step_issued",');
+    expect(protocol).toContain('export const ACCOUNT_LIFECYCLE_STEP_KIND = "account_lifecycle" as const;');
+  });
+});
