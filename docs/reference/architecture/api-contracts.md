@@ -568,6 +568,18 @@ RIA relationship bundle note:
 | GET    | `/api/pkm/scopes/{user_id}`                                              | Get available PKM scope handles for the user                                                                                                          |
 | POST   | `/api/pkm/get-context`                                                   | Get user context for analysis                                                                                                                         |
 
+Memory proposal retries remain explicit, independently vault-owner-authorized
+requests. For an exact single-segment proposal whose final structure stage timed
+out, the existing bounded, process-memory preview cache can retain schema-valid
+earlier stage outputs that survived normalization without substituted semantic
+fields. Reuse is bound to owner, credential digest, complete request context,
+effective model/contracts and runtime policy. The failed stage runs fresh within
+the unchanged request budget; current sharing impact is always recalculated.
+Repeated failures do not extend the original cache expiry. Internal continuation
+records are not returned to clients or persisted; sanitized stage telemetry marks
+reuse separately from a new model invocation. This is preparation only, never
+write or sharing authorization.
+
 #### Connected Systems
 
 Connected Systems are registry-driven. Safe registry listing is signed-in;

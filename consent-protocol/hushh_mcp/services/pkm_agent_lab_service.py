@@ -27,6 +27,7 @@ from hushh_mcp.services.domain_contracts import (
     DYNAMIC_DOMAIN_CONTRACT_VERSION,
     validate_dynamic_top_level_domain,
 )
+from hushh_mcp.services.pkm_preview_continuation import PreviewContinuation, contract_fingerprint
 
 logger = logging.getLogger(__name__)
 
@@ -855,7 +856,7 @@ class PKMAgentLabService:
         material = json.dumps(
             {
                 "user_id": user_id,
-                "message": message.strip(),
+                "message": message,
                 "current_domains": sorted(current_domains),
                 "current_manifests": current_manifests or [],
                 "simulated_state": simulated_state or {},
@@ -884,15 +885,23 @@ class PKMAgentLabService:
         return deepcopy(payload)
 
     @classmethod
-    def _set_cached_structure_preview(cls, cache_key: str, payload: dict[str, Any]) -> None:
-        # A retry must perform fresh work after a provider/schema failure. Keep
-        # successful semantic no-ops cacheable, but never pin a degraded result
-        # to the same draft for the entire preview TTL.
+    def _set_cached_structure_preview(
+        cls,
+        cache_key: str,
+        payload: dict[str, Any],
+        *,
+        checkpoint: dict | None = None,
+        expires_at: float | None = None,
+    ) -> None:
+        # Never cache a degraded final response. An explicitly admitted prefix
+        # retains only validated earlier stages; the failed stage must run fresh.
         if payload.get("used_fallback") or payload.get("error"):
-            _PREVIEW_CACHE.pop(cache_key, None)
-            return
+            if checkpoint is None:
+                _PREVIEW_CACHE.pop(cache_key, None)
+                return
+            payload = {"__validated_preparation_prefix": checkpoint}
         _PREVIEW_CACHE[cache_key] = (
-            time.time() + _PREVIEW_CACHE_TTL_SECONDS,
+            expires_at if expires_at is not None else time.time() + _PREVIEW_CACHE_TTL_SECONDS,
             deepcopy(payload),
         )
         _PREVIEW_CACHE.move_to_end(cache_key)
@@ -5279,7 +5288,9 @@ class PKMAgentLabService:
         domain_registry_override: list[dict[str, Any]] | None = None,
         deadline: float | None = None,
         execution_trace: list[dict[str, Any]] | None = None,
+        contract_runner=None,
     ) -> dict[str, Any]:
+        run_contract = contract_runner or self._run_agent_contract
         normalized_domains = [
             self._normalize_segment(domain) for domain in (current_domains or []) if domain
         ]
@@ -5296,7 +5307,7 @@ class PKMAgentLabService:
             message=message,
             current_domains=normalized_domains,
         )
-        financial_guard_raw = await self._run_agent_contract(
+        financial_guard_raw = await run_contract(
             manifest=self.financial_guard_manifest,
             prompt=self._build_financial_guard_prompt(
                 message=message,
@@ -5373,7 +5384,7 @@ class PKMAgentLabService:
                 # Derived from the guard, not asked of the intent agent.
                 intent_skipped = True
             else:
-                intent_raw = await self._run_agent_contract(
+                intent_raw = await run_contract(
                     manifest=self.memory_intent_manifest,
                     prompt=self._build_memory_intent_prompt(
                         message=message,
@@ -5408,7 +5419,7 @@ class PKMAgentLabService:
                 merge_used_fallback = False
                 merge_skipped = True
             else:
-                merge_raw = await self._run_agent_contract(
+                merge_raw = await run_contract(
                     manifest=self.memory_merge_manifest,
                     prompt=self._build_memory_merge_prompt(
                         message=message,
@@ -5451,7 +5462,7 @@ class PKMAgentLabService:
                 # False here, so a skipped stage reported as a successful run.
                 structure_skipped = True
             else:
-                structure_raw = await self._run_agent_contract(
+                structure_raw = await run_contract(
                     manifest=self.structure_manifest,
                     prompt=self._build_structure_prompt(
                         message=message,
@@ -5552,6 +5563,7 @@ class PKMAgentLabService:
         domain_registry_override: list[dict[str, Any]] | None = None,
         capture_execution_trace: bool = False,
         memory_profile: str = "general",
+        continuation_scope: str | None = None,
     ) -> dict[str, Any]:
         total_started_at = time.perf_counter()
         normalized_domains = [
@@ -5568,11 +5580,59 @@ class PKMAgentLabService:
             domain_registry_override=domain_registry_override,
             memory_profile=memory_profile,
         )
+
+        def resolve_model(manifest, override):
+            return resolve_fleet_model_name(
+                override or _manifest_model_name(manifest) or GEMINI_MODEL
+            )
+
+        # Bind cache entries to the effective authored contracts and execution
+        # policy, not only the owner's submitted context. Source changes invalidate
+        # continuation rather than silently replaying a previous interpretation.
+        contracts = [
+            (self.memory_segmentation_manifest, _SEGMENTATION_SCHEMA),
+            (self.financial_guard_manifest, _FINANCIAL_GUARD_SCHEMA),
+            (self.memory_intent_manifest, _INTENT_FRAME_SCHEMA),
+            (self.memory_merge_manifest, _MERGE_DECISION_SCHEMA),
+            (self.structure_manifest, _STRUCTURE_PREVIEW_SCHEMA),
+        ]
+        runtime_fingerprint = "".join(
+            contract_fingerprint(manifest, resolve_model(manifest, model_override), schema)
+            for manifest, schema in contracts
+        )
+        for relative_path in (
+            "services/pkm_agent_lab_service.py",
+            "services/pkm_preview_continuation.py",
+            "services/domain_contracts.py",
+            "hushh_adk/single_turn.py",
+            "hushh_adk/turn.py",
+            "runtime_providers/gemini_config.py",
+        ):
+            runtime_fingerprint += hashlib.sha256(
+                (_REPO_ROOT / "hushh_mcp" / relative_path).read_bytes()
+            ).hexdigest()
+        runtime_fingerprint += json.dumps(
+            [
+                continuation_scope,
+                _PREVIEW_TOTAL_BUDGET_SECONDS,
+                _AGENT_CONTRACT_TIMEOUT_SECONDS,
+                _AGENT_CONTRACT_MAX_ATTEMPTS,
+            ]
+        )
+        preview_cache_key = hashlib.sha256(
+            (preview_cache_key + runtime_fingerprint).encode()
+        ).hexdigest()
+        prefix = None
+        checkpoint_expiry = time.time() + _PREVIEW_CACHE_TTL_SECONDS
         if not capture_execution_trace:
             cached_preview = self._get_cached_structure_preview(preview_cache_key)
             if cached_preview is not None:
-                logger.info("pkm.agent_lab.preview_cache_hit")
-                return cached_preview
+                if "__validated_preparation_prefix" in cached_preview:
+                    prefix = cached_preview["__validated_preparation_prefix"]
+                    checkpoint_expiry = _PREVIEW_CACHE[preview_cache_key][0]
+                else:
+                    logger.info("pkm.agent_lab.preview_cache_hit")
+                    return cached_preview
             inflight_preview = _PREVIEW_INFLIGHT.get(preview_cache_key)
             if inflight_preview is not None:
                 logger.info("pkm.agent_lab.preview_inflight_hit")
@@ -5580,6 +5640,9 @@ class PKMAgentLabService:
 
         async def _build_preview() -> dict[str, Any]:
             errors: list[str] = []
+            continuation = PreviewContinuation(
+                run=self._run_agent_contract, resolve_model=resolve_model, records=prefix
+            )
             # These records contain only stage outcomes/timings, never model
             # values. Keep them on normal responses so failures are diagnosable
             # without trace mode's deliberate cache/inflight bypass.
@@ -5602,7 +5665,7 @@ class PKMAgentLabService:
             preview_deadline = time.perf_counter() + _PREVIEW_TOTAL_BUDGET_SECONDS
 
             segmentation_started_at = time.perf_counter()
-            segmentation_raw = await self._run_agent_contract(
+            segmentation_raw = await continuation.run(
                 manifest=self.memory_segmentation_manifest,
                 prompt=self._build_memory_segmentation_prompt(
                     message=message,
@@ -5676,6 +5739,7 @@ class PKMAgentLabService:
                     domain_registry_override=domain_registry_override,
                     deadline=preview_deadline,
                     execution_trace=execution_trace,
+                    contract_runner=continuation.run,
                 )
                 preview_latency_ms = round((time.perf_counter() - preview_started_at) * 1000, 2)
                 card_id = f"card_{index:02d}"
@@ -5840,7 +5904,19 @@ class PKMAgentLabService:
                 structure_used_fallback=bool(response_payload.get("structure_used_fallback")),
             )
             if not capture_execution_trace:
-                self._set_cached_structure_preview(preview_cache_key, response_payload)
+                checkpoint = (
+                    continuation.checkpoint(
+                        message=message, response=response_payload, trace=execution_trace
+                    )
+                    if continuation_scope
+                    else None
+                )
+                self._set_cached_structure_preview(
+                    preview_cache_key,
+                    response_payload,
+                    checkpoint=checkpoint,
+                    expires_at=checkpoint_expiry if checkpoint else None,
+                )
             return response_payload
 
         if capture_execution_trace:
