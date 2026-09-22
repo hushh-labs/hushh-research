@@ -154,6 +154,7 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         bridge?.registerPluginInstance(HushhVoiceInvocationPlugin())
         bridge?.registerPluginInstance(HushhSessionPrivacyPlugin())
         bridge?.registerPluginInstance(HushhStreamPlugin())
+        bridge?.registerPluginInstance(HushhOAuthReturnPlugin())
         
         print("✅ [MyViewController] All 15 plugins registered successfully:")
         print("   - HushhAuth (Google Sign-In)")

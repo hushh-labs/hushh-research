@@ -14,6 +14,7 @@ const tsPluginFiles = [
   "lib/capacitor/one-voice-invocation.ts",
   "lib/capacitor/session-privacy.ts",
   "lib/capacitor/stream.ts",
+  "lib/capacitor/oauth-return.ts",
 ];
 
 const iosPluginsDir = path.join(appRoot, "ios/App/App/Plugins");

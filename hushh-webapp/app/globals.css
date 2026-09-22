@@ -2390,6 +2390,17 @@ html.kb-open [data-agent-bar-shell][data-agent-bar-layout="fixed"] {
  * Send and the mic (the probe classed them as bottom-nav taps, bug log B45).
  * `visibility: hidden` cannot be overridden by a child's pointer-events; it
  * flips once the fade has run and returns at once. */
+/* Plaid Link mounts its own iframe on the page, `position: fixed; inset: 0`
+ * inline, so on the native shell (whose WebView runs under the status bar)
+ * the Link card and its close control sat under the clock and the battery
+ * (a real Chase connection on the iPhone, bug log B49). On native the frame
+ * starts below the safe area; on the web the inset is 0 and nothing moves.
+ * The selector is Plaid's own id prefix for the Link frame. */
+html.native-keyboard-inset iframe[id^="plaid-link-iframe"] {
+  top: var(--app-safe-area-top-effective, 0px) !important;
+  height: calc(100% - var(--app-safe-area-top-effective, 0px)) !important;
+}
+
 /* Mobile web only. In the native shell the stack no longer lifts with the
  * keyboard (bug log B47), so the keyboard simply covers the navigation and
  * there is nothing to hide; hiding it anyway cost the return: visibility
