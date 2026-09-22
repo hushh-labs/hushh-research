@@ -173,6 +173,7 @@ def main() -> int:
         serving = ";".join(
             f"{target['revision']}:{target['percent']}%"
             f"@{target['deploy_sha'] or 'unknown'}"
+            f" run={target['github_run_id'] or 'unknown'}"
             f" image={target['image'] or 'unknown'}"
             for target in item["serving_revisions"]
         ) or "none"
