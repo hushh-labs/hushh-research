@@ -262,7 +262,6 @@ type AgentMessage = {
   renderAsPlainAssistantMessage?: boolean;
   specialistDirective?: SpecialistDirectiveEvent | null;
   streamEvents?: AgentVisibleStreamEvent[];
-  thought?: string;
   sources?: AgentSource[];
   structuredExperience?: AgentStructuredExperience | null;
   structuredExperiences?: AgentStructuredExperienceEntry[];
@@ -1503,7 +1502,6 @@ function AgentBubble({
           ) : shouldRenderStreamPanel ? (
             <AgentTurnStreamPanel
               streamEvents={streamEvents}
-              thinkingText={message.thought}
               sources={message.sources}
               structuredExperience={message.structuredExperience}
               structuredExperiences={structuredExperiences}
@@ -4467,13 +4465,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             if (streamAbortController.signal.aborted) return;
             queueAssistantDelta(delta);
           },
-          onThought: (delta) => {
-            if (streamAbortController.signal.aborted) return;
-            updateMessage(assistantMessageId, (message) => ({
-              ...message,
-              thought: (message.thought ?? "") + delta,
-            }));
-          },
           onSources: (sources) => {
             if (streamAbortController.signal.aborted) return;
             updateMessage(assistantMessageId, (message) => ({
@@ -4713,13 +4704,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           onToken: (delta) => {
             if (streamAbortController.signal.aborted) return;
             queueAssistantDelta(delta);
-          },
-          onThought: (delta) => {
-            if (streamAbortController.signal.aborted) return;
-            updateMessage(assistantMessageId, (message) => ({
-              ...message,
-              thought: (message.thought ?? "") + delta,
-            }));
           },
           onSources: (sources) => {
             if (streamAbortController.signal.aborted) return;

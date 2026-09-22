@@ -84,11 +84,28 @@ export type AgentChatStreamHandlers = {
   onComplete?: (payload: { conversationId: string; model?: string }) => void;
   onInterrupt?: (payload: { conversationId: string }) => void;
   onError?: (message: string) => void;
-  onThought?: (text: string) => void;
   onSources?: (sources: AgentSource[]) => void;
   /** The optional id is the AG-UI activity/tool identity for transport dedupe. */
   onStructuredExperience?: (experience: AgentStructuredExperience, eventId?: string) => void;
   onSpecialistDirective?: (directive: SpecialistDirectiveEvent) => void;
+};
+
+// Reject legacy reasoning before the SDK stores it, including replay snapshots.
+// Server continuation signatures remain server-owned and never enter this UI.
+const publicOutputSubscriber: Pick<
+  AgentSubscriber,
+  "onEvent" | "onMessagesSnapshotEvent"
+> = {
+  onEvent: ({ event }) => {
+    if (String(event.type).startsWith("REASONING_")) {
+      return { stopPropagation: true };
+    }
+    return undefined;
+  },
+  onMessagesSnapshotEvent: ({ event }) => ({
+    messages: event.messages.filter((message) => message.role !== "reasoning"),
+    stopPropagation: true,
+  }),
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -461,12 +478,12 @@ export async function streamAgentChat(input: {
     };
   };
   const subscriber: AgentSubscriber = {
+    ...publicOutputSubscriber,
     onRunStartedEvent: () => handlers.onStart?.({ conversationId: threadId }),
     onTextMessageContentEvent: ({ event }) => {
       text += event.delta;
       handlers.onToken?.(event.delta);
     },
-    onReasoningMessageContentEvent: ({ event }) => handlers.onThought?.(event.delta),
     onToolCallStartEvent: ({ event }) => {
       toolNames.set(event.toolCallId, event.toolCallName);
       handlers.onToolStart?.(toolPayload(event.toolCallId, event.toolCallName));
@@ -708,12 +725,12 @@ export async function streamAgentIntro(input: {
   let text = "";
   let failure: Error | null = null;
   const subscriber: AgentSubscriber = {
+    ...publicOutputSubscriber,
     onRunStartedEvent: () => handlers.onStart?.({ conversationId: threadId }),
     onTextMessageContentEvent: ({ event }) => {
       text += event.delta;
       handlers.onToken?.(event.delta);
     },
-    onReasoningMessageContentEvent: ({ event }) => handlers.onThought?.(event.delta),
     onRunFinishedEvent: () => handlers.onComplete?.({ conversationId: threadId }),
     onRunErrorEvent: ({ event }) => {
       failure = new Error(formatAgentChatErrorMessage(event.message || ""));
@@ -762,7 +779,22 @@ export async function getAgentChatHistory(input: {
     throw new Error(await readError(response));
   }
   const payload = (await response.json()) as { messages?: AgentChatMessage[] };
-  return Array.isArray(payload.messages) ? payload.messages : [];
+  if (!Array.isArray(payload.messages)) return [];
+  return payload.messages
+    .filter((message) => ["user", "assistant", "system", "tool"].includes(message.role))
+    .map((message) => ({
+      id: message.id,
+      conversation_id: message.conversation_id,
+      role: message.role,
+      status: message.status,
+      content: message.content,
+      model: message.model,
+      created_at: message.created_at,
+      completed_at: message.completed_at,
+      metadata: message.metadata
+        ? { kind: message.metadata.kind, display: message.metadata.display }
+        : message.metadata,
+    }));
 }
 
 /**

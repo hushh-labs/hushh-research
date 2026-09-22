@@ -20,6 +20,8 @@ from typing import Any, cast
 from ag_ui.core import BaseEvent, EventType, RunAgentInput
 from ag_ui_adk import ADKAgent
 
+from hushh_mcp.one_adk.output_privacy import public_event
+
 logger = logging.getLogger(__name__)
 
 HEAD_ONE = "one"
@@ -133,7 +135,9 @@ class TimedADKAgent(ADKAgent):
         try:
             async for event in super().run(input):
                 timing.observe(event)
-                yield event
+                projected = public_event(event) if self.head in (HEAD_ONE, HEAD_INTRO) else event
+                if projected is not None:
+                    yield projected
         except (asyncio.CancelledError, GeneratorExit):
             interrupted = True
             # Consumers commonly close immediately after the terminal event.

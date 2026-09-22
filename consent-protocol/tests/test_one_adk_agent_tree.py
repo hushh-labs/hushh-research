@@ -91,14 +91,14 @@ from hushh_mcp.services.one_location_circle_service import OneLocationCircleServ
 
 
 class TestAgentTreeShape:
-    def test_chat_thinking_policy_preserves_provider_baseline_by_default(
+    def test_chat_thinking_policy_preserves_provider_baseline_without_public_summaries(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.delenv("HUSHH_ONE_CHAT_THINKING_LEVEL", raising=False)
 
         config = _one_chat_thinking_config()
 
-        assert config.include_thoughts is True
+        assert config.include_thoughts is False
         assert getattr(config, "thinking_level", None) is None
 
     def test_chat_thinking_policy_can_request_low_without_affecting_other_heads(
@@ -108,7 +108,7 @@ class TestAgentTreeShape:
 
         config = _one_chat_thinking_config()
 
-        assert config.include_thoughts is True
+        assert config.include_thoughts is False
         assert getattr(getattr(config, "thinking_level", None), "value", None) == "LOW"
 
     def test_root_agent_is_one_with_full_roster(self):

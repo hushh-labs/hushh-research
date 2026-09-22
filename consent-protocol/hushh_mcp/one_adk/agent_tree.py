@@ -228,21 +228,20 @@ _ONE_CHAT_THINKING_LEVEL_ENV = "HUSHH_ONE_CHAT_THINKING_LEVEL"
 
 
 def _one_chat_thinking_config() -> genai_types.ThinkingConfig:
-    """Build One Chat's measurable thinking policy without changing the baseline.
+    """Keep One's model thinking policy while withholding thought summaries.
 
-    An unset value deliberately preserves the provider default while retaining
-    visible thought summaries. ``low`` is an explicit experiment/rollout
-    switch so latency can be compared against the baseline without silently
-    changing specialist or native-voice policies.
+    An unset value preserves the provider's thinking budget. ``low`` remains
+    an explicit latency experiment without changing specialist or native-voice
+    policies. Neither setting exposes provider thought summaries to chat.
     """
     configured = os.getenv(_ONE_CHAT_THINKING_LEVEL_ENV, "").strip()
     if not configured or configured.lower() in {"default", "provider"}:
-        return genai_types.ThinkingConfig(include_thoughts=True)
+        return genai_types.ThinkingConfig(include_thoughts=False)
     resolved = thinking_config_for(_SPECIALIST_MODEL, configured, genai_types)
     if resolved is None:
-        return genai_types.ThinkingConfig(include_thoughts=True)
+        return genai_types.ThinkingConfig(include_thoughts=False)
     return genai_types.ThinkingConfig(
-        include_thoughts=True,
+        include_thoughts=False,
         thinking_level=resolved.thinking_level,
     )
 
@@ -1789,6 +1788,9 @@ def build_one_intro_text_agent(*, model: Any | None = None) -> LlmAgent:
         description=manifest.description,
         instruction=manifest.system_instruction,
         tools=[run_intro_navigation_action, list_intro_navigation_actions],
+        generate_content_config=genai_types.GenerateContentConfig(
+            thinking_config=genai_types.ThinkingConfig(include_thoughts=False),
+        ),
     )
 
 
@@ -2007,9 +2009,8 @@ def build_one_text_agent(*, model: Any | None = None) -> LlmAgent:
         description=_ONE_MANIFEST.description,
         instruction=_one_runtime_instruction,
         tools=_one_roster_tools(specialist_model=text_model),
-        # Surface Gemini reasoning summaries so Agent Chat can stream a visible
-        # "Thinking" trace. The provider default remains the baseline; an
-        # explicit Chat-only switch can request LOW for measured comparison.
+        # Keep provider reasoning internal while preserving any configured
+        # thinking-level policy for latency experiments.
         generate_content_config=genai_types.GenerateContentConfig(
             thinking_config=_one_chat_thinking_config(),
         ),

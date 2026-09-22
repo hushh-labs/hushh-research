@@ -158,19 +158,6 @@ def _event_text(event: Any) -> str:
     )
 
 
-def _event_thought(event: Any) -> str:
-    """Extract only Gemini thought-summary parts (the visible reasoning trace)."""
-    if str(getattr(event, "author", "") or "") != "one":
-        return ""
-    content = getattr(event, "content", None)
-    parts = getattr(content, "parts", None) or []
-    return "".join(
-        str(part.text)
-        for part in parts
-        if isinstance(getattr(part, "text", None), str) and bool(getattr(part, "thought", False))
-    )
-
-
 # Specialist/tool function-call name -> (agent_id, human label). Only true
 # subagents (and web search) become sources; app-action tools do not.
 _SPECIALIST_TOOL_SOURCES: dict[str, tuple[str, str]] = {
@@ -389,10 +376,6 @@ async def _stream_one_text_turn_once(
                 first_visible_at = time.perf_counter()
             yield OneTextStreamEvent(kind="directive", directive=directive)
 
-        thought = _event_thought(event)
-        if thought:
-            yield OneTextStreamEvent(kind="thought", text=thought)
-
         for text_source in _event_sources(event):
             yield OneTextStreamEvent(kind="source", source=text_source)
 
@@ -475,9 +458,10 @@ async def stream_one_text_turn(
                 if event.kind == "boundary":
                     replay_boundary_crossed = True
                     continue
-                if event.kind in ("thought", "source"):
-                    # Reasoning + source records stream around the answer; forward
-                    # them but keep the turn replay-safe so a pre-answer failover
+                if event.kind == "thought":
+                    continue
+                if event.kind == "source":
+                    # Provenance records keep the turn replay-safe so a pre-answer failover
                     # can still retry without duplicating visible answer output.
                     yield event
                     continue
@@ -559,10 +543,6 @@ async def stream_one_intro_text_turn(
                 continue
             emitted_directives.add(fingerprint)
             yield OneTextStreamEvent(kind="directive", directive=directive)
-
-        thought = _event_thought(event)
-        if thought:
-            yield OneTextStreamEvent(kind="thought", text=thought)
 
         for text_source in _event_sources(event):
             yield OneTextStreamEvent(kind="source", source=text_source)

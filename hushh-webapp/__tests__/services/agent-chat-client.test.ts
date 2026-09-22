@@ -67,10 +67,12 @@ vi.mock("@/lib/services/api-service", () => ({
 
 import {
   formatAgentChatErrorMessage,
+  getAgentChatHistory,
   streamAgentChat,
   streamAgentIntro,
   type SpecialistDirectiveEvent,
 } from "@/lib/services/agent-chat-client";
+import { ApiService } from "@/lib/services/api-service";
 
 describe("AG-UI Agent One client", () => {
   beforeEach(() => {
@@ -193,6 +195,44 @@ describe("AG-UI Agent One client", () => {
       text: "Hello",
     });
     expect(mockTransport.runAgent.mock.calls[0]?.[1]).toMatchObject({ url: "/api/one/agent-chat" });
+  });
+
+  it.each(["full", "intro"])("drops reasoning before SDK storage in the %s tier", async (tier) => {
+    const privateMessage = { id: "r1", role: "reasoning", content: "Private reasoning" };
+    const answer = { id: "a1", role: "assistant", content: "Public answer" };
+    mockTransport.emitEvents = (subscriber) => {
+      for (const type of [
+        "REASONING_START", "REASONING_MESSAGE_START", "REASONING_MESSAGE_CONTENT",
+        "REASONING_MESSAGE_END", "REASONING_MESSAGE_CHUNK", "REASONING_END",
+        "REASONING_ENCRYPTED_VALUE",
+      ]) {
+        expect(subscriber.onEvent({ event: { type } })).toEqual({ stopPropagation: true });
+      }
+      expect(subscriber.onMessagesSnapshotEvent({ event: { messages: [privateMessage, answer] } }))
+        .toEqual({ messages: [answer], stopPropagation: true });
+      expect(subscriber.onEvent({ event: { type: "TOOL_CALL_RESULT" } })).toBeUndefined();
+      expect(subscriber.onReasoningMessageContentEvent).toBeUndefined();
+    };
+    const result = tier === "intro"
+      ? await streamAgentIntro({ message: "Hello" })
+      : await streamAgentChat({ userId: "u1", message: "Hello", vaultOwnerToken: "owner-token" });
+    expect(result.text).toBe("Hello");
+    expect(privateMessage.content).toBe("Private reasoning");
+  });
+
+  it("projects legacy history before messages reach UI caches", async () => {
+    vi.mocked(ApiService.getAgentChatHistory).mockResolvedValueOnce(new Response(JSON.stringify({
+      messages: [
+        { id: "r1", role: "reasoning", content: "Private reasoning" },
+        { id: "a1", conversation_id: "c1", role: "assistant", status: "complete",
+          content: "Public answer", thought: "Private reasoning", reasoning: "Private reasoning",
+          metadata: { kind: "answer", thought: "Private reasoning" } },
+      ],
+    })));
+    const messages = await getAgentChatHistory({ conversationId: "c1", vaultOwnerToken: "owner-token" });
+    expect(messages).toHaveLength(1);
+    expect(messages[0].content).toBe("Public answer");
+    expect(JSON.stringify(messages)).not.toContain("Private reasoning");
   });
 
   it("never exposes unknown AG-UI runtime errors to the transcript", () => {

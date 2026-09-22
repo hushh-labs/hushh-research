@@ -646,7 +646,7 @@ delete/absent lifecycle with cleanup.
 | Method | Path                                                  | Description                                                                                                                                                   |
 | ------ | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | POST   | `/api/kai/chat`                                       | Conversational Kai endpoint                                                                                                                                   |
-| POST   | `/api/one/agent-chat`                                 | Canonical AG-UI `RunAgentInput` endpoint; emits only official run, text, reasoning, tool, state, interrupt, and terminal events; authenticated ADK sessions are encrypted at rest |
+| POST   | `/api/one/agent-chat`                                 | Canonical AG-UI `RunAgentInput` endpoint; emits official run, text, tool, state, interrupt, and terminal events, excluding provider reasoning; authenticated ADK sessions are encrypted at rest |
 | GET    | `/api/one/agent-chat/capabilities`                    | Official AG-UI capability projection for the request's authenticated or pre-vault runtime tier                                                                       |
 | GET    | `/api/one/agent-chat/conversations/{user_id}`         | List recent encrypted Agent chat conversations for the vault owner                                                                                            |
 | PATCH  | `/api/one/agent-chat/conversations/{conversation_id}` | Rename an authenticated vault owner's encrypted Agent chat conversation                                                                                       |
@@ -658,6 +658,14 @@ delete/absent lifecycle with cleanup.
 | GET    | `/api/kai/chat/conversations/{user_id}`               | List all conversations                                                                                                                                        |
 | GET    | `/api/kai/chat/initial-state/{user_id}`               | Initial chat state                                                                                                                                            |
 | POST   | `/api/kai/chat/analyze-loser`                         | Analyze a specific loser                                                                                                                                      |
+
+One's full and pre-vault heads do not publish thought summaries. Reasoning
+events and reasoning messages in replay snapshots are removed at the outbound
+boundary, and history/compatibility responses omit thought-marked text parts.
+This does not disable model reasoning or mutate provider continuation state:
+opaque thought signatures and function-call associations stay server-side.
+The client rejects legacy reasoning events before SDK message storage and uses
+deterministic activity/status text instead of a reasoning detail view.
 
 #### One Voice
 

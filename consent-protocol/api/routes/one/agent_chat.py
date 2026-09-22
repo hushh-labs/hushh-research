@@ -141,7 +141,7 @@ _authenticated_capabilities = {
     "tools": {"supported": True, "parallelCalls": False, "clientProvided": True},
     "state": {"snapshots": True, "deltas": True, "memory": False, "persistentState": True},
     "multiAgent": {"supported": True, "delegation": True, "handoffs": False},
-    "reasoning": {"supported": True, "streaming": True, "encrypted": False},
+    "reasoning": {"supported": False, "streaming": False, "encrypted": False},
     "humanInTheLoop": {
         "supported": True,
         "approvals": True,
@@ -211,12 +211,9 @@ add_adk_fastapi_endpoint(
 
 
 def _event_text(event: Any) -> str:
-    parts = getattr(getattr(event, "content", None), "parts", None) or []
-    return "".join(
-        str(getattr(part, "text", "") or "")
-        for part in parts
-        if not getattr(part, "thought", False)
-    ).strip()
+    from hushh_mcp.one_adk.output_privacy import public_text
+
+    return public_text(event)
 
 
 _SAFE_PROFILE_PATH = re.compile(r"^/people/[A-Za-z0-9_-]{16,128}$")
