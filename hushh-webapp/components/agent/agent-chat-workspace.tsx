@@ -7104,7 +7104,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                               : "Message One..."
                           }
                           rows={1}
-                          className="h-auto max-h-28 min-h-0 min-w-0 flex-1 resize-none overscroll-contain overflow-y-auto border-0 bg-transparent px-0 py-2.5 text-[15px] leading-snug text-foreground caret-[color:var(--app-accent)] outline-none shadow-none focus-visible:border-transparent focus-visible:ring-0 placeholder:text-muted-foreground/60 disabled:cursor-not-allowed disabled:opacity-60 sm:max-h-36 sm:text-sm break-words [overflow-wrap:anywhere] [word-break:break-word]"
+                          className="h-auto max-h-28 min-h-0 min-w-0 flex-1 resize-none overscroll-contain overflow-y-auto border-0 bg-transparent pl-1.5 pr-4 py-2.5 text-[15px] leading-snug text-foreground caret-[color:var(--app-accent)] outline-none shadow-none focus-visible:border-transparent focus-visible:ring-0 placeholder:text-muted-foreground/60 disabled:cursor-not-allowed disabled:opacity-60 sm:max-h-36 sm:pl-2 sm:pr-4 sm:text-sm break-words [overflow-wrap:anywhere] [word-break:break-word]"
                         />
                         <Button
                           type="button"
