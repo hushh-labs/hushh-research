@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Unplug as PlugIcon } from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
@@ -38,26 +39,6 @@ import {
 import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
 import { useVault } from "@/lib/vault/vault-context";
 
-/**
- * The team's named next connectors (see the external-MCP-connector plan).
- * None of these has a registered `external_mcp_connectors` row yet -- listing
- * them here, disabled, tells a person what's coming without implying any of
- * them is one API call away. Real rows from the registry always render first
- * and never duplicate an id also listed here.
- *
- * Google Workspace/Gmail is deliberately absent: it's a real, already-shipped
- * connection (see `useGmailConnectorStatus`), not a registry row, so it gets
- * its own card above with live status instead of a disabled stub here.
- */
-const COMING_SOON_CONNECTORS: { id: string; displayName: string }[] = [
-  { id: "microsoft-graph", displayName: "Microsoft Graph" },
-  { id: "notion", displayName: "Notion" },
-  { id: "hubspot", displayName: "HubSpot" },
-  { id: "shopify", displayName: "Shopify" },
-  { id: "plaid", displayName: "Plaid" },
-  { id: "circle", displayName: "Circle" },
-];
-
 export function ConnectorsPanel({
   open,
   onOpenChange,
@@ -65,10 +46,22 @@ export function ConnectorsPanel({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  const router = useRouter();
   const { user } = useAuth();
   const { vaultOwnerToken } = useVault();
   const [showUnlock, setShowUnlock] = useState(false);
-  const [connectors, setConnectors] = useState<ExternalConnectorSummary[]>([]);
+  const [catalog, setCatalog] = useState<{
+    ownerId: string;
+    token: string;
+    items: ExternalConnectorSummary[];
+  } | null>(null);
+  const refreshGeneration = useRef(0);
+  const connectors =
+    catalog &&
+    catalog.ownerId === user?.uid &&
+    catalog.token === vaultOwnerToken
+      ? catalog.items
+      : [];
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [apiKeyTarget, setApiKeyTarget] =
@@ -110,7 +103,9 @@ export function ConnectorsPanel({
   }, [gmailConnectorStatus]);
 
   const refresh = useCallback(async () => {
-    if (!vaultOwnerToken) {
+    const generation = ++refreshGeneration.current;
+    if (!vaultOwnerToken || !user?.uid) {
+      setCatalog(null);
       setLoading(false);
       return;
     }
@@ -118,19 +113,26 @@ export function ConnectorsPanel({
     setError(null);
     try {
       const list = await ExternalConnectorService.list(vaultOwnerToken);
-      setConnectors(list);
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Unable to load your connectors.",
-      );
+      if (generation === refreshGeneration.current) {
+        setCatalog({ ownerId: user.uid, token: vaultOwnerToken, items: list });
+      }
+    } catch {
+      if (generation === refreshGeneration.current) {
+        setError("Unable to load your connections. Please try again.");
+      }
     } finally {
-      setLoading(false);
+      if (generation === refreshGeneration.current) setLoading(false);
     }
-  }, [vaultOwnerToken]);
+  }, [vaultOwnerToken, user?.uid]);
+
+  const invalidateRefresh = useCallback(() => {
+    refreshGeneration.current++;
+  }, []);
 
   useEffect(() => {
     if (open) void refresh();
-  }, [open, refresh]);
+    return invalidateRefresh;
+  }, [open, refresh, invalidateRefresh]);
 
   const handleConnectOAuth = useCallback(
     async (connector: ExternalConnectorSummary) => {
@@ -178,11 +180,6 @@ export function ConnectorsPanel({
     [refresh, vaultOwnerToken],
   );
 
-  const registeredIds = new Set(connectors.map((c) => c.connectorId));
-  const comingSoon = COMING_SOON_CONNECTORS.filter(
-    (c) => !registeredIds.has(c.id),
-  );
-
   return (
     <>
       <Sheet open={open} onOpenChange={onOpenChange}>
@@ -196,8 +193,7 @@ export function ConnectorsPanel({
               MCP connections
             </SheetTitle>
             <SheetDescription>
-              Connect outside services so Kai can use your own data from them.
-              Disconnect any time.
+              Manage the services you connect to One.
             </SheetDescription>
           </SheetHeader>
 
@@ -217,8 +213,8 @@ export function ConnectorsPanel({
                 <Card key="google-workspace">
                   <CardHeader className="flex-row items-center justify-between gap-4">
                     <div>
-                      <CardTitle>Google Workspace</CardTitle>
-                      <CardDescription>Gmail and Calendar</CardDescription>
+                      <CardTitle>Gmail</CardTitle>
+                      <CardDescription>Email connection</CardDescription>
                     </div>
                     {gmailConnectorStatus.status?.connected ? (
                       <Button
@@ -248,6 +244,39 @@ export function ConnectorsPanel({
                     </CardContent>
                   ) : null}
                 </Card>
+
+                {[
+                  {
+                    name: "Calendar",
+                    description: "Google Calendar connection",
+                    href: ROUTES.CALENDAR,
+                  },
+                  {
+                    name: "Plaid",
+                    description: "Brokerage connections",
+                    href: ROUTES.KAI_PORTFOLIO_SOURCES,
+                  },
+                ].map((service) => (
+                  <Card key={service.name}>
+                    <CardHeader className="flex-row items-center justify-between gap-4">
+                      <div>
+                        <CardTitle>{service.name}</CardTitle>
+                        <CardDescription>{service.description}</CardDescription>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        aria-label={`Manage ${service.name}`}
+                        onClick={() => {
+                          onOpenChange(false);
+                          router.push(service.href);
+                        }}
+                      >
+                        Manage
+                      </Button>
+                    </CardHeader>
+                  </Card>
+                ))}
 
                 {connectors.map((connector) => (
                   <Card key={connector.connectorId}>
@@ -289,30 +318,6 @@ export function ConnectorsPanel({
                     ) : null}
                   </Card>
                 ))}
-
-                {comingSoon.length > 0 ? (
-                  <>
-                    <p className="mt-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                      Coming soon
-                    </p>
-                    <div className="divide-y divide-border rounded-lg border border-border">
-                      {comingSoon.map((connector) => (
-                        <div
-                          key={connector.id}
-                          className="flex items-center justify-between gap-3 px-3 py-2 opacity-60"
-                          aria-disabled="true"
-                        >
-                          <span className="text-sm font-medium">
-                            {connector.displayName}
-                          </span>
-                          <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                            Coming soon
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                ) : null}
               </div>
             )}
           </div>

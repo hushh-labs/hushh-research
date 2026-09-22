@@ -10,6 +10,11 @@ function read(relativePath: string) {
 }
 
 describe("private-agent chat shell contract", () => {
+  it("exposes the existing connector panel from chat history", () => {
+    const workspace = read("components/agent/agent-chat-workspace.tsx");
+    expect(workspace).toContain("onOpenConnectors={() => setConnectorsPanelOpen(true)}");
+    expect(workspace).toContain("<ConnectorsPanel");
+  });
   it("keeps the floating frame singular and lets the workspace reach its edges", () => {
     const workspace = read("components/agent/agent-chat-workspace.tsx");
     const providers = read("app/providers.tsx");
