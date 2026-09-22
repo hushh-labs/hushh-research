@@ -949,7 +949,7 @@
       "primary_access_path": "Operator-curated catalog of external MCP servers (Notion, HubSpot, ...) a user can connect from chat or the connectors manage page, resolved via external_connector_registry_service.py",
       "retention_policy": "Retain active connector definitions while offered; deactivate rather than delete so historical per-user connections remain explainable.",
       "deletion_behavior": "Operator-managed reference config, registered via scripts/ops/configure_external_mcp_connector.py; not user-delete scoped.",
-      "trust_boundary": "Connector endpoint, auth style, and OAuth client-id/secret ENV VAR NAMES only -- never the credential values themselves, which stay in process env config.",
+      "trust_boundary": "Operator-controlled connector endpoint, transport, registered redirects, verified capability policy, auth style, and OAuth client-id/secret ENV VAR NAMES only -- never credential values. Policy and rollout admission are separate authorities; neither endpoints nor raw schemas are returned in customer status.",
       "plaintext_posture": "config_and_endpoint_urls_plaintext_no_secrets",
       "expected_row_growth": "low_reference"
     },
@@ -964,7 +964,7 @@
       "primary_access_path": "Per-user connect/disconnect status and encrypted credential envelope for one external MCP connector, via external_connector_credentials_service.py",
       "retention_policy": "Retain the encrypted credential while the connection is active; clear the ciphertext immediately on disconnect and keep only the revoked status row.",
       "deletion_behavior": "Cascade-delete on account deletion; disconnect clears credential_ciphertext/credential_iv immediately rather than waiting for a bounded window.",
-      "trust_boundary": "AES-256-GCM ciphertext AAD-bound to (user_id, connector_id) via EXTERNAL_CONNECTOR_CREDENTIAL_KEY -- a distinct trust domain from both google_provider_connections and the operator-level enterprise_crm_registry secret scheme. No plaintext API key or OAuth token at rest.",
+      "trust_boundary": "AES-GCM via EXTERNAL_CONNECTOR_CREDENTIAL_KEY, separate from google_provider_connections and enterprise_crm_registry. Legacy envelopes retain owner/connector AAD. V2 adds generation/version binding and encrypts verified account identity, client, scopes, expiry, and refresh material; queryable expiry is integrity-checked. Lifecycle generations, refresh leases, capability verification, and bounded revocation outcomes contain no provider secrets. Disconnect scrubs credentials before bounded in-memory revocation; failed revocation is not a promise of background retry.",
       "plaintext_posture": "encrypted_credential_no_plaintext_at_rest",
       "expected_row_growth": "low_per_user"
     },
@@ -977,10 +977,10 @@
         "external_connector_oauth_attempts"
       ],
       "primary_access_path": "Short-lived PKCE attempt state for an oauth-style external connector's start()/complete() round trip, via external_connector_oauth_service.py",
-      "retention_policy": "10-minute expiry per attempt; consumed or expired rows are not durable user memory.",
-      "deletion_behavior": "Not directly user-delete scoped; rows expire and are superseded by new attempts. Cascade-delete with account deletion for completeness.",
-      "trust_boundary": "PKCE code verifier is AES-256-GCM encrypted, AAD-bound to the attempt id. No client secret, access token, or refresh token is ever stored in this table.",
-      "plaintext_posture": "encrypted_verifier_no_plaintext_secret_at_rest",
+      "retention_policy": "10-minute authorization lifetime. Finalization, cancellation, disconnect, and superseding attempts scrub pending secrets. Bounded opportunistic cleanup on connector lifecycle traffic scrubs expired material and deletes expired workflow rows older than 24 hours; this is not a scheduled wall-clock purge guarantee.",
+      "deletion_behavior": "Disconnect invalidates all attempts for the owner/connector. Account deletion also removes these workflow rows. Cleanup never revokes provider grants or alters an active connection.",
+      "trust_boundary": "V2 PKCE verifier and OIDC nonce are encrypted with owner/connector/attempt AAD. Native callbacks may stage an encrypted verified token envelope additionally bound to connection generation; it cannot execute or activate until the original owner finalizes. No plaintext tokens, provider identity, OAuth codes, client secrets, or Vault Owner tokens are stored.",
+      "plaintext_posture": "encrypted_pkce_and_pending_credential_no_plaintext_secret_at_rest",
       "expected_row_growth": "low_ttl_workflow"
     },
     {

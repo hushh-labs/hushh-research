@@ -975,6 +975,40 @@ No silent success is emitted on terminal failures.
 
 ---
 
+## Personal Mail / Drive connector lifecycle (disabled draft)
+
+The Drive lifecycle extends the existing external-connector registry and credential store;
+it does not migrate Gmail/Calendar credentials or change Firebase authentication. These
+routes do **not** imply a usable Drive transport or enable chat reads.
+
+| Route | Authority | Contract |
+| --- | --- | --- |
+| `GET /api/connectors` | Vault Owner | Existing catalog/status plus redacted validation/revocation state and computed rollout flags; no endpoints, scopes, raw policy, provider subject or credentials. |
+| `POST /api/connectors/google_drive/connect/oauth/start` | Vault Owner + internal cohort/connection flag | Registered `redirectUri`, optional `flow=web\|native`; returns authorization URL, opaque `attemptId`, connector and ten-minute expiry. |
+| `POST /api/connectors/oauth/complete` | Vault Owner | Existing owner completion remains compatible. Drive uses atomic single-use claims and verified Google identity/scopes. |
+| `POST /api/connectors/oauth/complete/web` | Verified Firebase identity matching an existing unexpired Vault-authorized Drive attempt | Popup-only completion exception; no opener Vault Owner token transfer. |
+| `GET /api/connectors/oauth/native/callback` | Signed state + atomic native attempt claim | Backend code exchange; encrypted pending credentials only. Fixed `hushh://connectors/return` handoff contains only opaque attempt/outcome. Invalid state has no redirect. |
+| `POST /api/connectors/oauth/native/finalize` | Original Vault Owner | Accepts `attemptId`; checks expiry, generation, client/redirect configuration and current cohort admission before activation. |
+| `POST /api/connectors/google_drive/disconnect` | Vault Owner; remains available when rollout is off | Immediately disables local execution, invalidates attempts, clears credentials, then makes a bounded in-memory provider revocation attempt. Reports `revocationOutcome`; no background retry is promised. |
+
+Consent enters `verifying`, **not** `connected`. Capability verification and canonical
+Drive execution remain separate checkpoints. A definitive refresh grant rejection yields
+`needs_reauth`; transient failures preserve the encrypted grant. Refresh uses a 30-second
+database lease and generation/version fencing. A pending revocation temporarily blocks
+reconnection so an old revoke request cannot race a new grant.
+
+The existing hosted runtime-config mechanism carries default-false `connections_panel_v2`,
+`google_drive_connection`, `gmail_chat_reads`, and `google_drive_chat_reads` with an explicit
+internal owner cohort. This is revision-owned configuration, not an instantaneous fleet-wide
+flag service. Writes, user-facing downloads, connector voice execution and production remain
+disabled. Status, recovery callbacks and disconnect remain reachable with their required
+authority; an outstanding callback does not bypass activation eligibility.
+
+Release prerequisites still include authenticated transport selection/verification, web/native
+callers, scheduled retention, and OAuth callback ingress-log routing evidence. Application
+redaction covers query `code`/`state`, but does not sanitize platform-managed request logs.
+See [Mail + Drive UAT acceptance](../operations/mail-drive-uat-acceptance.md).
+
 ## External Developer API
 
 ### Consent Flow

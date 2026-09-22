@@ -17,7 +17,7 @@ _TOKEN_PREFIXES = ("HCT:", "Bearer ")
 _TOKEN_VALUE_RE = re.compile(r"\b(?:Bearer\s+|HCT:)[A-Za-z0-9._~+/=-]+")
 _QUERY_SECRET_RE = re.compile(
     r"([?&](?:access_token|api[_-]?key|apikey|auth|client_secret|key|"
-    r"private_key|refresh_token|secret|signature|token|"
+    r"private_key|refresh_token|secret|signature|token|code|state|"
     # A person's position is as sensitive as a credential and leaks the same
     # way. httpx logs every outbound request URL at INFO, so any provider call
     # that carries coordinates in its query string — the advisor directory, the

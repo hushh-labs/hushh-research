@@ -1,6 +1,13 @@
 # Fundamental blocking backend tests for CI.
 # Keep this list small and stable. Full historical suites remain manual.
 
+# Mail/Drive connector lifecycle: real PostgreSQL in the existing test-only CI service.
+tests/services/test_external_connector_lifecycle_postgres.py
+tests/services/test_external_connector_credentials_service.py
+tests/services/test_external_connector_google_oauth.py
+tests/services/test_connector_feature_admission.py
+tests/test_external_connector_oauth_routes.py
+
 tests/quality/test_byok_encryption.py
 tests/test_developer_api_routes.py
 tests/test_encrypted_blob_bounds.py

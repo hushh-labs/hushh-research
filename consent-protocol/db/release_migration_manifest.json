@@ -198,7 +198,8 @@
     "223_one_location_setup_progress.sql",
     "224_setup_capability_declined_ids.sql",
     "225_external_mcp_connectors.sql",
-    "226_pkm_manifest_path_repair.sql"
+    "226_pkm_manifest_path_repair.sql",
+    "227_external_connector_lifecycle.sql"
   ],
   "environment_overlays": {
     "uat": [

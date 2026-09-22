@@ -190,6 +190,11 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         "plaid_redirect_uri": args.plaid_redirect_uri,
         "plaid_tx_history_days": args.plaid_tx_history_days,
         "one_location_read_only_state_enabled": args.one_location_read_only_state_enabled,
+        "connections_panel_v2": getattr(args, "connections_panel_v2", "false"),
+        "google_drive_connection": getattr(args, "google_drive_connection", "false"),
+        "gmail_chat_reads": getattr(args, "gmail_chat_reads", "false"),
+        "google_drive_chat_reads": getattr(args, "google_drive_chat_reads", "false"),
+        "connector_internal_owner_cohort": getattr(args, "connector_internal_owner_cohort", ""),
         "one_location_nearby_presence_mode": args.one_location_nearby_presence_mode,
         "one_location_nearby_presence_cohort": args.one_location_nearby_presence_cohort,
         "consent_center_summary_v2_enabled": args.consent_center_summary_v2_enabled,
@@ -336,6 +341,11 @@ def main() -> int:
     # rollout default, not a change to application behavior when the env is
     # absent.
     parser.add_argument("--one-location-read-only-state-enabled", default="false")
+    parser.add_argument("--connections-panel-v2", default="false", choices=["true", "false"])
+    parser.add_argument("--google-drive-connection", default="false", choices=["true", "false"])
+    parser.add_argument("--gmail-chat-reads", default="false", choices=["true", "false"])
+    parser.add_argument("--google-drive-chat-reads", default="false", choices=["true", "false"])
+    parser.add_argument("--connector-internal-owner-cohort", default="")
     # Nearby check-in admission. Blank leaves the flow closed in production and
     # unchanged everywhere else; `_drop_empty` keeps an unset flag out of the
     # config entirely rather than writing an empty string the gate would have to
