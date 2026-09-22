@@ -1730,27 +1730,15 @@ export function LocationImmersiveMap({
   /**
    * What the native renderer is asked to draw.
    *
-   * Normally the HTML avatar replaces the owner pin. An active check-in is the
-   * compatibility exception: if camera listeners never report, HTML cannot
-   * project the avatar, so keep one blue renderer pin at the venue rather than
-   * leaving a live check-in completely unmarked. It disappears as soon as the
-   * avatar can project. The ordinary GPS surface keeps its no-flash behavior.
+   * The owner is an avatar on every map surface, including an active check-in.
+   * A renderer pin is not an acceptable compatibility substitute: it creates
+   * a second visual identity for the same person and can remain visible when a
+   * WebView never reports camera projection. If projection is late, wait for
+   * the avatar rather than drawing a generic location indicator.
    */
   const rendererMarkers = useMemo(
-    () =>
-      visibleMarkers.filter(
-        (marker) =>
-          marker.kind !== "self" ||
-          (isCheckInSurface &&
-            Boolean(displayedPlaceFocus?.active) &&
-            !selfPinDrawnAsAvatar),
-      ),
-    [
-      displayedPlaceFocus?.active,
-      isCheckInSurface,
-      selfPinDrawnAsAvatar,
-      visibleMarkers,
-    ],
+    () => visibleMarkers.filter((marker) => marker.kind !== "self"),
+    [visibleMarkers],
   );
 
   /**
@@ -2202,19 +2190,12 @@ export function LocationImmersiveMap({
       }
       if (generation !== markerGenerationRef.current) return;
       const mapMarkers: Marker[] = rendererMarkers.map((marker) => {
-        const isActiveCheckInOwnerFallback =
-          marker.kind === "self" &&
-          isCheckInSurface &&
-          Boolean(displayedPlaceFocus?.active) &&
-          !selfPinDrawnAsAvatar;
         // Labels stay in the local HTML tray/search index. The native Google
         // renderer receives coordinates and a generic accessibility title,
         // never the private recipient name.
         const title =
           marker.kind === "self"
-            ? isActiveCheckInOwnerFallback
-              ? "Your check-in place"
-              : "Your location"
+            ? "Your location"
             : marker.kind === "place"
               ? // A public venue the owner picked, so its name may reach the
                 // renderer -- unlike a private recipient's label.
@@ -2236,9 +2217,7 @@ export function LocationImmersiveMap({
                 title,
                 snippet:
                   marker.kind === "self"
-                    ? isActiveCheckInOwnerFallback
-                      ? "Checked in here"
-                      : "Your current location"
+                    ? "Your current location"
                     : marker.kind === "place"
                       ? "Your check-in place"
                       : "Sharing privately now",
@@ -2248,11 +2227,13 @@ export function LocationImmersiveMap({
           // per-pin styling this bridge exposes -- `title` cannot carry it,
           // because the web renderer paints titles across the map as a glyph
           // (see above) -- so the colour is where staleness has to be said.
-          tintColor:
-            !isActiveCheckInOwnerFallback &&
-            isStaleAt(marker.capturedAt, freshnessSeconds, staleClockMs)
-              ? STALE_TINT
-              : marker.tint,
+          tintColor: isStaleAt(
+            marker.capturedAt,
+            freshnessSeconds,
+            staleClockMs,
+          )
+            ? STALE_TINT
+            : marker.tint,
           zIndex: marker.kind === "self" ? 10 : marker.kind === "place" ? 9 : 1,
         };
       });
@@ -2301,8 +2282,6 @@ export function LocationImmersiveMap({
   }, [
     clusteringActive,
     entryLocationSettled,
-    displayedPlaceFocus?.active,
-    isCheckInSurface,
     mapReady,
     rendererMarkers,
     visibleMarkers,
@@ -2901,8 +2880,8 @@ export function LocationImmersiveMap({
 
         Rendered after the pills so it paints over a name that lands on the same
         pixels, and only once the renderer has reported a camera to project
-        with. When it cannot draw, `selfPinDrawnAsAvatar` is false and the
-        renderer keeps its own pin — the marker is never simply missing.
+        with. When it cannot draw, `selfPinDrawnAsAvatar` is false and we wait
+        for a camera report rather than substituting a generic location pin.
       */}
       {selfPinDrawnAsAvatar &&
       mapSelfMarker &&

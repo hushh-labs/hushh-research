@@ -45,7 +45,9 @@ const locationAnalytics = vi.hoisted(() => ({
 
 vi.mock("@/lib/observability/location-events", async (importOriginal) => {
   const actual =
-    await importOriginal<typeof import("@/lib/observability/location-events")>();
+    await importOriginal<
+      typeof import("@/lib/observability/location-events")
+    >();
   return {
     ...actual,
     trackOneLocationJourneyAction:
@@ -375,9 +377,9 @@ describe("NearbyCheckInSheet", () => {
     // Every heading the panel is allowed to carry, and nothing else. A new
     // section added here has to be a deliberate decision, not a drift.
     const sectionHeadings = within(panel).getAllByRole("heading", { level: 2 });
-    expect(sectionHeadings.map((heading) => heading.textContent?.trim())).toEqual(
-      ["Nearby places", "Visible for", "Visibility"],
-    );
+    expect(
+      sectionHeadings.map((heading) => heading.textContent?.trim()),
+    ).toEqual(["Nearby places", "Visible for", "Visibility"]);
     sectionHeadings.forEach((heading) =>
       expect(heading).toHaveClass(CHECK_IN_SECTION_TITLE_CLASSNAME),
     );
@@ -401,9 +403,7 @@ describe("NearbyCheckInSheet", () => {
     expect(screen.getByRole("button", { name: "Food" })).toHaveClass(
       ...CHECK_IN_CATEGORY_CHIP_CLASSNAME.split(" "),
     );
-    expect(
-      screen.getByRole("button", { name: "Shops" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Shops" })).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Food & drink" }),
     ).not.toBeInTheDocument();
@@ -437,9 +437,7 @@ describe("NearbyCheckInSheet", () => {
     within(panel).getByRole("heading", { name: "Visible for" });
 
     // No button ladder anymore -- one dropdown trigger carrying the choice.
-    expect(
-      within(panel).queryByRole("button", { name: "2 hours" }),
-    ).toBeNull();
+    expect(within(panel).queryByRole("button", { name: "2 hours" })).toBeNull();
     const trigger = within(panel).getByRole("combobox", {
       name: "Visible for",
     });
@@ -574,7 +572,9 @@ describe("NearbyCheckInSheet", () => {
         allowConnectionRequests: false,
       });
     });
-    expect(locationAnalytics.trackOneLocationJourneyAction).toHaveBeenCalledWith({
+    expect(
+      locationAnalytics.trackOneLocationJourneyAction,
+    ).toHaveBeenCalledWith({
       action: "nearby_check_in_result",
       result: "success",
       routeId: "one_location_check_in",
@@ -1882,8 +1882,9 @@ describe("NearbyCheckInSheet", () => {
     });
   });
 
-  it("publishes the live anchor once checked in, not the owner's position", async () => {
+  it("publishes the confirmed venue anchor even before an older server echoes it", async () => {
     const onPlaceFocusChange = vi.fn();
+    const onStateChange = vi.fn();
     service.checkInNearby.mockResolvedValue({
       presence: {
         status: "active",
@@ -1894,8 +1895,6 @@ describe("NearbyCheckInSheet", () => {
         checkedInAt: new Date().toISOString(),
         expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
         placeLabel: "Stanford University",
-        placeLat: 37.4276,
-        placeLng: -122.1697,
       },
       attendees: [],
     });
@@ -1907,6 +1906,7 @@ describe("NearbyCheckInSheet", () => {
         vaultOwnerToken="owner-token"
         captureCurrentPosition={vi.fn().mockResolvedValue(point)}
         onOpenChange={vi.fn()}
+        onStateChange={onStateChange}
         onPlaceFocusChange={onPlaceFocusChange}
       />,
     );
@@ -1922,6 +1922,16 @@ describe("NearbyCheckInSheet", () => {
     fireEvent.click(screen.getByRole("button", { name: "Check in" }));
 
     await waitFor(() => {
+      expect(onStateChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          presence: expect.objectContaining({
+            placeId: "stanford-main",
+            placeLabel: "Stanford University",
+            placeLat: 37.4276,
+            placeLng: -122.1697,
+          }),
+        }),
+      );
       expect(onPlaceFocusChange).toHaveBeenLastCalledWith(
         expect.objectContaining({
           label: "Stanford University",

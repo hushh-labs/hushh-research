@@ -374,6 +374,47 @@ function placePoint(
   return { latitude: place.latitude, longitude: place.longitude };
 }
 
+/**
+ * Keep the confirmed public venue authoritative even while deployments roll.
+ *
+ * Current servers echo the encrypted venue anchor in the successful check-in
+ * response. If a web deployment reaches an older API instance during a rolling
+ * release, that response can still say "active" without the optional
+ * coordinates. Publishing it verbatim briefly leaves the map in selection
+ * mode: the avatar stays at the device fix and the candidate place pin remains.
+ * The owner has just confirmed this exact provider result, so use its public
+ * coordinates as the response-local anchor until the next server read returns
+ * the canonical values. This never substitutes the owner's private GPS point.
+ */
+function withConfirmedPlaceAnchor(
+  state: OneLocationNearbyPresenceState,
+  place: OneLocationNearbyPlaceSuggestion,
+): OneLocationNearbyPresenceState {
+  const presence = state.presence;
+  if (!presence) return state;
+  if (
+    typeof presence.placeLat === "number" &&
+    typeof presence.placeLng === "number" &&
+    Number.isFinite(presence.placeLat) &&
+    Number.isFinite(presence.placeLng)
+  ) {
+    return state;
+  }
+  const anchor = placePoint(place);
+  if (!anchor) return state;
+  return {
+    ...state,
+    presence: {
+      ...presence,
+      placeId: presence.placeId || place.placeId,
+      placeLabel:
+        presence.placeLabel?.trim() || place.name?.trim() || place.text,
+      placeLat: anchor.latitude,
+      placeLng: anchor.longitude,
+    },
+  };
+}
+
 /** Straight-line metres between two points. */
 function metresBetween(
   from: { latitude: number; longitude: number },
@@ -1639,7 +1680,7 @@ export function NearbyCheckInSheet({
             allowConnectionRequests,
           }),
       });
-      const next = completed.state;
+      const next = withConfirmedPlaceAnchor(completed.state, selectedPlace);
       if (
         ownerEpochRef.current !== expectedOwnerEpoch ||
         presenceMutationGenerationRef.current !== generation
