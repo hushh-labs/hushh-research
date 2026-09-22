@@ -474,12 +474,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     // Binds the cross-surface analytics identity (a salted digest, never the
     // UID) so web, iOS and Android resolve to one user in GA4. Deliberately
     // not awaited: analytics identity must never sit on the auth critical path.
-    const analyticsUserInfo = nextUser ? {
-      email: nextUser.email ?? null,
-      displayName: nextUser.displayName ?? null,
-      phoneNumber: nextPhoneNumber,
-    } : null;
-    void setObservabilityUserId(nextUser?.uid ?? null, analyticsUserInfo);
+    void setObservabilityUserId(nextUser?.uid ?? null);
     if (nextUser?.uid && isLocalCrmBuildEnabled()) {
       const hydrateConnectedSystems = () => {
         void import("@/lib/services/connected-systems-resource-service")

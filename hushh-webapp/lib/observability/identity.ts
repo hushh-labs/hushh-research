@@ -40,17 +40,9 @@ import { resolveAnalyticsMeasurementId } from "@/lib/observability/env";
 const USER_ID_SALT = "hushh-observability-v1";
 
 let lastAppliedUserId: string | null | undefined;
-let lastAppliedUserInfo: AnalyticsUserInfo | null | undefined;
-
-export function getCurrentAnalyticsUserContext(): {
-  userId: string | null;
-  userInfo: AnalyticsUserInfo | null;
-} {
-  return {
-    userId: lastAppliedUserId || null,
-    userInfo: lastAppliedUserInfo || null,
-  };
-}
+let pendingWebRetry: ReturnType<typeof setInterval> | null = null;
+let identityGeneration = 0;
+let identityApplicationQueue: Promise<void> = Promise.resolve();
 
 function toHex(buffer: ArrayBuffer): string {
   return Array.from(new Uint8Array(buffer))
@@ -94,13 +86,7 @@ async function applyNativeUserId(userId: string | null): Promise<boolean> {
   }
 }
 
-export interface AnalyticsUserInfo {
-  email?: string | null;
-  displayName?: string | null;
-  phoneNumber?: string | null;
-}
-
-function applyWebUserId(userId: string | null, userInfo?: AnalyticsUserInfo | null): boolean {
+function applyWebUserId(userId: string | null): boolean {
   if (typeof window === "undefined" || typeof window.gtag !== "function") {
     // gtag is injected `afterInteractive`, so an auth state restored during
     // hydration arrives before it exists. Reporting failure here is what lets
@@ -115,13 +101,6 @@ function applyWebUserId(userId: string | null, userInfo?: AnalyticsUserInfo | nu
   if (!measurementId) return false;
 
   try {
-    const userProps = userId && userInfo ? {
-      email: userInfo.email || null,
-      user_email: userInfo.email || null,
-      display_name: userInfo.displayName || null,
-      phone_number: userInfo.phoneNumber || null,
-    } : null;
-
     (
       window.gtag as unknown as (
         command: string,
@@ -133,31 +112,17 @@ function applyWebUserId(userId: string | null, userInfo?: AnalyticsUserInfo | nu
       // attribute the next person's events to them. On a shared family device
       // that is exactly the wrong outcome.
       user_id: userId,
-      ...(userProps ? {
-        user_properties: userProps,
-        email: userInfo?.email || null,
-        user_email: userInfo?.email || null,
-        display_name: userInfo?.displayName || null,
-        phone_number: userInfo?.phoneNumber || null,
-      } : {}),
     });
-
-    if (userProps) {
-      try {
-        (
-          window.gtag as unknown as (
-            command: string,
-            subcommand: string,
-            params: Record<string, unknown>
-          ) => void
-        )("set", "user_properties", userProps);
-      } catch {}
-    }
-
     return true;
   } catch {
     return false;
   }
+}
+
+function clearPendingWebRetry(): void {
+  if (pendingWebRetry === null) return;
+  clearInterval(pendingWebRetry);
+  pendingWebRetry = null;
 }
 
 /**
@@ -168,16 +133,16 @@ function applyWebUserId(userId: string | null, userInfo?: AnalyticsUserInfo | nu
  * auth-state re-render does not thrash the GA4 config. A failed one is
  * deliberately not remembered, so the next auth event retries it.
  */
-export async function setObservabilityUserId(
+async function applyObservabilityUserId(
   firebaseUid: string | null,
-  userInfo?: AnalyticsUserInfo | null
+  generation: number
 ): Promise<void> {
   const userId = firebaseUid ? await resolveAnalyticsUserId(firebaseUid) : null;
-  if (userId === lastAppliedUserId && !firebaseUid) return;
+  if (generation !== identityGeneration || userId === lastAppliedUserId) return;
 
   const applied = Capacitor.isNativePlatform()
     ? await applyNativeUserId(userId)
-    : applyWebUserId(userId, userInfo);
+    : applyWebUserId(userId);
 
   // Only memoize what actually landed. Memoizing first meant a page where gtag
   // had not yet loaded bound nothing and then short-circuited forever, which
@@ -185,20 +150,42 @@ export async function setObservabilityUserId(
   // no-op on web for anyone already signed in at load.
   if (applied) {
     lastAppliedUserId = userId;
-    lastAppliedUserInfo = userInfo;
-  } else if (!Capacitor.isNativePlatform() && userId) {
+  } else if (
+    !Capacitor.isNativePlatform() &&
+    userId &&
+    generation === identityGeneration
+  ) {
     // Retry on web if gtag script is still loading asynchronously after hydration
     let attempts = 0;
-    const interval = setInterval(() => {
+    pendingWebRetry = setInterval(() => {
+      if (generation !== identityGeneration) {
+        clearPendingWebRetry();
+        return;
+      }
       attempts += 1;
-      const ok = applyWebUserId(userId, userInfo);
+      const ok = applyWebUserId(userId);
       if (ok) {
         lastAppliedUserId = userId;
-        lastAppliedUserInfo = userInfo;
-        clearInterval(interval);
+        clearPendingWebRetry();
       } else if (attempts >= 10) {
-        clearInterval(interval);
+        clearPendingWebRetry();
       }
     }, 1000);
   }
+}
+
+/**
+ * Queue identity changes so a slow native bridge call for account A can never
+ * finish after a later sign-out or account-B binding and become the final
+ * analytics identity on a shared device.
+ */
+export function setObservabilityUserId(firebaseUid: string | null): Promise<void> {
+  const generation = ++identityGeneration;
+  clearPendingWebRetry();
+
+  const application = identityApplicationQueue.then(() =>
+    applyObservabilityUserId(firebaseUid, generation)
+  );
+  identityApplicationQueue = application.catch(() => undefined);
+  return application;
 }

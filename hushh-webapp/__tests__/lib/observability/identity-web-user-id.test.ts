@@ -43,6 +43,7 @@ describe("web GA4 User-ID binding", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -69,6 +70,26 @@ describe("web GA4 User-ID binding", () => {
     expect(params.user_id).toMatch(/^[0-9a-f]{32}$/);
   });
 
+  it("never forwards profile PII even if a legacy caller supplies it", async () => {
+    const { setObservabilityUserId } = await loadIdentity();
+    await (
+      setObservabilityUserId as unknown as (
+        uid: string,
+        legacyProfile: Record<string, string>
+      ) => Promise<void>
+    )("firebase-uid-1", {
+      email: "person@example.test",
+      displayName: "Private Person",
+      phoneNumber: "+16505550101",
+    });
+
+    const [, params] = gtag.mock.calls[0];
+    expect(params).toEqual({ user_id: expect.stringMatching(/^[0-9a-f]{32}$/) });
+    expect(JSON.stringify(gtag.mock.calls)).not.toContain("person@example.test");
+    expect(JSON.stringify(gtag.mock.calls)).not.toContain("Private Person");
+    expect(JSON.stringify(gtag.mock.calls)).not.toContain("+16505550101");
+  });
+
   it("clears the identity with an explicit null on sign-out", async () => {
     const { setObservabilityUserId } = await loadIdentity();
     await setObservabilityUserId(null);
@@ -92,5 +113,18 @@ describe("web GA4 User-ID binding", () => {
 
     expect(gtag).toHaveBeenCalledTimes(1);
     expect(gtag.mock.calls[0][0]).toBe("set");
+  });
+
+  it("cancels a pending account binding when sign-out wins the race", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("window", {} as unknown as Window & typeof globalThis);
+    const { setObservabilityUserId } = await loadIdentity();
+
+    await setObservabilityUserId("firebase-uid-1");
+    vi.stubGlobal("window", { gtag } as unknown as Window & typeof globalThis);
+    await setObservabilityUserId(null);
+    await vi.advanceTimersByTimeAsync(11_000);
+
+    expect(gtag.mock.calls).toEqual([["set", { user_id: null }]]);
   });
 });
