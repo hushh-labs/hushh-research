@@ -5753,7 +5753,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 </div>
               ) : null}
 
-              {!isPopover &&
+              {// Hidden: this unsolicited "Connect Mail & continue" prompt
+              // (added in #6779, PR-confirmed regression 761fcea7) surfaces
+              // on every fresh chat regardless of whether the person came to
+              // do anything Gmail-related. State/handlers untouched, so
+              // re-enabling is a one-line condition change.
+              false &&
+              !isPopover &&
               hasChatAccess &&
               !hasStartedConversation &&
               !gmailConnectCardDismissed &&
