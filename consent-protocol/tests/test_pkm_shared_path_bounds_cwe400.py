@@ -1,30 +1,29 @@
 """Verify CWE-400: canonical PKM shared route path params are bounded.
 
-Mounts the real pkm_routes_shared.router so the actual route declarations are
-exercised. FastAPI validates the Path(max_length=...) constraints before the
-dependencies and handler body run, so oversized path segments are rejected
+Goes through the real `server.app`, because `pkm.router` and
+`pkm_routes_shared.router` share the /api/pkm prefix and FastAPI serves
+first-registered-wins: mounting the shared router alone exercises handlers no
+request reaches. FastAPI validates the Path(max_length=...) constraints before
+the dependencies and handler body run, so oversized path segments are rejected
 with 422 ahead of any auth check.
 """
 
 import pytest
-from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+import server
 from api.middleware import require_vault_owner_token
-from api.routes import pkm_routes_shared
+from api.routes.pkm import require_pkm_metadata_access
 
-_TOO_LONG = "x" * 257  # exceeds every bound (user_id 128, domain 200, attribute_key 256)
+_TOO_LONG = "x" * 257  # exceeds every bound (user_id 128, domain 128, attribute_key 256)
 _OK = "ok"
 
 
 def _client() -> TestClient:
-    app = FastAPI()
-    app.include_router(pkm_routes_shared.router)
-    app.dependency_overrides[require_vault_owner_token] = lambda: {
-        "user_id": "test_user_123",
-        "token": "test",
-    }
-    return TestClient(app, raise_server_exceptions=False)
+    stub = {"user_id": "test_user_123", "token": "test"}
+    server.app.dependency_overrides[require_vault_owner_token] = lambda: stub
+    server.app.dependency_overrides[require_pkm_metadata_access] = lambda: stub
+    return TestClient(server.app, raise_server_exceptions=False)
 
 
 @pytest.mark.parametrize(
