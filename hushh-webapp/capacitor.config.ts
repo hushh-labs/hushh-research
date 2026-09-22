@@ -41,6 +41,11 @@ const NORMALIZED_BACKEND_URL = (() => {
 const config: CapacitorConfig = {
   appId: "com.hushh.app",
   appName: "Hussh One",
+  // Native Capacitor/plugin logs can include request metadata supplied by the
+  // WebView bridge. Keep bearer tokens, vault-owner tokens, and decrypted
+  // context out of Android logcat and iOS device logs in every build. Native
+  // test evidence uses the sanitized status bridge instead of console output.
+  loggingBehavior: "none",
   // Next writes static exports into `distDir` when it is overridden. Native
   // release builds use that override to avoid colliding with a live web dev
   // server, so Capacitor must consume the same directory.

@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
-from datetime import datetime, timezone
+import re
 from typing import Any
 
-from ag_ui.core import RunAgentInput, UserMessage
+from ag_ui.core import RunAgentInput
 from ag_ui_adk import ADKAgent, add_adk_fastapi_endpoint
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from google.adk.apps import App, ResumabilityConfig
@@ -16,7 +17,8 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
 from api.middleware import require_vault_owner_token
-from api.routes.one.live_context import sanitize_live_context
+from api.routes.one.agent_context import sanitize_agent_context
+from api.routes.one.command_proposals import router as command_proposals_router
 from api.utils.firebase_auth import verify_firebase_bearer
 from hushh_mcp.one_adk.agent_tree import (
     ONE_APP_NAME,
@@ -31,6 +33,7 @@ from hushh_mcp.one_adk.agent_tree import (
     build_one_text_agent,
 )
 from hushh_mcp.one_adk.agui_action_tools import action_id_from_tool_name
+from hushh_mcp.one_adk.agui_turn_timing import HEAD_INTRO, HEAD_ONE, TimedADKAgent
 from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionService
 from hushh_mcp.one_adk.request_secrets import store_request_secret
 from hushh_mcp.services.action_gateway import get_action_gateway_action, list_action_gateway_actions
@@ -67,7 +70,7 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
             firebase_uid = ""
     forwarded = input_data.forwarded_props if isinstance(input_data.forwarded_props, dict) else {}
     screen_payload = forwarded.get("screenContext")
-    screen_context = sanitize_live_context(
+    screen_context = sanitize_agent_context(
         screen_payload if isinstance(screen_payload, dict) else {}
     )
 
@@ -95,6 +98,19 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         STATE_CONSENT_TOKEN: store_request_secret(str((token or {}).get("token") or "")),
         STATE_CONVERSATION_ID: input_data.thread_id,
         STATE_TIMEZONE: str(forwarded.get("timezone") or "")[:64],
+        # This is only an untrusted selection request. The resolver validates
+        # it against owner/thread-bound server-issued choices before any read.
+        # A picker handle is an untrusted, current-turn admission request. The
+        # ADK temp prefix keeps it out of persisted conversation state so an
+        # expired selection cannot block or redirect a later typed prompt.
+        "temp:hussh:requested_person_selection": str(forwarded.get("personSelectionHandle") or "")[
+            :64
+        ],
+        # Typed chat carries the current screen snapshot in this request. It
+        # must not inherit a stale live-voice publication that is still marked
+        # as settling; that would suppress the consent confirmation card even
+        # while the current browser frame is idle.
+        "hussh:typed_chat_context": True,
         STATE_SCREEN: str(screen_context.get("screen") or "")[:64],
         STATE_VOICE_CONTEXT: screen_context,
         STATE_PKM_CONTEXT: store_request_secret(str(forwarded.get("pkmContext") or "")[:20000]),
@@ -142,18 +158,33 @@ _intro_capabilities = {
     "multiAgent": {"supported": False, "delegation": False, "handoffs": False},
     "humanInTheLoop": {"supported": False, "interrupts": False},
 }
-_agent = ADKAgent.from_app(
+# The bridge defaults to 10 concurrent executions per process, across every
+# person, and keeps a slot for 600 s when a run leaves a pending tool call. Ten
+# people mid-confirmation would lock the route for everyone. These bounds are
+# per process, not per person; TimedADKAgent releases slots for runs that end
+# in error or disconnect. Measured 2026-09-14 on localhost with the latency
+# driver (agent-chat-migration-baseline).
+_MAX_CONCURRENT_EXECUTIONS = 64
+_EXECUTION_TIMEOUT_SECONDS = 120
+
+_agent = TimedADKAgent.from_app(
     _app,
+    head=HEAD_ONE,
     user_id_extractor=_user_id,
+    max_concurrent_executions=_MAX_CONCURRENT_EXECUTIONS,
+    execution_timeout_seconds=_EXECUTION_TIMEOUT_SECONDS,
     session_service=_session_service,
     use_in_memory_services=True,
     use_thread_id_as_session_id=True,
     emit_messages_snapshot=True,
     capabilities=_authenticated_capabilities,
 )
-_intro_agent = ADKAgent.from_app(
+_intro_agent = TimedADKAgent.from_app(
     _intro_app,
+    head=HEAD_INTRO,
     user_id_extractor=_user_id,
+    max_concurrent_executions=_MAX_CONCURRENT_EXECUTIONS,
+    execution_timeout_seconds=_EXECUTION_TIMEOUT_SECONDS,
     # Anonymous and Firebase-only pre-vault turns intentionally remain
     # ephemeral. Durable history begins only after VAULT_OWNER authority is
     # present, where the encrypted owner-bound store can enforce teardown.
@@ -181,7 +212,409 @@ add_adk_fastapi_endpoint(
 
 def _event_text(event: Any) -> str:
     parts = getattr(getattr(event, "content", None), "parts", None) or []
-    return "".join(str(getattr(part, "text", "") or "") for part in parts).strip()
+    return "".join(
+        str(getattr(part, "text", "") or "")
+        for part in parts
+        if not getattr(part, "thought", False)
+    ).strip()
+
+
+_SAFE_PROFILE_PATH = re.compile(r"^/people/[A-Za-z0-9_-]{16,128}$")
+
+
+def _record(value: Any) -> dict[str, Any] | None:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except (TypeError, ValueError):
+            return None
+        return parsed if isinstance(parsed, dict) else None
+    return None
+
+
+def _bounded_text(value: Any, limit: int) -> str | None:
+    if not isinstance(value, str):
+        return None
+    normalized = " ".join(value.split()).strip()
+    return normalized[:limit] or None
+
+
+def _safe_scope_catalog(value: Any, *, scope_count: int) -> dict[str, Any] | None:
+    """Keep only bounded pagination metadata on a restored discovery card.
+
+    The encrypted session descriptor must not become a second scope authority:
+    the current page remains the only place where requestable field metadata is
+    projected. These fields only let the client ask the server for the next
+    page, and the server rechecks the catalog revision and current authority.
+    """
+    catalog = _record(value)
+    if not catalog:
+        return None
+
+    def bounded_integer(raw: Any, *, minimum: int, maximum: int | None = None) -> int | None:
+        if isinstance(raw, bool) or not isinstance(raw, int) or raw < minimum:
+            return None
+        if maximum is not None and raw > maximum:
+            return None
+        return int(raw)
+
+    page = bounded_integer(catalog.get("page"), minimum=1)
+    limit = bounded_integer(catalog.get("limit"), minimum=1, maximum=100)
+    total_count = bounded_integer(catalog.get("totalCount"), minimum=0)
+    revision = _bounded_text(catalog.get("catalogRevision"), 64)
+    has_more = catalog.get("hasMore")
+    next_page = catalog.get("nextPage")
+    if (
+        page is None
+        or limit is None
+        or total_count is None
+        or total_count < scope_count
+        or not revision
+        or not re.fullmatch(r"[a-f0-9]{64}", revision)
+        or not isinstance(has_more, bool)
+    ):
+        return None
+
+    if has_more:
+        if next_page != page + 1:
+            return None
+    elif next_page is not None:
+        return None
+
+    domains: list[dict[str, Any]] = []
+    raw_domains = catalog.get("domains")
+    if isinstance(raw_domains, list):
+        for raw_domain in raw_domains[:128]:
+            domain = _record(raw_domain)
+            name = _bounded_text(domain.get("domain") if domain else None, 80)
+            count = bounded_integer(domain.get("count") if domain else None, minimum=0)
+            if name and count is not None:
+                domains.append({"domain": name, "count": count})
+
+    return {
+        "page": page,
+        "nextPage": next_page if has_more else None,
+        "totalCount": total_count,
+        "limit": limit,
+        "hasMore": has_more,
+        "catalogRevision": revision,
+        "paginationReset": catalog.get("paginationReset") is True,
+        "domains": domains,
+    }
+
+
+def _safe_discovery_descriptor(
+    event: Any, selected_parts: list[Any] | None = None
+) -> dict[str, Any] | None:
+    """Project one display-safe discovery card out of an encrypted event.
+
+    The session remains encrypted at rest. This projection is deliberately
+    narrower than the tool result: it carries no personal values, email
+    addresses, credentials, or executable action payloads. It exists so a
+    returning owner can see the same AG-UI card without replaying the action.
+    """
+    parts = (
+        selected_parts
+        if selected_parts is not None
+        else (getattr(getattr(event, "content", None), "parts", None) or [])
+    )
+    for part in parts:
+        function_response = getattr(part, "function_response", None)
+        if (
+            function_response is None
+            or getattr(function_response, "name", "") != "discover_person_information"
+        ):
+            continue
+        result = _record(getattr(function_response, "response", None)) or {}
+        for key in ("result", "content", "data"):
+            nested = _record(result.get(key))
+            if nested and (nested.get("status") == "ok" or "requestableScopes" in nested):
+                result = nested
+                break
+        if result.get("status") != "ok":
+            return None
+        person = _record(result.get("person")) or {}
+        display_name = _bounded_text(person.get("displayName"), 120)
+        profile_path = _bounded_text(person.get("profilePath"), 180)
+        if not display_name or not profile_path or not _SAFE_PROFILE_PATH.fullmatch(profile_path):
+            return None
+        profile_person_ref = profile_path.rsplit("/", 1)[-1]
+        person_ref = _bounded_text(person.get("personRef"), 128)
+        if person_ref and (
+            not re.fullmatch(r"[A-Za-z0-9_-]{16,128}", person_ref)
+            or person_ref != profile_person_ref
+        ):
+            return None
+        scopes: list[dict[str, Any]] = []
+        raw_scopes = result.get("requestableScopes")
+        if isinstance(raw_scopes, list):
+            for raw_scope in raw_scopes[:250]:
+                scope = _record(raw_scope)
+                if scope is None:
+                    continue
+                scope_ref = _bounded_text(scope.get("scopeRef"), 180)
+                label = _bounded_text(scope.get("label"), 120)
+                domain = _bounded_text(scope.get("domain"), 80)
+                if not scope_ref or not label or not domain:
+                    continue
+                sensitivity = _bounded_text(scope.get("sensitivity"), 32)
+                scopes.append(
+                    {
+                        "scopeRef": scope_ref,
+                        "label": label,
+                        "description": _bounded_text(scope.get("description"), 280),
+                        "domain": domain,
+                        "sensitivity": sensitivity or "standard",
+                        "pathSegments": [
+                            value
+                            for part in (scope.get("pathSegments") or [])[:32]
+                            if (value := _bounded_text(part, 120))
+                        ]
+                        if isinstance(scope.get("pathSegments"), list)
+                        else [],
+                    }
+                )
+        scope_catalog = _safe_scope_catalog(result.get("scopeCatalog"), scope_count=len(scopes))
+        return {
+            "activityType": "one.scope_discovery.v1",
+            "content": {
+                "status": "ok",
+                "person": {
+                    "displayName": display_name,
+                    "profilePath": profile_path,
+                    **({"personRef": person_ref} if person_ref else {}),
+                    "relationship": _bounded_text(person.get("relationship"), 64),
+                },
+                "domainFilter": _bounded_text(result.get("domainFilter"), 80),
+                "requestableScopes": scopes,
+                **({"scopeCatalog": scope_catalog} if scope_catalog is not None else {}),
+                "catalogIncomplete": (
+                    (scope_catalog is not None and scope_catalog["hasMore"])
+                    or (isinstance(raw_scopes, list) and len(raw_scopes) > 250)
+                ),
+            },
+        }
+    return None
+
+
+def _safe_information_request_descriptor(
+    event: Any, selected_parts: list[Any] | None = None
+) -> dict[str, Any] | None:
+    """Project a proposal review card without retaining executable handles.
+
+    A returning owner may see what they were preparing to ask, but a history
+    descriptor must never become a replayable consent mutation. The proposal
+    id, opaque scope references, connector metadata, and any values therefore
+    stay in the encrypted session only; the restored card is explanatory.
+    """
+    parts = (
+        selected_parts
+        if selected_parts is not None
+        else (getattr(getattr(event, "content", None), "parts", None) or [])
+    )
+    for part in parts:
+        function_response = getattr(part, "function_response", None)
+        if (
+            function_response is None
+            or getattr(function_response, "name", "") != "propose_information_request"
+        ):
+            continue
+        result = _record(getattr(function_response, "response", None)) or {}
+        for key in ("result", "content", "data"):
+            nested = _record(result.get(key))
+            if nested and nested.get("status"):
+                result = nested
+                break
+        if result.get("status") != "proposal_ready":
+            return None
+        person = _record(result.get("person")) or {}
+        display_name = _bounded_text(person.get("displayName"), 120)
+        subject_ref = _bounded_text(person.get("personRef"), 128)
+        if subject_ref and not re.fullmatch(r"[A-Za-z0-9_-]{16,128}", subject_ref):
+            subject_ref = None
+        purpose = _bounded_text(result.get("purpose"), 500)
+        duration_hours = result.get("durationHours")
+        if (
+            not display_name
+            or not purpose
+            or isinstance(duration_hours, bool)
+            or not isinstance(duration_hours, int)
+            or not 1 <= duration_hours <= 720
+        ):
+            return None
+        raw_fields = result.get("fields")
+        if not isinstance(raw_fields, list):
+            return None
+        fields = [
+            {
+                "label": label,
+                "domain": "Information",
+                "sensitivity": "standard",
+            }
+            for raw_field in raw_fields[:50]
+            if (label := _bounded_text(raw_field, 120))
+        ]
+        if not fields:
+            return None
+        duration_label = (
+            f"{duration_hours // 24} {'day' if duration_hours // 24 == 1 else 'days'}"
+            if duration_hours % 24 == 0
+            else f"{duration_hours} {'hour' if duration_hours == 1 else 'hours'}"
+        )
+        content = {
+            "direction": "outgoing",
+            "phase": "draft",
+            "status": "awaiting_review",
+            "personName": display_name,
+            "purpose": purpose,
+            "durationLabel": duration_label,
+            "fields": fields,
+        }
+        if subject_ref:
+            content["subjectRef"] = subject_ref
+        return {
+            "activityType": "one.information_request_review.v1",
+            "content": content,
+        }
+    return None
+
+
+def _safe_submitted_information_request_descriptor(
+    event: Any, selected_parts: list[Any] | None = None
+) -> dict[str, Any] | None:
+    """Restore a sent request from a browser settlement, never from authority.
+
+    The browser sends this allowlisted display descriptor as the result of the
+    already-authorized directive. It contains no proposal handle, scope
+    authority, connector, credential, or decrypted value. Current status is
+    deliberately not inferred from this historical event; the descriptor only
+    records the last safe status observed at submission time.
+    """
+    parts = (
+        selected_parts
+        if selected_parts is not None
+        else (getattr(getattr(event, "content", None), "parts", None) or [])
+    )
+    for part in parts:
+        function_response = getattr(part, "function_response", None)
+        if function_response is None or getattr(function_response, "name", "") != "run_app_action":
+            continue
+        response = _record(getattr(function_response, "response", None)) or {}
+        if response.get("status") != "succeeded":
+            continue
+        data = _record(response.get("data")) or {}
+        card = _record(data.get("consentCard")) or {}
+        if (
+            card.get("activityType") != "one.information_request_review.v1"
+            or card.get("direction") != "outgoing"
+            or card.get("phase") != "submitted"
+        ):
+            continue
+        person_name = _bounded_text(card.get("personName"), 120)
+        purpose = _bounded_text(card.get("purpose"), 500)
+        duration_label = _bounded_text(card.get("durationLabel"), 100)
+        status = _bounded_text(card.get("status"), 32)
+        if (
+            not person_name
+            or not purpose
+            or not duration_label
+            or status
+            not in {"pending", "mixed", "cancelled", "granted", "denied", "expired", "revoked"}
+        ):
+            continue
+        raw_fields = card.get("fields")
+        if not isinstance(raw_fields, list):
+            continue
+        fields: list[dict[str, Any]] = []
+        for raw_field in raw_fields[:50]:
+            field = _record(raw_field)
+            if not field:
+                continue
+            label = _bounded_text(field.get("label"), 120)
+            domain = _bounded_text(field.get("domain"), 80)
+            if not label or not domain:
+                continue
+            projected = {
+                "label": label,
+                "domain": domain,
+                "sensitivity": _bounded_text(field.get("sensitivity"), 32) or "standard",
+            }
+            request_id = _bounded_text(field.get("requestId"), 128)
+            if request_id and re.fullmatch(r"[A-Za-z0-9_-]{8,128}", request_id):
+                projected["requestId"] = request_id
+            field_status = _bounded_text(field.get("status"), 32)
+            if field_status in {
+                "pending",
+                "cancelled",
+                "granted",
+                "denied",
+                "expired",
+                "revoked",
+            }:
+                projected["status"] = field_status
+            fields.append(projected)
+        if not fields:
+            continue
+        content: dict[str, Any] = {
+            "direction": "outgoing",
+            "phase": "submitted",
+            "status": status,
+            "personName": person_name,
+            "purpose": purpose,
+            "durationLabel": duration_label,
+            "fields": fields,
+        }
+        for key, pattern in (
+            ("subjectRef", r"^[A-Za-z0-9_-]{16,128}$"),
+            ("bundleId", r"^[A-Za-z0-9_-]{8,128}$"),
+            ("requestId", r"^[A-Za-z0-9_-]{8,128}$"),
+        ):
+            value = _bounded_text(card.get(key), 128)
+            if value and re.fullmatch(pattern, value):
+                content[key] = value
+        return {
+            "activityType": "one.information_request_review.v1",
+            "content": content,
+        }
+    return None
+
+
+def _safe_agent_history_metadata(event: Any) -> dict[str, Any] | None:
+    descriptors = []
+    seen = set()
+    event_identity = (
+        _bounded_text(getattr(event, "id", None), 128)
+        or _bounded_text(getattr(event, "invocation_id", None), 128)
+        or "event"
+    )
+    for index, part in enumerate(getattr(getattr(event, "content", None), "parts", None) or []):
+        descriptor = _safe_discovery_descriptor(event, [part])
+        if descriptor is None:
+            descriptor = _safe_submitted_information_request_descriptor(event, [part])
+        if descriptor is None:
+            descriptor = _safe_information_request_descriptor(event, [part])
+        if descriptor is None:
+            continue
+        invocation_identity = _bounded_text(
+            getattr(getattr(part, "function_response", None), "id", None), 128
+        )
+        card_id = f"{event_identity}:{invocation_identity or index}"
+        if card_id in seen:
+            continue
+        seen.add(card_id)
+        descriptors.append({"id": card_id, **descriptor})
+    if not descriptors:
+        return None
+    return {
+        "kind": "structured_experience",
+        "structuredExperiences": descriptors,
+        "structuredExperience": {
+            key: value for key, value in descriptors[0].items() if key != "id"
+        },
+        "structuredExperienceId": str(getattr(event, "id", "") or "").strip() or None,
+    }
 
 
 def _session_title(session: Any) -> str:
@@ -245,8 +678,11 @@ async def conversation_history(
     messages: list[dict[str, object]] = []
     for event in session.events:
         text = _event_text(event)
-        if not text or event.author not in {"user", "one"}:
+        metadata = _safe_agent_history_metadata(event)
+        if (event.author not in {"user", "one"} and not metadata) or (not text and not metadata):
             continue
+        if event.author not in {"user", "one"}:
+            text = ""  # Tool events restore only allowlisted safe descriptors.
         messages.append(
             {
                 "id": event.id or f"{event.invocation_id}:{len(messages)}",
@@ -257,7 +693,7 @@ async def conversation_history(
                 "model": event.model_version,
                 "created_at": event.timestamp,
                 "completed_at": event.timestamp,
-                "metadata": None,
+                "metadata": metadata,
             }
         )
     return {"conversation_id": conversation_id, "messages": messages[-limit:]}
@@ -309,37 +745,6 @@ class ActionSearchRequest(BaseModel):
     query: str = Field(min_length=1, max_length=2048)
     context: dict[str, Any] | None = None
     limit: int = Field(default=10, ge=1, le=20)
-
-
-class ActionProposalRequest(BaseModel):
-    conversation_id: str
-    query: str = Field(min_length=1, max_length=4096)
-
-
-class ConfirmProposalRequest(BaseModel):
-    confirmed_slots: dict[str, Any] = Field(default_factory=dict)
-
-
-# In-memory proposal store keyed by proposal_id.
-# Per-request scoped; proposals expire after 15 minutes.
-_proposal_store: dict[str, dict[str, Any]] = {}
-_PROPOSAL_TTL_SECONDS = 900
-
-
-def _cleanup_expired_proposals() -> None:
-    now = datetime.now(timezone.utc).timestamp()
-    expired = [
-        pid
-        for pid, p in _proposal_store.items()
-        if now - p.get("created_at", 0) > _PROPOSAL_TTL_SECONDS
-    ]
-    for pid in expired:
-        del _proposal_store[pid]
-
-
-def _proposal_owner_key(token: dict, request: Request, proposal_id: str) -> str:
-    ip = request.client.host if request.client else ""
-    return f"{token.get('user_id', '')}:{ip}:{proposal_id}"
 
 
 @router.post("/api/one/actions/search")
@@ -395,291 +800,4 @@ async def search_actions_endpoint(
     }
 
 
-@router.post("/api/one/agent-chat/proposals")
-async def create_action_proposal(
-    payload: ActionProposalRequest,
-    request: Request,
-    token: dict = Depends(require_vault_owner_token),
-):
-    """Run One's restricted proposal head and return a typed action assessment.
-
-    Emits a distinct ``one_action_proposal`` event; never an ordinary executable
-    directive.
-    """
-    from hushh_mcp.one_adk.agent_tree import build_one_text_agent
-
-    _cleanup_expired_proposals()
-    query = payload.query.strip()
-    if not query:
-        raise HTTPException(status_code=400, detail="Query must not be empty.")
-
-    # Build a request-scoped session for the proposal turn.
-    proposal_app = App(
-        name=f"{ONE_APP_NAME}_proposal",
-        root_agent=build_one_text_agent(),
-        resumability_config=ResumabilityConfig(is_resumable=False),
-    )
-    proposal_agent = ADKAgent.from_app(
-        proposal_app,
-        user_id_extractor=lambda d: str(
-            (d.state or {}).get(STATE_USER_ID) or token.get("user_id", "")
-        ),
-        session_service=InMemorySessionService(),
-        use_in_memory_services=True,
-        use_thread_id_as_session_id=True,
-        emit_messages_snapshot=True,
-    )
-
-    # Restrict to proposal-mode tools only.
-    _PROPOSAL_ALLOWED_TOOLS = {
-        "list_app_actions",
-        "propose_app_action",
-    }
-    proposal_agent._adk_app.root_agent.tools = [
-        t
-        for t in proposal_agent._adk_app.root_agent.tools
-        if getattr(t, "name", "") in _PROPOSAL_ALLOWED_TOOLS
-    ]
-
-    # Run the proposal turn through AG-UI.
-    run_input = RunAgentInput(
-        thread_id=payload.conversation_id,
-        run_id=f"proposal-{datetime.now(timezone.utc).timestamp()}",
-        state={
-            STATE_USER_ID: token.get("user_id", ""),
-            STATE_CONSENT_TOKEN: store_request_secret(str(token.get("token") or "")),
-        },
-        messages=[
-            UserMessage(id="user-proposal", role="user", content=query),
-        ],
-        # `context` and `tools` are required by RunAgentInput. Omitting context
-        # raised ValidationError on every proposal turn, so this path had never
-        # run; empty is the correct value here because the proposal turn carries
-        # its context in `state`, not as AG-UI context entries.
-        context=[],
-        forwarded_props={},
-        tools=[],
-    )
-
-    proposal_id = f"prop_{datetime.now(timezone.utc).timestamp()}_{hash(query) & 0xFFFF:04x}"
-    _proposal_store[proposal_id] = {
-        "proposal_id": proposal_id,
-        "query": query,
-        "user_id": str(token.get("user_id", "")),
-        "conversation_id": payload.conversation_id,
-        "status": "pending",
-        "created_at": datetime.now(timezone.utc).timestamp(),
-        "result": None,
-    }
-
-    # Stream the AG-UI response.
-    proposal_result: dict[str, Any] | None = None
-    try:
-        async for event in proposal_agent.run(run_input):
-            event_type = getattr(event, "type", "")
-            if event_type == "one_action_proposal":
-                proposal_result = getattr(event, "content", None)
-                break
-            if event_type == "error":
-                logger.error("proposal_agent_error event=%s", event)
-                break
-    except Exception:
-        logger.exception("proposal_agent_run_failed")
-
-    if proposal_result is None:
-        _proposal_store[proposal_id]["status"] = "no_match"
-        _proposal_store[proposal_id]["result"] = {
-            "schemaVersion": "one.action_proposal.v1",
-            "status": "unsupported",
-            "message": "One could not map this request to a supported action.",
-        }
-        return _proposal_store[proposal_id]["result"]
-
-    _proposal_store[proposal_id]["status"] = "drafted"
-    _proposal_store[proposal_id]["result"] = proposal_result
-    proposal_result.setdefault("proposalId", proposal_id)
-    proposal_result.setdefault("requestId", payload.conversation_id)
-    return proposal_result
-
-
-@router.post("/api/one/action-proposals/{proposal_id}/admit")
-async def admit_proposal(
-    proposal_id: str,
-    request: Request,
-    token: dict = Depends(require_vault_owner_token),
-):
-    """Verify the issued draft, resolve inputs, and revalidate the contract."""
-    _cleanup_expired_proposals()
-    proposal = _proposal_store.get(proposal_id)
-    if proposal is None:
-        raise HTTPException(status_code=404, detail="Proposal not found or expired.")
-    if proposal["status"] != "drafted":
-        raise HTTPException(
-            status_code=409,
-            detail=f"Proposal is in '{proposal['status']}' state; admit is only valid for 'drafted'.",
-        )
-    if proposal["user_id"] != str(token.get("user_id", "")):
-        raise HTTPException(status_code=403, detail="Proposal owner mismatch.")
-
-    result = proposal.get("result") or {}
-    action_id = str(result.get("actionId") or "")
-    if not action_id:
-        raise HTTPException(status_code=400, detail="Proposal is missing an action id.")
-
-    entry = get_action_gateway_action(action_id)
-    if entry is None:
-        raise HTTPException(status_code=400, detail=f"'{action_id}' is no longer a valid action.")
-
-    # Revalidate current execution policy.
-    policy = str(entry.get("execution_policy") or "allow_direct")
-    if policy == "manual_only":
-        raise HTTPException(
-            status_code=400,
-            detail=f"'{action_id}' requires the app UI and cannot be admitted here.",
-        )
-
-    # Build prepared execution grant.
-    admission: dict[str, Any] = {
-        "schemaVersion": "one.action_proposal.v1",
-        "proposalId": proposal_id,
-        "status": "ready_for_confirmation" if policy == "confirm_required" else "ready",
-        "actionId": action_id,
-        "label": str(entry.get("label") or ""),
-        "meaning": str(entry.get("meaning") or ""),
-        "executionPolicy": policy,
-        "slots": result.get("slots") or {},
-        "requiredInputs": result.get("requiredInputs") or [],
-        "missingSlots": result.get("missingSlots") or [],
-        "confirmationRequired": policy == "confirm_required",
-        "useTool": result.get("useTool"),
-        "navigation": result.get("navigation"),
-        "guardIds": result.get("guardIds") or [],
-        "admittedAt": datetime.now(timezone.utc).isoformat(),
-    }
-    proposal["status"] = "admitted"
-    proposal["admission"] = admission
-    return admission
-
-
-@router.post("/api/one/action-proposals/{proposal_id}/confirm")
-async def confirm_proposal(
-    proposal_id: str,
-    request: Request,
-    payload: ConfirmProposalRequest = ConfirmProposalRequest(),
-    token: dict = Depends(require_vault_owner_token),
-):
-    """Validate the prepared action and advance to execution permission."""
-    _cleanup_expired_proposals()
-    proposal = _proposal_store.get(proposal_id)
-    if proposal is None:
-        raise HTTPException(status_code=404, detail="Proposal not found or expired.")
-    if proposal["status"] != "admitted":
-        raise HTTPException(
-            status_code=409,
-            detail=f"Proposal is in '{proposal['status']}' state; confirm requires 'admitted'.",
-        )
-    if proposal["user_id"] != str(token.get("user_id", "")):
-        raise HTTPException(status_code=403, detail="Proposal owner mismatch.")
-
-    admission = proposal.get("admission") or {}
-    action_id = str(admission.get("actionId") or "")
-    entry = get_action_gateway_action(action_id)
-    if entry is None:
-        raise HTTPException(status_code=400, detail="Action is no longer valid.")
-
-    # Revalidate the action has not changed since admission.
-    current_policy = str(entry.get("execution_policy") or "allow_direct")
-    if current_policy != admission.get("executionPolicy"):
-        raise HTTPException(
-            status_code=409,
-            detail="Action policy changed since admission; re-admit required.",
-        )
-
-    # Merge any user-supplied slot corrections.
-    slots = dict(admission.get("slots") or {})
-    if payload and isinstance(payload.confirmed_slots, dict):
-        for k, v in payload.confirmed_slots.items():
-            if str(k).strip():
-                slots[str(k).strip()] = v
-
-    # Final validation: check no required slots are still missing.
-    missing_slots = admission.get("missingSlots") or []
-    still_missing = [s for s in missing_slots if slots.get(s.get("slot", "")) in (None, "")]
-
-    if still_missing:
-        return {
-            "schemaVersion": "one.action_proposal.v1",
-            "proposalId": proposal_id,
-            "status": "needs_resolution",
-            "actionId": action_id,
-            "slots": slots,
-            "missingSlots": still_missing,
-        }
-
-    proposal["status"] = "confirmed"
-    proposal["confirmed_slots"] = slots
-
-    return {
-        "schemaVersion": "one.action_proposal.v1",
-        "proposalId": proposal_id,
-        "status": "execution_granted",
-        "actionId": action_id,
-        "slots": slots,
-        "executionPolicy": current_policy,
-        "useTool": admission.get("useTool"),
-        "navigation": admission.get("navigation"),
-        "guardIds": admission.get("guardIds") or [],
-        "confirmedAt": datetime.now(timezone.utc).isoformat(),
-    }
-
-
-@router.post("/api/one/action-proposals/{proposal_id}/settle")
-async def settle_proposal(
-    proposal_id: str,
-    result_payload: dict[str, Any],
-    request: Request,
-    token: dict = Depends(require_vault_owner_token),
-):
-    """Record the correlated handler result under existing receipt rules."""
-    _cleanup_expired_proposals()
-    proposal = _proposal_store.get(proposal_id)
-    if proposal is None:
-        raise HTTPException(status_code=404, detail="Proposal not found or expired.")
-    if proposal["user_id"] != str(token.get("user_id", "")):
-        raise HTTPException(status_code=403, detail="Proposal owner mismatch.")
-
-    proposal["status"] = "settled"
-    proposal["settlement"] = {
-        "result": result_payload,
-        "settledAt": datetime.now(timezone.utc).isoformat(),
-    }
-    return {
-        "proposalId": proposal_id,
-        "status": "settled",
-        "result": result_payload,
-    }
-
-
-@router.delete("/api/one/action-proposals/{proposal_id}")
-async def cancel_proposal(
-    proposal_id: str,
-    request: Request,
-    token: dict = Depends(require_vault_owner_token),
-):
-    """Cancel an issued/prepared proposal."""
-    _cleanup_expired_proposals()
-    proposal = _proposal_store.get(proposal_id)
-    if proposal is None:
-        return {"proposalId": proposal_id, "status": "already_gone"}
-    if proposal["user_id"] != str(token.get("user_id", "")):
-        raise HTTPException(status_code=403, detail="Proposal owner mismatch.")
-
-    if proposal["status"] in ("drafted", "admitted"):
-        proposal["status"] = "cancelled"
-        proposal["cancelledAt"] = datetime.now(timezone.utc).isoformat()
-        return {"proposalId": proposal_id, "status": "cancelled"}
-
-    return {"proposalId": proposal_id, "status": proposal["status"]}
-
-
-__all__ = ["router"]
+router.include_router(command_proposals_router)

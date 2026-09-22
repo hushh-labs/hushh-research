@@ -10,7 +10,7 @@ nothing.
 
 These cover the parts that hold offline: the selectors that turn the config into
 each team's membership, the maintainer-subset invariant, and the member role.
-The GitHub calls are exercised by the script's own dry-run, not from here.
+Review-setting writes use synthetic GitHub responses; no live calls occur.
 """
 
 # ruff: noqa: S101
@@ -164,6 +164,37 @@ def test_org_owners_are_never_demoted(module) -> None:
         "grant path this closes"
     )
     assert changed is True
+
+
+def test_review_team_drift_is_repaired_without_changing_other_settings(module) -> None:
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    review = {
+        "dismiss_stale_reviews": True,
+        "require_code_owner_reviews": True,
+        "require_last_push_approval": True,
+        "required_approving_review_count": 2,
+        "bypass_pull_request_allowances": {
+            "users": [{"login": "maintainer"}], "teams": [],
+            "apps": [{"slug": "existing-app"}],
+        },
+    }
+    with patch.object(module, "gh_json", return_value={"required_pull_request_reviews": review}), patch.object(
+        module.subprocess, "run", return_value=SimpleNamespace(returncode=0)
+    ) as write:
+        assert module.apply_review_bypass("main", ["maintainer"], team_slug="governed-team", apply=False)
+        write.assert_not_called()
+        assert module.apply_review_bypass("main", ["maintainer"], team_slug="governed-team", apply=True)
+        payload = json.loads(write.call_args.kwargs["input"])
+        for key in ("dismiss_stale_reviews", "require_code_owner_reviews", "require_last_push_approval", "required_approving_review_count"):
+            assert payload[key] == review[key]
+        assert payload["bypass_pull_request_allowances"] == {
+            "users": ["maintainer"], "teams": ["governed-team"], "apps": ["existing-app"]
+        }
+        review["bypass_pull_request_allowances"]["teams"] = [{"slug": "governed-team"}]
+        assert not module.apply_review_bypass("main", ["maintainer"], team_slug="governed-team", apply=True)
+        assert write.call_count == 1
 
 
 def main() -> int:

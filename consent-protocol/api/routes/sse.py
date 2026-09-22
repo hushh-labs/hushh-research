@@ -88,8 +88,24 @@ def _payload_string(value: object | None) -> str:
     return str(value)
 
 
+def _sse_event_id(payload: dict[str, object]) -> str:
+    return (
+        _payload_string(payload.get("message_id")).strip()
+        or _payload_string(payload.get("request_id")).strip()
+        or _payload_string(payload.get("token_id")).strip()
+    )
+
+
 def _sse_payload_from_event_payload(payload: dict[str, object]) -> dict[str, object]:
-    if str(payload.get("type") or "").strip() == "connection_request":
+    event_type = str(payload.get("type") or "").strip()
+    if event_type.startswith("location_circle_") or event_type in {
+        "location_settings_changed",
+        "location_pkm_changed",
+        "connection_request",
+        "connection_request_cancelled",
+        "connection_request_resolved",
+        "connection_removed",
+    }:
         return payload
     metadata = _payload_map(payload.get("metadata"))
     request_id = _payload_string(payload.get("request_id"))
@@ -166,7 +182,7 @@ async def consent_event_generator(user_id: str, request: Request) -> AsyncGenera
     """
     from datetime import datetime
 
-    from api.consent_listener import get_consent_queue
+    from api.consent_listener import subscribe_consent_queue, unsubscribe_consent_queue
     from hushh_mcp.services.consent_db import ConsentDBService
 
     logger.info("consent_sse.open user_id=%s", user_id)
@@ -175,7 +191,9 @@ async def consent_event_generator(user_id: str, request: Request) -> AsyncGenera
     after_timestamp_ms = connection_start_ms - backfill_window_ms
     notified_event_ids = set()
     heartbeat_interval = 30
-    queue = get_consent_queue(user_id)
+    # Subscribe before the backfill read so a transition committed during that
+    # query is still queued. Event ids deduplicate the harmless overlap.
+    queue = await subscribe_consent_queue(user_id)
 
     try:
         service = ConsentDBService()
@@ -185,8 +203,7 @@ async def consent_event_generator(user_id: str, request: Request) -> AsyncGenera
             limit=10,
         )
         for event in recent_events:
-            event_id = event.get("request_id") or event.get("token_id")
-            request_id = event.get("request_id")
+            event_id = _sse_event_id(event)
             if not event_id or event_id in notified_event_ids:
                 continue
 
@@ -213,8 +230,7 @@ async def consent_event_generator(user_id: str, request: Request) -> AsyncGenera
                 }
                 continue
 
-            request_id = data.get("request_id") or ""
-            event_id = request_id
+            event_id = _sse_event_id(data)
             if not event_id or event_id in notified_event_ids:
                 continue
 
@@ -229,6 +245,8 @@ async def consent_event_generator(user_id: str, request: Request) -> AsyncGenera
     except Exception as e:
         logger.error("consent_sse.error user_id=%s error=%s", user_id, e)
         raise
+    finally:
+        await unsubscribe_consent_queue(user_id, queue)
 
 
 @router.get("/events/{user_id}")

@@ -16,6 +16,7 @@ Security:
 - All connections use Cloud SQL session pooler (DB_*); SSL required
 """
 
+import asyncio
 import logging
 import os
 import re
@@ -37,6 +38,10 @@ MIN_VAULT_WRITE_CLIENT_VERSION = os.getenv("MIN_VAULT_WRITE_CLIENT_VERSION", "2.
 ENFORCE_VAULT_WRITE_CLIENT_VERSION = os.getenv(
     "ENFORCE_VAULT_WRITE_CLIENT_VERSION", "true"
 ).strip().lower() not in {"0", "false", "no"}
+# The phone shadow is advisory metadata on the vault bootstrap response. It
+# must not hold the authenticated setup/vault admission path while its separate
+# async database pool cold-starts through Cloud SQL.
+VAULT_BOOTSTRAP_PHONE_SHADOW_TIMEOUT_SECONDS = 2.0
 
 
 def _mask_user_id(user_id: str) -> str:
@@ -179,6 +184,10 @@ class VaultBootstrapStateResponse(BaseModel):
     # non-capability prerequisites such as the explicit Connections choice.
     # Empty means no setup marker has settled yet.
     setupCapabilityIds: list[str] = []
+    # Capabilities the person explicitly declined (e.g. dismissed a connect
+    # prompt). Never includes "connections" -- that prerequisite is mandatory.
+    # Distinct from setupCapabilityIds, which only ever records completions.
+    setupCapabilityDeclinedIds: list[str] = []
     setupCapabilitiesUpdatedAt: int | None = None
     setupStateUpdatedAt: int | None = None
     # A strict, non-secret Connections preference. BYOK remains pending until
@@ -212,6 +221,8 @@ class VaultPreStateUpdateRequest(BaseModel):
     navSetupSkippedAt: int | None = None
     # Replace the stored setup capability set. None leaves it unchanged.
     setupCapabilityIds: list[str] | None = None
+    # Replace the stored declined-capability set. None leaves it unchanged.
+    setupCapabilityDeclinedIds: list[str] | None = None
     oneRuntimeSetupChoice: Literal["hushh_managed_vertex", "byok_pending_vault"] | None = None
     onboardingJourneyVersion: int | None = Field(default=None, ge=1, le=1)
     onboardingPhase: str | None = Field(default=None, max_length=32)
@@ -374,9 +385,18 @@ async def vault_bootstrap_state(
         # identity read instead of being wrongly treated as unverified.
         phone_verified: bool | None = None
         try:
-            identity = (await ActorIdentityService().get_many([user_id])).get(user_id)
+            identities = await asyncio.wait_for(
+                ActorIdentityService().get_many([user_id]),
+                timeout=VAULT_BOOTSTRAP_PHONE_SHADOW_TIMEOUT_SECONDS,
+            )
+            identity = identities.get(user_id)
             if identity is not None:
                 phone_verified = identity.get("phone_verified") is True
+        except TimeoutError:
+            logger.warning(
+                "vault/bootstrap-state phone-shadow lookup timed out user=%s",
+                _mask_user_id(user_id),
+            )
         except Exception as identity_error:
             logger.warning(
                 "vault/bootstrap-state phone-shadow lookup failed user=%s error=%s",
@@ -397,6 +417,7 @@ async def vault_bootstrap_state(
             navSetupCompletedAt=state.get("navSetupCompletedAt"),
             navSetupSkippedAt=state.get("navSetupSkippedAt"),
             setupCapabilityIds=state.get("setupCapabilityIds") or [],
+            setupCapabilityDeclinedIds=state.get("setupCapabilityDeclinedIds") or [],
             setupCapabilitiesUpdatedAt=state.get("setupCapabilitiesUpdatedAt"),
             setupStateUpdatedAt=state.get("setupStateUpdatedAt"),
             oneRuntimeSetupChoice=state.get("oneRuntimeSetupChoice"),
@@ -447,6 +468,7 @@ async def vault_pre_vault_state(
             nav_setup_completed_at=request.navSetupCompletedAt,
             nav_setup_skipped_at=request.navSetupSkippedAt,
             setup_capability_ids=request.setupCapabilityIds,
+            setup_capability_declined_ids=request.setupCapabilityDeclinedIds,
             one_runtime_setup_choice=request.oneRuntimeSetupChoice,
             onboarding_journey_version=request.onboardingJourneyVersion,
             onboarding_phase=request.onboardingPhase,
@@ -472,6 +494,7 @@ async def vault_pre_vault_state(
             navSetupCompletedAt=state.get("navSetupCompletedAt"),
             navSetupSkippedAt=state.get("navSetupSkippedAt"),
             setupCapabilityIds=state.get("setupCapabilityIds") or [],
+            setupCapabilityDeclinedIds=state.get("setupCapabilityDeclinedIds") or [],
             setupCapabilitiesUpdatedAt=state.get("setupCapabilitiesUpdatedAt"),
             setupStateUpdatedAt=state.get("setupStateUpdatedAt"),
             oneRuntimeSetupChoice=state.get("oneRuntimeSetupChoice"),

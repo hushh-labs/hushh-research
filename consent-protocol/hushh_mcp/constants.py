@@ -176,6 +176,15 @@ class ConsentScope(str, Enum):
 
         # Check dynamic scopes
         if cls.is_dynamic_scope(scope):
+            # Dynamic paths may carry the two PKM collection markers, but only
+            # at their authored manifest positions. Keep token validation in
+            # lockstep with discovery so malformed structural paths cannot be
+            # issued even when they arrive through an old pending request.
+            from hushh_mcp.consent.internal_path_keys import is_internal_manifest_path
+
+            dynamic_path = str(scope).split(".", 2)[-1].removesuffix(".*")
+            if is_internal_manifest_path(dynamic_path):
+                return False
             # Import here to avoid circular dependency
             from hushh_mcp.consent.scope_generator import get_scope_generator
 
@@ -304,8 +313,13 @@ SCOPE_POLICY_VERSION = 2
 # external request surface is deliberately narrower and accepts one semantic
 # branch wildcard only.
 _SCOPE_SLUG = r"[a-z](?:[a-z0-9_]{0,62}[a-z0-9])?"
+# PKM manifests use these two explicit collection markers in otherwise
+# requestable leaf paths. They are not general-purpose leading-underscore
+# identifiers: internal-path policy still validates their placement before a
+# scope can enter the discoverable catalog.
+_SCOPE_PATH_SEGMENT = rf"(?:{_SCOPE_SLUG}|_(?:entities|items))"
 _DYNAMIC_SCOPE_PATTERN = re.compile(
-    rf"attr\.{_SCOPE_SLUG}\.(?:\*|{_SCOPE_SLUG}(?:\.{_SCOPE_SLUG})*(?:\.\*)?)"
+    rf"attr\.{_SCOPE_SLUG}\.(?:\*|{_SCOPE_PATH_SEGMENT}(?:\.{_SCOPE_PATH_SEGMENT})*(?:\.\*)?)"
 )
 _EXTERNAL_DYNAMIC_SCOPE_PATTERN = re.compile(rf"attr\.{_SCOPE_SLUG}\.{_SCOPE_SLUG}\.\*")
 
@@ -373,9 +387,11 @@ DEFAULT_TRUST_LINK_EXPIRY_MS = 1000 * 60 * 60 * 24 * 30  # 30 days
 # at once (manifests say `gemini-default` and resolve here). The default is the
 # last generation proven in every lane; a lane flips the switch through the
 # `_HUSSH_GEMINI_TEXT_MODEL` deploy substitution once its Vertex allowed-models
-# policy admits the new id. Pins that name a different family (the memory chain
-# on 3.1 pro preview, the reducer on 3.1 flash lite, the Live head) are
-# deliberate and stay explicit in their manifests.
+# policy admits the new id. Founder rule 2026-09-14: the Gemini catalog
+# (runtime_providers/model_catalog.py and registry.py) lists only the last two
+# releases at all times; a roll-forward replaces the oldest, never adds a third.
+# Every text manifest, the memory chain included, names `gemini-default`; only
+# the Live head pins a model directly, and that pin stays explicit in its manifest.
 FLEET_TEXT_MODEL_DEFAULT = "gemini-3.8-flash"
 
 

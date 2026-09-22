@@ -66,6 +66,23 @@ export function AgentVoiceWaveform({
   }, [muted]);
 
   useEffect(() => {
+    if (!prefersReducedMotion()) return;
+    const active = !muted && (status === "listening" || status === "speaking");
+    const amplitude =
+      active && Number.isFinite(level)
+        ? Math.min(1, Math.max(0, level))
+        : MIN_BAR_SCALE;
+    barsRef.current.forEach((bar, index) => {
+      const scale = Math.max(
+        MIN_BAR_SCALE,
+        amplitude * bellWindow(index, barCount),
+      );
+      bar.style.transform = `scaleY(${scale.toFixed(3)})`;
+      bar.style.opacity = (0.45 + 0.55 * scale).toFixed(3);
+    });
+  }, [level, status, muted, barCount]);
+
+  useEffect(() => {
     const reduced = prefersReducedMotion();
 
     const render = (ts: number) => {
@@ -95,10 +112,13 @@ export function AgentVoiceWaveform({
         let target: number;
         if (reduced) {
           // Reduced motion: a calm, static-ish bar driven only by level.
-          target = mutedRef.current ? MIN_BAR_SCALE : baseLevel * bellWindow(i, count);
+          target = mutedRef.current
+            ? MIN_BAR_SCALE
+            : baseLevel * bellWindow(i, count);
         } else if (isBusy) {
           // Gentle idle shimmer while the model is working.
-          const shimmer = 0.18 + 0.1 * (0.5 + 0.5 * Math.sin(phase * 1.5 + i * 0.6));
+          const shimmer =
+            0.18 + 0.1 * (0.5 + 0.5 * Math.sin(phase * 1.5 + i * 0.6));
           target = shimmer;
         } else if (isAudible) {
           // Traveling wave: a moving sine modulated by the live amplitude and a
@@ -145,7 +165,7 @@ export function AgentVoiceWaveform({
       ref={containerRef}
       className={cn(
         "flex h-8 items-center justify-center gap-[3px] overflow-hidden",
-        className
+        className,
       )}
       role="img"
       aria-label="Voice activity"
@@ -158,7 +178,7 @@ export function AgentVoiceWaveform({
           }}
           className={cn(
             "block h-7 w-[3px] origin-center rounded-full will-change-transform",
-            isError ? "bg-destructive/70" : "bg-primary/70"
+            isError ? "bg-destructive/70" : "bg-primary/70",
           )}
           style={{ transform: "scaleY(0.06)", opacity: 0.45 }}
         />

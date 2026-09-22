@@ -121,6 +121,52 @@ describe("EmailDraftCard", () => {
     expect(onSent).toHaveBeenCalledTimes(1);
   });
 
+  it("reuses the reviewed composer for a source-bound Gmail reply", async () => {
+    const send = vi.fn().mockResolvedValue({ outcomeUnknown: false });
+    render(
+      <EmailDraftCard
+        initialInstruction="Reply to this Gmail KYC request"
+        sourceBoundContext="This request asks for: full name and educational institution."
+        initialDraft={{
+          to: "",
+          cc: "",
+          bcc: "",
+          subject: "",
+          body: "Hello,\n\nMy name is **Akshat Kumar**.",
+        }}
+        getAuth={getAuth}
+        onRequireVault={vi.fn()}
+        onDismiss={vi.fn()}
+        onSent={vi.fn()}
+        sourceBoundReply={{ send }}
+      />,
+    );
+
+    expect(screen.getByTestId("one-email-draft-source-bound-notice")).toHaveTextContent(
+      "original Mail thread",
+    );
+    expect(screen.getByTestId("one-email-draft-source-bound-notice")).toHaveTextContent(
+      "full name and educational institution",
+    );
+    expect(screen.queryByTestId("one-email-draft-to")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("one-email-draft-send"));
+
+    await waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        firebaseIdToken: "firebase-token",
+        vaultOwnerToken: "vault-owner-token",
+        draft: expect.objectContaining({
+          body: expect.stringContaining("Hello"),
+          htmlBody: expect.stringContaining("<strong>Akshat Kumar</strong>"),
+        }),
+      }),
+    );
+    expect(EmailDeliveryService.prepare).not.toHaveBeenCalled();
+    expect(EmailDeliveryService.send).not.toHaveBeenCalled();
+  });
+
   it("shows clear draft progress instead of a disabled empty composer", async () => {
     vi.mocked(EmailDeliveryService.draft).mockImplementation(
       () => new Promise<never>(() => {}),
@@ -143,7 +189,7 @@ describe("EmailDraftCard", () => {
       "aria-busy",
       "true",
     );
-    expect(screen.getByRole("status")).toHaveTextContent("Drafting your email");
+    expect(screen.getByRole("status")).toHaveTextContent("Drafting your mail");
     expect(screen.getByText("Close draft")).toBeEnabled();
     expect(screen.getByTestId("one-email-draft-send")).toBeDisabled();
     expect(screen.queryByTestId("one-email-draft-to")).not.toBeInTheDocument();

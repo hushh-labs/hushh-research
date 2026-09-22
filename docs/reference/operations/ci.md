@@ -213,6 +213,7 @@ mandatory regardless of the expensive-lane selection.
 
 - **Frontend jobs** run when `hushh-webapp/**`, protected CI workflow files, or `scripts/ci/**` change.
 - **Backend job** runs when `consent-protocol/**`, protected CI workflow files, or `scripts/ci/**` change.
+- **iOS native job** (`ios-native-check`) runs when the `ios` filter matches; that filter lists the web surfaces the XCUITests render alongside the native shell paths, and it is pinned by `consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py`, so a native test that starts rendering a new web surface fails CI until the filter names it.
 - **Integration job** runs when either frontend or backend paths change.
 
 ### Duplicate-Run Policy
@@ -394,7 +395,7 @@ Using a different Node or Python locally can cause â€œpass locally, fail in CIâ€
 | Phone verification regression | `npm run verify:phone-verification` | Yes |
 | Build (web) | `npm run build` (Next.js) | Yes |
 | Security audit budget | `npm audit --json` + budget gate (`moderate/high/critical`) | Yes |
-| Tests | `npm run test:ci` (manifest-driven curated suites) | Yes |
+| Tests | `npm run test:ci` (manifest-driven curated suites, plus a whole-tree collection gate) | Yes |
 
 **Build env (CI):** `NEXT_PUBLIC_BACKEND_URL` and all six `NEXT_PUBLIC_FIREBASE_*` vars are set to placeholders in the workflow so the build does not depend on real secrets.
 
@@ -417,7 +418,7 @@ Using a different Node or Python locally can cause â€œpass locally, fail in CIâ€
 | Lint | `uv run ruff check .` | Yes |
 | Type check | `uv run mypy --config-file pyproject.toml --ignore-missing-imports` | Yes |
 | Security | `uv run bandit -r hushh_mcp/ api/ -c pyproject.toml -ll` | Yes |
-| Tests | `bash scripts/run-test-ci.sh` (manifest-driven curated suites) | Yes |
+| Tests | `bash scripts/run-test-ci.sh` (manifest-driven curated suites, plus a whole-tree collection gate) | Yes |
 
 Blocking backend manifest:
 
@@ -443,6 +444,12 @@ Blocking backend manifest:
 - Optional args: use `Optional[T] = None`, not `T = None`, to satisfy mypy.
 - Return types: avoid returning untyped `Any` from functions that declare a concrete return type; use `cast()` or correct types so mypy passes.
 - New backend code under `consent-protocol/` is type-checked and linted; keep `api/` and `db/` aligned with mypy and Ruff.
+
+### Capability-graph evolution gate
+
+`uv run python scripts/generate_capability_graph.py --check` runs in the backend lane (`consent-protocol/scripts/ci/backend-check.sh`) and again through `npm run verify:one-voice` in the web lanes. It regenerates `contracts/kai/one-capability-graph.v1.json` from its sources and diffs the semantic nodes against the pull request base, not against `HEAD`: the predecessor is the committed graph at the merge-base with `origin/<base>`, where the base is resolved in this order: `--base-ref <ref>`, then `CAPABILITY_GRAPH_BASE_REF` (used verbatim), then `GITHUB_BASE_REF` and `WEB_TARGETED_BASE_REF` (bare branch names are prefixed with `origin/`), else `origin/main`. Queue Validation resolves the merge-group base into `CAPABILITY_GRAPH_BASE_REF` with its own step. Under CI the check fails closed when that base cannot be resolved. Locally, when no base ref can be resolved, it falls back to comparing against the graph committed at `HEAD` and prints a warning; that fallback only catches a change relative to your last commit, so run with a real base ref before relying on it.
+
+When it fires, the error names the semantic ids with unacknowledged breaking changes. Do not edit the generated graph by hand. Either land a workflow migration with the owning workflow package, or add an exact-revision deprecation entry to `consent-protocol/hushh_mcp/agents/capability_graph_evolution.v1.json` whose `from_revision` is the base graph's top-level `revision`; broad or stale acknowledgements never suppress the gate. Then regenerate in dependency order (the agent registry if it changed, the capability graph, then the runtime topology index last, because it digests the others) and rerun the check with the same base ref CI will use.
 
 ---
 
@@ -588,3 +595,25 @@ The optional consent-protocol mirror has its own full CI pipeline at [hushh-labs
 The monorepo is authoritative. Its protocol and release gates determine merge
 and deploy readiness. Mirror publication and mirror CI are optional maintainer
 operations and must not delay a monorepo release or UAT deploy.
+
+## The collection gate
+
+`consent-protocol/scripts/run-test-ci.sh` runs `pytest --collect-only -q tests/` over the whole
+tree before it runs the curated manifest. The manifest is an allowlist, so a
+test file that is not listed is simply never executed, and a file that cannot
+be IMPORTED is worse than that: pytest reports `no tests ran` for it, which in
+CI is indistinguishable from a file that passed.
+
+Measured 2026-09-11. `consent-protocol/tests/test_consent_lifecycle_chat.py`
+imported a symbol deleted two days earlier. All 438 of its lines collected zero
+tests and reported nothing, and a behavioural change to the proposal path drifted
+away from an assertion in the same file with nothing going red.
+
+It also distorts any whole-suite measurement taken against a branch that has
+the broken file. A collection error aborts the entire run, so `pytest -q tests/`
+returns a single error and executes nothing, and the run reads as one failure
+rather than as no coverage at all. Compare failure counts only after confirming
+the suite actually ran.
+
+The gate is deliberately separate from the manifest: the manifest answers "which
+suites gate a merge", and the gate answers "can every test file still be loaded".

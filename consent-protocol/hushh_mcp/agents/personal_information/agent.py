@@ -22,7 +22,7 @@ class PersonalInformationAgent(HushhAgent):
     manifest: Any = None
     hushh_tools: Any = None
 
-    def __init__(self, tools: list[Any] | None = None) -> None:
+    def __init__(self, tools: list[Any] | None = None, model: Any | None = None) -> None:
         manifest_path = os.path.join(os.path.dirname(__file__), "agent.yaml")
         manifest = ManifestLoader.load(manifest_path)
 
@@ -30,10 +30,11 @@ class PersonalInformationAgent(HushhAgent):
 
         super().__init__(
             name=manifest.name,
-            model=manifest.model,
+            model=model if model is not None else manifest.model,
             system_prompt=manifest.system_instruction,
             tools=selected_tools,
             required_scopes=manifest.required_scopes,
+            mode=manifest.runtime.adk_mode,
         )
         self.manifest = manifest
         self.hushh_tools = selected_tools
@@ -62,13 +63,20 @@ class PersonalInformationAgent(HushhAgent):
             }
 
 
+def build_personal_information_agent(
+    *, tools: list[Any] | None = None, model: Any | None = None
+) -> PersonalInformationAgent:
+    """Build a manifest-backed Memory agent for one bounded ADK turn."""
+    return PersonalInformationAgent(tools=tools, model=model)
+
+
 _personal_information_agent: PersonalInformationAgent | None = None
 
 
 def get_personal_information_agent() -> PersonalInformationAgent:
     global _personal_information_agent
     if _personal_information_agent is None:
-        _personal_information_agent = PersonalInformationAgent()
+        _personal_information_agent = build_personal_information_agent()
     return _personal_information_agent
 
 
@@ -80,7 +88,7 @@ def get_personal_information_chat_agent() -> PersonalInformationAgent:
     server-side list/approve/deny of durable access requests."""
     global _personal_information_chat_agent
     if _personal_information_chat_agent is None:
-        _personal_information_chat_agent = PersonalInformationAgent(
+        _personal_information_chat_agent = build_personal_information_agent(
             tools=PERSONAL_INFORMATION_CHAT_TOOLS
         )
     return _personal_information_chat_agent

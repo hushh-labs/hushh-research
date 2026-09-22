@@ -15,6 +15,10 @@ const kaiMocks = vi.hoisted(() => ({
   cancelKaiAnalysisStream: vi.fn(),
 }));
 
+const requestTimeoutMocks = vi.hoisted(() => ({
+  resolveSlowRequestTimeoutMs: vi.fn(() => 75_000),
+}));
+
 // ---------------------------------------------------------------------------
 // Mocks – declared before any import that touches them
 // ---------------------------------------------------------------------------
@@ -62,6 +66,10 @@ vi.mock("@/lib/motion/api-progress-tracker", () => ({
   trackRequestEnd: vi.fn(),
 }));
 
+vi.mock("@/lib/utils/request-timeouts", () => ({
+  resolveSlowRequestTimeoutMs: requestTimeoutMocks.resolveSlowRequestTimeoutMs,
+}));
+
 // ---------------------------------------------------------------------------
 // Imports (after mocks are registered)
 // ---------------------------------------------------------------------------
@@ -70,6 +78,8 @@ import { ApiService } from "@/lib/services/api-service";
 import { AuthService } from "@/lib/services/auth-service";
 import { REQUEST_TIMESTAMP_HEADER } from "@/lib/observability/request-id";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { trackRequestStart } from "@/lib/motion/api-progress-tracker";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -127,9 +137,69 @@ describe("ApiService.apiFetch", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  it("rechecks effect authority after asynchronous transport setup", async () => {
+    let current = true;
+    vi.mocked(trackRequestStart).mockImplementationOnce(() => { current = false; });
+    const beforeDispatch = vi.fn(async () => {
+      if (!current) throw new DOMException("Session changed", "AbortError");
+    });
+    await expect(ApiService.apiFetch("/api/pkm/store-domain", {
+      method: "POST", body: "{}", beforeDispatch,
+    })).rejects.toMatchObject({ name: "AbortError" });
+    expect(beforeDispatch).toHaveBeenCalledOnce();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it("does not send an application effect guard over the transport", async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ success: true }));
+    const beforeDispatch = vi.fn(async () => {});
+    await ApiService.apiFetch("/api/pkm/store-domain", { method: "POST", beforeDispatch });
+    expect(beforeDispatch).toHaveBeenCalledOnce();
+    expect(mockFetch.mock.calls[0][1]).not.toHaveProperty("beforeDispatch");
+  });
+
+  it("blocks a session change queued between an async guard and web dispatch", async () => {
+    let current = true;
+    await expect(ApiService.apiFetch("/api/pkm/memory/proposals", {
+      method: "POST",
+      beforeDispatch: async () => { queueMicrotask(() => { current = false; }); },
+      isEffectCurrent: () => current,
+    })).rejects.toMatchObject({ name: "AbortError" });
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])("blocks the same native dispatch race (multipart=%s)", async (multipart) => {
+    vi.stubEnv("NEXT_PUBLIC_BACKEND_URL", "https://uat.example");
+    capacitorMocks.isNativePlatform.mockReturnValue(true);
+    let current = true;
+    await expect(ApiService.apiFetch("/api/pkm/memory/proposals", {
+      method: "POST", body: multipart ? new FormData() : "{}",
+      beforeDispatch: async () => { queueMicrotask(() => { current = false; }); },
+      isEffectCurrent: () => current,
+    })).rejects.toMatchObject({ name: "AbortError" });
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(capacitorMocks.request).not.toHaveBeenCalled();
   });
 
   // 1 – Web platform: calls fetch with relative path (no base URL)
+  it("keeps simultaneous reviewer sessions bound to their requested identities", async () => {
+    const first = deferred<Response>();
+    const second = deferred<Response>();
+    mockFetch.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const a = ApiService.createAppReviewModeSession("reviewer", { reviewerUid: "synthetic-a" });
+    const b = ApiService.createAppReviewModeSession("reviewer", { reviewerUid: "synthetic-b" });
+    await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2));
+    expect(mockFetch.mock.calls.map((call) => JSON.parse(call[1].body).reviewer_uid))
+      .toEqual(["synthetic-a", "synthetic-b"]);
+    second.resolve(jsonResponse({ token: "synthetic-token-b" }));
+    first.resolve(jsonResponse({ token: "synthetic-token-a" }));
+    expect(await a).toEqual({ token: "synthetic-token-a" });
+    expect(await b).toEqual({ token: "synthetic-token-b" });
+  });
+
   it("calls fetch with a relative path on web (no base URL prepended)", async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ ok: true }));
 
@@ -164,6 +234,30 @@ describe("ApiService.apiFetch", () => {
       "no-store",
     );
     expect(options.cache).toBe("no-store");
+  });
+
+  it("keeps a local account-status request alive past the deployed eight-second bound", async () => {
+    vi.useFakeTimers();
+    let signal: AbortSignal | null = null;
+    mockFetch.mockImplementationOnce((_url, options) => {
+      signal = (options as RequestInit).signal as AbortSignal;
+      return new Promise<Response>((_resolve, reject) => {
+        signal?.addEventListener("abort", () => reject(signal?.reason));
+      });
+    });
+
+    const request = ApiService.getAccountSessionStatus("cached-token");
+    const settledRequest = request.catch((error: unknown) => error);
+    await Promise.resolve();
+
+    await vi.advanceTimersByTimeAsync(8_001);
+    expect(signal?.aborted).toBe(false);
+
+    // The generic web-fetch safety ceiling remains 60 seconds; this test only
+    // proves the account-status-specific 8-second abort no longer wins first.
+    await vi.advanceTimersByTimeAsync(51_999);
+    await expect(settledRequest).resolves.toMatchObject({ name: "TimeoutError" });
+    vi.useRealTimers();
   });
 
   it("includes an x-request-id header in every request", async () => {
@@ -640,6 +734,26 @@ describe("ApiService.apiFetch", () => {
     }
   });
 
+  it("does not lock a new local unlock for a late same-UID HTTP failure", async () => {
+    const pending = deferred<Response>();
+    publishValidatedAuthSessionOwner("same-owner");
+    mockFetch.mockReturnValueOnce(pending.promise);
+    const onLock = vi.fn();
+    window.addEventListener("vault-lock-requested", onLock);
+    try {
+      const request = ApiService.apiFetch("/api/one/location/state", {
+        headers: { Authorization: "Bearer HCT:old-local-session" },
+      });
+      await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+      advanceVaultSessionEpoch(); // Explicit lock/re-unlock, same authenticated UID.
+      pending.resolve(jsonResponse({ code: "AUTH_VAULT_OWNER_INVALID" }, 403));
+      await request;
+      expect(onLock).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener("vault-lock-requested", onLock);
+    }
+  });
+
   it("ignores a delayed native HCT terminal response after account A switches to B", async () => {
     capacitorMocks.isNativePlatform.mockReturnValue(true);
     capacitorMocks.getPlatform.mockReturnValue("ios");
@@ -688,6 +802,28 @@ describe("ApiService.apiFetch", () => {
   });
 
   // 4 – Handle unchanged token safely and keep session when user is same
+  it.each(["AUTH_ACCOUNT_DELETION_IN_PROGRESS", "AUTH_ACCOUNT_STATUS_UNAVAILABLE"])(
+    "requests recoverable session verification for native stream code %s", async (code) => {
+      capacitorMocks.isNativePlatform.mockReturnValue(true);
+      publishValidatedAuthSessionOwner("stream-owner");
+      kaiMocks.streamKaiAnalysis.mockRejectedValueOnce(Object.assign(new Error("Unavailable"), { code }));
+      const onVerification = vi.fn();
+      const onLock = vi.fn();
+      window.addEventListener("auth-session-verification-required", onVerification);
+      window.addEventListener("vault-lock-requested", onLock);
+      try {
+        const response = await ApiService.streamKaiAnalysis({ userId: "stream-owner", ticker: "AAPL", riskProfile: "balanced", vaultOwnerToken: "HCT:owner-token" });
+        await expect(response.text()).rejects.toThrow("Unavailable");
+        expect(onVerification).toHaveBeenCalledTimes(1);
+        expect(onVerification.mock.calls[0][0].detail).toMatchObject({ userId: "stream-owner", reason: code });
+        expect(onLock).not.toHaveBeenCalled();
+      } finally {
+        window.removeEventListener("auth-session-verification-required", onVerification);
+        window.removeEventListener("vault-lock-requested", onLock);
+      }
+    },
+  );
+
   it.each([
     ["the unchanged initiating token", "unchanged"],
     ["no token", "missing"],
@@ -1003,8 +1139,6 @@ describe("ApiService.apiFetch", () => {
 
   it.each([
     "AUTH_VAULT_OWNER_INVALID",
-    "AUTH_ACCOUNT_DELETION_IN_PROGRESS",
-    "AUTH_ACCOUNT_STATUS_UNAVAILABLE",
   ])(
     "locks the Vault without claiming deletion for native stream code %s",
     async (bridgeCode) => {
@@ -1084,6 +1218,28 @@ describe("ApiService.apiFetch", () => {
       expect(authSideEffects).toHaveLength(0);
     } finally {
       dispatchSpy.mockRestore();
+    }
+  });
+
+  it("does not lock a new local unlock for a late same-UID native stream failure", async () => {
+    capacitorMocks.isNativePlatform.mockReturnValue(true);
+    publishValidatedAuthSessionOwner("same-owner");
+    const pending = deferred<Record<string, unknown>>();
+    kaiMocks.streamKaiAnalysis.mockReturnValueOnce(pending.promise);
+    const onLock = vi.fn();
+    window.addEventListener("vault-lock-requested", onLock);
+    try {
+      const response = await ApiService.streamKaiAnalysis({
+        userId: "same-owner", ticker: "AAPL", riskProfile: "balanced", vaultOwnerToken: "HCT:old-local-session",
+      });
+      const consumption = response.text();
+      await vi.waitFor(() => expect(kaiMocks.streamKaiAnalysis).toHaveBeenCalledTimes(1));
+      advanceVaultSessionEpoch();
+      pending.reject(Object.assign(new Error("Old session rejected"), { code: "AUTH_VAULT_OWNER_INVALID" }));
+      await expect(consumption).rejects.toThrow("Old session rejected");
+      expect(onLock).not.toHaveBeenCalled();
+    } finally {
+      window.removeEventListener("vault-lock-requested", onLock);
     }
   });
 

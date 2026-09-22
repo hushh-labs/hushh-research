@@ -4,11 +4,12 @@ import { memo, type ReactNode } from "react";
 import {
   Activity,
   AlertCircle,
+  Brain,
   CheckCircle2,
   ChevronDown,
   Loader2,
   type LucideIcon,
-} from "lucide-react";
+} from "@/components/icons";
 
 import {
   Collapsible,
@@ -170,6 +171,8 @@ export type AppStreamPanelProps = {
   thinkingTitle?: string;
   evidenceItems?: AppStreamProgressItem[];
   evidenceTitle?: string;
+  /** Presentation override for the nested reasoning section. */
+  thinkingClassName?: string;
   structuredContent?: ReactNode;
   response?: ReactNode;
   responseText?: string;
@@ -192,6 +195,7 @@ export function AppStreamPanel({
   thinkingTitle = "Reasoning",
   evidenceItems = [],
   evidenceTitle = "Consulted specialists",
+  thinkingClassName,
   structuredContent,
   response,
   responseText = "",
@@ -252,10 +256,17 @@ export function AppStreamPanel({
             // collapsed once the answer arrives so it never covers the response.
             key={hasResponse ? "thinking-collapsed" : "thinking-open"}
             title={thinkingTitle}
+            // Its own glyph. Both sections defaulted to the Activity icon, so a
+            // turn that reasoned rendered two stacked collapsibles with the same
+            // icon, the same chevron and the same shell -- which reads as the
+            // app having said the same thing twice rather than as two different
+            // kinds of detail.
+            icon={Brain}
             items={thinkingItems}
             count={thinkingContent ? undefined : thinkingItems.length}
             defaultOpen={isStreaming && !hasResponse}
             bodyClassName={thinkingContent ? "px-3 py-2.5" : undefined}
+            className={thinkingClassName}
             content={thinkingContent}
           />
         ) : null}

@@ -6,8 +6,8 @@ import {
   type ComponentPropsWithoutRef,
   type ReactNode,
 } from "react";
-import type { LucideIcon } from "lucide-react";
-import { BriefcaseBusiness, ShieldAlert, ShieldCheck, TriangleAlert } from "lucide-react";
+import type { LucideIcon } from "@/components/icons";
+import { BriefcaseBusiness, ShieldAlert, ShieldCheck, TriangleAlert } from "@/components/icons";
 import { usePathname, useRouter } from "next/navigation";
 
 import { usePersonaState } from "@/lib/persona/persona-context";
@@ -75,8 +75,7 @@ export function RiaPrimaryWorkspaceShell({
       <AppPageShell as="main" fitContent width="agent">
         <AppPageHeaderRegion className="pt-2 sm:pt-3">
           <PageHeader
-            title="RIA"
-            icon={BriefcaseBusiness}
+            title="Advisor"
             accent="ria"
             titleRole="agent"
             actionsInlineMobile
@@ -397,7 +396,7 @@ export function RiaVerificationGate({ children }: { children: ReactNode }) {
 
         {/* Action CTA Button */}
         <Button
-          className="mt-6 h-11 rounded-full bg-[color:var(--ria-gold,var(--app-accent))] px-8 text-sm font-semibold text-[color:var(--app-accent-fg)] shadow-lg hover:bg-[color:var(--app-accent-hover)] active:scale-[0.98] transition-all cursor-pointer"
+          className="mt-6 h-11 rounded-full bg-[color:var(--ria-gold,var(--app-accent))] px-8 text-sm font-semibold text-[color:var(--app-accent-fg)] shadow-lg transition-[background-color,color,transform,box-shadow] duration-150 hover:bg-[color:var(--app-accent-hover)] active:scale-[0.98] cursor-pointer"
           onClick={() => router.push(ROUTES.RIA_ONBOARDING)}
           data-testid="ria-clients-verify-gate-cta"
         >

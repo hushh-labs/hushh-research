@@ -10,6 +10,7 @@ OneLocationAgentService and scope checks inside @hushh_tool.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
@@ -28,6 +29,9 @@ def _ctx() -> HushhContext:
 
 
 def _service() -> OneLocationAgentService:
+    context = _ctx()
+    if "location" in context.service_ports:
+        return context.service_ports["location"]
     return OneLocationAgentService()
 
 
@@ -74,7 +78,7 @@ async def list_incoming_location_shares() -> dict[str, Any]:
     """List active shares where the current user is the recipient (so they can be
     viewed). Returns grant ids + owner names; coordinate-free (no lat/lng)."""
     context = _ctx()
-    state = _service().list_state(user_id=context.user_id)
+    state = await asyncio.to_thread(_service().list_state, user_id=context.user_id)
     shares = [
         {
             "grantId": grant.get("id"),
@@ -92,7 +96,7 @@ async def list_incoming_location_shares() -> dict[str, Any]:
 async def list_public_links() -> dict[str, Any]:
     """List the user's active public location links (id + expiry). Coordinate-free."""
     context = _ctx()
-    state = _service().list_state(user_id=context.user_id)
+    state = await asyncio.to_thread(_service().list_state, user_id=context.user_id)
     links = [
         {
             "inviteId": invite.get("id"),
@@ -110,20 +114,20 @@ async def list_public_links() -> dict[str, Any]:
 async def propose_public_link(duration_hours: float) -> dict[str, Any]:
     """Propose creating an owner-confirmed public link. Does NOT create it (the
     browser captures the snapshot and creates it after explicit confirmation).
-    duration_hours must be between 0.25 and 1. Coordinate-free."""
+    duration_hours must be between 0.25 and 2. Coordinate-free."""
     _ctx()
     try:
         hours = float(duration_hours)
     except (TypeError, ValueError) as exc:
-        raise ValueError("duration_hours must be a number between 0.25 and 1") from exc
+        raise ValueError("duration_hours must be a number between 0.25 and 2") from exc
     # 24 was the PRIVATE share ceiling, copied. A public link is readable by
-    # anyone holding it, and both the route field (le=1) and the service
-    # (PUBLIC_INVITE_MAX_DURATION_HOURS) stop at an hour -- so this tool could
+    # anyone holding it, and both the route field (le=2) and the service
+    # (PUBLIC_INVITE_MAX_DURATION_HOURS) stop at two hours -- so this tool could
     # propose a duration that was guaranteed to 422 the moment the person
     # confirmed it. The floor is the shared minimum share length; below it
     # normalize_duration_hours rejects the request.
-    if not (0.25 <= hours <= 1):
-        raise ValueError("duration_hours must be between 0.25 and 1 for a public link")
+    if not (0.25 <= hours <= 2):
+        raise ValueError("duration_hours must be between 0.25 and 2 for a public link")
     return {"proposed": "create_public_link", "durationHours": hours}
 
 
@@ -193,7 +197,7 @@ async def request_incoming_choice() -> dict[str, Any]:
     """Ask the user whose incoming shared location to view. Coordinate-free
     single-select whose options carry real grant ids."""
     context = _ctx()
-    state = _service().list_state(user_id=context.user_id)
+    state = await asyncio.to_thread(_service().list_state, user_id=context.user_id)
     incoming = [g for g in state.get("receivedGrants", []) if g.get("status") == "active"]
     if not incoming:
         return {"incomingShares": []}

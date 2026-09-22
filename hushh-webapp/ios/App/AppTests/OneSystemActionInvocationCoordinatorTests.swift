@@ -259,8 +259,9 @@ final class OneSystemActionInvocationCoordinatorTests: XCTestCase {
         XCTAssertEqual(OneSystemActionID.vaultRequiredActionIDs.count, 8)
         XCTAssertTrue(OneSystemActionID.pauseLocation.requiresVault)
         XCTAssertFalse(OneSystemActionID.pauseLocation.requiresSystemConfirmation)
-        XCTAssertTrue(OneSystemActionID.resumeLocation.requiresSystemConfirmation)
-        XCTAssertEqual(OneSystemActionID.systemConfirmationRequiredActionIDs.count, 6)
+        XCTAssertFalse(OneSystemActionID.resumeLocation.requiresSystemConfirmation)
+        XCTAssertFalse(OneSystemActionID.createCircle.requiresSystemConfirmation)
+        XCTAssertEqual(OneSystemActionID.systemConfirmationRequiredActionIDs.count, 4)
         // Save My Soul's sending half: reachable from exactly one App Intent,
         // vault-gated, and deliberately NOT system-confirmation-gated -- the
         // Action button hold is the confirmation.
@@ -284,7 +285,7 @@ final class OneSystemActionInvocationCoordinatorTests: XCTestCase {
                     "resolvedRecipientId": "contact-1",
                     "duration_hours": "2"
                 ],
-                confirmedBySystem: true
+                confirmedBySystem: false
             )
         )
         XCTAssertEqual(
@@ -300,7 +301,7 @@ final class OneSystemActionInvocationCoordinatorTests: XCTestCase {
                     "resolvedRecipientId": "contact-2",
                     "duration_hours": "0.5"
                 ],
-                confirmedBySystem: true
+                confirmedBySystem: false
             )
         )
         XCTAssertEqual(
@@ -311,7 +312,7 @@ final class OneSystemActionInvocationCoordinatorTests: XCTestCase {
             OneAppIntentActionRequest(
                 actionID: .stopShare,
                 slots: ["person": "Dad", "resolvedRecipientId": "contact-3"],
-                confirmedBySystem: true
+                confirmedBySystem: false
             )
         )
     }
@@ -324,14 +325,14 @@ final class OneSystemActionInvocationCoordinatorTests: XCTestCase {
         )
         XCTAssertEqual(
             OneAppIntentActionRequestFactory.setLocationState(.on),
-            .init(actionID: .resumeLocation, slots: [:], confirmedBySystem: true)
+            .init(actionID: .resumeLocation, slots: [:], confirmedBySystem: false)
         )
         XCTAssertEqual(
             OneAppIntentActionRequestFactory.createCircle(name: "Family"),
             .init(
                 actionID: .createCircle,
                 slots: ["name": "Family"],
-                confirmedBySystem: true
+                confirmedBySystem: false
             )
         )
         XCTAssertEqual(
@@ -347,7 +348,7 @@ final class OneSystemActionInvocationCoordinatorTests: XCTestCase {
                     "resolvedCircleId": "circle-1",
                     "name": "Home"
                 ],
-                confirmedBySystem: true
+                confirmedBySystem: false
             )
         )
     }

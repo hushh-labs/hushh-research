@@ -133,15 +133,17 @@ def test_resolve_model_entry_empty_model_uses_default():
     assert entry.model == default_model_for_provider("gemini")
 
 
-def test_only_gemini_live_models_advertise_native_realtime():
+def test_gemini_command_models_do_not_advertise_native_realtime():
     assert resolve_model_entry("gemini", "gemini-3.5-flash").supports_native_realtime is False
     assert resolve_model_entry("gemini", "gemini-3.1-flash-lite").supports_native_realtime is False
-    # Canonical live model (developer_api transport) and the Vertex GA
-    # rollback model are the only two realtime-capable entries.
+    # Removed Live model identifiers now pass through the registry as unknown
+    # models and cannot regain realtime authority by name.
     assert (
         resolve_model_entry("gemini", "gemini-3.1-flash-live-preview").supports_native_realtime
-        is True
+        is False
     )
+    # The one maintained Live model is registered explicitly as native-realtime
+    # (regional, alias-free); see tests/one_voice/test_factory_live_client.py.
     assert (
         resolve_model_entry("gemini", "gemini-live-2.5-flash-native-audio").supports_native_realtime
         is True
@@ -376,6 +378,52 @@ def test_factory_adk_model_honors_explicit_live_location(monkeypatch):
         "project": "hushh-test",
         "location": "us-central1",
     }
+
+
+@pytest.mark.parametrize("as_dict", [False, True])
+def test_adk_http_options_reach_official_sdk_client_with_adc_unchanged(monkeypatch, as_dict):
+    from google import genai
+    from google.genai.types import HttpOptions, HttpRetryOptions
+
+    monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "vertex_adc")
+    monkeypatch.setenv("GENAI_GOOGLE_CLOUD_PROJECT", "hushh-test")
+    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "global")
+    calls = []
+    sentinel = object()
+
+    def client(**kwargs):
+        calls.append(kwargs)
+        return sentinel
+
+    monkeypatch.setattr(genai, "Client", client)
+    options = HttpOptions(timeout=10_000, retry_options=HttpRetryOptions(attempts=4))
+    model = build_managed_gemini_adk_model(
+        "gemini-test",
+        vertex_location="us-central1",
+        http_options=options.model_dump(exclude_none=True) if as_dict else options,
+    )
+    assert model.api_client is sentinel  # Exercise installed ADK's client_kwargs forwarding.
+    assert len(calls) == 1
+    actual = calls[0].pop("http_options")
+    assert actual.timeout == 10_000
+    assert actual.retry_options.attempts == 4
+    assert calls[0] == {"vertexai": True, "project": "hushh-test", "location": "us-central1"}
+
+
+def test_adk_http_options_preserve_explicit_developer_auth(monkeypatch):
+    from hushh_mcp.runtime_providers.factory import (
+        DEVELOPER_API_KEY_AUTH_MODE,
+        ManagedGeminiRuntimeBinding,
+    )
+
+    monkeypatch.setenv("GEMINI_API_KEY", "synthetic-local-key")
+    binding = ManagedGeminiRuntimeBinding(
+        project="", locations=(), auth_mode=DEVELOPER_API_KEY_AUTH_MODE
+    )
+    model = binding.build_adk_model("gemini-test", http_options={"timeout": 10_000})
+    assert model.client_kwargs["vertexai"] is False
+    assert model.client_kwargs["api_key"] == "synthetic-local-key"
+    assert model.client_kwargs["http_options"].timeout == 10_000
 
 
 @pytest.mark.parametrize("location", ["us", "eu"])

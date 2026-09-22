@@ -220,6 +220,11 @@ DATASET: list[dict[str, Any]] = [
     },
 ]
 
+# Keep the migration gate explicit and measurable. The dataset intentionally
+# contains held-out semantic cases, so a perfect score is not required to land
+# the bounded ADK seam; regressions below this floor fail the live command.
+MIN_ACCURACY = 0.8
+
 _REQUIRED_KEYS = frozenset(
     {"id", "subject", "body", "pkm_index", "expected_domain", "expected_classification"}
 )
@@ -317,9 +322,21 @@ async def run_eval(
 
     total = len(cases_to_run)
     accuracy = passed / total if total else 0.0
-    print(f"\nAccuracy: {passed}/{total} ({accuracy:.1%})")
-    return {"cases": results, "passed": passed, "total": total, "accuracy": accuracy}
+    accepted = accuracy >= MIN_ACCURACY
+    print(
+        f"\nAccuracy: {passed}/{total} ({accuracy:.1%})"
+        f" — {'PASS' if accepted else 'FAIL'} (floor {MIN_ACCURACY:.0%})"
+    )
+    return {
+        "cases": results,
+        "passed": passed,
+        "total": total,
+        "accuracy": accuracy,
+        "accepted": accepted,
+        "minimum_accuracy": MIN_ACCURACY,
+    }
 
 
 if __name__ == "__main__":
-    asyncio.run(run_eval())
+    report = asyncio.run(run_eval())
+    raise SystemExit(0 if report["accepted"] else 1)

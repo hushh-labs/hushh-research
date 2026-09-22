@@ -220,7 +220,7 @@ describe("DurationSelector button layout", () => {
     );
 
     const group = screen.getByRole("radiogroup", { name: "Duration" });
-    expect(group).toHaveClass("grid", "w-full", "grid-cols-2", "gap-2");
+    expect(group).toHaveClass("grid", "w-full", "grid-cols-3", "gap-2");
     for (const option of screen.getAllByRole("radio")) {
       expect(option).toHaveClass("min-h-11", "min-w-0", "px-3");
     }

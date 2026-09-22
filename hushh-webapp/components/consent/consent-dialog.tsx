@@ -13,6 +13,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { mailDisplayLabel } from "@/lib/copy/mail-terminology";
 import {
   Dialog,
   DialogContent,
@@ -22,7 +23,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/lib/morphy-ux/morphy";
-import { Shield, CheckCircle, XCircle, Clock, Lock } from "lucide-react";
+import { Shield, CheckCircle, XCircle, Clock, Lock } from "@/components/icons";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { Icon } from "@/lib/morphy-ux/ui";
 
@@ -82,7 +83,7 @@ function resolveScopeDisplay(request: ConsentRequest): {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 
   return {
-    title: humanized || request.scope,
+    title: mailDisplayLabel(humanized) || request.scope,
     description: request.scopeDescription,
     colorHex: null,
   };

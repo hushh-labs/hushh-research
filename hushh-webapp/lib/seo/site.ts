@@ -29,6 +29,7 @@ export const PUBLIC_ROUTES = [
   "/research",
   "/research/protocol",
   "/blog",
+  "/manishhussh",
 ] as const;
 
 export type PublicRoute = (typeof PUBLIC_ROUTES)[number];
@@ -36,7 +37,7 @@ export type PublicRoute = (typeof PUBLIC_ROUTES)[number];
 export type PublicRouteSemantic = {
   title: string;
   description: string;
-  schemaType: "WebPage" | "CollectionPage";
+  schemaType: "WebPage" | "CollectionPage" | "ProfilePage";
   voicePlaybookId: string;
 };
 
@@ -50,7 +51,9 @@ export const PUBLIC_ROUTE_SEMANTICS: Record<PublicRoute, PublicRouteSemantic> = 
     title: "Hussh One | Your Private Agent",
     description: "Private AI agents with consent at the core. Your information, your control.",
     schemaType: "WebPage",
-    voicePlaybookId: "route.one.intro",
+    // `/` is dual-mode: anonymous visitors receive the intro surface, while
+    // the authenticated canonical route is the Chat workspace.
+    voicePlaybookId: "route.chat.root",
   },
   "/getting-started": {
     title: "Get started with Hussh One",
@@ -87,6 +90,13 @@ export const PUBLIC_ROUTE_SEMANTICS: Record<PublicRoute, PublicRouteSemantic> = 
     description: "Writing on consent-first information sharing, private agents, and human-centered systems.",
     schemaType: "CollectionPage",
     voicePlaybookId: "route.blog",
+  },
+  "/manishhussh": {
+    title: "Manish Sainani | Founder & CEO, Hussh",
+    description:
+      "Manish Sainani is the Founder & CEO of Hussh, building personal agent infrastructure people own: Hussh One and the open consent protocol PCHP.",
+    schemaType: "ProfilePage",
+    voicePlaybookId: "route.manishhussh",
   },
 };
 

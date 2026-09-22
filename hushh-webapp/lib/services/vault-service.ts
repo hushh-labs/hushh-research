@@ -14,6 +14,7 @@ import {
   isPasskeyRpIdCompatibleWithHost,
   resolvePasskeyRpId,
 } from "@/lib/vault/passkey-rp";
+import { VAULT_WRITE_PROTOCOL_VERSION } from "@/lib/vault/write-protocol-version";
 import { auth } from "@/lib/firebase/config";
 import { apiJson } from "@/lib/services/api-client";
 import {
@@ -926,10 +927,12 @@ export class VaultService {
   static async issueVaultOwnerToken(
     userId: string,
     firebaseIdToken: string,
+    renewalOfToken?: string,
   ): Promise<{
     token: string;
     expiresAt: number;
     scope: string;
+    renewalValidated?: boolean;
   }> {
     if (Capacitor.isNativePlatform()) {
       // iOS/Android: Use native plugin
@@ -937,6 +940,7 @@ export class VaultService {
       return HushhConsent.issueVaultOwnerToken({
         userId,
         authToken: firebaseIdToken,
+        renewalOfToken,
       });
     } else {
       // Web: Call Next.js API route
@@ -947,7 +951,7 @@ export class VaultService {
           Authorization: `Bearer ${firebaseIdToken}`,
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ userId }),
+        body: JSON.stringify({ userId, renewalOfToken }),
       });
     }
   }
@@ -1345,8 +1349,7 @@ export class VaultService {
       const authToken = await this.getFirebaseToken();
       const headers: HeadersInit = {
         "Content-Type": "application/json",
-        "x-hushh-client-version":
-          process.env.NEXT_PUBLIC_CLIENT_VERSION || "2.0.0",
+        "x-hushh-client-version": VAULT_WRITE_PROTOCOL_VERSION,
       };
       if (authToken) {
         headers.Authorization = `Bearer ${authToken}`;
@@ -1419,8 +1422,7 @@ export class VaultService {
         const authToken = await this.getFirebaseToken();
         const headers: HeadersInit = {
           "Content-Type": "application/json",
-          "x-hushh-client-version":
-            process.env.NEXT_PUBLIC_CLIENT_VERSION || "2.0.0",
+          "x-hushh-client-version": VAULT_WRITE_PROTOCOL_VERSION,
         };
         if (authToken) headers.Authorization = `Bearer ${authToken}`;
 
@@ -1504,8 +1506,7 @@ export class VaultService {
         const authToken = await this.getFirebaseToken();
         const headers: HeadersInit = {
           "Content-Type": "application/json",
-          "x-hushh-client-version":
-            process.env.NEXT_PUBLIC_CLIENT_VERSION || "2.0.0",
+          "x-hushh-client-version": VAULT_WRITE_PROTOCOL_VERSION,
         };
         if (authToken) headers.Authorization = `Bearer ${authToken}`;
         headers["X-Hushh-Consent"] = `Bearer ${params.vaultOwnerToken}`;
@@ -1565,8 +1566,7 @@ export class VaultService {
         const authToken = await this.getFirebaseToken();
         const headers: HeadersInit = {
           "Content-Type": "application/json",
-          "x-hushh-client-version":
-            process.env.NEXT_PUBLIC_CLIENT_VERSION || "2.0.0",
+          "x-hushh-client-version": VAULT_WRITE_PROTOCOL_VERSION,
         };
         if (authToken) headers.Authorization = `Bearer ${authToken}`;
 

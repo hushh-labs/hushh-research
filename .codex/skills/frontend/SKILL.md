@@ -49,6 +49,7 @@ Non-owned surfaces:
 3. `hushh-webapp/components/README.md`
 4. `hushh-webapp/lib/services/README.md`
 5. `.codex/skills/frontend/references/browser-ux-runtime.md`
+6. `docs/reference/mobile/render-performance-charter.md`
 
 ## Workflow
 
@@ -59,7 +60,7 @@ Non-owned surfaces:
 5. Choose the smallest authoritative proof; use browser proof only for browser-only behavior or explicit user request.
 6. For protected routes, distinguish same-session client navigation from cold-entry/re-unlock behavior.
 7. Use canonical frontend runtime launch and phone-auth triage rules from `browser-ux-runtime.md`.
-8. Apply the UX review kernel before finalizing visible routes, cards, sheets, modals, and actionables.
+8. Apply the UX review kernel before finalizing visible routes, cards, sheets, modals, and actionables. For form work, inspect the shared `Input`, `InputGroup`, `Textarea`, `SelectTrigger`, `CommandInput`, and combobox field shells first; use `--app-input-radius` and shared form rhythm tokens, and keep low-emphasis links at a 44px hit target.
 
 ## Handoff Rules
 

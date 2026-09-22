@@ -2,18 +2,19 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { isNative } from "@/lib/capacitor/platform";
+import styles from "./ria-profile-native.module.css";
 import {
   AlertTriangle,
   ArrowRight,
   CheckCircle2,
   ClipboardCheck,
   Loader2,
-  MessageCircle,
   Pencil,
   RotateCcw,
   ShieldCheck,
   Trash2,
-} from "lucide-react";
+} from "@/components/icons";
 
 import {
   RiaCompatibilityState,
@@ -109,8 +110,9 @@ function ProfileSummaryValue({
   return (
     <span
       className={cn(
-        // Mobile values stack below labels, so wrapped text should align left.
+        // Browser mobile values stack; the native summary module aligns columns.
         "block max-w-full text-left text-[14px] leading-snug tracking-normal [overflow-wrap:anywhere] sm:max-w-[20rem] sm:text-right",
+        styles.value,
         muted ? "text-muted-foreground" : "text-foreground",
       )}
     >
@@ -138,6 +140,7 @@ function RiaProfileSummaryRow({
         </ProfileSummaryValue>
       }
       stackTrailingOnMobile
+      className={styles.summaryRow}
       testId={testId}
     />
   );
@@ -213,13 +216,13 @@ function RiaRegulatoryProfileSummary({
   const services = formatRiaListValue(reviewProps.servicesOffered);
   const fees = formatRiaListValue(reviewProps.feeStructure);
   const advisorAccess = reviewProps.advisoryAccessReady ? "Ready" : "Pending";
+  const [native, setNative] = useState(false);
+  useEffect(() => setNative(isNative()), []);
 
   return (
-    <div className="space-y-4">
+    <div className={cn("space-y-4", styles.summary)} data-native={native || undefined}>
       <SettingsGroup testId="ria-profile-assistant">
         <SettingsRow
-          icon={MessageCircle}
-          iconTone="blue"
           title="Ask One to update anything"
           description="Open One and describe what should change in this profile."
           onClick={onAskKaiUpdateAnything}
@@ -285,11 +288,19 @@ function RiaRegulatoryProfileSummary({
           value={reviewProps.minEngagementAmount}
           testId="ria-profile-summary-min-engagement"
         />
-        <SettingsRow
-          title="Bio"
-          description={formatRiaDisplayValue(reviewProps.bio)}
-          testId="ria-profile-summary-bio"
-        />
+        {native ? (
+          <RiaProfileSummaryRow
+            title="Bio"
+            value={reviewProps.bio}
+            testId="ria-profile-summary-bio"
+          />
+        ) : (
+          <SettingsRow
+            title="Bio"
+            description={formatRiaDisplayValue(reviewProps.bio)}
+            testId="ria-profile-summary-bio"
+          />
+        )}
         <SettingsRow
           icon={Pencil}
           title="Edit services"
@@ -457,7 +468,7 @@ function RiaEmailVerifyCard({ onVerified }: { onVerified: () => Promise<void> })
         code: trimmed,
       });
       if (result.verified) {
-        toast.success("Email verified");
+        toast.success("Mail verified");
         await onVerified();
         return;
       }
@@ -477,7 +488,7 @@ function RiaEmailVerifyCard({ onVerified }: { onVerified: () => Promise<void> })
       className="space-y-3 rounded-[22px] border border-[color:var(--border)] bg-[color:var(--card)] p-4 shadow-[0_8px_24px_rgba(62,48,30,0.05)]"
     >
       <div>
-        <p className="text-[15px] font-semibold">Verify with your work email</p>
+        <p className="text-[15px] font-semibold">Verify with your work mail</p>
         <p className="mt-0.5 text-[13px] text-muted-foreground">
           We&apos;ll send a code.
         </p>
@@ -559,7 +570,7 @@ const DOSSIER_POLL_LIMIT_MS = 35 * 60_000;
  */
 function dossierFailureLabel(status: string): string {
   if (status === "scan_failed") return "Couldn't build it.";
-  if (status === "blocked_no_email") return "No email on your account to send it to.";
+  if (status === "blocked_no_email") return "No mail on your account to send it to.";
   return "Couldn't send.";
 }
 
@@ -763,6 +774,12 @@ export function RiaProfileSection({
   }, []);
 
   const openServicesEdit = useCallback(() => {
+    // Only one of edit / license / delete surface is ever open at a time.
+    // Each one is its own Drawer/Dialog portal, and a mid-close-animation
+    // overlay from another surface can otherwise sit on top of the one the
+    // person is actually trying to reach and swallow their tap.
+    setShowLicense(false);
+    setShowDeleteConfirm(false);
     setDraft(seedRiaDraftFromStatus(status));
     setEditOpen(true);
   }, [status]);
@@ -845,13 +862,13 @@ export function RiaProfileSection({
       return {
         status: "blocked" as const,
         summary:
-          "The RIA profile is busy. Try again when the current update finishes.",
+          "The advisor profile is busy. Try again when the current update finishes.",
       };
     }
     openServicesEdit();
     return {
       status: "succeeded" as const,
-      summary: "The RIA profile editor is open.",
+      summary: "The advisor profile editor is open.",
     };
   }, [deleting, openServicesEdit, saving]);
 
@@ -861,6 +878,10 @@ export function RiaProfileSection({
   );
 
   const openLicenseRefresh = useCallback(() => {
+    // See openServicesEdit above: keep the three detail surfaces mutually
+    // exclusive so a lingering portal from one never blocks another.
+    setEditOpen(false);
+    setShowDeleteConfirm(false);
     setLicenseNumber(getProfileRiaRefreshLicenseNumber(status));
     setLicenseRegulator((status?.regulator || "SEC").trim() || "SEC");
     setLicenseMessage(null);
@@ -887,7 +908,7 @@ export function RiaProfileSection({
       }
       await onRefresh(true);
       await refresh({ force: true });
-      toast.success("Official RIA information updated.");
+      toast.success("Official advisor information updated.");
       setShowLicense(false);
     } catch (error) {
       setLicenseMessage(
@@ -952,7 +973,7 @@ export function RiaProfileSection({
       await switchPersona("investor").catch(() => null);
       await refresh({ force: true });
       setShowDeleteConfirm(false);
-      toast.success("RIA profile deleted. Your One account is unchanged.");
+      toast.success("Advisor profile deleted. Your One account is unchanged.");
       router.replace(ROUTES.ONE_HOME);
     } catch {
       toast.error("Could not delete profile");
@@ -1001,7 +1022,7 @@ export function RiaProfileSection({
   if (riaCapability === "disabled") {
     return (
       <RiaCompatibilityState
-        title="RIA profile is waiting on the IAM rollout"
+        title="Advisor profile is waiting on the IAM rollout"
         description="IAM setup is required here."
       />
     );
@@ -1087,7 +1108,7 @@ export function RiaProfileSection({
         <RiaEmailVerifyCard onVerified={handleEmailVerified} />
       ) : null}
 
-      <SettingsGroup eyebrow="Manage" title="RIA profile" testId="ria-profile-manage">
+      <SettingsGroup eyebrow="Manage" title="Advisor profile" testId="ria-profile-manage">
         <SettingsRow
           icon={ClipboardCheck}
           iconTone="blue"
@@ -1108,9 +1129,14 @@ export function RiaProfileSection({
         <SettingsRow
           icon={Trash2}
           tone="destructive"
-          title="Delete RIA profile"
+          title="Delete advisor profile"
           description="Remove profile. One stays."
           onClick={() => {
+            // See openServicesEdit above: keep the three detail surfaces
+            // mutually exclusive so a lingering portal from one never blocks
+            // another.
+            setEditOpen(false);
+            setShowLicense(false);
             setDeleteConfirmText("");
             setShowDeleteConfirm(true);
           }}
@@ -1156,24 +1182,17 @@ export function RiaProfileSection({
               onPinZipChange={(value) => updateDraft({ pinZip: value })}
               onDraftBio={handleDraftBio}
             />
-            <button
+            <Button
               type="button"
               disabled={saving}
+              isLoading={saving}
               onClick={handleSaveProfile}
-              className={cn(
-                "ria-cta w-full text-[17px]",
-                saving && "cursor-not-allowed opacity-40",
-              )}
+              size="lg"
+              className="w-full text-[17px]"
             >
-              {saving ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
-              ) : (
-                <>
-                  Save changes
-                  <ArrowRight className="h-4 w-4" />
-                </>
-              )}
-            </button>
+              Save changes
+              <ArrowRight className="h-4 w-4" />
+            </Button>
           </div>
         ) : null}
       </SettingsDetailPanel>
@@ -1182,7 +1201,7 @@ export function RiaProfileSection({
         <DialogContent className="sm:max-w-lg">
           <DialogTitle>Update license data</DialogTitle>
           <DialogDescription>
-            Refresh official regulator fields. Your bio, services, fees, email,
+            Refresh official regulator fields. Your bio, services, fees, mail,
             phone, and custom profile copy stay unchanged.
           </DialogDescription>
           <div className="rounded-xl border border-border/60 bg-muted/40 p-3 text-sm">
@@ -1248,10 +1267,10 @@ export function RiaProfileSection({
           <AlertDialogHeader>
             <AlertDialogTitle className="app-critical-title flex items-center gap-2">
               <AlertTriangle className="h-5 w-5" />
-              Delete your RIA profile?
+              Delete your advisor profile?
             </AlertDialogTitle>
             <AlertDialogDescription>
-              This removes your RIA advisor profile and automatically disconnects
+              This removes your advisor profile and automatically disconnects
               any active clients (their consent is revoked). Your One account and
               investor information is not affected. This can&apos;t be undone.
             </AlertDialogDescription>

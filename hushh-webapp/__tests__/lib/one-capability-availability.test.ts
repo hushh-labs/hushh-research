@@ -13,7 +13,7 @@ describe("One capability availability", () => {
     const calendar = getOneCapability("calendar");
 
     expect(gmail).toMatchObject({
-      agentId: "agent_gmail",
+      agentId: "agent_email",
     });
     expect(calendar).toMatchObject({
       agentId: "agent_calendar",

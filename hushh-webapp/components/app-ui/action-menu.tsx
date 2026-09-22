@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
-import type { LucideIcon } from "lucide-react";
+import type { LucideIcon } from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -131,7 +131,6 @@ export function ActionMenu({
                     disabled={item.disabled}
                     aria-busy={item.busy || undefined}
                     data-voice-control-id={item.voiceControlId}
-                    data-voice-action-id={item.voiceActionId}
                     data-testid={
                       testId ? `${testId}-item-${item.id}` : undefined
                     }

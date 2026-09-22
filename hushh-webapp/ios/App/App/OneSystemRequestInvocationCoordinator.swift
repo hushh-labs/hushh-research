@@ -34,7 +34,9 @@ struct OneSystemRequestRecord: Codable, Equatable, Sendable {
     static let bridgeKind = "interpret_one_request"
     static let bridgeSource = "siri_app_shortcut"
     static let protocolVersion = "one.request.v1"
-    static let handoffDeadline: TimeInterval = 25
+    // Free-text ownership follows semantic assessment and its encrypted
+    // checkpoint. Bound both HTTP calls plus foreground startup before expiry.
+    static let handoffDeadline: TimeInterval = 150
 
     let id: String
     let text: String

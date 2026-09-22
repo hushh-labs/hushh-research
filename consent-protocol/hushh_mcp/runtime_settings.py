@@ -64,7 +64,6 @@ WALLET_API_KEY_ENV = "WALLET_API_KEY"  # noqa: S105
 _WALLET_API_BASE_URL_DEFAULT = "https://hushh-wallet-api-fro3hygenq-uc.a.run.app"
 
 BACKEND_RUNTIME_CONFIG_JSON_ENV = "BACKEND_RUNTIME_CONFIG_JSON"
-VOICE_RUNTIME_CONFIG_JSON_ENV = "VOICE_RUNTIME_CONFIG_JSON"
 
 _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "environment": "ENVIRONMENT",
@@ -281,31 +280,33 @@ class WalletPassSettings:
         )
 
 
-@dataclass(frozen=True)
-class VoiceRuntimeSettings:
-    realtime_enabled: bool
-    hosted_voice_enabled: bool
-    canary_percent: int
-    tool_execution_disabled: bool
-    allowed_users: tuple[str, ...]
-    force_realtime: bool
-    fail_fast: bool
-    disable_fallbacks: bool
-    realtime_model: str
-    stt_models: tuple[str, ...]
-    intent_models: tuple[str, ...]
-    tts_models: tuple[str, ...]
-    tts_default_voice: str
-    tts_format: str
-    tts_prefer_quality: bool
-
-
 def get_optional_gmail_oauth_token_key() -> str:
     return _clean_env(GMAIL_OAUTH_TOKEN_KEY_ENV)
 
 
 def get_optional_plaid_access_token_key() -> str:
     return _clean_env(PLAID_ACCESS_TOKEN_KEY_ENV)
+
+
+def one_db_sessions_enabled() -> bool:
+    """Enable durable ADK sessions for One when explicitly configured.
+
+    The default remains the existing in-memory session service. If durable
+    storage is requested but cannot be constructed, the runner still fails
+    closed to its existing in-memory fallback rather than making startup
+    dependent on the database session path.
+    """
+    return _bool_from_value(_clean_env("ONE_DB_SESSIONS_ENABLED"), default=False)
+
+
+def pod_mode() -> bool:
+    """Return whether this process is running as an owner-scoped pod."""
+    return _bool_from_value(_clean_env("HUSSH_POD_MODE"), default=False)
+
+
+def pod_turn_enabled() -> bool:
+    """Return whether an owner-scoped pod may serve Agent One turns."""
+    return _bool_from_value(_clean_env("HUSSH_POD_TURN_ENABLED"), default=False)
 
 
 def get_connector_secrets_key() -> str:
@@ -487,50 +488,6 @@ def get_app_runtime_settings() -> AppRuntimeSettings:
     return AppRuntimeSettings(
         environment=_clean_env("ENVIRONMENT", "development").lower() or "development",
         app_frontend_origin=_normalize_origin(_clean_env(APP_FRONTEND_ORIGIN_ENV)),
-    )
-
-
-def get_voice_runtime_settings() -> VoiceRuntimeSettings:
-    config = _json_object_from_env(VOICE_RUNTIME_CONFIG_JSON_ENV)
-
-    force_realtime = _bool_from_value(config.get("force_realtime"), default=False)
-    fail_fast = _bool_from_value(config.get("fail_fast"), default=False)
-    disable_fallbacks = (
-        _bool_from_value(config.get("disable_fallbacks"), default=False)
-        or fail_fast
-        or force_realtime
-    )
-
-    configured_tts_models = _csv_list(config.get("tts_models")) or ("gpt-4o-mini-tts",)
-    tts_models: list[str] = []
-    for candidate in ("gpt-4o-mini-tts", *configured_tts_models):
-        normalized = str(candidate).strip()
-        if normalized and normalized not in tts_models:
-            tts_models.append(normalized)
-
-    return VoiceRuntimeSettings(
-        realtime_enabled=_bool_from_value(config.get("realtime_enabled"), default=True),
-        hosted_voice_enabled=_bool_from_value(config.get("hosted_voice_enabled"), default=True),
-        canary_percent=max(
-            0,
-            min(100, _int_from_value(config.get("canary_percent"), 100)),
-        ),
-        tool_execution_disabled=_bool_from_value(
-            config.get("tool_execution_disabled"), default=False
-        ),
-        allowed_users=_csv_list(config.get("allowed_users")),
-        force_realtime=force_realtime,
-        fail_fast=fail_fast,
-        disable_fallbacks=disable_fallbacks,
-        realtime_model=str(config.get("realtime_model") or "gpt-realtime").strip()
-        or "gpt-realtime",
-        stt_models=_csv_list(config.get("stt_models")) or ("gpt-4o-mini-transcribe",),
-        intent_models=_csv_list(config.get("intent_models"))
-        or ("gpt-4.1-nano", "gpt-4o-mini", "gpt-4.1-mini"),
-        tts_models=tuple(tts_models) or ("gpt-4o-mini-tts",),
-        tts_default_voice=str(config.get("tts_default_voice") or "alloy").strip() or "alloy",
-        tts_format=str(config.get("tts_format") or "mp3").strip() or "mp3",
-        tts_prefer_quality=_bool_from_value(config.get("tts_prefer_quality"), default=False),
     )
 
 

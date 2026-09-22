@@ -271,3 +271,44 @@ async def test_earnings_summary_with_nothing_published():
     assert summary["sliceCount"] == 0
     assert summary["totalPotentialMonthlyCents"] == 0
     assert summary["accruedCents"] == 0
+
+
+async def test_injected_information_loop_uses_invocation_ports_and_restores_context(monkeypatch):
+    from hushh_mcp.agents.personal_information import tools as information_tools
+
+    information = object()
+    requests = object()
+    seen = []
+
+    async def query():
+        context = HushhContext.current()
+        assert context.user_id == "owner"
+        assert information_tools._service() is information
+        assert information_tools._requests() is requests
+        assert context.scope_tokens == {"cap.pkm.marketplace.view": "view-grant"}
+        seen.append(True)
+        return {"publishedSlices": [], "count": 0}
+
+    query._name = "list_published_slices"
+    service = InformationChatService(
+        chat_store=_FakeStore(),
+        model_call=_scripted_model_call(
+            [_fc_response("list_published_slices", {}), _text_response("No published slices.")],
+            [],
+        ),
+        genai_types=types,
+        tools=[query],
+        system_prompt="test",
+        service_ports={"marketplace_information": information, "marketplace_requests": requests},
+        scope_tokens={"cap.pkm.marketplace.view": "view-grant"},
+    )
+    with HushhContext(user_id="outer", consent_token="outer-token") as outer:  # noqa: S106
+        result = await service.handle_turn(
+            user_id="owner",
+            message="What have I published?",
+            consent_token="owner-token",  # noqa: S106
+        )
+        assert HushhContext.current() is outer
+    assert seen == [True]
+    assert result["response"] == "No published slices."
+    assert result["stateChanged"] is False

@@ -251,12 +251,25 @@ def connection_scope_catalog(
         raise _handle(exc) from exc
 
 
+@router.get("/connections/{counterpart_user_id}/context")
+def connection_person_context(
+    counterpart_user_id: str = Path(..., min_length=1, max_length=128),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    try:
+        return _service().get_person_context(firebase_uid, counterpart_user_id)
+    except Exception as exc:  # noqa: BLE001
+        raise _handle(exc) from exc
+
+
 @router.get("/connections/{counterpart_user_id}/information-scopes")
 def connection_information_scope_catalog(
     counterpart_user_id: str = Path(..., min_length=1, max_length=128),
     query: str = Query(default="", max_length=160),
     domain: str = Query(default="", max_length=80),
-    limit: int = Query(default=20, ge=1, le=50),
+    page: int = Query(default=1, ge=1),
+    limit: int = Query(default=20, ge=1, le=100),
+    catalog_revision: str = Query(default="", max_length=64),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     try:
@@ -265,7 +278,9 @@ def connection_information_scope_catalog(
             counterpart_user_id,
             query=query,
             domain=domain,
+            page=page,
             limit=limit,
+            catalog_revision=catalog_revision,
         )
     except Exception as exc:  # noqa: BLE001
         raise _handle(exc) from exc

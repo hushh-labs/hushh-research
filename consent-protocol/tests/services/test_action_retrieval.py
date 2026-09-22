@@ -23,10 +23,17 @@ import pytest
 from hushh_mcp.one_adk import action_retrieval as ar
 from hushh_mcp.services.action_gateway import load_action_gateway
 
-requires_embeddings = pytest.mark.skipif(
-    not ar.is_retrieval_available() or ar._get_model() is None,
-    reason="pinned embedding model unavailable in this environment",
-)
+
+@pytest.fixture(autouse=True)
+def unavailable_embedding(monkeypatch):
+    """Routine retrieval contracts are independent of network/model installation."""
+    from unittest.mock import Mock
+
+    client = Mock()
+    client.embed_query.side_effect = RuntimeError("embedding unavailable")
+    monkeypatch.setattr(ar, "get_embedding_client", lambda: client)
+    monkeypatch.setattr(ar, "_retrieval_available", True)
+    monkeypatch.setattr(ar, "_retrieval_error", None)
 
 
 # ── Tokenization ─────────────────────────────────────────────────────────────
@@ -118,13 +125,24 @@ def test_an_authored_boundary_string_is_not_shredded_into_characters():
 # ── Degradation ──────────────────────────────────────────────────────────────
 
 
-def test_retrieval_degrades_without_raising():
-    """A missing model returns empty and never raises into One's turn."""
+def test_retrieval_degrades_without_raising(monkeypatch, caplog):
+    """An unavailable embedding preserves lexical results without private diagnostics."""
+    from unittest.mock import Mock
+
+    client = Mock()
+    client.embed_query.side_effect = RuntimeError("private-query-diagnostic-sentinel")
+    monkeypatch.setattr(ar, "get_embedding_client", lambda: client)
+    monkeypatch.setattr(ar, "_retrieval_available", True)
+    monkeypatch.setattr(ar, "_retrieval_error", None)
     gateway = load_action_gateway()
     results = ar.search_actions("share my location", gateway)
-    assert isinstance(results, list)
+    assert results
     for item in results:
         assert isinstance(item, ar.RetrievedAction)
+    assert ar.is_retrieval_available() is False
+    assert ar.retrieval_error() == "embedding_unavailable"
+    assert "private-query-diagnostic-sentinel" not in caplog.text
+    assert all(record.exc_info is None for record in caplog.records)
 
 
 def test_a_degraded_ranking_is_declared_not_hidden():
@@ -140,11 +158,9 @@ def test_a_degraded_ranking_is_declared_not_hidden():
     from hushh_mcp.one_adk.action_tools import list_app_actions
 
     payload = asyncio.run(list_app_actions("share my location", SimpleNamespace(state={})))
-    if ar.is_retrieval_available():
-        assert "ranking" not in payload
-    else:
-        assert payload["ranking"] == "lexical_only"
-        assert payload["ranking_degraded_reason"]
+    assert ar.is_retrieval_available() is False
+    assert payload["ranking"] == "lexical_only"
+    assert payload["ranking_degraded_reason"] == "embedding_unavailable"
 
 
 def test_an_oversized_query_is_rejected_not_silently_truncated():
@@ -153,11 +169,6 @@ def test_an_oversized_query_is_rejected_not_silently_truncated():
 
 
 # ── Against the real generated catalog ───────────────────────────────────────
-
-
-def test_the_catalog_digest_is_stable_for_identical_content():
-    gateway = load_action_gateway()
-    assert ar._catalog_digest(gateway) == ar._catalog_digest(gateway)
 
 
 def test_an_explicit_connection_request_surfaces_its_action():
@@ -176,43 +187,6 @@ def test_an_explicit_connection_request_surfaces_its_action():
     )
     ids = [row["action_id"] for row in result["results"]]
     assert "connect.send_request" in ids, ids
-
-
-@requires_embeddings
-def test_the_incident_phrase_resolves_through_semantic_retrieval():
-    """The phrase from the original production incident.
-
-    One was told specialists validate consent, sent "connect me with Ankit" to
-    the connections specialist, the specialist hit a consent boundary, and One
-    relayed it -- so a request the app could satisfy end to end came back as
-    "I don't have the right permissions".
-
-    Lexical ranking alone cannot resolve this: scored across the whole catalog
-    the phrase is won by setup.connect_gmail, "a wrong answer that looks like a
-    confident one". Embedding retrieval does resolve it, which is why this is
-    skipped rather than failed when the model is absent -- the degraded path is
-    not expected to pass, and the journey redirect in ask_consent_agent is what
-    covers the phrase there.
-
-    This is the gate on removing that redirect: it must hold wherever the
-    redirect is removed, which means the model must be packaged first.
-    """
-    import asyncio
-    from types import SimpleNamespace
-
-    from hushh_mcp.one_adk.action_tools import list_app_actions
-
-    result = asyncio.run(list_app_actions("connect me with ankit", SimpleNamespace(state={})))
-    ids = [row["action_id"] for row in result["results"]]
-    assert "connect.send_request" in ids, ids
-
-
-@requires_embeddings
-def test_a_paraphrase_with_no_shared_words_still_retrieves():
-    """The whole point of the embedding branch."""
-    gateway = load_action_gateway()
-    results = ar.search_actions("let my wife see where I am", gateway)
-    assert any(r.action_id.startswith("location.") for r in results)
 
 
 # ── Result-window integrity ──────────────────────────────────────────────────

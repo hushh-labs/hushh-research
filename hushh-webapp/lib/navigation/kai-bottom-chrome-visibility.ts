@@ -182,6 +182,8 @@ function attachScrollListener() {
   activeScrollTarget = target;
   target.addEventListener("scroll", handleScroll, { passive: true });
   scrollListenerAttached = true;
+  // Follow the live root's parent so the next replacement is still seen.
+  if (scrollRootObserver) observeScrollRoot();
 
   resetKaiBottomChromeVisibility();
   onScroll(readActiveScrollY());
@@ -202,26 +204,41 @@ function scheduleScrollTargetRefresh() {
   });
 }
 
+let observedScrollParent: Node | null = null;
+
+/**
+ * Watches for the scroll root being replaced. That only ever happens under
+ * the scroll root's own parent (the route Suspense swaps its fallback and
+ * resolved trees there), so the observer watches that parent, children
+ * only. A body-wide subtree observer used to wake on every DOM mutation in
+ * the app (each streamed chat token, each map marker move) to run a
+ * querySelector; it widens to the body only while no scroll root exists.
+ */
 function observeScrollRoot() {
   if (
-    scrollRootObserver ||
     typeof MutationObserver === "undefined" ||
     typeof document === "undefined" ||
     !document.body
   ) {
     return;
   }
-
+  const target = resolveScrollTarget();
+  const rootElement = target instanceof HTMLElement ? target : null;
+  const parent: Node = rootElement?.parentElement ?? document.body;
+  if (scrollRootObserver && observedScrollParent === parent) return;
+  scrollRootObserver?.disconnect();
   scrollRootObserver = new MutationObserver(scheduleScrollTargetRefresh);
-  scrollRootObserver.observe(document.body, {
+  scrollRootObserver.observe(parent, {
     childList: true,
-    subtree: true,
+    subtree: !rootElement,
   });
+  observedScrollParent = parent;
 }
 
 function stopObservingScrollRoot() {
   scrollRootObserver?.disconnect();
   scrollRootObserver = null;
+  observedScrollParent = null;
   if (scrollRootRefreshFrame !== null && typeof window !== "undefined") {
     window.cancelAnimationFrame(scrollRootRefreshFrame);
   }
@@ -365,9 +382,60 @@ export function useKaiBottomChromeProgressCssVar(enabled: boolean): void {
       return;
     }
 
+    // Per-frame writes go to the elements that read the progress (the bottom
+    // shell, its mask, the chat composer form), never to <html>: a root
+    // custom-property write recomputes style for the whole document on every
+    // scroll frame. <html> receives the settled value once the scroll has
+    // been quiet for a beat, for anything unregistered.
     const root = document.documentElement;
+    const ROOT_SETTLE_MS = 160;
+    // The chat composer mounts after this shell (behind the vault gate and a
+    // Suspense boundary), so a set collected once at mount never held it: it
+    // read only the settled root value, 160 ms after each scroll went quiet,
+    // and rode a beat behind the navigation (measured as the full travel of
+    // divergence on the phone). While no composer is held, look for one at
+    // most every COMPOSER_LOOKUP_MS on a write; a hit recollects the set.
+    const COMPOSER_SELECTOR = '[data-agent-chat-composer-form="root"]';
+    const COMPOSER_LOOKUP_MS = 250;
+    let consumers: HTMLElement[] = [];
+    let composer: HTMLElement | null = null;
+    let composerLookedUpAt = Number.NEGATIVE_INFINITY;
+    let rootWriteTimer = 0;
+    let lastWritten = "";
+    const collectConsumers = () => {
+      consumers = Array.from(
+        document.querySelectorAll<HTMLElement>(
+          `[data-bottom-chrome-progress-consumer], .ambient-chrome-mask--bottom, ${COMPOSER_SELECTOR}`,
+        ),
+      );
+      composer = consumers.find((element) => element.matches(COMPOSER_SELECTOR)) ?? null;
+    };
+    const composerJoined = () => {
+      if (composer?.isConnected) return false;
+      const now = performance.now();
+      if (now - composerLookedUpAt < COMPOSER_LOOKUP_MS) return false;
+      composerLookedUpAt = now;
+      return document.querySelector(COMPOSER_SELECTOR) !== null;
+    };
     const writeVar = () => {
-      root.style.setProperty(BOTTOM_CHROME_PROGRESS_VAR, String(getSnapshot()));
+      const next = String(getSnapshot());
+      if (next === lastWritten) return;
+      lastWritten = next;
+      if (
+        consumers.length === 0 ||
+        consumers.some((element) => !element.isConnected) ||
+        composerJoined()
+      ) {
+        collectConsumers();
+      }
+      for (const element of consumers) {
+        element.style.setProperty(BOTTOM_CHROME_PROGRESS_VAR, next);
+      }
+      window.clearTimeout(rootWriteTimer);
+      rootWriteTimer = window.setTimeout(() => {
+        rootWriteTimer = 0;
+        root.style.setProperty(BOTTOM_CHROME_PROGRESS_VAR, lastWritten);
+      }, ROOT_SETTLE_MS);
     };
 
     listenerRefCount += 1;
@@ -379,10 +447,14 @@ export function useKaiBottomChromeProgressCssVar(enabled: boolean): void {
 
     return () => {
       unsubscribe();
+      window.clearTimeout(rootWriteTimer);
       listenerRefCount = Math.max(0, listenerRefCount - 1);
       if (listenerRefCount === 0) {
         resetKaiBottomChromeVisibility();
         detachScrollListener();
+      }
+      for (const element of consumers) {
+        if (element.isConnected) element.style.setProperty(BOTTOM_CHROME_PROGRESS_VAR, "0");
       }
       root.style.setProperty(BOTTOM_CHROME_PROGRESS_VAR, "0");
     };

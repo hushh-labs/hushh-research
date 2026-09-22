@@ -47,7 +47,7 @@ describe.sequential("native passkey domain association routes", () => {
     expect(assetLinksResponse.status).toBe(200);
     expect(await assetLinksResponse.json()).toEqual([
       {
-        relation: ["delegate_permission/common.get_login_creds"],
+        relation: ["delegate_permission/common.get_login_creds", "delegate_permission/common.handle_all_urls"],
         target: {
           namespace: "android_app",
           package_name: "com.hushh.app",

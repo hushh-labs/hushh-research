@@ -10,7 +10,6 @@ const navigationMock = vi.hoisted(() => ({
   push: vi.fn(),
 }));
 
-const agentPopoverMock = vi.hoisted(() => ({ expanded: false }));
 const notificationMock = vi.hoisted(() => ({
   feedUnreadCount: 0 as number | null,
   pendingConsents: 0 as number | null,
@@ -42,9 +41,6 @@ vi.mock("@/hooks/use-auth", () => ({
 vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({ isVaultUnlocked: true }),
 }));
-vi.mock("@/components/agent/agent-popover-provider", () => ({
-  useOptionalAgentPopover: () => ({ expanded: agentPopoverMock.expanded }),
-}));
 vi.mock("@/lib/consent/use-consent-pending-summary-count", () => ({
   useConsentPendingSummaryCount: () => notificationMock.pendingConsents,
 }));
@@ -59,7 +55,6 @@ describe("Navbar bottom utilities", () => {
   beforeEach(() => {
     navigationMock.pathname = ROUTES.ONE_HOME;
     navigationMock.push.mockReset();
-    agentPopoverMock.expanded = false;
     notificationMock.feedUnreadCount = 0;
     notificationMock.pendingConsents = 0;
   });
@@ -81,7 +76,7 @@ describe("Navbar bottom utilities", () => {
       within(routeNav)
         .getAllByRole("radio")
         .map((radio) => radio.textContent?.trim()),
-    ).toEqual(["One", "Connect", "Feed", "Search"]);
+    ).toEqual(["Chat", "One", "Connect", "Feed", "Search"]);
     expect(screen.queryByRole("radio", { name: "Profile" })).toBeNull();
     unmount();
   });
@@ -129,7 +124,7 @@ describe("Navbar bottom utilities", () => {
       within(screen.getByRole("radiogroup", { name: "Route navigation" }))
         .getAllByRole("radio")
         .map((radio) => radio.textContent?.trim()),
-    ).toEqual(["One", "Connect", "Feed", "Search"]);
+    ).toEqual(["Chat", "One", "Connect", "Feed", "Search"]);
     expect(
       screen.queryByRole("radiogroup", { name: "Workspace navigation" }),
     ).toBeNull();
@@ -137,7 +132,7 @@ describe("Navbar bottom utilities", () => {
       screen
         .getByRole("radiogroup", { name: "Route navigation" })
         .getAttribute("style"),
-    ).toContain("grid-template-columns: repeat(4, minmax(0, 1fr))");
+    ).toContain("grid-template-columns: repeat(5, minmax(0, 1fr))");
     expect(
       screen.getByTestId("app-bottom-nav-frame").getAttribute("style"),
     ).toContain("var(--app-bottom-shell-max-width)");

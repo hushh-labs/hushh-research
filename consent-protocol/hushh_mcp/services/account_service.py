@@ -1561,6 +1561,35 @@ class AccountService:
             self._delete_user_rows_if_table_exists(conn, table_name=table_name, params=params)
             results[table_name] = True
 
+    @staticmethod
+    def read_reset_evidence(user_id: str) -> Dict[str, Any] | None:
+        """Fresh, uncached read of the two columns ``reset_account`` stamps.
+
+        Used to *verify* a reset after the fact -- a client's word that it
+        called the route is not evidence. Returns ``None`` when the account
+        has no vault row (nothing to reset, or already deleted).
+        """
+        normalized = str(user_id or "").strip()
+        if not normalized:
+            return None
+        with get_db_connection() as conn:
+            row = conn.execute(
+                text(
+                    "SELECT setup_completed, setup_state_updated_at "
+                    "FROM vault_keys WHERE user_id = :uid"
+                ),
+                {"uid": normalized},
+            ).fetchone()
+        if row is None:
+            return None
+        updated = row.setup_state_updated_at
+        return {
+            "setup_completed": bool(row.setup_completed)
+            if row.setup_completed is not None
+            else None,
+            "setup_state_updated_at_ms": int(updated) if updated is not None else None,
+        }
+
     async def reset_account(self, user_id: str) -> Dict[str, Any]:
         """Reset the One account to a fresh, just-onboarded state.
 

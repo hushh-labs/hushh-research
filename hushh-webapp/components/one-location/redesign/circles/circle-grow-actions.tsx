@@ -17,7 +17,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Check, Loader2, Search, Send, Share2, UserPlus } from "lucide-react";
+import { Check, Loader2, Search, Send, Share2, UserPlus } from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -265,6 +265,7 @@ export function CircleInvitePeopleSheet({
 
   return (
     <Sheet
+      modal
       open={open}
       onOpenChange={(next) => {
         onOpenChange(next);

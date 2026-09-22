@@ -20,10 +20,11 @@ const PUBLIC_ROUTES = [
 
 // API routes are handled separately
 const API_PREFIX = "/api";
-const LEGACY_PROFILE_ROOT = "/profile";
 const LEGACY_CONNECT_ROOT = "/connect";
 
 const LEGACY_ROUTE_REDIRECTS: Record<string, string> = {
+  "/chat": ROUTES.HOME,
+  [ROUTES.LEGACY_AGENT]: ROUTES.HOME,
   [ROUTES.LEGACY_KAI_HOME]: ROUTES.KAI_HOME,
   [ROUTES.LEGACY_ONE_KAI_MARKET]: ROUTES.KAI_HOME,
   [ROUTES.LEGACY_KAI_ANALYSIS]: ROUTES.KAI_ANALYSIS,
@@ -62,7 +63,13 @@ export function proxy(request: NextRequest) {
     return NextResponse.redirect(url, 301);
   }
 
-  const legacyRedirectTarget = LEGACY_ROUTE_REDIRECTS[pathname];
+  // Next can receive a trailing-slash variant before its own canonicalization
+  // runs. Keep the retired Agent entrypoint compatible in both forms so it
+  // never falls through to a missing page.
+  const legacyRedirectPath = pathname.endsWith("/")
+    ? pathname.slice(0, -1)
+    : pathname;
+  const legacyRedirectTarget = LEGACY_ROUTE_REDIRECTS[legacyRedirectPath];
   if (legacyRedirectTarget) {
     const url = request.nextUrl.clone();
     const [targetPath, targetSearch] = legacyRedirectTarget.split("?");
@@ -78,8 +85,30 @@ export function proxy(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  if (
+    (pathname === "/one/profile" ||
+      pathname === "/profile" ||
+      pathname.startsWith("/one/profile/") ||
+      pathname.startsWith("/profile/")) &&
+    !pathname.includes("oauth/return")
+  ) {
+    const rawSubpath = pathname
+      .replace(/^\/one\/profile\/?/, "")
+      .replace(/^\/profile\/?/, "");
+    const url = request.nextUrl.clone();
+    url.pathname = ROUTES.ONE_HOME;
+    url.searchParams.set("profile_pane", "1");
+    if (rawSubpath) {
+      const parts = rawSubpath.split("/");
+      url.searchParams.set("profile_panel", parts[0]);
+      if (parts[1]) {
+        url.searchParams.set("profile_detail", parts.slice(1).join("/"));
+      }
+    }
+    return NextResponse.redirect(url);
+  }
+
   for (const [legacyRoot, canonicalRoot] of [
-    [LEGACY_PROFILE_ROOT, ROUTES.PROFILE],
     [LEGACY_CONNECT_ROOT, ROUTES.CONNECT],
     // Public live-location links. The page moved to `/view` because "request"
     // described the submission form this route used to be, not the location it

@@ -23,7 +23,7 @@ import {
   Star,
   Trophy,
   Medal,
-} from "lucide-react";
+} from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
@@ -47,6 +47,8 @@ import {
   ChartTooltip,
   ChartTooltipContent,
   type ChartConfig,
+  CHART_ANIMATION_ACTIVE,
+  CHART_TOOLTIP_TRIGGER,
 } from "@/components/ui/chart";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { toInvestorDecisionLabel } from "@/lib/copy/investor-language";
@@ -451,11 +453,11 @@ function AgentVoteBar({ result }: { result: DecisionResult }) {
             tickLine={false}
             tick={{ fontSize: 11, fill: "hsl(var(--foreground))" }}
           />
-          <ChartTooltip cursor={false} content={renderVoteTooltip} />
+          <ChartTooltip trigger={CHART_TOOLTIP_TRIGGER} cursor={false} content={renderVoteTooltip} />
           <ChartLegend content={<ChartLegendContent className="text-[11px] font-medium text-foreground/80 dark:text-foreground/80" />} />
-          <Bar dataKey="bullish" stackId="vote" fill="var(--color-bullish)" radius={[4, 0, 0, 4]} barSize={14} />
-          <Bar dataKey="neutral" stackId="vote" fill="var(--color-neutral)" barSize={14} />
-          <Bar dataKey="bearish" stackId="vote" fill="var(--color-bearish)" radius={[0, 4, 4, 0]} barSize={14} />
+          <Bar isAnimationActive={CHART_ANIMATION_ACTIVE} dataKey="bullish" stackId="vote" fill="var(--color-bullish)" radius={[4, 0, 0, 4]} barSize={14} />
+          <Bar isAnimationActive={CHART_ANIMATION_ACTIVE} dataKey="neutral" stackId="vote" fill="var(--color-neutral)" barSize={14} />
+          <Bar isAnimationActive={CHART_ANIMATION_ACTIVE} dataKey="bearish" stackId="vote" fill="var(--color-bearish)" radius={[0, 4, 4, 0]} barSize={14} />
         </BarChart>
       </ChartContainer>
     </ChartPanel>
@@ -601,7 +603,7 @@ function QuantMetricsBarChart({ data }: { data: QuantMetricChartEntry[] }) {
             axisLine={false}
             tickLine={false}
           />
-          <ChartTooltip
+          <ChartTooltip trigger={CHART_TOOLTIP_TRIGGER}
             cursor={false}
             content={
               <ChartTooltipContent
@@ -617,7 +619,7 @@ function QuantMetricsBarChart({ data }: { data: QuantMetricChartEntry[] }) {
               />
             }
           />
-          <Bar
+          <Bar isAnimationActive={CHART_ANIMATION_ACTIVE}
             dataKey="value"
             fill="var(--color-value)"
             radius={[0, 4, 4, 0]}
@@ -670,7 +672,7 @@ function PriceTargetsChart({ targets }: { targets: Record<string, number> }) {
             tickFormatter={(value) => `$${Number(value).toFixed(0)}`}
             width={56}
           />
-          <ChartTooltip
+          <ChartTooltip trigger={CHART_TOOLTIP_TRIGGER}
             cursor={false}
             content={
               <ChartTooltipContent
@@ -686,7 +688,7 @@ function PriceTargetsChart({ targets }: { targets: Record<string, number> }) {
               />
             }
           />
-          <Bar dataKey="value" radius={8} fill="var(--color-scenario)">
+          <Bar isAnimationActive={CHART_ANIMATION_ACTIVE} dataKey="value" radius={8} fill="var(--color-scenario)">
             <LabelList
               dataKey="value"
               position="top"
@@ -732,11 +734,11 @@ function ConfidenceGauge({ confidence }: { confidence: number }) {
     <div className="w-full">
       <ChartContainer config={confidenceChartConfig} className="mx-auto aspect-square max-h-[170px] w-full max-w-[210px]">
         <PieChart>
-          <ChartTooltip
+          <ChartTooltip trigger={CHART_TOOLTIP_TRIGGER}
             cursor={false}
             content={<ChartTooltipContent hideLabel nameKey="name" />}
           />
-          <Pie
+          <Pie isAnimationActive={CHART_ANIMATION_ACTIVE}
             data={chartData}
             dataKey="value"
             nameKey="name"
@@ -915,7 +917,7 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
             
             {/* Renaissance Badge - Positioned prominently if exists */}
             {rawCard?.renaissance_tier && (
-                <div className="animate-in fade-in slide-in-from-top-2  delay-100">
+                <div className="animate-in fade-in slide-in-from-top-2">
                     <RenaissanceBadge tier={rawCard.renaissance_tier} score={rawCard.renaissance_score} />
                 </div>
             )}
@@ -923,7 +925,7 @@ export function DecisionCard({ result }: { result: DecisionResult }) {
             {/* Main Decision Pill */}
             <div
                 className={cn(
-                "px-10 py-5 rounded-2xl border-2 text-2xl font-semibold uppercase tracking-normal shadow-xl backdrop-blur-md transform transition-all duration-300 hover:scale-[1.02]",
+                "px-10 py-5 rounded-2xl border-2 text-2xl font-semibold uppercase tracking-normal shadow-xl backdrop-blur-md transform transition-[background-color,border-color,color,box-shadow,transform] duration-150 hover:scale-[1.02]",
                 isBuy
                     ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-500 shadow-emerald-500/10"
                     : isReduce

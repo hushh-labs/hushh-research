@@ -3,10 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import {
-  awaitProductFont,
-  productFontStyle,
-} from "./fixtures/product-font";
+import { awaitProductFont, productFontStyle } from "./fixtures/product-font";
 import {
   DURATION_COMPACT_CELL_CLASS,
   DURATION_COMPACT_GRID_CLASS,
@@ -15,9 +12,8 @@ import {
   DURATION_CELL_ON_CLASS,
 } from "../components/one-location/redesign/duration-presets";
 import {
-  DURATION_EQUAL_BUTTON_CLASSNAME,
-  DURATION_EQUAL_BUTTONS_GROUP_CLASSNAME,
-  PUBLIC_LINK_CONTROLS_CLASSNAME,
+  PUBLIC_LINK_CREATE_FORM_CLASSNAME,
+  PUBLIC_LINK_DURATION_GROUP_CLASSNAME,
   PUBLIC_LINK_PRIMARY_CTA_CLASSNAME,
   SHARE_CONFIRM_ACTIONS_CLASSNAME,
   SHARE_CONFIRM_PRIMARY_CTA_CLASSNAME,
@@ -29,18 +25,13 @@ import {
 } from "../components/one-location/redesign/location-header-layout";
 import { cn } from "../lib/utils";
 
-const WIDTHS = [320, 360, 393, 430, 600, 768] as const;
+const WIDTHS = [320, 360, 393, 430, 600, 768, 1024] as const;
 const STATUS_LABELS = [
   "Location on",
   "Location off",
   "Location blocked",
 ] as const;
 
-const EQUAL_OPTION_CLASSNAME = cn(
-  "h-9 rounded-full border px-4 transition-colors touch-manipulation",
-  DURATION_EQUAL_BUTTON_CLASSNAME,
-  DURATION_CELL_OFF_CLASS,
-);
 const COMPACT_CELL_ON_CLASSNAME = cn(
   DURATION_CELL_CLASS,
   DURATION_COMPACT_CELL_CLASS,
@@ -83,12 +74,12 @@ async function buildFixture(): Promise<string> {
     "p-4 p-5 mx-auto w-full max-w-[560px] flex items-center gap-3 h-11 w-11 " +
     "min-w-0 flex-1 whitespace-nowrap text-[28px] font-semibold inline-flex justify-center h-8 w-[51px] rounded-full";
   const classes = [
-    PUBLIC_LINK_CONTROLS_CLASSNAME,
+    PUBLIC_LINK_CREATE_FORM_CLASSNAME,
+    PUBLIC_LINK_DURATION_GROUP_CLASSNAME,
     PUBLIC_LINK_PRIMARY_CTA_CLASSNAME,
     SHARE_CONFIRM_ACTIONS_CLASSNAME,
     SHARE_CONFIRM_PRIMARY_CTA_CLASSNAME,
-    DURATION_EQUAL_BUTTONS_GROUP_CLASSNAME,
-    EQUAL_OPTION_CLASSNAME,
+    "h-11 w-full rounded-[14px] border px-3",
     DURATION_COMPACT_GRID_CLASS,
     COMPACT_CELL_ON_CLASSNAME,
     COMPACT_CELL_OFF_CLASSNAME,
@@ -108,7 +99,9 @@ async function buildFixture(): Promise<string> {
     )
     .join("");
   const headers = STATUS_LABELS.map(
-    (label) => `<header data-header class="${LOCATION_HUB_PAGE_HEADER_CLASSNAME}">
+    (
+      label,
+    ) => `<header data-header class="${LOCATION_HUB_PAGE_HEADER_CLASSNAME}">
       <div class="flex items-stretch gap-3 sm:gap-4">
         <span class="h-11 w-11 shrink-0 self-center rounded-[10px]"></span>
         <div class="min-w-0 flex-1">
@@ -119,7 +112,7 @@ async function buildFixture(): Promise<string> {
             <div data-slot="page-header-actions" class="flex w-auto shrink-0 flex-wrap items-center justify-end self-start gap-2 sm:w-auto sm:shrink-0 sm:justify-end sm:self-center">
               <div data-header-actions class="${LOCATION_HEADER_ACTIONS_CLASSNAME}">
                 <button data-header-switch class="h-8 w-[51px] shrink-0 rounded-full"></button>
-                <span data-header-status class="${LOCATION_HEADER_STATUS_CLASSNAME}">${label}</span>
+                <button type="button" data-header-status class="${LOCATION_HEADER_STATUS_CLASSNAME}">${label}</button>
               </div>
             </div>
           </div>
@@ -138,13 +131,10 @@ async function buildFixture(): Promise<string> {
 <style>${productFontStyle()}</style></head><body style="margin:0">
 <main class="p-4">
   <section data-public-card class="mx-auto w-full max-w-[560px] p-4">
-    <div data-public-controls class="${PUBLIC_LINK_CONTROLS_CLASSNAME}">
-      <div class="space-y-2.5">
+    <div data-public-controls class="${PUBLIC_LINK_CREATE_FORM_CLASSNAME}">
+      <div data-public-duration class="${PUBLIC_LINK_DURATION_GROUP_CLASSNAME} space-y-2.5">
         <p>Duration</p>
-        <div data-public-options class="${DURATION_EQUAL_BUTTONS_GROUP_CLASSNAME}">
-          <button data-public-option class="${EQUAL_OPTION_CLASSNAME}">30 min</button>
-          <button data-public-option class="${EQUAL_OPTION_CLASSNAME}">1 hour</button>
-        </div>
+        <button data-public-select class="h-11 w-full rounded-[14px] border px-3">1 hour</button>
       </div>
       <button data-public-cta class="${PUBLIC_LINK_PRIMARY_CTA_CLASSNAME} inline-flex items-center justify-center">Create link</button>
     </div>
@@ -172,7 +162,9 @@ test.describe("One Location compact CTA layout", () => {
 
       const result = await page.evaluate(() => {
         const box = (selector: string) =>
-          document.querySelector<HTMLElement>(selector)!.getBoundingClientRect();
+          document
+            .querySelector<HTMLElement>(selector)!
+            .getBoundingClientRect();
         const publicCard = box("[data-public-card]");
         const publicCardPaddingLeft = Number.parseFloat(
           getComputedStyle(
@@ -180,9 +172,8 @@ test.describe("One Location compact CTA layout", () => {
           ).paddingLeft,
         );
         const publicControls = box("[data-public-controls]");
-        const publicOptions = Array.from(
-          document.querySelectorAll<HTMLElement>("[data-public-option]"),
-        ).map((node) => node.getBoundingClientRect());
+        const publicDuration = box("[data-public-duration]");
+        const publicSelect = box("[data-public-select]");
         const publicCta = box("[data-public-cta]");
         const shareCard = box("[data-share-card]");
         const shareOptions = box("[data-share-options]");
@@ -224,9 +215,20 @@ test.describe("One Location compact CTA layout", () => {
           publicCard: publicCard.toJSON(),
           publicCardPaddingLeft,
           publicControls: publicControls.toJSON(),
-          publicOptions: publicOptions.map((value) => value.toJSON()),
+          publicControlsPaddingLeft: parseFloat(
+            getComputedStyle(
+              document.querySelector<HTMLElement>("[data-public-controls]")!,
+            ).paddingLeft,
+          ),
+          publicDuration: publicDuration.toJSON(),
+          publicSelect: publicSelect.toJSON(),
           publicCta: publicCta.toJSON(),
           shareCard: shareCard.toJSON(),
+          shareCardPaddingRight: parseFloat(
+            getComputedStyle(
+              document.querySelector<HTMLElement>("[data-share-card]")!,
+            ).paddingRight,
+          ),
           shareOptions: shareOptions.toJSON(),
           shareCells: shareCells.map((value) => value.toJSON()),
           shareActions: shareActions.toJSON(),
@@ -240,33 +242,61 @@ test.describe("One Location compact CTA layout", () => {
 
       expect(result.overflow).toBeLessThanOrEqual(1);
 
-      expect(result.publicControls.width).toBeLessThanOrEqual(280.5);
+      expect(result.publicControls.width).toBeCloseTo(
+        Math.min(
+          320,
+          result.publicCard.width - result.publicCardPaddingLeft * 2,
+        ),
+        0,
+      );
       expect(
         Math.abs(
           result.publicControls.left -
             (result.publicCard.left + result.publicCardPaddingLeft),
         ),
       ).toBeLessThanOrEqual(1);
+      expect(result.publicDuration.width).toBeCloseTo(
+        Math.min(
+          260,
+          result.publicControls.width - result.publicControlsPaddingLeft * 2,
+        ),
+        0,
+      );
       expect(
         Math.abs(
-          result.publicOptions[0].width - result.publicOptions[1].width,
+          result.publicDuration.left -
+            (result.publicControls.left + result.publicControlsPaddingLeft),
         ),
       ).toBeLessThanOrEqual(1);
-      expect(result.publicOptions[0].height).toBeGreaterThanOrEqual(44);
-      expect(result.publicOptions[1].height).toBeGreaterThanOrEqual(44);
+      expect(result.publicSelect.height).toBeGreaterThanOrEqual(44);
+      expect(result.publicSelect.width).toBeCloseTo(
+        result.publicDuration.width,
+        0,
+      );
+      expect(result.publicCta.width).toBeGreaterThanOrEqual(144);
+      expect(result.publicCta.width).toBeLessThan(result.publicDuration.width);
       expect(
-        Math.abs(result.publicCta.width - result.publicControls.width),
+        Math.abs(
+          result.publicCta.left -
+            (result.publicControls.left + result.publicControlsPaddingLeft),
+        ),
       ).toBeLessThanOrEqual(1);
 
-      expect(result.shareOptions.width).toBeLessThanOrEqual(240.5);
+      expect(result.shareOptions.width).toBeCloseTo(
+        width < 640
+          ? result.shareCard.width - result.shareCardPaddingRight * 2
+          : 280,
+        0,
+      );
       expect(
         Math.abs(
           result.shareOptions.left -
-            (result.shareCard.left +
-              (result.shareCard.width - result.shareOptions.width) / 2),
+            (result.shareCard.left + result.shareCardPaddingRight),
         ),
       ).toBeLessThanOrEqual(1);
-      expect(new Set(result.shareCells.map((cell) => Math.round(cell.top))).size).toBe(2);
+      expect(
+        new Set(result.shareCells.map((cell) => Math.round(cell.top))).size,
+      ).toBe(2);
       for (const cell of result.shareCells) {
         expect(cell.height).toBeGreaterThanOrEqual(44);
         expect(
@@ -281,7 +311,9 @@ test.describe("One Location compact CTA layout", () => {
       }
 
       for (const header of result.headers) {
-        expect(header.actions.right).toBeLessThanOrEqual(header.header.right + 1);
+        expect(header.actions.right).toBeLessThanOrEqual(
+          header.header.right + 1,
+        );
         expect(header.toggle.left).toBeGreaterThanOrEqual(
           header.actions.left - 1,
         );
@@ -298,12 +330,18 @@ test.describe("One Location compact CTA layout", () => {
           header.titleClientWidth + 1,
         );
         if (width >= 640) {
-          expect(
-            header.actions.left - header.title.right,
-          ).toBeGreaterThanOrEqual(16);
-          expect(header.actions.left - header.title.right).toBeLessThanOrEqual(
-            32,
-          );
+          if (width >= 1024) {
+            expect(
+              header.header.right - header.actions.right,
+            ).toBeLessThanOrEqual(1);
+          } else {
+            expect(
+              header.actions.left - header.title.right,
+            ).toBeGreaterThanOrEqual(16);
+            expect(
+              header.actions.left - header.title.right,
+            ).toBeLessThanOrEqual(32);
+          }
         }
         if (width >= 400) {
           expect(

@@ -15,24 +15,24 @@ import hashlib
 import hmac
 import json
 import logging
-import os
 import re
 import time
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from email.utils import getaddresses
+from pathlib import Path
 from typing import Any, Iterable
 
-from google.genai import types as genai_types
+import asyncpg
 
 from db.connection import get_pool
-from hushh_mcp.consent.scope_generator import get_scope_generator
-from hushh_mcp.runtime_providers import (
-    GEMINI_37_FLASH,
-    build_generate_content_config,
-    build_managed_runtime_client,
+from hushh_mcp.agents.email.runtime import (
+    EMAIL_REQUEST_CLASSIFIER_SCHEMA,
+    run_email_gene,
 )
+from hushh_mcp.consent.pkm_scope_policy import is_private_pkm_export_scope
+from hushh_mcp.consent.scope_generator import get_scope_generator
 from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.services.gmail_delivery_service import (
     GmailDeliveryService,
@@ -48,7 +48,7 @@ from hushh_mcp.services.gmail_receipts_service import (
 
 logger = logging.getLogger(__name__)
 
-_MAX_SCAN_MESSAGES = 25
+_MAX_SCAN_MESSAGES = 30
 _MAX_WORKFLOW_LIMIT = 100
 _METADATA_RETENTION_DAYS = 30
 _BACKGROUND_USER_LIMIT = 50
@@ -56,21 +56,10 @@ _BACKGROUND_USER_CONCURRENCY = 4
 _BACKGROUND_SCAN_TIMEOUT_SECONDS = 35
 _CLASSIFIER_CONCURRENCY = 3
 _MONITOR_LEASE_SECONDS = 4 * 60
-_CLASSIFIER_SCHEMA = {
-    "type": "OBJECT",
-    "properties": {
-        "is_information_request": {"type": "BOOLEAN"},
-        "confidence": {"type": "NUMBER"},
-        "requested_field_labels": {"type": "ARRAY", "items": {"type": "STRING"}},
-        "requested_domains": {"type": "ARRAY", "items": {"type": "STRING"}},
-    },
-    "required": [
-        "is_information_request",
-        "confidence",
-        "requested_field_labels",
-        "requested_domains",
-    ],
-}
+_KYC_IDENTITY_PROFILE_CONTRACT_PATH = (
+    Path(__file__).resolve().parents[3] / "config" / "pkm" / "kyc-identity-profile.v1.json"
+)
+_KYC_IDENTITY_FIELDS: dict[str, dict[str, Any]] | None = None
 _DOMAIN_NAMES = frozenset(
     {
         "identity",
@@ -81,9 +70,34 @@ _DOMAIN_NAMES = frozenset(
         "location",
         "food",
         "entertainment",
+        "education",
+        "professional",
+        "general",
     }
 )
 _WORKFLOW_STATUSES = frozenset({"detected", "ignored", "blocked", "sent"})
+_SCOPE_LABEL_STOPWORDS = frozenset(
+    {
+        "a",
+        "an",
+        "and",
+        "data",
+        "detail",
+        "details",
+        "for",
+        "information",
+        "kyc",
+        "my",
+        "of",
+        "personal",
+        "request",
+        "requested",
+        "the",
+        "to",
+        "user",
+        "your",
+    }
+)
 
 
 class PersonalGmailInformationRequestError(RuntimeError):
@@ -202,6 +216,95 @@ def _dedupe(values: Iterable[str], *, limit: int) -> tuple[str, ...]:
     return tuple(result)
 
 
+def _scope_label_tokens(value: str) -> set[str]:
+    return {
+        token
+        for token in re.findall(r"[a-z0-9]+", value.lower())
+        if len(token) > 1 and token not in _SCOPE_LABEL_STOPWORDS
+    }
+
+
+def _normalized_kyc_label(value: str) -> str:
+    return re.sub(r"\s+", " ", re.sub(r"[^a-z0-9]+", " ", _text(value).lower())).strip()
+
+
+def _kyc_identity_fields() -> dict[str, dict[str, Any]]:
+    global _KYC_IDENTITY_FIELDS
+    if _KYC_IDENTITY_FIELDS is not None:
+        return _KYC_IDENTITY_FIELDS
+    try:
+        payload = json.loads(_KYC_IDENTITY_PROFILE_CONTRACT_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        logger.warning("gmail.personal_information_request.kyc_registry_unavailable")
+        _KYC_IDENTITY_FIELDS = {}
+        return _KYC_IDENTITY_FIELDS
+    raw_fields = payload.get("fields") if isinstance(payload, dict) else []
+    _KYC_IDENTITY_FIELDS = {
+        _text(field.get("id")): field
+        for field in raw_fields
+        if isinstance(field, dict) and _text(field.get("id"))
+    }
+    return _KYC_IDENTITY_FIELDS
+
+
+def _canonical_kyc_field_ids(value: str) -> tuple[str, ...]:
+    normalized = _normalized_kyc_label(value)
+    if not normalized:
+        return ()
+    matches: list[str] = []
+    for field_id, field in _kyc_identity_fields().items():
+        aliases = [
+            field_id,
+            _text(field.get("path")),
+            *[_text(alias) for alias in field.get("aliases", [])],
+        ]
+        for alias in aliases:
+            normalized_alias = _normalized_kyc_label(alias)
+            if normalized_alias and (
+                normalized == normalized_alias
+                or normalized_alias in normalized
+                or normalized in normalized_alias
+            ):
+                matches.append(field_id)
+                break
+    return tuple(matches)
+
+
+def _matches_requested_label(*, field_labels: tuple[str, ...], haystack: str) -> bool:
+    """Match a classifier-provided label to a manifest leaf without substring bleed.
+
+    Email intent is classified by the model.  This only maps those reviewed labels
+    to the owner's currently materialized, exact manifest leaves.  Token-prefix
+    support covers labels such as ``education`` and ``educational institution``
+    while avoiding the old ``name in domain`` substring false positive.
+    """
+
+    requested_canonical_ids = {
+        field_id for label in field_labels for field_id in _canonical_kyc_field_ids(label)
+    }
+    candidate_canonical_ids = set(_canonical_kyc_field_ids(haystack))
+    if requested_canonical_ids & candidate_canonical_ids:
+        return True
+    candidate_tokens = _scope_label_tokens(haystack)
+    if not candidate_tokens:
+        return False
+    for label in field_labels:
+        requested_tokens = _scope_label_tokens(label)
+        if not requested_tokens:
+            continue
+        if any(
+            requested == candidate
+            or (
+                min(len(requested), len(candidate)) >= 4
+                and (requested.startswith(candidate) or candidate.startswith(requested))
+            )
+            for requested in requested_tokens
+            for candidate in candidate_tokens
+        ):
+            return True
+    return False
+
+
 def _source_fingerprint(message: dict[str, Any]) -> str:
     headers = _header_map(message)
     source = {
@@ -286,11 +389,17 @@ def _public_candidate_scope(value: Any) -> dict[str, Any] | None:
         or scope != f"attr.{domain}.{path}"
     ):
         return None
+    canonical_field_ids = [
+        field_id
+        for field_id in candidate.get("canonical_field_ids", [])
+        if field_id in _kyc_identity_fields()
+    ]
     return {
         "scope": scope,
         "domain": domain,
         "label": label or path.replace("_", " ").replace(".", " ").title(),
         "segment_ids": normalized_segments,
+        **({"canonical_field_ids": canonical_field_ids} if canonical_field_ids else {}),
     }
 
 
@@ -330,9 +439,10 @@ class PersonalGmailInformationRequestService:
             "monitoring_enabled": bool(row and row["monitoring_enabled"]),
             "retention": "metadata_only",
             "disclosure": (
-                "When enabled, Hushh classifies only inbox messages received after monitoring "
-                "starts for personal information requests. Email content is not retained in this "
-                "workflow queue."
+                "When enabled, Hushh classifies new Inbox messages after monitoring starts. "
+                "Hushh also scans your last 30 Inbox emails when monitoring begins or you choose "
+                "Scan inbox. Email "
+                "content is not retained in this workflow queue."
             ),
             "monitoring_enabled_at": row["monitoring_enabled_at"] if row else None,
             "last_scan_completed_at": row["last_scan_completed_at"] if row else None,
@@ -373,6 +483,7 @@ class PersonalGmailInformationRequestService:
                                 monitor_history_id = $3,
                                 monitor_cursor = NULL,
                                 monitor_message_offset = 0,
+                                initial_inbox_scan_completed_at = NULL,
                                 scan_lease_id = NULL,
                                 scan_lease_expires_at = NULL,
                                 updated_at = NOW()
@@ -387,8 +498,9 @@ class PersonalGmailInformationRequestService:
                             """
                             INSERT INTO gmail_personal_information_request_preferences (
                                 user_id, monitoring_enabled, monitoring_enabled_at,
-                                monitoring_generation, monitor_history_id, monitor_message_offset
-                            ) VALUES ($1, TRUE, NOW(), $2, $3, 0)
+                                monitoring_generation, monitor_history_id, monitor_message_offset,
+                                initial_inbox_scan_completed_at
+                            ) VALUES ($1, TRUE, NOW(), $2, $3, 0, NULL)
                             """,
                             user_id,
                             current_generation + 1,
@@ -406,6 +518,7 @@ class PersonalGmailInformationRequestService:
                                 monitor_history_id = NULL,
                                 monitor_cursor = NULL,
                                 monitor_message_offset = 0,
+                                initial_inbox_scan_completed_at = NULL,
                                 scan_lease_id = NULL,
                                 scan_lease_expires_at = NULL,
                                 updated_at = NOW()
@@ -499,7 +612,72 @@ class PersonalGmailInformationRequestService:
             "view": "activity" if view == "activity" else "active",
         }
 
-    async def scan_recent(self, *, user_id: str, max_results: int = 12) -> dict[str, Any]:
+    async def refresh_candidate_scopes(self, *, user_id: str, workflow_id: str) -> dict[str, Any]:
+        """Re-resolve exact PKM leaves after the owner adds new private details.
+
+        A detected Gmail request retains only metadata.  Its candidate scope list
+        can therefore become stale when the owner completes KYC onboarding later.
+        Refreshing this list reads manifest metadata only, never PKM values or the
+        original email, and preserves the workflow's model-classified labels.
+        """
+
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT requested_field_labels, candidate_scopes, status
+                FROM gmail_personal_information_requests
+                WHERE workflow_id = $1 AND user_id = $2
+                """,
+                workflow_id,
+                user_id,
+            )
+        if row is None or _text(row["status"]) != "detected":
+            raise PersonalGmailInformationRequestError(
+                "Information request was not found or is no longer active.",
+                code="PERSONAL_GMAIL_INFORMATION_REQUEST_NOT_FOUND",
+                status_code=404,
+            )
+
+        requested_field_labels = tuple(
+            label
+            for label in _json_value(row["requested_field_labels"], fallback=[])
+            if isinstance(label, str) and _text(label)
+        )
+        existing_candidates = [
+            candidate
+            for candidate in (
+                _public_candidate_scope(value)
+                for value in _json_value(row["candidate_scopes"], fallback=[])
+            )
+            if candidate is not None
+        ]
+        domains = tuple(sorted({str(candidate["domain"]) for candidate in existing_candidates}))
+        candidates = await self._candidate_scopes(
+            user_id=user_id,
+            field_labels=requested_field_labels,
+            domains=domains,
+        )
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                UPDATE gmail_personal_information_requests
+                SET candidate_scopes = $3::jsonb, updated_at = NOW()
+                WHERE workflow_id = $1 AND user_id = $2 AND status = 'detected'
+                """,
+                workflow_id,
+                user_id,
+                json.dumps(candidates),
+            )
+        return {"workflow_id": workflow_id, "candidate_scopes": candidates}
+
+    async def scan_recent(
+        self,
+        *,
+        user_id: str,
+        max_results: int = 12,
+        include_recent_inbox: bool = False,
+    ) -> dict[str, Any]:
         monitor_state = await self._monitor_state(user_id=user_id)
         expected_generation = int(monitor_state.get("monitoring_generation") or 0)
         if expected_generation <= 0:
@@ -508,6 +686,42 @@ class PersonalGmailInformationRequestService:
                 code="PERSONAL_GMAIL_MONITORING_DISABLED",
                 status_code=409,
             )
+        bounded = max(1, min(int(max_results or 12), _MAX_SCAN_MESSAGES))
+        scanned_count = 0
+        unchanged_count = 0
+        failed_count = 0
+        workflow_ids: list[str] = []
+        initial_scan_pending = not bool(monitor_state.get("initial_inbox_scan_completed", True))
+        if initial_scan_pending or include_recent_inbox:
+            messages = await self.gmail_service.list_personal_inbox_messages_for_monitoring(
+                user_id=user_id,
+                limit=_MAX_SCAN_MESSAGES if initial_scan_pending else bounded,
+            )
+            (
+                scanned_count,
+                unchanged_count,
+                failed_count,
+                workflow_ids,
+            ) = await self._classify_messages(
+                user_id=user_id,
+                messages=messages,
+                expected_generation=expected_generation,
+            )
+            if failed_count:
+                return self._retry_pending_result(
+                    scanned_count=scanned_count,
+                    unchanged_count=unchanged_count,
+                    failed_count=failed_count,
+                    workflow_ids=workflow_ids,
+                )
+            if initial_scan_pending:
+                marked = await self._mark_initial_inbox_scan_complete(
+                    user_id=user_id,
+                    expected_generation=expected_generation,
+                )
+                if not marked:
+                    raise self._monitoring_changed_error()
+
         monitor_history_id = _text(monitor_state.get("monitor_history_id"))
         if not monitor_history_id:
             monitor_history_id = await self.gmail_service.capture_personal_inbox_monitor_history_id(
@@ -524,15 +738,14 @@ class PersonalGmailInformationRequestService:
                 raise self._monitoring_changed_error()
             return {
                 "accepted": True,
-                "scanned_count": 0,
-                "unchanged_count": 0,
-                "matched_count": 0,
-                "failed_count": 0,
-                "workflow_ids": [],
+                "scanned_count": scanned_count,
+                "unchanged_count": unchanged_count,
+                "matched_count": len(workflow_ids),
+                "failed_count": failed_count,
+                "workflow_ids": workflow_ids,
                 "baseline_established": True,
             }
 
-        bounded = max(1, min(int(max_results or 12), _MAX_SCAN_MESSAGES))
         try:
             (
                 messages,
@@ -563,13 +776,87 @@ class PersonalGmailInformationRequestService:
                 raise self._monitoring_changed_error()
             return {
                 "accepted": True,
-                "scanned_count": 0,
-                "unchanged_count": 0,
-                "matched_count": 0,
-                "failed_count": 0,
-                "workflow_ids": [],
+                "scanned_count": scanned_count,
+                "unchanged_count": unchanged_count,
+                "matched_count": len(workflow_ids),
+                "failed_count": failed_count,
+                "workflow_ids": workflow_ids,
                 "baseline_reestablished": True,
             }
+        (
+            history_scanned_count,
+            history_unchanged_count,
+            history_failed_count,
+            history_workflow_ids,
+        ) = await self._classify_messages(
+            user_id=user_id,
+            messages=messages,
+            expected_generation=expected_generation,
+        )
+        if history_failed_count:
+            return self._retry_pending_result(
+                scanned_count=scanned_count + history_scanned_count,
+                unchanged_count=unchanged_count + history_unchanged_count,
+                failed_count=failed_count + history_failed_count,
+                workflow_ids=[*workflow_ids, *history_workflow_ids],
+            )
+        if next_message_offset is not None:
+            next_monitor_history_id = monitor_history_id
+            next_cursor = _text(monitor_state.get("monitor_cursor")) or None
+            next_offset = next_message_offset
+        elif next_page_token:
+            next_monitor_history_id = monitor_history_id
+            next_cursor = next_page_token
+            next_offset = 0
+        else:
+            next_monitor_history_id = high_water_history_id or monitor_history_id
+            next_cursor = None
+            next_offset = 0
+        checkpointed = await self._set_monitor_checkpoint(
+            user_id=user_id,
+            monitor_history_id=next_monitor_history_id,
+            monitor_cursor=next_cursor,
+            monitor_message_offset=next_offset,
+            expected_generation=expected_generation,
+        )
+        if not checkpointed:
+            raise self._monitoring_changed_error()
+        return {
+            "accepted": True,
+            "scanned_count": scanned_count + history_scanned_count,
+            "unchanged_count": unchanged_count + history_unchanged_count,
+            "matched_count": len(workflow_ids) + len(history_workflow_ids),
+            "failed_count": failed_count + history_failed_count,
+            "workflow_ids": [*workflow_ids, *history_workflow_ids],
+        }
+
+    @staticmethod
+    def _retry_pending_result(
+        *,
+        scanned_count: int,
+        unchanged_count: int,
+        failed_count: int,
+        workflow_ids: list[str],
+    ) -> dict[str, Any]:
+        """Report partial progress without advancing a retryable inbox slice."""
+
+        return {
+            "accepted": True,
+            "scanned_count": scanned_count,
+            "unchanged_count": unchanged_count,
+            "matched_count": len(workflow_ids),
+            "failed_count": failed_count,
+            "workflow_ids": workflow_ids,
+            "retry_pending": True,
+        }
+
+    async def _classify_messages(
+        self,
+        *,
+        user_id: str,
+        messages: list[dict[str, Any]],
+        expected_generation: int,
+    ) -> tuple[int, int, int, list[str]]:
         source_hmacs = {
             _text(message.get("id")): _source_fingerprint(message)
             for message in messages
@@ -603,6 +890,15 @@ class PersonalGmailInformationRequestService:
                 )
                 if not recorded:
                     raise self._monitoring_changed_error()
+            except PersonalGmailInformationRequestError as exc:
+                if exc.code == "PERSONAL_GMAIL_MONITORING_CHANGED":
+                    raise
+                logger.warning(
+                    "gmail.personal_information_request.classification_failed code=%s error=%s",
+                    exc.code,
+                    type(exc).__name__,
+                )
+                return None, True
             except Exception as exc:  # noqa: BLE001 - one bad provider item must not stop the batch
                 logger.warning(
                     "gmail.personal_information_request.classification_failed error=%s",
@@ -616,41 +912,12 @@ class PersonalGmailInformationRequestService:
             workflow_id for workflow_id, failed in outcomes if workflow_id and not failed
         ]
         failures = sum(1 for _workflow_id, failed in outcomes if failed)
-        if failures:
-            raise PersonalGmailInformationRequestError(
-                "Personal Gmail classification is temporarily unavailable. No messages were skipped.",
-                code="PERSONAL_GMAIL_CLASSIFICATION_INCOMPLETE",
-                status_code=503,
-            )
-        if next_message_offset is not None:
-            next_monitor_history_id = monitor_history_id
-            next_cursor = _text(monitor_state.get("monitor_cursor")) or None
-            next_offset = next_message_offset
-        elif next_page_token:
-            next_monitor_history_id = monitor_history_id
-            next_cursor = next_page_token
-            next_offset = 0
-        else:
-            next_monitor_history_id = high_water_history_id or monitor_history_id
-            next_cursor = None
-            next_offset = 0
-        checkpointed = await self._set_monitor_checkpoint(
-            user_id=user_id,
-            monitor_history_id=next_monitor_history_id,
-            monitor_cursor=next_cursor,
-            monitor_message_offset=next_offset,
-            expected_generation=expected_generation,
+        return (
+            len(pending_messages) - failures,
+            len(messages) - len(pending_messages),
+            failures,
+            workflow_ids,
         )
-        if not checkpointed:
-            raise self._monitoring_changed_error()
-        return {
-            "accepted": True,
-            "scanned_count": len(pending_messages),
-            "unchanged_count": len(messages) - len(pending_messages),
-            "matched_count": len(workflow_ids),
-            "failed_count": 0,
-            "workflow_ids": workflow_ids,
-        }
 
     async def scan_enabled_users(self, *, max_users: int = 20) -> dict[str, int]:
         """Maintenance entrypoint for the scheduled personal-Gmail monitor.
@@ -838,21 +1105,59 @@ class PersonalGmailInformationRequestService:
 
     async def _monitor_state(self, *, user_id: str) -> dict[str, Any]:
         pool = await get_pool()
-        async with pool.acquire() as conn:
-            row = await conn.fetchrow(
-                """
-                SELECT monitor_history_id, monitor_cursor, monitor_message_offset, monitoring_generation
-                FROM gmail_personal_information_request_preferences
-                WHERE user_id = $1 AND monitoring_enabled = TRUE
-                """,
-                user_id,
-            )
+        try:
+            async with pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    """
+                    SELECT monitor_history_id, monitor_cursor, monitor_message_offset,
+                           monitoring_generation, initial_inbox_scan_completed_at
+                    FROM gmail_personal_information_request_preferences
+                    WHERE user_id = $1 AND monitoring_enabled = TRUE
+                    """,
+                    user_id,
+                )
+        except asyncpg.UndefinedColumnError as exc:
+            raise PersonalGmailInformationRequestError(
+                "Personal Gmail monitoring is updating. Try again shortly.",
+                code="PERSONAL_GMAIL_MONITOR_SCHEMA_NOT_READY",
+                status_code=503,
+            ) from exc
         return {
             "monitor_history_id": _text(row["monitor_history_id"]) if row else None,
             "monitor_cursor": _text(row["monitor_cursor"]) if row else None,
             "monitor_message_offset": int(row["monitor_message_offset"] or 0) if row else 0,
             "monitoring_generation": int(row["monitoring_generation"] or 0) if row else 0,
+            "initial_inbox_scan_completed": bool(row and row["initial_inbox_scan_completed_at"]),
         }
+
+    async def _mark_initial_inbox_scan_complete(
+        self, *, user_id: str, expected_generation: int
+    ) -> bool:
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                row = await conn.fetchrow(
+                    """
+                    SELECT monitoring_enabled, monitoring_generation
+                    FROM gmail_personal_information_request_preferences
+                    WHERE user_id = $1
+                    FOR UPDATE
+                    """,
+                    user_id,
+                )
+                if not self._monitoring_matches(row, expected_generation):
+                    return False
+                await conn.execute(
+                    """
+                    UPDATE gmail_personal_information_request_preferences
+                    SET initial_inbox_scan_completed_at = NOW(),
+                        last_scan_completed_at = NOW(),
+                        updated_at = NOW()
+                    WHERE user_id = $1
+                    """,
+                    user_id,
+                )
+        return True
 
     async def _set_monitor_checkpoint(
         self,
@@ -1229,25 +1534,14 @@ class PersonalGmailInformationRequestService:
             f"Message: {body}"
         )
         try:
-            client = build_managed_runtime_client("gemini")
-            model = os.getenv("GMAIL_INFORMATION_REQUEST_CLASSIFIER_MODEL", GEMINI_37_FLASH)
-            config = build_generate_content_config(
-                genai_types,
-                model,
-                temperature=0,
-                max_output_tokens=300,
-                response_mime_type="application/json",
-                response_schema=_CLASSIFIER_SCHEMA,
-                automatic_function_calling=genai_types.AutomaticFunctionCallingConfig(disable=True),
+            parsed = await run_email_gene(
+                gene_id="agent_email_request_classifier",
+                prompt=prompt,
+                user_id="gmail-personal-information-monitor",
+                consent_token="gmail-personal-information-monitor",  # noqa: S106 - turn-local sentinel
+                output_schema=EMAIL_REQUEST_CLASSIFIER_SCHEMA,
+                timeout_seconds=15.0,
             )
-            response = await client.aio.models.generate_content(
-                model=model,
-                contents=prompt,
-                config=config,
-            )
-            parsed = getattr(response, "parsed", None)
-            if not isinstance(parsed, dict):
-                parsed = json.loads(_text(getattr(response, "text", "")) or "{}")
         except Exception as exc:  # classifier errors fail closed without persisting email content
             raise PersonalGmailInformationRequestError(
                 "Personal Gmail classification is temporarily unavailable.",
@@ -1267,7 +1561,11 @@ class PersonalGmailInformationRequestService:
                 type(exc).__name__,
             )
             return []
-        terms = {re.sub(r"[^a-z0-9]+", " ", value.lower()).strip() for value in field_labels}
+        requested_canonical_ids = {
+            field_id
+            for requested_label in field_labels
+            for field_id in _canonical_kyc_field_ids(requested_label)
+        }
         candidates: list[dict[str, Any]] = []
         for entry in entries:
             if not isinstance(entry, dict) or entry.get("consumer_visible") is False:
@@ -1280,6 +1578,7 @@ class PersonalGmailInformationRequestService:
             if (
                 not scope
                 or not domain
+                or is_private_pkm_export_scope(scope)
                 or entry.get("wildcard") is True
                 or _text(entry.get("source_kind")) != "pkm_manifest_paths"
                 or _text(entry.get("path_type")).lower() != "leaf"
@@ -1289,16 +1588,25 @@ class PersonalGmailInformationRequestService:
             ):
                 continue
             haystack = " ".join((scope, domain, label)).lower()
-            matches_domain = domain in domains
-            matches_label = any(term and (term in haystack or haystack in term) for term in terms)
-            if not matches_domain and not matches_label:
+            matches_label = _matches_requested_label(
+                field_labels=field_labels,
+                haystack=haystack,
+            )
+            if not matches_label:
                 continue
+            candidate_canonical_ids = set(_canonical_kyc_field_ids(" ".join((label, path, scope))))
+            # Emit registry IDs only when the classifier-requested field and
+            # this exact manifest leaf resolve to the same canonical field.
+            # A child such as `address.postal_code` must not inherit the broad
+            # `address` ID simply because it sits beneath that path.
+            canonical_field_ids = sorted(requested_canonical_ids & candidate_canonical_ids)
             candidate = _public_candidate_scope(
                 {
                     "scope": scope,
                     "domain": domain,
                     "label": label,
                     "segment_ids": [segment_id],
+                    "canonical_field_ids": canonical_field_ids,
                 }
             )
             if candidate is None:

@@ -20,6 +20,7 @@
     "google_calendar_action_proposals",
     "agent_chat_messages",
     "one_action_directive_ledger",
+    "one_capability_runs",
     "kai_funding_webhook_events",
     "kai_funding_transfer_events",
     "kai_funding_trade_events",
@@ -61,6 +62,12 @@
       "owner": "one-voice-governance",
       "mode": "report_only",
       "job_id": "directive_ledger_retention_report"
+    },
+    {
+      "family_id": "one_capability_runtime",
+      "owner": "backend-runtime-governance",
+      "mode": "report_only",
+      "job_id": "capability_runtime_retention_report"
     },
     {
       "family_id": "one_location_agent",
@@ -263,6 +270,21 @@
       "expected_row_growth": "medium_per_agent_session"
     },
     {
+      "id": "one_capability_runtime",
+      "owner": "backend-runtime-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_capability_runs"
+      ],
+      "primary_access_path": "Authenticated Agent One Capability Runtime start, resume, compare-and-set transition, and verified-settlement services shared by typed input, command voice, Siri handoff, web, and iOS. Browser and mobile callers reach it only through the authenticated backend API; they have no direct database role or row policy.",
+      "retention_policy": "A run is non-authorizing at its bounded expires_at (24 hours by default). Active runs transition to expired on authoritative recovery; terminal and expired metadata remain only for the bounded replay and incident-review window before the authenticated maintenance path physically compacts expired parent runs in bounded batches. Encrypted task slots are workflow state, not durable personal memory or a transcript archive.",
+      "deletion_behavior": "Cascade-delete with the actor profile. Dependent workflow interaction, receipt, draft, and authorization rows cascade with their owned run where applicable; cancellation and expiry remove active authority rather than preserving a reusable mutation grant.",
+      "trust_boundary": "Server-owned task authority with opaque run/capability identifiers, revision/state metadata, idempotency and settlement HMACs, and optional AEAD-encrypted bounded slots. It never stores raw audio, transcripts, routes or query strings, private entities, coordinates, addresses, credentials, provider payloads, or generated prose. RLS is default-deny and anon/authenticated database roles have no table access.",
+      "plaintext_posture": "metadata_and_encrypted_bounded_slots_only",
+      "expected_row_growth": "medium_per_user_bounded_ttl"
+    },
+    {
       "id": "pkm_metadata_and_scope",
       "owner": "vault-pkm-governance",
       "data_class": "personal_metadata",
@@ -418,10 +440,10 @@
         "kai_receipt_memory_artifacts"
       ],
       "primary_access_path": "user-consented Gmail receipt sync and receipt-memory preview services",
-      "retention_policy": "Short-lived sync and preview cache; durable memory requires explicit PKM write through consent/vault path.",
-      "deletion_behavior": "Delete on Gmail disconnect/account deletion; compact sync runs and preview artifacts.",
+      "retention_policy": "Terminal sync-run reads expire after 30 days from completed_at, with updated_at as a conservative fallback only for legacy terminal runs without completed_at. Preview reads expire seven days after created_at; cache updates and PKM-persist acknowledgement do not renew that window. Owner-scoped manual reporting and bounded compaction use scripts/ops/gmail_cache_retention.py; no automatic schedule exists. Physical expired rows can remain until an authorized maintenance run. Durable information requires explicit encrypted PKM write through the consent/vault path.",
+      "deletion_behavior": "Required policy: delete provider cache on Gmail disconnect/account deletion. Account cleanup explicitly deletes sync runs and preview artifacts; disconnect currently cancels active runs and clears provider credentials but retains cache rows. Manual compaction deletes only expired terminal sync runs and preview artifacts for one owner, preserving active runs and PKM. Disconnect cleanup and publication fencing remain implementation gaps.",
       "trust_boundary": "Encrypted OAuth tokens, receipt summaries, hashes, and preview artifacts; no raw mailbox memory.",
-      "plaintext_posture": "provider_cache_metadata",
+      "plaintext_posture": "encrypted_oauth_tokens_and_sensitive_derived_receipt_cache",
       "expected_row_growth": "high_provider_sync"
     },
     {
@@ -434,8 +456,8 @@
         "google_email_send_actions"
       ],
       "primary_access_path": "One owner-approved Gmail delivery prepare and final-send services",
-      "retention_policy": "Prepared actions expire after ten minutes and are single-use. Terminal action metadata is retained only for bounded delivery-state reconciliation and compacted by the owner-approved delivery retention process.",
-      "deletion_behavior": "Cascade-delete with the account owner; expired prepared actions are marked expired before reuse and terminal metadata is compacted without retaining email content.",
+      "retention_policy": "Prepared actions expire after ten minutes and are single-use. Required policy: retain terminal action metadata only for bounded delivery-state reconciliation, then compact it. A numeric terminal retention window and executable compaction process are not established by the current report-only registration.",
+      "deletion_behavior": "Cascade-delete with the account owner; expired prepared actions are marked expired before reuse. Terminal metadata compaction without email-content retention remains required policy, not verified current enforcement.",
       "trust_boundary": "Stores only action identifiers, user identifiers, HMACs of normalized envelopes and idempotency keys, recipient counts, lifecycle timestamps, Gmail message/thread identifiers, and safe error codes. It never stores recipient addresses, subject, body, OAuth tokens, vault credentials, PKM values, or One Email KYC mailbox information.",
       "plaintext_posture": "short_lived_hmac_and_delivery_metadata_only",
       "expected_row_growth": "low_per_user_action"
@@ -513,14 +535,18 @@
         "one_location_recipient_keys",
         "one_location_referrals",
         "kai_location_referrals",
+        "one_location_onboarding_interactions",
+        "one_location_onboarding_receipts",
+        "one_location_onboarding_drafts",
+        "one_location_pkm_finalize_authorizations",
         "one_location_sms_contacts",
         "one_location_share_grants",
         "one_location_sos_voice_preferences"
       ],
-      "primary_access_path": "One Location Agent verified-recipient directory, server-owned and revocable automatic-approval preferences, owner-selected Save My Soul contacts, named-Circle join-code workflows, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, UAT-only short-lived nearby check-in with alias-based Connect requests, public request invites, Invite to One network onboarding, referrals, revocation, expiry, and metadata-only audit",
-      "retention_policy": "One mutable standing-rule metadata row is retained while the account exists, including the latest disabled state and version needed to invalidate stale clients. Active grants and ciphertext envelopes are short-lived by scoped duration; expired or terminal workflow rows are retained only for bounded operational review before compaction.",
-      "deletion_behavior": "Delete standing automatic-approval and visibility preferences plus rows where the deleting account is owner, excluded party, nearby attendee, SMS contact, recipient, requester, referrer, referred or candidate user, join-code creator, or key owner; remove visibility exclusions before their owner preference, and revoke active grants, nearby presence, and join codes before deletion where possible.",
-      "trust_boundary": "Raw live-share coordinates remain on owner and recipient devices. Standing automatic-approval preferences contain only enabled state, scope, Circle identifier, server activation time, and rule version; every automatic grant locks and revalidates that rule and the current relationship. UAT nearby presence captures a fresh point at confirmation and stores that point only as short-lived AES-256-GCM ciphertext plus a six-hour server-keyed spatial candidate token; accuracy is request-memory-only. Checkout clears point material synchronously. Expiry synchronously blocks roster and Connect access; the next feature operation or required hosted hourly retention job scrubs the due envelope and token. Backend also stores recipient public keys, grant metadata, ciphertext envelopes, keyed join-code digests, rotating nearby participant aliases, public invite token hashes, Invite to One token hashes, One Network connection metadata, request metadata, hashed public-intake throttling metadata, and audit metadata. It must not persist nearby point plaintext, exact distance, plaintext venue labels or addresses, map previews, movement trails, raw public tokens, or raw Circle codes. Nearby rosters require mutual active opt-in, expose no stable user id or peer location, and remain disabled in production. Circle code resolution reveals only a safe name, owner label, member count, and expiry.",
+      "primary_access_path": "One Location Agent verified-recipient directory, server-owned and revocable automatic-approval preferences, owner-selected Save My Soul contacts, named-Circle join-code workflows, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, the server-owned Location onboarding permission/GPS/place/Circle workflow, UAT-only short-lived nearby check-in with alias-based Connect requests, public request invites, Invite to One network onboarding, referrals, revocation, expiry, and metadata-only audit",
+      "retention_policy": "One mutable standing-rule metadata row is retained while the account exists, including the latest disabled state and version needed to invalidate stale clients. Active grants and ciphertext envelopes are short-lived by scoped duration; expired or terminal workflow rows are retained only for bounded operational review before compaction. Location onboarding leases, opaque receipts, pre-vault draft metadata, and PKM-finalize authorities expire with their task. Drafts and unused authorities are removed on sign-out, cancellation, finalization, or expiry; expired parent-run compaction cascades the remaining run-scoped workflow records, and none can authorize a later run.",
+      "deletion_behavior": "Delete standing automatic-approval and visibility preferences plus rows where the deleting account is owner, excluded party, nearby attendee, SMS contact, recipient, requester, referrer, referred or candidate user, join-code creator, or key owner; remove visibility exclusions before their owner preference, revoke active grants, nearby presence, and join codes before deletion where possible, and cascade every onboarding lease, receipt, draft, and finalize authority through its owner-bound capability run.",
+      "trust_boundary": "Raw live-share coordinates remain on owner and recipient devices. Standing automatic-approval preferences contain only enabled state, scope, Circle identifier, server activation time, and rule version; every automatic grant locks and revalidates that rule and the current relationship. UAT nearby presence captures a fresh point at confirmation and stores that point only as short-lived AES-256-GCM ciphertext plus a six-hour server-keyed spatial candidate token; accuracy is request-memory-only. Checkout clears point material synchronously. Expiry synchronously blocks roster and Connect access; the next feature operation or required hosted hourly retention job scrubs the due envelope and token. Backend also stores recipient public keys, grant metadata, ciphertext envelopes, keyed join-code digests, rotating nearby participant aliases, public invite token hashes, Invite to One token hashes, One Network connection metadata, request metadata, hashed public-intake throttling metadata, and audit metadata. Onboarding records add only allowlisted workflow and interaction enums, opaque owner/run/revision identifiers, timestamps, and HMAC/SHA digests; the actual pre-vault Location payload remains encrypted on the same device. It must not persist nearby point plaintext, exact distance, plaintext venue labels or addresses, map previews, movement trails, raw public tokens, raw Circle codes, audio, transcripts, route queries, place labels, device-draft ciphertext, or keys. Nearby rosters require mutual active opt-in, expose no stable user id or peer location, and remain disabled in production. Circle code resolution reveals only a safe name, owner label, member count, and expiry.",
       "plaintext_posture": "ciphertext_coordinates_and_metadata_only",
       "expected_row_growth": "medium_per_user_share"
     },
@@ -913,6 +939,51 @@
       "expected_row_growth": "low_ttl_cache"
     },
     {
+      "id": "external_mcp_connector_registry",
+      "owner": "iam-consent-governance",
+      "data_class": "reference",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "external_mcp_connectors"
+      ],
+      "primary_access_path": "Operator-curated catalog of external MCP servers (Notion, HubSpot, ...) a user can connect from chat or the connectors manage page, resolved via external_connector_registry_service.py",
+      "retention_policy": "Retain active connector definitions while offered; deactivate rather than delete so historical per-user connections remain explainable.",
+      "deletion_behavior": "Operator-managed reference config, registered via scripts/ops/configure_external_mcp_connector.py; not user-delete scoped.",
+      "trust_boundary": "Connector endpoint, auth style, and OAuth client-id/secret ENV VAR NAMES only -- never the credential values themselves, which stay in process env config.",
+      "plaintext_posture": "config_and_endpoint_urls_plaintext_no_secrets",
+      "expected_row_growth": "low_reference"
+    },
+    {
+      "id": "external_mcp_connector_user_credentials",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_encrypted",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "user_external_connector_connections"
+      ],
+      "primary_access_path": "Per-user connect/disconnect status and encrypted credential envelope for one external MCP connector, via external_connector_credentials_service.py",
+      "retention_policy": "Retain the encrypted credential while the connection is active; clear the ciphertext immediately on disconnect and keep only the revoked status row.",
+      "deletion_behavior": "Cascade-delete on account deletion; disconnect clears credential_ciphertext/credential_iv immediately rather than waiting for a bounded window.",
+      "trust_boundary": "AES-256-GCM ciphertext AAD-bound to (user_id, connector_id) via EXTERNAL_CONNECTOR_CREDENTIAL_KEY -- a distinct trust domain from both google_provider_connections and the operator-level enterprise_crm_registry secret scheme. No plaintext API key or OAuth token at rest.",
+      "plaintext_posture": "encrypted_credential_no_plaintext_at_rest",
+      "expected_row_growth": "low_per_user"
+    },
+    {
+      "id": "external_mcp_connector_oauth_attempts",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "external_connector_oauth_attempts"
+      ],
+      "primary_access_path": "Short-lived PKCE attempt state for an oauth-style external connector's start()/complete() round trip, via external_connector_oauth_service.py",
+      "retention_policy": "10-minute expiry per attempt; consumed or expired rows are not durable user memory.",
+      "deletion_behavior": "Not directly user-delete scoped; rows expire and are superseded by new attempts. Cascade-delete with account deletion for completeness.",
+      "trust_boundary": "PKCE code verifier is AES-256-GCM encrypted, AAD-bound to the attempt id. No client secret, access token, or refresh token is ever stored in this table.",
+      "plaintext_posture": "encrypted_verifier_no_plaintext_secret_at_rest",
+      "expected_row_growth": "low_ttl_workflow"
+    },
+    {
       "id": "hushh_tech_client_identity_state",
       "owner": "iam-consent-governance",
       "data_class": "personal_metadata",
@@ -1108,6 +1179,38 @@
       "trust_boundary": "Rating and message reference only; never message content, prompt or model output, so no vault key and no decrypt path are involved.",
       "plaintext_posture": "metadata_only_with_keyed_source_fingerprints",
       "expected_row_growth": "at most one row per assistant turn a person chooses to rate"
+    },
+    {
+      "id": "one_location_sharing_posture",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_location_account_settings",
+        "one_location_setup_progress"
+      ],
+      "primary_access_path": "OneLocationAccountSettingsService (owner-level sharing on/off, precision preference, reported OS permission; migration 221) and OneLocationSetupService (voice-first Location setup step machine; migration 223) behind GET/PATCH /api/one/location/account-settings and /setup-progress (vault-owner token) and the One Live Voice tools. Turning sharing off revokes active share grants and public links in the same transaction; Location write paths enforce the posture.",
+      "retention_policy": "One mutable row per user for as long as the account exists.",
+      "deletion_behavior": "Hard-delete with account deletion (FK ON DELETE CASCADE to actor_profiles).",
+      "trust_boundary": "Coordinate-free by construction: only posture enums, consent version/timestamps, precision preference, and reported OS permission state. Precision is a preference; coarsening happens on the device before recipient encryption.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "low_per_user"
+    },
+    {
+      "id": "one_voice_live_runtime",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_voice_conversations",
+        "one_voice_pending_actions"
+      ],
+      "primary_access_path": "hushh_mcp/one_voice ConversationStore and PendingActionStore used by the One Live Voice relay (WS /api/one/voice/live) and the pending-action HTTP twins (migration 222). Conversations hold the canonical-id entity context, the provider resumption handle, and per-session counters; pending actions are confirmation-gated voice mutations (voice or tap tier, hashed single-use receipt, one open per conversation, 120 s TTL).",
+      "retention_policy": "Conversations expire two hours after last activity; pending actions expire after their TTL and are marked expired on read. Both are operational ledgers, not history.",
+      "deletion_behavior": "Hard-delete with account deletion (FK ON DELETE CASCADE to actor_profiles); pending actions cascade from their conversation.",
+      "trust_boundary": "No audio, transcripts, coordinates, tokens, or spoken names are stored. Entity context holds canonical ids plus display names the server itself returned; receipts are stored as SHA-256 hashes; tool args are canonical ids only.",
+      "plaintext_posture": "metadata_and_hashes_only",
+      "expected_row_growth": "medium_per_user_bounded_ttl"
     }
   ]
 }

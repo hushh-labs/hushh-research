@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { Brain, Check, Copy } from "lucide-react";
+import { Brain, Check, Copy } from "@/components/icons";
 import { toast } from "sonner";
 
 import { CapabilityCinematicIntroGate } from "@/components/onboarding/setup/capability-cinematic-intro";
@@ -127,14 +127,14 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
                 value={aboutMe}
                 onChange={(event) => setAboutMe(event.target.value)}
                 placeholder="Share details about your professional background, interests, residency, or other details. We’ll organize them into separate encrypted memories in your private vault."
-                className="min-h-[140px] rounded-2xl p-5 text-[15px] leading-relaxed resize-none bg-background shadow-sm border border-input/60 focus-visible:ring-primary/20 focus-visible:ring-[4px] focus-visible:border-primary/40 transition-all"
+                className="min-h-[140px] rounded-2xl p-5 text-[15px] leading-relaxed resize-none bg-background shadow-sm border border-input/60 focus-visible:ring-primary/20 focus-visible:ring-[4px] focus-visible:border-primary/40 transition-[border-color,box-shadow] duration-150"
                 aria-label="Tell us about yourself"
                 disabled={isSaveStarted}
               />
             </div>
 
             {/* External Agents Import Helper */}
-            <div className="mt-6 text-left rounded-3xl border border-border/40 bg-secondary/20 p-5 space-y-4 shadow-sm relative overflow-hidden">
+            <div className="mt-6 text-left rounded-2xl border border-border/40 bg-secondary/20 p-5 space-y-4 shadow-sm relative overflow-hidden">
               <div className="absolute top-0 right-0 -mr-4 -mt-4 opacity-5 pointer-events-none">
                 <Brain className="w-32 h-32" />
               </div>
@@ -161,7 +161,7 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
                 <button
                   type="button"
                   onClick={copyPrompt}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 p-2.5 hover:bg-muted rounded-xl text-muted-foreground hover:text-foreground transition-all active:scale-95"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-2.5 hover:bg-muted rounded-xl text-muted-foreground hover:text-foreground transition-[background-color,color,transform] duration-150 active:scale-95"
                   title="Copy export prompt"
                 >
                   {copied ? (
@@ -185,7 +185,7 @@ export function KycIdentityPreface({ onComplete }: { onComplete: () => void }) {
                 showRipple
                 className={cn(
                   "h-14 rounded-full text-base font-semibold shadow-sm",
-                  "transition-all duration-200 ease-out active:scale-[0.98]",
+                  "transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.98]",
                   canContinue && !isSaveStarted
                     ? "!bg-foreground !text-background hover:opacity-90"
                     : "!bg-secondary !text-muted-foreground",

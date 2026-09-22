@@ -13,6 +13,45 @@ INVITE_ID = "550e8400-e29b-41d4-a716-446655440002"
 MEMBER_ID = "member-user"
 
 
+@pytest.mark.parametrize(
+    "method,path,operation",
+    [
+        ("PATCH", f"/circles/{CIRCLE_ID}", "update_circle"),
+        ("DELETE", f"/circles/{CIRCLE_ID}", "delete_circle"),
+        ("DELETE", f"/circles/{CIRCLE_ID}/members/me", "leave_circle"),
+        ("DELETE", f"/circles/{CIRCLE_ID}/members/{MEMBER_ID}", "remove_member"),
+        ("POST", f"/circle-member-invites/{INVITE_ID}/accept", "accept_member_invite"),
+        ("POST", f"/circle-member-invites/{INVITE_ID}/decline", "decline_member_invite"),
+    ],
+)
+def test_circle_command_body_and_receipt_use_existing_routes(monkeypatch, method, path, operation):
+    client, service, _ = _client(monkeypatch)
+    calls = []
+    receipt = {"operationReceipt": {"operation_id": "ab" * 32, "result": "fixture"}}
+
+    def execute(**kwargs):
+        calls.append(kwargs)
+        return receipt
+
+    monkeypatch.setattr(service, operation, execute)
+    binding = {"owner": "owner-user", "circleId": CIRCLE_ID}
+    response = client.request(
+        method,
+        f"/api/one/location{path}",
+        json={
+            "commandOperationId": "ab" * 32,
+            "commandBinding": binding,
+            **({"name": "New name"} if method == "PATCH" else {}),
+        },
+    )
+    assert response.status_code == 200
+    assert response.json() == receipt
+    assert calls[0]["command_operation_id"] == "ab" * 32
+    assert calls[0]["command_binding"] == binding
+    assert calls[0].get("user_id", calls[0].get("owner_user_id")) == "owner-user"
+    assert response.headers["cache-control"] == "private, no-store"
+
+
 class FakeNamedCircleService:
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict]] = []
@@ -570,6 +609,29 @@ def test_bootstrap_reuses_an_owned_circle_and_never_rotates_its_code() -> None:
     assert calls[1][1]["rotate"] is False
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("has_owned_circle", [False, True])
+async def test_onboarding_adapter_uses_the_real_bootstrap_contract(monkeypatch, has_owned_circle):
+    from hushh_mcp.services import one_location_circle_service
+    from hushh_mcp.services.location_onboarding_runtime import OneLocationCircleProvisioningAdapter
+
+    owned = (
+        [{"id": CIRCLE_ID, "name": "Existing Family", "role": "owner"}] if has_owned_circle else []
+    )
+    service, calls = _bootstrap_probe(owned)
+    monkeypatch.setattr(one_location_circle_service, "OneLocationCircleService", lambda: service)
+    adapter = OneLocationCircleProvisioningAdapter(hmac_key="synthetic-circle-evidence-key")
+
+    result = await adapter.provision_personal_circle(user_id="owner-user", run_id="run_synthetic")
+
+    assert result.status == "verified"
+    assert result.evidence_digest
+    assert [name for name, _ in calls] == (
+        ["list", "code"] if has_owned_circle else ["list", "create", "code"]
+    )
+    assert calls[-1][1]["rotate"] is False
+
+
 def test_bootstrap_ignores_circles_the_caller_only_joined() -> None:
     service, calls = _bootstrap_probe(
         [{"id": "joined-circle", "name": "Someone Else", "role": "member"}]
@@ -687,5 +749,7 @@ def test_join_push_names_the_joiner_and_deep_links_to_people(monkeypatch) -> Non
     # Named, because "someone joined" is exactly what the sender already knew.
     assert captured["body"] == "Meena joined using your code."
     assert captured["title"] == "Meena Family"
-    assert captured["deep_link"] == f"/one/location?tab=people&circleId={CIRCLE_ID}"
+    assert captured["deep_link"] == (
+        f"/one/location?view=people&action=circle-detail&circleId={CIRCLE_ID}"
+    )
     assert captured["notification_category"] == "ONE_LOCATION"

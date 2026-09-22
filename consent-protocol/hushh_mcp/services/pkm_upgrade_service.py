@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import os
@@ -333,7 +334,8 @@ class PkmUpgradeService:
 
     async def _list_runs(self, user_id: str) -> list[dict[str, Any]]:
         try:
-            result = self.db.table("pkm_upgrade_runs").select("*").eq("user_id", user_id).execute()
+            query = self.db.table("pkm_upgrade_runs").select("*").eq("user_id", user_id)
+            result = await asyncio.to_thread(query.execute)
             return self._sort_runs(result.data or [])
         except Exception as exc:
             logger.error("Failed to list PKM upgrade runs for %s: %s", user_id, exc)
@@ -341,7 +343,8 @@ class PkmUpgradeService:
 
     async def _list_steps(self, run_id: str) -> list[dict[str, Any]]:
         try:
-            result = self.db.table("pkm_upgrade_steps").select("*").eq("run_id", run_id).execute()
+            query = self.db.table("pkm_upgrade_steps").select("*").eq("run_id", run_id)
+            result = await asyncio.to_thread(query.execute)
             rows = [
                 step for step in (self._normalize_step(row) for row in (result.data or [])) if step
             ]
@@ -361,19 +364,23 @@ class PkmUpgradeService:
             latest["steps"] = await self._list_steps(latest["run_id"])
         return latest
 
-    async def build_status(self, user_id: str) -> dict[str, Any]:
-        index = await self.pkm_service.get_index_v2(user_id)
+    async def build_status(
+        self,
+        user_id: str,
+        *,
+        resolved_index: PersonalKnowledgeModelIndex | None = None,
+        domain_manifests: dict[str, dict] | None = None,
+    ) -> dict[str, Any]:
+        index = (
+            resolved_index
+            if resolved_index is not None
+            else await self.pkm_service.get_index_v2(user_id)
+        )
         available_domains = list(index.available_domains) if index else []
         if not available_domains:
             try:
-                rows = (
-                    self.db.table("pkm_manifests")
-                    .select("domain")
-                    .eq("user_id", user_id)
-                    .execute()
-                    .data
-                    or []
-                )
+                query = self.db.table("pkm_manifests").select("domain").eq("user_id", user_id)
+                rows = (await asyncio.to_thread(query.execute)).data or []
                 available_domains = sorted(
                     {
                         self._clean_text(row.get("domain")) or ""
@@ -400,7 +407,10 @@ class PkmUpgradeService:
                 if isinstance(domain_summaries.get(domain), dict)
                 else {}
             )
-            manifest = await self.pkm_service.get_domain_manifest(user_id, domain) or {}
+            if domain_manifests is None:
+                manifest = await self.pkm_service.get_domain_manifest(user_id, domain) or {}
+            else:
+                manifest = domain_manifests.get(domain) or {}
             summary_projection = (
                 manifest.get("summary_projection") if isinstance(manifest, dict) else {}
             )

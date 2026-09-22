@@ -28,3 +28,46 @@ Memory is available by default once the vault is unlocked. The former
 `NEXT_PUBLIC_MEMORY_WORKSPACE_ENABLED` rollout flag is retired: migration 128
 and the runtime policy guards are now baseline requirements. No hosted MCP
 handshake, developer credential authority, or encrypted export format changes.
+
+## Conversational capture and context transfers
+
+Chat uses the existing Memory proposal and encrypted writer, not a second memory
+store. Eligibility for an automatic private save does not publish the information,
+enable request discovery, or grant consent. Sensitive or ambiguous details require
+review; unsuccessful preparation must not be reported as a successful empty result.
+
+The authored segmentation, intent, merge, structure, and One instructions live in
+their `consent-protocol/hushh_mcp/agents/*/agent.yaml` manifests. Segmentation carries
+source input as JSON; both ADK and direct-client execution use the manifest's system
+instruction. Exact source validation remains mandatory. Context transfers must
+preserve the subject, its historical, current or intended status, negation, and uncertainty.
+Unknown-information lists are not affirmative facts, and embedded instructions
+cannot authorize sharing or mutations. Repetition is not a reason to create
+duplicate memories.
+
+Segmentation returns at most eight candidates and an explicit
+`has_more_candidates` flag. The existing proposal `split_recommended` contract
+propagates that flag so the client can retry smaller passages. This is model-reported
+coverage, not proof that every eligible fact was found. Source and mocked contract
+tests do not establish live extraction quality for a large context transfer.
+
+The shared client preparation path packs exact source spans rather than one
+request per labeled field. Headings stay with their body through retries; an
+oversized or unsplittable contextual section remains explicitly unresolved.
+Saving the successfully reviewed cards does not discard unresolved source text.
+Review is separate from Save, including when the preparation-only reviewer
+harness is enabled.
+
+Chat capture uses one session-only, counts-only status per answer. Jobs recheck
+the validated owner, vault generation, and automatic-saving policy before
+processing and encrypted writes. Policy-domain invalidation disables capture
+until the encrypted setting is read again. A confirmed write receipt stays
+successful after a session change, but cannot republish information into the new
+session; cancellation is not a rollback of a request already accepted upstream.
+Rendered continuity, extraction completeness and latency still need live proof.
+
+UX reference: [Muse's published design](https://introducing.muse.ai/) describes quiet
+background status, inspectable memory, and explicit approval for consequential
+actions. These are design references, not evidence of Hussh implementation or
+access to Muse's private prompts/configuration. Hussh must retain its own unlocked
+client, encrypted-storage, and consent boundaries.

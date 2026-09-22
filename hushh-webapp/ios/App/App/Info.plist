@@ -57,17 +57,7 @@
 		<true/>
 	</dict>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>Hussh One uses the microphone only when you start a voice command.</string>
-	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>Hussh One uses speech recognition only to turn your voice command into text for your private agent.</string>
-	<key>OneVoiceFluidAudioBenchmarkEligible</key>
-	<false/>
-	<key>OneVoiceFluidAudioEnabled</key>
-	<false/>
-	<key>OneVoiceModelPackAllowedBuckets</key>
-	<array>
-		<string>$(ONE_VOICE_MODEL_PACK_BUCKET)</string>
-	</array>
+	<string>Hussh One uses the microphone only while you are talking to One.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Hussh One uses Face ID only when you choose to unlock your Vault on this device.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
@@ -91,6 +81,25 @@
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
 	<string>Main</string>
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+		<key>UISceneConfigurations</key>
+		<dict>
+			<key>UIWindowSceneSessionRoleApplication</key>
+			<array>
+				<dict>
+					<key>UISceneConfigurationName</key>
+					<string>Default Configuration</string>
+					<key>UISceneDelegateClassName</key>
+					<string>$(PRODUCT_MODULE_NAME).SceneDelegate</string>
+					<key>UISceneStoryboardFile</key>
+					<string>Main</string>
+				</dict>
+			</array>
+		</dict>
+	</dict>
 	<key>UIRequiredDeviceCapabilities</key>
 	<array>
 		<string>arm64</string>

@@ -13,8 +13,8 @@
 /** Capability titles, mirrored from the `ONE_CAPABILITIES` catalog. */
 const CAPABILITY_TITLES: Record<string, string> = {
   finance: "Finance",
-  ria: "RIA",
-  gmail: "Gmail",
+  ria: "Advisor",
+  gmail: "Mail",
   email: "KYC",
   location: "Location",
   pkm: "Memory",
@@ -37,7 +37,7 @@ export function capabilityTitle(id: string): string {
 export const PHONE_CONFLICT_COPY = {
   /** Shown in-app when Firebase reports the number is on another account. */
   inApp:
-    "That number is on another Hussh account. Check your email — we sent you which one.",
+    "That number is on another Hussh account. Check your mail — we sent you which one.",
   subject: "That number is on another account",
   heading: (firstName: string) =>
     firstName ? `${firstName}, that number is taken.` : "That number is taken.",

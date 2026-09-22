@@ -109,11 +109,56 @@ describe("Top app bar responsive contract", () => {
       '"pointer-events-none relative flex h-full w-full flex-col justify-end"',
     );
     expect(providers).toContain("<AppTopShell model={topShellModel} />");
+    expect(providers).toContain(
+      "Keep persistent top chrome outside the route Suspense",
+    );
+    expect(
+      providers.match(/<AppTopShell model=\{topShellModel\} \/>/g),
+    ).toHaveLength(1);
+    const topShellMount = providers.indexOf(
+      "<AppTopShell model={topShellModel} />",
+    );
+    expect(topShellMount).toBeLessThan(
+      providers.indexOf("<Suspense", topShellMount),
+    );
+    expect(
+      providers.match(/<KaiCommandBarGlobal \/>/g),
+    ).toHaveLength(1);
     expect(providers).toContain("const topShellScrollResetKey =");
     expect(providers).toContain("topShellModel.tabs.activeValue");
     expect(providers).toContain("useScrollReset(topShellScrollResetKey");
     expect(providers).toContain("}, [topShellScrollResetKey]);");
     expect(providers).not.toContain("<TopAppBar />");
+  });
+
+  it("renders every signed-in hub tab set as the one segmented strip", () => {
+    // Finance used to take the underline arm while Connect and Consent took
+    // the segmented pill; one signed-in shell, one tab style.
+    const tabs = read("components/app-ui/top-shell-tabs.tsx");
+    const branch = tabs.slice(
+      tabs.indexOf("const usesModuleSegmentedTabs ="),
+      tabs.indexOf("const usesCompactLabels"),
+    );
+    for (const id of ["location", "connect", "consent", "finance", "ria"]) {
+      expect(branch).toContain(`tabSet.id === "${id}"`);
+    }
+    expect(branch).not.toContain('tabSet.id === "public"');
+  });
+
+  it("keeps the top-shell scroll lifecycle stable across route swaps", () => {
+    const source = read("components/app-ui/top-app-bar.tsx");
+    const effectStart = source.indexOf("const hasBackControlRef");
+    const effectEnd = source.indexOf(
+      "  useEffect(() => {",
+      source.indexOf("  }, []);", effectStart) + 1,
+    );
+    const scrollLifecycle = source.slice(effectStart, effectEnd);
+
+    expect(scrollLifecycle).toContain("[data-app-shell-root=\"true\"]");
+    expect(scrollLifecycle).toContain("nextScrollRoot");
+    expect(scrollLifecycle).toContain("attach();");
+    expect(scrollLifecycle).toContain("  }, []);");
+    expect(scrollLifecycle).not.toContain("}, [model.mode, pathname]);");
   });
 
   it("does not duplicate Location tabs inside the route body", () => {
@@ -177,19 +222,24 @@ describe("Top app bar responsive contract", () => {
     expect(source).not.toContain("<DebateTaskCenter");
   });
 
+  it("keeps Search in the shared bottom navigation instead of the top bar", () => {
+    const source = read("components/app-ui/top-app-bar.tsx");
+
+    expect(source).not.toContain('aria-label="Search"');
+    expect(source).not.toContain("Search 🔍");
+  });
+
   it("keeps the rightmost signed-in Profile action in the shared top bar", () => {
     const source = read("components/app-ui/top-app-bar.tsx");
 
     expect(source).not.toContain("WorkspaceTopTabs");
     expect(source).toContain('aria-label="Open Profile"');
-    expect(source).toContain("requestInternalAppNavigation({");
-    // The avatar opens Profile origin-aware (tags the current route as `?from`)
-    // so the shared back control returns to where the user came from instead of
-    // always dropping them on the One dashboard.
-    expect(source).toContain("href: profileOpenHref");
-    expect(source).toContain("const profileOpenHref");
-    expect(source).toContain('source: "tap"');
-    expect(source).toContain('transitionMode: "full"');
+    expect(source).toContain('requestProfilePaneOpen("tap")');
+    // The avatar opens the shared right-side pane. The dedicated Profile route
+    // remains available for deep links and nested settings, but shell entry is
+    // an in-place presentation so the owner can return with the same gesture.
+    expect(source).not.toContain("href: profileOpenHref");
+    expect(source).not.toContain("const profileOpenHref");
     expect(source).not.toContain("onClick={() => router.push(ROUTES.PROFILE)}");
 
     expect(source).toContain("<AvatarImage");
@@ -447,11 +497,35 @@ describe("Top app bar responsive contract", () => {
     expect(update).toContain("if (hasBackControlRef.current)");
     expect(update).toContain("topChromeProgress = 0;");
 
-    expect(update).toContain("if (nextProgress !== lastWrittenProgress)");
-    expect(update).toContain("if (nextCollapsePx !== lastWrittenCollapsePx)");
+    expect(update).toContain(
+      "if (nextProgress !== lastWrittenProgress || nextCollapsePx !== lastWrittenCollapsePx)",
+    );
     // The bar row is measured on every call; re-querying it each time is a
     // document-wide lookup for a node that almost never changes.
     expect(update).toContain("if (!barRow?.isConnected)");
     expect(update).toContain("barRow?.getBoundingClientRect().height");
+    // Reads before writes: the header check reads a rect, so it runs before
+    // any custom-property write or a scroll event forces a layout of its own.
+    expect(update.indexOf("isPrimaryHeaderOutOfView(header)")).toBeLessThan(
+      update.indexOf("writeCollapse(element"),
+    );
+    // Per-frame writes land on the consumers, never on <html>; the root gets
+    // the settled value once the scroll is quiet.
+    expect(update).not.toContain("document.documentElement");
+    expect(update).toContain("scheduleRootWrite()");
+  });
+
+  it("re-resolves the derived top-shell heights on the collapse consumers", () => {
+    const css = read("app/globals.css");
+    const rule = css.slice(
+      css.indexOf('[data-testid="app-top-shell-layout"],\n.ambient-chrome-mask--top,\n[data-top-chrome-collapse-consumer] {'),
+    );
+    expect(rule).toContain("--top-shell-live-height: calc(");
+    expect(rule).toContain("--top-shell-mask-solid-height: calc(");
+    expect(rule).toContain("--top-shell-mask-visible-height: calc(");
+    // The Connect sticky headers pin to --top-shell-mask-solid-height and
+    // must register, or they would follow the settled root value only.
+    const connect = read("app/connect/page-client.tsx");
+    expect(connect.split("data-top-chrome-collapse-consumer").length - 1).toBe(2);
   });
 });

@@ -1,7 +1,11 @@
 import asyncio
 
 import pytest
+from google.adk.events import Event, EventActions
 from google.adk.sessions import Session
+from google.genai import types
+from pydantic import ConfigDict
+from pydantic_core import PydanticSerializationError
 
 from db.db_client import DatabaseExecutionError
 from hushh_mcp.one_adk.encrypted_session_service import (
@@ -61,3 +65,70 @@ def test_database_failure_never_exposes_sql_or_bound_values(monkeypatch) -> None
     assert rendered == "Conversation storage is temporarily unavailable."
     assert private_value not in rendered
     assert "INSERT" not in rendered
+
+
+@pytest.mark.parametrize("placement", ["output", "state", "actions"])
+def test_deferred_genai_models_roundtrip_without_mutating_live_objects(placement):
+    # Per-test subclasses preserve GenAI's real serializer behavior without
+    # changing global SDK classes or depending on another test's import order.
+    class DeferredResponse(types.GenerateContentResponse):
+        model_config = ConfigDict(defer_build=True)
+
+    class DeferredCandidate(types.Candidate):
+        model_config = ConfigDict(defer_build=True)
+
+    candidate = DeferredCandidate.model_construct(index=3)
+    response = DeferredResponse.model_construct(candidates=[candidate], model_version="fixture")
+    event = Event(author="finance")
+    session = Session(id="thread", app_name="one", user_id="owner", events=[event])
+    if placement == "output":
+        event.output = response
+    elif placement == "state":
+        session.state["response"] = response
+    else:
+        event.actions = EventActions(agent_state={"response": response})
+    assert not DeferredResponse.__pydantic_complete__
+    with pytest.raises(PydanticSerializationError, match="MockValSer"):
+        session.model_dump_json(by_alias=True)
+
+    service = EncryptedAdkSessionService()
+    encoded = service._encode(session)
+    assert "fixture" not in encoded["ciphertext"]
+    decoded = service._decode({f"payload_{key}": value for key, value in encoded.items()})
+    if placement == "output":
+        restored = decoded.events[0].output
+        assert event.output is response
+    elif placement == "state":
+        restored = decoded.state["response"]
+        assert session.state["response"] is response
+    else:
+        restored = decoded.events[0].actions.agent_state["response"]
+        assert event.actions.agent_state["response"] is response
+    assert restored["modelVersion"] == "fixture"
+    assert restored["candidates"][0]["index"] == 3
+    assert response.candidates[0] is candidate
+
+
+def test_session_serializer_preserves_sdk_bytes_and_event_types():
+    content = types.Content(role="model", parts=[types.Part(thought_signature=b"\xff\x00\x81")])
+    session = Session(
+        id="thread", app_name="one", user_id="owner", events=[Event(author="one", content=content)]
+    )
+    service = EncryptedAdkSessionService()
+    encoded = service._encode(session)
+    decoded = service._decode({f"payload_{key}": value for key, value in encoded.items()})
+    assert isinstance(decoded.events[0], Event)
+    assert decoded.events[0].content.parts[0].thought_signature == b"\xff\x00\x81"
+
+
+def test_unrelated_serialization_failure_is_not_repaired(monkeypatch):
+    def unexpected_repair(_session):
+        pytest.fail("Unrelated failures must not invoke deferred-model repair")
+
+    monkeypatch.setattr(
+        "hushh_mcp.one_adk.encrypted_session_service._prepare_deferred_model_serializers",
+        unexpected_repair,
+    )
+    session = Session(id="thread", app_name="one", user_id="owner", state={"invalid": object()})
+    with pytest.raises(PydanticSerializationError, match="unknown type"):
+        EncryptedAdkSessionService()._encode(session)

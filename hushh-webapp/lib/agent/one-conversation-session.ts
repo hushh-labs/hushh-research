@@ -2,12 +2,13 @@
 
 import { create } from "zustand";
 import type { SpecialistDirectiveEvent } from "@/lib/services/agent-chat-client";
+import type { GmailInformationRequestWorkflow } from "@/lib/services/gmail-information-requests-service";
 
 export type OneConversationMirrorEvent = {
   id: string;
   role: "user" | "assistant" | "system";
   text: string;
-  source: "gemini_live" | "one_voice_orchestrator" | "agent_chat";
+  source: "location_command" | "agent_chat";
   turnId?: string | null;
   actionId?: string | null;
   resultSummary?: string | null;
@@ -23,12 +24,26 @@ export type AgentChatHandoffReason =
   | "delegated_action"
   | "pkm_memory_candidate";
 
+export type GmailInformationRequestHandoff = Pick<
+  GmailInformationRequestWorkflow,
+  | "workflow_id"
+  | "requested_field_labels"
+  | "candidate_scopes"
+  | "attachment_review_required"
+>;
+
 export type AgentChatHandoff = {
   id: string;
   reason: AgentChatHandoffReason;
   transcript?: string | null;
   /** A user-initiated Gmail draft request. It never authorizes delivery. */
   emailDraftInstruction?: string | null;
+  /**
+   * An active personal-Gmail KYC workflow that must retain its original
+   * reply context. This is metadata only; private PKM values and Gmail bodies
+   * never travel in the handoff.
+   */
+  gmailInformationRequest?: GmailInformationRequestHandoff | null;
   assistantText?: string | null;
   actionId?: string | null;
   resultSummary?: string | null;
@@ -36,10 +51,16 @@ export type AgentChatHandoff = {
   createdAtMs: number;
 };
 
+export type OneEntryWelcomeMarker = {
+  userId: string;
+  kind: "post_setup";
+};
+
 type OneConversationSessionState = {
   sessionId: string;
   events: OneConversationMirrorEvent[];
   pendingHandoff: AgentChatHandoff | null;
+  pendingEntryWelcome: OneEntryWelcomeMarker | null;
   appendMirrorEvent: (event: Omit<OneConversationMirrorEvent, "id" | "createdAtMs"> & {
     id?: string;
     createdAtMs?: number;
@@ -49,6 +70,8 @@ type OneConversationSessionState = {
     createdAtMs?: number;
   }) => AgentChatHandoff;
   consumeHandoff: (id: string) => void;
+  queueEntryWelcome: (userId: string) => void;
+  consumeEntryWelcome: (userId: string) => void;
   clearSession: () => void;
 };
 
@@ -68,6 +91,7 @@ export const useOneConversationSession = create<OneConversationSessionState>((se
   sessionId: createSessionId(),
   events: [],
   pendingHandoff: null,
+  pendingEntryWelcome: null,
   appendMirrorEvent: (event) => {
     const text = event.text.trim();
     if (!text) return;
@@ -96,11 +120,23 @@ export const useOneConversationSession = create<OneConversationSessionState>((se
     if (get().pendingHandoff?.id !== id) return;
     set({ pendingHandoff: null });
   },
+  queueEntryWelcome: (userId) => {
+    const normalizedUserId = userId.trim();
+    if (!normalizedUserId) return;
+    set({
+      pendingEntryWelcome: { userId: normalizedUserId, kind: "post_setup" },
+    });
+  },
+  consumeEntryWelcome: (userId) => {
+    if (get().pendingEntryWelcome?.userId !== userId) return;
+    set({ pendingEntryWelcome: null });
+  },
   clearSession: () => {
     set({
       sessionId: createSessionId(),
       events: [],
       pendingHandoff: null,
+      pendingEntryWelcome: null,
     });
   },
 }));

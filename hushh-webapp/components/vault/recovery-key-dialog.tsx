@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/lib/morphy-ux/morphy';
 import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Copy, Check, Download, AlertTriangle } from 'lucide-react';
+import { Copy, Check, Download, AlertTriangle } from '@/components/icons';
 import { downloadTextFile } from '@/lib/utils/native-download';
 import { Icon } from '@/lib/morphy-ux/ui';
 import { copyToClipboard } from '@/lib/utils/clipboard';

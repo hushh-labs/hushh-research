@@ -44,7 +44,7 @@ Intentional destructive cold-start audit:
 cd hushh-webapp && npm run verify:capacitor:cold:audit
 ```
 
-The cold audit resets native app state and signs in the governed reviewer fixture. It is route/parity evidence only, never vault or route-continuity evidence. For a visible, non-destructive same-session rehearsal, start the already-installed app with `npm run ios:continuity:local` or `npm run android:continuity:local`, then drive the specified interactions in the device.
+The cold audit resets native app state and signs in the governed reviewer fixture. It is route/parity evidence only, never vault or route-continuity evidence. For a non-destructive same-session rehearsal, start the already-installed app with `npm run ios:continuity:local` or `npm run android:continuity:local`, then drive the specified interactions in the device. iOS stays headless by default; append `-- --visible` only when a desktop window is requested.
 
 ## Route Classification Policy
 
@@ -153,6 +153,14 @@ Current accepted parity exceptions are:
 
 Cloud-backed vault preference flows are the canonical cross-platform behavior, and Android passkey PRF is part of the parity contract rather than an exception. If a new exception is ever needed, document it in the mobile docs in the same change.
 
+## Render Performance
+
+This audit checks routes, plugins, markers and auth states. It does not
+measure frame pacing. That bar, the in-app probe, the native instruments and
+the gesture card live in [render-performance-charter.md](./render-performance-charter.md);
+`npm run verify:render-performance` is its static gate, and a dated device
+baseline under `perf/` is its evidence.
+
 ## Native Project Sanity
 
 Parity is not complete until both projects still load structurally:
@@ -215,18 +223,20 @@ run a cold audit merely to inspect a normally unlocked session.
 
 Native parity for authenticated flows now includes the verified phone mandate after login.
 
-- `HushhSessionPrivacy` is the native resume boundary on both iOS and Android.
-  The host must cover the WebView before inactivity, expose the current
-  process-local generation through `getState`, and accept
+- `HushhSessionPrivacy` is the native resume privacy boundary on both iOS and
+  Android. The host must cover the WebView before inactivity, expose the
+  current process-local generation through `getState`, and accept
   `completeSessionValidation` only for the same generation while active.
-  Neither platform may auto-release its cover from a resume callback.
+  This acknowledgement releases the screenshot/privacy cover; it is not an
+  account/session validation request, and neither platform may auto-release
+  its cover from a resume callback.
 - The shield must block more than taps. iOS keeps the cover accessibility-modal;
   Android applies `FLAG_SECURE`, hides the underlying WebView descendants from
   TalkBack, and restores the exact prior accessibility mode only after an
   accepted release or activity destruction.
 - The TypeScript bridge remains a web-safe no-op. `AuthProvider` is the sole
-  caller that may acknowledge a native generation after bounded session
-  validation; route and vault components do not release the native cover.
+  caller that may acknowledge a native generation after the resumed document
+  is ready; route and vault components do not release the native cover.
 
 - `FirebaseAuthentication.providers` must include `"phone"` alongside the existing provider list.
 - `/register-phone` is a contract route even though it bypasses the standard shell.

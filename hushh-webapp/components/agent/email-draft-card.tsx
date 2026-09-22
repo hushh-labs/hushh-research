@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
-import { Loader2, Mail, Send, Sparkles, X } from "lucide-react";
+import { Loader2, Mail, Send, Sparkles, X } from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +19,16 @@ import {
   type ConnectionSummaryEntry,
 } from "@/lib/services/connections-service";
 
+export type SourceBoundEmailReplyAdapter = {
+  /** Keeps reply routing server-derived from the source message/thread. */
+  send: (input: {
+    firebaseIdToken: string;
+    vaultOwnerToken: string;
+    draft: EmailDraft;
+    idempotencyKey: string;
+  }) => Promise<{ outcomeUnknown: boolean }>;
+};
+
 type EmailDraftCardProps = {
   initialInstruction: string;
   initialDraft?: EmailDraft | null;
@@ -34,6 +44,10 @@ type EmailDraftCardProps = {
   onSendStarted?: (draft: EmailDraft) => string | null | undefined;
   onSent: (attemptId?: string | null) => void;
   onSendFailed?: (error: EmailDeliveryError, attemptId?: string | null) => void;
+  /** Reuses this editor while keeping recipient and thread server-derived. */
+  sourceBoundReply?: SourceBoundEmailReplyAdapter | null;
+  /** Metadata-only context for the source-bound request; never Gmail content. */
+  sourceBoundContext?: string;
 };
 
 const EMPTY_DRAFT: EmailDraft = {
@@ -61,6 +75,8 @@ export function EmailDraftCard({
   onSendStarted,
   onSent,
   onSendFailed,
+  sourceBoundReply = null,
+  sourceBoundContext,
 }: EmailDraftCardProps) {
   const idPrefix = useId();
   const [draft, setDraft] = useState<EmailDraft>(() => {
@@ -195,7 +211,7 @@ export function EmailDraftCard({
                   {conn.displayName || "Connected User"}
                 </div>
                 <div className="truncate text-[11px] text-muted-foreground">
-                  {hasEmail ? conn.email : "No email on file (non-selectable)"}
+                  {hasEmail ? conn.email : "No mail on file (non-selectable)"}
                 </div>
               </div>
             </button>
@@ -245,7 +261,7 @@ export function EmailDraftCard({
         cause instanceof EmailDeliveryError
           ? cause
           : new EmailDeliveryError(
-              "One could not prepare an email draft.",
+              "One could not prepare a mail draft.",
               500,
             ),
       );
@@ -275,22 +291,31 @@ export function EmailDraftCard({
           onRequireVault();
           throw new EmailDeliveryError("Unlock your vault and try again.", 403);
         }
-        const prepared = await EmailDeliveryService.prepare({
-          ...auth,
-          draft: reviewedDraft,
-          idempotencyKey: newIdempotencyKey(),
-        });
-        if (!prepared.actionId) {
-          throw new EmailDeliveryError(
-            "Email could not be prepared for sending.",
-            500,
-          );
-        }
-        const outcome = await EmailDeliveryService.send({
-          ...auth,
-          actionId: prepared.actionId,
-          draft: reviewedDraft,
-        });
+        const idempotencyKey = newIdempotencyKey();
+        const outcome = sourceBoundReply
+          ? await sourceBoundReply.send({
+              ...auth,
+              draft: reviewedDraft,
+              idempotencyKey,
+            })
+          : await (async () => {
+              const prepared = await EmailDeliveryService.prepare({
+                ...auth,
+                draft: reviewedDraft,
+                idempotencyKey,
+              });
+              if (!prepared.actionId) {
+                throw new EmailDeliveryError(
+                  "Mail could not be prepared for sending.",
+                  500,
+                );
+              }
+              return EmailDeliveryService.send({
+                ...auth,
+                actionId: prepared.actionId,
+                draft: reviewedDraft,
+              });
+            })();
         if (outcome.outcomeUnknown) {
           throw new EmailDeliveryError(
             "We could not confirm delivery. Check Sent Mail before trying again.",
@@ -304,7 +329,7 @@ export function EmailDraftCard({
           cause instanceof EmailDeliveryError
             ? cause
             : new EmailDeliveryError(
-                "Email could not be sent. Review it and try again.",
+                "Mail could not be sent. Review it and try again.",
                 500,
               ),
           attemptId,
@@ -319,7 +344,7 @@ export function EmailDraftCard({
   return (
     <section
       data-testid="one-email-draft-card"
-      aria-label="Email draft"
+      aria-label="Mail draft"
       ref={dropdownContainerRef}
       className="mb-5 overflow-hidden rounded-[calc(var(--app-card-radius-compact)+4px)] border border-border/80 bg-card shadow-[var(--app-card-shadow-standard)]"
     >
@@ -331,10 +356,12 @@ export function EmailDraftCard({
           </div>
           <div>
             <h2 className="text-sm font-semibold text-foreground">
-              Review Email Draft
+              {sourceBoundReply ? "Review KYC reply" : "Review Mail Draft"}
             </h2>
             <p className="text-xs text-muted-foreground">
-              Verify recipients and content before sending
+              {sourceBoundReply
+                ? "Edit the response before sending it in the original Mail thread"
+                : "Verify recipients and content before sending"}
             </p>
           </div>
         </div>
@@ -359,8 +386,8 @@ export function EmailDraftCard({
             role="status"
           >
             <Loader2 className="h-4 w-4 animate-spin" />
-            <span className="sr-only">Drafting your email. </span>
-            <span>One is preparing your email draft...</span>
+            <span className="sr-only">Drafting your mail. </span>
+            <span>One is preparing your mail draft...</span>
           </div>
           <div className="space-y-3 pt-2">
             <div className="h-4 w-1/3 rounded bg-muted animate-pulse" />
@@ -378,7 +405,20 @@ export function EmailDraftCard({
         </div>
       ) : (
         <div className="space-y-3 px-4 py-4 sm:px-5">
-          <div className="relative flex items-center gap-2 border-b border-border/60 py-1.5">
+          {sourceBoundReply ? (
+            <div
+              className="flex items-start gap-2 rounded-xl bg-muted/55 px-3 py-2.5 text-sm text-muted-foreground"
+              data-testid="one-email-draft-source-bound-notice"
+            >
+              <Mail className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              <span>
+                This reply stays in the original Mail thread. Recipient and subject are taken from that message.
+                {sourceBoundContext ? ` ${sourceBoundContext}` : ""}
+              </span>
+            </div>
+          ) : (
+            <>
+              <div className="relative flex items-center gap-2 border-b border-border/60 py-1.5">
             <span className="w-16 shrink-0 text-sm font-medium text-muted-foreground">To</span>
             <Input
               id={`${idPrefix}-to`}
@@ -391,7 +431,7 @@ export function EmailDraftCard({
                 setActiveDropdownField("to");
               }}
               disabled={disabled}
-              placeholder="Select connection or type email..."
+              placeholder="Select connection or type mail..."
               aria-label="To"
               className="h-9 rounded-none border-0 bg-transparent px-0 text-[15px] shadow-none focus-visible:ring-0"
             />
@@ -426,7 +466,7 @@ export function EmailDraftCard({
                       setActiveDropdownField(field);
                     }}
                     disabled={disabled}
-                    placeholder="Optional connection or email..."
+                    placeholder="Optional connection or mail..."
                     aria-label={field === "cc" ? "Cc" : "Bcc"}
                     className="h-9 rounded-none border-0 bg-transparent px-0 text-[15px] shadow-none focus-visible:ring-0"
                   />
@@ -450,6 +490,8 @@ export function EmailDraftCard({
               className="h-9 rounded-none border-0 bg-transparent px-0 text-[15px] font-medium shadow-none focus-visible:ring-0"
             />
           </div>
+            </>
+          )}
 
           <div className="pt-2">
             <EmailRichTextComposer
@@ -478,7 +520,7 @@ export function EmailDraftCard({
               {error.message}{" "}
               {error.needsGmailReconnect ? (
                 <Link className="font-medium underline" href="/one/gmail">
-                  Reconnect Gmail
+                  Reconnect Mail
                 </Link>
               ) : null}
             </p>
@@ -505,7 +547,7 @@ export function EmailDraftCard({
           data-testid="one-email-draft-send"
         >
           <Send className="h-3.5 w-3.5" />
-          Send
+          {sourceBoundReply ? "Send reply" : "Send"}
         </Button>
       </div>
     </section>

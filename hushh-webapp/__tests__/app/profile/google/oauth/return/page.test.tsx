@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   replace: vi.fn(),
   searchGet: vi.fn(),
   completeConnect: vi.fn(),
+  status: vi.fn(),
   consumeSetupReturn: vi.fn(),
   getIdToken: vi.fn(),
 }));
@@ -26,7 +27,10 @@ vi.mock("@/lib/calendar/calendar-oauth-journey", () => ({
 }));
 
 vi.mock("@/lib/services/google-calendar-service", () => ({
-  GoogleCalendarService: { completeConnect: mocks.completeConnect },
+  GoogleCalendarService: {
+    completeConnect: mocks.completeConnect,
+    status: mocks.status,
+  },
 }));
 
 vi.mock("@/components/app-ui/hushh-loader", () => ({
@@ -74,6 +78,24 @@ describe("GoogleOAuthReturnPage", () => {
 
     await waitFor(() =>
       expect(mocks.replace).toHaveBeenCalledWith("/one/setup/calendar"),
+    );
+  });
+
+  it("does not report success when the callback did not create an active connection", async () => {
+    mocks.completeConnect.mockResolvedValue({
+      configured: true,
+      connected: false,
+      status: "disconnected",
+      access_level: null,
+      scope_csv: "",
+    });
+
+    render(<GoogleOAuthReturnPage />);
+
+    await waitFor(() =>
+      expect(mocks.replace).toHaveBeenCalledWith(
+        "/one/calendar?calendar=error",
+      ),
     );
   });
 });

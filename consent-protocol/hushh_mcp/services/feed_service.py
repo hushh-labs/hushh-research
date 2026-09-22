@@ -325,13 +325,12 @@ class FeedService:
             }
             for row in rows
         ]
+
         connection_request_ids: set[str] = set()
         grant_ids: set[str] = set()
         request_ids: set[str] = set()
         for row in rows:
             metadata = row.get("metadata")
-            # Re-resolve current public identity even when an old event carries
-            # a photo snapshot. Profile updates must agree with Connect.
             source_row_id = str(row.get("source_row_id") or "").strip()
             if not source_row_id:
                 continue
@@ -423,7 +422,6 @@ class FeedService:
             if not photo_url:
                 enriched.append(row)
                 continue
-            metadata = row.get("metadata")
             next_row = dict(row)
             next_row["metadata"] = {
                 **(metadata if isinstance(metadata, dict) else {}),
@@ -435,11 +433,12 @@ class FeedService:
     def _durable_counterpart_photos(
         self, user_id: str, rows: list[dict[str, Any]]
     ) -> dict[str, str | None] | None:
-        """One bounded viewer-scoped read; internal identity never enters the DTO.
+        """Resolve current avatars through the retained Feed identity mapping.
 
-        The resolver supports retained legacy sources until the explicit batch
-        backfill finishes. The map, not the short-lived source, owns new history.
-        A future photo cache must be invalidated by the public identity owner.
+        The query is bounded to this viewer's requested page. Internal user ids
+        never enter the public Feed DTO, and rows whose current avatar was
+        removed resolve to ``None`` instead of reviving a historical snapshot.
+        The source resolver remains only for rolling migration/backfill gaps.
         """
         try:
             results = (
@@ -474,7 +473,6 @@ class FeedService:
             cause: BaseException | None = exc
             while cause is not None:
                 if getattr(cause, "pgcode", None) in {"42P01", "42883"}:
-                    # Rolling migration compatibility, never a changed public contract.
                     logger.info("feed.counterpart_identity_schema_pending")
                     return None
                 cause = cause.__cause__

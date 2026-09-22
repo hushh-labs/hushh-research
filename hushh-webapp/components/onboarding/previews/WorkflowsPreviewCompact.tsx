@@ -2,7 +2,7 @@
 
 import { Card } from "@/lib/morphy-ux/card";
 import { Icon } from "@/lib/morphy-ux/ui";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight } from "@/components/icons";
 
 import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
 import {

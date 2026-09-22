@@ -1,0 +1,364 @@
+recordings:
+- user_message_index: 0
+  agent_name: nav
+  llm_recording:
+    llm_request:
+      model: gemini-3.8-flash
+      contents:
+      - parts:
+        - text: Who can see my location right now?
+        role: user
+      config:
+        http_options:
+          headers:
+            x-goog-api-client: google-adk/2.9.0 gl-python/3.13.7
+            user-agent: google-adk/2.9.0 gl-python/3.13.7
+        system_instruction: 'You are Nav, the consent and trusted-people agent beneath
+          One, the private agent.
+
+          For what is shared now, with whom, until when, what was shared before, or
+
+          ending or narrowing access, call your consent helper.
+
+          Explain trust boundaries directly in one or two plain sentences when asked.
+
+          When a question about access or trust is underspecified and does not ask
+          for
+
+          actual sharing records or a sharing change, ask one brief clarifying question
+
+          before consulting a helper. Do not assume the owner wants a list or a card.
+
+          An explicit question about who can see information, what is shared, or when
+
+          access ends does request sharing records: send it to your consent helper.
+
+          One selected the  surface for this turn. This is a routing hint,
+
+          not permission to read information or execute an action.
+
+          For adding, accepting, declining or removing a trusted person, or finding
+
+          someone by name, use the Connections helper when it is supplied. Otherwise
+
+          redirect to One. Never claim an unavailable helper was called.
+
+          Connections proposals go back to One for its governed action and owner
+
+          confirmation. Never say a proposal changed a connection.
+
+          You do not do finance, memory, or anything outside sharing and trusted people;
+
+          say so and stop. Return your helper''s answer without adding a second summary.
+
+          Records come only from tool results; never invent them. Identifiers are
+          tool
+
+          handles, never spoken. Use the owner''s words, never internal vocabulary.
+
+          Nothing is executed by you: the app asks the owner to confirm. Replies are
+
+          short, calm and specific. If a helper fails, say so plainly.
+
+
+
+          You are an agent. Your internal name is "nav". The description about you
+          is "Reviews sharing and trust boundaries through its Consent helper beneath
+          One.".'
+        tools:
+        - function_declarations:
+          - description: Reviews current and previous sharing with the owner's real
+              grant records.
+            name: consent
+            parameters_json_schema:
+              type: object
+              properties:
+                request:
+                  type: string
+              required:
+              - request
+            response_json_schema:
+              type: string
+        labels:
+          adk_agent_name: nav
+        thinking_config:
+          thinking_level: LOW
+      live_connect_config:
+        input_audio_transcription: {}
+        output_audio_transcription: {}
+    llm_responses:
+    - model_version: gemini-3.8-flash
+      content:
+        parts:
+        - function_call:
+            id: call_115672
+            args:
+              request: Who can see my location right now?
+            name: consent
+          thought_signature: AY89a185ftKzaQEbGFJLt2e7oWMxMEZ-pAzxNVNAlGJt8pv6iZ0T80PVvps05kI6ABQcltoENL2mbg2s0pS2AE3iuJYRej85ehe-0snyVamJUEVs7vC0lwRFZW6r2Va902sDFOopKJwg7aQOKtwye1Nfe4ZEhKzTaaKKaVmo2pCHjnE5Sc_ZTt8V-r6KjVyCkeXjD5ij_V02FXY10gABNOR-UQP4SQVArzKeusZ5Jy-2T7thmborEJ_R0dhaBqoYoUOqqq5KkcaLiIsz3Jdez75WucMasXZsyqdueZlndxytUJXEahdpWICpN_xal3MrbsdnFYkGpbfbvlBtl9w-QRuqUelBiFcaDcb_czAY41R9IpIMLcgstWn5gRjn0wZJ0U6jNzmYVL5NpNXLuBaeYGBMZNBakG0lS39CpgitQGoEcVsGokQ8uGbcC1cpFDs6Emq_4HQ6RCa8JYNFBvoUiNlZAOb06ZkzLhJr5Y9gwdoaZBAQiS34sopTN3dF6Mi0H_PTa0TeCUYmoJWqq7Ms7NjBQ0s4CYUtkdGKqPcyjKGAz5BFu2fcV-NzDOgE-BWhCpfhq-8yp85OQpz4u1-Ni0oIPyt2c3zaRXHT3Wp6eIqBq65AwJYwQ2cVuNBpSlQsGCeSCQ8xjNvyJD6dOkUNYIcojU-bU-Hi1cBZA-vAACB57yaMd_hY-4khkQL5qnQDHrzpw-_V32aj2j4PdFDs5Z1NutGiHfdaW6oszez1Pcjjr5mr7FO1nMM4u-GEE_q84pglVU9zA0E-iRe2B1GlC0efyF4LsrOkBYrularm_ZN0p7z9DwV7fFjXkUiLoFy8Yq7wJ5ZDQD36jF9M4-HN2Ywo0oscEontK2TpZC-1X8LsIqFEfaxO2od3nrQ0sXFEc2MqqYLOCuYLsUaoH5GnavTggqJ6OFuow2HYbnw8gQAuC94ikORN1SeoTD4=
+        role: model
+      finish_reason: STOP
+      usage_metadata:
+        candidates_token_count: 21
+        candidates_tokens_details:
+        - modality: TEXT
+          token_count: 21
+        prompt_token_count: 408
+        prompt_tokens_details:
+        - modality: TEXT
+          token_count: 408
+        thoughts_token_count: 145
+        total_token_count: 574
+        traffic_type: ON_DEMAND
+- user_message_index: 0
+  agent_name: nav
+  tool_recording:
+    tool_call:
+      id: call_115672
+      args:
+        request: Who can see my location right now?
+      name: consent
+    tool_response:
+      id: call_115672
+      name: consent
+      response:
+        result: "Fixture Alex can view your live location right now. \n\nSince this\
+          \ sharing is revocable, an app card is available with options to Stop sharing\
+          \ and view Details."
+- user_message_index: 0
+  agent_name: consent
+  llm_recording:
+    llm_request:
+      model: gemini-3.8-flash
+      contents:
+      - parts:
+        - text: Who can see my location right now?
+        role: user
+      config:
+        http_options:
+          headers:
+            x-goog-api-client: google-adk/2.9.0 gl-python/3.13.7
+            user-agent: google-adk/2.9.0 gl-python/3.13.7
+        system_instruction: 'You review what the owner shares. Two tools give you
+          the facts:
+
+          list_active_consent_grants shows who has access now, to what, until when.
+
+          list_previous_consent_grants shows what ended, was declined, or expired.
+
+          Call the matching tool; call both for everything. Never answer from memory.
+
+          Say each holder by name, what they can see, and the dates exactly as the
+
+          tool wrote them. When a row is revocable, the app shows a card with Stop
+
+          sharing and Details. Tell the owner the card is there; never claim you
+
+          stopped sharing yourself. For how sharing works, answer directly in two
+
+          sentences without listing. For trusted-person changes, redirect to One.
+
+          For an underspecified access question without a request for actual
+
+          sharing records, ask a brief clarifying question instead of listing.
+
+          If a tool reports consent_center_unavailable, say the list could not be
+
+          loaded and to try again. Never invent records or speak identifiers.
+
+
+
+          You are an agent. Your internal name is "consent". The description about
+          you is "Reviews current and previous sharing with the owner''s real grant
+          records.".'
+        tools:
+        - function_declarations:
+          - description: 'List who can see the owner''s information now, what they
+              see and expiry.
+
+              Use real labels and expiry text in the result. Revocable rows attach
+              an app
+
+              card for Stop sharing and Details; this read never revokes access.'
+            name: list_active_consent_grants
+            response_json_schema:
+              additionalProperties: true
+              type: object
+          - description: 'List ended, declined, expired or revoked sharing and its
+              ending time.
+
+              Use returned labels and dates; never invent records or treat history
+              as active.'
+            name: list_previous_consent_grants
+            response_json_schema:
+              additionalProperties: true
+              type: object
+        labels:
+          adk_agent_name: consent
+        thinking_config:
+          thinking_level: LOW
+      live_connect_config:
+        input_audio_transcription: {}
+        output_audio_transcription: {}
+    llm_responses:
+    - model_version: gemini-3.8-flash
+      content:
+        parts:
+        - function_call:
+            id: call_91592
+            args: {}
+            name: list_active_consent_grants
+          thought_signature: AY89a18NRG9CstQAmMMpoOXDMfARzRtTu4mKCeRAV1oXBrPctYYu7vKTxDzXz-3egdfnE7T4QP8hFVzRRJieqW5Fmt58TFlb2RRdQj2OzLETiqgNOdXClfO9W4c2jD-qH_NOXnFfMcnPmFzIVuHOCIbvgyyDTyOKFnxrfrZ1An8ouY5P4RQPNyLwmYwvqCf1Dyc-M2hi3xtK-866MENgtU2lXlgWfmPERkJoB10__7UZJcraMFy5LL3cSNV3vlZdRJEOOsregXFg0DkeAqqrrDPsCsdqyCgD-INPU13Nl8-uxMCVY8rBLYxzi1qODZ3vJBHFkwNIx_8IzKr5evTvQNb7iu2DA0LwZeocIf9nCqD2
+        role: model
+      finish_reason: STOP
+      usage_metadata:
+        candidates_token_count: 15
+        candidates_tokens_details:
+        - modality: TEXT
+          token_count: 15
+        prompt_token_count: 368
+        prompt_tokens_details:
+        - modality: TEXT
+          token_count: 368
+        thoughts_token_count: 49
+        total_token_count: 432
+        traffic_type: ON_DEMAND
+- user_message_index: 0
+  agent_name: consent
+  tool_recording:
+    tool_call:
+      id: call_91592
+      args: {}
+      name: list_active_consent_grants
+    tool_response:
+      id: call_91592
+      name: list_active_consent_grants
+      response:
+        items:
+        - label: Fixture Alex
+          access: view your live location
+          scope: cap.location.live.view
+          status: active
+          expiresLabel: ''
+          endedLabel: ''
+          revocable: true
+        total: 1
+- user_message_index: 0
+  agent_name: consent
+  llm_recording:
+    llm_request:
+      model: gemini-3.8-flash
+      contents:
+      - parts:
+        - text: Who can see my location right now?
+        role: user
+      - parts:
+        - function_call:
+            id: call_91592
+            args: {}
+            name: list_active_consent_grants
+          thought_signature: AY89a18NRG9CstQAmMMpoOXDMfARzRtTu4mKCeRAV1oXBrPctYYu7vKTxDzXz-3egdfnE7T4QP8hFVzRRJieqW5Fmt58TFlb2RRdQj2OzLETiqgNOdXClfO9W4c2jD-qH_NOXnFfMcnPmFzIVuHOCIbvgyyDTyOKFnxrfrZ1An8ouY5P4RQPNyLwmYwvqCf1Dyc-M2hi3xtK-866MENgtU2lXlgWfmPERkJoB10__7UZJcraMFy5LL3cSNV3vlZdRJEOOsregXFg0DkeAqqrrDPsCsdqyCgD-INPU13Nl8-uxMCVY8rBLYxzi1qODZ3vJBHFkwNIx_8IzKr5evTvQNb7iu2DA0LwZeocIf9nCqD2
+        role: model
+      - parts:
+        - function_response:
+            id: call_91592
+            name: list_active_consent_grants
+            response:
+              items:
+              - label: Fixture Alex
+                access: view your live location
+                scope: cap.location.live.view
+                status: active
+                expiresLabel: ''
+                endedLabel: ''
+                revocable: true
+              total: 1
+        role: user
+      config:
+        http_options:
+          headers:
+            x-goog-api-client: google-adk/2.9.0 gl-python/3.13.7
+            user-agent: google-adk/2.9.0 gl-python/3.13.7
+        system_instruction: 'You review what the owner shares. Two tools give you
+          the facts:
+
+          list_active_consent_grants shows who has access now, to what, until when.
+
+          list_previous_consent_grants shows what ended, was declined, or expired.
+
+          Call the matching tool; call both for everything. Never answer from memory.
+
+          Say each holder by name, what they can see, and the dates exactly as the
+
+          tool wrote them. When a row is revocable, the app shows a card with Stop
+
+          sharing and Details. Tell the owner the card is there; never claim you
+
+          stopped sharing yourself. For how sharing works, answer directly in two
+
+          sentences without listing. For trusted-person changes, redirect to One.
+
+          For an underspecified access question without a request for actual
+
+          sharing records, ask a brief clarifying question instead of listing.
+
+          If a tool reports consent_center_unavailable, say the list could not be
+
+          loaded and to try again. Never invent records or speak identifiers.
+
+
+
+          You are an agent. Your internal name is "consent". The description about
+          you is "Reviews current and previous sharing with the owner''s real grant
+          records.".'
+        tools:
+        - function_declarations:
+          - description: 'List who can see the owner''s information now, what they
+              see and expiry.
+
+              Use real labels and expiry text in the result. Revocable rows attach
+              an app
+
+              card for Stop sharing and Details; this read never revokes access.'
+            name: list_active_consent_grants
+            response_json_schema:
+              additionalProperties: true
+              type: object
+          - description: 'List ended, declined, expired or revoked sharing and its
+              ending time.
+
+              Use returned labels and dates; never invent records or treat history
+              as active.'
+            name: list_previous_consent_grants
+            response_json_schema:
+              additionalProperties: true
+              type: object
+        labels:
+          adk_agent_name: consent
+        thinking_config:
+          thinking_level: LOW
+      live_connect_config:
+        input_audio_transcription: {}
+        output_audio_transcription: {}
+    llm_responses:
+    - model_version: gemini-3.8-flash
+      content:
+        parts:
+        - text: "Fixture Alex can view your live location right now. \n\nSince this\
+            \ sharing is revocable, an app card is available with options to Stop\
+            \ sharing and view Details."
+          thought_signature: AY89a1-4daUK-Xjom9FsuZuBZ2FCdo03ThRfajWNVDKiuXZAZEsXnkCy__dLGsX76Sfn5VFFB09nQeFwWZpclIBjfSDEI5ZrwtQKiEILdEOxM8I2-GK78vdhBFMODrKOce9hYqYyAhfQAVs25WCzGOGZ2u7lZauqdGk1O9KhJI0mgKXHqMUTyVezvp0LlNMy6fAJIjEVlkIfjo4a3iRkiGW3Mrs4pLvPH6aQfmqA2GzN4iJsTC3S7lwrEnuNRYD6gleqPAWps8sPyVrLUwjULnwTE4o1mqw5OZKxiymry_IUhMIE6UbE0hFOhLFcdRVAfL-eAlOCKsn197ZZYd9PrIhcZ44BKcrM26upFHjbUpMZ9CGi-wJjKcqtZHLOjm8OB1VlX_CREMInAe1Z9wzhZjbITVFXl87SLDnybFczeSKR2-7dpYGgZaztOlyC7gAtxJgyV5g0dL8uSrRZ6e9D6xGkRU_VEV02G1ymf01LutI2ybsGNq7tiHHVlMAtyEC5e2M1E0iB8K1J8gCF-f98PF4eq03sIMK_dxl1OXGEhmqoCaMR0XlRtBi_NfV8IwBusYxBaem58_pLAdjsmJVTS8AcZI2BDbkK5trqGyChgYW-a9S3Q56d5y2QnZGpdalWaFZ7Ezubm_EAM5PEPqciEiWzGw==
+        role: model
+      finish_reason: STOP
+      usage_metadata:
+        candidates_token_count: 33
+        candidates_tokens_details:
+        - modality: TEXT
+          token_count: 33
+        prompt_token_count: 470
+        prompt_tokens_details:
+        - modality: TEXT
+          token_count: 470
+        thoughts_token_count: 101
+        total_token_count: 604
+        traffic_type: ON_DEMAND

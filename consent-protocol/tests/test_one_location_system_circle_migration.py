@@ -14,6 +14,7 @@ guard, the index and the flag do not quietly go missing.
 
 from __future__ import annotations
 
+import ast
 import json
 from pathlib import Path
 
@@ -61,9 +62,21 @@ def _ensure_hook() -> str:
     never empties" a real assertion rather than a claim about the whole file.
     """
     service = _service()
-    start = service.index("    def ensure_sms_system_circle(")
-    end = service.index("    def update_circle(", start)
-    return service[start:end]
+    names = {
+        "ensure_sms_system_circle",
+        "_find_system_circle_id",
+        "_insert_system_circle",
+        "_migrate_sms_contacts_into_circle",
+    }
+    methods = [
+        node
+        for node in ast.walk(ast.parse(service))
+        if isinstance(node, ast.FunctionDef) and node.name in names
+    ]
+    assert {node.name for node in methods} == names
+    # New command operations between these methods must not be mistaken for
+    # bootstrap migration. Inspect the method bodies, not their file interval.
+    return "\n".join(ast.get_source_segment(service, node) or "" for node in methods)
 
 
 def test_system_circle_migration_is_registered_in_release_order() -> None:

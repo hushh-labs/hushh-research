@@ -29,7 +29,7 @@ import {
   CIRCLE_NAME_ROW_CLASSNAME,
   CIRCLE_NAME_ROW_HEIGHT_PX,
 } from "../components/one-location/redesign/circles/circle-name-row-layout";
-import { buttonVariants } from "../components/ui/button";
+import { buttonVariants } from "../lib/ui/button-variants";
 import { INPUT_CLASSNAME } from "../components/ui/input";
 import { cn } from "../lib/utils";
 
@@ -337,6 +337,38 @@ test.describe("Circle name row", () => {
     ).toBeGreaterThan(input.height + 4);
   });
 });
+
+test("semantic button typography preserves the disabled-state opacity", async ({
+  page,
+}) => {
+  const standard = buttonVariants({ size: "standard" });
+  const compact = buttonVariants({ size: "compact" });
+  await page.goto(
+    await buildFixture(
+      "semantic-button-disabled-state",
+      `<button data-testid="standard-enabled" class="${standard}">Save</button>
+       <button data-testid="standard-disabled" class="${standard}" disabled>Save</button>
+       <button data-testid="compact-disabled" class="${compact}" disabled>Connect</button>`,
+      [...standard.split(/\s+/), ...compact.split(/\s+/)],
+    ),
+  );
+
+  const opacity = await page.evaluate(() => ({
+    enabled: getComputedStyle(
+      document.querySelector<HTMLElement>('[data-testid="standard-enabled"]')!,
+    ).opacity,
+    standard: getComputedStyle(
+      document.querySelector<HTMLElement>('[data-testid="standard-disabled"]')!,
+    ).opacity,
+    compact: getComputedStyle(
+      document.querySelector<HTMLElement>('[data-testid="compact-disabled"]')!,
+    ).opacity,
+  }));
+
+  expect(opacity.enabled).toBe("1");
+  expect(opacity.standard).toBe("0.5");
+  expect(opacity.compact).toBe("0.5");
+});
 // ---------------------------------------------------------------------------
 // 2. The Connect search row
 // ---------------------------------------------------------------------------
@@ -527,8 +559,8 @@ const ROW_CANDIDATES = [
   "pt-1",
   "sm:pt-0",
   "shrink-0",
-  "h-8",
-  "min-h-8",
+  "h-11",
+  "min-h-11",
   "rounded-2xl",
   "px-2.5",
   "px-0",
@@ -557,25 +589,25 @@ const rowsBody = `
 <div data-testid="stacked" class="grid w-full grid-cols-1 gap-y-1 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-x-3 sm:gap-y-0 min-h-[56px] px-4 py-2.5">
   <div class="min-w-0 flex-1"><span data-testid="stacked-title" class="block min-w-0 truncate">Abdul Rashid</span></div>
   <div class="flex w-full min-w-0 justify-between pt-1 sm:w-auto sm:justify-end sm:pt-0">
-    <button data-testid="stacked-action" class="inline-flex items-center justify-center whitespace-nowrap h-8 min-h-8 rounded-2xl px-2.5 text-[14px] font-semibold leading-[18px] shrink-0">Remove</button>
+    <button data-testid="stacked-action" class="inline-flex items-center justify-center whitespace-nowrap h-11 min-h-11 rounded-2xl px-2.5 text-[14px] font-semibold leading-[18px] shrink-0">Remove</button>
   </div>
 </div>
 <div data-testid="inline" class="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 min-h-[56px] px-4 py-2.5">
   <div class="min-w-0 flex-1"><span data-testid="inline-title" class="block min-w-0 truncate">Abdul Rashid</span></div>
   <div class="flex shrink-0 items-center justify-end">
-    <button data-testid="inline-action" class="inline-flex items-center justify-center whitespace-nowrap h-8 min-h-8 rounded-2xl px-2.5 text-[14px] font-semibold leading-[18px] shrink-0">Remove</button>
+    <button data-testid="inline-action" class="inline-flex items-center justify-center whitespace-nowrap h-11 min-h-11 rounded-2xl px-2.5 text-[14px] font-semibold leading-[18px] shrink-0">Remove</button>
   </div>
 </div>
 <div data-testid="cancel-row" class="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 min-h-[56px] px-4 py-2.5">
   <div class="min-w-0 flex-1"><span class="block min-w-0 truncate">Smirthika Dharmalingam</span></div>
   <div class="flex shrink-0 items-center justify-end">
-    <button data-testid="cancel-action" class="inline-flex items-center justify-center whitespace-nowrap h-8 min-h-8 rounded-2xl text-[14px] font-semibold leading-[18px] shrink-0 w-[72px] px-0">Cancel</button>
+    <button data-testid="cancel-action" class="inline-flex items-center justify-center whitespace-nowrap h-11 min-h-11 rounded-2xl text-[14px] font-semibold leading-[18px] shrink-0 w-[72px] px-0">Cancel</button>
   </div>
 </div>
 <div data-testid="connect-row" class="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 min-h-[56px] px-4 py-2.5">
   <div class="min-w-0 flex-1"><span class="block min-w-0 truncate">Smirthi</span></div>
   <div class="flex shrink-0 items-center justify-end">
-    <button data-testid="connect-action" class="inline-flex items-center justify-center whitespace-nowrap h-8 min-h-8 rounded-2xl px-2.5 text-[14px] font-semibold leading-[18px] shrink-0 min-w-[72px]">Connect</button>
+    <button data-testid="connect-action" class="inline-flex items-center justify-center whitespace-nowrap h-11 min-h-11 rounded-2xl px-2.5 text-[14px] font-semibold leading-[18px] shrink-0 min-w-[72px]">Connect</button>
   </div>
 </div>`;
 
@@ -637,7 +669,8 @@ test.describe("Connect list rows", () => {
     // widest control on the screen -- 116px against Connect's 72px.
     expect(Math.abs(cancel.width - 72)).toBeLessThanOrEqual(0.5);
     expect(cancel.width).toBeLessThanOrEqual(connect.width + 0.5);
-    expect(cancel.height).toBeLessThanOrEqual(32.5);
+    expect(cancel.height).toBeGreaterThanOrEqual(43.5);
+    expect(cancel.height).toBeLessThanOrEqual(44.5);
   });
 });
 

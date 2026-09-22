@@ -15,8 +15,8 @@
  * page's existing revoke handler.
  */
 
-import { type KeyboardEvent, type MouseEvent, useEffect, useRef } from "react";
-import { Loader2 } from "lucide-react";
+import { type MouseEvent, useEffect, useRef } from "react";
+import { Loader2 } from "@/components/icons";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -37,8 +37,10 @@ import {
   LIVE_SHARE_FOOTER_CLASSNAME,
   LIVE_SHARE_FOOTER_ROW_CLASSNAME,
   LIVE_SHARE_HEADER_CLASSNAME,
+  LIVE_SHARE_PRIMARY_ACTION_CLASSNAME,
   LIVE_SHARE_PROGRESS_FILL_CLASSNAME,
   LIVE_SHARE_PROGRESS_TRACK_CLASSNAME,
+  LIVE_SHARE_SECONDARY_ACTION_CLASSNAME,
   LIVE_SHARE_TITLE_CLASSNAME,
 } from "./live-share-card-layout";
 import { CARD_SURFACE } from "./tokens";
@@ -129,30 +131,28 @@ function LiveShareIdentity({ status }: { status: LiveShareStatus }) {
           .map((displayName) => ({ displayName, photoUrl: null }));
   const names = people.map((person) => person.displayName).filter(Boolean);
   if (status.count > 1 || people.length > 1) {
-    const totalCount = Math.max(status.count, people.length);
+    // Keep the compact identity cluster legible. Two faces are enough to
+    // identify the relationship; the remaining count carries the rest.
     const visiblePeople = people.slice(0, 2);
-    const fallbackCount = Math.min(totalCount, 2);
+    const fallbackCount = Math.min(status.count, 2);
     const slots = visiblePeople.length
       ? visiblePeople
       : Array.from({ length: fallbackCount }, (_, index) => ({
           displayName: `${index + 1}`,
           photoUrl: null,
         }));
-    const remaining = Math.max(totalCount - slots.length, 0);
+    const remaining = Math.max(status.count - slots.length, 0);
     return (
       <span
         aria-hidden="true"
+        className="flex h-7 w-14 shrink-0 items-center"
         data-testid="one-location-live-share-identities"
-        className={cn(
-          "flex h-9 shrink-0 items-center",
-          remaining > 0 ? "w-20" : "w-14",
-        )}
       >
         {slots.map((person, index) => (
           <span
             key={`${person.displayName}-${index}`}
-            data-live-share-avatar=""
-            className="-ml-2 first:ml-0 inline-flex h-8 w-8 items-center justify-center rounded-full bg-[color:var(--app-secondary-surface)] text-[11px] font-semibold text-[color:var(--app-secondary-label)] ring-2 ring-[color:var(--app-primary-surface)]"
+            data-live-share-avatar
+            className="-ml-2 first:ml-0 inline-flex h-7 w-7 items-center justify-center rounded-full bg-[color:var(--app-secondary-surface)] text-[12px] font-semibold text-[color:var(--app-secondary-label)] ring-2 ring-[color:var(--app-primary-surface)]"
           >
             {person.photoUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
@@ -168,8 +168,8 @@ function LiveShareIdentity({ status }: { status: LiveShareStatus }) {
         ))}
         {remaining > 0 ? (
           <span
+            className="-ml-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-[color:var(--app-secondary-surface)] text-[11px] font-semibold text-[color:var(--app-secondary-label)] ring-2 ring-[color:var(--app-primary-surface)]"
             data-testid="one-location-live-share-remaining"
-            className="-ml-2 inline-flex h-8 min-w-8 items-center justify-center rounded-full bg-[color:var(--app-secondary-surface)] px-1 text-[11px] font-semibold text-[color:var(--app-secondary-label)] ring-2 ring-[color:var(--app-primary-surface)]"
           >
             +{remaining}
           </span>
@@ -181,7 +181,8 @@ function LiveShareIdentity({ status }: { status: LiveShareStatus }) {
   return (
     <span
       aria-hidden="true"
-      className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-secondary-surface)] text-[13px] font-semibold text-[color:var(--app-secondary-label)] ring-1 ring-inset ring-[color:var(--app-separator)]"
+      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-secondary-surface)] text-[13px] font-semibold text-[color:var(--app-secondary-label)] ring-1 ring-inset ring-[color:var(--app-separator)]"
+      data-testid="one-location-live-share-identities"
     >
       {people[0]?.photoUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
@@ -312,23 +313,20 @@ export function LiveShareStatusCard({
       event.stopPropagation();
       action?.();
     };
-  const cardManageEnabled = !singleGrant;
-  const handleCardKeyDown = (event: KeyboardEvent<HTMLElement>) => {
-    if (!cardManageEnabled) return;
-    if (event.key !== "Enter" && event.key !== " ") return;
-    event.preventDefault();
-    onManage();
-  };
+  const runDurationAction =
+    (action?: (trigger: HTMLButtonElement) => void) =>
+    (event: MouseEvent<HTMLButtonElement>) => {
+      event.stopPropagation();
+      action?.(event.currentTarget);
+    };
+
   return (
     <section
       aria-label="Your live location share"
       data-testid="one-location-live-share"
       data-ui-contract="control-group"
       data-ui-id="location-live-share"
-      role={cardManageEnabled ? "button" : undefined}
-      tabIndex={cardManageEnabled ? 0 : undefined}
-      onClick={cardManageEnabled ? onManage : undefined}
-      onKeyDown={handleCardKeyDown}      className={cn(CARD_SURFACE, LIVE_SHARE_CARD_CLASSNAME)}
+      className={cn(CARD_SURFACE, LIVE_SHARE_CARD_CLASSNAME)}
     >
       <div className={LIVE_SHARE_HEADER_CLASSNAME}>
         <span className="inline-flex min-w-0 items-center gap-2">
@@ -336,8 +334,8 @@ export function LiveShareStatusCard({
             aria-hidden="true"
             className="h-2 w-2 shrink-0 rounded-full bg-emerald-500 motion-safe:animate-pulse"
           />
-          <span className="text-[13px] font-semibold uppercase tracking-[0.06em] text-emerald-700 dark:text-emerald-300">
-            Live
+          <span className="text-[13px] font-semibold uppercase leading-[18px] tracking-[0.06em] text-emerald-700 dark:text-emerald-300">
+            Sharing now
           </span>
         </span>
 
@@ -378,7 +376,7 @@ export function LiveShareStatusCard({
         )}
       </div>
 
-      <div className="mt-3 flex items-start gap-3">
+      <div className="mt-3 flex items-start gap-2.5">
         <LiveShareIdentity status={status} />
         <div className="min-w-0 flex-1">
           <p
@@ -442,46 +440,51 @@ export function LiveShareStatusCard({
         <div aria-hidden="true" className={LIVE_SHARE_PROGRESS_TRACK_CLASSNAME}>
           <div
             data-testid="one-location-live-share-progress"
-            className={LIVE_SHARE_PROGRESS_FILL_CLASSNAME}
-            style={{ width: `${Math.round(progress * 100)}%` }}
+            className={cn(LIVE_SHARE_PROGRESS_FILL_CLASSNAME, "w-full")}
+            style={{ transform: `translateX(-${100 - Math.round(progress * 100)}%)` }}
           />
         </div>
       ) : null}
 
-      {onShareMore ? (
-        <Button
-          type="button"
-          onClick={runChildAction(onShareMore)}
-          className="mt-4 min-h-[48px] w-full rounded-[16px] bg-[color:var(--app-accent)] px-5 font-[family-name:var(--font-app-body)] text-[17px] font-semibold leading-[22px] tracking-[-0.02em] text-white transition-[background-color,transform] hover:bg-[color:var(--app-accent)]/90 active:scale-[0.99]"
-          data-ui-contract="occlusion-sensitive"
-          data-ui-role="control"
-          data-ui-id="location-live-share-more"
-          data-testid="one-location-live-share-more"
-        >
-          Share with more
-        </Button>
-      ) : null}
-
-      {canChangeDuration ? (
+      {onShareMore || canChangeDuration ? (
+        // One left-aligned action row: the primary CTA first, the quieter
+        // duration control beside it. Below 360px they stack full-width so
+        // neither label wraps and both keep a full touch target.
         <div className={LIVE_SHARE_FOOTER_ROW_CLASSNAME}>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={(event) => {
-              event.stopPropagation();
-              onChangeDuration?.(event.currentTarget);
-            }}
-            className={cn(
-              LIVE_SHARE_ACTION_CLASSNAME,
-              "mx-auto text-[color:var(--app-accent)]",
-            )}
-            data-ui-contract="occlusion-sensitive"
-            data-ui-role="control"
-            data-ui-id="location-live-share-duration"
-            data-testid="one-location-live-share-change-time"
-          >
-            {openEnded ? "Set an end time" : "Change end time"}
-          </Button>
+          {onShareMore ? (
+            <Button
+              type="button"
+              onClick={runChildAction(onShareMore)}
+              className={cn(
+                LIVE_SHARE_PRIMARY_ACTION_CLASSNAME,
+                "inline-flex items-center justify-center font-[family-name:var(--font-app-body)] tracking-normal transition-[background-color,transform] active:scale-[0.99]",
+              )}
+              data-ui-contract="occlusion-sensitive"
+              data-ui-role="control"
+              data-ui-id="location-live-share-more"
+              data-testid="one-location-live-share-more"
+            >
+              Share with more
+            </Button>
+          ) : null}
+          {canChangeDuration ? (
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={runDurationAction(onChangeDuration)}
+              className={cn(
+                LIVE_SHARE_ACTION_CLASSNAME,
+                LIVE_SHARE_SECONDARY_ACTION_CLASSNAME,
+                "inline-flex items-center text-[color:var(--app-accent)]",
+              )}
+              data-ui-contract="occlusion-sensitive"
+              data-ui-role="control"
+              data-ui-id="location-live-share-duration"
+              data-testid="one-location-live-share-change-time"
+            >
+              {openEnded ? "Set an end time" : "Change end time"}
+            </Button>
+          ) : null}
         </div>
       ) : null}
     </section>

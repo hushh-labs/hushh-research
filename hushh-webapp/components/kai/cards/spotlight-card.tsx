@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { LineChart } from "lucide-react";
+import { LineChart } from "@/components/icons";
 
 import { SymbolAvatar } from "@/components/kai/shared/symbol-avatar";
 import { Card as MorphyCard, CardContent as MorphyCardContent } from "@/lib/morphy-ux/card";
@@ -45,7 +45,7 @@ export function SpotlightCard(props: {
       showRipple={false}
       glassAccent="soft"
       className={cn(
-        "group relative isolate !overflow-hidden !gap-0 !py-0 rounded-[24px] transition-[border-color,box-shadow,background-color] duration-200 ease-out",
+        "group relative isolate !overflow-hidden !gap-0 !py-0 rounded-[24px] transition-[border-color,box-shadow,background-color] duration-150 ease-out",
         primaryHref
           ? "hover:shadow-[0_16px_34px_rgba(15,23,42,0.08)]"
           : undefined
@@ -63,7 +63,7 @@ export function SpotlightCard(props: {
           router.push(primaryHref);
         }}
         className={cn(
-          "relative block h-full w-full overflow-hidden rounded-[inherit] text-left outline-none transition-[background-color] duration-200 ease-out",
+          "relative block h-full w-full overflow-hidden rounded-[inherit] text-left outline-none transition-[background-color] duration-150 ease-out",
           primaryHref
             ? "cursor-pointer hover:bg-white/[0.03] active:bg-white/[0.06]"
             : "cursor-default"
@@ -72,7 +72,7 @@ export function SpotlightCard(props: {
         <div
           aria-hidden
           className={cn(
-            "pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-200",
+            "pointer-events-none absolute inset-0 opacity-0 transition-opacity duration-150",
             props.decision === "BUY"
               ? "bg-linear-to-br from-emerald-500/[0.06] via-transparent to-sky-500/[0.04] group-hover:opacity-100"
               : props.decision === "REDUCE"
@@ -91,7 +91,7 @@ export function SpotlightCard(props: {
             </div>
             <div className="flex items-center gap-1.5">
               {props.confidenceLabel ? (
-                <span className="inline-flex items-center rounded-full bg-background/75 px-2 py-1 text-[10px] font-medium tracking-wide text-muted-foreground transition-colors duration-200 group-hover:bg-background/85">
+                <span className="inline-flex items-center rounded-full bg-background/75 px-2 py-1 text-[10px] font-medium tracking-wide text-muted-foreground transition-colors duration-150 group-hover:bg-background/85">
                   {props.confidenceLabel}
                 </span>
               ) : null}
@@ -108,9 +108,9 @@ export function SpotlightCard(props: {
 
           <p className="text-sm font-normal leading-relaxed text-foreground/80">{props.summary}</p>
 
-          <div className="flex items-center gap-2 border-t border-border/40 pt-3 text-xs text-muted-foreground transition-colors duration-200 group-hover:border-border/60">
+          <div className="flex items-center gap-2 border-t border-border/40 pt-3 text-xs text-muted-foreground transition-colors duration-150 group-hover:border-border/60">
             <Icon icon={LineChart} size="sm" />
-            <span className="line-clamp-1 transition-colors duration-200 group-hover:text-foreground/85">
+            <span className="line-clamp-1 transition-colors duration-150 group-hover:text-foreground/85">
               {props.context}
             </span>
           </div>

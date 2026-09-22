@@ -12,7 +12,9 @@ import asyncio
 import json
 import logging
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+from functools import partial
 from typing import Annotated, Any, List, Literal, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, Query, Response, status
@@ -27,10 +29,13 @@ from hushh_mcp.services.domain_contracts import (
 )
 from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
 from hushh_mcp.services.pkm_mutation_contracts import (
+    LocationPkmFinalizeAuthorizationV1,
     PkmMutationPlanV2,
+    validate_location_finalize_authorization_for_write,
     validate_mutation_plan_for_write,
 )
 from hushh_mcp.services.pkm_upgrade_service import get_pkm_upgrade_service
+from hushh_mcp.services.push_notifications import send_user_data_push
 from hushh_mcp.services.trusted_device_service import TrustedDeviceService
 from hushh_mcp.services.wallet_card_validation import validate_wallet_card_envelope
 
@@ -49,6 +54,12 @@ _COMPACT_SCOPE_SOURCE_KINDS = {"pkm_index", "pkm_manifests.top_level_scope_paths
 _INTERNAL_ONLY_PKM_DOMAINS = {"kyc_connector", "kyc_workflow"}
 
 _MAX_SEGMENT_IDS = 50
+_LOCATION_SYNC_PUSH_MAX_PENDING = 64
+_LOCATION_SYNC_PUSH_EXECUTOR = ThreadPoolExecutor(
+    max_workers=2,
+    thread_name_prefix="location-sync-push",
+)
+_LOCATION_SYNC_PUSH_TASKS: set[asyncio.Task[None]] = set()
 
 
 def _validated_segment_ids(
@@ -73,6 +84,71 @@ def _isoformat_or_none(value):
     if isinstance(value, datetime):
         return value.isoformat()
     return str(value)
+
+
+async def _notify_location_pkm_changed(
+    user_id: str,
+    *,
+    operation: Literal["stored", "cleared"] = "stored",
+    data_version: object = None,
+    updated_at: object = None,
+) -> None:
+    """Publish a metadata-only owner doorbell after a committed location mutation."""
+    message_id = f"location_pkm_changed:{uuid.uuid4()}"
+    sync_data = {
+        "domain": "location",
+        "operation": operation,
+        "data_version": str(data_version or ""),
+        "updated_at": _isoformat_or_none(updated_at) or "",
+        "sync_only": "true",
+        "message_id": message_id,
+    }
+    try:
+        from api.consent_listener import publish_user_state_event_threadsafe
+
+        publish_user_state_event_threadsafe(
+            user_id,
+            {
+                "type": "location_pkm_changed",
+                "user_id": user_id,
+                "request_url": "/one/location?action=settings",
+                "deep_link": "/one/location?action=settings",
+                "notification_tag": message_id,
+                "notification_category": "ONE_LOCATION",
+                **sync_data,
+            },
+        )
+    except Exception as exc:  # noqa: BLE001 - realtime is best-effort
+        logger.warning("[PKM] location sync SSE skipped: %s", exc)
+
+    async def _deliver_push() -> None:
+        try:
+            await asyncio.get_running_loop().run_in_executor(
+                _LOCATION_SYNC_PUSH_EXECUTOR,
+                partial(
+                    send_user_data_push,
+                    user_id,
+                    notification_type="location_pkm_changed",
+                    title="Saved locations updated",
+                    body="Your saved locations changed on another session.",
+                    deep_link="/one/location?action=settings",
+                    notification_tag=message_id,
+                    notification_category="ONE_LOCATION",
+                    data=sync_data,
+                    show_alert=False,
+                ),
+            )
+        except Exception as exc:  # noqa: BLE001 - committed writes must still succeed
+            logger.warning("[PKM] location sync push skipped: %s", exc)
+
+    if len(_LOCATION_SYNC_PUSH_TASKS) >= _LOCATION_SYNC_PUSH_MAX_PENDING:
+        logger.warning("[PKM] location sync push skipped: delivery backlog is full")
+        return
+    task = asyncio.create_task(_deliver_push())
+    _LOCATION_SYNC_PUSH_TASKS.add(task)
+    task.add_done_callback(_LOCATION_SYNC_PUSH_TASKS.discard)
+    # Let the delivery task enter its dedicated bounded executor without waiting on FCM.
+    await asyncio.sleep(0)
 
 
 def _json_object_or_default(value, default: Optional[dict] = None) -> dict:
@@ -364,12 +440,26 @@ class EncryptedBlob(BaseModel):
 
 
 class PathDescriptorPayload(BaseModel):
+    # Every field a client may send must be declared here. Pydantic drops what
+    # it does not know about SILENTLY, so an undeclared field does not fail
+    # loudly, it simply never arrives -- which reads downstream as "the client
+    # never sent it". `segment_id` and `scope_handle` below were already being
+    # read by PersonalKnowledgeModelService._normalize_path_descriptor and had
+    # never been declared, so they were evaporating at this boundary.
     json_path: str = Field(..., min_length=1, max_length=1024)
     parent_path: Optional[str] = Field(default=None, max_length=1024)
     path_type: str = Field(default="leaf", min_length=1, max_length=64)
     exposure_eligibility: bool = True
+    # This path's own final segment, spelled as the owner's data spells it.
+    # `json_path` is lowercased for authorization, which destroys the word
+    # boundary in a key like `addressDetails` irreversibly. Carrying the original
+    # is what lets a consumer render one level of the path in the owner's words.
+    # Null for synthetic collection segments (`_items`, `_entities`).
+    display_segment: Optional[str] = Field(default=None, max_length=256)
     consent_label: Optional[str] = Field(default=None, max_length=256)
     sensitivity_label: Optional[str] = Field(default=None, max_length=256)
+    segment_id: Optional[str] = Field(default=None, max_length=256)
+    scope_handle: Optional[str] = Field(default=None, max_length=256)
     source_agent: Optional[str] = Field(default=None, max_length=256)
 
 
@@ -475,6 +565,7 @@ class StoreDomainRequest(BaseModel):
         max_length=100,
         description="Optional non-sensitive derived projections for read models and history surfaces",
     )
+    location_finalize_authorization: LocationPkmFinalizeAuthorizationV1 | None = None
     mutation_plan: Optional[PkmMutationPlanV2] = Field(
         default=None,
         description="Mandatory owner-confirmed PKM mutation plan for non-upgrade writes",
@@ -491,6 +582,8 @@ class StoreDomainResponse(BaseModel):
     updated_at: Optional[str] = Field(default=None, max_length=64)
     manifest_revision: Optional[int] = Field(default=None, ge=0, le=1000000)
     commit_id: Optional[str] = Field(default=None, max_length=36)
+    location_run_revision: int | None = None
+    location_place_receipt_id: str | None = None
     archived_revision_id: Optional[str] = Field(default=None, max_length=36)
     preservation_receipt: Optional[dict] = None
 
@@ -521,6 +614,32 @@ def _enforce_wallet_write_policy(request: "StoreDomainRequest", canonical_domain
         ) from exc
 
 
+def _validate_location_finalize_request(request: StoreDomainRequest, domain: str) -> None:
+    if request.location_finalize_authorization is None:
+        if (
+            request.mutation_plan
+            and request.mutation_plan.confirmation_receipt.authorization_mode
+            == "owner_requested_workflow"
+        ):
+            raise HTTPException(
+                422, "The requested workflow requires its Location finalize authority."
+            )
+        return
+    if request.upgrade_claim is not None or request.mutation_plan is None:
+        raise HTTPException(422, "Location finalization requires an ordinary, bound mutation plan.")
+    try:
+        validate_location_finalize_authorization_for_write(
+            authorization=request.location_finalize_authorization,
+            plan=request.mutation_plan,
+            authenticated_user_id=request.user_id,
+            domain=domain,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            422, "The Location finalize authority does not match this write."
+        ) from exc
+
+
 @router.post("/store-domain/validate", response_model=StoreDomainResponse)
 async def validate_store_domain(
     payload: dict = Body(...),
@@ -530,7 +649,7 @@ async def validate_store_domain(
     try:
         request = StoreDomainRequest.model_validate(payload)
     except ValidationError as exc:
-        validation_errors = exc.errors()
+        validation_errors = exc.errors(include_input=False, include_context=False)
         logger.warning(
             "[PKM Validate] Invalid no-write payload user_id=%s domain=%s errors=%s",
             payload.get("user_id"),
@@ -569,6 +688,7 @@ async def validate_store_domain(
             },
         ) from exc
     _enforce_wallet_write_policy(request, canonical_domain)
+    _validate_location_finalize_request(request, canonical_domain)
     if request.mutation_plan is not None:
         try:
             validate_mutation_plan_for_write(
@@ -628,6 +748,7 @@ async def store_domain(
         ) from exc
 
     _enforce_wallet_write_policy(request, canonical_domain)
+    _validate_location_finalize_request(request, canonical_domain)
 
     if request.upgrade_claim is None and request.mutation_plan is None:
         raise HTTPException(
@@ -753,6 +874,11 @@ async def store_domain(
         if request.mutation_plan
         else None,
         return_result=True,
+        location_finalize_authorization=request.location_finalize_authorization.model_dump(
+            mode="json"
+        )
+        if request.location_finalize_authorization
+        else None,
     )
 
     if not store_result.get("success"):
@@ -775,6 +901,13 @@ async def store_domain(
             },
         )
 
+    if canonical_domain == "location":
+        await _notify_location_pkm_changed(
+            request.user_id,
+            data_version=store_result.get("data_version"),
+            updated_at=store_result.get("updated_at"),
+        )
+
     return StoreDomainResponse(
         success=True,
         message=f"Successfully stored {canonical_domain} domain data",
@@ -783,6 +916,8 @@ async def store_domain(
         updated_at=_isoformat_or_none(store_result.get("updated_at")),
         manifest_revision=store_result.get("manifest_revision"),
         commit_id=store_result.get("commit_id"),
+        location_run_revision=store_result.get("location_run_revision"),
+        location_place_receipt_id=store_result.get("location_place_receipt_id"),
         archived_revision_id=store_result.get("archived_revision_id"),
         preservation_receipt=store_result.get("preservation_receipt"),
     )
@@ -1029,6 +1164,23 @@ class ScopeExposureResponse(BaseModel):
     manifest: dict = Field(default_factory=dict)
 
 
+class ManifestPathRepairRequest(BaseModel):
+    user_id: str = Field(..., min_length=1, max_length=256, description="User's ID")
+    expected_content_revision: Optional[int] = Field(default=None, ge=0, le=1000000)
+    expected_manifest_revision: Optional[int] = Field(default=None, ge=0, le=1000000)
+
+
+class ManifestPathRepairResponse(BaseModel):
+    success: bool
+    conflict: bool = False
+    idempotent_replay: bool = False
+    changed: bool = False
+    code: Optional[str] = Field(default=None, max_length=128)
+    message: Optional[str] = Field(default=None, max_length=512)
+    data_version: Optional[int] = Field(default=None, ge=0, le=1000000)
+    manifest_revision: Optional[int] = Field(default=None, ge=0, le=1000000)
+
+
 class PublicProfileProjectionRequest(BaseModel):
     user_id: str = Field(..., min_length=1, max_length=256, description="User's ID")
     scope_handle: Optional[str] = Field(default=None, max_length=256)
@@ -1126,6 +1278,46 @@ async def update_scope_exposure(
         revoked_grant_ids=list(result.get("revoked_grant_ids") or []),
         manifest=dict(result.get("manifest") or {}),
     )
+
+
+@router.post(
+    "/domains/{domain}/repair-manifest-paths",
+    response_model=ManifestPathRepairResponse,
+)
+async def repair_manifest_paths(
+    domain: _Domain,
+    request: ManifestPathRepairRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Repair only the owner-scoped historical `_entities` path shape."""
+    if token_data.get("user_id") != request.user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token user_id does not match request user_id",
+        )
+
+    result = await get_pkm_service().repair_historical_manifest_paths(
+        user_id=request.user_id,
+        domain=canonical_top_level_domain(domain),
+        expected_content_revision=request.expected_content_revision,
+        expected_manifest_revision=request.expected_manifest_revision,
+    )
+    if result.get("code") == "repair_unavailable":
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=result.get("message") or "The PKM manifest repair is temporarily unavailable.",
+        )
+    if result.get("conflict"):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "PKM_MANIFEST_REPAIR_CONFLICT",
+                "message": result.get("message") or "PKM state changed. Refresh and retry.",
+                "data_version": result.get("data_version"),
+                "manifest_revision": result.get("manifest_revision"),
+            },
+        )
+    return ManifestPathRepairResponse(**result)
 
 
 @router.post(
@@ -1286,6 +1478,9 @@ async def delete_domain_data(
             detail=f"Failed to delete {domain} domain data",
         )
 
+    if canonical_top_level_domain(domain) == "location":
+        await _notify_location_pkm_changed(user_id, operation="cleared")
+
     return DeleteDomainResponse(
         success=True,
         message=f"Successfully deleted {domain} domain data",
@@ -1380,6 +1575,13 @@ async def delete_domain_data_confirmed(
                 "code": result.get("code") or "PKM_DELETE_DOMAIN_FAILED",
                 "message": "Failed to delete encrypted PKM domain data.",
             },
+        )
+    if canonical_domain == "location" and result.get("deleted"):
+        await _notify_location_pkm_changed(
+            request.user_id,
+            operation="cleared",
+            data_version=result.get("data_version"),
+            updated_at=result.get("updated_at"),
         )
     return DeleteDomainResponse(
         success=True,
@@ -1611,13 +1813,27 @@ async def get_metadata(
     upgrade_service = get_pkm_upgrade_service()
 
     try:
-        # These reads are independent and each may touch the UAT data plane.
-        # Start them together so Memory readiness is bounded by the slowest
-        # authority read instead of their sum.
-        metadata, resolved_index, upgrade_status_payload = await asyncio.gather(
-            pkm_service.get_user_metadata(user_id),
-            pkm_service.resolve_metadata_index(user_id, schedule_self_heal=False),
-            upgrade_service.build_status(user_id),
+        # Resolve the discovery index once. Metadata shaping also needs this
+        # index; passing it through avoids duplicate index/manifest reads under
+        # the same request while preserving the standalone service contract.
+        resolved_index = await pkm_service.resolve_metadata_index(
+            user_id,
+            schedule_self_heal=False,
+        )
+        domain_manifests = await pkm_service.get_domain_manifests(
+            user_id,
+            resolved_index.available_domains if resolved_index else [],
+        )
+        metadata, upgrade_status_payload = await asyncio.gather(
+            pkm_service.get_user_metadata(
+                user_id,
+                resolved_index=resolved_index,
+            ),
+            upgrade_service.build_status(
+                user_id,
+                resolved_index=resolved_index,
+                domain_manifests=domain_manifests,
+            ),
         )
         upgrade_status_payload = await _maybe_reconcile_upgrade_status(
             upgrade_service, user_id, upgrade_status_payload
@@ -1625,14 +1841,12 @@ async def get_metadata(
 
         if resolved_index is None:
             encrypted_data = await pkm_service.get_encrypted_data(user_id)
-            domain_rows = (
+            domain_query = (
                 pkm_service.db.table("pkm_blobs")
                 .select("domain,content_revision,updated_at")
                 .eq("user_id", user_id)
-                .execute()
-                .data
-                or []
             )
+            domain_rows = (await asyncio.to_thread(domain_query.execute)).data or []
             if encrypted_data is None and not domain_rows:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND,

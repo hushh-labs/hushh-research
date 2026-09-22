@@ -11,12 +11,14 @@ import {
   RefreshCw,
   ShieldCheck,
   Trash2,
-} from "lucide-react";
+} from "@/components/icons";
 import { toast } from "sonner";
 
 import { SaveLocationModal } from "@/components/one-location/onboarding/save-location-modal";
 import type { PickedLocation } from "@/components/one-location/onboarding/location-picker-map";
+import { SectionLabel } from "@/components/app-ui/typography";
 import { GOOGLE_MAPS_RENDERER_CONSENT_VERSION } from "@/lib/one-location/map-renderer-consent";
+import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { useAuth } from "@/lib/firebase/auth-context";
 import {
   addSavedLocation,
@@ -30,7 +32,10 @@ import {
   type SavedLocationCategory,
   updateSavedLocation,
   updateSavedLocationAddress,
+  LOCATION_PKM_DOMAIN,
 } from "@/lib/one-location/saved-locations";
+import { usePkmDomainChangeRevision } from "@/lib/pkm/use-pkm-domain-change-revision";
+import { useOneLocationMapPreferences } from "@/lib/one-location/use-one-location-map-preferences";
 import {
   buildSavedLocationAddress,
   inferPostalCode,
@@ -76,6 +81,18 @@ export function SavedLocationsSection() {
   const { user } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
   const userId = user?.uid ?? null;
+  const pkmChangeRevision = usePkmDomainChangeRevision(
+    userId,
+    LOCATION_PKM_DOMAIN,
+  );
+  const {
+    preferences: mapPreferences,
+    refresh: refreshMapPreferences,
+    commit: commitMapPreferences,
+  } = useOneLocationMapPreferences({
+    userId,
+    vaultOwnerToken,
+  });
   const locationControl = useOneLocationControlState(userId);
   const [locations, setLocations] = useState<SavedLocation[]>([]);
   const [loadedUserId, setLoadedUserId] = useState<string | null>(null);
@@ -107,6 +124,10 @@ export function SavedLocationsSection() {
   const vaultSessionRef = useRef({ userId, vaultKey, vaultOwnerToken });
   const captureRequestIdRef = useRef(0);
   const addressResolutionIdRef = useRef(0);
+  const reloadRequestIdRef = useRef(0);
+  const pkmRevisionMountedRef = useRef(false);
+  const reconcileTaskRef = useRef<Promise<void> | null>(null);
+  const reconcileQueuedRef = useRef(false);
 
   // Keep a "latest session" ref so async callbacks can detect when the vault
   // session changed mid-flight. Updated in an effect (not during render) to
@@ -116,27 +137,11 @@ export function SavedLocationsSection() {
   }, [userId, vaultKey, vaultOwnerToken]);
 
   useEffect(() => {
-    let cancelled = false;
-    setRendererDisclosureAccepted(false);
-    if (!vaultOwnerToken) return () => undefined;
-
-    void OneLocationService.getMapState(vaultOwnerToken)
-      .then((state) => {
-        if (cancelled) return;
-        setRendererDisclosureAccepted(
-          state.preferences.rendererConsentVersion ===
-            GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
-        );
-      })
-      .catch(() => {
-        // Fail closed: show the disclosure again when canonical state cannot
-        // be read instead of assuming a prior acceptance.
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [vaultOwnerToken]);
+    setRendererDisclosureAccepted(
+      mapPreferences?.rendererConsentVersion ===
+        GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
+    );
+  }, [mapPreferences]);
 
   const hasVaultAccess = Boolean(
     isVaultUnlocked && vaultKey && vaultOwnerToken,
@@ -158,6 +163,7 @@ export function SavedLocationsSection() {
   );
 
   const reload = useCallback(async () => {
+    const requestId = ++reloadRequestIdRef.current;
     if (!userId) {
       setLocations([]);
       setLoadedUserId(null);
@@ -180,14 +186,22 @@ export function SavedLocationsSection() {
         vaultKey,
         vaultOwnerToken,
       });
-      if (!isCurrentVaultSession(session)) return;
+      if (
+        requestId !== reloadRequestIdRef.current ||
+        !isCurrentVaultSession(session)
+      ) return;
       setLocations(sortSavedLocationsForDisplay(list));
     } catch {
-      if (!isCurrentVaultSession(session)) return;
-      setLocations([]);
+      if (
+        requestId !== reloadRequestIdRef.current ||
+        !isCurrentVaultSession(session)
+      ) return;
       setLoadError("Saved locations could not be loaded. Try again.");
     } finally {
-      if (isCurrentVaultSession(session)) {
+      if (
+        requestId === reloadRequestIdRef.current &&
+        isCurrentVaultSession(session)
+      ) {
         setLoadedUserId(userId);
         setLoading(false);
       }
@@ -197,6 +211,53 @@ export function SavedLocationsSection() {
   useEffect(() => {
     void reload();
   }, [reload]);
+
+  useEffect(() => {
+    if (!pkmRevisionMountedRef.current) {
+      pkmRevisionMountedRef.current = true;
+      return;
+    }
+    if (hasVaultAccess) void reload();
+  }, [hasVaultAccess, pkmChangeRevision, reload]);
+
+  useEffect(() => {
+    if (!hasVaultAccess) return;
+    const reconcile = () => {
+      if (
+        typeof document !== "undefined" &&
+        document.visibilityState === "hidden"
+      ) return;
+      if (reconcileTaskRef.current) {
+        reconcileQueuedRef.current = true;
+        return;
+      }
+      const run = async () => {
+        do {
+          reconcileQueuedRef.current = false;
+          await reload();
+          await refreshMapPreferences();
+        } while (reconcileQueuedRef.current);
+      };
+      const task = run().finally(() => {
+        if (reconcileTaskRef.current === task) reconcileTaskRef.current = null;
+      });
+      reconcileTaskRef.current = task;
+    };
+    window.addEventListener("focus", reconcile);
+    window.addEventListener("online", reconcile);
+    document.addEventListener("visibilitychange", reconcile);
+    const removeLifecycle = appInteractionCoordinator.subscribeLifecycle(() => {
+      if (appInteractionCoordinator.getLifecycleSnapshot().state === "active") {
+        reconcile();
+      }
+    });
+    return () => {
+      window.removeEventListener("focus", reconcile);
+      window.removeEventListener("online", reconcile);
+      document.removeEventListener("visibilitychange", reconcile);
+      removeLifecycle();
+    };
+  }, [hasVaultAccess, refreshMapPreferences, reload]);
 
   useEffect(() => {
     if (hasVaultAccess) return;
@@ -579,10 +640,11 @@ export function SavedLocationsSection() {
       vaultOwnerToken,
       rendererConsentVersion: GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
     });
+    commitMapPreferences(next);
     setRendererDisclosureAccepted(
       next.rendererConsentVersion === GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
     );
-  }, [vaultOwnerToken]);
+  }, [commitMapPreferences, vaultOwnerToken]);
 
   if (!userId || loadedUserId !== userId) return null;
 
@@ -593,15 +655,18 @@ export function SavedLocationsSection() {
         className="w-full min-w-0"
         data-testid="settings-saved-locations"
       >
-        <div className="mb-2 flex items-baseline justify-between gap-3 px-[6px]">
-          <p className="text-[13px] font-normal leading-[18px] text-[color:var(--app-secondary-label)]">
+        <div className="mb-2 flex items-center justify-between gap-3 px-[6px]">
+          {/* Same SectionLabel as the Automatic approval / Safety sections
+              above: one hierarchy, one size. items-center keeps the action
+              vertically centered with the label at every width. */}
+          <SectionLabel as="p" compact>
             Places
-          </p>
+          </SectionLabel>
           <button
             type="button"
             onClick={() => void handleAdd()}
             disabled={!hasVaultAccess || locationControl.paused || capturing}
-            className="press-scale relative inline-flex h-auto min-h-0 items-center gap-1.5 rounded-none px-0 text-[15px] font-normal leading-5 text-[color:var(--app-accent)] transition-opacity after:absolute after:-inset-x-3 after:-inset-y-3 after:content-[''] disabled:cursor-not-allowed disabled:opacity-45"
+            className="press-scale relative inline-flex h-auto min-h-0 items-center gap-1.5 rounded-none px-0 text-[13px] font-semibold leading-[18px] text-[color:var(--app-accent)] transition-opacity after:absolute after:-inset-x-3 after:-inset-y-3 after:content-[''] disabled:cursor-not-allowed disabled:opacity-45"
           >
             {capturing ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
@@ -650,7 +715,7 @@ export function SavedLocationsSection() {
           ) : locations.length === 0 ? (
             <div className="flex min-h-[110px] items-center justify-center p-5 text-center sm:min-h-[119px]">
               <div>
-                <p className="text-[17px] font-semibold leading-[22px] tracking-[-0.3px] text-[color:var(--app-secondary-label)]">
+                <p className="text-[15px] font-semibold leading-5 text-[color:var(--app-secondary-label)]">
                   No places yet
                 </p>
                 <p className="sr-only">
@@ -688,7 +753,7 @@ export function SavedLocationsSection() {
                       </p>
                     </div>
                     <ChevronRight
-                      className="h-4 w-4 shrink-0 text-[color:var(--app-tertiary-label)] transition-transform duration-200"
+                      className="h-4 w-4 shrink-0 text-[color:var(--app-tertiary-label)] transition-transform duration-150"
                       strokeWidth={1.9}
                       aria-hidden
                     />

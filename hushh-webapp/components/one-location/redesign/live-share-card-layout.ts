@@ -12,21 +12,22 @@
  */
 
 /** Card body. `overflow-hidden` clips the progress fill to the rounded corner. */
-export const LIVE_SHARE_CARD_CLASSNAME = "overflow-hidden p-4 sm:p-5";
+export const LIVE_SHARE_CARD_CLASSNAME =
+  "!overflow-hidden !rounded-[18px] !border-0 bg-[color:var(--app-primary-surface)] p-4 !shadow-none";
 
 /**
  * Badge on the left, the one action on the right, sharing a centreline — the
  * small badge top-aligned against a 44px button reads as a misalignment.
  */
 export const LIVE_SHARE_HEADER_CLASSNAME =
-  "-mt-1 flex items-center justify-between gap-3";
+  "flex items-center justify-between gap-3";
 
 /**
  * 44px, the comfortable touch target — this is the control that stops sharing,
  * so it is not allowed to be the 36px the denser list rows use.
  */
 export const LIVE_SHARE_ACTION_CLASSNAME =
-  "h-11 shrink-0 rounded-full px-4 text-[15px] font-medium";
+  "h-11 shrink-0 rounded-full px-4 text-[15px] font-semibold leading-5";
 
 /**
  * A name is unbounded. It wraps rather than truncating: "Sharing with Priyan…"
@@ -37,7 +38,7 @@ export const LIVE_SHARE_TITLE_CLASSNAME =
 
 /** Compact metadata row: the timer is information, not the whole screen. */
 export const LIVE_SHARE_CLOCK_ROW_CLASSNAME =
-  "mt-0.5 flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 text-[15px] leading-5 text-[color:var(--app-secondary-label)]";
+  "mt-0.5 flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]";
 
 /** `tabular-nums` keeps the width fixed as the digits change, so it cannot jitter. */
 export const LIVE_SHARE_CLOCK_CLASSNAME =
@@ -47,13 +48,22 @@ export const LIVE_SHARE_PROGRESS_TRACK_CLASSNAME =
   "mt-3 h-1 w-full overflow-hidden rounded-full bg-black/[0.07] dark:bg-white/[0.12]";
 
 export const LIVE_SHARE_PROGRESS_FILL_CLASSNAME =
-  "h-full rounded-full bg-emerald-500 transition-[width] duration-500 ease-linear";
+  "h-full rounded-full bg-emerald-500 transition-transform duration-500 ease-linear";
 
 export const LIVE_SHARE_FOOTER_CLASSNAME = "min-w-0 [overflow-wrap:anywhere]";
 
 /**
- * The secondary action sits under the primary share CTA so the Now card keeps
- * one obvious next action and one quieter editing affordance.
+ * The live-share actions stay compact and left aligned once both labels fit.
+ * At the narrowest supported phone width they stack so neither label wraps and
+ * both controls retain a comfortable touch target.
  */
 export const LIVE_SHARE_FOOTER_ROW_CLASSNAME =
-  "mt-3 flex flex-wrap items-center justify-end gap-x-3 gap-y-1";
+  "mt-4 flex flex-col items-stretch gap-2.5 min-[360px]:flex-row min-[360px]:items-center sm:gap-3";
+
+/** Primary CTA: full width only when the 320px layout needs to stack. */
+export const LIVE_SHARE_PRIMARY_ACTION_CLASSNAME =
+  "h-11 min-h-11 w-full rounded-full bg-[color:var(--app-accent)] px-4 font-[family-name:var(--font-app-body)] text-[15px] font-semibold leading-5 tracking-[-0.01em] text-white transition-[background-color,transform] hover:bg-[color:var(--app-accent)]/90 active:scale-[0.98] min-[360px]:w-auto sm:px-5";
+
+/** Secondary CTA follows the same responsive width without competing visually. */
+export const LIVE_SHARE_SECONDARY_ACTION_CLASSNAME =
+  "w-full justify-center bg-[color:var(--app-neutral-fill)] hover:bg-[color:var(--app-neutral-fill-strong)] min-[360px]:w-auto";

@@ -22,3 +22,31 @@ export function resolveOwnSmsSystemCircleId(
       ?.id ?? null
   );
 }
+
+type SmsCircleIdentity = Pick<
+  OneLocationCircleSummary,
+  "isSystem" | "role" | "systemKind"
+>;
+
+/**
+ * Whether this is an SMS/Emergency system Circle on any server generation:
+ * `systemKind` where the server sends it, the legacy `isSystem` flag where
+ * it does not (Trusted is never flagged, so this cannot match it).
+ */
+export function isSmsSystemCircle(circle: SmsCircleIdentity): boolean {
+  if (circle.systemKind) return circle.systemKind === "sms";
+  return circle.isSystem === true;
+}
+
+/**
+ * Someone else's SMS Circle the viewer was added to. It shows up in the
+ * viewer's own Circles list (a system Circle lists everyone on it), but it
+ * is not usable on the viewer's side: sharing through it cannot authorize
+ * recipients (see `circleCanAuthorizeRecipient`), and managing it lands on a
+ * Circle the viewer does not own. Sharing pickers and the People tab hide
+ * these; the viewer's own SMS Circle (`role === "owner"`) stays visible and
+ * shareable everywhere.
+ */
+export function isForeignSmsSystemCircle(circle: SmsCircleIdentity): boolean {
+  return isSmsSystemCircle(circle) && circle.role !== "owner";
+}

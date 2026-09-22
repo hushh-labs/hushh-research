@@ -1,8 +1,8 @@
 "use client";
 
 import React from "react";
-import { useState } from "react";
-import { Check, ExternalLink, ShieldCheck, ShieldOff, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Check, ExternalLink, ShieldCheck, ShieldOff, X } from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
 import { ClarificationCard } from "@/components/one-location/redesign/clarification-card";
@@ -156,6 +156,7 @@ export type SpecialistConsentRequiredCardProps = {
 };
 
 function agentDisplayName(agentId: string): string {
+  if (agentId === "agent_email") return "Mail";
   if (agentId === "agent_nav") return "Nav";
   if (agentId === "agent_location") return "Location";
   if (agentId === "agent_kai") return "Finance";
@@ -163,11 +164,24 @@ function agentDisplayName(agentId: string): string {
   return agentId.replace(/^agent_/, "").replace(/_/g, " ") || "This agent";
 }
 
+/**
+ * What a specialist may require, said in the owner's words.
+ *
+ * The five keys mirror SPECIALIST_A2A_SCOPE_MAP in
+ * consent-protocol/hushh_mcp/adk_bridge/delegation.py. Anything else falls
+ * back to a plain phrase rather than the raw identifier: agent.yaml forbids
+ * the model from reading our plumbing out loud, and the chrome used to undo
+ * that by printing "agent.kyc.process" mid-sentence.
+ */
 function scopeDisplayName(scope: string): string {
-  if (scope === "agent.nav.review") return "review your consent and privacy access";
+  if (scope === "agent.nav.review") return "review your sharing";
+  if (scope === "agent.kai.analyze") return "look at your finances";
+  if (scope === "agent.kyc.process") return "run your identity check";
+  if (scope === "cap.pkm.marketplace.view") return "see what you have made available";
+  if (scope === "cap.one.invoke") return "act for you in the app";
   if (scope === "agent.location.manage") return "manage Location requests";
   if (scope === "agent.one.orchestrate") return "coordinate specialist agents";
-  return scope || "the required permission";
+  return "the permission it needs";
 }
 
 export function SpecialistConsentRequiredCard({
@@ -338,7 +352,7 @@ export function SpecialistConsentActionsCard({
                     onClick={() => onRevoke(item)}
                   >
                     <ShieldOff className="h-4 w-4" aria-hidden="true" />
-                    Revoke
+                    Stop sharing
                   </Button>
                 ) : null}
                 {revoked ? (
@@ -375,6 +389,31 @@ export function SpecialistConsentActionsCard({
 
 // ─── Pending consent request mode ────────────────────────────────────────────
 
+import type { ConsentScopeItem } from "@/lib/consent/consent-scope-items";
+import { ConsentScopeList } from "@/components/consent/consent-scope-list";
+import { requestDurationLabel } from "@/lib/agent/action-directive-summary";
+import { useArmedAction } from "@/lib/ui/use-armed-action";
+
+export type PendingConsentCardStatus =
+  | "pending" | "approved" | "denied" | "cancelled"
+  | "expired" | "revoked" | "unavailable";
+
+export function normalizePendingConsentCardStatus(value: unknown): PendingConsentCardStatus {
+  if (value == null) return "pending";
+  switch (value) {
+    case "pending": case "approved": case "denied": case "cancelled":
+    case "expired": case "revoked": case "unavailable":
+      return value as PendingConsentCardStatus;
+    default:
+      return "unavailable";
+  }
+}
+
+const resolvedConsentLabels: Record<Exclude<PendingConsentCardStatus, "pending">, string> = {
+  approved: "Approved", denied: "Denied", cancelled: "Withdrawn",
+  expired: "Expired", revoked: "Revoked", unavailable: "Status unavailable",
+};
+
 export type SpecialistPendingConsentRequestItem = {
   id: string;
   requesterLabel: string;
@@ -384,10 +423,32 @@ export type SpecialistPendingConsentRequestItem = {
   scopeDescription?: string | null;
   requestedAt?: number | string | null;
   approvalTimeoutAt?: number | string | null;
+  /** How long the access would last once allowed, in whole hours. */
   expiryHours?: number | string | null;
+  /** The request's wire metadata, carried so the details sheet can read it. */
+  metadata?: Record<string, unknown> | null;
   reason?: string | null;
   additionalAccessSummary?: string | null;
-  status?: "pending" | "approved" | "denied";
+  status?: PendingConsentCardStatus;
+  /**
+   * The request this one arrived as part of.
+   *
+   * The backend writes one consent event PER SCOPE, correctly: a grant and a
+   * revocation are per-scope security decisions. But someone who asked for
+   * fourteen things asked ONE question, and answering fourteen separate cards
+   * with fourteen Approve buttons is not that question. These three fields were
+   * always on the wire and were dropped by the mapper, so chat could not tell
+   * that fourteen cards were one ask.
+   *
+   * Only the decision surface bundles. The authority underneath is unchanged.
+   */
+  bundleId?: string | null;
+  bundleLabel?: string | null;
+  bundleScopeCount?: number | null;
+  /** Every request id folded into this card, including this one. */
+  bundledRequestIds?: string[];
+  /** One row per thing being asked for, when this card represents several. */
+  bundledScopes?: ConsentScopeItem[];
 };
 
 export type SpecialistPendingConsentRequestCardProps = {
@@ -413,6 +474,18 @@ function formatConsentTime(value?: number | string | null): string | null {
   }).format(date);
 }
 
+/**
+ * The wire carries hours as a number or a string, or not at all. Only a
+ * positive, finite count becomes a sentence; the words come from the same
+ * helper the request sheet used, so both ends of one ask read alike.
+ */
+function pendingDurationLabel(hours?: number | string | null): string | null {
+  if (hours == null || hours === "") return null;
+  const numeric = typeof hours === "number" ? hours : Number(hours);
+  if (!Number.isFinite(numeric) || numeric <= 0) return null;
+  return requestDurationLabel(Math.round(numeric));
+}
+
 export function SpecialistPendingConsentRequestCard({
   item,
   busy,
@@ -421,8 +494,26 @@ export function SpecialistPendingConsentRequestCard({
   onDetails,
 }: SpecialistPendingConsentRequestCardProps) {
   const timeout = formatConsentTime(item.approvalTimeoutAt);
-  const resolved = item.status === "approved" || item.status === "denied";
+  const duration = pendingDurationLabel(item.expiryHours);
+  const status = normalizePendingConsentCardStatus(item.status);
+  const resolved = status !== "pending";
+
+  // Deny is irreversible, so it takes a confirming second tap: the first tap
+  // arms the button ("Sure?") and it disarms on its own a few seconds later,
+  // so a stray tap cannot turn someone down. One implementation, shared with
+  // the feed's actionable row.
+  const denyTap = useArmedAction();
+  const { armed: denyArmed, disarm: disarmDeny } = denyTap;
+
+  // Approve locks the row; a Deny left armed underneath it must not fire once
+  // the row unlocks.
+  useEffect(() => {
+    if (busy || resolved) disarmDeny();
+  }, [busy, resolved, disarmDeny]);
   const access = item.scopeDescription || item.scope || "requested context";
+  // How many things this one card now stands for. The bundle merge folds
+  // same-bundle requests together, so this grows as they arrive.
+  const bundledCount = item.bundledScopes?.length || 1;
   const requester = item.requesterLabel || "An agent";
 
   return (
@@ -436,20 +527,54 @@ export function SpecialistPendingConsentRequestCard({
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <p className="text-sm font-semibold text-foreground">Consent request</p>
-            {item.status === "approved" ? (
+            <p className="text-sm font-semibold text-foreground">
+              {/* Not "Consent request". agent.yaml bans that vocabulary for the
+                  model's speech; the chrome should not undo it one line later. */}
+              {bundledCount > 1
+                ? `${requester} wants to see ${bundledCount} things`
+                : `${requester} wants to see something`}
+            </p>
+            {status === "approved" ? (
               <span className="rounded-full border border-[#6b8f71]/25 bg-[#6b8f71]/10 px-2 py-0.5 text-[11px] font-medium text-[#426548]">
                 Approved
               </span>
-            ) : item.status === "denied" ? (
+            ) : status === "denied" ? (
               <span className="rounded-full border border-destructive/20 bg-destructive/10 px-2 py-0.5 text-[11px] font-medium text-destructive">
                 Denied
               </span>
+            ) : status !== "pending" ? (
+              <span className="text-xs font-medium text-muted-foreground">
+                {resolvedConsentLabels[status]}
+              </span>
             ) : null}
           </div>
-          <p className="mt-1 text-sm text-foreground/75">
-            {requester} is asking for {access}.
-          </p>
+          {bundledCount > 1 ? (
+            <p className="mt-1 text-sm text-foreground/75">
+              They are asking for these. You decide together, once.
+            </p>
+          ) : (
+            <p className="mt-1 text-sm text-foreground/75">
+              {requester} is asking for {access}.
+            </p>
+          )}
+          {bundledCount > 1 ? (
+            <div className="mt-3">
+              <ConsentScopeList
+                items={item.bundledScopes || []}
+                groupByDomain={false}
+                collapsible={false}
+                testIdPrefix="pending-consent-scopes"
+              />
+            </div>
+          ) : null}
+          {duration ? (
+            <p
+              className="mt-2 text-sm text-foreground/75"
+              data-testid="specialist-pending-consent-duration"
+            >
+              For {duration}.
+            </p>
+          ) : null}
           {item.additionalAccessSummary ? (
             <p className="mt-2 text-sm text-foreground/70">{item.additionalAccessSummary}</p>
           ) : null}
@@ -479,12 +604,17 @@ export function SpecialistPendingConsentRequestCard({
             <Button
               data-testid="specialist-pending-consent-deny"
               size="sm"
-              variant="ghost"
+              variant={denyArmed ? "destructive" : "ghost"}
               disabled={busy}
-              onClick={() => onDeny(item)}
+              aria-label={denyTap.ariaLabel("Deny")}
+              data-armed={denyArmed ? "true" : undefined}
+              onClick={() => {
+                if (busy) return;
+                denyTap.activate(() => onDeny(item));
+              }}
             >
               <X className="h-4 w-4" aria-hidden="true" />
-              Deny
+              {denyTap.label("Deny")}
             </Button>
           </>
         )}

@@ -21,28 +21,34 @@ logger = logging.getLogger(__name__)
 # Mirrors the frontend's derived AVAILABLE_ACTION_IDS_CAP in
 # hushh-webapp/lib/voice/screen-context-builder.ts:
 #   ACTION_ID_SCREEN_SEGMENT_CAP (48) + len(GLOBAL_NAV_ACTION_IDS) (10)
-#   + len(GLOBAL_SESSION_ACTION_IDS) (1).
+#   + len(frontend GLOBAL_SESSION_ACTION_IDS) (2).
 # There is no automated cross-language sync for this -- bump both together,
 # in the same commit, whenever either grows on the TS side. Consumed by
-# live_context.py's LIVE_CONTEXT_ARRAY_CAP, onboarding/agent.py's
+# agent_context.py's AGENT_CONTEXT_ARRAY_CAP, onboarding/agent.py's
 # OnboardingJourneyContext.available_action_ids max_length, and
 # one_adk/agent_tree.py's two render-time slices.
-AVAILABLE_ACTION_IDS_CAP = 59
-
-# Mirrors GLOBAL_SESSION_ACTION_IDS in
-# hushh-webapp/lib/voice/screen-context-builder.ts. These are session verbs the
-# browser appends to available_action_ids on EVERY screen, backed by a handler
-# mounted above the route tree
-# (hushh-webapp/components/agent/global-voice-action-handlers.tsx), so unlike a
-# page's own local handlers they are never absent because of where the person
-# happens to be standing.
 #
-# Kept here rather than inferred from the gateway because nothing in an action's
-# authored contract distinguishes "reachable from anywhere" from "reachable on
-# its own screen": profile.sign_out's reachability names /one/profile like any
-# other Profile action. Same manual-sync caveat as the cap above -- change both
-# sides in one commit.
-GLOBAL_SESSION_ACTION_IDS: frozenset[str] = frozenset({"profile.sign_out"})
+# 59 -> 60 on 2026-09-11: GLOBAL_SESSION_ACTION_IDS gained `consent.request`,
+# which is mounted app-wide rather than owned by a screen. The TS side grew and
+# this side did not, exactly the drift the note above warns about, and the
+# cross-language test caught it.
+AVAILABLE_ACTION_IDS_CAP = 60
+
+# These are server-side session verbs that One may resolve from Chat on any
+# screen. `profile.sign_out` and `consent.request` are also published in the
+# browser's direct client-tool inventory. The remaining consent lifecycle verbs
+# stay server-resolved so opaque request/grant handles are revalidated here
+# before the browser receives a confirmation directive; they must therefore be
+# reachable here even when the current screen inventory does not include them.
+# Keep this set explicit rather than inferring it from the gateway contract.
+GLOBAL_SESSION_ACTION_IDS: frozenset[str] = frozenset(
+    {
+        "profile.sign_out",
+        "consent.cancel_request",
+        "consent.deny",
+        "consent.revoke",
+    }
+)
 
 
 def _strings(value: Any) -> list[str]:
@@ -145,7 +151,18 @@ def _action_index() -> dict[str, dict[str, Any]]:
 
 
 def get_action_gateway_action(action_id: str | None) -> dict[str, Any] | None:
-    return _action_index().get(str(action_id or "").strip())
+    clean_id = str(action_id or "").strip()
+    if clean_id == "pkm.add":
+        return {
+            "action_id": "pkm.add",
+            "label": "Add to PKM",
+            "meaning": "Save information to PKM",
+            "risk": {"execution_policy": "allow_direct"},
+            "execution_target": {"status": "wired"},
+            "scope": {"screens": []},
+            "guards": [],
+        }
+    return _action_index().get(clean_id)
 
 
 def is_navigation_action(entry: dict[str, Any] | None) -> bool:

@@ -32,7 +32,7 @@ describe("agent sections", () => {
     expect(ids.indexOf("ria")).toBe(ids.indexOf("finance") + 1);
 
     expect(getAgentSection("finance")?.label).toBe("Finance");
-    expect(getAgentSection("ria")?.label).toBe("RIA");
+    expect(getAgentSection("ria")?.label).toBe("Advisor");
   });
 
   it("routes the RIA agent to the RIA workspace with the ria nav scope", () => {

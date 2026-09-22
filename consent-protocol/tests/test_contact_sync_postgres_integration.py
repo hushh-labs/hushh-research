@@ -65,7 +65,11 @@ class _LiveMatcher(RIAIAMService):
 
 
 async def _prepare_schema(
-    schema: str, *, postgres_url: str = POSTGRES_URL, full_deletion_guards: bool = False
+    schema: str,
+    *,
+    postgres_url: str = POSTGRES_URL,
+    full_deletion_guards: bool = False,
+    legacy_disconnect_actor_schema: bool = False,
 ) -> None:
     connection = await asyncpg.connect(postgres_url)
     try:
@@ -183,7 +187,26 @@ async def _prepare_schema(
             actor_migration = actor_migration.replace(
                 "SELECT install_account_deletion_write_guards();", ""
             )
-        await connection.execute(actor_migration)
+        if legacy_disconnect_actor_schema:
+            # This is the released pre-19c756995 shape. It exists only in the
+            # fixture to prove that 206 repairs a previously applied schema;
+            # do not edit 205 again to make this fixture pass.
+            await connection.execute(
+                """
+                ALTER TABLE connections
+                  ADD COLUMN revoked_by_user_id TEXT,
+                  ADD COLUMN revoked_by_at TIMESTAMPTZ;
+                ALTER TABLE connections ADD CONSTRAINT connections_revocation_actor_pair
+                  CHECK (revoked_by_user_id IS NULL OR revoked_by_user_id IN (user_a_id, user_b_id));
+                """
+            )
+            upgrade = (
+                ROOT / "db/migrations/206_contact_sync_disconnect_actor_upgrade.sql"
+            ).read_text()
+            await connection.execute(upgrade)
+            await connection.execute(upgrade)
+        else:
+            await connection.execute(actor_migration)
         await connection.executemany(
             """
             INSERT INTO actor_profiles (
@@ -510,6 +533,113 @@ def test_disconnect_waiting_on_graph_lock_wins_over_older_sync_cutoff() -> None:
     finally:
         engine.dispose()
         asyncio.run(_drop_schema(schema))
+
+
+@pytest.mark.db
+@pytest.mark.skipif(
+    not POSTGRES_URL,
+    reason="set CONTACT_SYNC_POSTGRES_TEST_URL to a disposable PostgreSQL database",
+)
+def test_legacy_disconnect_actor_schema_replays_into_owner_resync_on_postgres() -> None:
+    """206 converts only a verified old 205 episode into current authority."""
+    database = f"codex_contact_upgrade_{uuid.uuid4().hex}"
+    admin_engine = create_engine(
+        make_url(POSTGRES_URL).set(drivername="postgresql+psycopg2"),
+        isolation_level="AUTOCOMMIT",
+    )
+    url = make_url(POSTGRES_URL).set(database=database)
+    engine = create_engine(url.set(drivername="postgresql+psycopg2"))
+    try:
+        with admin_engine.connect() as admin:
+            admin.exec_driver_sql(f'CREATE DATABASE "{database}"')
+        asyncio.run(
+            _prepare_schema(
+                "public",
+                postgres_url=url.render_as_string(hide_password=False),
+                full_deletion_guards=True,
+                legacy_disconnect_actor_schema=True,
+            )
+        )
+        with engine.begin() as connection:
+            connection.execute(
+                text("""CREATE TABLE feed_events (
+                    id BIGSERIAL PRIMARY KEY, user_id TEXT, source_domain TEXT,
+                    event_type TEXT, metadata JSONB, source_row_id TEXT,
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    UNIQUE(user_id, source_domain, event_type, source_row_id)
+                )""")
+            )
+            connection.execute(
+                text(
+                    """
+                    WITH episode AS MATERIALIZED (SELECT clock_timestamp() AS revoked_at)
+                    UPDATE connections
+                    SET status='revoked', revoked_at=episode.revoked_at,
+                        revoked_by_at=episode.revoked_at, revoked_by_user_id='owner'
+                    FROM episode
+                    WHERE user_a_id=LEAST('owner', 'manish')
+                      AND user_b_id=GREATEST('owner', 'manish')
+                    """
+                )
+            )
+            # Run 206 again after the old episode exists: release migrations
+            # replay, and historical conversion must be idempotent.
+            upgrade = (
+                ROOT / "db/migrations/206_contact_sync_disconnect_actor_upgrade.sql"
+            ).read_text()
+            connection.exec_driver_sql(upgrade.replace("BEGIN;", "").replace("COMMIT;", ""))
+            connection.exec_driver_sql(upgrade.replace("BEGIN;", "").replace("COMMIT;", ""))
+
+            row = (
+                connection.execute(
+                    text(
+                        """
+                    SELECT revoked_by_side, revoked_by_at = revoked_at AS episode_matches
+                    FROM connections
+                    WHERE user_a_id=LEAST('owner', 'manish')
+                      AND user_b_id=GREATEST('owner', 'manish')
+                    """
+                    )
+                )
+                .mappings()
+                .one()
+            )
+            assert row["revoked_by_side"] == "b"
+            assert row["episode_matches"] is True
+            constraint = connection.execute(
+                text(
+                    """
+                    SELECT pg_get_constraintdef(oid)
+                    FROM pg_constraint
+                    WHERE conrelid='connections'::regclass
+                      AND conname='connections_revocation_actor_pair'
+                    """
+                )
+            ).scalar_one()
+            assert "revoked_by_side" in constraint
+            assert "revoked_by_user_id" not in constraint
+
+            service = ConnectionsService()
+            service._transaction_connection = connection
+            with (
+                patch.object(service, "_join_trusted_system_circles_bulk"),
+                patch.object(service, "_cancel_pending_pair_requests"),
+                patch.object(service, "_revoke_pair_capabilities"),
+                patch.object(service, "_end_one_location_circle_memberships"),
+            ):
+                result = service.sync_contact_matches(
+                    "owner",
+                    phone_lookups=[_lookup("manish", "+919876500001")],
+                    matches=[{"lookup_id": "manish", "user_id": "manish"}],
+                    sync_started_at=service.begin_contact_sync(),
+                )
+            assert result["autoConnectedCount"] == 1
+    finally:
+        engine.dispose()
+        assert database.startswith("codex_contact_upgrade_")
+        with admin_engine.connect() as admin:
+            admin.exec_driver_sql(f'DROP DATABASE IF EXISTS "{database}" WITH (FORCE)')
+        admin_engine.dispose()
 
 
 @pytest.mark.db

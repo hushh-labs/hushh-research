@@ -2,6 +2,20 @@ import Foundation
 import LocalAuthentication
 import Security
 
+/// Process-local publication authority, independent of Keychain I/O.
+struct HusshIMessagePublicationGeneration {
+    private(set) var generation = 0
+
+    mutating func invalidate() -> Int {
+        generation += 1
+        return generation
+    }
+
+    func accepts(_ candidate: Int) -> Bool {
+        candidate > 0 && candidate == generation
+    }
+}
+
 /// Publishes the authenticated Hussh session for the iMessage extension.
 ///
 /// This store is intentionally native and UI-free: the main app remains the
@@ -24,6 +38,8 @@ final class HusshIMessageSessionStore {
     private let accessTokenAccount = "hussh.access-token"
     private let expiresAtAccount = "hussh.access-token-expires-at"
     private let tokenKindAccount = "hussh.token-kind"
+    private let publicationLock = NSRecursiveLock()
+    private var publicationGeneration = HusshIMessagePublicationGeneration()
 
     private init() {}
 
@@ -60,7 +76,23 @@ final class HusshIMessageSessionStore {
         try clearLegacyGenericSession()
     }
 
-    func clear() throws {
+    /// Lock and publication share one native generation, including callbacks
+    /// that arrive after a document reload or a Firebase sign-out.
+    func publishIfCurrent(generation: Int, _ publication: () throws -> Void) rethrows -> Bool {
+        publicationLock.lock()
+        defer { publicationLock.unlock() }
+        guard publicationGeneration.accepts(generation) else { return false }
+        try publication()
+        return true
+    }
+
+    @discardableResult
+    func clear() throws -> Int {
+        publicationLock.lock()
+        defer { publicationLock.unlock() }
+        // Advance even if deletion fails: failed cleanup cannot authorize an
+        // older pending publisher to restore the session.
+        let sessionGeneration = publicationGeneration.invalidate()
         try delete(account: userIDAccount)
         try delete(account: displayNameAccount)
         try delete(account: emailAccount)
@@ -72,6 +104,7 @@ final class HusshIMessageSessionStore {
         try delete(account: vaultStateAccount)
         try delete(account: vaultKeyAccount)
         try clearLegacyGenericSession()
+        return sessionGeneration
     }
 
     private func clearLegacyGenericSession() throws {

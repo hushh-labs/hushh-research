@@ -1,9 +1,12 @@
+import { Capacitor } from "@capacitor/core";
+
 import type {
   ObservabilityAdapter,
   ObservabilityEventName,
   PrimitiveEventValue,
 } from "@/lib/observability/events";
 import { resolveAnalyticsMeasurementId } from "@/lib/observability/env";
+import { shouldDisableExternalTelemetryForAutomation } from "@/lib/testing/native-test";
 
 declare global {
   interface Window {
@@ -20,14 +23,15 @@ export const webGtmAdapter: ObservabilityAdapter = {
   name: "web-gtm",
 
   isAvailable(): boolean {
-    return typeof window !== "undefined";
+    return typeof window !== "undefined" && !Capacitor.isNativePlatform();
   },
 
   async track(
     eventName: ObservabilityEventName,
     payload: Record<string, PrimitiveEventValue>
   ): Promise<void> {
-    if (typeof window === "undefined") return;
+    if (!this.isAvailable()) return;
+    if (shouldDisableExternalTelemetryForAutomation()) return;
 
     window.dataLayer = window.dataLayer || [];
     const transportPayload = {

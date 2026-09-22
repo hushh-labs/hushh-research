@@ -25,14 +25,15 @@ describe("Location hub hierarchy", () => {
   it("keeps exactly one Location title before the local tab strip and content", () => {
     const body = functionBody("LocationRedesignHub");
     const headerIndex = body.indexOf("<PageHeader");
-    const titleMatches =
-      body.match(/<PageTitle\s+as="span">\s*Location\s*<\/PageTitle>/g) ?? [];
+    const headerMatches = body.match(/<PageHeader\b[\s\S]*?\/>/g) ?? [];
     const tabsIndex = body.indexOf("<TopShellTabs");
     const swipeIndex = body.indexOf("<SwipeViews");
     const linksIndex = body.indexOf("<LinksHub");
 
     expect(countOccurrences(body, "<PageHeader")).toBe(1);
-    expect(titleMatches).toHaveLength(1);
+    expect(headerMatches).toHaveLength(1);
+    expect(headerMatches[0]).toContain('title="Location"');
+    expect(headerMatches[0]).toContain('titleRole="agent"');
     expect(countOccurrences(body, "<TopShellTabs")).toBe(1);
     expect(countOccurrences(body, "<SwipeViews")).toBe(1);
     expect(headerIndex).toBeGreaterThan(-1);
@@ -82,8 +83,8 @@ describe("Location hub hierarchy", () => {
     expect(motionStart).toBeGreaterThan(-1);
     expect(motionWindow).toContain("key: flow");
     expect(motionWindow).toContain("enabled: true");
-    expect(body).toContain(
-      '<div ref={flowContainerRef} className="space-y-4 sm:space-y-5">',
+    expect(body).toMatch(
+      /<div\s+ref=\{flowContainerRef\}[^>]*data-testid="one-location-action-flow"/,
     );
     expect(body).toContain("ref={flowContainerRef}");
   });
@@ -111,7 +112,10 @@ describe("Location hub hierarchy", () => {
 
     expect(source).toContain("const LOCATION_GROUP_SURFACE");
     expect(source).not.toContain("PEOPLE_GROUP_SURFACE");
-    expect(peopleBody).toContain("className={LOCATION_GROUP_SURFACE}");
+    expect(peopleBody).toContain("<CircleSummaryGroup");
+    expect(functionBody("CircleSummaryGroup")).toContain(
+      "className={LOCATION_GROUP_SURFACE}",
+    );
 
     expect(linksBody).toContain("<SettingsGroup");
     expect(linksBody).toContain(

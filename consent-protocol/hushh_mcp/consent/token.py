@@ -207,6 +207,49 @@ def validate_token(
     require_commercial: Optional[bool] = None,
     _skip_revocation_cache: bool = False,
 ) -> Tuple[bool, Optional[str], Optional[HushhConsentToken]]:
+    return _validate_token(
+        token_str,
+        expected_scope,
+        require_commercial=require_commercial,
+        _skip_revocation_cache=_skip_revocation_cache,
+    )
+
+
+def validate_owner_renewal_proof(
+    token_str: str, user_id: str
+) -> Tuple[bool, Optional[str], Optional[HushhConsentToken]]:
+    """Authenticate renewal evidence, NOT authority for a data request.
+
+    Expiry is waived only here. The caller MUST atomically check the durable
+    grant/revocation lineage before issuance. The cache can contain superseded
+    grants, so it is not the authority for renewal lineage.
+    """
+    valid, reason, token = _validate_token(
+        token_str,
+        ConsentScope.VAULT_OWNER,
+        _skip_revocation_cache=True,
+        _allow_expired=True,
+    )
+    if not valid or token is None:
+        return False, reason, None
+    if (
+        str(token.user_id) != user_id
+        or str(token.agent_id) != "self"
+        or token.scope_str != ConsentScope.VAULT_OWNER.value
+        or token.commercial
+    ):
+        return False, "Invalid owner renewal proof", None
+    return True, None, token
+
+
+def _validate_token(
+    token_str: str,
+    expected_scope: Optional[Union[str, ConsentScope]] = None,
+    *,
+    require_commercial: Optional[bool] = None,
+    _skip_revocation_cache: bool = False,
+    _allow_expired: bool = False,
+) -> Tuple[bool, Optional[str], Optional[HushhConsentToken]]:
     """
     Validate a consent token.
 
@@ -262,7 +305,7 @@ def validate_token(
         # scope returns "Token expired" rather than "Scope mismatch".
         # Returning scope information for an expired token leaks which scopes
         # the token held to a caller who should only learn it is expired.
-        if int(time.time() * 1000) >= int(expires_at_str):
+        if not _allow_expired and int(time.time() * 1000) >= int(expires_at_str):
             return False, "Token expired", None
 
         # Retired authority strings remain readable in immutable audit rows but

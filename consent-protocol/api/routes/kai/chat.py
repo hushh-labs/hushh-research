@@ -126,6 +126,7 @@ async def kai_chat(
         user_id=request.user_id,
         message=request.message,
         conversation_id=request.conversation_id,
+        consent_token=str(token_data.get("token") or ""),
     )
 
     return KaiChatResponseModel(

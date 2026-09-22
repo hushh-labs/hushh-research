@@ -59,7 +59,7 @@ export default function RiaProfilePage() {
 
   return (
     <RiaPageShell
-      title="RIA"
+      title="Advisor"
       titleRole="agent"
       nativeTest={{
         routeId: "ria-profile",

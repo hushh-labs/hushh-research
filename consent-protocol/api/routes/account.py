@@ -71,8 +71,17 @@ router = APIRouter(prefix="/api/account", tags=["Account"])
 _FIREBASE_PHONE_LOOKUP_TIMEOUT_SECONDS = 3.0
 _CLEANUP_INTENT_SETTLEMENT_TIMEOUT_SECONDS = 5.0
 _FIREBASE_REVOCATION_CHECK_TIMEOUT_SECONDS = 9.0
+_LOCAL_FIREBASE_REVOCATION_CHECK_TIMEOUT_SECONDS = 20.0
 _CLEANUP_OIDC_HTTP_TIMEOUT_SECONDS = 4.0
 _CLEANUP_OIDC_VERIFY_TIMEOUT_SECONDS = 5.0
+
+
+def _session_status_auth_timeout_seconds() -> float:
+    """Keep the deployed liveness bound tight while allowing local UAT access."""
+    environment = str(os.getenv("ENVIRONMENT") or "").strip().lower()
+    if environment in {"development", "dev", "local", "local-uatdb"}:
+        return _LOCAL_FIREBASE_REVOCATION_CHECK_TIMEOUT_SECONDS
+    return _FIREBASE_REVOCATION_CHECK_TIMEOUT_SECONDS
 
 
 def _verify_account_deletion_cleanup_oidc_token(token: str, audience: str) -> dict[str, Any]:
@@ -196,7 +205,7 @@ async def _require_session_status_auth(
                 authorization,
                 check_revoked=True,
             ),
-            timeout=_FIREBASE_REVOCATION_CHECK_TIMEOUT_SECONDS,
+            timeout=_session_status_auth_timeout_seconds(),
         )
     except HTTPException as exc:
         headers = dict(exc.headers or {})
@@ -763,6 +772,58 @@ async def refresh_account_identity(
         "success": True,
         "user_id": firebase_uid,
         "identity": identity,
+    }
+
+
+class DisplayNameUpdateRequest(BaseModel):
+    display_name: str = Field(min_length=1, max_length=120)
+
+
+@router.patch("/identity/display-name")
+async def update_account_display_name(
+    request: DisplayNameUpdateRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Change the person's display name at Firebase Auth and re-sync the shadow.
+
+    Validated (2-60 chars, no control characters, no links or handles); the
+    response carries the refreshed identity like ``/identity/refresh``.
+    """
+    service = ActorIdentityService()
+    try:
+        identity = await service.update_display_name(firebase_uid, request.display_name)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422, detail={"code": "DISPLAY_NAME_INVALID", "message": str(exc)}
+        ) from None
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=503, detail={"code": "IDENTITY_PROVIDER_UNAVAILABLE", "message": str(exc)}
+        ) from None
+    except Exception as exc:  # noqa: BLE001 - provider SDK errors are opaque
+        logger.warning("account.display_name.update_failed error=%s", type(exc).__name__)
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "code": "DISPLAY_NAME_UPDATE_FAILED",
+                "message": "Could not update the display name.",
+            },
+        ) from None
+    identity = dict(identity or {})
+    shadow_sync = str(identity.pop("shadow_sync", "synced") or "synced")
+    display_name = str(identity.get("display_name") or "").strip() or None
+    if shadow_sync == "pending":
+        # The provider committed; the shadow has not caught up. Do not hand the
+        # client a partial row to cache (it would drop phone/email it already
+        # knows); ``identity: null`` makes it re-fetch, and ``display_name``
+        # carries the value the provider now holds.
+        identity = None
+    return {
+        "success": True,
+        "user_id": firebase_uid,
+        "identity": identity or None,
+        "display_name": display_name,
+        "shadow_sync": shadow_sync,
     }
 
 

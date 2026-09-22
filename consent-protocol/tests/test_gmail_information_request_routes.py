@@ -45,6 +45,13 @@ def test_preference_routes_bind_to_the_authenticated_account_user():
 def test_queue_and_scan_require_matching_firebase_and_vault_owner():
     client = _app(owner_user_id="other-owner")
 
+    assert (
+        client.patch(
+            "/api/one/email/information-requests/preference",
+            json={"user_id": "owner", "enabled": True},
+        ).status_code
+        == 403
+    )
     assert client.get("/api/one/email/information-requests").status_code == 403
     assert client.post("/api/one/email/information-requests/scan", json={}).status_code == 403
 
@@ -59,7 +66,8 @@ def test_queue_and_scan_derive_owner_without_a_caller_supplied_user_id():
         client = _app()
         list_response = client.get("/api/one/email/information-requests?limit=12&view=activity")
         scan_response = client.post(
-            "/api/one/email/information-requests/scan", json={"max_results": 2}
+            "/api/one/email/information-requests/scan",
+            json={"max_results": 2, "include_recent_inbox": True},
         )
 
     assert list_response.status_code == 200
@@ -70,7 +78,40 @@ def test_queue_and_scan_derive_owner_without_a_caller_supplied_user_id():
         "offset": 0,
         "view": "activity",
     }
-    assert service.scan_recent.await_args.kwargs == {"user_id": "owner", "max_results": 2}
+    assert service.scan_recent.await_args.kwargs == {
+        "user_id": "owner",
+        "max_results": 2,
+        "include_recent_inbox": True,
+    }
+
+
+def test_scan_route_reports_partial_progress_without_exposing_cursor_state():
+    service = type("Service", (), {})()
+    service.scan_recent = AsyncMock(
+        return_value={
+            "accepted": True,
+            "scanned_count": 2,
+            "unchanged_count": 4,
+            "matched_count": 1,
+            "failed_count": 1,
+            "retry_pending": True,
+            "workflow_ids": ["workflow-1"],
+            "next_monitor_history_id": "private-cursor",
+        }
+    )
+    with patch.object(module, "_service", return_value=service):
+        response = _app().post("/api/one/email/information-requests/scan", json={})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "accepted": True,
+        "scanned_count": 2,
+        "unchanged_count": 4,
+        "matched_count": 1,
+        "failed_count": 1,
+        "retry_pending": True,
+        "workflow_ids": ["workflow-1"],
+    }
 
 
 def test_scan_route_never_exposes_a_gmail_history_cursor():
@@ -130,6 +171,21 @@ def test_reply_routes_bind_only_a_source_derived_envelope_to_the_owner():
         "action_id": "prepared-action",
         "body": "Approved details",
         "html_body": None,
+    }
+
+
+def test_refresh_candidates_uses_only_the_authenticated_vault_owner():
+    service = type("Service", (), {})()
+    service.refresh_candidate_scopes = AsyncMock(
+        return_value={"workflow_id": "workflow-1", "candidate_scopes": []}
+    )
+    with patch.object(module, "_service", return_value=service):
+        response = _app().post("/api/one/email/information-requests/workflow-1/refresh-candidates")
+
+    assert response.status_code == 200
+    assert service.refresh_candidate_scopes.await_args.kwargs == {
+        "user_id": "owner",
+        "workflow_id": "workflow-1",
     }
 
 

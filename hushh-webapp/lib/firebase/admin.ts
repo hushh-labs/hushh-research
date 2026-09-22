@@ -74,6 +74,7 @@ function initializeFirebaseAdmin() {
   console.log("ℹ️ Firebase Admin using application default credentials");
   return admin.initializeApp({
     credential: admin.credential.applicationDefault(),
+    projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID || "hushh-pda",
   });
 }
 

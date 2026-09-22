@@ -21,7 +21,7 @@ import {
   Pencil,
   Search,
   X,
-} from "lucide-react";
+} from "@/components/icons";
 
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, useSheetDragHandle } from "@/components/ui/sheet";
@@ -55,6 +55,7 @@ import {
 } from "@/components/one-location/onboarding/save-location-sheet-layout";
 import { isNative } from "@/lib/capacitor/platform";
 import { cn } from "@/lib/utils";
+import { SearchClearButton } from "@/components/app-ui/search-clear-button";
 import {
   defaultSavedLocationCategory,
   type SavedLocation,
@@ -82,7 +83,7 @@ import {
 const touchTargetClassName =
   "after:absolute after:left-1/2 after:top-1/2 after:h-11 after:w-11 after:-translate-x-1/2 after:-translate-y-1/2 after:content-['']";
 
-const iconButtonClassName = `press-scale absolute flex h-9 w-9 items-center justify-center rounded-full bg-[color:var(--app-neutral-fill-strong)] text-[color:var(--app-secondary-label)] transition-colors hover:bg-[color:var(--app-neutral-fill-strong)]/80 disabled:opacity-45 ${touchTargetClassName}`;
+const iconButtonClassName = `press-scale absolute flex h-10 w-10 items-center justify-center rounded-full bg-transparent text-[color:var(--app-secondary-label)] transition-colors hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-label)] disabled:opacity-45 ${touchTargetClassName}`;
 
 /**
  * The same control, laid out instead of absolutely positioned. Written as its
@@ -91,7 +92,7 @@ const iconButtonClassName = `press-scale absolute flex h-9 w-9 items-center just
  * key and `relative` is the only one -- which is exactly the trap documented
  * on `touchTargetClassName`.
  */
-const inlineIconButtonClassName = `press-scale relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-neutral-fill-strong)] text-[color:var(--app-secondary-label)] transition-colors hover:bg-[color:var(--app-neutral-fill-strong)]/80 disabled:opacity-45 ${touchTargetClassName}`;
+const inlineIconButtonClassName = `press-scale relative flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-transparent text-[color:var(--app-secondary-label)] transition-colors hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-label)] disabled:opacity-45 ${touchTargetClassName}`;
 
 const controlLabelClassName =
   "mb-1.5 block text-[13px] font-semibold leading-[18px] text-muted-foreground";
@@ -106,12 +107,15 @@ const controlInputClassName =
  */
 function primaryActionClassName(enabled: boolean): string {
   return cn(
-    "press-scale flex h-[52px] w-full items-center justify-center gap-2 rounded-full text-[17px] font-semibold transition-colors disabled:cursor-not-allowed",
+    "press-scale ui-text-button-label flex h-[50px] min-h-[50px] w-full items-center justify-center gap-2 rounded-full px-6 transition-colors disabled:cursor-not-allowed",
     enabled
       ? "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]"
       : "bg-[color:var(--app-neutral-fill-strong)] text-[color:var(--app-tertiary-label)]",
   );
 }
+
+const secondaryActionClassName =
+  "ui-text-button-label h-11 min-h-11 w-full rounded-full text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50";
 
 /**
  * Where you are in the pin-then-details pair, and a way to move without
@@ -167,10 +171,13 @@ function CarouselDots({
               touchTargetClassName,
             )}
           >
+            {/* Fixed-width pill scaled on X: the active/inactive change rides
+                the compositor instead of relayouting the rail. 0.2917 = 7/24,
+                the inactive dot width over the active one. */}
             <span
               className={cn(
-                "block h-[5px] rounded-full transition-all duration-200",
-                active ? "w-[24px]" : "w-[7px]",
+                "block h-[5px] w-[24px] origin-center rounded-full transition-transform duration-150",
+                active ? "scale-x-100" : "scale-x-[0.2917]",
                 active || completed
                   ? STEP_DOT_REACHED_CLASSNAME
                   : STEP_DOT_UPCOMING_CLASSNAME,
@@ -1373,6 +1380,14 @@ export function SaveLocationModal({
               ) : null}
               <button
                 type="button"
+                onClick={onSkip}
+                disabled={interactionBusy}
+                className={secondaryActionClassName}
+              >
+                Skip saving this place
+              </button>
+              <button
+                type="button"
                 onClick={handleSave}
                 disabled={!unifiedCanSave}
                 aria-busy={saving || undefined}
@@ -1388,14 +1403,6 @@ export function SaveLocationModal({
                   : unifiedSaveError
                     ? "Try saving again"
                     : "Save & continue"}
-              </button>
-              <button
-                type="button"
-                onClick={onSkip}
-                disabled={interactionBusy}
-                className="mt-1 min-h-11 w-full rounded-full text-[15px] font-semibold text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
-              >
-                Skip saving this place
               </button>
             </div>
           </footer>
@@ -1717,7 +1724,7 @@ export function SaveLocationModal({
           <div
             className={cn(
               SHEET_FOOTER_CLASSNAME,
-              "bg-background pb-[max(1.5rem,env(safe-area-inset-bottom))]",
+              "pb-[max(1.5rem,env(safe-area-inset-bottom))]",
             )}
           >
             {/* A disabled primary button with no explanation is the whole of
@@ -1733,6 +1740,14 @@ export function SaveLocationModal({
             ) : null}
             <button
               type="button"
+              onClick={onSkip}
+              disabled={interactionBusy}
+              className={secondaryActionClassName}
+            >
+              Skip for now
+            </button>
+            <button
+              type="button"
               onClick={handleSave}
               disabled={!canSave}
               aria-busy={saving || undefined}
@@ -1744,14 +1759,6 @@ export function SaveLocationModal({
                 <Check className="h-5 w-5" strokeWidth={2.6} aria-hidden />
               )}
               {saveLabel}
-            </button>
-            <button
-              type="button"
-              onClick={onSkip}
-              disabled={interactionBusy}
-              className="h-11 w-full rounded-full text-[15px] font-semibold text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
-            >
-              Skip for now
             </button>
           </div>
         </div>
@@ -1886,7 +1893,15 @@ export function SaveLocationModal({
                   disabled={interactionBusy}
                   autoComplete="off"
                   placeholder="Search address or place"
-                  className={cn(controlInputClassName, "pl-10 pr-10")}
+                  className={cn(controlInputClassName, "pl-10 pr-12")}
+                />
+                <SearchClearButton
+                  visible={
+                    placeQuery.length > 0 && !placeSearching && !changingPlace
+                  }
+                  label="Clear place search"
+                  onClear={() => setPlaceQuery("")}
+                  className="right-1 text-[color:var(--app-tertiary-label)]"
                 />
                 {placeSearching || changingPlace ? (
                   <Loader2
@@ -1971,7 +1986,15 @@ export function SaveLocationModal({
             </div>
           ) : null}
 
-          <div className="mt-1 flex flex-col gap-2.5 bg-background pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+          <div className="mt-1 flex flex-col gap-2.5 pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+            <button
+              type="button"
+              onClick={onSkip}
+              disabled={interactionBusy}
+              className={secondaryActionClassName}
+            >
+              Skip for now
+            </button>
             <button
               type="button"
               onClick={handleSave}
@@ -1985,14 +2008,6 @@ export function SaveLocationModal({
                 <Check className="h-5 w-5" strokeWidth={2.6} aria-hidden />
               )}
               {saveLabel}
-            </button>
-            <button
-              type="button"
-              onClick={onSkip}
-              disabled={interactionBusy}
-              className="h-11 w-full rounded-full text-[15px] font-semibold text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
-            >
-              Skip for now
             </button>
           </div>
         </div>

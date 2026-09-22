@@ -27,7 +27,7 @@ export default function OneGmailPageClient() {
 
   return (
     <CapabilityVaultPrerequisite
-      capabilityLabel="Gmail"
+      capabilityLabel="Mail"
       routeKey={ROUTES.GMAIL}
       checkingFallback={<GmailWorkspaceSkeleton />}
     >

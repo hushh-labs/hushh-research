@@ -17,15 +17,10 @@
  * Capacitor.isNativePlatform() checks — env(safe-area-inset-top)
  * evaluates correctly in both environments.
  */
-
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ArrowLeft,
   BriefcaseBusiness,
   ChartNoAxesCombined,
-  Check,
-  ChevronDown,
-  ChevronRight,
   Code2,
   Database,
   FileCheck2,
@@ -36,11 +31,17 @@ import {
   Loader2,
   LogOut,
   Mail,
-  MoreHorizontal,
   Shield,
-  Trash2,
   UserRound,
-} from "lucide-react";
+} from "@/components/icons";
+import {
+  ArrowLeftIcon as ArrowLeft,
+  CaretDownIcon as ChevronDown,
+  CaretRightIcon as ChevronRight,
+  CheckIcon as Check,
+  DotsThreeIcon as MoreHorizontal,
+  TrashIcon as Trash2,
+} from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
@@ -82,10 +83,9 @@ import { VaultService } from "@/lib/services/vault-service";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import {
   KAI_MARKET_PATH,
-  normalizeInternalRouteHref,
   ROUTES,
 } from "@/lib/navigation/routes";
-import { buildProfileRoute } from "@/lib/navigation/profile-routes";
+import { requestProfilePaneOpen } from "@/lib/navigation/profile-pane";
 
 import { getAgentSection } from "@/lib/navigation/agent-sections";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
@@ -231,7 +231,7 @@ function normalizeTopBarPathname(pathname: string): string {
 }
 
 function roleSwitcherLabel(activePersona: Persona): string {
-  return activePersona === "ria" ? "RIA" : "Investor";
+  return activePersona === "ria" ? "Advisor" : "Investor";
 }
 
 function roleSwitcherIcon(activePersona: Persona): LucideIcon {
@@ -290,7 +290,7 @@ function getScrolledRouteTitle(pathname: string): {
     };
   }
   if (pathname === ROUTES.GMAIL) {
-    return { label: "Gmail", icon: Mail, interactive: false as const };
+    return { label: "Mail", icon: Mail, interactive: false as const };
   }
   if (pathname === ROUTES.PKM) {
     return {
@@ -577,6 +577,36 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
     // runs on every scroll frame.
     let lastWrittenProgress: string | null = null;
     let lastWrittenCollapsePx: string | null = null;
+    // Per-frame writes go to the elements that read the collapse (the top
+    // shell, the top mask, registered sticky headers), never to <html>: a
+    // custom-property write on the root recomputes style for the whole
+    // document on every scroll frame. <html> receives the settled value once
+    // the scroll has been quiet for a beat, for anything unregistered
+    // (anchor scroll margins, desktop rails).
+    let consumers: HTMLElement[] = [];
+    let rootWriteTimer = 0;
+    const ROOT_SETTLE_MS = 160;
+    const collectConsumers = () => {
+      consumers = Array.from(
+        document.querySelectorAll<HTMLElement>(
+          '[data-testid="app-top-shell-layout"], .ambient-chrome-mask--top, [data-top-chrome-collapse-consumer]',
+        ),
+      );
+    };
+    const writeCollapse = (target: HTMLElement | CSSStyleDeclaration, progress: string, collapsePx: string) => {
+      const style = target instanceof HTMLElement ? target.style : target;
+      style.setProperty("--top-chrome-progress", progress);
+      style.setProperty("--top-chrome-collapse-px", collapsePx);
+    };
+    const scheduleRootWrite = () => {
+      window.clearTimeout(rootWriteTimer);
+      rootWriteTimer = window.setTimeout(() => {
+        rootWriteTimer = 0;
+        if (lastWrittenProgress !== null && lastWrittenCollapsePx !== null) {
+          writeCollapse(document.documentElement, lastWrittenProgress, lastWrittenCollapsePx);
+        }
+      }, ROOT_SETTLE_MS);
+    };
     // Routes with no primary page header (e.g. an immersive full-bleed
     // layout) never satisfy this query, so retrying must stop eventually.
     // 10 tries (~1.5s) is generous for a late-mounting header while still
@@ -618,23 +648,27 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
           '[data-testid="top-app-bar-row"]',
         );
       }
+      // Every layout read happens before any write, so a scroll event never
+      // forces a synchronous layout of its own.
       const rowHeight = barRow?.getBoundingClientRect().height ?? 0;
-      const root = document.documentElement;
+      const outOfView = isPrimaryHeaderOutOfView(header);
       const nextProgress = String(topChromeProgress);
-      if (nextProgress !== lastWrittenProgress) {
-        lastWrittenProgress = nextProgress;
-        root.style.setProperty("--top-chrome-progress", nextProgress);
-      }
       const nextCollapsePx = `${Math.max(0, rowHeight * topChromeProgress)}px`;
-      if (nextCollapsePx !== lastWrittenCollapsePx) {
+      if (nextProgress !== lastWrittenProgress || nextCollapsePx !== lastWrittenCollapsePx) {
+        lastWrittenProgress = nextProgress;
         lastWrittenCollapsePx = nextCollapsePx;
-        root.style.setProperty("--top-chrome-collapse-px", nextCollapsePx);
+        if (consumers.length === 0 || consumers.some((element) => !element.isConnected)) {
+          collectConsumers();
+        }
+        for (const element of consumers) {
+          writeCollapse(element, nextProgress, nextCollapsePx);
+        }
+        scheduleRootWrite();
       }
       const fullyCollapsed = topChromeProgress >= 0.999;
       setTopChromeFullyCollapsed((current) =>
         current === fullyCollapsed ? current : fullyCollapsed,
       );
-      const outOfView = isPrimaryHeaderOutOfView(header);
       setPrimaryHeaderOutOfView((current) =>
         current === outOfView ? current : outOfView,
       );
@@ -651,6 +685,13 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
       header = document.querySelector<HTMLElement>(
         '[data-slot="page-header"][data-page-primary="true"]',
       );
+      collectConsumers();
+      // A newly registered consumer must receive the current value at once.
+      if (lastWrittenProgress !== null && lastWrittenCollapsePx !== null) {
+        for (const element of consumers) {
+          writeCollapse(element, lastWrittenProgress, lastWrittenCollapsePx);
+        }
+      }
       updateHeaderVisibility();
     };
 
@@ -680,10 +721,21 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
     // primary, `header` is legitimately null for the whole life of a flow
     // screen, so giving up on a retry budget would strand the hub with stale
     // header tracking on return.
+    // The shell itself is stable, but the route Suspense boundary can replace
+    // its scroll root when the fallback resolves. Watch the stable shell
+    // parent so the scroll listener follows that replacement without making
+    // the Profile/top chrome effect restart for every pathname change.
     const scheduleHeaderRefresh = () => {
       if (refreshFrame !== null) return;
       refreshFrame = window.requestAnimationFrame(() => {
         refreshFrame = null;
+        const nextScrollRoot = document.querySelector<HTMLElement>(
+          '[data-app-scroll-root="true"]',
+        );
+        if (nextScrollRoot !== scrollRoot) {
+          attach();
+          return;
+        }
         const previous = header;
         if (!header?.isConnected) {
           header = document.querySelector<HTMLElement>(
@@ -698,6 +750,12 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
           return;
         }
         lastMutationCheckAt = now;
+        collectConsumers();
+        if (lastWrittenProgress !== null && lastWrittenCollapsePx !== null) {
+          for (const element of consumers) {
+            writeCollapse(element, lastWrittenProgress, lastWrittenCollapsePx);
+          }
+        }
         updateHeaderVisibility();
       });
     };
@@ -743,7 +801,11 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
 
       pageObserver?.disconnect();
       pageObserver = new MutationObserver(scheduleHeaderRefresh);
-      pageObserver.observe(scrollRoot ?? document.body, {
+      const observationRoot =
+        document.querySelector<HTMLElement>('[data-app-shell-root="true"]') ??
+        scrollRoot ??
+        document.body;
+      pageObserver.observe(observationRoot, {
         childList: true,
         subtree: true,
       });
@@ -758,13 +820,13 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
         window.cancelAnimationFrame(refreshFrame);
       }
       window.clearTimeout(retryTimer);
-      document.documentElement.style.setProperty("--top-chrome-progress", "0");
-      document.documentElement.style.setProperty(
-        "--top-chrome-collapse-px",
-        "0px",
-      );
+      window.clearTimeout(rootWriteTimer);
+      for (const element of consumers) {
+        if (element.isConnected) writeCollapse(element, "0", "0px");
+      }
+      writeCollapse(document.documentElement, "0", "0px");
     };
-  }, [model.mode, pathname]);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -844,29 +906,6 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
       },
     });
   }, [normalizedPathname, searchParams, topShellBreadcrumb]);
-
-  // The avatar opens Profile from EVERY signed-in screen, so tag the current
-  // route as the `?from` origin. The shared top-bar back control then retraces
-  // to wherever the user opened Profile from instead of always dropping them on
-  // the One dashboard — the profile "back goes to dashboard" glitch. We strip
-  // any inherited `from` (no nesting) and never tag Profile as its own origin.
-  const profileOpenHref = useMemo(() => {
-    const base = normalizeInternalRouteHref(normalizedPathname);
-    if (
-      !base ||
-      base === ROUTES.PROFILE ||
-      base.startsWith(`${ROUTES.PROFILE}/`)
-    ) {
-      return ROUTES.PROFILE;
-    }
-    const query = new URLSearchParams(searchParams?.toString?.() ?? "");
-    query.delete("from");
-    const queryString = query.toString();
-    const origin = queryString ? `${base}?${queryString}` : base;
-    return buildProfileRoute({
-      searchParams: new URLSearchParams({ from: origin }),
-    });
-  }, [normalizedPathname, searchParams]);
 
   const [switchingPersona, setSwitchingPersona] = useState<Persona | null>(
     null,
@@ -1124,7 +1163,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                               />
                               <span className="truncate">
                                 {switchingPersona
-                                  ? `Switching to ${switchingPersona === "ria" ? "RIA" : "Investor"}`
+                                  ? `Switching to ${switchingPersona === "ria" ? "Advisor" : "Investor"}`
                                   : roleSwitcherLabel(activePersona)}
                               </span>
                               {!switchingPersona && (
@@ -1135,7 +1174,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                                       ? "bg-amber-500"
                                       : "bg-emerald-500",
                                   )}
-                                  aria-label={`Active role: ${activePersona === "ria" ? "RIA" : "Investor"}`}
+                                  aria-label={`Active role: ${activePersona === "ria" ? "Advisor" : "Investor"}`}
                                 />
                               )}
                               <ChevronDown className="h-4 w-4 shrink-0 text-current/70 transition-colors group-hover:text-current" />
@@ -1169,8 +1208,8 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                                 <BriefcaseBusiness className="h-4 w-4 text-current" />
                                 <span>
                                   {riaCapability === "switch"
-                                    ? "RIA"
-                                    : "Set up RIA"}
+                                    ? "Advisor"
+                                    : "Set up Advisor"}
                                 </span>
                               </div>
                               {switchingPersona === "ria" ? (
@@ -1235,14 +1274,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                         <ShellActionSurface
                           variant="icon"
                           aria-label="Open Profile"
-                          onClick={() =>
-                            requestInternalAppNavigation({
-                              href: profileOpenHref,
-                              scroll: false,
-                              source: "tap",
-                              transitionMode: "full",
-                            })
-                          }
+                          onClick={() => requestProfilePaneOpen("tap")}
                           className="!h-8 !w-8 !border-transparent !bg-[color:var(--app-accent)] p-0 !text-[color:var(--app-accent-fg)] !shadow-none hover:!bg-[color:var(--app-accent-hover)]"
                         >
                           <Avatar className="h-8 w-8">
@@ -1293,7 +1325,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
         className="sr-only"
       >
         {switchingPersona
-          ? `Switching to ${switchingPersona === "ria" ? "RIA" : "Investor"}`
+          ? `Switching to ${switchingPersona === "ria" ? "Advisor" : "Investor"}`
           : ""}
       </span>
       {user && hasVault === true ? (

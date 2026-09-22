@@ -1,22 +1,26 @@
 {
-  "protocol_version": "one.voice.privacy-contract.v1",
-  "app_store_declaration_contract_version": "one-voice-privacy-v1",
+  "protocol_version": "one.voice.privacy-contract.v2",
+  "app_store_declaration_contract_version": "one-voice-privacy-v2",
   "voice_capture": {
     "audio_storage": "memory_only",
     "transcript_storage": "memory_only",
-    "provider_fallback": "explicit",
-    "on_device_label_required": true
+    "transcription": "bounded_managed_gemini_audio",
+    "live_conversation": "server_relay_gemini_live_vertex_adc",
+    "generated_audio": "streamed_playback_memory_only",
+    "provider_fallback": "forbidden",
+    "maximum_duration_seconds": 60,
+    "maximum_live_session_seconds": 1800,
+    "live_capture_path": "webview_getusermedia"
   },
   "model_packs": {
     "base_bundle_weights": "forbidden",
-    "download": "signed_and_checksum_verified",
-    "model_storage": "model_assets_only"
+    "download": "retired"
   },
   "required_info_plist_keys": [
-    "NSMicrophoneUsageDescription",
-    "NSSpeechRecognitionUsageDescription"
+    "NSMicrophoneUsageDescription"
   ],
   "required_privacy_manifest": {
     "tracking": false
-  }
+  },
+  "background_audio": "not_required"
 }

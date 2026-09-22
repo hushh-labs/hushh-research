@@ -8,7 +8,6 @@ to Redis without changing the mapping contract.
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
 import json
 import logging
@@ -19,11 +18,11 @@ from pathlib import Path
 from typing import Any, Protocol
 
 from db.db_client import DatabaseExecutionError, get_db
-from hushh_mcp.hushh_adk.manifest import AgentSubagentConfig, ManifestLoader
-from hushh_mcp.runtime_providers import (
-    build_generate_content_config,
-    build_managed_runtime_client,
+from hushh_mcp.agents.connected_systems.runtime import (
+    CRM_SCHEMA_MAPPING_SCHEMA,
+    run_connected_systems_gene,
 )
+from hushh_mcp.hushh_adk.manifest import AgentSubagentConfig, ManifestLoader
 
 logger = logging.getLogger(__name__)
 
@@ -245,93 +244,41 @@ def _manifest_child() -> AgentSubagentConfig:
 class GeminiCrmSchemaMapper:
     """One manifest-owned, tool-less Gemini call over schema metadata only."""
 
-    def __init__(self, *, client_factory=build_managed_runtime_client) -> None:
+    def __init__(self) -> None:
         self._child = _manifest_child()
-        self._client_factory = client_factory
-        self._client: Any | None = None
 
     @property
     def model_name(self) -> str:
         return self._child.model.name
 
-    def _client_for_call(self) -> Any:
-        if self._client is None:
-            self._client = self._client_factory(self._child.model.provider)
-        return self._client
-
-    async def map_schema(self, schema_projection: dict[str, Any]) -> dict[str, Any] | None:
-        try:
-            from google.genai import types
-        except ImportError as error:  # pragma: no cover - environment guard
-            raise CrmSchemaMappingError(
-                "CRM schema mapper is unavailable in this environment."
-            ) from error
-
-        slot_schema = {
-            "type": "OBJECT",
-            "nullable": True,
-            "properties": {
-                # Keep the provider response schema bounded. Repeating a 139-field
-                # enum across all semantic slots exceeds Vertex's structured-output
-                # schema limit and returns INVALID_ARGUMENT. `_validate_mapping`
-                # remains the fail-closed authority for accepted field keys.
-                "fieldKey": {"type": "STRING", "nullable": True},
-                "confidence": {"type": "NUMBER"},
-                "reason": {"type": "STRING"},
-            },
-            "required": ["fieldKey", "confidence", "reason"],
-        }
-        response_schema = {
-            "type": "OBJECT",
-            "properties": {
-                "mappings": {
-                    "type": "OBJECT",
-                    "properties": {semantic: slot_schema for semantic in _SEMANTICS},
-                    "required": list(_SEMANTICS),
-                }
-            },
-            "required": ["mappings"],
-        }
+    async def map_schema(
+        self,
+        schema_projection: dict[str, Any],
+        *,
+        user_id: str,
+        consent_token: str,
+    ) -> dict[str, Any] | None:
+        if not str(user_id or "").strip() or not str(consent_token or "").strip():
+            raise CrmSchemaMappingError("CRM schema mapping requires owner authority.")
         prompt = (
             f"{self._child.system_instruction}\n\n"
             "Public CRM schema metadata follows. Return JSON only.\n"
             f"{json.dumps(schema_projection, sort_keys=True, separators=(',', ':'))}"
         )
-        config = build_generate_content_config(
-            types,
-            self.model_name,
-            temperature=0,
-            max_output_tokens=self._child.performance.max_output_tokens,
-            response_mime_type="application/json",
-            response_schema=response_schema,
-            automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
-            thinking_config=types.ThinkingConfig(
-                include_thoughts=False,
-                thinking_level=types.ThinkingLevel.MINIMAL,
-            ),
-        )
         try:
-            response = await asyncio.wait_for(
-                self._client_for_call().aio.models.generate_content(
-                    model=self.model_name,
-                    contents=prompt,
-                    config=config,
-                ),
-                timeout=self._child.performance.latency_p95_ms / 1000,
+            return await run_connected_systems_gene(
+                gene_id=CRM_SCHEMA_MAPPER_ID,
+                prompt=prompt,
+                user_id=user_id,
+                consent_token=consent_token,
+                output_schema=CRM_SCHEMA_MAPPING_SCHEMA,
+                timeout_seconds=self._child.performance.latency_p95_ms / 1000,
             )
         except Exception as error:  # never surface provider internals or prompt content
             logger.warning(
                 "agent.connected_systems.crm_schema_mapper.failed error=%s", type(error).__name__
             )
             return None
-        parsed = getattr(response, "parsed", None)
-        if isinstance(parsed, dict):
-            return parsed
-        try:
-            candidate = json.loads(str(getattr(response, "text", "") or ""))
-        except json.JSONDecodeError:
-            return None
-        return candidate if isinstance(candidate, dict) else None
 
 
 def _schema_projection(schema: dict[str, Any]) -> dict[str, Any]:
@@ -421,7 +368,13 @@ class CrmSchemaMappingService:
         self.mapper = mapper or GeminiCrmSchemaMapper()
 
     async def resolve(
-        self, *, crm_id: str, schema: dict[str, Any], force_refresh: bool = False
+        self,
+        *,
+        crm_id: str,
+        schema: dict[str, Any],
+        force_refresh: bool = False,
+        user_id: str = "",
+        consent_token: str = "",
     ) -> CrmSchemaMapping:
         if os.getenv(CRM_SCHEMA_MAPPER_ENABLED_ENV, "true").strip().lower() in {
             "0",
@@ -446,7 +399,14 @@ class CrmSchemaMappingService:
             )
             if cached is not None:
                 return cached
-        raw = await self.mapper.map_schema(projection)
+        if isinstance(self.mapper, GeminiCrmSchemaMapper):
+            raw = await self.mapper.map_schema(
+                projection,
+                user_id=user_id,
+                consent_token=consent_token,
+            )
+        else:
+            raw = await self.mapper.map_schema(projection)
         mapping = _validate_mapping(raw, projection["fields"])
         self.store.put(
             crm_id=crm_id,

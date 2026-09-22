@@ -231,7 +231,7 @@ export function EmailOnboardingSetupClient() {
           // Matches the setup row. "KYC" is an abbreviation nobody meets for
           // the first time and understands; it stays in the code and the id.
           title="Identity checks"
-          description={`Requests must come from ${user?.email || "your verified email"}.`}
+          description={`Requests must come from ${user?.email || "your verified mail"}.`}
           accent="neutral"
         />
       </AppPageHeaderRegion>
@@ -250,7 +250,7 @@ export function EmailOnboardingSetupClient() {
                   ? "Enabled for one@hushh.ai"
                   : isApplePrivateRelayEmail(user?.email)
                     ? "Private Relay needs a verified non-relay sending address"
-                    : "No email requests will trigger One"
+                    : "No mail requests will trigger One"
             }
             trailing={
               <Switch

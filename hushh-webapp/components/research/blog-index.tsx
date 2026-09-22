@@ -4,7 +4,7 @@ import {
   AppPageContentRegion,
 } from "@/components/app-ui/app-page-shell";
 
-import { BookOpen } from "lucide-react";
+import { BookOpen } from "@/components/icons";
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { BlogPostList } from "@/components/research/blog-post-list";
 import { BLOG_POSTS } from "@/lib/research/blog";

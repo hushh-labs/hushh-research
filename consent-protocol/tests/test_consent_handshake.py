@@ -331,6 +331,47 @@ def test_private_attr_export_is_retired_before_any_grant(monkeypatch, blocked_sc
     assert not [event for event in fake_db.events if event["action"] == "CONSENT_GRANTED"]
 
 
+def test_invalid_pending_scope_returns_refreshable_error_instead_of_500(monkeypatch):
+    """A stale pending scope must fail closed without crashing approval."""
+    fake_db = _FakeConsentDBService()
+    monkeypatch.setattr(consent, "ConsentDBService", lambda: fake_db)
+
+    async def _owned_identifiers(_user_id: str):
+        return ["investor_1"]
+
+    monkeypatch.setattr(consent, "_owned_consent_identifiers", _owned_identifiers)
+    monkeypatch.setattr(
+        consent,
+        "issue_token",
+        lambda **_kwargs: (_ for _ in ()).throw(ValueError("Unknown or invalid active scope")),
+    )
+    fake_db._add_pending(
+        "req_stale_scope",
+        {
+            "request_id": "req_stale_scope",
+            "user_id": "investor_1",
+            "agent_id": "ria:profile_stale",
+            "scope": "attr.professional.profile.title",
+            "metadata": {
+                "requester_actor_type": "ria",
+                "requester_entity_id": "profile_stale",
+            },
+        },
+    )
+
+    response = TestClient(_build_app()).post(
+        "/api/consent/pending/approve",
+        json={"userId": "investor_1", "requestId": "req_stale_scope"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"] == {
+        "error_code": "SCOPE_NOT_REQUESTABLE",
+        "message": "This information is no longer requestable. Refresh and try again.",
+    }
+    assert not fake_db.events
+
+
 def test_pending_lookup_resolves_cross_linked_request_ids(monkeypatch):
     """Product surfaces resolve canonical consent rows by cross-linked ids."""
     fake_db = _FakeConsentDBService()
@@ -440,6 +481,53 @@ def test_deny_consent_records_event(monkeypatch):
     denied = [e for e in fake_db.events if e["action"] == "CONSENT_DENIED"]
     assert len(denied) == 1
     assert denied[0]["request_id"] == "req_deny"
+    # The advisor's identity travels with the denial so the owner's history
+    # keeps naming them rather than the raw principal id.
+    assert denied[0]["metadata"] == {
+        "requester_actor_type": "ria",
+        "requester_entity_id": "profile_deny",
+        "developer_app_display_name": "Advisor Y",
+    }
+
+
+def test_deny_carries_the_bundle_id_of_the_pending_request(monkeypatch):
+    """A denial of one item in a bundle stays grouped with that bundle in history."""
+    fake_db = _FakeConsentDBService()
+    monkeypatch.setattr(consent, "ConsentDBService", lambda: fake_db)
+    monkeypatch.setattr(consent, "RIAIAMService", _NoOpRIAIAMService)
+
+    fake_db._add_pending(
+        "req_bundle_deny",
+        {
+            "request_id": "req_bundle_deny",
+            "agent_id": "one_person:22222222-2222-4222-8222-222222222222",
+            "scope": "attr.identity.legal_name",
+            "metadata": {
+                "requester_actor_type": "person",
+                "requester_label": "Viewer",
+                "bundle_id": "bundle_deny",
+                "bundle_scope_count": 2,
+            },
+        },
+    )
+
+    app = _build_app()
+    client = TestClient(app)
+    resp = client.post(
+        "/api/consent/pending/deny",
+        params={"userId": "investor_1", "requestId": "req_bundle_deny"},
+    )
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "denied"
+
+    denied = [e for e in fake_db.events if e["action"] == "CONSENT_DENIED"]
+    assert len(denied) == 1
+    assert denied[0]["request_id"] == "req_bundle_deny"
+    assert denied[0]["metadata"] == {
+        "requester_actor_type": "person",
+        "requester_label": "Viewer",
+        "bundle_id": "bundle_deny",
+    }
 
 
 def test_alias_keyed_pending_request_can_be_denied_by_account_owner(monkeypatch):

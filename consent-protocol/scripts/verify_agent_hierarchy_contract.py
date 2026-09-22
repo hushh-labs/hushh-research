@@ -31,7 +31,6 @@ REQUIRED_RUNTIME_IDS = {
     "agent_location",
     "agent_connected_systems",
     "agent_email",
-    "agent_gmail",
     "agent_personal_information",
 }
 REQUIRED_MEMORY_IDS = {
@@ -39,7 +38,6 @@ REQUIRED_MEMORY_IDS = {
     "agent_memory_segmentation",
     "agent_memory_merge",
     "agent_pkm_structure",
-    "agent_summary_reducer",
 }
 DELEGATE_AGENT_ALIASES = {
     "one": "agent_one",

@@ -140,7 +140,6 @@ lines = path.read_text(encoding="utf-8").splitlines()
 keys = {
     "FIREBASE_ADMIN_CREDENTIALS_JSON",
     "BACKEND_RUNTIME_CONFIG_JSON",
-    "VOICE_RUNTIME_CONFIG_JSON",
 }
 assign_re = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 decoder = json.JSONDecoder()

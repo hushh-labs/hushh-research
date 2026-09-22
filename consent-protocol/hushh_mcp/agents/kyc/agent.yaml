@@ -4,6 +4,12 @@ name: Agent KYC
 version: 0.2.0
 status: active
 description: Identity/KYC workflow specialist for requirements, missing-document state, approval-gated drafts, and structured PKM writeback.
+one_exposure:
+  service_id: kyc
+  discovery_status: discoverable
+  exposure_status: limited
+  supported_entrypoints:
+    - typed
 model: gemini-default
 system_instruction: |
   You are KYC, a bounded identity workflow specialist. Process KYC requirements
@@ -64,3 +70,145 @@ privacy:
     - workflow.redraft_instruction
   plaintext_telemetry: false
 telemetry_namespace: agent.kyc
+subagents:
+  - id: agent_kyc_route
+    name: KYC Route
+    description: Classifies an inbound request against the user's available KYC domains and scopes.
+    model:
+      provider: gemini
+      name: gemini-default
+      mode: hushh_managed_vertex
+      thinking_level: low
+    runtime:
+      kind: adk
+      adk_mode: single_turn
+      transport: [in_process]
+    system_instruction: |
+      Classify an inbound request for personal information using only the supplied
+      domain summaries and available scope paths. Decide from meaning rather than
+      keywords. Select only scopes present in the supplied context; never invent
+      data, scope paths, or values. Return exactly the routing object requested by
+      the caller, and mark non-data requests unsupported.
+    inputs:
+      - name: request_context
+        type: string
+        description: Sanitized request text, domain summaries, and available scopes.
+    outputs:
+      - name: routing
+        type: object
+        description: Grounded KYC routing decision.
+    privacy:
+      context_allowlist: []
+      plaintext_telemetry: false
+    telemetry_namespace: agent.kyc.route
+    performance:
+      latency_p95_ms: 30000
+      max_output_tokens: 4096
+    rollout:
+      strategy: internal
+      rollback: Restore the direct KYC routing implementation.
+  - id: agent_kyc_redraft
+    name: KYC Redraft
+    description: Rewrites a tokenized KYC email while preserving every private placeholder.
+    model:
+      provider: gemini
+      name: gemini-default
+      mode: hushh_managed_vertex
+      thinking_level: low
+    runtime:
+      kind: adk
+      adk_mode: single_turn
+      transport: [in_process]
+    system_instruction: |
+      Rewrite the supplied tokenized KYC email according to the user's instruction.
+      Preserve every placeholder token exactly, including spelling, braces, and
+      index. Do not add, remove, duplicate, or invent a placeholder. Use no facts
+      outside the supplied text and return only an object containing rewritten_template.
+    inputs:
+      - name: rewrite_context
+        type: string
+        description: Tokenized draft and the owner's bounded rewrite instruction.
+    outputs:
+      - name: rewritten_template
+        type: string
+        description: Rewritten tokenized email body.
+    privacy:
+      context_allowlist: [workflow.current_draft, workflow.redraft_instruction]
+      plaintext_telemetry: false
+    telemetry_namespace: agent.kyc.redraft
+    performance:
+      latency_p95_ms: 30000
+      max_output_tokens: 4096
+    rollout:
+      strategy: internal
+      rollback: Restore the direct KYC redraft implementation.
+  - id: agent_kyc_redraft_full
+    name: KYC Full Redraft
+    description: Rewrites a KYC disclosure from the current draft and exact approved workflow context.
+    model:
+      provider: gemini
+      name: gemini-default
+      mode: hushh_managed_vertex
+      thinking_level: low
+    runtime:
+      kind: adk
+      adk_mode: single_turn
+      transport: [in_process]
+    system_instruction: |
+      Revise the supplied KYC disclosure using only the current draft, inbound
+      request, and exact approved information. Follow the owner's instruction,
+      never expand scopes or fabricate values, and return only an object containing
+      rewritten_body.
+    inputs:
+      - name: rewrite_context
+        type: string
+        description: Approved workflow context and bounded rewrite instruction.
+    outputs:
+      - name: rewritten_body
+        type: string
+        description: Rewritten disclosure email body.
+    privacy:
+      context_allowlist: [workflow.current_draft, workflow.approved_exports, workflow.redraft_instruction]
+      plaintext_telemetry: false
+    telemetry_namespace: agent.kyc.redraft_full
+    performance:
+      latency_p95_ms: 30000
+      max_output_tokens: 4096
+    rollout:
+      strategy: internal
+      rollback: Restore the direct full-redraft implementation.
+  - id: agent_kyc_extract_and_draft
+    name: KYC Extract and Draft
+    description: Extracts approved fields and drafts a disclosure without fabricating missing values.
+    model:
+      provider: gemini
+      name: gemini-default
+      mode: hushh_managed_vertex
+      thinking_level: low
+    runtime:
+      kind: adk
+      adk_mode: single_turn
+      transport: [in_process]
+    system_instruction: |
+      Extract only fields covered by the supplied approved scopes and draft a clear
+      reply from the information owner's perspective. Use exact supplied values,
+      list absent fields as missing, and never fabricate personal information. Return
+      exactly the extraction and draft object requested by the caller.
+    inputs:
+      - name: disclosure_context
+        type: string
+        description: Approved scopes, exact domain information, and request context.
+    outputs:
+      - name: disclosure
+        type: object
+        description: Grounded extracted fields, missing fields, and draft.
+    privacy:
+      context_allowlist: [workflow.approved_scopes, workflow.approved_exports, workflow.request.snippet]
+      plaintext_telemetry: false
+    telemetry_namespace: agent.kyc.extract_and_draft
+    performance:
+      latency_p95_ms: 30000
+      max_output_tokens: 4096
+    rollout:
+      strategy: internal
+      rollback: Restore the direct KYC extraction implementation.

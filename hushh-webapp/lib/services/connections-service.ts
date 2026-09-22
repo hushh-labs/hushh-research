@@ -38,6 +38,11 @@ export interface DirectoryPage {
   audience?: DirectoryAudience;
 }
 
+export type ConnectionPersonContext = {
+  person: DirectoryPerson;
+  request: { id: string; direction: "incoming" | "outgoing"; status: string } | null;
+};
+
 export interface ConnectionSummaryEntry {
   connectionId: string;
   userId: string;
@@ -198,6 +203,15 @@ export interface ConnectionInformationScope {
 export interface ConnectionInformationScopeCatalog {
   counterpartUserId: string;
   items: ConnectionInformationScope[];
+  page?: number;
+  limit?: number;
+  hasMore?: boolean;
+  totalCount?: number;
+  catalogTruncated?: boolean;
+  catalogRevision?: string;
+  paginationReset?: boolean;
+  nextPage?: number | null;
+  domains?: Array<{ domain: string; count: number }>;
 }
 
 export interface ConnectionCircleSummary {
@@ -251,6 +265,16 @@ async function jsonOrThrow<T>(response: Response): Promise<T> {
 }
 
 export class ConnectionsService {
+  static async getPersonContext(opts: { idToken: string; counterpartUserId: string }): Promise<ConnectionPersonContext> {
+    const response = await ApiService.apiFetch(`/api/one/connections/${encodeURIComponent(opts.counterpartUserId)}/context`,
+      { method: "GET", headers: authHeaders(opts.idToken) });
+    const result = await jsonOrThrow<ConnectionPersonContext>(response);
+    if (!result || result.person?.userId !== opts.counterpartUserId || !["none","connected","pending_incoming","pending_outgoing"].includes(result.person.relationship)
+      || (result.request && (typeof result.request.id !== "string" || !result.request.id || !["incoming","outgoing"].includes(result.request.direction) || !["pending","accepted","rejected","cancelled","expired"].includes(result.request.status)))
+      || (result.person.relationship.startsWith("pending_") && (result.request?.status !== "pending" || result.person.relationship !== `pending_${result.request.direction}`)))
+      throw new Error("The connection state could not be verified.");
+    return result;
+  }
   static async syncContacts(opts: {
     idToken: string;
     lookups: ContactSyncLookup[];
@@ -448,12 +472,16 @@ export class ConnectionsService {
     counterpartUserId: string;
     query?: string;
     domain?: string;
+    page?: number;
     limit?: number;
+    catalogRevision?: string;
   }): Promise<ConnectionInformationScopeCatalog> {
     const params = new URLSearchParams();
     if (opts.query) params.set("query", opts.query);
     if (opts.domain) params.set("domain", opts.domain);
+    if (opts.page) params.set("page", String(opts.page));
     if (opts.limit) params.set("limit", String(opts.limit));
+    if (opts.catalogRevision) params.set("catalog_revision", opts.catalogRevision);
     const response = await ApiService.apiFetch(
       `/api/one/connections/${encodeURIComponent(opts.counterpartUserId)}/information-scopes?${params.toString()}`,
       { method: "GET", headers: authHeaders(opts.idToken) },
@@ -463,6 +491,15 @@ export class ConnectionsService {
     return {
       counterpartUserId: payload.counterpartUserId,
       items: payload.items ?? [],
+      page: payload.page,
+      limit: payload.limit,
+      hasMore: payload.hasMore,
+      totalCount: payload.totalCount,
+      catalogTruncated: payload.catalogTruncated,
+      catalogRevision: payload.catalogRevision,
+      paginationReset: payload.paginationReset,
+      nextPage: payload.nextPage,
+      domains: payload.domains,
     };
   }
 

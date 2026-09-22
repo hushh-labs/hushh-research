@@ -175,6 +175,8 @@ interface MaterialRippleProps {
   effect?: ComponentEffect;
   disabled?: boolean;
   className?: string;
+  /** Keep the press ripple but suppress a second hover layer owned by the parent. */
+  disableHover?: boolean;
 }
 
 export const MaterialRipple = ({
@@ -182,6 +184,7 @@ export const MaterialRipple = ({
   effect = "fill",
   disabled = false,
   className = "",
+  disableHover = false,
 }: MaterialRippleProps) => {
   const rippleRef = useRef<MdRipple>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -339,14 +342,14 @@ export const MaterialRipple = ({
       );
       containerRef.current.style.setProperty(
         "--md-ripple-hover-opacity",
-        String(colors.hoverOpacity),
+        String(disableHover ? 0 : colors.hoverOpacity),
       );
       containerRef.current.style.setProperty(
         "--md-ripple-pressed-opacity",
         String(colors.pressedOpacity),
       );
     }
-  }, [variant, effect]);
+  }, [disableHover, effect, variant]);
 
   // Listen for theme changes
   useEffect(() => {

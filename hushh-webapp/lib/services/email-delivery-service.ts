@@ -42,7 +42,10 @@ export class EmailDeliveryError extends Error {
   }
 
   get needsGmailReconnect(): boolean {
-    return this.code === "GMAIL_SEND_PERMISSION_REQUIRED";
+    return (
+      this.code === "GMAIL_SEND_PERMISSION_REQUIRED" ||
+      this.code === "GMAIL_SEND_DISABLED"
+    );
   }
 }
 
@@ -91,16 +94,19 @@ function emailHeaders(auth: EmailDeliveryAuth): HeadersInit {
 
 function safeErrorMessage(code: string | null, status: number): string {
   if (code === "GMAIL_SEND_PERMISSION_REQUIRED") {
-    return "Reconnect Gmail to grant email sending permission.";
+    return "Reconnect Mail to grant mail sending permission.";
+  }
+  if (code === "GMAIL_SEND_DISABLED") {
+    return "Reconnect Mail to finish enabling mail sending.";
   }
   if (code === "GMAIL_NOT_CONNECTED") {
-    return "Connect Gmail before you draft or send email.";
+    return "Connect Mail before you draft or send mail.";
   }
   if (code === "EMAIL_ACTION_EXPIRED") {
-    return "This email review expired. Review the unchanged draft again.";
+    return "This mail review expired. Review the unchanged draft again.";
   }
   if (code === "EMAIL_ACTION_ALREADY_USED") {
-    return "This email action was already used. Check Sent Mail before trying again.";
+    return "This mail action was already used. Check Sent Mail before trying again.";
   }
   if (code === "EMAIL_ACTION_OUTCOME_UNKNOWN") {
     return "We could not confirm delivery. Check Sent Mail before trying again.";
@@ -108,7 +114,7 @@ function safeErrorMessage(code: string | null, status: number): string {
   if (status === 401 || status === 403) {
     return "Unlock your vault and try again.";
   }
-  return "Email could not be completed. Please review the draft and try again.";
+  return "Mail could not be completed. Please review the draft and try again.";
 }
 
 async function readFailure(response: Response): Promise<EmailDeliveryError> {

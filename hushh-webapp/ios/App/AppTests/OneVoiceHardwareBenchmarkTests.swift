@@ -54,7 +54,7 @@ final class OneVoiceHardwareBenchmarkTests: XCTestCase {
         var measurements: [CaptureMeasurement] = []
         measurements.reserveCapacity(repetitions)
         for _ in 0..<repetitions {
-            measurements.append(try measureFirstInputBuffer())
+            measurements.append(try measureFirstCommandPcmAndFinish())
         }
 
         XCTAssertEqual(measurements.count, repetitions, "Every run must observe a first input frame.")
@@ -76,39 +76,57 @@ final class OneVoiceHardwareBenchmarkTests: XCTestCase {
         print("ONE_VOICE_HARDWARE_CAPTURE_JSON=\(evidence)")
     }
 
-    private func measureFirstInputBuffer() throws -> CaptureMeasurement {
-        let microphoneCapture = OneVoiceMicrophoneCapture()
-        let expectation = XCTestExpectation(description: "first audio input buffer")
+    private func measureFirstCommandPcmAndFinish() throws -> CaptureMeasurement {
+        let expectation = XCTestExpectation(description: "first converted command PCM")
         let lock = NSLock()
         let startedAt = CFAbsoluteTimeGetCurrent()
         var measurement: CaptureMeasurement?
+        let sessionID = UUID().uuidString
+        let recording = OneCommandRecording(
+            sessionID: sessionID,
+            maxDurationMs: 60_000,
+            onFirstPCMWrite: { sequence in
+                lock.lock()
+                let isFirstFrame = measurement == nil
+                if isFirstFrame {
+                    measurement = CaptureMeasurement(
+                        elapsedMilliseconds: (CFAbsoluteTimeGetCurrent() - startedAt) * 1_000,
+                        firstFrameSequence: sequence
+                    )
+                }
+                lock.unlock()
+                if isFirstFrame {
+                    expectation.fulfill()
+                }
+            }
+        )
 
-        try microphoneCapture.start(bufferSize: 1_024) { _, _, sequence in
-            lock.lock()
-            let isFirstFrame = measurement == nil
-            if isFirstFrame {
-                measurement = CaptureMeasurement(
-                    elapsedMilliseconds: (CFAbsoluteTimeGetCurrent() - startedAt) * 1_000,
-                    firstFrameSequence: sequence
-                )
-            }
-            lock.unlock()
-            if isFirstFrame {
-                expectation.fulfill()
-            }
-        }
+        try recording.start()
         defer {
-            microphoneCapture.stop()
+            recording.cancel()
         }
 
         let waitResult = XCTWaiter().wait(for: [expectation], timeout: 2)
         guard waitResult == .completed else {
             throw NSError(domain: "OneVoiceHardwareBenchmark", code: 1)
         }
+        let payload = try recording.finish()
+        guard payload["sessionId"] as? String == sessionID,
+              payload["mimeType"] as? String == "audio/wav",
+              payload["sampleRate"] as? Int == 16_000,
+              payload["channels"] as? Int == 1,
+              let encoded = payload["audioBase64"] as? String,
+              let wav = Data(base64Encoded: encoded),
+              wav.count > 44,
+              String(data: wav.prefix(4), encoding: .ascii) == "RIFF",
+              String(data: wav.dropFirst(8).prefix(4), encoding: .ascii) == "WAVE"
+        else {
+            throw NSError(domain: "OneVoiceHardwareBenchmark", code: 2)
+        }
         lock.lock()
         defer { lock.unlock() }
         guard let measurement else {
-            throw NSError(domain: "OneVoiceHardwareBenchmark", code: 2)
+            throw NSError(domain: "OneVoiceHardwareBenchmark", code: 3)
         }
         return measurement
     }

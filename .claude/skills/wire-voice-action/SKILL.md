@@ -56,11 +56,24 @@ package, composing a message) does not.
 `_execute_backend_direct_mutation`'s branch calling the same service class
 the REST endpoint already calls (or a new method on it, if the capability is
 new). `execution_target.path: "voice_tool"`.
-  - If the action has *no* local handler anywhere in the frontend (nothing on
-    screen could ever run a parked directive for it — see
-    `BACKEND_DIRECT_VERBAL_CONFIRMATION_IDS` for the pattern), a spoken "yes"
-    has to be the confirmation gate itself, not a browser card. Model asks,
-    hears a real yes, calls again with `confirmed: true` in slots.
+  - **A spoken "yes" is never the confirmation gate.** `run_app_action` deletes a
+    model-supplied `confirmed` slot before dispatch, for every id in
+    `_GOVERNED_LEDGER_CONFIRMATION_ACTION_IDS` and every `confirm_required`
+    action, because a model reporting that it heard a yes is not authority.
+    Confirmation is minted by the directive ledger after the person taps the
+    card the app renders. `BACKEND_DIRECT_VERBAL_CONFIRMATION_IDS` still exists
+    but is a retained compatibility seam, NOT a pattern to copy:
+    `_execute_backend_direct_mutation` raises `AssertionError` for anything in
+    the governed-ledger set, and `_run_backend_direct_action` returns `blocked`.
+  - **If nothing on screen can run the directive, mount a global handler; do not
+    fall back to a spoken yes.** An action routed through the ledger with no
+    mounted handler is not a safe no-op, it is a dead end: the agent offers the
+    capability, the person confirms it, and nothing happens with no error to say
+    so. `hushh-webapp/components/agent/global-consent-action-handlers.tsx` is the
+    worked example, mounted app-wide from `app/providers.tsx` for all four
+    `consent.*` actions, which is why the consent lifecycle completes in chat
+    from any screen. Pair it with a test that fails when a governed action has no
+    handler.
   - If it's backend-direct only when a specific slot is present (e.g. a
     person was actually named, vs. "whatever's selected in the composer" —
     see `BACKEND_DIRECT_WHEN_PERSON_NAMED_ACTION_IDS`), write that
@@ -114,10 +127,17 @@ step regardless of anyone's settings (irreversible, no undo — removing a
 connection, deleting a circle), don't rely on `execution_policy` for it.
 Either set `activation_policy: "trusted_activation_required"` (forces a card,
 originally built for provider-popup gestures but usable wherever "definitely
-show a card" is the requirement) or hand-roll a two-step gate the way
-`connect.remove_connection` does: the handler raises a "needs confirmation"
-signal carrying the question to ask, the model asks it and waits for a real
-yes, then calls again with `confirmed: true`. `guard_ids` entries named
+show a card" is the requirement) or add the id to
+`_GOVERNED_LEDGER_CONFIRMATION_ACTION_IDS`, which forces `needsConfirmation`
+true and parks a browser directive whatever the person's settings say. The
+worked example is the four `consent.*` actions: ledger-governed, executed by a
+globally mounted browser handler, authorized by the tap and by nothing else.
+
+Do NOT hand-roll a two-step spoken gate. The older
+`connect.remove_connection` pattern (handler raises a "needs confirmation"
+signal, model asks, model calls again with `confirmed: true`) is gone: the
+slot it depended on is stripped before dispatch, so an action wired that way
+confirms silently and never runs. `guard_ids` entries named
 `explicit_user_confirmation` / `manual_user_execution` are **inert** —
 descriptive strings only, not enforced anywhere. Do not rely on adding one to
 get confirmation behavior; it does nothing on its own.

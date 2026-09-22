@@ -36,7 +36,7 @@ node .codex/skills/reviewer-app-testing/scripts/reviewer-rehearsal-preflight.mjs
 
 REVIEWER_SECRET_PROJECT=hushh-pda-uat \
 REVIEWER_APP_ORIGIN=http://localhost:3000 \
-REVIEWER_APP_ROUTES=/agent,/one/consent \
+REVIEWER_APP_ROUTES=/,/one/consent \
 node .codex/skills/reviewer-app-testing/scripts/verify-reviewer-byok-navigation.mjs
 
 consent-protocol/.venv/bin/python \
@@ -110,6 +110,14 @@ The reveal flow retries the prompt once when the model answers in words
 without offering the action; a second silent turn is a real failure.
 
 ## Read-only guard exemptions
+
+A rehearsal explicitly authorized to process source text without saving it can
+pass `allowMemoryPreparation: true` to the canonical harness. This permits only
+`POST /api/pkm/memory/proposals` on that harness's exact application origin.
+Saving, consent mutations, and Chat-history writes remain blocked. The harness
+awaits guard installation before navigation. This mode still sends submitted
+text through the application's provider-processing boundary; it does not make
+preparation on-device-only. Retain only counts and sanitized outcome codes.
 
 The guard exempts `identitytoolkit.googleapis.com` and
 `securetoken.googleapis.com` (the reviewer login handshake: custom-token sign-in,

@@ -16,6 +16,11 @@ import {
   loadPlaidOAuthResumeSession,
 } from "@/lib/kai/brokerage/plaid-oauth-session";
 import { loadPlaidLink } from "@/lib/kai/brokerage/plaid-link-loader";
+import { mergePlaidCallbackQuery } from "@/lib/kai/brokerage/plaid-redirect-uri";
+import {
+  KAI_AUXILIARY_STEP_TIMEOUT_MS,
+  runKaiStepWithTimeout,
+} from "@/lib/kai/brokerage/kai-operation-timeout";
 import { PlaidPortfolioService } from "@/lib/kai/brokerage/plaid-portfolio-service";
 import { VaultService } from "@/lib/services/vault-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
@@ -36,9 +41,13 @@ async function settleOnboardingPlaidAttempt(params: {
   outcome: "succeeded" | "cancelled" | "failed";
 }): Promise<boolean> {
   if (!params.attemptId) return false;
-  const journey = await PreVaultUserStateService.bootstrapState(params.userId, {
-    force: true,
-  }).catch(() => null);
+  const journey = await runKaiStepWithTimeout(
+    "Checking Plaid setup state",
+    PreVaultUserStateService.bootstrapState(params.userId, {
+      force: true,
+    }),
+    KAI_AUXILIARY_STEP_TIMEOUT_MS,
+  ).catch(() => null);
   const matches = Boolean(
     journey &&
       !PreVaultUserStateService.isSetupResolved(journey) &&
@@ -48,14 +57,19 @@ async function settleOnboardingPlaidAttempt(params: {
       journey.onboardingCallbackAttemptId === params.attemptId,
   );
   if (!matches || !journey) return false;
-  await PreVaultUserStateService.syncOnboardingJourney({
-    userId: params.userId,
-    phase: params.outcome === "succeeded" ? "capability_setup" : "external_connector",
-    activeCapability: "finance",
-    callbackState: params.outcome,
-    expectedJourneyUpdatedAt: journey.onboardingJourneyUpdatedAt,
-    expectedCallbackAttemptId: params.attemptId,
-  });
+  await runKaiStepWithTimeout(
+    "Updating Plaid setup state",
+    PreVaultUserStateService.syncOnboardingJourney({
+      userId: params.userId,
+      phase:
+        params.outcome === "succeeded" ? "capability_setup" : "external_connector",
+      activeCapability: "finance",
+      callbackState: params.outcome,
+      expectedJourneyUpdatedAt: journey.onboardingJourneyUpdatedAt,
+      expectedCallbackAttemptId: params.attemptId,
+    }),
+    KAI_AUXILIARY_STEP_TIMEOUT_MS,
+  );
   return true;
 }
 
@@ -119,6 +133,17 @@ export default function KaiPlaidOauthReturnPage() {
         const Plaid = await loadPlaidLink();
         setStage("resuming");
 
+        // Plaid matches this against the redirect_uri the link token was minted
+        // with. On native that is NOT where the app now is: once the Universal
+        // Link claim hands the return to the app, window.location.href reads
+        // app://localhost/... and Plaid rejects it. The session carries the
+        // https URI the token actually used, so use that and re-attach the
+        // OAuth parameters the provider appended. On web the two are identical,
+        // which is why this went unnoticed.
+        const receivedRedirectUri = resume.redirect_uri
+          ? mergePlaidCallbackQuery(resume.redirect_uri, window.location.href)
+          : window.location.href;
+
         await new Promise<void>((resolve, reject) => {
           let settled = false;
           const finish = (callback: () => void) => {
@@ -129,7 +154,7 @@ export default function KaiPlaidOauthReturnPage() {
 
           const handler = Plaid.create({
             token: linkTokenValue,
-            receivedRedirectUri: window.location.href,
+            receivedRedirectUri,
             onSuccess: (publicToken: string, metadata: Record<string, unknown>) => {
               void (
                 flowKind === "funding"

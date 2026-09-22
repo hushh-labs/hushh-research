@@ -1,6 +1,7 @@
 import type { KaiCommandAction } from "@/lib/kai/kai-command-types";
 import type { Persona } from "@/lib/services/ria-service";
 import type { VoiceToolCall } from "@/lib/voice/voice-types";
+import liveTools from "@/contracts/kai/one-voice-live-tools.v1.json";
 import {
   getKaiActionById,
   getKaiActionByVoiceToolCall,
@@ -28,8 +29,9 @@ export type InvestorKaiBackendEffect = {
 export type InvestorKaiActionWiring =
   | {
       status: "wired";
-      handler: "executeKaiCommand" | "dispatchVoiceToolCall" | "router.push" | "executeAgentGatewayAction.localHandler";
+      handler: "executeKaiCommand" | "dispatchVoiceToolCall" | "oneVoiceRuntime" | "router.push" | "executeAgentGatewayAction.localHandler";
       binding:
+        | { kind: "server_voice_tool"; toolName: string; actionId: string }
         | {
             kind: "kai_command";
             command: KaiCommandAction;
@@ -150,9 +152,9 @@ function describeGuard(guardId: string): string {
     case "manual_user_execution":
       return "User must complete this action manually.";
     case "gmail_configured":
-      return "Gmail configuration must be available.";
+      return "Mail configuration must be available.";
     case "gmail_connected":
-      return "Gmail must already be connected.";
+      return "Mail must already be connected.";
     case "ria_persona_available":
       return "RIA workspace must be available for this account.";
     default:
@@ -197,6 +199,12 @@ function toWiring(executionTarget: KaiActionExecutionTarget): InvestorKaiActionW
   }
 
   if (executionTarget.path === "voice_tool") {
+    const serverTool = liveTools.tools.find((tool) => tool.gateway_action_id === executionTarget.target);
+    if (serverTool) return {
+      status: "wired",
+      handler: "oneVoiceRuntime",
+      binding: { kind: "server_voice_tool", toolName: serverTool.name, actionId: serverTool.gateway_action_id },
+    };
     return {
       status: "wired",
       handler: "dispatchVoiceToolCall",
@@ -354,6 +362,11 @@ export function resolveInvestorKaiActionWiring(action: InvestorKaiActionDefiniti
         ? "resolved via executeAgentGatewayAction.localHandler"
         : "missing local handler action id",
     };
+  }
+
+  if (binding.kind === "server_voice_tool") {
+    const found = liveTools.tools.some((tool) => tool.name === binding.toolName && tool.gateway_action_id === binding.actionId);
+    return { resolvable: found, reason: found ? "resolved via One Voice server tool registry" : "missing server voice tool" };
   }
 
   return {

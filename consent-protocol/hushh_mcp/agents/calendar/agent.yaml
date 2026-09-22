@@ -3,6 +3,12 @@ id: agent_calendar
 name: Calendar Agent
 version: 0.1.0
 description: Google Calendar read, availability, and owner-confirmed scheduling specialist under One.
+one_exposure:
+  service_id: calendar
+  discovery_status: discoverable
+  exposure_status: active
+  supported_entrypoints:
+    - typed
 status: active
 owner: backend
 parent: agent_one

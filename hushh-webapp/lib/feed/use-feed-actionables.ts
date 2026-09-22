@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { LucideIcon } from "lucide-react";
+import type { LucideIcon } from "@/components/icons";
 import {
   MapPin,
   ShieldCheck,
@@ -10,7 +10,7 @@ import {
   TrendingUp,
   UserRound,
   Users,
-} from "lucide-react";
+} from "@/components/icons";
 
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
@@ -309,7 +309,16 @@ export function useFeedActionables(): UseFeedActionablesResult {
   // ── Consent pending (canonical one:consents lane, refetch on mutation) ──
   const [consentTick, setConsentTick] = useState(0);
   useEffect(() => {
-    const bump = () => setConsentTick((value) => value + 1);
+    const bump = (event: Event) => {
+      // The notification provider re-announces what it already holds in
+      // cache on every route change; that is not a mutation and must not
+      // force the consent summary and connections to refetch on each tab
+      // switch (same filter as useConsentPendingSummaryCount).
+      const detail = (event as CustomEvent<Record<string, unknown>>).detail || {};
+      const source = String(detail.source || "").trim();
+      if (source === "cached_pending" || source === "queued_pending") return;
+      setConsentTick((value) => value + 1);
+    };
     window.addEventListener(CONSENT_ACTION_COMPLETE_EVENT, bump);
     window.addEventListener(CONSENT_STATE_CHANGED_EVENT, bump);
     return () => {
@@ -737,7 +746,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
           label !== "Someone"
             ? {
                 displayName: label,
-                photoUrl: invite.inviterPhotoUrl ?? null,
+                photoUrl: null,
               }
             : null,
         title: label,
@@ -851,7 +860,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
                     idToken,
                     requestId: request.id,
                   });
-                  CacheSyncService.onConnectionCapabilityMutated(userId);
+                  CacheSyncService.onConnectionGraphMutated(userId);
                   notifyFeedActionResolved();
                   await connectionsRefresh({ force: true });
                 },

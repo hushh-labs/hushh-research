@@ -1,4 +1,5 @@
 import gatewayJson from "@/contracts/kai/kai-action-gateway.vnext.json";
+import { mailDisplayLabel } from "@/lib/copy/mail-terminology";
 import { ApiService } from "@/lib/services/api-service";
 
 import type { KaiCommandAction } from "@/lib/kai/kai-command-types";
@@ -17,10 +18,7 @@ export type KaiActionExecutionPolicy =
   "allow_direct" | "confirm_required" | "manual_only";
 export type KaiActionActivationPolicy = "none" | "trusted_activation_required";
 export type KaiActionSiriMode =
-  | "direct"
-  | "review_ui"
-  | "conversation_only"
-  | "unsupported";
+  "direct" | "review_ui" | "conversation_only" | "unsupported";
 export type KaiActionSpeakerPersona = "one" | "kai" | "nav" | "kyc";
 export type KaiActionDelegateAgentId =
   | "one"
@@ -55,7 +53,7 @@ export type KaiActionExecutionTarget =
       status: "unwired";
       reason: string;
       intended_handler?: string;
-    }
+    };
 
 export type KaiActionWorkflowStep =
   | {
@@ -172,6 +170,16 @@ export type KaiActionExternalCallback = {
 };
 
 export type KaiActionDefinition = {
+  command?: {
+    domain: "location";
+    backend_binding?: "location.create_circle";
+    client_receipt?: "location.effect.v1" | "location.audience.v1";
+    result_resource?: "circle";
+    resource_inputs?: Record<string, "circle" | "person" | "place">;
+    review_route: string;
+    review_only?: boolean;
+    permission?: "location";
+  };
   action_id: string;
   surface_id: string;
   label: string;
@@ -633,8 +641,7 @@ function validateAction(value: unknown): KaiActionDefinition | null {
     activation_policy: activationPolicy as KaiActionActivationPolicy,
     siri_mode: siriMode as KaiActionSiriMode,
     siri_requires_vault: value.siri_requires_vault === true,
-    siri_vault_locked_fallback_action_id:
-      siriVaultLockedFallbackActionId,
+    siri_vault_locked_fallback_action_id: siriVaultLockedFallbackActionId,
     execution_target: executionTarget,
     control_ids: isStringArray(value.control_ids) ? value.control_ids : [],
     state_exposure: isStringArray(value.state_exposure)
@@ -645,6 +652,27 @@ function validateAction(value: unknown): KaiActionDefinition | null {
       : [],
     workflow: validateWorkflow(value.workflow),
     external_callback: validateExternalCallback(value.external_callback),
+    command:
+      isPlainObject(value.command) &&
+      value.command.domain === "location" &&
+      typeof value.command.review_route === "string"
+        ? {
+            domain: "location",
+            review_route: value.command.review_route,
+            permission:
+              value.command.permission === "location" ? "location" : undefined,
+            review_only: value.command.review_only === true,
+            client_receipt: value.command.client_receipt === "location.effect.v1" || value.command.client_receipt === "location.audience.v1" ? value.command.client_receipt : undefined,
+            result_resource: value.command.result_resource === "circle" ? "circle" : undefined,
+            resource_inputs: isPlainObject(value.command.resource_inputs)
+              && Object.values(value.command.resource_inputs).every((kind) => kind === "circle" || kind === "person" || kind === "place")
+                ? value.command.resource_inputs as Record<string, "circle" | "person" | "place"> : undefined,
+            backend_binding:
+              value.command.backend_binding === "location.create_circle"
+                ? "location.create_circle"
+                : undefined,
+          }
+        : undefined,
     goal: validateGoal(value.goal, actionId),
     expected_effects: {
       state_changes:
@@ -736,7 +764,8 @@ function validateGateway(value: unknown): KaiActionGateway {
 }
 
 export const KAI_ACTION_GATEWAY = validateGateway(gatewayJson);
-export const KAI_ACTION_GATEWAY_SCHEMA_VERSION = KAI_ACTION_GATEWAY.schema_version;
+export const KAI_ACTION_GATEWAY_SCHEMA_VERSION =
+  KAI_ACTION_GATEWAY.schema_version;
 function isCrmProductAction(action: KaiActionDefinition): boolean {
   const searchable = [
     action.action_id,
@@ -745,8 +774,14 @@ function isCrmProductAction(action: KaiActionDefinition): boolean {
     ...action.reachability.routes,
     ...action.reachability.screens,
     ...(action.delegate_agent_id ? [action.delegate_agent_id] : []),
-  ].join(" ").toLowerCase();
-  return searchable.includes("crm") || searchable.includes("connected_system") || searchable.includes("connected-system");
+  ]
+    .join(" ")
+    .toLowerCase();
+  return (
+    searchable.includes("crm") ||
+    searchable.includes("connected_system") ||
+    searchable.includes("connected-system")
+  );
 }
 
 export const KAI_ACTION_GATEWAY_ACTIONS = isLocalCrmBuildEnabled()
@@ -949,7 +984,7 @@ export function evaluateKaiActionAvailability(input: {
       if (!canSettleInactivePersona) {
         return {
           status: "requires_persona_switch",
-          reason: `Switch to ${targetPersona.toUpperCase()} workspace first.`,
+          reason: `Switch to ${targetPersona === "ria" ? "Advisor" : targetPersona.toUpperCase()} workspace first.`,
           target_persona: targetPersona,
           blocked_guidance: action.workflow?.blocked_guidance || null,
         };
@@ -961,7 +996,7 @@ export function evaluateKaiActionAvailability(input: {
         reason:
           requiredPersonas.includes("ria") &&
           appRuntimeState?.persona?.ria_setup_available
-            ? "RIA actions stay locked until you finish RIA setup."
+            ? "Advisor actions stay locked until you finish Advisor setup."
             : requiredPersonas.includes("investor")
               ? "Switch to the Investor workspace before using Finance actions."
               : "This action is not available in the active workspace.",
@@ -970,7 +1005,7 @@ export function evaluateKaiActionAvailability(input: {
           action.workflow?.blocked_guidance ||
           (requiredPersonas.includes("ria") &&
           appRuntimeState?.persona?.ria_setup_available
-            ? "Complete RIA setup to unlock this workspace."
+            ? "Complete Advisor setup to unlock this workspace."
             : requiredPersonas.includes("investor")
               ? "Switch to Investor to use this Finance action."
               : null),
@@ -1043,7 +1078,7 @@ export function evaluateKaiActionAvailability(input: {
     ) {
       return {
         status: "blocked",
-        reason: "Connect Gmail first.",
+        reason: "Connect Mail first.",
         target_persona: null,
         blocked_guidance: null,
       };
@@ -1057,7 +1092,7 @@ export function evaluateKaiActionAvailability(input: {
     ) {
       return {
         status: "blocked",
-        reason: "Gmail configuration is not ready yet.",
+        reason: "Mail configuration is not ready yet.",
         target_persona: null,
         blocked_guidance: null,
       };
@@ -1065,11 +1100,11 @@ export function evaluateKaiActionAvailability(input: {
     if (guardId === "ria_persona_available" && !availablePersonas.has("ria")) {
       return {
         status: "blocked",
-        reason: "RIA workspace is not available for this account yet.",
+        reason: "Advisor workspace is not available for this account yet.",
         target_persona: "ria",
         blocked_guidance:
           appRuntimeState?.persona?.ria_setup_available === true
-            ? "Complete RIA setup to unlock the workspace."
+            ? "Complete Advisor setup to unlock the workspace."
             : null,
       };
     }
@@ -1086,11 +1121,11 @@ export function evaluateKaiActionAvailability(input: {
     ) {
       return {
         status: "blocked",
-        reason: "Finish RIA verification before using this action.",
+        reason: "Finish Advisor verification before using this action.",
         target_persona: "ria",
         blocked_guidance:
           appRuntimeState?.persona?.ria_setup_available === true
-            ? "Complete RIA setup to unlock this."
+            ? "Complete Advisor setup to unlock this."
             : null,
       };
     }
@@ -1116,7 +1151,7 @@ function scoreSearchMatch(
     if (!action.reachability.hidden_navigable) score += 2;
     return score;
   }
-  if (action.label.toLowerCase().includes(q)) score += 8;
+  if (action.label.toLowerCase().includes(q) || mailDisplayLabel(action.label).toLowerCase().includes(q)) score += 8;
   if (action.action_id.toLowerCase().includes(q)) score += 6;
   if (action.aliases.some((alias) => alias.toLowerCase().includes(q)))
     score += 5;
@@ -1199,12 +1234,14 @@ async function searchKaiActionsSemantic(
     vaultOwnerToken?: string | null;
   },
   signal?: AbortSignal,
-): Promise<Array<{
-  action: KaiActionDefinition;
-  availability: KaiActionAvailability;
-  score: number;
-  semantic?: true;
-}>> {
+): Promise<
+  Array<{
+    action: KaiActionDefinition;
+    availability: KaiActionAvailability;
+    score: number;
+    semantic?: true;
+  }>
+> {
   const limit = Math.max(1, Math.min(input.limit ?? 10, 20));
   // The endpoint is authenticated with a VAULT_OWNER token, so without one
   // every call is a 401 that the catch below turns into an empty result set.
@@ -1296,12 +1333,14 @@ export async function searchKaiActionsAsync(input: {
   signal?: AbortSignal;
   /** Required for the semantic pass; without it only local search runs. */
   vaultOwnerToken?: string | null;
-}): Promise<Array<{
-  action: KaiActionDefinition;
-  availability: KaiActionAvailability;
-  score: number;
-  semantic?: true;
-}>> {
+}): Promise<
+  Array<{
+    action: KaiActionDefinition;
+    availability: KaiActionAvailability;
+    score: number;
+    semantic?: true;
+  }>
+> {
   const trimmed = input.query.trim();
   const debounceMs = input.debounceMs ?? 180;
   const { signal: outerSignal } = input;

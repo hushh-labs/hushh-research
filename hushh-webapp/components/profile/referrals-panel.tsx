@@ -1,7 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Share2, Users } from "lucide-react";
+import {
+  ShareNetworkIcon as Share2,
+  UsersThreeIcon as Users,
+} from "@/components/icons";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { useAuth } from "@/lib/firebase/auth-context";

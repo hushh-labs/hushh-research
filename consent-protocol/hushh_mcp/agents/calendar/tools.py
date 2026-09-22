@@ -52,8 +52,7 @@ def _timezone(tool_context: ToolContext) -> str:
 def _connection_directive(
     tool_context: ToolContext, *, access_level: str, message: str
 ) -> dict[str, Any]:
-    needs_scheduling = access_level == "manage"
-    tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:calendar"] = {
+    directive = {
         "kind": "action",
         "delegateAgentId": "agent_calendar",
         "payload": {
@@ -61,12 +60,14 @@ def _connection_directive(
             "accessLevel": access_level,
             "summary": message,
             "confirmLabel": (
-                "Allow Calendar scheduling" if needs_scheduling else "Connect Calendar"
+                "Allow Calendar scheduling" if access_level == "manage" else "Connect Calendar"
             ),
         },
     }
+    tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:calendar"] = directive
     return {
         "status": "connection_required",
+        "directive": directive,
         "message": message,
         "next_step": (
             "The app is showing a Calendar authorization control. Ask the user to approve it."
@@ -328,8 +329,10 @@ async def _propose(
             "message": "Could not prepare that calendar change. Try again in a moment.",
         }
     verb = {"create": "Schedule", "reschedule": "Reschedule", "cancel": "Cancel"}[action]
+
     raw_conflicts = plan.get("conflicts")
     conflicts: list[object] = raw_conflicts if isinstance(raw_conflicts, list) else []
+    confirm_label = f"{verb} anyway" if conflicts else verb
     # Presentation belongs to the active chat session, not to the provider's
     # event payload.  A proposal can legitimately contain UTC instants while
     # the person is using One in another local timezone.
@@ -339,8 +342,8 @@ async def _propose(
         conflicts=conflicts,
         display_time_zone=_timezone(tool_context),
     )
-    confirm_label = f"{verb} anyway" if conflicts else verb
-    tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:calendar"] = {
+    event_fields = _directive_event_fields(action=action, plan=plan)
+    directive = {
         "kind": "action",
         "delegateAgentId": "agent_calendar",
         "payload": {
@@ -350,13 +353,31 @@ async def _propose(
             "summary": summary,
             "confirmLabel": confirm_label,
             "expiresAt": expires_at,
+            # Structured fields alongside `summary` so the client can render a
+            # real card (title/time/attendees) instead of a flattened
+            # sentence. `summary` stays authoritative for voice/non-card
+            # surfaces -- these are additive, not a replacement.
+            "eventId": plan.get("event_id"),
+            "title": event_fields["title"],
+            "startAt": event_fields["startAt"],
+            "endAt": event_fields["endAt"],
+            "attendees": event_fields["attendees"],
+            "location": event_fields["location"],
+            "sendUpdates": bool(plan.get("send_updates")),
+            "conflicts": [
+                {"title": item.get("title"), "startAt": _flat_iso(item.get("start"))}
+                for item in conflicts
+                if isinstance(item, dict)
+            ],
         },
     }
+    tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:calendar"] = directive
     return {
         "status": "confirmation_required",
         "proposal_id": proposal_id,
         "plan": plan,
         "conflicts": conflicts,
+        "directive": directive,
         "message": (
             "Your requested time overlaps an existing Calendar event. The app is showing "
             "the exact conflict and will only schedule after you explicitly choose to proceed."
@@ -374,6 +395,7 @@ def _proposal_summary(
     display_time_zone: str,
 ) -> str:
     verb = {"create": "Schedule", "reschedule": "Reschedule", "cancel": "Cancel"}[action]
+
     title = str(plan.get("title") or plan.get("event_id") or "this event")
     timing = (
         ""
@@ -396,6 +418,49 @@ def _proposal_summary(
             f"{verb} “{title}”{timing}{attendee_note} anyway?"
         )
     return f"{verb} “{title}”{timing}{attendee_note}?"
+
+
+def _flat_iso(value: object) -> str | None:
+    """Normalize Google's `{dateTime|date}` shape and a plain ISO string into
+    one flat string the client always gets, regardless of which shape the
+    source field happened to carry."""
+    if isinstance(value, dict):
+        value = value.get("dateTime") or value.get("date")
+    text = str(value or "").strip()
+    return text or None
+
+
+def _directive_event_fields(*, action: str, plan: dict[str, Any]) -> dict[str, Any]:
+    """Normalize the proposed event's title/time/attendees/location across all
+    three actions for the client directive payload.
+
+    `create`/`reschedule` proposals carry the new title/time directly on
+    `plan` (from the tool's own input). `cancel` only ever receives an
+    `event_id` + `send_updates` -- its real title/time/attendees live under
+    `plan["current_event"]`, the real event `propose()` fetched from Google
+    before staging the proposal (see `GoogleCalendarService.propose`).
+    """
+    if action == "cancel":
+        current = plan.get("current_event")
+        current = current if isinstance(current, dict) else {}
+        return {
+            "title": current.get("title"),
+            "startAt": _flat_iso(current.get("start")),
+            "endAt": _flat_iso(current.get("end")),
+            "attendees": [
+                str(item.get("email"))
+                for item in current.get("attendees", [])
+                if isinstance(item, dict) and item.get("email")
+            ],
+            "location": current.get("location") or None,
+        }
+    return {
+        "title": plan.get("title"),
+        "startAt": _flat_iso(plan.get("start_at")),
+        "endAt": _flat_iso(plan.get("end_at")),
+        "attendees": [str(item) for item in plan.get("attendees", [])],
+        "location": plan.get("location") or None,
+    }
 
 
 def _conflict_detail(event: dict[str, Any], *, time_zone: str) -> str:

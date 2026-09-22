@@ -1,4 +1,4 @@
-import { Laptop, LayoutDashboard } from "lucide-react";
+import { Laptop, LayoutDashboard } from "@/components/icons";
 
 import {
   ONE_CAPABILITIES,
@@ -112,7 +112,7 @@ const AGENTS_ROOT_SECTION: AgentSection = {
 // app/ria/page.tsx, so exposing the entry here is safe.
 const RIA_WORKSPACE_SECTION: AgentSection = {
   id: "ria",
-  label: "RIA",
+  label: "Advisor",
   href: ROUTES.RIA_PROFILE,
   icon: getOneCapability("ria")?.icon ?? lucideCapabilityIcon(LayoutDashboard),
   routeFamily: "ria",

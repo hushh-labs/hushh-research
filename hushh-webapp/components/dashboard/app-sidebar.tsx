@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { Shield, TrendingUp, Home } from "lucide-react";
+import { Shield, TrendingUp, Home } from "@/components/icons";
 import {
   Sidebar,
   SidebarContent,

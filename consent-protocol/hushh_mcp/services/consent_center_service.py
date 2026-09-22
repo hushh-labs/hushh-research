@@ -19,6 +19,41 @@ from hushh_mcp.services.ria_iam_service import (
 
 logger = logging.getLogger(__name__)
 
+# The metadata keys the owner-facing history reads to name and picture the
+# counterpart (``_counterpart``, ``_developer_label``, ``_normalize_history``).
+# Every ledger row a requester's action produces after the REQUESTED row (a
+# grant, a denial, a withdrawal, a read of the export) must carry them, or the
+# newest row headlines the owner's history with the raw principal id.
+REQUESTER_IDENTITY_METADATA_KEYS: tuple[str, ...] = (
+    "requester_actor_type",
+    "requester_label",
+    "requester_entity_id",
+    "requester_image_url",
+    "requester_website_url",
+    "developer_app_id",
+    "developer_app_display_name",
+)
+
+# Audit rows that record something happening to a grant without changing its
+# state. History keeps them as events but never lets one decide a group's
+# status, label, or position.
+NON_TRANSITION_CONSENT_ACTIONS: frozenset[str] = frozenset({"EXPORT_READ"})
+
+
+def requester_identity_metadata(metadata: Any) -> dict[str, Any]:
+    """Return only the requester identity keys present in ``metadata``.
+
+    Used by every follow-on ledger write so the identity travels with the row
+    instead of being reconstructed from the raw principal id.
+    """
+    if not isinstance(metadata, dict):
+        return {}
+    return {
+        key: metadata[key]
+        for key in REQUESTER_IDENTITY_METADATA_KEYS
+        if metadata.get(key) not in (None, "")
+    }
+
 
 def _marketplace_consent_center_enabled() -> bool:
     """Feature flag: union Information Marketplace access requests into the
@@ -85,6 +120,7 @@ class ConsentCenterService:
         self._identity = ActorIdentityService()
         self._ria = RIAIAMService()
         self._owned_identifier_cache: dict[str, list[str]] = {}
+        self._owned_identifier_inflight: dict[str, asyncio.Task[list[str]]] = {}
         self._location_center = None
         if _one_location_consent_center_enabled():
             try:
@@ -242,6 +278,7 @@ class ConsentCenterService:
             "CANCELLED": "cancelled",
             "REVOKED": "revoked",
             "TIMEOUT": "expired",
+            "EXPORT_READ": "opened",
         }
         return mapping.get(normalized, normalized.lower() or "unknown")
 
@@ -334,10 +371,7 @@ class ConsentCenterService:
                 )
         return any(needle in str(value or "").lower() for value in haystacks)
 
-    async def _owned_user_identifiers(self, user_id: str) -> list[str]:
-        normalized_user_id = str(user_id or "").strip()
-        if normalized_user_id in self._owned_identifier_cache:
-            return self._owned_identifier_cache[normalized_user_id]
+    async def _resolve_owned_user_identifiers(self, normalized_user_id: str) -> list[str]:
         try:
             identifiers = await self._identity.list_account_identifiers(normalized_user_id)
         except Exception as exc:
@@ -347,9 +381,26 @@ class ConsentCenterService:
                 exc,
             )
             identifiers = []
-        resolved = identifiers or [normalized_user_id]
-        self._owned_identifier_cache[normalized_user_id] = resolved
-        return resolved
+        return identifiers or [normalized_user_id]
+
+    async def _owned_user_identifiers(self, user_id: str) -> list[str]:
+        normalized_user_id = str(user_id or "").strip()
+        if normalized_user_id in self._owned_identifier_cache:
+            return self._owned_identifier_cache[normalized_user_id]
+        inflight = self._owned_identifier_inflight.get(normalized_user_id)
+        if inflight is None:
+            inflight = asyncio.create_task(self._resolve_owned_user_identifiers(normalized_user_id))
+            self._owned_identifier_inflight[normalized_user_id] = inflight
+        try:
+            resolved = await asyncio.shield(inflight)
+            self._owned_identifier_cache[normalized_user_id] = resolved
+            return resolved
+        finally:
+            if (
+                inflight.done()
+                and self._owned_identifier_inflight.get(normalized_user_id) is inflight
+            ):
+                self._owned_identifier_inflight.pop(normalized_user_id, None)
 
     @staticmethod
     def _identifier_filter_kwargs(user_id: str, identifiers: list[str]) -> dict[str, list[str]]:
@@ -784,12 +835,17 @@ class ConsentCenterService:
                 group.get("latest_request_at")
             ):
                 group["latest_request_at"] = entry.get("issued_at")
-                group["status"] = entry.get("status")
             scope_label = entry.get("scope_description") or entry.get("scope")
             if scope_label and scope_label not in group["scopes"]:
                 group["scopes"].append(scope_label)
 
         grouped = list(groups.values())
+        for group in grouped:
+            # A trailing EXPORT_READ must not headline the person's group as
+            # "opened"; the newest state-changing row is the group's face.
+            group["status"] = self._latest_state_entry(self._sort_entries(group["entries"])).get(
+                "status"
+            )
         grouped.sort(
             key=lambda item: self._issued_at_ms(item.get("latest_request_at")),
             reverse=True,
@@ -879,6 +935,21 @@ class ConsentCenterService:
         parts = [counterpart_type, counterpart_id, cls._chain_subject(entry)]
         return "|".join(part.lower() for part in parts if part)
 
+    @staticmethod
+    def _latest_state_entry(sorted_entries: list[dict[str, Any]]) -> dict[str, Any]:
+        """The newest entry that changed state, given entries sorted newest-first.
+
+        A trailing EXPORT_READ (the requester opened a live grant) must not
+        headline the group: its status is "opened", not the grant's, and its
+        metadata may be thinner than the decision row's. Falls back to the
+        newest entry when nothing else exists.
+        """
+        for entry in sorted_entries:
+            action = str(entry.get("action") or "").strip().upper()
+            if action not in NON_TRANSITION_CONSENT_ACTIONS:
+                return entry
+        return sorted_entries[0]
+
     @classmethod
     def _group_history_identifier_trails(
         cls, entries: list[dict[str, Any]]
@@ -890,7 +961,7 @@ class ConsentCenterService:
         grouped_rows: list[dict[str, Any]] = []
         for identifier_key, identifier_entries in identifier_groups.items():
             sorted_identifier_entries = cls._sort_entries(identifier_entries)
-            primary = dict(sorted_identifier_entries[0])
+            primary = dict(cls._latest_state_entry(sorted_identifier_entries))
             trail_groups: dict[str, list[dict[str, Any]]] = {}
             for entry in sorted_identifier_entries:
                 trail_groups.setdefault(
@@ -901,7 +972,7 @@ class ConsentCenterService:
             trails: list[dict[str, Any]] = []
             for trail_key, trail_entries in trail_groups.items():
                 sorted_trail_entries = cls._sort_entries(trail_entries)
-                latest = sorted_trail_entries[0]
+                latest = cls._latest_state_entry(sorted_trail_entries)
                 request_ids = [
                     str(entry.get("request_id") or entry.get("id") or "").strip()
                     for entry in sorted_trail_entries

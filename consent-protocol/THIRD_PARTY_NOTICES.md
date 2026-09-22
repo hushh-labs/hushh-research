@@ -7,11 +7,12 @@ Regenerate it with `python3 scripts/licenses/generate_third_party_notices.py`.
 
 ## Python packages
 
-Package count: 195
+Package count: 197
 
 ### License summary
 
 - `3-Clause BSD License`: 1
+- `Apache 2.0 License`: 1
 - `Apache License 2.0`: 1
 - `Apache Software License`: 35
 - `Apache Software License; BSD License`: 1
@@ -30,9 +31,10 @@ Package count: 195
 - `BSD-3-Clause, Apache-2.0, dependency licenses`: 1
 - `GNU Lesser General Public License v3 (LGPLv3)`: 1
 - `GNU Library or Lesser General Public License (LGPL)`: 1
+- `ISC License (ISCL)`: 1
 - `LGPL-2.1-only`: 1
-- `MIT`: 47
-- `MIT License`: 27
+- `MIT`: 48
+- `MIT License`: 26
 - `MIT-CMU`: 1
 - `Mozilla Public License 2.0 (MPL 2.0)`: 2
 - `MPL-2.0 AND (Apache-2.0 OR MIT)`: 1
@@ -86,18 +88,20 @@ Package count: 195
 - `frozendict` `2.4.7` — GNU Lesser General Public License v3 (LGPLv3)
 - `frozenlist` `1.8.0` — Apache-2.0
 - `fsspec` `2026.7.0` — BSD-3-Clause
-- `google-adk` `2.4.0` — Apache Software License
+- `google-adk` `2.9.0` — Apache Software License
 - `google-api-core` `2.29.0` — Apache Software License
-- `google-auth` `2.49.2` — Apache Software License
+- `google-auth` `2.58.0` — Apache Software License
 - `google-cloud-core` `2.5.1` — Apache Software License
 - `google-cloud-firestore` `2.27.0` — Apache Software License
+- `google-cloud-secret-manager` `2.30.0` — Apache Software License
 - `google-cloud-storage` `3.10.1` — Apache Software License
 - `google-cloud-trace` `1.19.0` — Apache Software License
 - `google-crc32c` `1.8.0` — Apache-2.0
-- `google-genai` `2.10.0` — Apache-2.0
+- `google-genai` `2.23.0` — Apache-2.0
 - `google-resumable-media` `2.8.2` — Apache Software License
 - `googleapis-common-protos` `1.74.0` — Apache Software License
 - `graphviz` `0.21` — MIT
+- `grpc-google-iam-v1` `0.14.5` — Apache Software License
 - `grpcio` `1.76.0` — Apache Software License
 - `grpcio-status` `1.76.0` — Apache Software License
 - `gunicorn` `25.3.0` — MIT
@@ -108,7 +112,7 @@ Package count: 195
 - `httpcore` `1.0.9` — BSD-3-Clause
 - `httpx` `0.28.1` — BSD License
 - `httpx-sse` `0.4.3` — MIT
-- `huggingface_hub` `0.36.2` — Apache Software License
+- `huggingface_hub` `1.30.0` — Apache Software License
 - `hyperframe` `6.1.0` — MIT License
 - `idna` `3.18` — BSD-3-Clause
 - `iniconfig` `2.3.0` — MIT
@@ -181,7 +185,6 @@ Package count: 195
 - `pydantic_core` `2.46.1` — MIT
 - `Pygments` `2.20.0` — BSD-2-Clause
 - `PyJWT` `2.13.0` — MIT
-- `pyOpenSSL` `26.4.0` — Apache Software License
 - `pypdfium2` `5.11.0` — BSD-3-Clause, Apache-2.0, dependency licenses
 - `pytesseract` `0.3.13` — Apache Software License
 - `pytest` `9.0.3` — MIT
@@ -206,7 +209,8 @@ Package count: 195
 - `safetensors` `0.8.0` — Apache Software License
 - `scikit-learn` `1.9.0` — BSD-3-Clause
 - `scipy` `1.18.1` — BSD License
-- `sentence-transformers` `3.4.1` — Apache Software License
+- `sentence-transformers` `5.2.0` — Apache Software License
+- `shellingham` `1.5.4` — ISC License (ISCL)
 - `six` `1.17.0` — MIT License
 - `slowapi` `0.1.9` — MIT License
 - `sniffio` `1.3.1` — Apache Software License; MIT License
@@ -221,10 +225,10 @@ Package count: 195
 - `tokenizers` `0.22.2` — Apache Software License
 - `torch` `2.14.0` — Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND BSD-2-Clause AND BSD-3-Clause AND BSL-1.0 AND MIT
 - `tqdm` `4.67.3` — MPL-2.0 AND MIT
-- `transformers` `4.57.6` — Apache Software License
+- `transformers` `5.10.1` — Apache 2.0 License
+- `typer` `0.27.2` — MIT
 - `typing-inspection` `0.4.2` — MIT
 - `typing_extensions` `4.15.0` — PSF-2.0
-- `tzlocal` `5.3.1` — MIT License
 - `urllib3` `2.7.0` — MIT
 - `uuid_utils` `0.14.1` — BSD-3-Clause
 - `uvicorn` `0.44.0` — BSD-3-Clause

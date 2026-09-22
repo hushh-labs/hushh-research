@@ -448,6 +448,24 @@ enum NativeUiTestRunnerScript {
     throw new Error("url missing " + value + " at " + window.location.href);
   }
 
+  async function waitForExactRoute(route, timeoutMs) {
+    var deadline = Date.now() + (timeoutMs || 30000);
+    while (Date.now() < deadline) {
+      var current = normalizeRoute(
+        window.location.pathname + window.location.search,
+      );
+      if (current === normalizeRoute(route)) return;
+      await sleep(250);
+    }
+    throw new Error(
+      "route did not settle on " +
+        route +
+        "; current=" +
+        window.location.pathname +
+        window.location.search,
+    );
+  }
+
   function clearImportBackgroundState() {
     var keys = [
       "kai_portfolio_import_background_v1",
@@ -796,44 +814,27 @@ enum NativeUiTestRunnerScript {
     return null;
   }
 
-  function voiceSurface() {
-    return (
-      firstVisible('[data-testid="one-voice-surface"]') ||
-      firstVisible("[data-voice-mode]")
-    );
+  function commandCaptureSurface() {
+    return firstVisible("[data-command-capture-state]");
   }
 
-  function currentVoiceMode() {
-    var surface = voiceSurface();
+  function currentCommandCaptureState() {
+    var surface = commandCaptureSurface();
     if (!surface) return "";
-    return String(surface.getAttribute("data-voice-mode") || "");
+    return String(surface.getAttribute("data-command-capture-state") || "");
   }
 
-  function voiceFallbackVisible() {
-    var text = ((document.body && document.body.innerText) || "").toLowerCase();
-    return (
-      text.indexOf("microphone permission") >= 0 ||
-      text.indexOf("microphone access") >= 0 ||
-      text.indexOf("no microphone") >= 0 ||
-      text.indexOf("voice unavailable") >= 0 ||
-      text.indexOf("could not connect to realtime voice") >= 0 ||
-      text.indexOf("realtime voice connection") >= 0
-    );
-  }
-
-  async function waitForVoiceMode(modes, timeoutMs, allowPermissionFallback) {
-    var expected = Array.isArray(modes) ? modes : [modes];
+  async function waitForCommandCaptureState(states, timeoutMs) {
+    var expected = Array.isArray(states) ? states : [states];
     var ready = await waitForCondition(function () {
-      var mode = currentVoiceMode();
-      if (expected.indexOf(mode) >= 0) return true;
-      return allowPermissionFallback === true && voiceFallbackVisible();
+      return expected.indexOf(currentCommandCaptureState()) >= 0;
     }, timeoutMs || 30000);
     if (!ready) {
       throw new Error(
-        "voice mode mismatch expected=" +
+        "command capture state mismatch expected=" +
           expected.join(",") +
           " actual=" +
-          currentVoiceMode() +
+          currentCommandCaptureState() +
           " route=" +
           window.location.pathname +
           window.location.search,
@@ -847,10 +848,10 @@ enum NativeUiTestRunnerScript {
     }, timeoutMs || 30000);
     if (!ready) {
       throw new Error(
-        "voice control missing: " +
+        "command control missing: " +
           controlId +
-          " mode=" +
-          currentVoiceMode() +
+          " capture_state=" +
+          currentCommandCaptureState() +
           " route=" +
           window.location.pathname +
           window.location.search,
@@ -864,23 +865,6 @@ enum NativeUiTestRunnerScript {
       "one_voice_command_palette_toggle",
       timeoutMs || 30000,
     );
-  }
-
-  async function endVoiceIfActive(timeoutMs) {
-    await waitForCondition(function () {
-      return Boolean(voiceSurface());
-    }, timeoutMs || 5000);
-    var mode = currentVoiceMode();
-    if (!mode || mode === "idle" || mode === "error") return;
-    var endControl =
-      findVoiceControl("one_voice_agent_bar_end") ||
-      findVoiceControl("one_voice_end_session") ||
-      findVoiceControl("one_voice_cancel_turn");
-    if (!endControl) {
-      throw new Error("voice end control missing while active mode=" + mode);
-    }
-    clickElement(endControl);
-    await waitForVoiceMode("idle", timeoutMs || 2000, false);
   }
 
   async function attemptNativePersonaSwitch(persona) {
@@ -1153,7 +1137,27 @@ enum NativeUiTestRunnerScript {
     return window.location.pathname.indexOf("/ria/onboarding") === 0;
   }
 
+  async function waitForRiaWorkspaceOrAdmission(timeoutMs) {
+    var settled = await waitForCondition(function () {
+      return (
+        riaOnboardingAdmissionActive() ||
+        Boolean(firstVisible('[data-testid="top-app-bar-tabs"]'))
+      );
+    }, timeoutMs || 10000);
+    if (!settled) {
+      throw new Error(
+        "RIA workspace did not settle to tabs or onboarding admission route=" +
+          window.location.pathname +
+          window.location.search,
+      );
+    }
+  }
+
   async function assertRiaWorkspaceAdmission() {
+    // Persona switching can settle the route before the persistent RIA shell
+    // has mounted its selector. Wait for the same two authoritative outcomes
+    // used by conditional RIA flows before inspecting the DOM.
+    await waitForRiaWorkspaceOrAdmission(30000);
     if (riaOnboardingAdmissionActive()) return;
     var tabRoot = firstVisible('[data-testid="top-app-bar-tabs"]');
     var clients = tabRoot && findVisibleExactControl(tabRoot, '[role="tab"]', "Clients");
@@ -1169,6 +1173,7 @@ enum NativeUiTestRunnerScript {
         return;
       case "ensure_ria_workspace":
         await ensurePersona("ria");
+        await waitForRiaWorkspaceOrAdmission(step.timeoutMs);
         return;
       case "click_bottom_nav":
         await clickBottomNav(step.label);
@@ -1230,15 +1235,11 @@ enum NativeUiTestRunnerScript {
         clickElement(voiceTarget);
         await sleep(400);
         return;
-      case "wait_voice_mode":
-        await waitForVoiceMode(
-          step.modes || step.mode,
+      case "wait_command_capture_state":
+        await waitForCommandCaptureState(
+          step.states || step.state,
           step.timeoutMs,
-          step.allowPermissionFallback === true,
         );
-        return;
-      case "end_voice_if_active":
-        await endVoiceIfActive(step.timeoutMs);
         return;
       case "click_testid":
         var testTarget = firstVisible('[data-testid="' + step.testId + '"]');
@@ -1250,6 +1251,9 @@ enum NativeUiTestRunnerScript {
         return;
       case "navigate_route":
         await navigateWithNativeRouter(step.route);
+        return;
+      case "assert_route":
+        await waitForExactRoute(step.route, step.timeoutMs);
         return;
       case "wait_beacon":
         await waitForBeacon(step.routeIds, step.dataStates, step.timeoutMs);

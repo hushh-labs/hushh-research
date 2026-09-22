@@ -9,17 +9,60 @@ then stores them in the PKM with appropriate domain classification.
 import json
 import logging
 from dataclasses import dataclass
+from functools import lru_cache
+from pathlib import Path
 from typing import Optional
 
 from google.genai import types as genai_types
 
 from hushh_mcp.constants import GEMINI_MODEL
+from hushh_mcp.hushh_adk.manifest import ManifestLoader
+from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent, run_single_turn
 from hushh_mcp.runtime_providers import (
     build_generate_content_config,
     build_managed_runtime_client,
 )
 
 logger = logging.getLogger(__name__)
+
+_MEMORY_MANIFEST_PATH = (
+    Path(__file__).resolve().parents[1] / "agents" / "personal_information" / "agent.yaml"
+)
+_ATTRIBUTE_GENE_ID = "agent_personal_information_attribute_learner"
+_ATTRIBUTE_CONSENT_SCOPE = "attribute.learning"
+_ATTRIBUTE_SCHEMA: dict[str, object] = {
+    "type": "OBJECT",
+    "properties": {
+        "attributes": {
+            "type": "ARRAY",
+            "items": {
+                "type": "OBJECT",
+                "properties": {
+                    "domain": {"type": "STRING"},
+                    "key": {"type": "STRING"},
+                    "value": {"type": "STRING"},
+                    "confidence": {"type": "NUMBER"},
+                },
+                "required": ["domain", "key", "value"],
+            },
+        }
+    },
+    "required": ["attributes"],
+}
+
+
+@lru_cache(maxsize=1)
+def _load_attribute_gene():
+    manifest = ManifestLoader.load(str(_MEMORY_MANIFEST_PATH))
+    try:
+        gene = next(child for child in manifest.subagents if child.id == _ATTRIBUTE_GENE_ID)
+    except StopIteration as exc:
+        raise RuntimeError(f"Memory manifest is missing gene: {_ATTRIBUTE_GENE_ID}") from exc
+    if gene.runtime.adk_mode != "single_turn" or gene.runtime.transport != ["in_process"]:
+        raise RuntimeError("Attribute learner must remain an in-process single-turn gene")
+    if gene.privacy.plaintext_telemetry:
+        raise RuntimeError("Attribute learner must not enable plaintext telemetry")
+    return gene
 
 
 @dataclass
@@ -91,6 +134,9 @@ class AttributeLearner:
         self,
         user_message: str,
         assistant_response: str,
+        *,
+        user_id: str = "attribute-learner",
+        consent_token: str = _ATTRIBUTE_CONSENT_SCOPE,
     ) -> list[ExtractedAttribute]:
         """
         Extract structured attributes from a conversation turn.
@@ -110,6 +156,51 @@ class AttributeLearner:
                 user_message=user_message,
                 assistant_response=assistant_response,
             )
+
+            # Production managed clients use the manifest-owned Memory Agent
+            # gene and the shared ADK single-turn runtime. Test doubles retain
+            # the direct client seam so existing deterministic tests do not
+            # acquire credentials or network access.
+            try:
+                from google.adk.models import Gemini
+                from google.genai import Client
+
+                if isinstance(self.client, Client):
+                    gene = _load_attribute_gene()
+                    model_name = str(gene.model_config_for_runtime().name)
+                    model = Gemini(model=model_name, client=self.client)
+                    agent = build_single_turn_agent(
+                        gene,
+                        output_schema=_ATTRIBUTE_SCHEMA,
+                        model=model,
+                    )
+                    result = await run_single_turn(
+                        agent,
+                        prompt_parts=prompt,
+                        user_id=str(user_id),
+                        consent_token=str(consent_token),
+                        timeout_seconds=max(30.0, gene.performance.latency_p95_ms / 1000),
+                    )
+                    payload = (
+                        result.model_dump(mode="json") if hasattr(result, "model_dump") else result
+                    )
+                    result_attributes = (
+                        payload.get("attributes", []) if isinstance(payload, dict) else []
+                    )
+                    return [
+                        ExtractedAttribute(
+                            domain=str(attr["domain"]).lower().strip(),
+                            key=str(attr["key"]).lower().strip().replace(" ", "_"),
+                            value=str(attr["value"]),
+                            confidence=float(attr.get("confidence", 0.8)),
+                        )
+                        for attr in result_attributes
+                        if isinstance(attr, dict)
+                        and all(key in attr for key in ("domain", "key", "value"))
+                    ]
+            except Exception as exc:
+                logger.warning("attribute_learner.adk_gene_failed error=%s", type(exc).__name__)
+                return []
 
             config = build_generate_content_config(
                 genai_types,
@@ -171,7 +262,12 @@ class AttributeLearner:
             List of stored attributes as dicts
         """
         # Extract attributes
-        attributes = await self.extract_attributes(user_message, assistant_response)
+        attributes = await self.extract_attributes(
+            user_message,
+            assistant_response,
+            user_id=user_id,
+            consent_token=_ATTRIBUTE_CONSENT_SCOPE,
+        )
 
         if not attributes:
             return []

@@ -176,6 +176,14 @@ def test_portfolio_import_runs_the_fleet_model_with_no_private_knob():
     assert "extraction_model = _resolve_portfolio_import_model()" in portfolio_source
 
 
+def test_portfolio_import_extraction_uses_manifest_owned_single_turn_runtime():
+    portfolio_source = (_ROOT / "api/routes/kai/portfolio.py").read_text(encoding="utf-8")
+
+    assert "_portfolio_import_extract_gene" in portfolio_source
+    assert "run_portfolio_gene(" in portfolio_source
+    assert "generate_content_stream(" not in portfolio_source
+
+
 def test_stream_routes_emit_terminal_events():
     portfolio_source = (_ROOT / "api/routes/kai/portfolio.py").read_text(encoding="utf-8")
     losers_source = (_ROOT / "api/routes/kai/losers.py").read_text(encoding="utf-8")

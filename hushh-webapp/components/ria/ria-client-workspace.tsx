@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import {
   Loader2,
   Unplug,
-} from "lucide-react";
+} from "@/components/icons";
 
 import { PopupTextEditorField } from "@/components/app-ui/command-fields";
 import {
@@ -129,7 +129,7 @@ function AllocationBar({ allocation }: { allocation: Record<string, unknown> }) 
         {segments.map((segment) => (
           <div
             key={segment.key}
-            className="h-full transition-all"
+            className="h-full transition-opacity duration-150"
             style={{
               width: `${Math.round(segment.value * 100)}%`,
               backgroundColor: ALLOCATION_COLORS[segment.key] || ALLOCATION_COLORS.other,
@@ -475,7 +475,7 @@ export function RiaClientWorkspace({
   if (riaCapability === "setup") {
     return (
       <RiaCompatibilityState
-        title="Complete RIA onboarding"
+        title="Complete Advisor onboarding"
         description="Finish onboarding before opening dedicated client workspaces."
         nativeTest={{
           routeId: "/ria/clients/[userId]",

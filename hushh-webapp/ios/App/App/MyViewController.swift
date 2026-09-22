@@ -99,9 +99,12 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         super.viewDidLoad()
 
         // A fresh process starts unshielded. After an inactive transition this
-        // host keeps the native cover above the WebView until the resumed auth
-        // generation explicitly acknowledges validation.
+        // host keeps the native cover above the WebView until the resumed
+        // document explicitly acknowledges that it is ready to be shown.
         HushhSessionPrivacyShield.shared.attach(to: view)
+        HushhSessionPrivacyShield.shared.reloadDocument = { [weak self] in
+            self?.webView?.reload()
+        }
         
         // Disable bounce effect for stable scrolling (fixes iOS layout bounce)
         if let webView = self.webView {
@@ -150,6 +153,9 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         bridge?.registerPluginInstance(HushhInvitationsPlugin())
         bridge?.registerPluginInstance(HushhVoiceInvocationPlugin())
         bridge?.registerPluginInstance(HushhSessionPrivacyPlugin())
+        bridge?.registerPluginInstance(HushhStreamPlugin())
+        bridge?.registerPluginInstance(HushhOAuthReturnPlugin())
+        bridge?.registerPluginInstance(HushhPlaidLinkPlugin())
         
         print("✅ [MyViewController] All 15 plugins registered successfully:")
         print("   - HushhAuth (Google Sign-In)")
@@ -165,7 +171,7 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         print("   - HushhLocation (Foreground Location)")
         print("   - HushhContacts (Contact Matching)")
         print("   - HushhVoiceInvocation (Siri voice + generated action handoff)")
-        print("   - HushhSessionPrivacy (resume validation privacy shield)")
+        print("   - HushhSessionPrivacy (resume privacy shield)")
         
         // Verify plugins are actually accessible by the bridge
         verifyPluginRegistration()
@@ -341,6 +347,8 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         let bootstrapUserMatchesExpected = payload["bootstrapUserMatchesExpected"] as? Bool
         let bootstrapUidOk = bootstrapUserMatchesExpected.map { $0 ? "1" : "0" } ?? ""
         let bootstrapErrorClass = NativeTestArtifactSanitizer.errorClass(payload["bootstrapErrorClass"])
+        // source:uid-prefix, letters, digits, underscore and one colon only.
+        let bootstrapDetail = String((payload["bootstrapDetail"] as? String ?? "").unicodeScalars.filter { CharacterSet.alphanumerics.contains($0) || $0 == "_" || $0 == ":" }).prefix(40)
         let jsErrorClass = NativeTestArtifactSanitizer.errorClass(payload["jsErrorClass"])
         let jsRejectionClass = NativeTestArtifactSanitizer.errorClass(payload["jsRejectionClass"])
         let longWait = (payload["longImportWait"] as? Bool ?? false) ? "1" : "0"
@@ -361,7 +369,7 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         let ready = routeReady && documentReady && markerFound
 
         let safeRoute = normalizeRoute(route)
-        let status = "route=\(safeRoute);ready=\(ready ? "1" : "0");marker=\(marker);auth=\(authState);data=\(dataState);doc=\(readyState);found=\(markerFound ? "1" : "0");routeok=\(routeReady ? "1" : "0");test=\(testEnabled);auto=\(autoReviewerLogin);bridge=\(bridgeBeaconPresent);uirunner=\(nativeUiRunnerPresent);runui=\(runUiFlows);uistarted=\(uiFlowsStarted);uifailed=\(uiFlowsFailed);uiboot=\(uiFlowBootstrapActive);persona=\(activePersona);primary_persona=\(primaryNavPersona);persona_switch=\(personaSwitchStatus);persona_error_class=\(personaSwitchErrorClass);portfolio_start_state=\(portfolioImportStartState);portfolio_start_status=\(portfolioImportStartStatus);portfolio_start_run_present=\(portfolioImportStartRunPresent);portfolio_start_error_class=\(portfolioImportStartErrorClass);portfolio_stream_state=\(portfolioStreamState);portfolio_stream_run_present=\(portfolioStreamRunPresent);portfolio_events=\(portfolioStreamEventCount);portfolio_last_event=\(portfolioStreamLastEvent);portfolio_last_seq=\(portfolioStreamLastSeq);portfolio_stream_error_class=\(portfolioStreamLastErrorClass);trigger=\(triggerReviewerLoginPresent);vault_trigger=\(triggerVaultUnlockPresent);vaultcfg=\(vaultPassphraseConfigured);uidcfg=\(expectedUserConfigured);vault_crypto_stage=\(vaultCryptoStage);vault_crypto_error_class=\(NativeTestArtifactSanitizer.errorClass(vaultCryptoErrorName));vault_crypto_subtle=\(vaultCryptoSubtleAvailable);vault_crypto_passphrase_match=\(vaultCryptoPassphraseMatchesConfig);vault_crypto_passphrase_bytes=\(vaultCryptoPassphraseUtf8Length);vault_crypto_salt_bytes=\(vaultCryptoSaltLength);vault_crypto_iv_bytes=\(vaultCryptoIvLength);vault_crypto_ciphertext_bytes=\(vaultCryptoCiphertextLength);vault_struct_available=\(vaultBridgeParityAvailable);vault_struct=\(vaultBridgeParityAll);vault_struct_wrappers=\(vaultBridgeWrapperCount);vault_struct_encrypted=\(vaultBridgeEncrypted);vault_struct_salt=\(vaultBridgeSalt);vault_struct_iv=\(vaultBridgeIv);domtest=\(domTestEnabled);domauto=\(domAutoReviewerLogin);reviewer=\(reviewerButtonFound);bootstrap=\(bootstrapState);bootstrap_uid_ok=\(bootstrapUidOk);bootstrap_error_class=\(bootstrapErrorClass);jserr_class=\(jsErrorClass);jsrej_class=\(jsRejectionClass);long_wait=\(longWait);visible404=\(visible404 ? "1" : "0");ui_complete=\(uiFlowsComplete);ui_ok=\(uiFlowsOk);ui_run=\(uiFlowAuditRunId);ui_plan=\(uiFlowAuditPlanDigest);ui_flow=\(uiFlowCurrent);ui_step=\(uiFlowStepIndex);ui_step_type=\(uiFlowStepType);ui_checkpoint=\(uiFlowCheckpoint);ui_layout=\(uiFlowLayout);ui_error_class=\(uiFlowErrorClass);error_class=\(NativeTestArtifactSanitizer.errorClass(errorCode))"
+        let status = "route=\(safeRoute);ready=\(ready ? "1" : "0");marker=\(marker);auth=\(authState);data=\(dataState);doc=\(readyState);found=\(markerFound ? "1" : "0");routeok=\(routeReady ? "1" : "0");test=\(testEnabled);auto=\(autoReviewerLogin);bridge=\(bridgeBeaconPresent);uirunner=\(nativeUiRunnerPresent);runui=\(runUiFlows);uistarted=\(uiFlowsStarted);uifailed=\(uiFlowsFailed);uiboot=\(uiFlowBootstrapActive);persona=\(activePersona);primary_persona=\(primaryNavPersona);persona_switch=\(personaSwitchStatus);persona_error_class=\(personaSwitchErrorClass);portfolio_start_state=\(portfolioImportStartState);portfolio_start_status=\(portfolioImportStartStatus);portfolio_start_run_present=\(portfolioImportStartRunPresent);portfolio_start_error_class=\(portfolioImportStartErrorClass);portfolio_stream_state=\(portfolioStreamState);portfolio_stream_run_present=\(portfolioStreamRunPresent);portfolio_events=\(portfolioStreamEventCount);portfolio_last_event=\(portfolioStreamLastEvent);portfolio_last_seq=\(portfolioStreamLastSeq);portfolio_stream_error_class=\(portfolioStreamLastErrorClass);trigger=\(triggerReviewerLoginPresent);vault_trigger=\(triggerVaultUnlockPresent);vaultcfg=\(vaultPassphraseConfigured);uidcfg=\(expectedUserConfigured);vault_crypto_stage=\(vaultCryptoStage);vault_crypto_error_class=\(NativeTestArtifactSanitizer.errorClass(vaultCryptoErrorName));vault_crypto_subtle=\(vaultCryptoSubtleAvailable);vault_crypto_passphrase_match=\(vaultCryptoPassphraseMatchesConfig);vault_crypto_passphrase_bytes=\(vaultCryptoPassphraseUtf8Length);vault_crypto_salt_bytes=\(vaultCryptoSaltLength);vault_crypto_iv_bytes=\(vaultCryptoIvLength);vault_crypto_ciphertext_bytes=\(vaultCryptoCiphertextLength);vault_struct_available=\(vaultBridgeParityAvailable);vault_struct=\(vaultBridgeParityAll);vault_struct_wrappers=\(vaultBridgeWrapperCount);vault_struct_encrypted=\(vaultBridgeEncrypted);vault_struct_salt=\(vaultBridgeSalt);vault_struct_iv=\(vaultBridgeIv);domtest=\(domTestEnabled);domauto=\(domAutoReviewerLogin);reviewer=\(reviewerButtonFound);bootstrap=\(bootstrapState);bootstrap_uid_ok=\(bootstrapUidOk);bootstrap_error_class=\(bootstrapErrorClass);bootstrap_detail=\(bootstrapDetail);jserr_class=\(jsErrorClass);jsrej_class=\(jsRejectionClass);long_wait=\(longWait);visible404=\(visible404 ? "1" : "0");ui_complete=\(uiFlowsComplete);ui_ok=\(uiFlowsOk);ui_run=\(uiFlowAuditRunId);ui_plan=\(uiFlowAuditPlanDigest);ui_flow=\(uiFlowCurrent);ui_step=\(uiFlowStepIndex);ui_step_type=\(uiFlowStepType);ui_checkpoint=\(uiFlowCheckpoint);ui_layout=\(uiFlowLayout);ui_error_class=\(uiFlowErrorClass);error_class=\(NativeTestArtifactSanitizer.errorClass(errorCode))"
         nativeTestStatusLabel?.update(status: status)
         NativeTestStatusStore.write(status)
     }

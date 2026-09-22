@@ -15,6 +15,8 @@
  * Caching: uses CacheService for in-memory caching with TTL to reduce API calls.
  */
 
+import type { LocationPkmFinalizeAuthorizationV1 } from "@/lib/services/one-location-onboarding-run-client";
+import { locationFinalizeWire } from "@/lib/one-location/pkm-finalize-authorization";
 import { Capacitor } from "@capacitor/core";
 import { HushhPersonalKnowledgeModel } from "@/lib/capacitor";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
@@ -150,6 +152,8 @@ export interface StoreDomainDataResult {
   updatedAt?: string;
   manifestRevision?: number;
   commitId?: string;
+  locationRunRevision?: number;
+  locationPlaceReceiptId?: string;
   archivedRevisionId?: string;
   preservationReceipt?: PreservationReceiptV1;
 }
@@ -1152,6 +1156,7 @@ export class PersonalKnowledgeModelService {
     userId: string;
     fullBlob: Record<string, unknown>;
     vaultOwnerToken?: string;
+    isEffectCurrent?: () => boolean;
   }): Promise<void> {
     if (Capacitor.isNativePlatform()) {
       return;
@@ -1195,6 +1200,7 @@ export class PersonalKnowledgeModelService {
           `/api/tickers/sync-holdings/${encodeURIComponent(params.userId)}`,
           {
             method: "POST",
+            isEffectCurrent: params.isEffectCurrent,
             headers: {
               "Content-Type": "application/json",
               ...this.getAuthHeaders(params.vaultOwnerToken),
@@ -1208,27 +1214,29 @@ export class PersonalKnowledgeModelService {
           }
         );
         if (!response.ok) {
-          const errorText = await response.text().catch(() => "");
           console.warn(
-            `[PersonalKnowledgeModelService] ticker sync failed (${response.status}) for ${params.userId}: ${errorText}`
+            `[PersonalKnowledgeModelService] ticker sync failed (HTTP ${response.status}).`
           );
           return;
         }
 
         const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+        if (params.isEffectCurrent && !params.isEffectCurrent()) return;
         const changeCount =
           Number(payload.seeded_rows || 0) +
           Number(payload.seed_updates || 0) +
           Number(payload.enrichment_updated || 0);
         if (changeCount > 0) {
           const { preloadTickerUniverse } = await import("@/lib/kai/ticker-universe-cache");
+          if (params.isEffectCurrent && !params.isEffectCurrent()) return;
           await preloadTickerUniverse({ forceRefresh: true }).catch(() => undefined);
         }
 
+        if (params.isEffectCurrent && !params.isEffectCurrent()) return;
         this.tickerSyncSignatureByUser.set(params.userId, signature);
         this.tickerSyncLastAt.set(params.userId, Date.now());
-      } catch (error) {
-        console.warn("[PersonalKnowledgeModelService] ticker sync request failed:", error);
+      } catch {
+        console.warn("[PersonalKnowledgeModelService] ticker sync request did not complete.");
       }
     })();
 
@@ -1562,7 +1570,8 @@ export class PersonalKnowledgeModelService {
   static async getMetadata(
     userId: string,
     forceRefresh = false,
-    vaultOwnerToken?: string
+    vaultOwnerToken?: string,
+    options: { allowStaleFallback?: boolean } = {},
   ): Promise<PersonalKnowledgeModelMetadata> {
     const cache = CacheService.getInstance();
     const cacheKey = CACHE_KEYS.PKM_METADATA(userId);
@@ -1571,7 +1580,7 @@ export class PersonalKnowledgeModelService {
     const staleMemorySnapshot = cache.peek<PersonalKnowledgeModelMetadata>(cacheKey);
     let deviceFallback: PersonalKnowledgeModelMetadata | null = null;
 
-    if (!forceRefresh) {
+    if (!forceRefresh && options.allowStaleFallback !== false) {
       if (staleMemorySnapshot?.isFresh && this.isAuthoritativeMetadataSnapshot(staleMemorySnapshot.data)) {
         this.logMetadataRequest("cache_hit", {
           tier: "memory",
@@ -1614,6 +1623,7 @@ export class PersonalKnowledgeModelService {
       Capacitor.isNativePlatform() ? "native" : "web",
       vaultOwnerToken ? "vault_owner" : "anonymous",
       forceRefresh ? "refresh" : "cached",
+      options.allowStaleFallback === false ? "authoritative" : "fallback_allowed",
     ]);
     const existingRequest = this.metadataInflight.get(dedupeKey);
     if (existingRequest) {
@@ -1795,6 +1805,11 @@ export class PersonalKnowledgeModelService {
           }
         }
 
+        // Background writes need current version authority, not a stale
+        // display fallback. An authoritative 404 still means a new owner.
+        if (options.allowStaleFallback === false && !response.ok && response.status !== 404) {
+          throw new Error(`PKM metadata unavailable (HTTP ${response.status}).`);
+        }
         // Handle 404 as valid "no data" response for new users
         if (response.status === 404) {
           result = this.emptyMetadata(userId);
@@ -1965,6 +1980,9 @@ export class PersonalKnowledgeModelService {
     upgradeContext?: PkmUpgradeContext;
     preservationReceipt?: PreservationReceiptV1;
     mutationPlan?: PkmMutationPlanV2;
+    locationFinalizeAuthorization?: LocationPkmFinalizeAuthorizationV1;
+    beforeEffect?: () => Promise<void>;
+    mayPublish?: () => boolean;
     syncCheckpoint?: PkmSyncCheckpointMetadata;
     vaultOwnerToken?: string;
   }): Promise<StoreDomainDataResult> {
@@ -2035,6 +2053,8 @@ export class PersonalKnowledgeModelService {
       : undefined;
 
     if (Capacitor.isNativePlatform()) {
+      await params.beforeEffect?.();
+      if (params.mayPublish && !params.mayPublish()) throw new DOMException("The effect session changed.", "AbortError");
       const result = await HushhPersonalKnowledgeModel.storeDomainData({
         userId: params.userId,
         domain: params.domain,
@@ -2053,6 +2073,7 @@ export class PersonalKnowledgeModelService {
         upgradeContext: params.upgradeContext,
         preservationReceipt: params.preservationReceipt,
         mutationPlan: params.mutationPlan,
+        locationFinalizeAuthorization: params.locationFinalizeAuthorization ? locationFinalizeWire(params.locationFinalizeAuthorization) : undefined,
         syncCheckpoint: params.syncCheckpoint,
         vaultOwnerToken: this.getVaultOwnerToken(params.vaultOwnerToken),
       });
@@ -2065,7 +2086,7 @@ export class PersonalKnowledgeModelService {
         typeof result.message === "string" ? result.message : undefined;
 
       // Invalidate caches after successful native store
-      if (result.success) {
+      if (result.success && (params.mayPublish?.() ?? true)) {
         const enrichedEncryptedBlob: EncryptedUserBlob = {
           ...params.encryptedBlob,
           dataVersion: resolvedDataVersion,
@@ -2088,6 +2109,8 @@ export class PersonalKnowledgeModelService {
         updatedAt: resolvedUpdatedAt,
         manifestRevision: result.manifestRevision,
         commitId: result.commitId,
+        locationRunRevision: result.locationRunRevision,
+        locationPlaceReceiptId: result.locationPlaceReceiptId,
         archivedRevisionId: result.archivedRevisionId,
         preservationReceipt: result.preservationReceipt,
       };
@@ -2112,6 +2135,7 @@ export class PersonalKnowledgeModelService {
         payload: projection.payload,
       })),
       mutation_plan: params.mutationPlan,
+      location_finalize_authorization: params.locationFinalizeAuthorization ? locationFinalizeWire(params.locationFinalizeAuthorization) : undefined,
     };
     if (Number.isFinite(params.expectedDataVersion)) {
       payload.expected_data_version = Math.max(0, Number(params.expectedDataVersion));
@@ -2166,6 +2190,7 @@ export class PersonalKnowledgeModelService {
     }
 
     // Web: Use ApiService.apiFetch() for tri-flow compliance
+    await params.beforeEffect?.();
     const response = await ApiService.apiFetch(`${this.PKM_API_PREFIX}/store-domain`, {
       method: "POST",
       headers: {
@@ -2173,6 +2198,8 @@ export class PersonalKnowledgeModelService {
         ...this.getAuthHeaders(params.vaultOwnerToken),
       },
       body: JSON.stringify(payload),
+      beforeDispatch: params.beforeEffect,
+      isEffectCurrent: params.mayPublish,
     });
 
     if (!response.ok) {
@@ -2226,7 +2253,7 @@ export class PersonalKnowledgeModelService {
     };
 
     // Invalidate caches after successful store
-    CacheSyncService.onPkmDomainStored(params.userId, params.domain, {
+    if (data.success !== false && (params.mayPublish?.() ?? true)) CacheSyncService.onPkmDomainStored(params.userId, params.domain, {
       portfolioData: params.portfolioData,
       domainData: params.domainData,
       encryptedBlob: enrichedEncryptedBlob,
@@ -2243,6 +2270,8 @@ export class PersonalKnowledgeModelService {
       manifestRevision:
         typeof data.manifest_revision === "number" ? data.manifest_revision : undefined,
       commitId: typeof data.commit_id === "string" ? data.commit_id : undefined,
+      locationRunRevision: typeof data.location_run_revision === "number" ? data.location_run_revision : undefined,
+      locationPlaceReceiptId: typeof data.location_place_receipt_id === "string" ? data.location_place_receipt_id : undefined,
       archivedRevisionId:
         typeof data.archived_revision_id === "string" ? data.archived_revision_id : undefined,
       preservationReceipt:
@@ -3141,6 +3170,8 @@ export class PersonalKnowledgeModelService {
     upgradeContext?: PkmUpgradeContext;
     preservationReceipt?: PreservationReceiptV1;
     mutationPlan?: PkmMutationPlanV2;
+    locationFinalizeAuthorization?: LocationPkmFinalizeAuthorizationV1;
+    beforeEffect?: () => Promise<void>;
     syncCheckpoint?: PkmSyncCheckpointMetadata;
     vaultOwnerToken?: string;
     cacheFullBlob?: boolean;
@@ -3150,6 +3181,9 @@ export class PersonalKnowledgeModelService {
     message?: string;
     dataVersion?: number;
     updatedAt?: string;
+    commitId?: string;
+    locationRunRevision?: number;
+    locationPlaceReceiptId?: string;
     fullBlob: Record<string, unknown>;
   }> {
     const previousManifest = await this.getDomainManifest(
@@ -3198,6 +3232,8 @@ export class PersonalKnowledgeModelService {
       upgradeContext: params.upgradeContext,
       preservationReceipt: params.preservationReceipt,
       mutationPlan: params.mutationPlan,
+      locationFinalizeAuthorization: params.locationFinalizeAuthorization,
+      beforeEffect: params.beforeEffect,
       syncCheckpoint: params.syncCheckpoint,
       vaultOwnerToken: params.vaultOwnerToken,
     });
@@ -3228,6 +3264,9 @@ export class PersonalKnowledgeModelService {
       message: result.message,
       dataVersion: result.dataVersion,
       updatedAt: result.updatedAt,
+      commitId: result.commitId,
+      locationRunRevision: result.locationRunRevision,
+      locationPlaceReceiptId: result.locationPlaceReceiptId,
       fullBlob: merged.fullBlob,
     };
   }
@@ -3293,6 +3332,8 @@ export class PersonalKnowledgeModelService {
     syncCheckpoint?: PkmSyncCheckpointMetadata;
     vaultOwnerToken?: string;
     cacheFullBlob?: boolean;
+    beforeEffect?: () => Promise<void>;
+    mayPublish?: () => boolean;
   }): Promise<{
     success: boolean;
     conflict?: boolean;
@@ -3301,11 +3342,13 @@ export class PersonalKnowledgeModelService {
     updatedAt?: string;
     fullBlob: Record<string, unknown>;
   }> {
+    await params.beforeEffect?.();
     const previousManifest = await this.getDomainManifest(
       params.userId,
       params.domain,
       params.vaultOwnerToken
     ).catch(() => null);
+    await params.beforeEffect?.();
     const merged = await this.mergeAndEncryptPreparedBlob({
       baseFullBlob: params.baseFullBlob,
       vaultKey: params.vaultKey,
@@ -3352,17 +3395,24 @@ export class PersonalKnowledgeModelService {
       mutationPlan: params.mutationPlan,
       syncCheckpoint: params.syncCheckpoint,
       vaultOwnerToken: params.vaultOwnerToken,
+      beforeEffect: params.beforeEffect,
+      mayPublish: params.mayPublish,
     });
 
-    if (result.success && params.domain === "financial") {
+    // A confirmed write remains successful after a lock/account change.
+    // Do not republish decrypted state into the replacement session.
+    const mayPublish = params.mayPublish?.() ?? true;
+
+    if (result.success && mayPublish && params.domain === "financial") {
       void this.maybeSyncTickersFromFinancialBlob({
         userId: params.userId,
         fullBlob: merged.fullBlob,
         vaultOwnerToken: params.vaultOwnerToken,
+        isEffectCurrent: params.mayPublish,
       });
     }
 
-    if (result.success && params.cacheFullBlob !== false) {
+    if (result.success && mayPublish && params.cacheFullBlob !== false) {
       const encryptedBlobForCache: EncryptedUserBlob = {
         ...merged.encryptedBlob,
         dataVersion: result.dataVersion,

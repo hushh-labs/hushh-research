@@ -57,20 +57,20 @@ export function describeGmailReceiptScanProgress(params: {
 }): string {
   const scanned = Math.max(0, Math.trunc(params.scanned));
   const matched = Math.max(0, Math.trunc(params.matched));
-  const scannedLabel = `${scanned} email${scanned === 1 ? "" : "s"} checked`;
+  const scannedLabel = `${scanned} mail message${scanned === 1 ? "" : "s"} checked`;
   const matchedLabel =
     matched > 0
       ? `${matched} receipt${matched === 1 ? "" : "s"} matched so far.`
-      : "Looking for receipt emails now.";
+      : "Looking for receipt mail messages now.";
 
   return `${scannedLabel}. ${matchedLabel} Receipt-based purchase interactions help One understand the brands you care about.`;
 }
 
 const GMAIL_OAUTH_RETURN_STATUS_KEY = "profile_gmail_oauth_return_status";
 const GMAIL_GENERIC_SYNC_ERROR =
-  "Something went wrong while syncing your emails. Please try again in a moment.";
+  "Something went wrong while syncing your mail messages. Please try again in a moment.";
 const GMAIL_GENERIC_CONNECTION_ERROR =
-  "We couldn't check your Gmail connection right now. Please try again in a moment.";
+  "We couldn't check your Mail connection right now. Please try again in a moment.";
 const TECHNICAL_ERROR_PATTERNS = [
   "psycopg2",
   "sqlalchemy",
@@ -174,7 +174,9 @@ function isBootstrapRunning(status: GmailConnectionStatus | null): boolean {
   if (latestRun) {
     return hasActiveRun(latestRun);
   }
-  return hasActiveStatus(status);
+  // OAuth completion can arrive just before the durable run is observable.
+  // The explicit bootstrap state remains authoritative in that interval.
+  return true;
 }
 
 function isBackfillRunning(status: GmailConnectionStatus | null): boolean {
@@ -248,7 +250,7 @@ export function resolveGmailConnectedLabel(
 ): string {
   return status?.google_email
     ? `Connected to ${status.google_email}`
-    : "Connected to your Gmail";
+    : "Connected to your Mail";
 }
 
 export function sanitizeGmailUserMessage(
@@ -261,7 +263,7 @@ export function sanitizeGmailUserMessage(
   const fallback = options?.fallback || GMAIL_GENERIC_SYNC_ERROR;
   const authFallback =
     options?.authFallback ||
-    "Reconnect Gmail to continue syncing your receipts.";
+    "Reconnect Mail to continue syncing your receipts.";
   const raw =
     typeof value === "string"
       ? value
@@ -324,7 +326,7 @@ export function resolveGmailStatusSummary(options: {
   if (loading && !status && !errorText) {
     return {
       tone: "loading",
-      title: "Checking your Gmail connection",
+      title: "Checking your Mail connection",
       detail: "This should only take a moment.",
       helper: null,
     };
@@ -333,7 +335,7 @@ export function resolveGmailStatusSummary(options: {
   if (status?.configured === false) {
     return {
       tone: "neutral",
-      title: "Gmail isn't available here",
+      title: "Mail isn't available here",
       detail: "Receipt sync is not enabled for this workspace.",
       helper: null,
     };
@@ -345,7 +347,7 @@ export function resolveGmailStatusSummary(options: {
   ) {
     return {
       tone: "error",
-      title: "Reconnect Gmail",
+      title: "Reconnect Mail",
       detail: "Refresh access to keep receipts syncing.",
       helper: lastUpdated,
     };
@@ -380,7 +382,7 @@ export function resolveGmailStatusSummary(options: {
       title: "Sync failed",
       detail: sanitizeGmailUserMessage(errorText, {
         fallback: "Please try again in a moment.",
-        authFallback: "Reconnect Gmail to continue syncing your receipts.",
+        authFallback: "Reconnect Mail to continue syncing your receipts.",
       }),
       helper: connectedLabel,
     };
@@ -389,7 +391,7 @@ export function resolveGmailStatusSummary(options: {
   if (connected) {
     return {
       tone: "success",
-      title: lastUpdated ? "Receipts are up to date" : "Gmail connected",
+      title: lastUpdated ? "Receipts are up to date" : "Mail connected",
       detail: connectedLabel,
       helper: lastUpdated || "Sync when you want the latest receipts.",
     };
@@ -398,10 +400,10 @@ export function resolveGmailStatusSummary(options: {
   if (errorText) {
     return {
       tone: "error",
-      title: "Couldn't check Gmail",
+      title: "Couldn't check Mail",
       detail: sanitizeGmailUserMessage(errorText, {
         fallback: GMAIL_GENERIC_CONNECTION_ERROR,
-        authFallback: "Reconnect Gmail to continue syncing your receipts.",
+        authFallback: "Reconnect Mail to continue syncing your receipts.",
       }),
       helper: null,
     };
@@ -409,7 +411,7 @@ export function resolveGmailStatusSummary(options: {
 
   return {
     tone: "neutral",
-    title: "Gmail not connected",
+    title: "Mail not connected",
     // No "Connect Gmail to start." prefix: the title above already says Gmail
     // is not connected, and the button below says Connect Gmail.
     detail: GMAIL_INBOX_SIGNAL_EXPLANATION,
@@ -455,7 +457,7 @@ function resolveLatestSyncText(status: GmailConnectionStatus | null): string {
   if (status?.connected && !status.revoked) {
     return "Ready to sync your receipts.";
   }
-  return "Connect Gmail to start syncing receipts.";
+  return "Connect Mail to start syncing receipts.";
 }
 
 export function resolveGmailConnectionPresentation(options: {
@@ -473,7 +475,7 @@ export function resolveGmailConnectionPresentation(options: {
     return {
       state: "loading",
       badgeLabel: "Checking",
-      description: "Checking your Gmail connection…",
+      description: "Checking your Mail connection…",
       latestSyncText: "Loading the latest connection details.",
       latestSyncBadge: null,
       isConnected: false,
@@ -484,7 +486,7 @@ export function resolveGmailConnectionPresentation(options: {
     return {
       state: "connecting",
       badgeLabel: "Connecting",
-      description: "Opening Google so you can connect Gmail.",
+      description: "Opening Google so you can connect Mail.",
       latestSyncText: resolveLatestSyncText(status),
       latestSyncBadge: status?.latest_run?.status || null,
       isConnected: connected,
@@ -521,7 +523,7 @@ export function resolveGmailConnectionPresentation(options: {
     return {
       state: "not_configured",
       badgeLabel: "Unavailable",
-      description: "Gmail sync isn't available in this environment yet.",
+      description: "Mail sync isn't available in this environment yet.",
       latestSyncText: "Connection isn't available here yet.",
       latestSyncBadge: null,
       isConnected: false,
@@ -534,8 +536,8 @@ export function resolveGmailConnectionPresentation(options: {
   ) {
     return {
       state: "needs_reauthentication",
-      badgeLabel: "Reconnect Gmail",
-      description: "Reconnect Gmail to continue syncing your receipts.",
+      badgeLabel: "Reconnect Mail",
+      description: "Reconnect Mail to continue syncing your receipts.",
       latestSyncText: resolveLatestSyncText(status),
       latestSyncBadge:
         status?.latest_run?.status || status?.last_sync_status || null,
@@ -600,10 +602,10 @@ export function resolveGmailConnectionPresentation(options: {
       state: isAuthErrorText(errorText)
         ? "needs_reauthentication"
         : "sync_failed",
-      badgeLabel: isAuthErrorText(errorText) ? "Reconnect Gmail" : "Try again",
+      badgeLabel: isAuthErrorText(errorText) ? "Reconnect Mail" : "Try again",
       description: isAuthErrorText(errorText)
-        ? "Reconnect Gmail to continue syncing your receipts."
-        : "We couldn't check your Gmail connection. Please try again in a moment.",
+        ? "Reconnect Mail to continue syncing your receipts."
+        : "We couldn't check your Mail connection. Please try again in a moment.",
       latestSyncText: resolveLatestSyncText(status),
       latestSyncBadge: status?.latest_run?.status || null,
       isConnected: false,
@@ -613,7 +615,7 @@ export function resolveGmailConnectionPresentation(options: {
   return {
     state: "disconnected",
     badgeLabel: "Not connected",
-    description: "Connect Gmail to bring in your receipts.",
+    description: "Connect Mail to bring in your receipts.",
     latestSyncText: resolveLatestSyncText(status),
     latestSyncBadge: status?.latest_run?.status || null,
     isConnected: false,
@@ -665,7 +667,7 @@ export function resolveGmailSyncFeedback(
         {
           fallback:
             "We couldn't update your receipts. Please try again in a moment.",
-          authFallback: "Reconnect Gmail to continue syncing your receipts.",
+          authFallback: "Reconnect Mail to continue syncing your receipts.",
         },
       ),
     };
@@ -674,7 +676,7 @@ export function resolveGmailSyncFeedback(
   if (hasRecoverableSyncInterruption(status)) {
     return {
       kind: "message",
-      message: "A previous Gmail refresh was interrupted. Your saved receipts are still available.",
+      message: "A previous Mail refresh was interrupted. Your saved receipts are still available.",
     };
   }
 
@@ -684,7 +686,7 @@ export function resolveGmailSyncFeedback(
   ) {
     return {
       kind: "message",
-      message: "Gmail sync was canceled.",
+      message: "Mail sync was canceled.",
     };
   }
 
@@ -699,7 +701,7 @@ export function resolveGmailSyncFeedback(
     if (isBootstrapRunning(status)) {
       return {
         kind: "message",
-        message: "Gmail is scanning recent receipts in the background.",
+        message: "Mail is scanning recent receipts in the background.",
       };
     }
     if (isBackfillRunning(status)) {

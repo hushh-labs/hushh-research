@@ -5,7 +5,6 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { useAuth } from "@/hooks/use-auth";
 import { KaiSearchBar } from "@/components/kai/kai-search-bar";
-import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { isRiaAdvisoryAccessReady } from "@/lib/ria/ria-profile-view-model";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
@@ -20,6 +19,7 @@ import type { AppRuntimeState } from "@/lib/voice/voice-types";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import { useAgentRuntimeStateOptional } from "@/lib/agent/agent-runtime-context";
 import { startAppGoal } from "@/lib/agent/app-goal-client";
+import { navigateToAgentChat } from "@/lib/navigation/agent-navigation";
 
 function toBoolean(value: unknown): boolean | undefined {
   if (typeof value === "boolean") return value;
@@ -54,7 +54,6 @@ export function KaiCommandBarGlobal() {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const agentPopover = useOptionalAgentPopover();
   const createHandoff = useOneConversationSession((state) => state.createHandoff);
   const canonicalAgentRuntime = useAgentRuntimeStateOptional();
   const { user, loading } = useAuth();
@@ -212,11 +211,12 @@ export function KaiCommandBarGlobal() {
   const routeQuery = searchParams?.toString() || "";
   const pathnameWithQuery = routeQuery ? `${pathname || ""}?${routeQuery}` : pathname || "";
   const routeInfo = useMemo(
-    () => deriveVoiceRouteScreen(pathname || "", routeQuery),
-    [pathname, routeQuery]
+    () =>
+      deriveVoiceRouteScreen(pathname || "", routeQuery, {
+        authenticated: signedIn,
+      }),
+    [pathname, routeQuery, signedIn]
   );
-  const agentWindowOpen =
-    agentPopover?.expanded || agentPopover?.motionState === "opening";
 
   const activeAnalysisTask = useMemo(() => {
     if (!userId) return null;
@@ -323,11 +323,11 @@ export function KaiCommandBarGlobal() {
     async (actionId: string, slots?: Record<string, unknown>) => {
       const runtime = canonicalAgentRuntimeRef.current;
       if (!runtime) {
-        const handoff = createHandoff({
+        createHandoff({
           reason: "user_requested",
           transcript: actionId,
         });
-        agentPopover?.openAgent({ handoff });
+        navigateToAgentChat();
         return;
       }
       await startAppGoal({
@@ -357,7 +357,6 @@ export function KaiCommandBarGlobal() {
       setAnalysisParams,
       switchPersona,
       userId,
-      agentPopover,
       createHandoff,
     ]
   );
@@ -366,20 +365,20 @@ export function KaiCommandBarGlobal() {
     (prompt: string) => {
       const transcript = prompt.trim();
       if (!transcript) return;
-      const handoff = createHandoff({
+      createHandoff({
         reason: "user_requested",
         transcript,
       });
-      agentPopover?.openAgent({ handoff });
+      navigateToAgentChat();
     },
-    [agentPopover, createHandoff],
+    [createHandoff],
   );
 
   if (!mounted || loading || !user || reviewScreenActive || portfolioImportSurfaceActive) {
     return null;
   }
 
-  if (chromeState.hideCommandBar || agentWindowOpen) {
+  if (chromeState.hideCommandBar) {
     return null;
   }
 

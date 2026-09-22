@@ -3,8 +3,9 @@
 import type { AgentActionRuntimeResult } from "@/lib/agent/agent-action-runtime";
 import type { PendingOneSystemActionInvocation } from "@/lib/capacitor/one-system-action-invocation";
 
+export type OneCommandInvocation = { id: string; actionId: string; slots: Record<string, string | number | boolean>; expectedOwner?: string };
 export type OneSystemActionExecutor = (
-  invocation: PendingOneSystemActionInvocation,
+  invocation: OneCommandInvocation,
 ) => Promise<AgentActionRuntimeResult>;
 
 let activeExecutor: OneSystemActionExecutor | null = null;
@@ -43,6 +44,10 @@ export function subscribeOneSystemActionExecutor(
 export async function executeOneSystemActionInvocation(
   invocation: PendingOneSystemActionInvocation,
 ): Promise<AgentActionRuntimeResult> {
+  return executeOneCommandInvocation(invocation);
+}
+
+export async function executeOneCommandInvocation(invocation: OneCommandInvocation): Promise<AgentActionRuntimeResult> {
   const executor = activeExecutor;
   if (!executor) {
     return {

@@ -11,10 +11,11 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockDiscover, mockListShortlist, mockShortlist } = vi.hoisted(() => ({
+const { mockDiscover, mockListShortlist, mockShortlist, locationState } = vi.hoisted(() => ({
   mockDiscover: vi.fn(),
   mockListShortlist: vi.fn(),
   mockShortlist: vi.fn(),
+  locationState: { snapshot: null as { latitude: number; longitude: number } | null },
 }));
 
 vi.mock("@/lib/services/nws-nearby-service", async () => {
@@ -39,7 +40,7 @@ vi.mock("@/lib/one-location/use-current-location", () => ({
   useCurrentLocation: () => ({
     status: "idle",
     permission: null,
-    snapshot: null,
+    snapshot: locationState.snapshot,
     error: null,
     request: vi.fn(),
     refresh: vi.fn(),
@@ -171,6 +172,7 @@ const NOT_COVERED = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  locationState.snapshot = null;
   mockListShortlist.mockResolvedValue([]);
   mockDiscover.mockResolvedValue(COVERED);
 });
@@ -196,6 +198,31 @@ function shortlistedProspectsSection() {
 }
 
 describe("Around you", () => {
+  it("retains results when GPS changes within the same discovery area", async () => {
+    locationState.snapshot = { latitude: 47.6811, longitude: -122.2011 };
+    const { rerender } = render(<NearbyAroundYou />);
+    await screen.findByText("Builder One");
+    expect(mockDiscover).toHaveBeenCalledTimes(1);
+
+    locationState.snapshot = { latitude: 47.6812, longitude: -122.2012 };
+    rerender(<NearbyAroundYou />);
+    expect(screen.getByText("Builder One")).toBeVisible();
+    expect(mockDiscover).toHaveBeenCalledTimes(1);
+    expect(mockListShortlist).toHaveBeenCalledTimes(1);
+
+    locationState.snapshot = { latitude: 47.71, longitude: -122.22 };
+    rerender(<NearbyAroundYou />);
+    await waitFor(() => expect(mockDiscover).toHaveBeenCalledTimes(2));
+  });
+
+  it("labels a cold request without displaying accent-filled skeleton cards", async () => {
+    mockDiscover.mockReturnValue(new Promise(() => {}));
+    locationState.snapshot = { latitude: 47.68, longitude: -122.20 };
+    const { container } = render(<NearbyAroundYou />);
+    expect(await screen.findByText("Finding nearby records…")).toBeVisible();
+    expect(container.querySelector('[data-slot="skeleton"]')).toBeNull();
+  });
+
   it("shows saved shortlisted prospects before another place search", async () => {
     mockListShortlist.mockResolvedValue([
       {
@@ -279,7 +306,16 @@ describe("Around you", () => {
     await waitFor(() =>
       expect(screen.getByText("No shortlisted prospects yet.")).toBeInTheDocument(),
     );
-    expect(screen.getByText("Star a public record to save it here.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /shortlisted prospects/i })).toHaveClass(
+      "ui-text-section-label",
+    );
+    expect(screen.getByText("Star a public record to save it here.")).toHaveClass(
+      "ui-text-row-description",
+    );
+    expect(screen.getByText("No shortlisted prospects yet.")).toHaveClass(
+      "text-sm",
+      "text-muted-foreground",
+    );
     expect(screen.getByText(/look around a place/i)).toBeInTheDocument();
   });
 

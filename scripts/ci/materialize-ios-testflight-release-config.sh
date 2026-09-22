@@ -9,7 +9,7 @@ set -euo pipefail
 PROJECT_ID="${GCP_PROJECT_ID:-hushh-pda-uat}"
 GITHUB_ENV_PATH="${GITHUB_ENV:-}"
 RUNNER_TEMP_PATH="${RUNNER_TEMP:-}"
-PRIVACY_CONTRACT_VERSION="${ONE_VOICE_PRIVACY_CONTRACT_VERSION:-one-voice-privacy-v1}"
+PRIVACY_CONTRACT_VERSION="${ONE_VOICE_PRIVACY_CONTRACT_VERSION:-one-voice-privacy-v2}"
 
 if [[ -z "$GITHUB_ENV_PATH" || -z "$RUNNER_TEMP_PATH" ]]; then
   echo "materialize-ios-testflight-release-config requires GitHub Actions runner paths." >&2

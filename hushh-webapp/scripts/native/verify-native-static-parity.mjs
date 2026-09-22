@@ -8,6 +8,7 @@ const iosInfoPlistPath = path.join(repoRoot, "ios/App/App/Info.plist");
 const androidManifestPath = path.join(repoRoot, "android/app/src/main/AndroidManifest.xml");
 const androidContactsPluginPath = path.join(repoRoot, "android/app/src/main/java/com/hussh/app/plugins/HushhContacts/HushhContactsPlugin.kt");
 const routesPath = path.join(repoRoot, "lib/navigation/routes.ts");
+const routeLayoutPath = path.join(repoRoot, "lib/navigation/app-route-layout.contract.json");
 const inventoryPath = path.join(repoRoot, "native-route-inventory.json");
 
 function fail(message) {
@@ -33,9 +34,6 @@ const iosUsageDescriptionKeys = [
 ].map((match) => match[1]);
 const allowedIosUsageDescriptionKeys = new Set([
   "NSMicrophoneUsageDescription",
-  // Native speech recognition is an optional adapter, but the declaration is
-  // mandatory before any iOS transcript provider can be enabled.
-  "NSSpeechRecognitionUsageDescription",
   "NSLocationWhenInUseUsageDescription",
   // Background location sharing (One Location) needs Always authorization.
   "NSLocationAlwaysAndWhenInUseUsageDescription",
@@ -61,12 +59,6 @@ const micUsageMatch = infoPlist.match(
 );
 if (!micUsageMatch?.[1]?.trim()) {
   fail("iOS Info.plist must include non-empty NSMicrophoneUsageDescription.");
-}
-const speechUsageMatch = infoPlist.match(
-  /<key>NSSpeechRecognitionUsageDescription<\/key>\s*<string>([^<]+)<\/string>/
-);
-if (!speechUsageMatch?.[1]?.trim()) {
-  fail("iOS Info.plist must include non-empty NSSpeechRecognitionUsageDescription.");
 }
 const locationUsageMatch = infoPlist.match(
   /<key>NSLocationWhenInUseUsageDescription<\/key>\s*<string>([^<]+)<\/string>/
@@ -181,11 +173,23 @@ if (!infoPlist.includes("<string>location</string>")) {
 }
 
 const routeValues = routeValuesFromRoutesTs(read(routesPath));
+const routeLayout = JSON.parse(read(routeLayoutPath));
+const redirectOnlyRoutes = new Set(
+  routeLayout
+    .filter((route) => route?.mode === "redirect")
+    .map((route) => route.route),
+);
 const inventory = JSON.parse(read(inventoryPath));
 const inventoryRoutes = inventory.routes || [];
 const inventoryRouteSet = new Set(inventoryRoutes.map((route) => route.route));
 
-const missingRoutes = routeValues.filter((route) => !inventoryRouteSet.has(route));
+// Compatibility routes are web redirects, not native destinations. They remain
+// in ROUTES so inbound links and the web proxy stay typed, but must not force a
+// native inventory entry or native smoke surface of their own.
+const missingRoutes = routeValues.filter(
+  (route) =>
+    !inventoryRouteSet.has(route) && !redirectOnlyRoutes.has(route),
+);
 if (missingRoutes.length > 0) {
   fail(`native-route-inventory.json is missing ROUTES entries: ${missingRoutes.join(", ")}`);
 }

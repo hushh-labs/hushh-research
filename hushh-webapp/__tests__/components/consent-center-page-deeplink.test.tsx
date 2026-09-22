@@ -8,6 +8,7 @@ import {
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ConsentCenterPage } from "@/components/consent/consent-center-page";
+import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 
 const mocks = vi.hoisted(() => ({
   replace: vi.fn(),
@@ -461,7 +462,7 @@ describe("ConsentCenterPage requestId deep links", () => {
     expect(
       screen.queryByRole("combobox", { name: "Access duration" }),
     ).toBeNull();
-    expect(screen.getAllByRole("link", { name: "Open Email" })).toHaveLength(1);
+    expect(screen.getAllByRole("link", { name: "Open Mail" })).toHaveLength(1);
     expect(screen.queryByText("Original request")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Allow" }));
@@ -668,7 +669,14 @@ describe("ConsentCenterPage requestId deep links", () => {
 
     render(<ConsentCenterPage />);
 
-    fireEvent.click(await screen.findByRole("button", { name: action }));
+    const decisionButton = await screen.findByRole("button", { name: action });
+    fireEvent.click(decisionButton);
+    if (action === "Decline") {
+      // Decline is irreversible: the first tap only arms it.
+      expect(mutate).not.toHaveBeenCalled();
+      expect(decisionButton).toHaveTextContent("Sure?");
+      fireEvent.click(screen.getByRole("button", { name: "Confirm Decline" }));
+    }
 
     await waitFor(() =>
       expect(mocks.toastError).toHaveBeenCalledWith(errorMessage),
@@ -1242,6 +1250,157 @@ describe("ConsentCenterPage requestId deep links", () => {
     expect(
       screen.getByRole("button", { name: "Stop active access" }),
     ).toBeTruthy();
+  });
+
+  it("needs a confirming second tap before Don't allow denies a request", async () => {
+    render(<ConsentCenterPage />);
+
+    const denyButton = await screen.findByRole("button", {
+      name: "Don't allow",
+    });
+    fireEvent.click(denyButton);
+
+    // The first tap arms the button in place: no new heading, card, or dialog
+    // appears around the decision, and nothing has been denied yet.
+    expect(mocks.handleDeny).not.toHaveBeenCalled();
+    expect(denyButton).toHaveTextContent("Sure?");
+    expect(screen.getByRole("button", { name: "Confirm Don't allow" })).toBe(
+      denyButton,
+    );
+    expect(screen.queryByRole("alertdialog")).toBeNull();
+    expect(screen.getByRole("button", { name: "Allow" })).toBeTruthy();
+
+    fireEvent.click(denyButton);
+
+    expect(mocks.handleDeny).toHaveBeenCalledTimes(1);
+    expect(mocks.handleDeny).toHaveBeenCalledWith("req_deep");
+    expect(denyButton).toHaveTextContent("Don't allow");
+  });
+
+  it("confirms Stop sharing through an alert dialog before revoking", async () => {
+    mocks.search = "tab=active&requestId=req_active_1";
+    mocks.getSummary.mockResolvedValue({
+      ...summaryResponse(),
+      counts: { pending: 0, active: 1, previous: 0 },
+    });
+    mocks.listEntries.mockResolvedValue({
+      ...emptyListResponse(),
+      surface: "active",
+      total: 1,
+      items: [
+        {
+          id: "grant_active_1",
+          request_id: "req_active_1",
+          kind: "active_grant",
+          status: "active",
+          action: "CONSENT_GRANTED",
+          counterpart_type: "developer",
+          counterpart_id: "developer:app_kushaltrivedi",
+          counterpart_label: "Kushal Trivedi",
+          scope: "attr.financial.*",
+          issued_at: "2026-07-09T19:26:29.000Z",
+          expires_at: "2026-07-10T19:26:29.000Z",
+        },
+      ],
+    });
+
+    render(<ConsentCenterPage />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Stop sharing" }),
+    );
+
+    expect(mocks.handleRevoke).not.toHaveBeenCalled();
+    const dialog = await screen.findByRole("alertdialog");
+    expect(dialog).toHaveTextContent("Stop sharing with Kushal Trivedi?");
+
+    const confirmButtons = screen
+      .getAllByRole("button", { name: "Stop sharing" })
+      .filter((button) => dialog.contains(button));
+    expect(confirmButtons).toHaveLength(1);
+    expect(confirmButtons[0]!.getAttribute("data-slot")).toBe(
+      "alert-dialog-action",
+    );
+
+    fireEvent.click(confirmButtons[0]!);
+
+    await waitFor(() =>
+      expect(mocks.handleRevoke).toHaveBeenCalledWith(
+        "attr.financial.*",
+        "req_active_1",
+      ),
+    );
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+  });
+
+  it("advertises no consents.* voice actions the gateway cannot run", async () => {
+    render(<ConsentCenterPage />);
+
+    expect(
+      await screen.findByRole("button", { name: "Don't allow" }),
+    ).toBeTruthy();
+
+    const published = vi.mocked(usePublishVoiceSurfaceMetadata).mock.calls;
+    expect(published.length).toBeGreaterThan(0);
+    const latest = published[published.length - 1]![0] as {
+      actions: unknown[];
+      availableActions: string[];
+      controls: Array<{ id: string; actionId?: string | null }>;
+    };
+    expect(latest.actions).toEqual([]);
+    expect(latest.availableActions).toEqual([]);
+    // The decision controls remain visible as state...
+    expect(latest.controls.map((control) => control.id)).toEqual(
+      expect.arrayContaining([
+        "consent_search",
+        "consent_detail_panel",
+        "consent_approve",
+        "consent_deny",
+      ]),
+    );
+    // ...but none of them names an action id nothing could resolve.
+    expect(latest.controls.every((control) => !control.actionId)).toBe(true);
+    expect(JSON.stringify(latest)).not.toContain("consents.");
+  });
+
+  it("describes grouped history in the owner's words", async () => {
+    mocks.search = "tab=history&requestId=identifier:macy";
+    mocks.getSummary.mockResolvedValue({
+      ...summaryResponse(),
+      counts: { pending: 0, active: 0, previous: 1 },
+    });
+    const grouped = groupedHistoryListResponse();
+    const [entry] = grouped.items;
+    mocks.listEntries.mockResolvedValue({
+      ...grouped,
+      items: [
+        {
+          ...entry,
+          trail_count: 3,
+          event_count: 3,
+          consent_trails: [
+            ...entry!.consent_trails,
+            {
+              id: "trail_unlabelled",
+              status: "approved",
+              action: "CONSENT_GRANTED",
+              issued_at: "2026-06-16T12:00:00.000Z",
+              event_count: 0,
+              events: [],
+            },
+          ],
+        },
+      ],
+    });
+
+    render(<ConsentCenterPage />);
+
+    expect(await screen.findByText("Access history")).toBeTruthy();
+    expect(screen.getByText("3 events across 3 requests.")).toBeTruthy();
+    expect(screen.getByText("Shared information")).toBeTruthy();
+    expect(screen.queryByText("Consent scope")).toBeNull();
+    expect(screen.queryByText(/consent events? across/)).toBeNull();
+    expect(screen.queryByText(/lifecycle/)).toBeNull();
   });
 
   it("disables the matching lifecycle revoke button while revoke is in flight", async () => {

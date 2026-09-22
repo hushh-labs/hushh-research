@@ -154,20 +154,20 @@ for (const dark of [false, true]) {
           }),
         );
         for (const row of measurements) {
-          expect(row.inset, row.title ?? "").toBeCloseTo(68, 0);
-          expect(row.separator).toBeCloseTo(68, 0);
-          expect(row.avatarWidth).toBe(40);
-          expect(row.avatarHeight).toBe(40);
-          expect(row.fontSize).toBeLessThanOrEqual(16);
-          expect(row.timeTop).toBeGreaterThanOrEqual(row.descriptionBottom);
-          expect(row.timeWidth).toBeGreaterThan(40);
-          expect(row.height).toBeGreaterThanOrEqual(72);
-          expect(row.height).toBeLessThanOrEqual(220);
-          expect(row.overflow, row.title ?? "").toBe(false);
+          expect.soft(row.inset, row.title ?? "").toBeCloseTo(68, 0);
+          expect.soft(row.separator).toBeCloseTo(68, 0);
+          expect.soft(row.avatarWidth).toBe(40);
+          expect.soft(row.avatarHeight).toBe(40);
+          expect.soft(row.fontSize).toBeLessThanOrEqual(16);
+          expect.soft(row.timeTop).toBeGreaterThanOrEqual(row.descriptionBottom);
+          expect.soft(row.timeWidth).toBeGreaterThan(40);
+          expect.soft(row.height).toBeGreaterThanOrEqual(72);
+          expect.soft(row.height).toBeLessThanOrEqual(220);
+          expect.soft(row.overflow, row.title ?? "").toBe(false);
           for (const action of row.actions)
             expect(action.height).toBeGreaterThanOrEqual(44);
           if (width < 640 && row.actions.length)
-            expect(row.actions[0].left).toBeCloseTo(68, 0);
+            expect.soft(row.actions[0].left).toBeCloseTo(68, 0);
         }
         await expect(
           page.locator("button button, button a, a button"),

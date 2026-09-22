@@ -12,7 +12,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from api.middleware import require_firebase_auth
+from api.middleware import require_firebase_auth, require_firebase_auth_read_only
 from hushh_mcp.services.model_preference_service import (
     ModelPreferenceError,
     get_preference,
@@ -29,7 +29,9 @@ class ModelPreferenceRequest(BaseModel):
 
 
 @router.get("/preference")
-async def read_model_preference(user_id: str = Depends(require_firebase_auth)) -> dict[str, Any]:
+async def read_model_preference(
+    user_id: str = Depends(require_firebase_auth_read_only),
+) -> dict[str, Any]:
     preference: dict[str, Any] = await get_preference(user_id=user_id)
     return preference
 

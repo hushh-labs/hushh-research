@@ -144,6 +144,15 @@ const EVENT_ALLOWED_KEYS: Record<ObservabilityEventName, readonly string[]> = {
     "result",
     "circle_kind",
   ],
+  one_location_journey_action: [
+    ...BASE_ALLOWED_KEYS,
+    "action",
+    "result",
+    "entry_surface",
+    "target_type",
+    "circle_kind",
+    "count_bucket",
+  ],
   one_location_sos_triggered: [
     ...BASE_ALLOWED_KEYS,
     "route_id",

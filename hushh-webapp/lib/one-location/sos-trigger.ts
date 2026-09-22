@@ -150,6 +150,12 @@ export function selectSmsRecipients(
 
 export interface RunSosPanicParams {
   vaultOwnerToken: string;
+  /**
+   * The signed-in owner the incident record belongs to. When given, the
+   * persisted incident is owner-scoped (see `loadSosIncident`); a caller that
+   * cannot name the owner writes a legacy, unscoped record.
+   */
+  ownerUserId?: string | null;
   /** Only share-ready recipients — caller must pre-filter with isSosShareReadyRecipient. */
   recipients: SosShareReadyRecipient[];
   point: PlainLocationPoint;
@@ -197,9 +203,12 @@ export type SosPanicResult = SosIncident & {
  * call so that a partial incident (publish failure mid-loop) still contains
  * every grant id that was created and can be revoked by handleStopSos.
  *
- * On full or partial success the incident is written via `saveSosIncident`.
- * On total failure (first grant creation throws) nothing is persisted and a
- * SosPanicError with partialIncident === null is thrown.
+ * The incident is persisted the moment each grant exists (an idempotent
+ * overwrite with the ids so far), so a crash, a reload or a lost tab between
+ * one `createGrant` and the next never orphans a live 8-hour share; the final
+ * write after the loop is the complete record. On total failure (first grant
+ * creation throws) nothing is persisted and a SosPanicError with
+ * partialIncident === null is thrown.
  *
  * @throws {SosPanicError} Always on failure — carries the partial incident
  *   (if any grants were created) or null (if none were).
@@ -224,8 +233,14 @@ export async function runSosPanic(
   // Capture a single timestamp used for both the success incident and any
   // partial incident — prevents clock skew between the two code paths.
   const startedAt = new Date().toISOString();
+  const owner = String(params.ownerUserId ?? "").trim();
   const grantIds: string[] = [];
   const delivery: SosDeliveryOutcome[] = [];
+  const incidentSoFar = (): SosIncident => ({
+    grantIds: [...grantIds],
+    startedAt,
+    ...(owner ? { ownerUserId: owner } : {}),
+  });
 
   try {
     for (const recipient of recipients) {
@@ -238,8 +253,10 @@ export async function runSosPanic(
         shareKind: "sos",
       });
       // Record the grant id BEFORE publish so it is never orphaned even if
-      // publish throws for this or a later recipient.
+      // publish throws for this or a later recipient, and persist it at once
+      // so a crash before the next create leaves a stoppable record behind.
       grantIds.push(grant.id);
+      saveSosIncident(incidentSoFar());
       const alerted = await publish(grant, recipient, point);
       delivery.push({
         userId: recipient.userId,
@@ -248,7 +265,7 @@ export async function runSosPanic(
       });
     }
 
-    const incident: SosIncident = { grantIds, startedAt };
+    const incident: SosIncident = incidentSoFar();
     // Only incident fields are persisted; delivery is per-attempt UI feedback
     // and would be stale the moment it was read back from storage.
     saveSosIncident(incident);
@@ -256,7 +273,7 @@ export async function runSosPanic(
   } catch (error) {
     // Build partial incident from whatever grants were successfully created.
     const partial: SosIncident | null = grantIds.length
-      ? { grantIds, startedAt }
+      ? incidentSoFar()
       : null;
 
     // Best-effort persistence — if localStorage is full/unavailable the caller

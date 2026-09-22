@@ -8,7 +8,7 @@ import {
   Loader2,
   Share2,
   type LucideIcon,
-} from "lucide-react";
+} from "@/components/icons";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 
 import {

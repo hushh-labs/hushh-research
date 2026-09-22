@@ -20,19 +20,23 @@ import {
   withRequestIdJson,
 } from "@/app/api/_utils/request-id";
 import { isDevelopment, logSecurityEvent } from "@/lib/config";
+import {
+  isRequestTimeoutError,
+  resolveSlowRequestTimeoutMs,
+} from "@/lib/utils/request-timeouts";
 
 export const dynamic = "force-dynamic";
 
 const PYTHON_API_URL = getPythonApiUrl();
 const VAULT_GET_TIMEOUT_MS = Number.parseInt(
-  process.env.VAULT_GET_TIMEOUT_MS ?? "12000",
+  process.env.VAULT_GET_TIMEOUT_MS ?? `${resolveSlowRequestTimeoutMs(12_000)}`,
   10
 );
 // Extended budget for the single retry, sized to absorb a cold backend /
 // database connection pool warm-up (which has been observed to take tens of
 // seconds on the first request after idle).
 const VAULT_GET_RETRY_TIMEOUT_MS = Number.parseInt(
-  process.env.VAULT_GET_RETRY_TIMEOUT_MS ?? "45000",
+  process.env.VAULT_GET_RETRY_TIMEOUT_MS ?? `${resolveSlowRequestTimeoutMs(45_000)}`,
   10
 );
 const inflightVaultGet = new Map<string, Promise<{ status: number; payload: unknown }>>();
@@ -118,7 +122,7 @@ export async function GET(request: NextRequest) {
       // still warming up. A single hard timeout there turns a slow-but-healthy
       // backend into a user-facing 503. So we attempt twice: a first try with
       // the normal timeout, then one retry with a longer timeout that absorbs
-      // the cold start. Only timeouts (AbortError) and 5xx responses are
+      // the cold start. Only timeouts and 5xx responses are
       // retried; 4xx and 404 are returned immediately.
       const attempt = async (timeoutMs: number) =>
         fetch(`${PYTHON_API_URL}/db/vault/get`, {
@@ -145,7 +149,7 @@ export async function GET(request: NextRequest) {
       } catch (firstError) {
         // The first attempt timed out (or the connection dropped). Retry once
         // with a longer budget that covers the cold start before giving up.
-        if ((firstError as Error)?.name === "AbortError") {
+        if (isRequestTimeoutError(firstError)) {
           console.warn(
             `[API] request_id=${requestId} vault_get timed out after ${VAULT_GET_TIMEOUT_MS}ms; retrying with extended timeout`
           );

@@ -438,6 +438,7 @@ export class HushhVaultWeb extends WebPlugin {
     userId: string;
     displayName: string;
     rpId: string;
+    requestId?: string;
   }): Promise<{
     credentialId: string;
     prfSalt: string;
@@ -451,11 +452,20 @@ export class HushhVaultWeb extends WebPlugin {
     rpId: string;
     credentialId?: string;
     prfSalt: string;
+    requestId?: string;
   }): Promise<{
     credentialId: string;
     vaultKeyHex: string;
   }> {
     throw new Error("authenticatePasskeyPrf is not available in web fallback");
+  }
+
+  async cancelPasskeyAuthentication(_options?: {
+    requestId?: string;
+  }): Promise<{ cancelled: boolean }> {
+    // Web PRF calls navigator.credentials directly; that path is cancelled by
+    // cancelPendingPrfAuthentication rather than this native-plugin fallback.
+    return { cancelled: false };
   }
 
   // ==================== Domain Data Methods (Web Fallback) ====================

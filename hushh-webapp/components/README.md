@@ -7,6 +7,33 @@
 4. Morphy UX is the standalone design-system root for reusable surfaces, motion, ripple, and tokens.
 5. Keep chart primitives stock via `components/ui/chart.tsx`.
 6. Never add custom files to `components/ui`.
+7. Frame pacing is a contract, not an audit. A new surface animates only
+   `transform` and `opacity`; never writes a custom property on `<html>` per
+   frame (write on the element that consumes it); never registers a
+   non-passive touch listener on `window`; never watches `document.body` with
+   a subtree observer; never sets `will-change` outside the gesture that needs
+   it; never drives a React state update from an audio, scroll or streaming
+   frame; passes `CHART_ANIMATION_ACTIVE` to every chart series and
+   `CHART_TOOLTIP_TRIGGER` to every chart tooltip; takes any
+   z-index from the `--z-*` ladder; never puts `backdrop-blur` on a list
+   row that moves under a flick (the `backdrop-filter-on-list-row` rule;
+   blur stays on fixed chrome); and passes
+   `debounce={CHART_RESIZE_DEBOUNCE_MS}` to every raw `ResponsiveContainer`.
+   `npm run verify:render-performance` fails
+   a violation, and the allowlist beside it only shrinks. The reasoning and the
+   measuring tools are in `docs/reference/mobile/render-performance-charter.md`;
+   a change to the shell scroll engines, sheets, streaming or the chrome masks
+   ships with before/after probe numbers (`?perf=1`).
+
+## Form geometry
+
+Core direct-entry controls use the shared `--app-input-radius` capsule token.
+`Input`, `InputGroup`, `Textarea`, `SelectTrigger`, `CommandInput`, and
+combobox field shells must use that token; compound controls keep inner
+controls square. Use the shared `--app-form-field-gap`, `--app-form-related-gap`, and
+`--app-form-section-gap` tokens for label, related-action, and section rhythm.
+Credential escape actions keep Recovery key beside Sign out in one quiet group
+when the hard gate exposes both, while preserving 44px hit targets.
 
 ## Folder Ownership
 | Folder | Purpose |
@@ -53,6 +80,7 @@ Run from `hushh-webapp`:
 
 ```bash
 npm run verify:design-system
+npm run verify:render-performance
 npm run verify:service-boundary
 npm run verify:cache
 npm run verify:docs
@@ -65,3 +93,4 @@ npm run lint
 2. `docs/reference/quality/frontend-ui-architecture-map.md`
 3. `docs/reference/quality/frontend-pattern-catalog.md`
 4. `docs/reference/architecture/cache-coherence.md`
+5. `docs/reference/mobile/render-performance-charter.md`

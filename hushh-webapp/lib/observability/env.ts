@@ -44,6 +44,10 @@ export function isObservabilityEnabled(): boolean {
 
 export function shouldLoadWebAnalyticsScripts(): boolean {
   if (!isObservabilityEnabled()) return false;
+  // Capacitor renders the exported web shell inside a WebView, but native
+  // builds must emit through Firebase Analytics only. Loading gtag/GTM here
+  // would create a second web identity and duplicate native event delivery.
+  if (process.env.CAPACITOR_BUILD === "true") return false;
   const raw = normalizeValue(process.env.NEXT_PUBLIC_OBSERVABILITY_LOAD_IN_DEV);
   if (["1", "true", "yes", "on"].includes(raw)) return true;
   return process.env.NODE_ENV === "production";

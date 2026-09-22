@@ -29,6 +29,8 @@ export const TYPOGRAPHY_CLASSNAMES = {
   helperText: "ui-text-helper-text",
   statusText: "ui-text-status",
   buttonLabel: "ui-text-button-label",
+  compactButtonLabel: "ui-text-compact-button-label",
+  eyebrow: "ui-text-eyebrow",
   tabLabel: "ui-text-tab-label",
   agentTabLabel: "ui-text-agent-tab-label",
   caption: "ui-text-caption",
@@ -60,6 +62,8 @@ const TYPOGRAPHY_ROLE_BY_CLASSNAME: Record<string, string> = {
   [TYPOGRAPHY_CLASSNAMES.helperText]: "helper-text",
   [TYPOGRAPHY_CLASSNAMES.statusText]: "body-strong",
   [TYPOGRAPHY_CLASSNAMES.buttonLabel]: "button-label",
+  [TYPOGRAPHY_CLASSNAMES.compactButtonLabel]: "compact-button-label",
+  [TYPOGRAPHY_CLASSNAMES.eyebrow]: "eyebrow",
   [TYPOGRAPHY_CLASSNAMES.tabLabel]: "tab-label",
   [TYPOGRAPHY_CLASSNAMES.agentTabLabel]: "agent-tab-label",
   [TYPOGRAPHY_CLASSNAMES.caption]: "caption",
@@ -342,6 +346,21 @@ export function ButtonLabel(props: RoleTextProps) {
       roleClassName={TYPOGRAPHY_CLASSNAMES.buttonLabel}
       {...props}
     />
+  );
+}
+
+export function CompactButtonLabel(props: RoleTextProps) {
+  return (
+    <SemanticText
+      roleClassName={TYPOGRAPHY_CLASSNAMES.compactButtonLabel}
+      {...props}
+    />
+  );
+}
+
+export function EyebrowText(props: RoleTextProps) {
+  return (
+    <SemanticText roleClassName={TYPOGRAPHY_CLASSNAMES.eyebrow} {...props} />
   );
 }
 

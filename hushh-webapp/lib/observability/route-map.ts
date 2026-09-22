@@ -6,10 +6,12 @@ import {
 } from "@/lib/navigation/routes";
 
 export const ROUTE_ID_VALUES = [
+  "chat",
   "one_dashboard",
   "getting_started",
   "one_setup",
   "developers",
+  "founder_profile",
   "research",
   "research_protocol",
   "hushh_tech_launch",
@@ -27,19 +29,19 @@ export const ROUTE_ID_VALUES = [
   "profile_preferences_gemini",
   "profile_preferences_device",
   "profile_preferences_voice",
-  "profile_preferences_voice_changelog",
-  "profile_preferences_voice_examples",
   "profile_security",
   "profile_security_vault",
   "profile_security_session",
-  "profile_security_devices",
   "profile_security_device_authorize",
   "profile_my_data",
   "profile_my_data_domain",
   "profile_access",
   "profile_access_connection",
   "profile_connected_systems",
+  "profile_connectors",
+  "profile_connector_oauth_return",
   "profile_integrations",
+  "founder_profile_manish",
   "profile_google_oauth_return",
   "one_calendar",
   "profile_gmail",
@@ -62,7 +64,6 @@ export const ROUTE_ID_VALUES = [
   "oauth_authorize",
   "consents",
   "feed",
-  "agent",
   "puppy_one",
   "person_profile",
   "connect",
@@ -142,11 +143,8 @@ function normalizeRoutePathname(pathname: string): string {
 
 export function resolveRouteId(rawPathname: string): RouteId {
   const pathname = normalizeRoutePathname(rawPathname);
-  if (
-    pathname === ROUTES.HOME ||
-    pathname === ROUTES.ONE_HOME ||
-    pathname === ROUTES.WELCOME
-  ) {
+  if (pathname === ROUTES.HOME) return "chat";
+  if (pathname === ROUTES.ONE_HOME || pathname === ROUTES.WELCOME) {
     return "one_dashboard";
   }
   if (pathname === ROUTES.GETTING_STARTED) return "getting_started";
@@ -157,6 +155,7 @@ export function resolveRouteId(rawPathname: string): RouteId {
     return "one_setup";
   }
   if (pathname === ROUTES.DEVELOPERS) return "developers";
+  if (pathname === ROUTES.MANISH_SAINANI) return "founder_profile";
   if (pathname === ROUTES.RESEARCH) return "research";
   if (pathname === ROUTES.RESEARCH_PROTOCOL) return "research_protocol";
   if (pathname === HUSHH_TECH_LAUNCH_PATH) return "hushh_tech_launch";
@@ -178,17 +177,16 @@ export function resolveRouteId(rawPathname: string): RouteId {
     return "profile_preferences_device";
   if (pathname === ROUTES.PROFILE_PREFERENCES_VOICE)
     return "profile_preferences_voice";
-  if (pathname === ROUTES.PROFILE_PREFERENCES_VOICE_CHANGELOG)
-    return "profile_preferences_voice_changelog";
-  if (pathname === ROUTES.PROFILE_PREFERENCES_VOICE_EXAMPLES)
-    return "profile_preferences_voice_examples";
+  if (
+    pathname === ROUTES.PROFILE_PREFERENCES_VOICE_CHANGELOG ||
+    pathname === ROUTES.PROFILE_PREFERENCES_VOICE_EXAMPLES
+  )
+    return "profile_preferences_voice";
   if (pathname === ROUTES.PROFILE_SECURITY) return "profile_security";
   if (pathname === ROUTES.PROFILE_SECURITY_VAULT)
     return "profile_security_vault";
   if (pathname === ROUTES.PROFILE_SECURITY_SESSION)
     return "profile_security_session";
-  if (pathname === ROUTES.PROFILE_SECURITY_DEVICES)
-    return "profile_security_devices";
   if (pathname === ROUTES.PROFILE_SECURITY_DEVICE_AUTHORIZE)
     return "profile_security_device_authorize";
   if (pathname === ROUTES.PROFILE_MY_DATA) return "profile_my_data";
@@ -199,7 +197,13 @@ export function resolveRouteId(rawPathname: string): RouteId {
     return "profile_access_connection";
   if (pathname === ROUTES.PROFILE_CONNECTED_SYSTEMS)
     return "profile_connected_systems";
+  if (pathname === ROUTES.PROFILE_CONNECTORS) return "profile_connectors";
+  // An OAuth return that falls through to "unknown" logs a raw pathname
+  // carrying provider state, same reasoning as the Google return below.
+  if (pathname === ROUTES.PROFILE_CONNECTOR_OAUTH_RETURN)
+    return "profile_connector_oauth_return";
   if (pathname === ROUTES.PROFILE_INTEGRATIONS) return "profile_integrations";
+  if (pathname === ROUTES.MANISH_SAINANI) return "founder_profile_manish";
   // Both the /one-prefixed route and the bare legacy path land here; an OAuth
   // return that falls through to "unknown" logs a raw pathname carrying
   // provider state, which is the same reasoning as the Gmail return below.
@@ -250,7 +254,7 @@ export function resolveRouteId(rawPathname: string): RouteId {
     return "consents";
   }
   if (pathname === ROUTES.ONE_FEED) return "feed";
-  if (pathname === ROUTES.AGENT) return "agent";
+  if (pathname === ROUTES.LEGACY_AGENT) return "chat";
   if (pathname === ROUTES.ONE_PUPPY) return "puppy_one";
   // `public_person_ref` is intentionally opaque.  Never let the dynamic
   // segment fall through to `unknown`, where callers may retain raw paths.

@@ -2,17 +2,18 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
-  Check,
-  MessageSquare,
-  MoreHorizontal,
-  PanelLeftClose,
-  PanelLeftOpen,
-  Pencil,
-  Plus,
-  Search,
-  Trash2,
-  X,
-} from "lucide-react";
+  Unplug as PlugIcon,
+  CheckIcon as Check,
+  MessageSquareIcon as MessageSquare,
+  DotsThreeIcon as MoreHorizontal,
+  PanelLeftCloseIcon as PanelLeftClose,
+  PanelLeftOpenIcon as PanelLeftOpen,
+  PencilIcon as Pencil,
+  PlusIcon as Plus,
+  SearchIcon as Search,
+  TrashIcon as Trash2,
+  XIcon as X,
+} from "@/components/icons";
 
 import {
   AlertDialog,
@@ -32,7 +33,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { SearchClearButton } from "@/components/app-ui/search-clear-button";
 import type { AgentChatConversation } from "@/lib/services/agent-chat-client";
 import { cn } from "@/lib/utils";
 
@@ -45,8 +46,23 @@ type AgentHistorySidebarProps = {
   className?: string;
   collapsed?: boolean;
   mode?: "desktop" | "mobile";
+  hideCloseButton?: boolean;
+  /**
+   * Which agent is on screen beside this list.
+   *
+   * Every row here belongs to One. Puppy One keeps its transcript on the
+   * owner's machine and contributes none, so with Puppy showing a list headed
+   * only "Chats" reads either as "my on-device chats are saved into One's
+   * cloud history" or as "the local chat I am having is one of these rows".
+   * Neither is true, and the list is not hidden in Puppy mode because the
+   * desktop aside is a 288px flex sibling: unmounting it would slide the whole
+   * workspace sideways on every toggle, and it is the only route back to a One
+   * conversation.
+   */
+  surface?: "one" | "puppy";
   onClose?: () => void;
   onToggleCollapsed?: () => void;
+  onOpenConnectors?: () => void;
   onCreateNew: () => void;
   onSelectConversation: (conversationId: string) => void;
   onRenameConversation: (conversationId: string, title: string) => Promise<void> | void;
@@ -80,6 +96,25 @@ function conversationTimestamp(conversation: AgentChatConversation): number {
   if (!candidate) return 0;
   const parsed = Date.parse(candidate);
   return Number.isNaN(parsed) ? 0 : parsed;
+}
+
+function formatRelativeTime(timestamp: number): string {
+  if (!timestamp) return "";
+  const now = Date.now();
+  const diffMs = now - timestamp;
+  if (diffMs < 0) return "now";
+  const diffSec = Math.floor(diffMs / 1000);
+  if (diffSec < 60) return "now";
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m`;
+  const diffHours = Math.floor(diffMin / 60);
+  if (diffHours < 24) return `${diffHours}h`;
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays === 1) return "1d";
+  if (diffDays < 7) return `${diffDays}d`;
+  if (diffDays < 30) return `${Math.floor(diffDays / 7)}w`;
+  const date = new Date(timestamp);
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
 type ConversationGroupKey = "today" | "yesterday" | "previous7" | "earlier";
@@ -123,14 +158,25 @@ export function AgentHistorySidebar({
   className,
   collapsed = false,
   mode = "desktop",
+  hideCloseButton = false,
+  surface = "one",
   onClose,
   onToggleCollapsed,
+  onOpenConnectors,
   onCreateNew,
   onSelectConversation,
   onRenameConversation,
   onDeleteConversation,
 }: AgentHistorySidebarProps) {
   const isMobileMode = mode === "mobile";
+  // Neutral on the default path, owned when the other agent is on screen.
+  const listTitle = surface === "puppy" ? "Puppy chats" : "Chats";
+  const puppyFootnote =
+    surface === "puppy" ? (
+      <p className="mt-1 text-[12px] text-muted-foreground">
+        Puppy One&apos;s chats stay on your machine.
+      </p>
+    ) : null;
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [deleteTarget, setDeleteTarget] = useState<AgentChatConversation | null>(null);
@@ -207,28 +253,58 @@ export function AgentHistorySidebar({
     const active = conversation.id === activeConversationId;
     const pending = actionPendingId === conversation.id;
     const isRenaming = renamingId === conversation.id;
+    const timeLabel = formatRelativeTime(conversationTimestamp(conversation));
+
+    if (collapsed && !isMobileMode) {
+      return (
+        <div
+          key={conversation.id}
+          role="listitem"
+          className="relative flex justify-center py-0.5"
+        >
+          <button
+            type="button"
+            className={cn(
+              "relative grid h-9 w-9 place-items-center rounded-xl transition-[transform,opacity] motion-reduce:transition-none outline-none focus-visible:ring-2 focus-visible:ring-primary/60",
+              active
+                ? "bg-[color:var(--app-accent)] text-white shadow-sm"
+                : "text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground dark:hover:bg-white/[0.08]"
+            )}
+            onClick={() => onSelectConversation(conversation.id)}
+            disabled={disabled || pending}
+            aria-current={active ? "page" : undefined}
+            title={title}
+          >
+            <MessageSquare
+              className="h-4 w-4"
+              strokeWidth={active ? 2 : 1.8}
+              aria-hidden="true"
+            />
+          </button>
+        </div>
+      );
+    }
 
     return (
       <div
         key={conversation.id}
         role="listitem"
         className={cn(
-          "group rounded-[14px] border border-transparent transition-[background-color,color,border-color] duration-200",
-          active &&
-            "border-foreground/8 bg-foreground/[0.07] text-foreground dark:border-white/10 dark:bg-white/[0.09]",
-          !active &&
-            "text-muted-foreground hover:bg-foreground/[0.055] hover:text-foreground dark:hover:bg-white/[0.075]"
+          "group relative rounded-xl transition-[transform,opacity] motion-reduce:transition-none duration-150",
+          active
+            ? "bg-[color:var(--app-accent)] text-white shadow-sm"
+            : "text-foreground/80 hover:bg-foreground/[0.05] hover:text-foreground dark:hover:bg-white/[0.06]"
         )}
       >
         {isRenaming ? (
           <form
             onSubmit={submitRename}
-            className="flex items-center gap-1 rounded-lg bg-black/[0.04] p-1 dark:bg-[#151820]"
+            className="flex items-center gap-1 rounded-xl bg-background/90 p-1 ring-1 ring-black/10 dark:bg-[#141720] dark:ring-white/15"
           >
             <Input
               value={renameValue}
               onChange={(event) => setRenameValue(event.target.value)}
-              className="h-8 min-w-0 flex-1 border-black/10 bg-white/90 text-sm text-[#1d1d1f] dark:border-white/10 dark:bg-black/20 dark:text-zinc-100"
+              className="h-7 min-w-0 flex-1 border-0 bg-transparent px-2 text-xs font-medium text-foreground focus-visible:ring-0"
               maxLength={160}
               autoFocus
               disabled={pending}
@@ -241,6 +317,7 @@ export function AgentHistorySidebar({
               type="submit"
               variant="ghost"
               size="icon-xs"
+              className="h-6 w-6 text-emerald-600 hover:bg-emerald-500/10 hover:text-emerald-500 dark:text-emerald-400"
               disabled={pending || !normalizeTitle(renameValue)}
               aria-label="Save chat name"
             >
@@ -250,6 +327,7 @@ export function AgentHistorySidebar({
               type="button"
               variant="ghost"
               size="icon-xs"
+              className="h-6 w-6 text-muted-foreground hover:bg-foreground/[0.08] hover:text-foreground"
               onClick={cancelRename}
               disabled={pending}
               aria-label="Cancel rename"
@@ -258,32 +336,43 @@ export function AgentHistorySidebar({
             </Button>
           </form>
         ) : (
-          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center">
+          <div className="relative flex items-center min-w-0">
             <button
               type="button"
               className={cn(
-                "flex h-11 min-w-0 flex-1 items-center gap-2.5 rounded-[14px] text-left text-[15px] leading-5 outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary/60",
-                collapsed ? "justify-center px-0" : "px-3"
+                "flex h-9 min-w-0 flex-1 items-center rounded-xl pl-3 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-white/60",
+                isMobileMode ? "pr-8" : "pr-7",
+                active ? "font-semibold text-white" : "font-medium text-foreground/80 group-hover:text-foreground"
               )}
               onClick={() => onSelectConversation(conversation.id)}
               disabled={disabled || pending}
               aria-current={active ? "page" : undefined}
               title={title}
             >
-              {collapsed ? (
-                <MessageSquare
+              <span className="truncate text-[13px] leading-tight flex-1">
+                {title}
+              </span>
+
+              {timeLabel ? (
+                <span
                   className={cn(
-                    "h-[18px] w-[18px] shrink-0",
-                    active ? "text-foreground" : "text-muted-foreground",
+                    "shrink-0 text-[11px] tabular-nums font-normal transition-opacity duration-150",
+                    active ? "text-white/80" : "text-muted-foreground/50",
+                    !isMobileMode && "group-hover:opacity-0 group-focus-within:opacity-0"
                   )}
-                  strokeWidth={1.8}
-                  aria-hidden="true"
-                />
-              ) : (
-                <span className="truncate">{title}</span>
-              )}
+                >
+                  {timeLabel}
+                </span>
+              ) : null}
             </button>
-            {collapsed ? null : (
+
+            <div
+              className={cn(
+                "absolute right-1 top-1/2 -translate-y-1/2",
+                !isMobileMode && "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-150",
+                isMobileMode && "opacity-100"
+              )}
+            >
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
@@ -291,24 +380,29 @@ export function AgentHistorySidebar({
                     variant="ghost"
                     size="icon-xs"
                     className={cn(
-                      "mr-1 text-muted-foreground opacity-0 transition-opacity hover:bg-foreground/[0.07] hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100 dark:hover:bg-white/[0.1]",
-                      isMobileMode && "opacity-100",
+                      "h-7 w-7 rounded-lg focus-visible:opacity-100",
+                      active
+                        ? "text-white/80 hover:bg-white/20 hover:text-white"
+                        : "text-muted-foreground hover:bg-foreground/[0.08] hover:text-foreground dark:hover:bg-white/[0.1]"
                     )}
                     disabled={disabled || pending}
-                    onPointerDown={(event) => event.stopPropagation()}
                     onClick={(event) => event.stopPropagation()}
                     aria-label={`Open actions for ${title}`}
                   >
                     <MoreHorizontal className="h-3.5 w-3.5" aria-hidden="true" />
                   </Button>
                 </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" sideOffset={6} className="z-[520]">
-                  <DropdownMenuItem onSelect={() => startRename(conversation)}>
+                <DropdownMenuContent align="end" sideOffset={6} className="z-[560]">
+                  <DropdownMenuItem
+                    className="cursor-pointer rounded-[10px] hover:!bg-[color:var(--app-accent)] hover:!text-[color:var(--app-accent-fg)] hover:[&_svg]:!stroke-[color:var(--app-accent-fg)] hover:[&_svg]:!text-[color:var(--app-accent-fg)] focus:!bg-[color:var(--app-accent)] focus:!text-[color:var(--app-accent-fg)] focus:[&_svg]:!stroke-[color:var(--app-accent-fg)] focus:[&_svg]:!text-[color:var(--app-accent-fg)]"
+                    onSelect={() => startRename(conversation)}
+                  >
                     <Pencil className="h-4 w-4" aria-hidden="true" />
                     Rename chat
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     variant="destructive"
+                    className="cursor-pointer rounded-[10px] hover:!bg-[color:var(--app-destructive)] hover:!text-[color:var(--app-destructive-fg)] hover:[&_svg]:!stroke-[color:var(--app-destructive-fg)] hover:[&_svg]:!text-[color:var(--app-destructive-fg)] focus:!bg-[color:var(--app-destructive)] focus:!text-[color:var(--app-destructive-fg)] focus:[&_svg]:!stroke-[color:var(--app-destructive-fg)] focus:[&_svg]:!text-[color:var(--app-destructive-fg)]"
                     onSelect={() => setDeleteTarget(conversation)}
                   >
                     <Trash2 className="h-4 w-4" aria-hidden="true" />
@@ -316,7 +410,7 @@ export function AgentHistorySidebar({
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
-            )}
+            </div>
           </div>
         )}
       </div>
@@ -327,10 +421,10 @@ export function AgentHistorySidebar({
     <>
       <aside
         className={cn(
-          "flex min-h-0 shrink-0 flex-col overflow-hidden text-foreground transition-[width] duration-200 ease-out",
+          "flex min-h-0 shrink-0 flex-col overflow-hidden text-foreground",
           isMobileMode
-            ? "chrome-glass-surface rounded-r-[28px] bg-background/92 shadow-[18px_0_42px_rgba(15,23,42,0.18)] dark:bg-background/92"
-            : "bg-[linear-gradient(180deg,color-mix(in_srgb,var(--app-accent-soft)_22%,var(--background)),var(--background))] backdrop-blur-xl dark:bg-white/[0.025]",
+            ? "chrome-glass-surface rounded-br-[28px] bg-background/95 shadow-[18px_0_42px_rgba(0,0,0,0.25)] border-r border-black/[0.06] dark:border-white/[0.08] dark:bg-[#0A0A0C]/95"
+            : "border-r border-black/[0.06] bg-[linear-gradient(180deg,color-mix(in_srgb,var(--app-accent-soft)_22%,var(--background)),var(--background))] backdrop-blur-xl dark:border-white/[0.08] dark:bg-[#070709]",
           collapsed && !isMobileMode ? "w-16" : "w-72",
           className
         )}
@@ -338,122 +432,150 @@ export function AgentHistorySidebar({
         data-collapsed={collapsed ? "true" : "false"}
       >
         {isMobileMode ? (
-          <div className="border-b border-border/65 px-4 pb-3 pt-[max(1rem,var(--app-safe-area-top-effective))] dark:border-white/10">
+          <div className="border-b border-border/65 px-3 py-3 dark:border-white/10">
             <div className="flex items-center justify-between gap-3">
-              <div className="flex min-w-0 items-center gap-2.5">
-                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-muted text-foreground">
-                  <MessageSquare className="h-[18px] w-[18px]" strokeWidth={1.8} aria-hidden="true" />
-                </span>
-                <h2 className="truncate text-[17px] font-semibold tracking-[-0.01em] text-foreground">
-                  Chats
+              <div className="flex min-w-0 items-center gap-2">
+                <h2 className="truncate text-[16px] font-semibold tracking-[-0.01em] text-foreground">
+                  {listTitle}
                 </h2>
+                {conversations.length > 0 ? (
+                  <span className="rounded-full bg-foreground/[0.06] px-1.5 py-0.5 text-[10.5px] font-medium tabular-nums text-muted-foreground dark:bg-white/[0.08]">
+                    {conversations.length}
+                  </span>
+                ) : null}
               </div>
-              {onClose ? (
-                <ShellActionSurface
-                  variant="icon"
-                  className="h-10 w-10 text-muted-foreground hover:text-foreground"
-                  onClick={onClose}
-                  aria-label="Close chat history"
-                  title="Close chats"
-                >
-                  <X className="h-5 w-5" strokeWidth={1.8} aria-hidden="true" />
-                </ShellActionSurface>
-              ) : null}
-            </div>
-            <ShellActionSurface
-              variant="pill"
-              className="mt-3 h-10 w-full justify-start rounded-xl px-3.5 text-[15px] font-semibold"
-              onClick={onCreateNew}
-              disabled={disabled}
-              aria-label="Create new Agent chat"
-            >
-              <Plus className="h-[18px] w-[18px]" strokeWidth={2} aria-hidden="true" />
-              <span>New chat</span>
-            </ShellActionSurface>
-          </div>
-        ) : (
-          <div className="flex items-center gap-2 p-3">
-          {collapsed && !isMobileMode ? (
-            <div className="flex w-full flex-col items-center gap-2">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-10 w-10 rounded-lg border border-black/10 bg-black/[0.035] text-[rgba(0,0,0,0.62)] hover:bg-black/[0.06] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-100 dark:hover:bg-white/[0.08]"
-                onClick={onToggleCollapsed}
-                aria-label="Expand chat history"
-                title="Expand chat history"
-              >
-                <PanelLeftOpen className="h-4 w-4" aria-hidden="true" />
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-10 w-10 rounded-lg text-[rgba(0,0,0,0.54)] hover:bg-black/[0.05] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-300 dark:hover:bg-white/[0.07] dark:hover:text-zinc-100"
-                onClick={onCreateNew}
-                disabled={disabled}
-                aria-label="Create new Agent chat"
-                title="New chat"
-              >
-                <Plus className="h-4 w-4" aria-hidden="true" />
-              </Button>
-            </div>
-          ) : (
-            <>
-              <Button
-                type="button"
-                variant="ghost"
-                className={cn(
-                  "h-11 min-w-0 flex-1 justify-start gap-2 px-3 text-sm font-medium text-[#1d1d1f] transition-colors focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-100",
-                  isMobileMode
-                    ? "rounded-full bg-black/[0.035] shadow-[inset_0_1px_0_rgba(255,255,255,0.55),0_8px_26px_rgba(0,0,0,0.08)] hover:bg-black/[0.055] dark:bg-white/[0.05] dark:hover:bg-white/[0.08]"
-                    : "rounded-[14px] bg-foreground/[0.055] hover:bg-foreground/[0.085] dark:bg-white/[0.055] dark:hover:bg-white/[0.09]"
-                )}
-                onClick={onCreateNew}
-                disabled={disabled}
-                aria-label="Create new Agent chat"
-                title="Create new chat"
-              >
-                <Plus className="h-4 w-4" aria-hidden="true" />
-                <span className="truncate">New chat</span>
-              </Button>
-              {onToggleCollapsed && !isMobileMode ? (
+              {onClose && !hideCloseButton ? (
                 <Button
                   type="button"
                   variant="ghost"
                   size="icon"
-                  className="hidden h-10 w-10 rounded-lg text-[rgba(0,0,0,0.46)] hover:bg-black/[0.05] hover:text-[#1d1d1f] focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-400 dark:hover:bg-white/[0.07] dark:hover:text-zinc-100 lg:inline-flex"
-                  onClick={onToggleCollapsed}
-                  aria-label="Collapse chat history"
-                  title="Collapse chat history"
+                  className="h-8 w-8 rounded-lg text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground"
+                  onClick={onClose}
+                  aria-label="Close chat history"
+                  title="Close chats"
                 >
-                  <PanelLeftClose className="h-4 w-4" aria-hidden="true" />
+                  <X className="h-4 w-4" aria-hidden="true" />
                 </Button>
               ) : null}
-            </>
-          )}
-          {onClose ? (
+            </div>
+            {puppyFootnote}
             <Button
               type="button"
-              variant="ghost"
-              size="icon"
-              className="h-10 w-10 rounded-full bg-black/[0.03] text-[rgba(0,0,0,0.46)] hover:bg-black/[0.05] hover:text-[#1d1d1f] dark:bg-white/[0.04] dark:text-zinc-400 dark:hover:bg-white/[0.07] dark:hover:text-zinc-100 lg:hidden"
-              onClick={onClose}
-              aria-label="Close chat history"
-              title="Close chat history"
+              variant="outline"
+              size="sm"
+              data-chat-new-button
+              className="mt-2.5 flex h-9 w-full items-center justify-between rounded-xl border-black/[0.08] bg-foreground/[0.035] px-3 text-[13px] font-medium text-foreground transition-[transform,opacity] motion-reduce:transition-none duration-150 hover:border-black/15 hover:bg-foreground/[0.06] hover:shadow-xs active:scale-[0.98] dark:border-white/10 dark:bg-white/[0.04] dark:hover:border-white/20 dark:hover:bg-white/[0.07]"
+              onClick={onCreateNew}
+              disabled={disabled}
+              aria-label="Create new chat"
+              title="Create new chat"
             >
-              <X className="h-4 w-4" aria-hidden="true" />
+              <div className="flex items-center gap-2">
+                <Plus className="h-3.5 w-3.5 text-muted-foreground/80 group-hover:text-foreground" strokeWidth={2.2} aria-hidden="true" />
+                <span className="font-medium text-[13px]">New chat</span>
+              </div>
             </Button>
-          ) : null}
+          </div>
+        ) : (
+          <div className="border-b border-black/[0.05] p-3 dark:border-white/[0.06]">
+            {collapsed && !isMobileMode ? (
+              <div className="flex w-full flex-col items-center gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 rounded-xl border border-black/10 bg-black/[0.035] text-muted-foreground hover:bg-black/[0.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/60 dark:border-white/10 dark:bg-white/[0.04] dark:text-zinc-300 dark:hover:bg-white/[0.08] dark:hover:text-white"
+                  onClick={onToggleCollapsed}
+                  aria-label="Expand chat history"
+                  title="Expand chat history"
+                >
+                  <PanelLeftOpen className="h-4 w-4" aria-hidden="true" />
+                </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-9 w-9 rounded-xl bg-[color:var(--app-accent)]/10 text-[color:var(--app-accent)] hover:bg-[color:var(--app-accent)]/20 focus-visible:ring-2 focus-visible:ring-primary/60"
+                  onClick={onCreateNew}
+                  disabled={disabled}
+                  aria-label="Create new chat"
+                  title="New chat"
+                >
+                  <Plus className="h-4 w-4" strokeWidth={2.5} aria-hidden="true" />
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-2.5">
+                <div className="flex items-center justify-between px-1">
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-[13.5px] font-semibold tracking-tight text-foreground">
+                      {listTitle}
+                    </h2>
+                    {conversations.length > 0 ? (
+                      <span className="rounded-full bg-foreground/[0.06] px-1.5 py-0.5 text-[10.5px] font-medium tabular-nums text-muted-foreground dark:bg-white/[0.08]">
+                        {conversations.length}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {onToggleCollapsed ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="hidden h-8 w-8 rounded-lg text-muted-foreground/70 hover:bg-foreground/[0.06] hover:text-foreground focus-visible:ring-2 focus-visible:ring-primary/60 dark:hover:bg-white/[0.08] lg:inline-flex"
+                        onClick={onToggleCollapsed}
+                        aria-label="Collapse chat history"
+                        title="Collapse chat history"
+                      >
+                        <PanelLeftClose className="h-4 w-4" aria-hidden="true" />
+                      </Button>
+                    ) : null}
+                    {onClose ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="h-8 w-8 rounded-lg text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground"
+                        onClick={onClose}
+                        aria-label="Close chat history"
+                        title="Close chat history"
+                      >
+                        <X className="h-4 w-4" aria-hidden="true" />
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+                {puppyFootnote}
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  data-chat-new-button
+                  className="group relative flex h-9 w-full items-center justify-between rounded-xl border-black/[0.08] bg-foreground/[0.035] px-3 text-[13px] font-medium text-foreground transition-[transform,opacity] motion-reduce:transition-none duration-150 hover:border-black/15 hover:bg-foreground/[0.06] hover:shadow-xs active:scale-[0.98] dark:border-white/10 dark:bg-white/[0.04] dark:hover:border-white/20 dark:hover:bg-white/[0.07]"
+                  onClick={onCreateNew}
+                  disabled={disabled}
+                  aria-label="Create new chat"
+                  title="Create new chat"
+                >
+                  <div className="flex items-center gap-2">
+                    <Plus className="h-3.5 w-3.5 text-muted-foreground/80 group-hover:text-foreground" strokeWidth={2.2} aria-hidden="true" />
+                    <span className="font-medium text-[13px]">New chat</span>
+                  </div>
+                  <kbd className="rounded border border-black/10 bg-background/60 px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground/70 dark:border-white/10 dark:bg-black/40">
+                    ⌘N
+                  </kbd>
+                </Button>
+              </div>
+            )}
           </div>
         )}
 
         {!collapsed ? (
-          <div className="px-4 py-3">
+          <div className="px-3 pt-2.5 pb-1">
             <div className="relative">
               <Search
-                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+                className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/70"
                 aria-hidden="true"
               />
               <Input
@@ -465,27 +587,65 @@ export function AgentHistorySidebar({
                 autoComplete="off"
                 autoCorrect="off"
                 spellCheck={false}
-                className={cn(
-                  "h-10 rounded-xl pl-9 text-[15px] text-foreground placeholder:text-muted-foreground",
-                  isMobileMode
-                    ? "border-transparent bg-foreground/[0.055] shadow-[inset_0_1px_0_rgba(255,255,255,0.45)] dark:bg-white/[0.07]"
-                    : "border-transparent bg-foreground/[0.045] shadow-none dark:bg-white/[0.05]"
-                )}
+                className="h-9 rounded-xl border border-black/[0.06] bg-foreground/[0.035] pl-8 pr-8 text-[13px] text-foreground placeholder:text-muted-foreground/60 focus-visible:border-[color:var(--app-accent)]/50 focus-visible:bg-background focus-visible:ring-1 focus-visible:ring-[color:var(--app-accent)]/30 dark:border-white/[0.07] dark:bg-white/[0.04] dark:focus-visible:bg-[#0c0c0e]"
+              />
+              <SearchClearButton
+                visible={searchQuery.length > 0}
+                label="Clear chat search"
+                onClear={() => setSearchQuery("")}
               />
             </div>
+            {onOpenConnectors ? (
+              <Button
+                type="button"
+                variant="ghost"
+                className={cn(
+                  "mt-2 h-11 w-full justify-start gap-2 px-3 text-sm font-medium text-[#1d1d1f] transition-colors focus-visible:ring-2 focus-visible:ring-primary/60 dark:text-zinc-100",
+                  isMobileMode
+                    ? "rounded-full bg-black/[0.035] hover:bg-black/[0.055] dark:bg-white/[0.05] dark:hover:bg-white/[0.08]"
+                    : "rounded-[14px] hover:bg-foreground/[0.06] dark:hover:bg-white/[0.06]"
+                )}
+                onClick={onOpenConnectors}
+                aria-label="Open MCP connections"
+              >
+                <PlugIcon className="h-4 w-4" aria-hidden="true" />
+                <span className="truncate">MCP connections</span>
+              </Button>
+            ) : null}
           </div>
         ) : null}
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-3 pb-4 pt-3 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent">
-          {collapsed ? <div className="h-4" aria-hidden="true" /> : null}
+        <div className="min-h-0 flex-1 overflow-y-auto px-2.5 pb-5 pt-1.5 scrollbar-thin scrollbar-thumb-black/10 dark:scrollbar-thumb-white/10 scrollbar-track-transparent">
+          {collapsed ? <div className="h-2" aria-hidden="true" /> : null}
 
           {loading ? (
-            <div className="h-10 w-full rounded-lg bg-black/[0.04] dark:bg-white/[0.05]" />
+            <div className="space-y-2 py-2">
+              <div className="h-9 w-full animate-pulse rounded-xl bg-foreground/[0.04] dark:bg-white/[0.05]" />
+              <div className="h-9 w-full animate-pulse rounded-xl bg-foreground/[0.04] dark:bg-white/[0.05]" />
+              <div className="h-9 w-full animate-pulse rounded-xl bg-foreground/[0.04] dark:bg-white/[0.05]" />
+            </div>
           ) : null}
 
           {!collapsed && !loading && conversations.length === 0 ? (
-            <div className="grid min-h-24 place-items-center rounded-lg border border-dashed border-black/10 px-3 text-center text-xs text-[rgba(0,0,0,0.46)] dark:border-white/10 dark:text-zinc-500">
-              No chats yet
+            <div className="my-3 flex flex-col items-center justify-center rounded-2xl border border-dashed border-black/10 bg-foreground/[0.015] px-4 py-8 text-center dark:border-white/10 dark:bg-white/[0.02]">
+              <div className="mb-2.5 grid h-10 w-10 place-items-center rounded-xl bg-foreground/[0.04] text-muted-foreground dark:bg-white/[0.06]">
+                <MessageSquare className="h-5 w-5 opacity-70" strokeWidth={1.8} aria-hidden="true" />
+              </div>
+              <p className="text-[13px] font-semibold text-foreground/80">No chats yet</p>
+              <p className="mt-1 text-[11.5px] leading-relaxed text-muted-foreground">
+                Start a new chat to begin your conversation with One.
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="mt-3.5 h-8 gap-1.5 rounded-lg border-black/10 bg-background/50 text-xs font-medium hover:bg-foreground/[0.06] dark:border-white/10 dark:bg-white/[0.04] dark:hover:bg-white/[0.08]"
+                onClick={onCreateNew}
+                disabled={disabled}
+              >
+                <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                <span>Start new chat</span>
+              </Button>
             </div>
           ) : null}
 
@@ -493,8 +653,23 @@ export function AgentHistorySidebar({
           !loading &&
           conversations.length > 0 &&
           filteredConversations.length === 0 ? (
-            <div className="grid min-h-24 place-items-center rounded-lg border border-dashed border-black/10 px-3 text-center text-xs text-[rgba(0,0,0,0.46)] dark:border-white/10 dark:text-zinc-500">
-              No chats match &ldquo;{searchQuery.trim()}&rdquo;
+            <div className="my-3 flex flex-col items-center justify-center rounded-2xl border border-dashed border-black/10 bg-foreground/[0.015] px-4 py-7 text-center dark:border-white/10 dark:bg-white/[0.02]">
+              <div className="mb-2 grid h-9 w-9 place-items-center rounded-xl bg-foreground/[0.04] text-muted-foreground dark:bg-white/[0.06]">
+                <Search className="h-4 w-4 opacity-70" aria-hidden="true" />
+              </div>
+              <p className="text-[13px] font-semibold text-foreground/80">No matches found</p>
+              <p className="mt-0.5 max-w-[210px] truncate text-[11.5px] text-muted-foreground">
+                No chats match &ldquo;{searchQuery.trim()}&rdquo;
+              </p>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="mt-2 h-7 text-xs text-muted-foreground hover:text-foreground"
+                onClick={() => setSearchQuery("")}
+              >
+                Clear search
+              </Button>
             </div>
           ) : null}
 
@@ -512,11 +687,11 @@ export function AgentHistorySidebar({
             <div className="space-y-4">
               {groupedConversations.map((group) => (
                 <div key={group.key}>
-                  <div className="px-2 pb-1.5 pt-1 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                  <div className="px-2 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
                     {group.label}
                   </div>
                   <div
-                    className="space-y-1"
+                    className="space-y-0.5"
                     role="list"
                     aria-label={`${group.label} conversations`}
                   >

@@ -146,6 +146,7 @@ from api.routes import (  # noqa: E402
     db_proxy,
     debug_firebase,
     developer,
+    external_connectors,
     health,
     hushh_tech,
     notifications,
@@ -303,6 +304,9 @@ app.include_router(agents.router)
 # Profile Connected Systems routes (/api/connected-systems/...)
 app.include_router(connected_systems.router)
 
+# External MCP connector routes (/api/connectors/...)
+app.include_router(external_connectors.router)
+
 # Consent management routes (/api/consent/...)
 app.include_router(consent.router)
 
@@ -363,6 +367,13 @@ app.include_router(investors.router)
 from api.routes import tickers  # noqa: E402
 
 app.include_router(tickers.router)
+
+# Public batch market quotes. Same public posture as the ticker search above: prices for symbols
+# the caller names, nothing derived from a person. Serves Hushh Tech's marquee off the same warm
+# L1/L2 cache this service already keeps, instead of a second Yahoo client in that repository.
+from api.routes import market_quotes  # noqa: E402
+
+app.include_router(market_quotes.router)
 
 # Identity compatibility routes
 from api.routes import identity  # noqa: E402
@@ -434,16 +445,12 @@ async def startup_widen_default_executor() -> None:
     Every synchronous SQLAlchemy DB call in this process (and
     `asyncio.to_thread` calls like the one_location agent tools use) runs on
     the SAME default executor asyncio itself uses for things like DNS
-    resolution (`loop.getaddrinfo`, which the `websockets` client uses to
-    connect out to the Gemini Live API). Python's default pool size --
+    resolution and SDK connection setup. Python's default pool size --
     `min(32, cpu_count + 4)` -- is easily saturated by concurrent blocking DB
     work under load, at which point an unrelated, otherwise-instant operation
-    like that DNS lookup queues behind it and can time out. Observed directly:
-    a live voice session's outbound Gemini Live handshake failed with
-    "TimeoutError: timed out during opening handshake" at getaddrinfo, at the
-    exact moment two DB-heavy endpoints were each taking 40-50s. Widening the
-    pool doesn't fix the underlying DB cost, but it stops unrelated quick
-    executor work from being starved behind it.
+    like that DNS lookup queues behind it and can time out. Widening the pool
+    doesn't fix the underlying DB cost, but it stops unrelated quick executor
+    work from being starved behind it.
     """
     from concurrent.futures import ThreadPoolExecutor
 

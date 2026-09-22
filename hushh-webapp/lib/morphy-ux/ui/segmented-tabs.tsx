@@ -1,6 +1,6 @@
 "use client";
 
-import type { CSSProperties } from "react";
+import { useRef, type CSSProperties, type KeyboardEvent } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -37,6 +37,7 @@ export function SegmentedTabs({
   /** Opt into the compact Location-style navigation presentation. */
   variant?: SegmentedTabsVariant;
 }) {
+  const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const resolvedDesktopColumns = Math.max(options.length, 1);
   const resolvedMobileColumns = Math.max(
     mobileColumns ?? resolvedDesktopColumns,
@@ -75,12 +76,15 @@ export function SegmentedTabs({
         } as CSSProperties
       }
     >
-      {options.map((option) => {
+      {options.map((option, index) => {
         const isActive = option.value === value;
 
         return (
           <button
             key={option.value}
+            ref={(node) => {
+              tabRefs.current[index] = node;
+            }}
             type="button"
             role="tab"
             aria-label={option.accessibleLabel}
@@ -90,6 +94,25 @@ export function SegmentedTabs({
             data-state={isActive ? "active" : "inactive"}
             onClick={() => {
               if (!disabled && !isActive) onValueChange(option.value);
+            }}
+            onKeyDown={(event: KeyboardEvent<HTMLButtonElement>) => {
+              if (disabled || options.length < 2) return;
+              let nextIndex: number | null = null;
+              if (event.key === "ArrowRight") {
+                nextIndex = (index + 1) % options.length;
+              } else if (event.key === "ArrowLeft") {
+                nextIndex = (index - 1 + options.length) % options.length;
+              } else if (event.key === "Home") {
+                nextIndex = 0;
+              } else if (event.key === "End") {
+                nextIndex = options.length - 1;
+              }
+              if (nextIndex === null) return;
+              event.preventDefault();
+              const next = options[nextIndex];
+              if (!next) return;
+              tabRefs.current[nextIndex]?.focus();
+              if (next.value !== value) onValueChange(next.value);
             }}
               className={cn(
                 "relative isolate flex min-w-0 items-center justify-center overflow-hidden border text-center transition-[background-color,border-color,box-shadow,color] duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
@@ -106,14 +129,14 @@ export function SegmentedTabs({
                         ? "z-10 border-[color:var(--app-accent)] bg-transparent text-[color:var(--app-accent)] font-semibold shadow-none"
                         : isFilter
                           ? "z-10 border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent-deep)] font-semibold shadow-none"
-                          : "z-10 border-transparent bg-[color:var(--app-segmented-active-surface)] text-[color:var(--app-segmented-active-foreground)] font-semibold shadow-[var(--app-segmented-active-shadow)]",
+                          : "z-10 border-transparent bg-white dark:bg-zinc-800 text-[color:var(--app-accent)] font-semibold shadow-[0_1px_3px_rgba(0,0,0,0.1),0_1px_2px_rgba(0,0,0,0.06)]",
                       variant === "agent-top" && "mx-0.5",
                     )
                   : isSubordinate
                     ? "border-transparent bg-transparent text-[color:var(--app-secondary-label)] [@media(hover:hover)]:hover:text-[color:var(--app-label)]"
                     : isFilter
                       ? "border-border/60 bg-[color:var(--app-card-surface-compact)] text-[color:var(--app-secondary-label)] [@media(hover:hover)]:hover:border-[color:var(--app-accent-border)]"
-                      : "border-transparent bg-transparent text-[color:var(--app-secondary-label)] [@media(hover:hover)]:hover:bg-[color:var(--app-neutral-fill)]",
+                      : "border-transparent bg-transparent text-[color:var(--app-secondary-label)] [@media(hover:hover)]:hover:bg-black/5 dark:[@media(hover:hover)]:hover:bg-white/5",
                 disabled && "cursor-not-allowed opacity-60",
               )}
           >

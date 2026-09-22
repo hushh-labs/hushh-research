@@ -12,6 +12,10 @@ describe("deriveVoiceRouteScreen", () => {
       screen: "one_agents",
       subview: null,
     });
+    expect(deriveVoiceRouteScreen("/", undefined, { authenticated: true })).toEqual({
+      screen: "chat",
+      subview: null,
+    });
   });
 
   it("maps the One Agents dashboard to an explicit voice screen", () => {
@@ -140,10 +144,6 @@ describe("deriveVoiceRouteScreen", () => {
     expect(deriveVoiceRouteScreen("/one/profile/security/vault")).toEqual({
       screen: "profile_security_panel",
       subview: "vault",
-    });
-    expect(deriveVoiceRouteScreen("/one/profile/security/devices")).toEqual({
-      screen: "profile_security_devices",
-      subview: null,
     });
     expect(
       deriveVoiceRouteScreen("/one/profile/security/devices/authorize"),

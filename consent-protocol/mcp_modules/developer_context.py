@@ -172,7 +172,12 @@ def get_current_schema_profile() -> str:
 def is_tool_allowed(tool_name: str) -> bool:
     from mcp_modules.canonical_contract import canonical_tool_name
 
-    return canonical_tool_name(tool_name) in set(get_current_visible_tool_names())
+    # Mirrors mcp_server.call_tool()'s routing: canonical_tool_name() only
+    # resolves the 5 published core_consent names, so every other
+    # already-canonical private tool name (kai_*, list_ria_*, location_*,
+    # etc.) must be checked against the visible set as itself.
+    canonical_name = canonical_tool_name(tool_name) or tool_name
+    return canonical_name in set(get_current_visible_tool_names())
 
 
 def get_developer_request_headers() -> dict[str, str]:

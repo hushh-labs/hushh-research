@@ -15,6 +15,8 @@ export type GmailInformationRequestCandidateScope = {
   domain: string;
   label: string;
   segment_ids: string[];
+  /** Shared KYC IDs are metadata only; no private values leave the vault. */
+  canonical_field_ids?: string[];
 };
 
 export type GmailInformationRequestWorkflow = {
@@ -48,6 +50,12 @@ export type GmailInformationRequestScan = {
   workflow_ids: string[];
   baseline_established?: boolean;
   baseline_reestablished?: boolean;
+  retry_pending?: boolean;
+};
+
+export type GmailInformationRequestCandidateRefresh = {
+  workflow_id: string;
+  candidate_scopes: GmailInformationRequestCandidateScope[];
 };
 
 export type GmailPreparedInformationRequestReply = {
@@ -99,13 +107,14 @@ export class GmailInformationRequestsService {
   static setPreference(input: {
     userId: string;
     firebaseIdToken: string;
+    vaultOwnerToken: string;
     enabled: boolean;
   }): Promise<GmailInformationRequestPreference> {
     return apiJson<GmailInformationRequestPreference>(
       "/api/one/email/information-requests/preference",
       {
         method: "PATCH",
-        headers: accountHeaders(input.firebaseIdToken),
+        headers: ownerHeaders(input.firebaseIdToken, input.vaultOwnerToken),
         body: JSON.stringify({ user_id: input.userId, enabled: input.enabled }),
       },
     );
@@ -133,13 +142,35 @@ export class GmailInformationRequestsService {
     firebaseIdToken: string;
     vaultOwnerToken: string;
     maxResults?: number;
+    includeRecentInbox?: boolean;
   }): Promise<GmailInformationRequestScan> {
     return apiJson<GmailInformationRequestScan>(
       "/api/one/email/information-requests/scan",
       {
         method: "POST",
         headers: ownerHeaders(input.firebaseIdToken, input.vaultOwnerToken),
-        body: JSON.stringify({ max_results: input.maxResults ?? 12 }),
+        body: JSON.stringify({
+          max_results: input.maxResults ?? 30,
+          include_recent_inbox: input.includeRecentInbox === true,
+        }),
+      },
+    );
+  }
+
+  /**
+   * Re-resolve the detected request against the owner's current PKM manifest.
+   * This returns scope metadata only; decrypted values remain in the unlocked client.
+   */
+  static refreshCandidates(input: {
+    firebaseIdToken: string;
+    vaultOwnerToken: string;
+    workflowId: string;
+  }): Promise<GmailInformationRequestCandidateRefresh> {
+    return apiJson<GmailInformationRequestCandidateRefresh>(
+      `/api/one/email/information-requests/${encodeURIComponent(input.workflowId)}/refresh-candidates`,
+      {
+        method: "POST",
+        headers: ownerHeaders(input.firebaseIdToken, input.vaultOwnerToken),
       },
     );
   }

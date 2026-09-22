@@ -36,8 +36,8 @@ const adb = process.env.ADB || (fs.existsSync(defaultAdb) ? defaultAdb : "adb");
 const emulatorBinary =
   process.env.ANDROID_EMULATOR ||
   (fs.existsSync(defaultEmulator) ? defaultEmulator : "emulator");
-const bundleId = "com.hushh.app";
-const activityName = "com.hushh.app/.MainActivity";
+const bundleId = "com.hussh.app";
+const activityName = `${bundleId}/.MainActivity`;
 const apkPath =
   process.env.ANDROID_APK_PATH ||
   path.join(androidDir, "app/build/outputs/apk/debug/app-debug.apk");
@@ -201,7 +201,8 @@ function bootEmulatorIfNeeded() {
     .split(/\s+/)
     .filter(Boolean);
   console.log(`==> booting Android emulator: ${avdName}`);
-  const child = spawn(emulatorBinary, ["-avd", avdName, ...extraArgs], {
+  const displayArgs = process.env.NATIVE_AUDIT_VISIBLE === "true" ? [] : ["-no-window", "-no-audio"];
+  const child = spawn(emulatorBinary, ["-avd", avdName, ...extraArgs, ...displayArgs], {
     detached: true,
     stdio: "ignore",
   });
@@ -468,7 +469,9 @@ function waitForStatus(serial, route) {
         const foundOk = (lastParsed.found || "") === "1";
         const markerOk = (lastParsed.marker || "") === route.expectedMarker;
         const routeOk = matchesRoute(lastParsed.route || "", route);
-        const authOk = (lastParsed.auth || "") === route.expectedAuth;
+        const authOk = (route.allowedAuthStates || [route.expectedAuth]).includes(
+          lastParsed.auth || "",
+        );
         const dataOk = route.allowedDataStates.includes(lastParsed.data || "");
         if (readyOk && foundOk && markerOk && routeOk && authOk && dataOk) {
           return {

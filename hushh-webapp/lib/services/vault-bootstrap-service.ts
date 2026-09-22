@@ -8,6 +8,7 @@ import {
   checkPrfSupport,
   registerWithPrf,
   authenticateWithPrf,
+  cancelPendingPrfAuthentication,
 } from "@/lib/vault/prf-auth";
 import { resolvePasskeyRpId } from "@/lib/vault/passkey-rp";
 import {
@@ -24,6 +25,7 @@ export type GeneratedVaultSupport =
   | {
       supported: true;
       mode: GeneratedVaultKeyMode;
+      biometricLabel?: string;
     }
   | {
       supported: false;
@@ -32,6 +34,7 @@ export type GeneratedVaultSupport =
 
 export type GeneratedVaultProvisionResult = {
   mode: GeneratedVaultKeyMode;
+  wrapperId?: string;
   authMethod: GeneratedVaultKeyMode;
   encryptedVaultKey: string;
   salt: string;
@@ -51,6 +54,7 @@ export type GeneratedVaultMethodMaterial = {
   mode: GeneratedVaultKeyMode;
   authMethod: GeneratedVaultKeyMode;
   wrappingSecret: string;
+  wrapperId?: string;
   passkeyCredentialId?: string;
   passkeyPrfSalt?: string;
   passkeyRpId?: string;
@@ -60,6 +64,9 @@ export type GeneratedVaultMethodMaterial = {
 
 export type GeneratedVaultUnlockInput = {
   userId: string;
+  wrapperId?: string | null;
+  requestId?: string;
+  signal?: AbortSignal;
   encryptedVaultKey: string;
   salt: string;
   iv: string;
@@ -74,8 +81,13 @@ const DEFAULT_VAULT_SECRET_PREFIX = "vault_default_secret";
 const BIOMETRIC_PROMPT_SET = "Set up quick unlock for One";
 const BIOMETRIC_PROMPT_GET = "Unlock One";
 
-function keychainSecretKey(userId: string): string {
-  return `${DEFAULT_VAULT_SECRET_PREFIX}:${userId}`;
+function keychainSecretKey(userId: string, wrapperId?: string | null): string {
+  const legacyKey = `${DEFAULT_VAULT_SECRET_PREFIX}:${userId}`;
+  return !wrapperId || wrapperId === "default" ? legacyKey : `${legacyKey}:${wrapperId}`;
+}
+
+function deviceWrapperReferenceKey(userId: string): string {
+  return `vault_biometric_wrapper_ref:${userId}`;
 }
 
 function normalizeKeyMode(input: {
@@ -203,18 +215,56 @@ async function canUseWebPrfVault(): Promise<boolean> {
 }
 
 export class VaultBootstrapService {
-  static async canUseGeneratedDefaultVault(): Promise<GeneratedVaultSupport> {
-    if (await canUseNativePasskeyVault()) {
-      return {
-        supported: true,
-        mode: "generated_default_native_passkey_prf",
-      };
+  static async cancelAuthentication(requestId?: string): Promise<void> {
+    if (Capacitor.isNativePlatform()) {
+      await Promise.allSettled([
+        HushhKeychain.cancelBiometricAuthentication({ requestId }),
+        HushhVault.cancelPasskeyAuthentication({ requestId }),
+      ]);
+    } else {
+      cancelPendingPrfAuthentication();
     }
+  }
+  static async getBiometricLabel(): Promise<string> {
+    if (!Capacitor.isNativePlatform()) return "Biometrics";
+    try {
+      const { type } = await HushhKeychain.isBiometricAvailable();
+      if (type === "faceId") return "Face ID";
+      if (type === "touchId") return "Touch ID";
+      return "Biometrics";
+    } catch {
+      return "Biometrics";
+    }
+  }
 
+  // This is only an opaque wrapper reference, never an unlocked key. A new
+  // device must not try another device's biometric wrapper just because it
+  // became the account's primary method. Legacy default wrappers still work.
+  static async getDeviceBiometricWrapperId(userId: string): Promise<string> {
+    if (!Capacitor.isNativePlatform()) return "default";
+    const { value } = await HushhKeychain.get({ key: deviceWrapperReferenceKey(userId) });
+    return value || "default";
+  }
+
+  static async preferDeviceBiometricWrapper(userId: string, wrapperId: string): Promise<void> {
+    await HushhKeychain.set({ key: deviceWrapperReferenceKey(userId), value: wrapperId });
+  }
+
+  static async canUseGeneratedDefaultVault(): Promise<GeneratedVaultSupport> {
+    // Native Keychain unlock does not depend on WebAuthn RP association or a
+    // synced credential provider. Preserve passkeys as an explicit alternative.
     if (await canUseNativeBiometricVault()) {
       return {
         supported: true,
         mode: "generated_default_native_biometric",
+        biometricLabel: await this.getBiometricLabel(),
+      };
+    }
+
+    if (await canUseNativePasskeyVault()) {
+      return {
+        supported: true,
+        mode: "generated_default_native_passkey_prf",
       };
     }
 
@@ -249,6 +299,7 @@ export class VaultBootstrapService {
 
     return {
       mode: material.mode,
+      wrapperId: material.wrapperId,
       authMethod: material.authMethod,
       encryptedVaultKey: vaultData.encryptedVaultKey,
       salt: vaultData.salt,
@@ -268,25 +319,53 @@ export class VaultBootstrapService {
   static async provisionGeneratedMethodMaterial(params: {
     userId: string;
     displayName: string;
+    targetMethod?: GeneratedVaultKeyMode;
+    signal?: AbortSignal;
+    requestId?: string;
   }): Promise<GeneratedVaultMethodMaterial> {
-    const support = await this.canUseGeneratedDefaultVault();
+    const available = params.targetMethod === "generated_default_native_biometric"
+      ? await canUseNativeBiometricVault()
+      : params.targetMethod === "generated_default_native_passkey_prf"
+        ? await canUseNativePasskeyVault()
+        : params.targetMethod === "generated_default_web_prf"
+          ? await canUseWebPrfVault()
+          : null;
+    const support: GeneratedVaultSupport = params.targetMethod
+      ? available
+        ? { supported: true, mode: params.targetMethod }
+        : { supported: false, reason: "Requested unlock method is unavailable on this device." }
+      : await this.canUseGeneratedDefaultVault();
+    params.signal?.throwIfAborted();
     if (!support.supported) {
       throw new Error(support.reason);
     }
 
     if (support.mode === "generated_default_native_biometric") {
       const generatedSecret = randomSecretHex(32);
-      await HushhKeychain.setBiometric({
-        key: keychainSecretKey(params.userId),
-        value: generatedSecret,
-        promptMessage: BIOMETRIC_PROMPT_SET,
-      });
-
-      return {
-        mode: support.mode,
-        authMethod: support.mode,
-        wrappingSecret: generatedSecret,
-      };
+      const wrapperId = `device-${crypto.randomUUID()}`;
+      try {
+        await HushhKeychain.setBiometric({
+          key: keychainSecretKey(params.userId, wrapperId),
+          value: generatedSecret,
+          promptMessage: BIOMETRIC_PROMPT_SET,
+        });
+        params.signal?.throwIfAborted();
+        // Saving a protected item alone does not prove that this user/device
+        // can recover it. Verify the actual Keychain secret before enrollment.
+        const recovered = await HushhKeychain.getBiometric({
+          key: keychainSecretKey(params.userId, wrapperId),
+          promptMessage: BIOMETRIC_PROMPT_SET,
+          requestId: params.requestId,
+        });
+        params.signal?.throwIfAborted();
+        if (recovered.value !== generatedSecret) {
+          throw new Error("Quick unlock could not be verified. Your passphrase still works.");
+        }
+        return { mode: support.mode, authMethod: support.mode, wrappingSecret: generatedSecret, wrapperId };
+      } catch (error) {
+        await this.clearGeneratedDefaultMaterial(params.userId, support.mode, wrapperId);
+        throw error;
+      }
     }
 
     if (support.mode === "generated_default_native_passkey_prf") {
@@ -295,7 +374,9 @@ export class VaultBootstrapService {
         userId: params.userId,
         displayName: params.displayName,
         rpId,
+        requestId: params.requestId,
       });
+      params.signal?.throwIfAborted();
       return {
         mode: support.mode,
         authMethod: support.mode,
@@ -312,6 +393,7 @@ export class VaultBootstrapService {
       params.userId,
       params.displayName,
     );
+    params.signal?.throwIfAborted();
     const rpId = resolveRpId();
 
     return {
@@ -329,12 +411,13 @@ export class VaultBootstrapService {
   static async clearGeneratedDefaultMaterial(
     userId: string,
     mode?: GeneratedVaultKeyMode | null,
+    wrapperId?: string | null,
   ): Promise<void> {
     if (mode !== "generated_default_native_biometric") return;
 
     try {
-      await HushhKeychain.delete({
-        key: keychainSecretKey(userId),
+      await HushhKeychain.deleteBiometric({
+        key: keychainSecretKey(userId, wrapperId),
       });
     } catch (error) {
       console.warn(
@@ -349,15 +432,20 @@ export class VaultBootstrapService {
   ): Promise<string | null> {
     const mode = normalizeKeyMode(input);
     if (!mode) return null;
+    input.signal?.throwIfAborted();
 
     if (mode === "generated_default_native_biometric") {
       const secret = await HushhKeychain.getBiometric({
-        key: keychainSecretKey(input.userId),
+        key: keychainSecretKey(input.userId, input.wrapperId),
         promptMessage: BIOMETRIC_PROMPT_GET,
+        requestId: input.requestId,
       });
+      input.signal?.throwIfAborted();
 
       if (!secret.value) {
-        throw new Error("Biometric vault secret not available.");
+        throw Object.assign(new Error("Quick unlock needs to be set up again on this device. Use your passphrase."), {
+          code: "VAULT_DEVICE_WRAPPER_UNAVAILABLE",
+        });
       }
 
       return unlockVaultWithPassphrase(
@@ -377,7 +465,9 @@ export class VaultBootstrapService {
         rpId: resolveRpId(),
         credentialId: input.passkeyCredentialId ?? undefined,
         prfSalt: input.passkeyPrfSalt,
+        requestId: input.requestId,
       });
+      input.signal?.throwIfAborted();
       return unlockVaultWithPassphrase(
         auth.vaultKeyHex,
         input.encryptedVaultKey,
@@ -396,6 +486,7 @@ export class VaultBootstrapService {
       input.passkeyCredentialId ?? undefined,
       input.passkeyRpId ?? undefined,
     );
+    input.signal?.throwIfAborted();
 
     return unlockVaultWithPassphrase(
       auth.vaultKeyHex,

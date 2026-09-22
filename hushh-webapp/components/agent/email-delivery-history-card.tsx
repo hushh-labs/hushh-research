@@ -1,6 +1,7 @@
 "use client";
 
-import { ChevronDown, CircleAlert, Loader2, MailCheck } from "lucide-react";
+import { ChevronDown, CircleAlert, Loader2, MailCheck } from "@/components/icons";
+import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
 import { EmailRichTextPreview } from "@/components/agent/email-rich-text";
@@ -11,6 +12,9 @@ export type EmailDeliveryHistoryItem = {
   instruction: string;
   draft: EmailDraft;
   status: "sending" | "sent" | "failed" | "outcome_unknown";
+  /** Present only when this is a source-bound Gmail KYC reply. */
+  sourceBoundWorkflowId?: string | null;
+  errorCode?: string | null;
   errorMessage?: string | null;
 };
 
@@ -24,11 +28,11 @@ function statusCopy(item: EmailDeliveryHistoryItem): string {
     case "sending":
       return "Sending in the background…";
     case "sent":
-      return "Email sent";
+      return "Mail sent";
     case "outcome_unknown":
       return "Delivery status needs checking";
     default:
-      return item.errorMessage || "Email could not be sent.";
+      return item.errorMessage || "Mail could not be sent.";
   }
 }
 
@@ -42,6 +46,9 @@ export function EmailDeliveryHistoryCard({
   onRetry,
 }: EmailDeliveryHistoryCardProps) {
   const canRetry = item.status === "failed";
+  const needsGmailReconnect =
+    item.errorCode === "GMAIL_SEND_DISABLED" ||
+    item.errorCode === "GMAIL_SEND_PERMISSION_REQUIRED";
 
   return (
     <details
@@ -66,13 +73,13 @@ export function EmailDeliveryHistoryCard({
         </span>
         <span className="min-w-0 flex-1">
           <span className="block text-sm font-semibold text-foreground">
-            {item.status === "sending" ? "Email sending" : "Email activity"}
+            {item.status === "sending" ? "Mail sending" : "Mail activity"}
           </span>
           <span className="block truncate text-sm text-muted-foreground">
             {statusCopy(item)}
           </span>
         </span>
-        <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 group-open:rotate-180" aria-hidden />
+        <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-150 group-open:rotate-180" aria-hidden />
       </summary>
 
       <div className="space-y-3 border-t border-border/60 px-4 py-4 text-sm">
@@ -85,14 +92,23 @@ export function EmailDeliveryHistoryCard({
           </p>
         </div>
         <dl className="grid gap-3 sm:grid-cols-2">
-          <div>
-            <dt className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">To</dt>
-            <dd className="mt-1 break-words text-foreground">{item.draft.to || "—"}</dd>
-          </div>
-          <div>
-            <dt className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">Subject</dt>
-            <dd className="mt-1 break-words text-foreground">{item.draft.subject || "—"}</dd>
-          </div>
+          {item.sourceBoundWorkflowId ? (
+            <div className="sm:col-span-2">
+              <dt className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">Delivery</dt>
+              <dd className="mt-1 break-words text-foreground">Original Mail thread</dd>
+            </div>
+          ) : (
+            <>
+              <div>
+                <dt className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">To</dt>
+                <dd className="mt-1 break-words text-foreground">{item.draft.to || "—"}</dd>
+              </div>
+              <div>
+                <dt className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">Subject</dt>
+                <dd className="mt-1 break-words text-foreground">{item.draft.subject || "—"}</dd>
+              </div>
+            </>
+          )}
           {item.draft.cc ? (
             <div>
               <dt className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">Cc</dt>
@@ -119,10 +135,19 @@ export function EmailDeliveryHistoryCard({
             <p className="mt-1 text-foreground">—</p>
           )}
         </div>
-        {canRetry && onRetry ? (
-          <Button type="button" variant="outline" size="sm" onClick={() => onRetry(item)}>
-            Edit and retry
-          </Button>
+        {canRetry ? (
+          <div className="flex flex-wrap gap-2">
+            {needsGmailReconnect ? (
+              <Button asChild type="button" variant="outline" size="sm">
+                <Link href="/one/gmail">Reconnect Mail</Link>
+              </Button>
+            ) : null}
+            {onRetry ? (
+              <Button type="button" variant="outline" size="sm" onClick={() => onRetry(item)}>
+                Edit and retry
+              </Button>
+            ) : null}
+          </div>
         ) : null}
       </div>
     </details>

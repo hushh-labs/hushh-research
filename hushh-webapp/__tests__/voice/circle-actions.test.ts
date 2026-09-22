@@ -70,7 +70,7 @@ describe("matchCircleByName", () => {
 describe("circle actions are authored and wired", () => {
   const expected = [
     ["location.create_circle", ["name"]],
-    ["location.add_to_circle", ["person", "circle"]],
+    ["location.add_to_circle", ["person", "circle", "audience"]],
     ["location.remove_from_circle", ["person", "circle"]],
     ["location.rename_circle", ["circle", "name"]],
     ["location.leave_circle", ["circle"]],
@@ -102,7 +102,7 @@ describe("circle actions are authored and wired", () => {
       const inputs = getKaiActionById(actionId)?.goal?.required_inputs ?? [];
       const person = inputs.find((input) => input.slot === "person");
       const circle = inputs.find((input) => input.slot === "circle");
-      expect(person?.required).toBe(true);
+      expect(person?.required).toBe(actionId === "location.remove_from_circle");
       expect(circle?.required).toBe(false);
     }
   });

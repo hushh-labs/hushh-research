@@ -47,13 +47,17 @@ function stackPrefixMatches(
 export function ProfileStackNavigator({
   rootContent,
   entries,
+  resetScroll = true,
 }: {
   rootContent: ReactNode;
   entries: ProfileStackEntry[];
+  resetScroll?: boolean;
 }) {
   const [activeIndex, setActiveIndex] = useState(entries.length);
   const [renderedEntries, setRenderedEntries] = useState(entries);
   const pruneTimerRef = useRef<number | null>(null);
+  const previousActiveKeyRef = useRef("root");
+  const scrollPositionsRef = useRef<Record<string, number>>({});
 
   useEffect(() => {
     return () => {
@@ -110,16 +114,29 @@ export function ProfileStackNavigator({
   }, [entries, renderedEntries]);
 
   useEffect(() => {
-    // Detail content now flows into the app's own scroll root instead of a
-    // nested scroll region of its own, so pushing a new screen must reset
-    // that shared scroll position -- otherwise a detail screen mounts
-    // already scrolled to wherever the previous screen left off.
     if (typeof document === "undefined") return;
-    const scrollRoot = document.querySelector<HTMLElement>(
-      '[data-app-scroll-root="true"]',
-    );
-    scrollRoot?.scrollTo({ top: 0 });
-  }, [activeIndex]);
+    const scrollRoot =
+      document.querySelector<HTMLElement>(
+        '[data-profile-pane-scroll-root="true"]',
+      ) ??
+      document.querySelector<HTMLElement>('[data-app-scroll-root="true"]');
+    if (!scrollRoot) return;
+
+    const activeKey =
+      activeIndex >= renderedEntries.length
+        ? "root"
+        : renderedEntries[activeIndex]?.key || "root";
+    const previousKey = previousActiveKeyRef.current;
+    if (!resetScroll && previousKey !== activeKey) {
+      scrollPositionsRef.current[previousKey] = scrollRoot.scrollTop;
+    }
+
+    const nextTop = resetScroll
+      ? 0
+      : scrollPositionsRef.current[activeKey] ?? 0;
+    scrollRoot.scrollTo({ top: nextTop, behavior: "auto" });
+    previousActiveKeyRef.current = activeKey;
+  }, [activeIndex, renderedEntries, resetScroll]);
 
   const screens = [
     {
@@ -165,7 +182,7 @@ export function ProfileStackNavigator({
             <section
               key={entry.key}
               className={cn(
-                "w-full min-w-0 [grid-area:stack] transition-[transform,opacity] duration-[260ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
+                "w-full min-w-0 [grid-area:stack] transition-[transform,opacity] duration-[150ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none",
                 isActive
                   ? "relative z-10 opacity-100"
                   : "pointer-events-none absolute inset-x-0 top-0 opacity-0",

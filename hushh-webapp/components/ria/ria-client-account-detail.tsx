@@ -19,7 +19,7 @@ import {
   buildRiaClientWorkspaceRoute,
 } from "@/lib/navigation/routes";
 import { useRiaClientWorkspaceState } from "@/components/ria/use-ria-client-workspace-state";
-import { Database, Loader2, Wallet } from "lucide-react";
+import { Database, Loader2, Wallet } from "@/components/icons";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { RIA_TONE_BADGE } from "@/lib/ria/ria-tone";
 
@@ -108,7 +108,7 @@ export function RiaClientAccountDetail({
   if (riaCapability === "setup") {
     return (
       <RiaCompatibilityState
-        title="Complete RIA onboarding"
+        title="Complete Advisor onboarding"
         description="Finish onboarding before opening account detail routes."
         nativeTest={{
           routeId: "/ria/clients/[userId]/accounts/[accountId]",

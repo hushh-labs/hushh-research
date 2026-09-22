@@ -26,10 +26,13 @@ import {
   CACHE_TTL,
 } from "@/lib/services/cache-service";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
+import { OneLocationMapPreferencesResource } from "@/lib/one-location/one-location-map-preferences-resource";
 import {
   readLocationWorkspaceMemory,
   writeLocationWorkspaceMemory,
 } from "@/lib/one-location/location-workspace-memory";
+import { CONNECTION_GRAPH_CHANGED_EVENT } from "@/lib/connections/connection-graph-events";
+import { ONE_LOCATION_STATE_CHANGED_EVENT } from "@/lib/one-location/one-location-state-events";
 
 describe("CacheSyncService mutation cascades", () => {
   const userId = "test-user-123";
@@ -124,6 +127,83 @@ describe("CacheSyncService mutation cascades", () => {
     expect(readLocationWorkspaceMemory(userId).myLocationPoint).toBeNull();
   });
 
+  it("onConnectionGraphMutated announces the owner whose live consumers are stale", () => {
+    const details: unknown[] = [];
+    const listener = (event: Event) =>
+      details.push((event as CustomEvent).detail);
+    window.addEventListener(CONNECTION_GRAPH_CHANGED_EVENT, listener);
+
+    CacheSyncService.onConnectionGraphMutated(userId);
+
+    expect(details).toEqual([
+      expect.objectContaining({ userId, changedAt: expect.any(Number) }),
+    ]);
+    window.removeEventListener(CONNECTION_GRAPH_CHANGED_EVENT, listener);
+  });
+
+  it("onOneLocationStateMutated invalidates and broadcasts the affected domains", () => {
+    const invalidateLocation = vi.spyOn(OneLocationStateResource, "invalidate");
+    const details: unknown[] = [];
+    const listener = (event: Event) =>
+      details.push((event as CustomEvent).detail);
+    window.addEventListener(ONE_LOCATION_STATE_CHANGED_EVENT, listener);
+
+    CacheSyncService.onOneLocationStateMutated(userId, [
+      "workspace",
+      "circles",
+      "sms_roster",
+    ]);
+
+    expect(invalidateLocation).toHaveBeenCalledWith(userId);
+    expect(details).toEqual([
+      expect.objectContaining({
+        userId,
+        domains: ["workspace", "circles", "sms_roster"],
+        changedAt: expect.any(Number),
+      }),
+    ]);
+    window.removeEventListener(ONE_LOCATION_STATE_CHANGED_EVENT, listener);
+  });
+
+  it("invalidates map preferences at notification ingress before broadcasting", () => {
+    const invalidateMapPreferences = vi.spyOn(
+      OneLocationMapPreferencesResource,
+      "invalidateFromEvent",
+    );
+
+    CacheSyncService.onOneLocationStateMutated(userId, ["map_preferences"], {
+      eventId: "map-preferences:event-1",
+    });
+
+    expect(invalidateMapPreferences).toHaveBeenCalledWith(
+      userId,
+      "map-preferences:event-1",
+    );
+  });
+
+  it("invalidates map preferences from a peer event without rebroadcasting", () => {
+    const invalidateMapPreferences = vi.spyOn(
+      OneLocationMapPreferencesResource,
+      "invalidateFromEvent",
+    );
+    const listener = vi.fn();
+    window.addEventListener(ONE_LOCATION_STATE_CHANGED_EVENT, listener);
+
+    CacheSyncService.onRemoteOneLocationStateChanged({
+      userId,
+      domains: ["map_preferences"],
+      changedAt: 123,
+      eventId: "map-preferences:remote-1",
+    });
+
+    expect(invalidateMapPreferences).toHaveBeenCalledWith(
+      userId,
+      "map-preferences:remote-1",
+    );
+    expect(listener).not.toHaveBeenCalled();
+    window.removeEventListener(ONE_LOCATION_STATE_CHANGED_EVENT, listener);
+  });
+
   it("owns optimistic Feed read state and preserves rows above the watermark", () => {
     cache.set(
       CACHE_KEYS.FEED_LIST(userId),
@@ -200,10 +280,18 @@ describe("CacheSyncService mutation cascades", () => {
 
   // ---------- 4. onAuthSignedOut(userId) ----------
   it("onAuthSignedOut with userId delegates to cache.invalidateUser", () => {
+    OneLocationMapPreferencesResource.write(userId, {
+      presenceMode: "foreground_private",
+      rendererConsentVersion: null,
+      updatedAt: null,
+    });
     CacheSyncService.onAuthSignedOut(userId);
 
     expect(spyInvalidateUser).toHaveBeenCalledWith(userId);
     expect(spyClear).not.toHaveBeenCalled();
+    expect(
+      OneLocationMapPreferencesResource.readPresentation(userId),
+    ).toBeNull();
   });
 
   // ---------- 5. onAuthSignedOut() (no userId) ----------
@@ -223,6 +311,11 @@ describe("CacheSyncService mutation cascades", () => {
 
   // ---------- 7. onVaultStateChanged with hasVault: true ----------
   it("onVaultStateChanged(hasVault: true) sets VAULT_CHECK to SESSION TTL and invalidates VAULT_STATUS", () => {
+    OneLocationMapPreferencesResource.write(userId, {
+      presenceMode: "ghost",
+      rendererConsentVersion: null,
+      updatedAt: null,
+    });
     CacheSyncService.onVaultStateChanged(userId, { hasVault: true });
 
     expect(spySet).toHaveBeenCalledWith(
@@ -232,6 +325,9 @@ describe("CacheSyncService mutation cascades", () => {
     );
     const invalidatedKeys = spyInvalidate.mock.calls.map((c) => c[0]);
     expect(invalidatedKeys).toContain(CACHE_KEYS.VAULT_STATUS(userId));
+    expect(
+      OneLocationMapPreferencesResource.readPresentation(userId),
+    ).toBeNull();
   });
 
   // ---------- 8. onVaultStateChanged with hasVault: false ----------
@@ -372,6 +468,64 @@ describe("CacheSyncService mutation cascades", () => {
 
     const invalidatedKeys = spyInvalidate.mock.calls.map((c) => c[0]);
     expect(invalidatedKeys).toContain(CACHE_KEYS.PKM_DECRYPTED_BLOB(userId));
+  });
+
+  it("invalidates lower Location caches before publishing a remote PKM doorbell", () => {
+    cache.set(
+      CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, "location"),
+      { ciphertext: "old", iv: "old", tag: "old" },
+      CACHE_TTL.SESSION,
+    );
+    cache.set(
+      CACHE_KEYS.DOMAIN_DATA(userId, "location"),
+      { savedLocations: [{ id: "old" }] },
+      CACHE_TTL.SESSION,
+    );
+    const received: unknown[] = [];
+    const listener = (event: Event) =>
+      received.push((event as CustomEvent<unknown>).detail);
+    window.addEventListener("pkm-domain-changed", listener);
+
+    CacheSyncService.onPkmDomainStored(userId, "location", {
+      eventDataVersion: 8,
+      metadataTimestamp: "2026-09-20T00:00:00Z",
+      writeThroughMetadata: false,
+    });
+
+    expect(
+      cache.get(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, "location")),
+    ).toBeNull();
+    expect(cache.get(CACHE_KEYS.DOMAIN_DATA(userId, "location"))).toBeNull();
+    expect(received).toEqual([
+      expect.objectContaining({
+        userId,
+        domain: "location",
+        dataVersion: 8,
+        updatedAt: "2026-09-20T00:00:00Z",
+        operation: "stored",
+        eventId: expect.any(String),
+      }),
+    ]);
+    window.removeEventListener("pkm-domain-changed", listener);
+  });
+
+  it("fans a peer-tab PKM clear out to window-only consumers without rebroadcasting", () => {
+    const detail = {
+      userId,
+      domain: "location",
+      dataVersion: null,
+      updatedAt: "2026-09-20T00:00:00Z",
+      operation: "cleared" as const,
+    };
+    const received: unknown[] = [];
+    const listener = (event: Event) =>
+      received.push((event as CustomEvent<unknown>).detail);
+    window.addEventListener("pkm-domain-changed", listener);
+
+    CacheSyncService.onRemotePkmDomainChanged(detail);
+
+    expect(received).toEqual([detail]);
+    window.removeEventListener("pkm-domain-changed", listener);
   });
 
   it("onPkmDomainStored keeps the full financial domain fresh after encrypted portfolio writes", () => {

@@ -34,11 +34,15 @@ import io
 import json
 import logging
 import re
+from functools import lru_cache
+from pathlib import Path
 from typing import Any
 
 import httpx
 
 from hushh_mcp.constants import GEMINI_MODEL
+from hushh_mcp.hushh_adk.manifest import ManifestLoader
+from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent, run_single_turn
 from hushh_mcp.services.ria_claim_service import title_case_name
 
 logger = logging.getLogger(__name__)
@@ -56,6 +60,7 @@ MAX_ITEM_CHARS = 120
 # A plausible engagement minimum. Anything larger is a parse artefact
 # (an AUM figure, a fee table cell) rather than a stated minimum.
 MAX_MIN_ENGAGEMENT = 1_000_000_000.0
+_RIA_BROCHURE_CONSENT_TOKEN = "ria.brochure"  # noqa: S105 - turn-local scope label
 
 _HTTP_HEADERS = {
     "User-Agent": "hushh-consent-protocol/1.0 (+https://hushh.ai) Form ADV reader",
@@ -130,6 +135,32 @@ _BACKGROUND_TASKS: set[asyncio.Task[Any]] = set()
 # The label persisted as ria_profiles.profile_source so the UI can say where
 # these words came from rather than presenting them as the adviser's own.
 PROFILE_SOURCE_LABEL = "form_adv_part2"
+
+_KAI_MANIFEST_PATH = Path(__file__).resolve().parents[1] / "agents" / "kai" / "agent.yaml"
+_RIA_BROCHURE_GENE_ID = "agent_ria_brochure"
+_RIA_BROCHURE_SCHEMA: dict[str, object] = {
+    "type": "OBJECT",
+    "properties": {
+        "services_offered": {"type": "ARRAY", "items": {"type": "STRING"}},
+        "fee_structure": {"type": "ARRAY", "items": {"type": "STRING"}},
+        "min_engagement_amount": {"type": "NUMBER", "nullable": True},
+    },
+    "required": ["services_offered", "fee_structure", "min_engagement_amount"],
+}
+
+
+@lru_cache(maxsize=1)
+def _load_ria_brochure_gene():
+    manifest = ManifestLoader.load(str(_KAI_MANIFEST_PATH))
+    try:
+        gene = next(child for child in manifest.subagents if child.id == _RIA_BROCHURE_GENE_ID)
+    except StopIteration as exc:
+        raise RuntimeError(f"Kai manifest is missing gene: {_RIA_BROCHURE_GENE_ID}") from exc
+    if gene.runtime.adk_mode != "single_turn" or gene.runtime.transport != ["in_process"]:
+        raise RuntimeError("RIA brochure reader must remain an in-process single-turn gene")
+    if gene.privacy.plaintext_telemetry:
+        raise RuntimeError("RIA brochure reader must not enable plaintext telemetry")
+    return gene
 
 
 def _track_background_task(task: asyncio.Task[Any]) -> None:
@@ -294,12 +325,9 @@ async def _brochure_text(data: bytes) -> tuple[str, str]:
 async def _run_model(prompt: str) -> tuple[dict[str, Any], str]:
     """Ask the managed Gemini runtime for strict JSON. Never raises."""
     try:
-        from google.genai import types as genai_types
+        from google.genai import Client
 
-        from hushh_mcp.runtime_providers import (
-            build_generate_content_config,
-            build_managed_runtime_client,
-        )
+        from hushh_mcp.runtime_providers import build_managed_runtime_client
 
         client = build_managed_runtime_client("gemini")
     except Exception as exc:  # noqa: BLE001 - no brain is an empty result
@@ -308,7 +336,39 @@ async def _run_model(prompt: str) -> tuple[dict[str, Any], str]:
     if client is None:
         return {}, "model_unavailable"
 
+    # Production managed clients use the manifest-owned single-turn gene.
+    # Lightweight deterministic test clients retain the direct seam and never
+    # acquire credentials or network access.
+    if isinstance(client, Client):
+        try:
+            from google.adk.models import Gemini
+
+            gene = _load_ria_brochure_gene()
+            agent = build_single_turn_agent(
+                gene,
+                output_schema=_RIA_BROCHURE_SCHEMA,
+                model=Gemini(model=GEMINI_MODEL, client=client),
+            )
+            parsed = await run_single_turn(
+                agent,
+                prompt_parts=prompt,
+                user_id="ria-brochure-reader",
+                consent_token=_RIA_BROCHURE_CONSENT_TOKEN,
+                timeout_seconds=max(30.0, gene.performance.latency_p95_ms / 1000),
+            )
+        except Exception as exc:  # noqa: BLE001 - enrichment never raises
+            logger.info("ria.brochure_model_failed error=%s", type(exc).__name__)
+            return {}, f"model_failed:{type(exc).__name__}"
+        if not isinstance(parsed, dict):
+            return {}, "model_json_not_an_object"
+        return parsed, ""
+
+    # Compatibility seam for deterministic fakes used by the service tests.
     try:
+        from google.genai import types as genai_types
+
+        from hushh_mcp.runtime_providers import build_generate_content_config
+
         config = build_generate_content_config(
             genai_types,
             GEMINI_MODEL,
@@ -323,11 +383,9 @@ async def _run_model(prompt: str) -> tuple[dict[str, Any], str]:
     except Exception as exc:  # noqa: BLE001 - enrichment never raises
         logger.info("ria.brochure_model_failed error=%s", type(exc).__name__)
         return {}, f"model_failed:{type(exc).__name__}"
-
     try:
         parsed = json.loads(_clean_text(getattr(response, "text", "")))
     except (TypeError, ValueError):
-        # Never log the body: it is the filing's text, not ours to emit.
         logger.info("ria.brochure_model_json_invalid")
         return {}, "model_json_invalid"
     if not isinstance(parsed, dict):

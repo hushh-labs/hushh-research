@@ -10,8 +10,10 @@ import {
   useState,
 } from "react";
 import type { ReactElement, ReactNode } from "react";
-import type { LucideIcon } from "lucide-react";
-import { ChevronRight, X } from "lucide-react";
+import {
+  CaretRightIcon as ChevronRight,
+  XIcon as X,
+} from "@/components/icons";
 import { Slot } from "radix-ui";
 
 import {
@@ -162,6 +164,8 @@ const SETTINGS_ICON_TONE_CLASSNAME = {
   indigo:
     "bg-[color-mix(in_srgb,var(--app-indigo)_12%,transparent)] text-[color:var(--app-indigo)] dark:bg-[color-mix(in_srgb,var(--app-indigo)_20%,transparent)] dark:text-[color:var(--app-indigo)]",
   gray: "bg-[#E5E5EA] text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#D1D1D6]",
+  capability: "bg-transparent text-current shadow-none ring-0",
+  transparent: "bg-transparent text-current shadow-none ring-0",
 } as const;
 
 type SettingsIconTone = keyof typeof SETTINGS_ICON_TONE_CLASSNAME;
@@ -391,7 +395,7 @@ export function SettingsRow({
 }: {
   asChild?: boolean;
   children?: ReactNode;
-  icon?: LucideIcon;
+  icon?: React.ComponentType<any>;
   leading?: ReactNode;
   title: ReactNode;
   description?: ReactNode;
@@ -478,7 +482,11 @@ export function SettingsRow({
     className,
   );
   const resolvedIconTone: SettingsIconTone =
-    tone === "destructive" ? "red" : iconTone;
+    tone === "destructive" && iconTone !== "capability" && iconTone !== "transparent"
+      ? "red"
+      : iconTone;
+  const isCapabilityTone =
+    resolvedIconTone === "capability" || resolvedIconTone === "transparent";
   const mainContent = (
     <div
       className={cn(
@@ -501,19 +509,36 @@ export function SettingsRow({
           data-slot="settings-row-icon"
           data-icon-tone={resolvedIconTone}
           className={cn(
-            // Keep settings icons as iOS-style rounded-square utility wells.
-            // Agent artwork continues to use AgentSectionIcon, which owns the
-            // larger launcher/menu geometry separately.
+            // Keep settings icons as iOS-style rounded-square utility wells,
+            // or clean transparent canvas for capability duotone icons.
             "inline-flex shrink-0 items-center justify-center self-center",
             layout === "person"
               ? "size-10 rounded-full"
               : resolvedDensity === "compact"
-                ? "h-7 w-7 rounded-[7px]"
-                : "h-[34px] w-[34px] rounded-[10px] sm:h-[34px] sm:w-[34px] sm:rounded-[10px]",
-            SETTINGS_ICON_TONE_CLASSNAME[resolvedIconTone],
+                ? "h-7 w-7"
+                : "h-[34px] w-[34px]",
+            isCapabilityTone
+              ? "!bg-transparent !shadow-none !ring-0 text-current"
+              : cn(
+                  resolvedDensity === "compact"
+                    ? "rounded-[7px]"
+                    : "rounded-[10px] sm:rounded-[10px]",
+                  SETTINGS_ICON_TONE_CLASSNAME[resolvedIconTone],
+                ),
           )}
         >
-          <Icon icon={icon} size={resolvedDensity === "compact" ? 16 : 17} />
+          <Icon
+            icon={icon}
+            size={
+              isCapabilityTone
+                ? resolvedDensity === "compact"
+                  ? 22
+                  : 24
+                : resolvedDensity === "compact"
+                  ? 16
+                  : 17
+            }
+          />
         </span>
       ) : null}
       <div className="min-w-0 flex-1 space-y-0.5">
@@ -558,6 +583,12 @@ export function SettingsRow({
       <div
         className={cn(
           "relative z-0 flex max-w-full shrink-0 items-center justify-end self-center gap-2.5 pr-0.5 sm:pr-1",
+          // A wide inline trailing value must never squeeze the title into a
+          // one-word-per-line column (a statement label did exactly that on
+          // the phone): on narrow screens the trailing column keeps under
+          // 58 % of the row and its content truncates; a stacked trailing
+          // owns its own line and is not bounded.
+          !shouldStackTrailing && "min-w-0 max-w-[58%] shrink [&>*]:min-w-0 [&>*]:truncate sm:max-w-none sm:shrink-0",
           shouldStackTrailing &&
             "w-full min-w-0 justify-between pl-[var(--settings-row-stack-indent,2.65rem)] pt-1 sm:w-auto sm:justify-end sm:pl-0 sm:pt-0",
         )}
@@ -585,9 +616,20 @@ export function SettingsRow({
       "transition-[border-color,box-shadow] focus:outline-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2",
   );
   const primaryActionClassName = cn(
-    "relative isolate min-w-0 overflow-hidden border-0 bg-transparent px-[var(--settings-row-px)] py-[var(--settings-row-py)] text-left outline-hidden ring-0 transition-[background-color,border-color,box-shadow] [-webkit-tap-highlight-color:transparent] focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-    "rounded-[inherit] [@media(hover:hover)]:rounded-xl",
-    "[@media(hover:hover)]:hover:bg-foreground/[0.04] active:bg-foreground/[0.065]",
+    // No background and no radius of its own.
+    //
+    // This button used to paint the hover itself, with
+    // `[@media(hover:hover)]:rounded-xl` overriding the row radius and its own
+    // `px-[var(--settings-row-px)]` sitting INSIDE a grid cell that already has
+    // that padding. The result was a 12px-rounded pill inset from the row on
+    // every side and stopping short of the trailing controls -- a highlight
+    // that pointed at part of a row while the whole row was the target.
+    //
+    // The hover now comes from the same full-bleed overlay the non-split row
+    // uses, so both shapes of row light up identically: edge to edge, at the
+    // row's own corner radius.
+    "relative isolate min-w-0 border-0 bg-transparent px-[var(--settings-row-px)] py-[var(--settings-row-py)] text-left outline-hidden ring-0 [-webkit-tap-highlight-color:transparent] focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+    "rounded-[inherit]",
     resolvedDensity === "compact" ? "min-h-[56px]" : "min-h-[60px]",
     layout === "person" && "min-h-11 p-0",
   );
@@ -617,6 +659,7 @@ export function SettingsRow({
             variant="none"
             effect="fade"
             disabled={disabled}
+            disableHover
             className="z-10"
           />
         ) : null,
@@ -626,6 +669,20 @@ export function SettingsRow({
   if (splitPrimaryAction) {
     return (
       <div className={rowShellClassName} {...rowDataProps}>
+        {/*
+          The same hover surface the non-split row draws. It sits on the shell,
+          so it spans the full row and takes the shell's radius, rather than
+          being painted by the inner button at a radius of its own.
+        */}
+        {!disabled ? (
+          <span
+            aria-hidden
+            className={cn(
+              "pointer-events-none absolute inset-0 z-[1] rounded-[inherit] bg-transparent transition-[background-color] duration-100 ease-out",
+              "[@media(hover:hover)]:group-hover/settings-row:bg-foreground/[0.04] group-active/settings-row:bg-foreground/[0.065]",
+            )}
+          />
+        ) : null}
         <div
           className={cn(
             "relative z-10 grid w-full px-[var(--settings-row-px)] py-[var(--settings-row-py)]",
@@ -654,6 +711,7 @@ export function SettingsRow({
               variant="none"
               effect="fade"
               disabled={disabled}
+              disableHover
               className="z-10"
             />
           </button>
@@ -714,6 +772,7 @@ export function SettingsRow({
             variant="none"
             effect="fade"
             disabled={disabled}
+            disableHover
             className="z-10"
           />
         ) : null}
@@ -799,7 +858,7 @@ export function AdaptiveDetailSurface({
       className={cn(
         "group absolute right-4 top-4 z-20 isolate inline-flex h-10 w-10 items-center justify-center overflow-hidden rounded-full",
         "border border-transparent bg-[color:var(--app-neutral-fill)] text-[color:var(--app-secondary-label)]",
-        "transition-[transform,color,background-color] duration-200 hover:bg-[color:var(--app-neutral-fill-strong)] hover:text-foreground active:scale-[0.97]",
+        "transition-[transform,color,background-color] duration-100 ease-out hover:bg-[color:var(--app-neutral-fill-strong)] hover:text-foreground active:scale-[0.97]",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
       )}
     >

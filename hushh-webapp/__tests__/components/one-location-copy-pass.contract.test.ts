@@ -87,7 +87,7 @@ describe("One Location — link durations stay inside the server's ceiling", () 
     expect(HUB_SOURCE).not.toMatch(/up to 1 hour for a location link/i);
 
     // The public-link picker. Anyone holding the URL can watch, so its ceiling
-    // is an hour — deliberately below the private-share ceiling the invite
+    // is two hours — deliberately below the private-share ceiling the invite
     // picker is bound by.
     const start = HUB_SOURCE.indexOf("PUBLIC_LINK_DURATION_OPTIONS");
     expect(start).toBeGreaterThan(-1);
@@ -98,7 +98,7 @@ describe("One Location — link durations stay inside the server's ceiling", () 
 
     expect(publicHours.length).toBeGreaterThan(0);
     for (const hours of publicHours) {
-      expect(hours).toBeLessThanOrEqual(1);
+      expect(hours).toBeLessThanOrEqual(2);
     }
   });
 
@@ -215,7 +215,12 @@ describe("One Location — the Ask for location trail agrees with the screen", (
     );
     // …and the hub row that opens it names the same thing.
     expect(HUB_SOURCE).toContain(`title="${last}"`);
-    expect(HUB_SOURCE).not.toContain('title="Request Location"');
+    // The selected-recipient rail is an action label, not a competing screen
+    // title. Product copy calls this read-back "Request Location" while the
+    // breadcrumb, page heading, and hub entry remain "Ask for location".
+    expect(HUB_SOURCE).toMatch(
+      /<SelectedRecipientsRail\s+title="Request Location"/,
+    );
   });
 });
 

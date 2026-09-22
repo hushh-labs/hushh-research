@@ -21,6 +21,7 @@ from enum import Enum
 from typing import Any, Optional
 
 from db.db_client import JsonParam, get_db
+from hushh_mcp.consent.internal_path_keys import is_internal_manifest_path
 from hushh_mcp.consent.pkm_scope_policy import (
     is_externalizable_pkm_manifest_path,
     is_private_pkm_export_scope,
@@ -39,9 +40,15 @@ from hushh_mcp.services.domain_contracts import (
     is_owner_managed_reserved_domain,
     validate_dynamic_top_level_domain,
 )
+from hushh_mcp.services.pkm_manifest_repair import (
+    ManifestRepairError,
+    build_entity_path_repair_plan,
+)
 from hushh_mcp.services.pkm_mutation_contracts import (
     PKM_MAX_AFFECTED_SHARING_IDS,
+    LocationPkmFinalizeAuthorizationV1,
     PkmMutationPlanV2,
+    validate_location_finalize_authorization_for_write,
     validate_mutation_plan_for_write,
 )
 
@@ -50,6 +57,7 @@ _PKM_MUTATION_COMMIT_NAMESPACE = uuid.uuid5(
     uuid.NAMESPACE_URL,
     "https://hushh.ai/contracts/pkm/domain-mutation/v1",
 )
+_UNRESOLVED_METADATA_INDEX = object()
 
 
 class AttributeSource(str, Enum):
@@ -479,8 +487,10 @@ class PersonalKnowledgeModelService:
 
         segments: list[str] = []
         for part in raw.split("."):
-            if part.strip() == "_items":
-                segments.append("_items")
+            if part.strip().startswith("_"):
+                # Keep manifest grammar and private-key spelling identical to
+                # the browser's authored paths. Neither may become a new key.
+                segments.append(part.strip())
                 continue
             normalized_part = "".join(
                 ch if (ch.isalnum() or ch == "_") else "_" for ch in part.strip()
@@ -551,6 +561,8 @@ class PersonalKnowledgeModelService:
     ) -> bool:
         normalized = cls._normalize_manifest_path(path)
         if not normalized or path_type != "leaf":
+            return False
+        if is_internal_manifest_path(normalized):
             return False
         if not is_externalizable_pkm_manifest_path(domain=domain, path=normalized):
             return False
@@ -2041,6 +2053,97 @@ class PersonalKnowledgeModelService:
             )
             return None
 
+    async def get_domain_manifests(
+        self,
+        user_id: str,
+        domains: list[str],
+    ) -> dict[str, dict]:
+        """Return several domain manifests using one read per manifest table.
+
+        Upgrade-status rendering needs the same manifest, path, and scope
+        registry data as ``get_domain_manifest`` for every available domain.
+        Reading each domain independently turns a metadata request into an
+        avoidable 3*N query fan-out. This batch seam keeps the authority and
+        normalization rules identical while bounding the request to three
+        owner-scoped reads.
+        """
+        canonical_domains = sorted(
+            {
+                normalized
+                for domain in domains
+                if (normalized := self._canonicalize_domain_key(domain))
+            }
+        )
+        if not canonical_domains:
+            return {}
+
+        try:
+            manifest_query = (
+                self.db.table("pkm_manifests")
+                .select("*")
+                .eq("user_id", user_id)
+                .in_("domain", canonical_domains)
+            )
+            path_query = (
+                self.db.table("pkm_manifest_paths")
+                .select("*")
+                .eq("user_id", user_id)
+                .in_("domain", canonical_domains)
+                .order("domain")
+                .order("json_path")
+            )
+            scope_query = (
+                self.db.table("pkm_scope_registry")
+                .select("*")
+                .eq("user_id", user_id)
+                .in_("domain", canonical_domains)
+                .order("domain")
+                .order("scope_handle")
+            )
+            manifest_result, path_result, scope_result = await asyncio.gather(
+                self._execute_query(manifest_query),
+                self._execute_query(path_query),
+                self._execute_query(scope_query),
+            )
+            manifests = {
+                str(row.get("domain")): dict(row)
+                for row in (manifest_result.data or [])
+                if isinstance(row, dict) and str(row.get("domain") or "").strip()
+            }
+            paths_by_domain: dict[str, list[dict]] = {}
+            for row in path_result.data or []:
+                if not isinstance(row, dict):
+                    continue
+                domain = self._canonicalize_domain_key(row.get("domain"))
+                if domain:
+                    paths_by_domain.setdefault(domain, []).append(dict(row))
+            scopes_by_domain: dict[str, list[dict]] = {}
+            for row in scope_result.data or []:
+                if not isinstance(row, dict):
+                    continue
+                domain = self._canonicalize_domain_key(row.get("domain"))
+                if domain:
+                    scopes_by_domain.setdefault(domain, []).append(dict(row))
+
+            for domain, manifest in manifests.items():
+                canonical_domain = self._canonicalize_domain_key(domain)
+                if not canonical_domain:
+                    continue
+                manifest["paths"] = paths_by_domain.get(canonical_domain, [])
+                manifest["scope_registry"] = self._normalize_scope_registry_rows(
+                    domain=canonical_domain,
+                    scope_rows=scopes_by_domain.get(canonical_domain, []),
+                    expected_manifest_version=self._to_non_negative_int(
+                        manifest.get("manifest_version")
+                    ),
+                )
+            return {
+                domain: manifests[domain] for domain in canonical_domains if domain in manifests
+            }
+        except Exception as exc:
+            logger.error("Error getting domain manifests for user=%s: %s", user_id, exc)
+            return {}
+
     async def record_mutation_event(
         self,
         *,
@@ -2416,8 +2519,25 @@ class PersonalKnowledgeModelService:
         current_version: int,
         prior_manifest: dict | None,
         legacy_blob_present: bool,
+        location_finalize_authorization: LocationPkmFinalizeAuthorizationV1 | None = None,
     ) -> dict[str, Any]:
         """Commit ciphertext, metadata, events, and refresh jobs in one DB transaction."""
+        if (
+            normalized_mutation_plan
+            and normalized_mutation_plan.confirmation_receipt.authorization_mode
+            == "owner_requested_workflow"
+            and location_finalize_authorization is None
+        ):
+            raise ValueError("requested_workflow_requires_location_finalize")
+        if location_finalize_authorization is not None:
+            if upgrade_claim is not None or normalized_mutation_plan is None:
+                raise ValueError("location_finalize_requires_mutation")
+            validate_location_finalize_authorization_for_write(
+                authorization=location_finalize_authorization,
+                plan=normalized_mutation_plan,
+                authenticated_user_id=user_id,
+                domain=domain,
+            )
         next_version = current_version + 1
         manifest_row = self._serialize_manifest(normalized_manifest)
         manifest_row["structure_decision"] = self._json_object(
@@ -2538,6 +2658,19 @@ class PersonalKnowledgeModelService:
                 },
             },
         ]
+        if (
+            normalized_mutation_plan
+            and normalized_mutation_plan.confirmation_receipt.workflow_authority
+        ):
+            # This non-secret locator participates in v4's fingerprint. The v5
+            # transaction verifies live command authority before any PKM effect.
+            event_rows[1]["metadata"]["provenance"] = {
+                **mutation_metadata,
+                "authorization_mode": "owner_requested_workflow",
+                "workflow_authority": normalized_mutation_plan.confirmation_receipt.workflow_authority.model_dump(
+                    mode="json"
+                ),
+            }
         projection_supplied = isinstance(write_projections, list) and any(
             isinstance(projection, dict)
             and str(projection.get("projection_type") or "").strip().lower()
@@ -2616,8 +2749,13 @@ class PersonalKnowledgeModelService:
                 sort_keys=True,
             ).encode("utf-8")
         ).hexdigest()
+        rpc_name = (
+            "commit_pkm_domain_mutation_v5"
+            if location_finalize_authorization
+            else "commit_pkm_domain_mutation_v4"
+        )
         rpc_result = await self._run_rpc(
-            "commit_pkm_domain_mutation_v4",
+            rpc_name,
             {
                 "p_user_id": user_id,
                 "p_domain": domain,
@@ -2647,9 +2785,18 @@ class PersonalKnowledgeModelService:
                 "p_upgrade_claim": JsonParam(upgrade_claim) if upgrade_claim else None,
                 "p_preservation_receipt": JsonParam(preservation_receipt or {}),
                 "p_request_fingerprint": request_fingerprint,
+                **(
+                    {
+                        "p_location_finalize_authorization": JsonParam(
+                            location_finalize_authorization.model_dump(mode="json")
+                        )
+                    }
+                    if location_finalize_authorization
+                    else {}
+                ),
             },
         )
-        payload = self._unwrap_rpc_payload(rpc_result, "commit_pkm_domain_mutation_v4")
+        payload = self._unwrap_rpc_payload(rpc_result, rpc_name)
         return payload if isinstance(payload, dict) else {"success": False, "conflict": False}
 
     async def get_mutation_sharing_impact(
@@ -3507,14 +3654,27 @@ class PersonalKnowledgeModelService:
 
     # ==================== METADATA OPERATIONS ====================
 
-    async def get_user_metadata(self, user_id: str) -> UserPersonalKnowledgeModelMetadata:
+    async def get_user_metadata(
+        self,
+        user_id: str,
+        *,
+        resolved_index: Optional[PersonalKnowledgeModelIndex] | object = _UNRESOLVED_METADATA_INDEX,
+    ) -> UserPersonalKnowledgeModelMetadata:
         """
         Get complete metadata about user's PKM for UI.
 
         This is the primary method for frontend to fetch user profile data.
+
+        ``resolved_index`` is an internal request-coordination seam. Callers that
+        already resolved the discovery index can pass it through to avoid a
+        second index/manifest read while shaping the response. The default
+        preserves the standalone service contract.
         """
         try:
-            index = await self.resolve_metadata_index(user_id)
+            if resolved_index is _UNRESOLVED_METADATA_INDEX:
+                index = await self.resolve_metadata_index(user_id)
+            else:
+                index = resolved_index
             if index is None:
                 return UserPersonalKnowledgeModelMetadata(user_id=user_id)
             scope_entries_getter = getattr(
@@ -3719,6 +3879,7 @@ class PersonalKnowledgeModelService:
         write_projections: Optional[list[dict]] = None,
         mutation_plan: Optional[dict] = None,
         return_result: bool = False,
+        location_finalize_authorization: Optional[dict] = None,
     ) -> bool | dict[str, Any]:
         """
         Store encrypted domain data and update index.
@@ -3776,6 +3937,34 @@ class PersonalKnowledgeModelService:
         elif not upgrade_claim:
             result["code"] = "PKM_CONFIRMATION_REQUIRED"
             return result if return_result else False
+
+        normalized_location_authorization = None
+        if (
+            normalized_mutation_plan
+            and normalized_mutation_plan.confirmation_receipt.authorization_mode
+            == "owner_requested_workflow"
+            and location_finalize_authorization is None
+        ):
+            result["code"] = "LOCATION_FINALIZE_AUTHORITY_REQUIRED"
+            return result if return_result else False
+        if location_finalize_authorization is not None:
+            try:
+                if upgrade_claim is not None or normalized_mutation_plan is None:
+                    raise ValueError("location_finalize_requires_mutation")
+                normalized_location_authorization = (
+                    LocationPkmFinalizeAuthorizationV1.model_validate(
+                        location_finalize_authorization
+                    )
+                )
+                validate_location_finalize_authorization_for_write(
+                    authorization=normalized_location_authorization,
+                    plan=normalized_mutation_plan,
+                    authenticated_user_id=user_id,
+                    domain=domain,
+                )
+            except (ValueError, TypeError):
+                result["code"] = "LOCATION_FINALIZE_AUTHORITY_INVALID"
+                return result if return_result else False
 
         try:
             if not is_allowed_top_level_domain(domain):
@@ -3897,6 +4086,7 @@ class PersonalKnowledgeModelService:
                     current_version=current_version,
                     prior_manifest=prior_manifest,
                     legacy_blob_present=legacy_blob is not None,
+                    location_finalize_authorization=normalized_location_authorization,
                 )
                 if atomic_result.get("conflict"):
                     result["conflict"] = True
@@ -3925,6 +4115,8 @@ class PersonalKnowledgeModelService:
                 result["updated_at"] = atomic_result.get("updated_at", resolved_updated_at)
                 result["manifest_revision"] = atomic_result.get("manifest_revision")
                 result["commit_id"] = atomic_result.get("commit_id")
+                result["location_run_revision"] = atomic_result.get("location_run_revision")
+                result["location_place_receipt_id"] = atomic_result.get("location_place_receipt_id")
                 result["archived_revision_id"] = atomic_result.get("archived_revision_id")
                 result["preservation_receipt"] = atomic_result.get("preservation_receipt")
                 return result if return_result else True
@@ -4372,6 +4564,208 @@ class PersonalKnowledgeModelService:
             "paths": paths,
             "scopes": scopes,
         }
+
+    async def repair_historical_manifest_paths(
+        self,
+        *,
+        user_id: str,
+        domain: str,
+        expected_content_revision: int | None = None,
+        expected_manifest_revision: int | None = None,
+    ) -> dict[str, Any]:
+        """Repair only the proven historical ``entities.entities`` shape.
+
+        This intentionally reads the raw snapshot instead of the compatibility
+        manifest reader, because that reader normalizes scope rows for display.
+        The metadata-only RPC rechecks both revisions while holding the same
+        owner/domain advisory lock, so a concurrent encrypted content write
+        cannot be overwritten by a stale repair plan.
+        """
+
+        canonical_domain = self._canonicalize_domain_key(domain)
+        if not canonical_domain or not user_id:
+            return {
+                "success": False,
+                "code": "invalid_repair_target",
+                "message": "A valid owner and domain are required.",
+            }
+
+        try:
+            rpc_result = await self._run_rpc(
+                "get_pkm_domain_snapshot_v1",
+                {
+                    "p_user_id": user_id,
+                    "p_domain": canonical_domain,
+                    "p_segment_ids": [],
+                },
+            )
+            snapshot = self._unwrap_rpc_payload(rpc_result, "get_pkm_domain_snapshot_v1")
+            if not isinstance(snapshot, dict):
+                return {
+                    "success": False,
+                    "code": "snapshot_unavailable",
+                    "message": "The PKM snapshot is temporarily unavailable.",
+                }
+
+            content_revision = self._to_non_negative_int(snapshot.get("content_revision"))
+            manifest_revision = self._to_non_negative_int(snapshot.get("manifest_revision"))
+            manifest = snapshot.get("manifest")
+            paths = snapshot.get("paths")
+            scopes = snapshot.get("scopes")
+            if (
+                content_revision is None
+                or manifest_revision is None
+                or not isinstance(manifest, dict)
+                or not isinstance(paths, list)
+                or not isinstance(scopes, list)
+            ):
+                return {
+                    "success": False,
+                    "code": "snapshot_incomplete",
+                    "message": "The PKM snapshot is incomplete and was not changed.",
+                }
+            if any(
+                isinstance(row, dict)
+                and (
+                    isinstance(row.get("id"), bool)
+                    or not isinstance(row.get("id"), int)
+                    or row.get("id", 0) <= 0
+                )
+                for row in [*paths, *scopes]
+            ):
+                return {
+                    "success": False,
+                    "code": "snapshot_identity_incomplete",
+                    "message": "The PKM metadata identity is incomplete and was not changed.",
+                }
+            if (
+                expected_content_revision is not None
+                and expected_content_revision != content_revision
+            ):
+                return {
+                    "success": False,
+                    "conflict": True,
+                    "code": "content_revision_conflict",
+                    "message": "The PKM content changed. Refresh and retry.",
+                    "data_version": content_revision,
+                    "manifest_revision": manifest_revision,
+                }
+            if (
+                expected_manifest_revision is not None
+                and expected_manifest_revision != manifest_revision
+            ):
+                return {
+                    "success": False,
+                    "conflict": True,
+                    "code": "manifest_revision_conflict",
+                    "message": "The PKM manifest changed. Refresh and retry.",
+                    "data_version": content_revision,
+                    "manifest_revision": manifest_revision,
+                }
+
+            plan = build_entity_path_repair_plan(
+                user_id=user_id,
+                domain=canonical_domain,
+                expected_content_revision=content_revision,
+                expected_manifest_revision=manifest_revision,
+                manifest=manifest,
+                path_rows=paths,
+                scope_rows=scopes,
+            )
+            if not plan.requires_commit:
+                return {
+                    "success": True,
+                    "conflict": False,
+                    "idempotent_replay": True,
+                    "changed": False,
+                    "data_version": content_revision,
+                    "manifest_revision": manifest_revision,
+                }
+
+            receipt_payload = json.dumps(
+                {
+                    "version": 1,
+                    "user_id": user_id,
+                    "domain": canonical_domain,
+                    "content_revision": content_revision,
+                    "manifest_revision": manifest_revision,
+                    "changed_paths": list(plan.changed_paths),
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+            repair_receipt_id = hashlib.sha256(receipt_payload.encode("utf-8")).hexdigest()
+            summary_patch = (
+                dict(plan.manifest_row.get("summary_projection"))
+                if isinstance(plan.manifest_row.get("summary_projection"), dict)
+                else {}
+            )
+            summary_patch.update(
+                {
+                    "path_count": len(plan.path_rows),
+                    "externalizable_path_count": sum(
+                        1 for row in plan.path_rows if row.get("exposure_eligibility") is True
+                    ),
+                }
+            )
+            repaired_result = await self._run_rpc(
+                "repair_pkm_manifest_paths_v1",
+                {
+                    "p_user_id": user_id,
+                    "p_domain": canonical_domain,
+                    "p_expected_content_revision": content_revision,
+                    "p_expected_manifest_revision": manifest_revision,
+                    "p_next_manifest_revision": plan.next_manifest_revision,
+                    "p_repair_receipt_id": repair_receipt_id,
+                    "p_manifest_row": JsonParam(plan.manifest_row),
+                    "p_path_rows": JsonParam(list(plan.path_rows)),
+                    "p_scope_rows": JsonParam(list(plan.scope_rows)),
+                    "p_summary_patch": JsonParam(summary_patch),
+                    "p_changed_paths": JsonParam(list(plan.changed_paths)),
+                    "p_event_metadata": JsonParam({"source": "owner_manifest_reconciliation"}),
+                },
+            )
+            result = self._unwrap_rpc_payload(
+                repaired_result,
+                "repair_pkm_manifest_paths_v1",
+            )
+            if not isinstance(result, dict):
+                return {
+                    "success": False,
+                    "code": "repair_failed",
+                    "message": "The PKM manifest repair did not return a result.",
+                }
+            if result.get("conflict"):
+                result.setdefault("code", "revision_conflict")
+                result.setdefault("message", "The PKM changed. Refresh and retry.")
+            result["changed"] = bool(result.get("success")) and not bool(
+                result.get("idempotent_replay")
+            )
+            return result
+        except ManifestRepairError as exc:
+            logger.warning(
+                "pkm.manifest_repair.rejected user=%s domain=%s reason=%s",
+                user_id,
+                canonical_domain,
+                exc,
+            )
+            return {
+                "success": False,
+                "code": "unsafe_repair_snapshot",
+                "message": "The stored PKM metadata was not changed because it needs review.",
+            }
+        except Exception as exc:
+            logger.error(
+                "pkm.manifest_repair.error user=%s domain=%s: %s",
+                user_id,
+                canonical_domain,
+                exc,
+            )
+            return {
+                "success": False,
+                "code": "repair_unavailable",
+                "message": "The PKM manifest repair is temporarily unavailable.",
+            }
 
     async def delete_user_data(self, user_id: str) -> bool:
         """

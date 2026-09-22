@@ -80,6 +80,7 @@ class HushhAgent(LlmAgent):
         tools: Optional[List[Any]] = None,
         system_prompt: str = "",
         required_scopes: Optional[List[str]] = None,
+        mode: Optional[str] = None,
     ):
         """
         Initialize Secure Agent.
@@ -118,6 +119,7 @@ class HushhAgent(LlmAgent):
                 instruction=system_prompt,
                 hushh_name=name,
                 required_scopes=list(required_scopes or []),
+                mode=mode,
             )
         else:
             super().__init__()

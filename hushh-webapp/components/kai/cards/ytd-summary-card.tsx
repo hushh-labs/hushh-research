@@ -24,7 +24,7 @@ import {
   DollarSign,
   Receipt,
   Wallet,
-} from "lucide-react";
+} from "@/components/icons";
 import { Icon } from "@/lib/morphy-ux/ui";
 
 export interface YtdData {

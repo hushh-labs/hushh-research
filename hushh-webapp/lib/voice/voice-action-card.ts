@@ -30,6 +30,8 @@
  * only replaces a question that could not be answered with a list that can be.
  */
 
+import { mailDisplayLabel } from "@/lib/copy/mail-terminology";
+
 export type VoiceDisambiguationCandidate = {
   /** Stable identity the action re-runs against. Never spoken, never shown. */
   id: string;
@@ -360,7 +362,7 @@ function humanizeFieldLabel(key: string): string {
     .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
     .trim();
   if (!spaced) return key;
-  return spaced.replace(/\b\w/g, (char) => char.toUpperCase());
+  return mailDisplayLabel(spaced.replace(/\b\w/g, (char) => char.toUpperCase()));
 }
 
 function summaryFieldsFrom(summary: Record<string, unknown>): VoiceDataSummaryField[] {

@@ -22,33 +22,33 @@
  * told about is never called.
  */
 
-import { useRouter } from "next/navigation";
-
 import { useAuth } from "@/hooks/use-auth";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { ROUTES } from "@/lib/navigation/routes";
 
 export function GlobalVoiceActionHandlers() {
-  const router = useRouter();
   const { user, signOut } = useAuth();
 
   useLocalOnboardingActionHandler(
     "profile.sign_out",
     async () => {
+      const ownerUid = user?.uid;
+      if (!ownerUid) {
+        return { status: "failed" as const, summary: "This session has already ended." };
+      }
       try {
-        await signOut();
-      } catch (error) {
+        await signOut({ expectedUserId: ownerUid, redirectTo: ROUTES.HOME });
+      } catch {
         // The person asked to end their session and it did not end. Saying so
         // is the whole point of the `failed` status: a silent catch here would
         // return "Signed out." while they stayed signed in, which is the
         // failure mode that makes a voice agent untrustworthy.
-        console.error("Voice sign out error:", error);
+        console.error("Voice sign out failed");
         return {
           status: "failed" as const,
           summary: "I could not sign you out. Please try from Profile.",
         };
       }
-      router.push(ROUTES.HOME);
       return { status: "succeeded" as const, summary: "Signed out." };
     },
     // Not registered while signed out, so the action drops out of

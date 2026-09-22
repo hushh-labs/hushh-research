@@ -1,14 +1,10 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  CalendarDays,
-  CheckCircle2,
-  Loader2,
-  } from "lucide-react";
+import { Capacitor } from "@capacitor/core";
+import { CalendarDays, CheckCircle2, Loader2 } from "@/components/icons";
 import { toast } from "sonner";
 
-import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 import { AskOneButton } from "@/components/agent/ask-one-button";
 import {
   AppPageContentRegion,
@@ -37,6 +33,7 @@ import {
   SurfaceCardTitle,
 } from "@/components/app-ui/surfaces";
 import { useAuth } from "@/hooks/use-auth";
+import { HushhAuth } from "@/lib/capacitor";
 import { Button } from "@/lib/morphy-ux/button";
 import {
   clearCalendarSetupOAuthReturn,
@@ -47,7 +44,18 @@ import {
   type GoogleCalendarStatus,
 } from "@/lib/services/google-calendar-service";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
-import { createGoogleOAuthPopupAttempt, isGoogleOAuthPopupSettlement, navigateGoogleOAuthPopup, openGoogleOAuthPopup, readGoogleOAuthPopupSettlement } from "@/lib/google/google-oauth-popup";
+import { navigateToAgentChat } from "@/lib/navigation/agent-navigation";
+import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
+import { ROUTES } from "@/lib/navigation/routes";
+import {
+  createGoogleOAuthPopupAttempt,
+  isGoogleOAuthPopupSettlement,
+  navigateGoogleOAuthPopup,
+  openGoogleOAuthPopup,
+  readGoogleOAuthPopupSettlement,
+} from "@/lib/google/google-oauth-popup";
+
+const CALENDAR_OAUTH_POPUP_TIMEOUT_MS = 120_000;
 
 type CalendarAgentPageProps = {
   journeyVariant?: "workspace" | "onboarding";
@@ -75,18 +83,21 @@ export function CalendarAgentPage({
   connectionPending = false,
 }: CalendarAgentPageProps) {
   const { user, loading } = useAuth();
-  const agentPopover = useOptionalAgentPopover();
   const [status, setStatus] = useState<GoogleCalendarStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [disconnectConfirmOpen, setDisconnectConfirmOpen] = useState(false);
   const expectedPopupAttempt = useRef<string | null>(null);
   const popupRef = useRef<Window | null>(null);
+  const popupStartedAtRef = useRef<number | null>(null);
 
   const refresh = useCallback(async () => {
-    if (!user || connectionPending) return;
-    setStatus(
-      await GoogleCalendarService.status(await user.getIdToken(), user.uid),
+    if (!user || connectionPending) return null;
+    const next = await GoogleCalendarService.status(
+      await user.getIdToken(),
+      user.uid,
     );
+    setStatus(next);
+    return next;
   }, [connectionPending, user]);
 
   useEffect(() => {
@@ -100,20 +111,97 @@ export function CalendarAgentPage({
   }, [refresh]);
 
   useEffect(() => {
-    const settle = (attemptId: string, outcome: "succeeded" | "cancelled" | "failed", message?: string) => {
-      if (!expectedPopupAttempt.current || attemptId !== expectedPopupAttempt.current) return;
-      expectedPopupAttempt.current = null; popupRef.current = null; setBusy(false);
-      if (outcome === "succeeded") { void refresh(); morphyToast.success("Google Calendar connected."); }
-      else if (outcome === "failed") morphyToast.error(message || "Google Calendar could not be connected.");
+    const clearAttempt = () => {
+      expectedPopupAttempt.current = null;
+      popupRef.current = null;
+      popupStartedAtRef.current = null;
+      setBusy(false);
+    };
+    const settle = async (
+      attemptId: string,
+      outcome: "succeeded" | "cancelled" | "failed",
+      message?: string,
+    ) => {
+      if (
+        !expectedPopupAttempt.current ||
+        attemptId !== expectedPopupAttempt.current
+      ) {
+        return;
+      }
+      clearAttempt();
+      if (outcome === "succeeded") {
+        const currentStatus = await refresh().catch(() => null);
+        if (currentStatus?.connected) {
+          morphyToast.success("Google Calendar connected.");
+        } else {
+          morphyToast.error(
+            "Google authorization finished, but Calendar is still connecting. Check again in a moment.",
+          );
+        }
+      } else if (outcome === "failed") {
+        morphyToast.error(message || "Google Calendar could not be connected.");
+      }
     };
     const onMessage = (event: MessageEvent) => {
-      if (event.origin !== window.location.origin || event.source !== popupRef.current || !isGoogleOAuthPopupSettlement(event.data) || event.data.service !== "calendar") return;
-      settle(event.data.attemptId, event.data.outcome, event.data.message);
+      if (
+        event.origin !== window.location.origin ||
+        event.source !== popupRef.current ||
+        !isGoogleOAuthPopupSettlement(event.data) ||
+        event.data.service !== "calendar"
+      ) {
+        return;
+      }
+      void settle(event.data.attemptId, event.data.outcome, event.data.message);
     };
-    const onStorage = (event: StorageEvent) => { const value = readGoogleOAuthPopupSettlement(event); if (value?.service === "calendar") settle(value.attemptId, value.outcome, value.message); };
-    window.addEventListener("message", onMessage); window.addEventListener("storage", onStorage);
-    return () => { window.removeEventListener("message", onMessage); window.removeEventListener("storage", onStorage); };
+    const onStorage = (event: StorageEvent) => {
+      const value = readGoogleOAuthPopupSettlement(event);
+      if (value?.service === "calendar") {
+        void settle(value.attemptId, value.outcome, value.message);
+      }
+    };
+    const recoverAbandonedPopup = async (message: string) => {
+      if (!expectedPopupAttempt.current) return;
+      clearAttempt();
+      const currentStatus = await refresh().catch(() => null);
+      if (currentStatus?.connected) {
+        morphyToast.success("Google Calendar connected.");
+        return;
+      }
+      morphyToast.error(message);
+    };
+    const popupWatcher = window.setInterval(() => {
+      const popup = popupRef.current;
+      const startedAt = popupStartedAtRef.current;
+      if (!popup || !startedAt) return;
+      if (popup.closed) {
+        void recoverAbandonedPopup(
+          "The Google Calendar window closed before the connection finished. You can try again.",
+        );
+        return;
+      }
+      if (Date.now() - startedAt >= CALENDAR_OAUTH_POPUP_TIMEOUT_MS) {
+        popup.close();
+        void recoverAbandonedPopup(
+          "Calendar connection is taking too long. Check your connection and try again.",
+        );
+      }
+    }, 500);
+    window.addEventListener("message", onMessage);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener("message", onMessage);
+      window.removeEventListener("storage", onStorage);
+      window.clearInterval(popupWatcher);
+    };
   }, [refresh]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("calendar") === "error") {
+      morphyToast.error("Google Calendar was not connected. Please try again.");
+    }
+  }, []);
 
   const connected =
     status?.connected === true && status.status !== "needs_reauth";
@@ -122,33 +210,65 @@ export function CalendarAgentPage({
     onConnectionStateChange?.(connected);
   }, [connected, onConnectionStateChange]);
 
-  /**
-   * Ask for Calendar event management and free/busy once. Creating, changing,
-   * and cancelling meetings remain confirmation-bound in the private agent;
-   * this only avoids an unnecessary second OAuth trip for scheduling access.
-   */
-  const connect = async () => {
+  const connect = async (accessLevel: "read" | "manage" = "read") => {
     if (!user) return;
     setBusy(true);
-    const attempt = createGoogleOAuthPopupAttempt("calendar");
-    const popup = openGoogleOAuthPopup(attempt);
-    if (!popup) { setBusy(false); morphyToast.error("Allow popups to connect Calendar without locking your vault."); return; }
-    expectedPopupAttempt.current = attempt.attemptId;
-    popupRef.current = popup;
     try {
       if (journeyVariant === "onboarding") {
         markCalendarSetupOAuthReturn();
       } else {
         clearCalendarSetupOAuthReturn();
       }
+      const idToken = await user.getIdToken();
+      if (Capacitor.isNativePlatform()) {
+        const start = await GoogleCalendarService.startNativeConnect({
+          idToken,
+          accessLevel,
+        });
+        const nativeResult = await HushhAuth.connectCalendar({
+          serverClientId: start.server_client_id,
+          accessLevel: start.access_level,
+        });
+        const completed = await GoogleCalendarService.completeNativeConnect({
+          idToken,
+          userId: user.uid,
+          accessLevel,
+          serverAuthCode: nativeResult.serverAuthCode,
+        });
+        setStatus(completed);
+        if (!completed.connected) {
+          throw new Error(
+            "Calendar authorization did not create an active connection.",
+          );
+        }
+        setBusy(false);
+        morphyToast.success("Google Calendar connected.");
+        return;
+      }
+
+      // Create the blank window while this click still has browser gesture
+      // authority. If storage or the popup is unavailable, continue with the
+      // existing same-window callback contract instead of stranding the user.
+      const attempt = createGoogleOAuthPopupAttempt("calendar");
+      const popup = openGoogleOAuthPopup(attempt);
       const start = await GoogleCalendarService.startConnect({
-        idToken: await user.getIdToken(),
+        idToken,
         userId: user.uid,
-        accessLevel: "manage",
+        accessLevel: accessLevel,
       });
+      if (!popup) {
+        window.location.assign(start.authorize_url);
+        return;
+      }
+      expectedPopupAttempt.current = attempt.attemptId;
+      popupRef.current = popup;
+      popupStartedAtRef.current = Date.now();
       navigateGoogleOAuthPopup(popup, start.authorize_url);
     } catch (error) {
-      popup.close(); expectedPopupAttempt.current = null; popupRef.current = null;
+      popupRef.current?.close();
+      expectedPopupAttempt.current = null;
+      popupRef.current = null;
+      popupStartedAtRef.current = null;
       toast.error(
         error instanceof Error ? error.message : "Unable to connect Calendar.",
       );
@@ -182,12 +302,12 @@ export function CalendarAgentPage({
   const detail = connectionPending
     ? "Saving secure Google Calendar connection…"
     : !status
-    ? "Checking Calendar connection…"
-    : connected
-      ? `${status.google_email || "Google account"}`
-      : status.status === "needs_reauth"
-        ? "Google authorization needs to be refreshed."
-        : "One reads your schedule to help you plan.";
+      ? "Checking Calendar connection…"
+      : connected
+        ? `${status.google_email || "Google account"}`
+        : status.status === "needs_reauth"
+          ? "Google authorization needs to be refreshed."
+          : "One reads your schedule to help you plan.";
 
   const connectionLabel = connectionPending
     ? "Finishing connection"
@@ -196,35 +316,45 @@ export function CalendarAgentPage({
       : status?.status === "needs_reauth"
         ? "Reconnect needed"
         : "Not connected";
-  const permissionLabel = needsSchedulingReconnect
-    ? "View events and availability"
-    : "View availability and manage meetings after confirmation";
-  const connectLabel = status?.status === "needs_reauth"
-    ? "Reconnect Calendar"
-    : "Connect Calendar";
+  const permissionLabel = "View availability and manage meetings with One.";
+  const connectLabel =
+    status?.status === "needs_reauth"
+      ? "Reconnect Calendar"
+      : "Connect Calendar";
   const shouldShowSetup = !connected && status?.status !== "needs_reauth";
 
   const openChat = (prompt?: string) => {
-    if (!agentPopover) return;
     if (!prompt) {
-      agentPopover.openAgent();
+      navigateToAgentChat();
       return;
     }
     const createdAtMs = Date.now();
-    agentPopover.openAgent({
-      handoff: {
-        id: `calendar-prompt-${createdAtMs}`,
-        reason: "user_requested",
-        transcript: prompt,
-        createdAtMs,
-      },
+    useOneConversationSession.getState().createHandoff({
+      id: `calendar-prompt-${createdAtMs}`,
+      reason: "user_requested",
+      transcript: prompt,
+      createdAtMs,
     });
+    navigateToAgentChat();
   };
 
   return (
     <AppPageShell
       width="reading"
       className={CALENDAR_SETUP_SHELL_CLASSNAME}
+      nativeTest={{
+        routeId: ROUTES.CALENDAR,
+        marker: "native-route-calendar",
+        authState: user ? "authenticated" : loading ? "pending" : "anonymous",
+        dataState:
+          connectionPending || loading
+            ? "loading"
+            : status === null
+              ? "unavailable-valid"
+              : connected
+                ? "loaded"
+                : "empty-valid",
+      }}
     >
       <AppPageContentRegion className={CALENDAR_SETUP_REGION_CLASSNAME}>
         <SurfaceCard className="overflow-hidden w-full shadow-md text-center">
@@ -233,9 +363,7 @@ export function CalendarAgentPage({
               <CalendarDays className="size-5" aria-hidden />
             </div>
             <SurfaceCardTitle className="text-lg font-semibold tracking-tight">
-              {connected
-                ? "Google Calendar"
-                : "Connect Google Calendar"}
+              {connected ? "Google Calendar" : "Connect Google Calendar"}
             </SurfaceCardTitle>
             <SurfaceCardDescription className="text-xs text-muted-foreground !mt-0.5">
               {detail}
@@ -266,10 +394,14 @@ export function CalendarAgentPage({
                 {/* Actions */}
                 <div className="flex flex-col items-center gap-2.5 w-full pt-1">
                   <AskOneButton
-                    disabled={busy || !agentPopover}
-                    onClick={() => openChat("Summarize my calendar events")}
-                    // Full width at every size: this card is a centred column,
-                    // not a page whose actions sit inline.
+                    disabled={busy}
+                    onClick={() => {
+                      if (needsSchedulingReconnect) {
+                        void connect("manage");
+                      } else {
+                        openChat("Summarize my calendar events and help me plan meetings");
+                      }
+                    }}
                     className="sm:w-full"
                   >
                     Try Calendar Agent with One
@@ -289,7 +421,7 @@ export function CalendarAgentPage({
                 <div className="flex flex-col items-center justify-center text-center space-y-3 w-full">
                   <Button
                     disabled={busy}
-                    onClick={() => void connect()}
+                    onClick={() => void connect("manage")}
                     className="w-full justify-center h-11 text-base font-semibold shadow-sm"
                     data-voice-control-id="open_calendar_connector"
                     data-voice-action-id={
@@ -311,7 +443,7 @@ export function CalendarAgentPage({
               <div className="flex flex-col items-center gap-2 border-t border-border/60 pt-4">
                 <Button
                   disabled={busy}
-                  onClick={() => void connect()}
+                  onClick={() => void connect("manage")}
                   className="w-full justify-center"
                   data-voice-control-id="open_calendar_connector"
                   data-voice-action-id={
@@ -381,7 +513,9 @@ export function CalendarAgentPage({
                 void disconnect();
               }}
             >
-              {busy ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
+              {busy ? (
+                <Loader2 className="size-4 animate-spin" aria-hidden />
+              ) : null}
               Disconnect
             </AlertDialogAction>
           </AlertDialogFooter>

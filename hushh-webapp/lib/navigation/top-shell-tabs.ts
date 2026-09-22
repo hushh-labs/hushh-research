@@ -228,7 +228,7 @@ function resolveSelection(
 
 /**
  * Resolves the one route-owned contextual tab group for the shared top shell.
- * Location, Connect, and RIA are intentionally excluded here: their hubs render the
+ * Location and Connect are intentionally excluded here: their hubs render the
  * same registered tabs directly under their module headers so the local module
  * hierarchy stays intact while retaining shared tab/swipe state.
  */
@@ -304,14 +304,11 @@ export function resolvePublicKnowledgeTopShellTabSet(
     normalizedPathname === ROUTES.WELCOME &&
     definition.tabs.some((tab) => tab.value === requestedHomeTab)
       ? requestedHomeTab
-      : normalizedPathname === ROUTES.RESEARCH ||
-          normalizedPathname.startsWith(`${ROUTES.RESEARCH}/`)
+      : normalizedPathname === ROUTES.RESEARCH
         ? "research"
-        : normalizedPathname === ROUTES.BLOG ||
-            normalizedPathname.startsWith(`${ROUTES.BLOG}/`)
+        : normalizedPathname === ROUTES.BLOG
           ? "blog"
-          : normalizedPathname === ROUTES.DEVELOPERS ||
-              normalizedPathname.startsWith(`${ROUTES.DEVELOPERS}/`)
+          : normalizedPathname === ROUTES.DEVELOPERS
             ? "developers"
             : null;
 

@@ -16,6 +16,10 @@ const mocks = vi.hoisted(() => {
   };
   return {
     user,
+    listRequests: vi.fn(),
+    acceptRequest: vi.fn(),
+    rejectRequest: vi.fn(),
+    connectionChanged: vi.fn(),
     data: {
       items: [
         {
@@ -74,6 +78,8 @@ vi.mock("@/lib/cache/use-stale-resource", () => ({
 
 vi.mock("@/lib/cache/cache-sync-service", () => ({
   CacheSyncService: {
+    onConnectionCapabilityMutated: mocks.connectionChanged,
+    onConnectionGraphMutated: mocks.connectionChanged,
     onFeedReadStarted: mocks.readStarted,
     onFeedReadSettled: mocks.readSettled,
     onFeedReadFailed: mocks.readFailed,
@@ -151,6 +157,86 @@ vi.mock("@/lib/morphy-ux/button", () => ({
 }));
 
 import { FeedPage } from "@/components/feed/feed-page";
+import { resolveLocalOnboardingHandler, prepareLocalOnboardingAction } from "@/lib/agent/local-onboarding-actions";
+
+vi.mock("@/lib/services/connections-service", () => ({
+  ConnectionsService: {
+    listRequests: mocks.listRequests,
+    accept: mocks.acceptRequest,
+    reject: mocks.rejectRequest,
+  },
+}));
+
+describe("Feed connection action ID binding", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.listRequests.mockResolvedValue([
+      { id: "req-a", counterpartDisplayName: "Alex" },
+      { id: "req-b", counterpartDisplayName: "Alex" },
+      { id: "req-c", counterpartDisplayName: "Casey" },
+    ]);
+    mocks.acceptRequest.mockResolvedValue(undefined);
+    mocks.rejectRequest.mockResolvedValue(undefined);
+  });
+
+  it.each(["accept", "reject"])("binds %s to the selected incoming ID", async (verb) => {
+    render(<FeedPage />);
+    const handler = resolveLocalOnboardingHandler(`connect.${verb}_request`)!;
+    expect((await handler({ person: "Alex", requestId: "req-b" })).status).toBe("blocked");
+    expect(mocks.listRequests).not.toHaveBeenCalled();
+    const slots = { person: "Alex", requestId: "req-b" };
+    const preparation = await prepareLocalOnboardingAction(`connect.${verb}_request`, slots);
+    expect(preparation?.status).toBe("ready");
+    if (preparation?.status !== "ready") throw new Error("Preparation failed");
+    expect(preparation.binding).toMatchObject({ owner: "feed-user", requestId: "req-b", person: "Alex" });
+    expect(mocks.acceptRequest).not.toHaveBeenCalled();
+    expect(mocks.rejectRequest).not.toHaveBeenCalled();
+    const result = await handler(slots, { directiveId: "confirmed", preparedBinding: preparation.binding });
+    expect(result.status).toBe("succeeded");
+    expect(verb === "accept" ? mocks.acceptRequest : mocks.rejectRequest).toHaveBeenCalledWith({
+      idToken: "firebase-token", requestId: "req-b",
+    });
+  });
+
+  it.each([
+    { person: "Alex", requestId: "foreign-or-stale" },
+    { person: "Casey", requestId: "req-a" },
+    { person: "Alex", requestId: "" },
+    { person: "Alex" },
+  ])("refuses unresolved or mismatched request %j", async (slots) => {
+    render(<FeedPage />);
+    const handler = resolveLocalOnboardingHandler("connect.accept_request")!;
+    expect((await handler(slots, { directiveId: "confirmed" })).status).toBe("blocked");
+    expect(mocks.acceptRequest).not.toHaveBeenCalled();
+    expect(mocks.rejectRequest).not.toHaveBeenCalled();
+  });
+
+  it("retains unique name-only requests", async () => {
+    render(<FeedPage />);
+    const handler = resolveLocalOnboardingHandler("connect.reject_request")!;
+    expect((await handler({ person: "Casey" }, { directiveId: "confirmed" })).status).toBe("succeeded");
+    expect(mocks.rejectRequest).toHaveBeenCalledWith({ idToken: "firebase-token", requestId: "req-c" });
+  });
+
+  it("rechecks a prepared request and blocks changed or foreign bindings", async () => {
+    render(<FeedPage />);
+    const slots = { person: "Casey", requestId: "req-c" };
+    const preparation = await prepareLocalOnboardingAction("connect.reject_request", slots);
+    if (preparation?.status !== "ready") throw new Error("Preparation failed");
+    const handler = resolveLocalOnboardingHandler("connect.reject_request")!;
+    expect((await handler(slots, { directiveId: "confirmed", preparedBinding: { ...preparation.binding, owner: "someone-else" } })).status).toBe("blocked");
+    mocks.listRequests.mockResolvedValue([]);
+    expect((await handler(slots, { directiveId: "confirmed", preparedBinding: preparation.binding })).status).toBe("blocked");
+    expect(mocks.rejectRequest).not.toHaveBeenCalled();
+  });
+
+  it("keeps scope-bearing acceptance in the existing review", async () => {
+    mocks.listRequests.mockResolvedValue([{ id: "req-s", counterpartDisplayName: "Sam", scopes: [{ scopeHandle: "private" }] }]);
+    render(<FeedPage />);
+    expect(await prepareLocalOnboardingAction("connect.accept_request", { person: "Sam", requestId: "req-s" })).toMatchObject({ status: "blocked", gate: "navigation", waitForUser: true });
+    expect(mocks.acceptRequest).not.toHaveBeenCalled();
+  });
+});
 
 async function renderAfterAutomaticRead() {
   const view = render(<FeedPage />);

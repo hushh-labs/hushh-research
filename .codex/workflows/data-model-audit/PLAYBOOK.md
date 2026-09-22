@@ -18,6 +18,10 @@ write paths.
    - `consent-protocol/docs/reference/personal-knowledge-model.md`
 2. Run:
    - `./bin/hushh codex data-model-audit`
+   - This proves static classification and legacy-write checks. Review device-local
+     SQLite authority separately; the command does not inspect a deployed database
+     by default. For optional live statistics, follow the env-name invocation and
+     evidence limits in `docs/reference/architecture/data-model-governance.md`.
 3. If a table is unclassified:
    - add it to the closest existing family in `runtime-db-data-plane-contract.json`
    - create a new family only if the table cannot honestly fit an existing bounded context

@@ -46,9 +46,10 @@ import {
   PaginationNext,
   PaginationPrevious,
 } from "@/components/ui/pagination";
-import { Search } from "lucide-react";
+import { Search } from "@/components/icons";
 import { surfaceDataTableShellClassName } from "@/lib/morphy-ux/surfaces";
 import { cn } from "@/lib/utils";
+import { SearchClearButton } from "@/components/app-ui/search-clear-button";
 
 function buildPaginationItems(
   currentPage: number,
@@ -235,7 +236,7 @@ export function DataTable<TData, TValue>({
 
   return (
     <div
-      className="space-y-[var(--data-table-controls-gap)]"
+      className="w-full min-w-0 max-w-full space-y-[var(--data-table-controls-gap)]"
       data-no-route-swipe={hasMultiplePages ? "true" : undefined}
     >
       {(enableSearch || (filterKey && filterOptions)) && (
@@ -255,8 +256,13 @@ export function DataTable<TData, TValue>({
                 placeholder={searchPlaceholder}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-9 cursor-text"
+                className="cursor-text pl-9 pr-11"
                 aria-label="Search table"
+              />
+              <SearchClearButton
+                visible={searchTerm.length > 0}
+                label="Clear table search"
+                onClear={() => setSearchTerm("")}
               />
             </div>
           )}
@@ -299,7 +305,7 @@ export function DataTable<TData, TValue>({
       )}
 
       {renderMobileCard ? (
-        <div className="grid gap-3 md:hidden" data-slot="data-table-mobile-list">
+        <div className="grid w-full min-w-0 grid-cols-1 gap-3 md:hidden" data-slot="data-table-mobile-list">
           {table.getRowModel().rows?.length ? (
             table.getRowModel().rows.map((row, index) => (
               <React.Fragment key={row.id}>
@@ -362,6 +368,7 @@ export function DataTable<TData, TValue>({
       <div
         className={cn(
           surfaceDataTableShellClassName,
+          "w-full min-w-0 max-w-full [-webkit-overflow-scrolling:touch]",
           renderMobileCard && "hidden md:block",
           resolvedTableShellClassName,
         )}
@@ -449,8 +456,8 @@ export function DataTable<TData, TValue>({
                   }
                   className={cn(
                     onRowClick
-                      ? "cursor-pointer transition-[background-color] duration-200 ease-out hover:bg-foreground/[0.045] active:bg-foreground/[0.065]"
-                      : "transition-[background-color] duration-200 ease-out hover:bg-foreground/[0.032]",
+                      ? "cursor-pointer transition-[background-color] duration-150 ease-out hover:bg-foreground/[0.045] active:bg-foreground/[0.065]"
+                      : "transition-[background-color] duration-150 ease-out hover:bg-foreground/[0.032]",
                     rowClassName?.(row.original),
                   )}
                   onClick={

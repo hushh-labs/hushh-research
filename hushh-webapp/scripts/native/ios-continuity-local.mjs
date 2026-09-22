@@ -4,9 +4,10 @@
  * Non-destructive iOS continuity session.
  *
  * Existing route audits deliberately reinstall/reset the app and are cold-start
- * evidence. This command does neither: it opens an available iPhone simulator,
+ * evidence. This command does neither: it boots an available iPhone simulator,
  * launches the already-installed app, and keeps device logs attached while a
- * person drives rapid tabs, background/resume, and One voice interactions.
+ * person or automation drives tabs, background/resume, and One voice interactions.
+ * Headless by default; pass --visible only for an explicitly requested desktop UI.
  */
 
 import { execFileSync, spawn } from "node:child_process";
@@ -62,7 +63,9 @@ try {
     run("xcrun", ["simctl", "boot", DEVICE_ID]);
     run("xcrun", ["simctl", "bootstatus", DEVICE_ID, "-b"]);
   }
-  execFileSync("open", ["-a", "Simulator"], { stdio: "ignore" });
+  if (process.argv.includes("--visible")) {
+    execFileSync("open", ["-a", "Simulator"], { stdio: "ignore" });
+  }
   run("xcrun", ["simctl", "get_app_container", DEVICE_ID, BUNDLE_ID, "app"]);
 } catch {
   fail(
@@ -82,7 +85,7 @@ process.stdout.write(
   [
     `Continuity session running on ${DEVICE_NAME} (${DEVICE_ID}).`,
     "The app was not terminated, uninstalled, or reset.",
-    "Drive rapid Bottom Bar taps, Home → resume, and a double One voice start in the visible Simulator.",
+    "Exercise Bottom Bar taps, Home → resume, and a double One voice start through the selected interaction harness.",
     "Press Ctrl-C when finished; device logs below contain no vault material by contract.",
   ].join("\n") + "\n",
 );

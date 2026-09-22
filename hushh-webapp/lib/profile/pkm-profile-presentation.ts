@@ -1,5 +1,7 @@
 "use client";
 
+import { mailDisplayLabel } from "@/lib/copy/mail-terminology";
+
 import {
   buildNaturalAccessEntries,
   buildNaturalDomainPresentation,
@@ -50,6 +52,17 @@ export type PkmDomainPresentation = {
 
 export type PkmDomainPermissionPresentation = {
   key: string;
+  /**
+   * The domain this permission belongs to.
+   *
+   * It was always known at build time -- the builder holds `params.domain` --
+   * but was only ever encoded inside `key` as `${domain.key}:${path}`, so every
+   * consumer that wanted to group by domain had to parse it back out of a
+   * composite string, and none did. PkmDomainAccessPresentation already carries
+   * both fields; this type was simply lying about what it knew.
+   */
+  domainKey: string;
+  domainTitle: string;
   scopeHandle: string | null;
   topLevelScopePath: string;
   label: string;
@@ -132,6 +145,7 @@ function humanizePath(value: string | null | undefined): string {
         .trim()
     )
     .filter(Boolean)
+    .map(mailDisplayLabel)
     .join(" ");
 }
 
@@ -231,7 +245,7 @@ function friendlySourceLabel(value: string | null | undefined): string | null {
   if (/upgrade|migration|schema|manifest|structure agent|runtime secret/.test(normalized)) {
     return null;
   }
-  if (/gmail|receipt/.test(normalized)) return "From Gmail";
+  if (/gmail|receipt/.test(normalized)) return "From Mail";
   if (/portfolio|brokerage|plaid|alpaca|investment import/.test(normalized)) {
     return "From a portfolio import";
   }
@@ -734,6 +748,10 @@ export function buildPkmDomainPermissionPresentation(params: {
       });
       return {
         key: `${params.domain.key}:${entry.topLevelScopePath}`,
+        // Carried as real fields, not only folded into `key`. A consumer that
+        // wants to group by domain should not have to parse a composite string.
+        domainKey: params.domain.key,
+        domainTitle: params.domain.displayName || params.domain.key,
         scopeHandle: entry.scopeHandle,
         topLevelScopePath: entry.topLevelScopePath,
         label: entry.scopeLabel,

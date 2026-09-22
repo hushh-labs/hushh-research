@@ -335,7 +335,8 @@ def test_synthetic_evaluator_import_needs_no_core_vault_or_signing_key():
             "service._client = object(); "
             "preview = asyncio.run(service.generate_structure_preview("
             "user_id='synthetic', message='I prefer Thai food.', current_domains=[])); "
-            "assert preview['structure_decision']['target_domain'] == 'food'",
+            "assert preview['write_mode'] == 'do_not_save'; "
+            "assert preview['validation_hints']",
         ],
         cwd=CONSENT_PROTOCOL_ROOT,
         env=environment,
@@ -345,3 +346,86 @@ def test_synthetic_evaluator_import_needs_no_core_vault_or_signing_key():
     )
 
     assert completed.returncode == 0, completed.stderr
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        TimeoutError("private details"),
+        PermissionError("private details"),
+        ConnectionError("private details"),
+    ],
+)
+async def test_outer_failures_keep_timeout_and_transport_distinct(error):
+    class FailedService:
+        async def generate_structure_preview(self, **kwargs):
+            raise error
+
+    case = eval_script.PromptCase(
+        case_id="outer-error",
+        message="I prefer Thai food.",
+        expected_save_class="durable",
+        expected_intent_class="preference",
+        expected_mutation_intent="create",
+        expected_domains=("food",),
+        expect_confirmation=True,
+        category="preference",
+    )
+    state = {"domains": [], "memories": []}
+    result = await eval_script._evaluate_case(
+        service=FailedService(),
+        case=case,
+        state=state,
+        user_id="synthetic-user",
+        model_override="test-model",
+        strict_small_model=True,
+        per_prompt_timeout_seconds=1.0,
+        domain_registry_override=[],
+    )
+    timeout = isinstance(error, TimeoutError)
+    assert result.timed_out is timeout
+    assert result.failure_class == type(error).__name__
+    assert result.actual_write_mode == ("timeout" if timeout else "error")
+    assert eval_script._decisive_release_failure(result) == (
+        "outer_timeout" if timeout else "outer_error"
+    )
+    assert not result.schema_ok
+    assert "private details" not in repr(result)
+    assert state == {"domains": [], "memories": []}
+
+
+async def test_fail_fast_saves_partial_report_and_fails_gate(monkeypatch, tmp_path):
+    import json
+
+    class FailedService:
+        async def generate_structure_preview(self, **kwargs):
+            raise PermissionError("must not enter report")
+
+    report_path = tmp_path / "partial.json"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "eval_pkm_structure_agent.py",
+            "--env-file",
+            "",
+            "--skip-shadow",
+            "--phase",
+            "release_chain_24",
+            "--fail-fast",
+            "--enforce-gates",
+            "--json-out",
+            str(report_path),
+        ],
+    )
+    monkeypatch.setattr(eval_script, "get_pkm_agent_lab_service", FailedService)
+    assert await eval_script.main() == 1
+    report = json.loads(report_path.read_text())
+    assert report["shadow_users"] == []
+    run = report["synthetic_reports"][0]
+    assert run["evaluated_run_count"] == 1
+    assert run["unattempted_run_count"] == 23
+    assert run["aborted_reason"].endswith(":outer_error")
+    assert run["personas"][0]["results"][0]["failure_class"] == "PermissionError"
+    assert report["quality_gate"]["status"] == "fail"
+    assert "must not enter report" not in report_path.read_text()

@@ -393,26 +393,37 @@ describe("SegmentedTabs", () => {
     expect(active.className).toContain("rounded-[12px]");
     expect(active.className).not.toContain("press-scale");
 
-    // One segmented material, shared with the Location strip: a recessed grey
-    // track with no border, and a RAISED pill rather than an outlined one.
-    // The track used to borrow `--app-card-surface-compact` behind a card
-    // border, which put a near-white bordered box around a near-white pill --
-    // the same control as Location's, reading as a different component on the
-    // very next page.
-    expect(root?.className).toContain(
-      "bg-[color:var(--app-segmented-track-surface)]",
-    );
+    // Preserve main's current segmented material and the keyboard contract below.
+    expect(root?.className).toContain("bg-[color:var(--app-segmented-track-surface)]");
     expect(root?.className).toContain("border-0");
     expect(root?.className).not.toContain("var(--app-card-surface-compact)");
-
-    expect(active.className).toContain(
-      "shadow-[var(--app-segmented-active-shadow)]",
-    );
+    expect(active.className).toContain("shadow-[var(--app-segmented-active-shadow)]");
     expect(active.className).toContain("border-transparent");
-    // Semibold, matching the Location strip's active label. The weight is the
-    // second half of "this one is selected"; the pill is the first.
     expect(active.className).toContain("font-semibold");
     expect(active.className).not.toContain("font-normal");
+  });
+
+  it("supports roving Arrow, Home, and End focus with accessible tab names", () => {
+    const changed = vi.fn();
+    render(<SegmentedTabs value="a" onValueChange={changed} options={[
+      { value: "a", label: "A", accessibleLabel: "First option" },
+      { value: "b", label: "B" },
+      { value: "c", label: "C" },
+    ]} />);
+    const first = screen.getByRole("tab", { name: "First option" });
+    const second = screen.getByRole("tab", { name: "B" });
+    const last = screen.getByRole("tab", { name: "C" });
+    first.focus();
+    fireEvent.keyDown(first, { key: "ArrowRight" });
+    expect(second).toHaveFocus();
+    expect(changed).toHaveBeenLastCalledWith("b");
+    fireEvent.keyDown(second, { key: "End" });
+    expect(last).toHaveFocus();
+    expect(changed).toHaveBeenLastCalledWith("c");
+    fireEvent.keyDown(last, { key: "Home" });
+    expect(first).toHaveFocus();
+    fireEvent.keyDown(first, { key: "ArrowLeft" });
+    expect(last).toHaveFocus();
   });
 
   it("disables the whole segmented control while its selection is settling", () => {
@@ -432,6 +443,7 @@ describe("SegmentedTabs", () => {
     const brokerage = screen.getByRole("tab", { name: "Brokerage" });
     expect(brokerage).toBeDisabled();
     fireEvent.click(brokerage);
+    fireEvent.keyDown(brokerage, { key: "ArrowLeft" });
     expect(handleValueChange).not.toHaveBeenCalled();
   });
 
@@ -667,5 +679,42 @@ describe("SettingsDetailPanel", () => {
       ).toBeTruthy();
     });
     expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
+  });
+});
+
+describe("row hover surface", () => {
+  /**
+   * A row with an interactive trailing control splits: the primary action
+   * becomes an inner button so the control beside it stays independently
+   * operable. That split used to change how the row LOOKED on hover, because
+   * the inner button painted the highlight itself -- at `rounded-xl` instead of
+   * the row radius, and inside padding the grid cell had already applied.
+   *
+   * The founder reported it twice, on two different surfaces, in the same
+   * words: the highlight has to reach the edges rather than float as a pill.
+   * Both times the cause was a component drawing a radius of its own instead of
+   * inheriting the shape it sits in.
+   */
+  it("spans the whole row at the row's own radius, split or not", () => {
+    const { container } = render(
+      <SettingsGroup>
+        <SettingsRow
+          title="Financial"
+          onClick={() => undefined}
+          chevron
+          trailing={<input type="checkbox" aria-label="Everything in Financial" />}
+        />
+      </SettingsGroup>,
+    );
+
+    const overlay = container.querySelector('[aria-hidden="true"].absolute.inset-0');
+    expect(overlay, "a split row must still draw a full-bleed hover surface").not.toBeNull();
+    expect(overlay?.className).toContain("inset-0");
+    expect(overlay?.className).toContain("rounded-[inherit]");
+
+    // The inner button must not paint a competing highlight.
+    const primary = container.querySelector("button");
+    expect(primary?.className ?? "").not.toContain("rounded-xl");
+    expect(primary?.className ?? "").not.toContain("hover:bg-foreground");
   });
 });

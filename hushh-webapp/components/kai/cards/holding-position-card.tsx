@@ -1,6 +1,6 @@
 "use client";
 
-import { BarChart3, Pencil, Trash2 } from "lucide-react";
+import { BarChart3, Pencil, Trash2 } from "@/components/icons";
 
 import { Button } from "@/lib/morphy-ux/button";
 import { Card, CardContent } from "@/lib/morphy-ux/card";

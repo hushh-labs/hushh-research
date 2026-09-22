@@ -56,7 +56,7 @@ describe("Connect page layout contract", () => {
     expect(connectionRows).toContain("trailing=");
   });
 
-  it("hard-gates Connect and the private agent on live in-memory vault state", () => {
+  it("hard-gates Connect and root Chat on live in-memory vault state", () => {
     const connectRoute = fs.readFileSync(
       path.join(WEBAPP_ROOT, "app/one/connect/page.tsx"),
       "utf8",
@@ -65,8 +65,8 @@ describe("Connect page layout contract", () => {
       path.join(WEBAPP_ROOT, "app/one/one-auth-gate.tsx"),
       "utf8",
     );
-    const agentRoute = fs.readFileSync(
-      path.join(WEBAPP_ROOT, "app/agent/page.tsx"),
+    const rootRoute = fs.readFileSync(
+      path.join(WEBAPP_ROOT, "app/page.tsx"),
       "utf8",
     );
     const vaultGuard = fs.readFileSync(
@@ -76,7 +76,7 @@ describe("Connect page layout contract", () => {
 
     expect(connectRoute).not.toContain("<VaultLockGuard>");
     expect(oneAuthGate).toContain("<VaultLockGuard>");
-    expect(agentRoute).toContain("<VaultLockGuard>");
+    expect(rootRoute).toContain("<VaultLockGuard>");
     expect(vaultGuard).not.toContain("isSessionUnlockedOnce");
     expect(vaultGuard).toContain("if (isVaultUnlocked)");
   });

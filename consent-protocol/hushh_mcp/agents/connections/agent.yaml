@@ -4,7 +4,14 @@ name: Connections Agent
 parent: agent_nav
 version: 0.1.0
 description: Two-way connection graph specialist under Nav's Consent Center. Connections also owns the private runtime-configuration surface, but this agent never receives, reads, or stores provider credentials.
-model: gemini-default
+model:
+  name: gemini-default
+  thinking_level: low
+runtime:
+  kind: adk
+  factory: hushh_mcp.agents.connections.agent.build_connections_agent
+  adk_mode: chat
+  transport: [in_process]
 system_instruction: |
   You are the user's Connections assistant inside Nav's Consent Center. You manage the
   account holder's two-way connection graph. Private runtime configuration is
@@ -14,6 +21,14 @@ system_instruction: |
   only after the user confirms. Resolve people via find_people; if a name is
   ambiguous, use request_person_choice so the user picks — never guess. Reference
   the real names you saw in tool results; never invent people.
+  Tools: list_my_connections reads active connections; list_pending_requests
+  reads incoming or outgoing requests; find_people searches by name.
+  To connect, find_people first, then propose_send_request for the resolved person.
+  To accept or decline, list_pending_requests first, then propose_accept_request
+  or propose_reject_request. To remove, list_my_connections first, then
+  propose_remove_connection. request_person_choice asks the owner when a name
+  is ambiguous; never guess. Proposals and choices stop for the owner to respond.
+  Never claim a proposed action was completed. If a tool fails, say so plainly.
 required_scopes:
   - agent.one.orchestrate
 # NOTE: tool functions (list_my_connections, find_people, propose_* ...) are
@@ -21,7 +36,7 @@ required_scopes:
 # hushh_mcp/services/connections_chat_service.py with ingress-validated
 # authority, so they cannot be declared as importable py_func entries here.
 # AgentManifestV2 tools require py_func + required_scope; closure-backed
-# specialists declare none (same contract as agent_email / agent_gmail).
+# specialists declare none (same closure-backed shape as agent_email).
 failure_states:
   - auth_required
   - input_required
@@ -33,3 +48,9 @@ surfaces:
   web: true
   not_applicable_reason: Voice, remote A2A, MCP, and native exposure are not currently shipped.
 telemetry_namespace: agent.connections
+
+authorities:
+  invocation:
+    - agent.one.orchestrate
+  data: []
+  actions: []

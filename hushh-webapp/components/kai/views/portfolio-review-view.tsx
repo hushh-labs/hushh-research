@@ -28,7 +28,7 @@ import {
   TrendingDown,
   PieChart,
   Wallet,
-} from "lucide-react";
+} from "@/components/icons";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { cn } from "@/lib/utils";
 import { Icon, SegmentedTabs } from "@/lib/morphy-ux/ui";
@@ -76,6 +76,10 @@ import {
   buildStatementSource,
 } from "@/lib/kai/brokerage/financial-sources";
 import { PlaidPortfolioService } from "@/lib/kai/brokerage/plaid-portfolio-service";
+import {
+  KAI_AUXILIARY_STEP_TIMEOUT_MS,
+  runKaiStepWithTimeout,
+} from "@/lib/kai/brokerage/kai-operation-timeout";
 import { consolidateHoldingsBySymbol } from "@/lib/utils/portfolio-normalize";
 
 
@@ -424,44 +428,6 @@ function isAuthFailureMessage(message: string): boolean {
     lower.includes("forbidden") ||
     lower.includes("vault owner token")
   );
-}
-
-function parsePositiveTimeoutMs(raw: string | undefined, fallbackMs: number): number {
-  if (typeof raw !== "string") return fallbackMs;
-  const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed <= 0) return fallbackMs;
-  return Math.round(parsed);
-}
-
-const SAVE_STEP_TIMEOUT_MS = parsePositiveTimeoutMs(
-  process.env.NEXT_PUBLIC_KAI_SAVE_STEP_TIMEOUT_MS,
-  90_000
-);
-
-async function runSaveStepWithTimeout<T>(
-  stepLabel: string,
-  task: Promise<T>,
-  timeoutMs: number = SAVE_STEP_TIMEOUT_MS
-): Promise<T> {
-  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timeoutHandle = setTimeout(() => {
-      const timeoutSeconds = Math.max(1, Math.ceil(timeoutMs / 1000));
-      reject(
-        new Error(
-          `${stepLabel} is taking longer than expected (${timeoutSeconds}s). Please retry.`
-        )
-      );
-    }, timeoutMs);
-  });
-
-  try {
-    return await Promise.race([task, timeoutPromise]);
-  } finally {
-    if (timeoutHandle !== null) {
-      clearTimeout(timeoutHandle);
-    }
-  }
 }
 
 function normalizeHoldingForStorage(holding: Holding): Holding {
@@ -1356,13 +1322,20 @@ export function PortfolioReviewView({
       saveInFlightRef.current = true;
       setIsSaving(true);
       try {
-        await onStageForFinish(stagedPayload);
+        await runKaiStepWithTimeout(
+          "Staging portfolio for setup",
+          Promise.resolve().then(() => onStageForFinish(stagedPayload)),
+        );
         baselineSnapshotRef.current = serializeEditableState(accountInfo, holdings);
         if (isMountedRef.current) {
           setHasUnsavedChanges(false);
         }
         toast.success("Portfolio saved. It will be protected when you finish setup.");
-        await Promise.resolve(onStageComplete?.());
+        await runKaiStepWithTimeout(
+          "Completing portfolio setup",
+          Promise.resolve().then(() => onStageComplete?.()),
+          KAI_AUXILIARY_STEP_TIMEOUT_MS,
+        );
       } catch (error) {
         console.error("[PortfolioReview] Failed to stage setup portfolio:", error);
         toast.error("We could not save your portfolio for setup. Try again.");
@@ -1392,7 +1365,7 @@ export function PortfolioReviewView({
     let resolvedHasVault = hasVault;
     if (resolvedHasVault === null) {
       try {
-        resolvedHasVault = await runSaveStepWithTimeout(
+        resolvedHasVault = await runKaiStepWithTimeout(
           "Vault availability check",
           VaultService.checkVault(userId)
         );
@@ -1427,7 +1400,7 @@ export function PortfolioReviewView({
       let resolvedVaultOwnerToken = effectiveVaultOwnerToken;
       if (!resolvedVaultOwnerToken) {
         const tokenResolveStartedAt = nowMs();
-        resolvedVaultOwnerToken = await runSaveStepWithTimeout(
+        resolvedVaultOwnerToken = await runKaiStepWithTimeout(
           "Vault access verification",
           resolveVaultOwnerTokenForSave(false)
         );
@@ -1494,7 +1467,7 @@ export function PortfolioReviewView({
       const blobLoadStartedAt = nowMs();
       const {
         domainData: existingFinancialRaw,
-      } = await runSaveStepWithTimeout(
+      } = await runKaiStepWithTimeout(
         "Vault portfolio load",
         PkmDomainResourceService.prepareDomainWriteContext({
           userId,
@@ -1833,7 +1806,7 @@ export function PortfolioReviewView({
 
       let financialResult;
       try {
-        financialResult = await runSaveStepWithTimeout(
+        financialResult = await runKaiStepWithTimeout(
           "Vault portfolio save",
           storeMergedDomain(resolvedVaultOwnerToken)
         );
@@ -1848,7 +1821,7 @@ export function PortfolioReviewView({
             throw storeError;
           }
           resolvedVaultOwnerToken = refreshedToken;
-          financialResult = await runSaveStepWithTimeout(
+          financialResult = await runKaiStepWithTimeout(
             "Vault portfolio save",
             storeMergedDomain(refreshedToken)
           );
@@ -1868,14 +1841,18 @@ export function PortfolioReviewView({
         throw new Error("Backend returned failure on store");
       }
 
-      await PlaidPortfolioService.setActiveSource({
-        userId,
-        activeSource: "statement",
-        vaultOwnerToken: resolvedVaultOwnerToken,
-      }).catch((sourcePreferenceError) => {
+      void runKaiStepWithTimeout(
+        "Updating portfolio source preference",
+        PlaidPortfolioService.setActiveSource({
+          userId,
+          activeSource: "statement",
+          vaultOwnerToken: resolvedVaultOwnerToken,
+        }),
+        KAI_AUXILIARY_STEP_TIMEOUT_MS,
+      ).catch((sourcePreferenceError) => {
         console.warn(
           "[PortfolioReview] Saved statement portfolio but could not update active source preference:",
-          sourcePreferenceError
+          sourcePreferenceError,
         );
       });
 
@@ -1933,13 +1910,20 @@ export function PortfolioReviewView({
       if (isMountedRef.current) {
         setHasUnsavedChanges(false);
       }
-      await runSaveStepWithTimeout(
+      void runKaiStepWithTimeout(
         "Finalizing save",
-        Promise.resolve(onSaveComplete(savePayload)).catch((saveCompleteError) => {
-          console.error("[PortfolioReview] onSaveComplete failed:", saveCompleteError);
-        }),
-        20_000
-      );
+        Promise.resolve()
+          .then(() => onSaveComplete(savePayload))
+          .catch((saveCompleteError) => {
+            console.error("[PortfolioReview] onSaveComplete failed:", saveCompleteError);
+          }),
+        KAI_AUXILIARY_STEP_TIMEOUT_MS,
+      ).catch((saveCompleteError) => {
+        console.warn(
+          "[PortfolioReview] Save finalization exceeded its deadline:",
+          saveCompleteError,
+        );
+      });
       logSavePhase("post-save sync", postSaveSyncStartedAt);
       logSavePhase("total", saveStartedAt);
     } catch (error) {
@@ -1990,7 +1974,7 @@ export function PortfolioReviewView({
     <div className={cn("relative w-full", className)}>
 
 
-      <div className="w-full space-y-8 pb-6 pt-4 transition-all duration-500 ease-in-out md:pt-6">
+      <div className="w-full space-y-8 pb-6 pt-4 transition-[opacity,transform] duration-150 ease-out md:pt-6">
 
 
 

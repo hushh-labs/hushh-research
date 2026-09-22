@@ -82,13 +82,14 @@ export function resolvePersonRefFromProfilePathname(
 export const ROUTES = {
   HOME: "/",
   PERSON_PROFILE: "/people/[personRef]",
-  /** Canonical public knowledge workspace; root remains anonymous onboarding. */
+  /** Canonical public knowledge workspace; root is dual-mode Chat/onboarding. */
   WELCOME: "/welcome",
   ONE_HOME: "/one",
   DEVELOPERS: "/developers",
   RESEARCH: "/research",
   RESEARCH_PROTOCOL: "/research/protocol",
   BLOG: "/blog",
+  MANISH_SAINANI: "/manishhussh",
   LOGIN: "/login",
   GETTING_STARTED: "/getting-started",
   LOGOUT: "/logout",
@@ -109,13 +110,14 @@ export const ROUTES = {
   PROFILE_SECURITY: "/one/profile/security",
   PROFILE_SECURITY_VAULT: "/one/profile/security/vault",
   PROFILE_SECURITY_SESSION: "/one/profile/security/session",
-  PROFILE_SECURITY_DEVICES: "/one/profile/security/devices",
   PROFILE_SECURITY_DEVICE_AUTHORIZE: "/one/profile/security/devices/authorize",
   PROFILE_MY_DATA: "/one/profile/my-data",
   PROFILE_MY_DATA_DOMAIN: "/one/profile/my-data/domain",
   PROFILE_ACCESS: "/one/profile/access",
   PROFILE_ACCESS_CONNECTION: "/one/profile/access/connection",
   PROFILE_CONNECTED_SYSTEMS: "/one/profile/connected-systems",
+  PROFILE_CONNECTORS: "/one/profile/connectors",
+  PROFILE_CONNECTOR_OAUTH_RETURN: "/one/profile/connectors/oauth/return",
   PROFILE_GMAIL: "/one/profile/gmail",
   PROFILE_GMAIL_CONNECTION: "/one/profile/gmail/connection",
   PROFILE_GMAIL_ACTIONS: "/one/profile/gmail/actions",
@@ -160,7 +162,8 @@ export const ROUTES = {
   ONE_FEED: "/one/feed",
   /** Compatibility-only access manager route. Preserve inbound partner links. */
   LEGACY_CONSENTS: "/consents",
-  AGENT: "/agent",
+  /** Compatibility-only inbound path; the active chat surface is `/`. */
+  LEGACY_AGENT: "/agent",
   CONNECT: "/one/connect",
   CONNECT_SETTINGS: "/one/connect/settings",
   MARKETPLACE: "/marketplace",
@@ -483,10 +486,14 @@ export function isOnboardingAdmissionExemptRoute(pathname: string): boolean {
     normalizedPathname.startsWith(`${ROUTES.RESEARCH}/`) ||
     normalizedPathname === ROUTES.BLOG ||
     normalizedPathname.startsWith(`${ROUTES.BLOG}/`) ||
+    normalizedPathname === ROUTES.MANISH_SAINANI ||
     normalizedPathname === ROUTES.LOGIN ||
     isFirebaseSessionOnlyRoute(normalizedPathname) ||
     normalizedPathname === ROUTES.GETTING_STARTED ||
     normalizedPathname === ROUTES.PHONE_MANDATE ||
+    // Local-only visual fixture; it must not be blocked by the signed-in
+    // setup admission gate when reviewing UI without mail authentication.
+    normalizedPathname === "/one-location-links-visual-preview" ||
     // Reached straight from the phone mandate when the number the adviser just
     // verified is on an SEC filing, before any capability is active.
     normalizedPathname === ROUTES.RIA_CLAIM ||
@@ -739,6 +746,7 @@ export function isPublicRoute(pathname: string): boolean {
     normalizedPathname.startsWith(`${ROUTES.RESEARCH}/`) ||
     normalizedPathname === ROUTES.BLOG ||
     normalizedPathname.startsWith(`${ROUTES.BLOG}/`) ||
+    normalizedPathname === ROUTES.MANISH_SAINANI ||
     // Both prefixes. `/view/` is where public live-location links point now;
     // `/request/` is what every link minted before the rename carries, and it
     // has to stay public or those land on /login instead of on the forwarder
@@ -780,7 +788,8 @@ export function isFoundationPublicRoute(pathname: string): boolean {
     normalizedPathname === ROUTES.RESEARCH ||
     normalizedPathname.startsWith(`${ROUTES.RESEARCH}/`) ||
     normalizedPathname === ROUTES.BLOG ||
-    normalizedPathname.startsWith(`${ROUTES.BLOG}/`)
+    normalizedPathname.startsWith(`${ROUTES.BLOG}/`) ||
+    normalizedPathname === ROUTES.MANISH_SAINANI
   );
 }
 

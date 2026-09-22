@@ -205,6 +205,61 @@ final class NativeSupportTests: XCTestCase {
         )
     }
 
+    func testSessionPrivacyStatePreservesBackgroundDebtThroughTransientInactivity() {
+        var state = HushhSessionPrivacyState()
+        state.protectForAppInactive()
+        XCTAssertEqual(state.cause, "inactive")
+        state.markAppBackgrounded()
+        state.markAppActive()
+        let backgroundGeneration = state.generation
+        state.protectForAppInactive()
+        state.markAppActive()
+        XCTAssertEqual(state.cause, "background")
+        XCTAssertGreaterThan(state.generation, backgroundGeneration)
+        XCTAssertFalse(state.completeSessionValidation(generation: backgroundGeneration, appIsActive: true))
+        XCTAssertTrue(state.completeSessionValidation(generation: state.generation, appIsActive: true))
+        state.protectForAppInactive()
+        XCTAssertEqual(state.cause, "inactive")
+    }
+
+    func testSessionPrivacyRestartRejectsThePreviousDocumentGeneration() {
+        var state = HushhSessionPrivacyState()
+        state.protectForAppInactive()
+        state.markAppActive()
+        let oldGeneration = state.generation
+        state.restartSession()
+        XCTAssertEqual(state.cause, "restart")
+        XCTAssertTrue(state.shielded)
+        XCTAssertFalse(state.completeSessionValidation(generation: oldGeneration, appIsActive: true))
+        XCTAssertTrue(state.completeSessionValidation(generation: state.generation, appIsActive: true))
+    }
+
+    func testIMessagePublicationRejectsSupersededAndUninitializedGenerations() {
+        var state = HusshIMessagePublicationGeneration()
+        XCTAssertFalse(state.accepts(0))
+        XCTAssertFalse(state.accepts(-1))
+        let first = state.invalidate()
+        XCTAssertTrue(state.accepts(first))
+        let second = state.invalidate()
+        XCTAssertFalse(state.accepts(first))
+        XCTAssertTrue(state.accepts(second))
+    }
+
+    func testPrivacyRestartRejectsOldDocumentEvenAfterItReadsTheNewGeneration() {
+        var documents = HushhSessionPrivacyDocumentState()
+        XCTAssertFalse(documents.accepts("old-document"))
+        documents.observe("old-document")
+        XCTAssertTrue(documents.accepts("old-document"))
+        documents.restart()
+        documents.observe("old-document")
+        XCTAssertFalse(documents.accepts("old-document"))
+        documents.observe("new-document")
+        XCTAssertTrue(documents.accepts("new-document"))
+        documents.restart()
+        documents.observe("new-document")
+        XCTAssertFalse(documents.accepts("new-document"))
+    }
+
     func testKaiStreamLifecycleClassifierAcceptsOnlyMatchingTypedStatuses() {
         XCTAssertEqual(
             KaiStreamLifecycleErrorClassifier.bridgeCode(

@@ -318,6 +318,95 @@ describe("OneLocationOnboardingFlow combined Ready screen", () => {
     expect(screen.getByText(/circle code above/)).toBeTruthy();
   });
 
+  it("offers the Google account chooser after an empty Google read", async () => {
+    // A silent retry re-reads the same (possibly empty) Google account, so
+    // an empty read must offer the chooser instead of looping on "none".
+    const onSyncOnboardingContacts = vi.fn().mockResolvedValue({
+      status: "none",
+      partial: false,
+    });
+    await renderReady({
+      contactsStepAvailable: true,
+      onSyncOnboardingContacts,
+      showGoogleAccountSwitcher: true,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Find contacts" }));
+    fireEvent.click(screen.getByRole("button", { name: "Check my contacts" }));
+
+    const switcher = await screen.findByRole("button", {
+      name: "Check a different Google account",
+    });
+    fireEvent.click(switcher);
+    await waitFor(() =>
+      expect(onSyncOnboardingContacts).toHaveBeenLastCalledWith({
+        chooseGoogleAccount: true,
+      }),
+    );
+    // The silent retry stays available beside it.
+    expect(
+      screen.getByRole("button", { name: "Sync again" }),
+    ).toBeTruthy();
+  });
+
+  it("hides the account switcher without the flag", async () => {
+    await renderReady({
+      contactsStepAvailable: true,
+      onSyncOnboardingContacts: vi.fn().mockResolvedValue({
+        status: "none",
+        partial: false,
+      }),
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Find contacts" }));
+    fireEvent.click(screen.getByRole("button", { name: "Check my contacts" }));
+
+    expect(
+      await screen.findByText("No eligible contacts matched."),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", {
+        name: "Check a different Google account",
+      }),
+    ).toBeNull();
+  });
+
+  it("requests another account through the sync handler and keeps results on dismiss", async () => {
+    const onSyncOnboardingContacts = vi
+      .fn()
+      .mockResolvedValueOnce({ status: "none", partial: false })
+      .mockResolvedValueOnce({ status: "cancelled" });
+    await renderReady({
+      contactsStepAvailable: true,
+      onSyncOnboardingContacts,
+      showGoogleAccountSwitcher: true,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Find contacts" }));
+    fireEvent.click(screen.getByRole("button", { name: "Check my contacts" }));
+
+    expect(
+      await screen.findByText("No eligible contacts matched."),
+    ).toBeTruthy();
+    expect(onSyncOnboardingContacts).toHaveBeenCalledTimes(1);
+    expect(onSyncOnboardingContacts).toHaveBeenNthCalledWith(1, undefined);
+
+    // The switcher run goes through the same internal handler with the flag.
+    fireEvent.click(
+      screen.getByRole("button", { name: "Check a different Google account" }),
+    );
+    await waitFor(() =>
+      expect(onSyncOnboardingContacts).toHaveBeenNthCalledWith(2, {
+        chooseGoogleAccount: true,
+      }),
+    );
+    // Dismissing the chooser is not a reset: the empty state stays instead
+    // of dropping back to the primed card.
+    expect(
+      await screen.findByText("No eligible contacts matched."),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: "Check my contacts" }),
+    ).toBeNull();
+  });
+
   it("does not present a partial contact check as the whole directory", async () => {
     await renderReady({
       contactsStepAvailable: true,

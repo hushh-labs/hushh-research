@@ -51,7 +51,13 @@ export type OneLocationWorkflowNotificationType =
   | "location_one_network_joined"
   | "location_circle_member_invite"
   | "location_circle_member_invite_accepted"
+  | "location_circle_member_invite_declined"
+  | "location_circle_member_invite_cancelled"
   | "location_circle_member_added"
+  | "location_circle_member_removed"
+  | "location_circle_member_left"
+  | "location_circle_renamed"
+  | "location_circle_deleted"
   | "location_circle_code_joined";
 
 export type OneLocationNotificationSection =
@@ -126,12 +132,36 @@ const WORKFLOW_COPY: Record<
     title: "Circle invitation accepted",
     fallbackDescription: "Someone accepted your Circle invitation.",
   },
+  location_circle_member_invite_declined: {
+    title: "Circle invitation declined",
+    fallbackDescription: "Someone declined your Circle invitation.",
+  },
+  location_circle_member_invite_cancelled: {
+    title: "Circle invitation withdrawn",
+    fallbackDescription: "A Circle invitation was withdrawn.",
+  },
   location_circle_member_added: {
     // There was no card to tap and no decision to make, so this is the only
     // moment the person learns about it. The fallback still says a human did
     // it -- "You were added to a Circle" reads as an intrusion by nobody.
     title: "Added to a Circle",
     fallbackDescription: "A connection added you to a Circle.",
+  },
+  location_circle_member_removed: {
+    title: "Removed from a Circle",
+    fallbackDescription: "You were removed from a Circle.",
+  },
+  location_circle_member_left: {
+    title: "Circle member left",
+    fallbackDescription: "Someone left your Circle.",
+  },
+  location_circle_renamed: {
+    title: "Circle renamed",
+    fallbackDescription: "A Circle you belong to was renamed.",
+  },
+  location_circle_deleted: {
+    title: "Circle deleted",
+    fallbackDescription: "A Circle you belonged to was deleted.",
   },
   location_circle_code_joined: {
     title: "Someone joined your Circle",
@@ -480,7 +510,13 @@ export function oneLocationSectionForWorkflowNotificationType(
     case "location_one_network_joined":
     case "location_circle_member_invite":
     case "location_circle_member_invite_accepted":
+    case "location_circle_member_invite_declined":
+    case "location_circle_member_invite_cancelled":
     case "location_circle_member_added":
+    case "location_circle_member_removed":
+    case "location_circle_member_left":
+    case "location_circle_renamed":
+    case "location_circle_deleted":
     case "location_circle_code_joined":
       return "people";
     default:
@@ -850,6 +886,16 @@ export function locationWorkflowNotificationCopy(params: {
         title: copy.title,
         description: `${networkLabel} joined your Circle.`,
       };
+    case "location_circle_member_invite_declined":
+      return {
+        title: copy.title,
+        description: `${networkLabel} declined your Circle invitation.`,
+      };
+    case "location_circle_member_invite_cancelled":
+      return {
+        title: copy.title,
+        description: copy.fallbackDescription,
+      };
     case "location_circle_member_added": {
       // Named, always. Nobody accepted anything here, so the only thing that
       // turns this from an intrusion into an ordinary social act is knowing
@@ -870,6 +916,38 @@ export function locationWorkflowNotificationCopy(params: {
         title: copy.title,
         description: `${networkLabel} joined using your Circle code.`,
       };
+    case "location_circle_member_removed": {
+      const circleName = String(params.circleName || "").trim();
+      return {
+        title: copy.title,
+        description: circleName
+          ? `You were removed from ${circleName}.`
+          : copy.fallbackDescription,
+      };
+    }
+    case "location_circle_member_left":
+      return {
+        title: copy.title,
+        description: `${networkLabel} left your Circle.`,
+      };
+    case "location_circle_renamed": {
+      const circleName = String(params.circleName || "").trim();
+      return {
+        title: copy.title,
+        description: circleName
+          ? `This Circle is now called ${circleName}.`
+          : copy.fallbackDescription,
+      };
+    }
+    case "location_circle_deleted": {
+      const circleName = String(params.circleName || "").trim();
+      return {
+        title: copy.title,
+        description: circleName
+          ? `${circleName} was deleted by its owner.`
+          : copy.fallbackDescription,
+      };
+    }
     default:
       return { title: copy.title, description: copy.fallbackDescription };
   }

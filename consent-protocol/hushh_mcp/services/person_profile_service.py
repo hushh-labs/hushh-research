@@ -117,11 +117,9 @@ class PersonProfileService:
         if not subject_user_id or subject_user_id == viewer_user_id:
             raise PersonProfileNotFoundError("Person profile was not found.")
         requested = {str(value or "").strip() for value in scope_refs if str(value or "").strip()}
-        catalog = self._connections.get_information_scope_catalog(
-            viewer_user_id, subject_user_id, limit=500
-        )
+        catalog_items = self._requestable_scope_entries(viewer_user_id, subject_user_id)
         resolved: dict[str, dict[str, Any]] = {}
-        for item in catalog.get("items") or []:
+        for item in catalog_items:
             scope = str(item.get("scope") or "").strip()
             if not scope:
                 continue
@@ -179,23 +177,87 @@ class PersonProfileService:
         """Return the viewer-relative relationship without exposing internal IDs to clients."""
         return self._relationship(viewer_user_id, subject_user_id)
 
+    def _requestable_scope_entries(
+        self, viewer_user_id: str, subject_user_id: str
+    ) -> list[dict[str, Any]]:
+        """Load the complete current requestable catalog for one subject.
+
+        The production adapter exposes an uncapped exact loader. Older adapters
+        and narrow test doubles expose only the paged catalog endpoint, so walk
+        that endpoint instead of silently stopping at its historical 500-item
+        compatibility limit. A revision change restarts once; a second change
+        fails closed rather than returning a mixed catalog.
+        """
+        exact_catalog_loader = getattr(
+            self._connections, "get_exact_requestable_scope_entries", None
+        )
+        if exact_catalog_loader is not None:
+            return list(exact_catalog_loader(viewer_user_id, subject_user_id) or [])
+
+        page = 1
+        catalog_revision = ""
+        restarted = False
+        entries: list[dict[str, Any]] = []
+        seen_scopes: set[str] = set()
+        for _ in range(1000):
+            catalog = self._connections.get_information_scope_catalog(
+                viewer_user_id,
+                subject_user_id,
+                page=page,
+                limit=100,
+                catalog_revision=catalog_revision,
+            )
+            next_revision = str(catalog.get("catalogRevision") or "")
+            if catalog_revision and next_revision and next_revision != catalog_revision:
+                if restarted:
+                    raise ValueError("The information catalog changed while it was loading.")
+                restarted = True
+                page = 1
+                catalog_revision = ""
+                entries = []
+                seen_scopes.clear()
+                continue
+            catalog_revision = next_revision or catalog_revision
+            for item in catalog.get("items") or []:
+                if not isinstance(item, dict):
+                    continue
+                scope = str(item.get("scope") or "").strip()
+                if scope and scope not in seen_scopes:
+                    seen_scopes.add(scope)
+                    entries.append(item)
+            if not catalog.get("hasMore"):
+                return entries
+            try:
+                next_page = int(catalog.get("nextPage") or 0)
+            except (TypeError, ValueError):
+                next_page = 0
+            if next_page <= page:
+                raise ValueError("The information catalog returned invalid pagination.")
+            page = next_page
+
+        raise ValueError("The information catalog is too large to load safely.")
+
     async def get_viewer_profile(
-        self, *, viewer_user_id: str, public_person_ref: str
+        self,
+        *,
+        viewer_user_id: str,
+        public_person_ref: str,
+        catalog_page: int | None = None,
+        catalog_revision: str = "",
+        catalog_query: str = "",
+        catalog_domain: str = "",
     ) -> dict[str, Any]:
         row = await asyncio.to_thread(self._profile_row, public_person_ref)
         subject_user_id = str(row.get("user_id") or "")
         if not subject_user_id or subject_user_id == viewer_user_id:
             raise PersonProfileNotFoundError("Person profile was not found.")
 
-        scope_catalog = await asyncio.to_thread(
-            self._connections.get_information_scope_catalog,
-            viewer_user_id,
-            subject_user_id,
-            limit=500,
+        scope_items = await asyncio.to_thread(
+            self._requestable_scope_entries, viewer_user_id, subject_user_id
         )
         scopes = []
         scope_by_name: dict[str, dict[str, Any]] = {}
-        for item in scope_catalog.get("items") or []:
+        for item in scope_items:
             scope = str(item.get("scope") or "")
             if not scope:
                 continue
@@ -206,9 +268,24 @@ class PersonProfileService:
                 "domain": item.get("domain"),
                 "sensitivity": item.get("sensitivity"),
                 "wildcard": bool(item.get("wildcard")),
+                "pathSegments": [part for part in scope.split(".")[2:] if part != "*"],
             }
             scopes.append(projection)
             scope_by_name[scope] = projection
+
+        catalog = None
+        if catalog_page is not None:
+            # Keep the complete authority map for grant labels and exact
+            # mutation validation. Only the discovery projection is paged.
+            page = ConnectionsService.page_information_scope_entries(
+                scope_items,
+                page=catalog_page,
+                catalog_revision=catalog_revision,
+                query=catalog_query,
+                domain=catalog_domain,
+            )
+            scopes = [scope_by_name[item["scope"]] for item in page["items"]]
+            catalog = {key: value for key, value in page.items() if key != "items"}
 
         viewer_ref_row = await asyncio.to_thread(
             self._execute_one,
@@ -227,8 +304,12 @@ class PersonProfileService:
                 subject_user_id,
                 agent_id=requester_principal(viewer_ref),
             )
+            export_revisions = await self._consent_db.get_active_token_export_revisions(
+                [str(grant.get("token_id") or "") for grant in active]
+            )
             for grant in active:
                 scope_projection = scope_by_name.get(str(grant.get("scope") or ""))
+                token_id = str(grant.get("token_id") or "")
                 grants.append(
                     {
                         "scopeRef": (scope_projection or {}).get("scopeRef"),
@@ -238,7 +319,8 @@ class PersonProfileService:
                         "issuedAt": grant.get("issued_at"),
                         "expiresAt": grant.get("expires_at"),
                         "status": "granted",
-                        "encryptedExportAvailable": bool(grant.get("token_id")),
+                        "encryptedExportAvailable": bool(token_id),
+                        "exportRevision": export_revisions.get(token_id),
                     }
                 )
 
@@ -270,15 +352,25 @@ class PersonProfileService:
         )
         request_history = []
         now_ms = int(time.time() * 1000)
+        request_ids = [str(item["request_id"]) for item in request_rows if item.get("request_id")]
+        batch_status_loader = getattr(self._consent_db, "get_request_statuses", None)
+        has_batch_status_loader = callable(batch_status_loader)
+        if has_batch_status_loader:
+            statuses = await batch_status_loader(subject_user_id, request_ids)
+        else:
+            statuses = {}
         for item in request_rows:
-            status = await self._consent_db.get_request_status(
-                subject_user_id, str(item["request_id"])
-            )
+            request_id = str(item["request_id"])
+            if has_batch_status_loader:
+                status = statuses.get(request_id)
+            else:
+                status = await self._consent_db.get_request_status(subject_user_id, request_id)
             action = str((status or {}).get("action") or "REQUESTED")
             expires_at = (status or {}).get("expires_at")
             state = {
                 "CONSENT_GRANTED": "granted",
                 "CONSENT_DENIED": "denied",
+                "CANCELLED": "cancelled",
                 "REVOKED": "revoked",
                 "TIMEOUT": "expired",
             }.get(action, "pending")
@@ -287,7 +379,7 @@ class PersonProfileService:
             if state == "granted" and expires_at and int(expires_at) <= now_ms:
                 state = "expired"
             if item.get("cancelled_at") and state == "pending":
-                state = "denied"
+                state = "cancelled"
             request_history.append(
                 {
                     "bundleId": str(item["bundle_id"]),
@@ -308,6 +400,7 @@ class PersonProfileService:
             **self._public_projection(row),
             "relationship": relationship,
             "requestableScopes": scopes,
+            **({"scopeCatalog": catalog} if catalog is not None else {}),
             "grants": grants,
             "requestHistory": request_history,
         }

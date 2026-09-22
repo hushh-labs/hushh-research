@@ -39,10 +39,12 @@ export type UnlockWarmResult = {
 };
 
 type WarmPriority =
+  | "chat"
   | "market"
   | "dashboard"
   | "analysis"
   | "consents"
+  | "location"
   | "profile"
   | "ria"
   | "default";
@@ -77,6 +79,7 @@ function resolveWarmPriority(routePath?: string | null): WarmPriority {
   const path = String(routePath || "")
     .trim()
     .toLowerCase();
+  if (path === ROUTES.HOME || path === "/chat") return "chat";
   if (!path) return "default";
   if (
     path === KAI_MARKET_PATH ||
@@ -108,6 +111,7 @@ function resolveWarmPriority(routePath?: string | null): WarmPriority {
   ) {
     return "consents";
   }
+  if (path.startsWith(ROUTES.ONE_LOCATION)) return "location";
   if (path.startsWith("/one/profile")) return "profile";
   if (path.startsWith("/ria")) return "ria";
   return "default";
@@ -408,11 +412,12 @@ export class UnlockWarmOrchestrator {
       warmPriority === "default";
     const shouldWarmConsents =
       warmPriority === "consents" || warmPriority === "default";
-    // The Consent Center's canonical summary/pending page cache is lightweight
-    // and must be ready after every successful unlock, regardless of the route
-    // that happened to unlock the vault. Legacy consent resources below remain
-    // route-prioritized because they are not used by the canonical screen.
-    const shouldWarmConsentCenter = Boolean(params.firebaseIdToken);
+    // The Consent Center's canonical summary/pending page cache belongs to the
+    // consent route. Root is the Chat workspace, so warming this database-heavy
+    // surface during Chat unlock only competes with the first agent turn.
+    const shouldWarmConsentCenter =
+      warmPriority === "consents" && Boolean(params.firebaseIdToken);
+    const shouldWarmLocationState = warmPriority === "location";
     const shouldWarmVaultStatus =
       warmPriority === "consents" ||
       warmPriority === "profile" ||
@@ -615,14 +620,16 @@ export class UnlockWarmOrchestrator {
                     vaultOwnerToken: params.vaultOwnerToken,
                   })
               : Promise.resolve(null),
-          // Safe only in the active browser process: Location state may include
-          // encrypted envelopes and is intentionally never persisted to device
-          // storage. Warming it here gives the just-unlocked route an immediate
-          // cache-first render while it reconciles in the background.
+          // Location state is memory-only but expensive: its server response
+          // assembles several consent-sensitive projections.  Warm it only for
+          // the Location workspace; unrelated unlock routes (notably PKM) must
+          // not contend for the shared database connection budget.
           () =>
-            OneLocationStateResource.load(params.userId, () =>
-              OneLocationService.getState(params.vaultOwnerToken),
-            ),
+            shouldWarmLocationState
+              ? OneLocationStateResource.load(params.userId, () =>
+                  OneLocationService.getState(params.vaultOwnerToken),
+                )
+              : Promise.resolve(null),
         ] as const,
         4,
       );
@@ -630,7 +637,7 @@ export class UnlockWarmOrchestrator {
       result.metadataWarmed =
         shouldWarmMetadata && metadataResult.status === "fulfilled";
 
-      if (locationStateResult.status === "fulfilled") {
+      if (shouldWarmLocationState && locationStateResult.status === "fulfilled") {
         result.locationStateWarmed = true;
       }
 
@@ -706,26 +713,39 @@ export class UnlockWarmOrchestrator {
       // surfaces but do NOT match the consent center page keys, so without this
       // step /consents always lands cold after unlock. ConsentCenterService
       // handles its own cache.set into CONSENT_CENTER_SUMMARY / CONSENT_CENTER_LIST,
-      // so calling it here populates the page-read keys directly. Requires a
-      // Firebase ID token (the consent center proxy is Firebase-authenticated).
+      // so calling it here populates the page-read keys directly. Do not warm
+      // the full pending list when the summary has no pending work: that list
+      // is a 31-query surface and competing with vault/profile bootstrap made
+      // unlock needlessly contend for the small development/Cloud Run pool.
+      // Requires a Firebase ID token (the consent center proxy is
+      // Firebase-authenticated), and is limited to the consent route so the
+      // canonical Chat entry remains responsive after unlock.
       if (shouldWarmConsentCenter && params.firebaseIdToken) {
         const idToken = params.firebaseIdToken;
-        await Promise.allSettled([
-          ConsentCenterService.getSummary({
-            idToken,
-            userId: params.userId,
-            mode: "consents",
-          }),
-          ConsentCenterService.listEntries({
-            idToken,
-            userId: params.userId,
-            mode: "consents",
-            surface: "pending",
-            q: "",
-            page: 1,
-            limit: CONSENT_CENTER_PAGE_SIZE,
-          }),
-        ]);
+        const summaryResult = await ConsentCenterService.getSummary({
+          idToken,
+          userId: params.userId,
+          mode: "consents",
+        }).then(
+          (value) => ({ status: "fulfilled" as const, value }),
+          () => ({ status: "rejected" as const }),
+        );
+        if (
+          summaryResult.status === "fulfilled" &&
+          Number(summaryResult.value.counts?.pending || 0) > 0
+        ) {
+          await Promise.allSettled([
+            ConsentCenterService.listEntries({
+              idToken,
+              userId: params.userId,
+              mode: "consents",
+              surface: "pending",
+              q: "",
+              page: 1,
+              limit: CONSENT_CENTER_PAGE_SIZE,
+            }),
+          ]);
+        }
         result.consentsWarmed = true;
       }
 

@@ -22,7 +22,7 @@ import {
   ShieldCheck,
   UserRound,
   X,
-} from "lucide-react";
+} from "@/components/icons";
 
 import { AppPageContentRegion, AppPageHeaderRegion, AppPageShell } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
@@ -1016,7 +1016,7 @@ export default function MarketplacePage() {
       }
       rememberInvestorDeckDecision("shortlisted", investorId);
       rememberInvestorDeckDecision("passed", investorId);
-      toast.success("Investor lead saved. Saved to the database-backed RIA deck shortlist.");
+      toast.success("Investor lead saved. Saved to the database-backed advisor deck shortlist.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not save investor lead");
     }
@@ -1032,7 +1032,7 @@ export default function MarketplacePage() {
       );
       forgetInvestorDeckDecision("shortlisted", lead.id);
       rememberInvestorDeckDecision("passed", lead.id);
-      toast.success("Saved lead removed from the RIA deck.");
+      toast.success("Saved lead removed from the advisor deck.");
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not remove saved lead");
     }
@@ -1206,7 +1206,7 @@ export default function MarketplacePage() {
               <button
                 type="button"
                 className={cn(
-                  "grid h-10 w-10 place-items-center rounded-full border-0 bg-card text-foreground transition-[background-color,transform] duration-200 hover:scale-105 active:scale-95",
+                  "grid h-10 w-10 place-items-center rounded-full border-0 bg-card text-foreground transition-[background-color,transform] duration-150 hover:scale-105 active:scale-95",
                   searchOpen &&
                     (isRiaConnectSurface
                       ? "bg-[color:var(--ria-nav-active)] text-[color:var(--ria-gold-deep)]"
@@ -1229,7 +1229,7 @@ export default function MarketplacePage() {
               </Button>
               <button
                 type="button"
-                className="grid h-10 w-10 place-items-center rounded-full border-0 bg-card text-foreground transition-[background-color,transform] duration-200 hover:scale-105 active:scale-95 disabled:opacity-70"
+                className="grid h-10 w-10 place-items-center rounded-full border-0 bg-card text-foreground transition-[background-color,transform] duration-150 hover:scale-105 active:scale-95 disabled:opacity-70"
                 aria-label="Refresh contacts"
                 aria-busy={contactMatchLoading}
                 disabled={contactMatchLoading}
@@ -1245,7 +1245,7 @@ export default function MarketplacePage() {
               <button
                 type="button"
                 className={cn(
-                  "grid h-10 w-10 place-items-center rounded-full border-0 bg-card text-foreground transition-[background-color,transform] duration-200 hover:scale-105 active:scale-95",
+                  "grid h-10 w-10 place-items-center rounded-full border-0 bg-card text-foreground transition-[background-color,transform] duration-150 hover:scale-105 active:scale-95",
                   view === "swipe" &&
                     (isRiaConnectSurface
                       ? "bg-[color:var(--ria-nav-active)] text-[color:var(--ria-gold-deep)]"
@@ -1259,7 +1259,7 @@ export default function MarketplacePage() {
               <button
                 type="button"
                 className={cn(
-                  "grid h-10 w-10 place-items-center rounded-full border-0 bg-card text-foreground transition-[background-color,transform] duration-200 hover:scale-105 active:scale-95",
+                  "grid h-10 w-10 place-items-center rounded-full border-0 bg-card text-foreground transition-[background-color,transform] duration-150 hover:scale-105 active:scale-95",
                   view === "list" &&
                     (isRiaConnectSurface
                       ? "bg-[color:var(--ria-nav-active)] text-[color:var(--ria-gold-deep)]"
@@ -1338,7 +1338,7 @@ export default function MarketplacePage() {
                       {match.display_name}
                     </span>
                     <span className="block line-clamp-1 text-xs text-muted-foreground">
-                      {match.kind === "ria" ? "RIA" : "Investor"}
+                      {match.kind === "ria" ? "Advisor" : "Investor"}
                     </span>
                   </span>
                 </button>
@@ -1352,7 +1352,7 @@ export default function MarketplacePage() {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="min-w-0">
               <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                RIA Deck
+                Advisor Deck
               </p>
               <h2 className="mt-1 text-[17px] font-semibold leading-snug tracking-normal text-foreground">
                 Saved investor leads
@@ -1454,7 +1454,7 @@ export default function MarketplacePage() {
                   // its own left/right pass/connect gesture is never double-consumed.
                   data-no-route-swipe
                   data-testid="marketplace-swipe-card"
-                  className="relative flex w-full touch-pan-y flex-col gap-6 rounded-[var(--radius-lg)] border-0 bg-card p-6 shadow-[var(--app-card-shadow-feature)] transition-[transform,opacity] duration-300 [transition-timing-function:cubic-bezier(0.34,1.56,0.64,1)] sm:p-7"
+                  className="relative flex w-full touch-pan-y flex-col gap-6 rounded-[var(--radius-lg)] border-0 bg-card p-6 shadow-[var(--app-card-shadow-feature)] transition-[transform,opacity] duration-150 [transition-timing-function:cubic-bezier(0.34,1.56,0.64,1)] sm:p-7"
                   style={{
                     transform: `translate3d(${dragOffset.x}px, ${dragOffset.y}px, 0) rotate(${swipeRotation}deg)`,
                     opacity: swipeOpacity,

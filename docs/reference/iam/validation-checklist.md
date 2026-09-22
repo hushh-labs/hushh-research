@@ -1,5 +1,15 @@
 # Validation Checklist
 
+- [ ] Owner renewal: expired same-user self-owner evidence can renew only with
+  an intact durable grant; wrong user/scope/device, unknown grant, and any later
+  revocation fail closed. An outage must not fall back to bootstrap issuance.
+- [ ] Self-owner overlap never extends an old token's original expiry; one later
+  revocation invalidates old and latest grants despite tied/skewed timestamps.
+  Device/delegated tokens remain latest-only; missing renewal acknowledgment is rejected.
+- [ ] Owner document session: route changes/short interruptions retain the key;
+  expired tokens never authorize requests, and lock/sign-out/UID change/disposal
+  invalidate late unlock, renewal, and native iMessage publication results.
+
 
 ## Visual Context
 

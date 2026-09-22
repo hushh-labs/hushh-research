@@ -1,4 +1,5 @@
 import type { DomainSummary } from "@/lib/services/personal-knowledge-model-service";
+import { mailDisplayLabel } from "@/lib/copy/mail-terminology";
 import type { ConsentCenterEntry } from "@/lib/services/consent-center-service";
 import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 
@@ -46,7 +47,7 @@ function humanizePath(value: string | null | undefined, separator = " > "): stri
         .trim()
     )
     .filter(Boolean);
-  return parts.join(separator);
+  return parts.map(mailDisplayLabel).join(separator);
 }
 
 function clampText(value: string | null | undefined, maxLength = 96): string | null {

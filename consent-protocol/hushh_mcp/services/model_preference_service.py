@@ -14,6 +14,7 @@ store is unreachable, and the lane default is always a correct answer.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -34,6 +35,11 @@ logger = logging.getLogger(__name__)
 SOURCE_USER = "user"
 SOURCE_DEPLOYMENT = "deployment"
 SOURCE_FALLBACK = "fallback"
+
+# The model catalog is local and deterministic; only the person's optional saved
+# choice needs the database. Do not make a header control wait behind a busy pool.
+# A timeout falls through to the same deployment default used for the turn itself.
+_STORED_CHOICE_READ_TIMEOUT_SECONDS = 2.0
 
 
 class ModelPreferenceError(ValueError):
@@ -87,7 +93,19 @@ async def _stored_choice(user_id: str) -> str | None:
 async def resolve_text_model(user_id: str | None) -> ResolvedTextModel:
     """The model this person's next turn should use, resolved now rather than at import."""
     lane_model, lane_source = _deployment_tier()
-    selected = await _stored_choice(user_id) if user_id else None
+    selected = None
+    if user_id:
+        try:
+            async with asyncio.timeout(_STORED_CHOICE_READ_TIMEOUT_SECONDS):
+                selected = await _stored_choice(user_id)
+        except TimeoutError:
+            # The catalog remains available even while the preference store is
+            # saturated or starting. This keeps the UI and the next turn usable.
+            logger.warning(
+                "one_model_preference_read_timeout user=%s timeout_seconds=%.1f",
+                user_id,
+                _STORED_CHOICE_READ_TIMEOUT_SECONDS,
+            )
     if selected and is_selectable_text_model(selected):
         return ResolvedTextModel(model_id=selected, source=SOURCE_USER, selected=selected)
     if selected:

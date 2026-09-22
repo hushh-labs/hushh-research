@@ -12,7 +12,9 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import inspect
+import json
 import logging
+from collections import Counter
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -21,6 +23,8 @@ from uuid import UUID
 from sqlalchemy import text
 
 from db.db_client import get_db
+from hushh_mcp.consent.internal_path_keys import is_internal_manifest_path
+from hushh_mcp.constants import ConsentScope
 from hushh_mcp.services.connection_graph_service import (
     ORIGIN_DIRECT_REQUEST,
     activate_contact_sync_connections_bulk,
@@ -33,7 +37,11 @@ from hushh_mcp.services.contact_sync_contract import (
     CONTACT_SYNC_PREFERENCE_ENABLED,
     contact_sync_preference_state,
 )
-from hushh_mcp.services.people_search_sql import people_query_match_params
+from hushh_mcp.services.people_search_sql import (
+    directory_name_rank,
+    normalize_directory_name,
+    people_query_match_params,
+)
 from hushh_mcp.services.requester_identity import label_from_identity_row
 from hushh_mcp.services.ria_status import RIA_VERIFIED_STATUS_SQL
 
@@ -237,11 +245,40 @@ def _default_resolution_notifier(
     )
 
 
+def _default_disconnect_notifier(
+    *,
+    recipient_user_id: str,
+    counterpart_user_id: str,
+    actor_user_id: str,
+    connection_id: str,
+    revocation_id: str,
+) -> None:
+    from hushh_mcp.services.push_notifications import send_connection_removed_push
+
+    send_connection_removed_push(
+        recipient_user_id,
+        counterpart_user_id,
+        actor_user_id=actor_user_id,
+        connection_id=connection_id,
+        revocation_id=revocation_id,
+    )
+
+
 def _default_scope_entries_lookup(owner_user_id: str) -> list[dict[str, Any]]:
     """Read discoverable scope metadata only; never materialized information."""
-    from hushh_mcp.consent.scope_generator import DynamicScopeGenerator
+    from hushh_mcp.consent.scope_generator import (
+        DynamicScopeGenerator,
+        ScopeCatalogUnavailableError,
+    )
 
-    return asyncio.run(DynamicScopeGenerator().get_available_scope_entries(owner_user_id))
+    try:
+        return asyncio.run(DynamicScopeGenerator().get_available_scope_entries(owner_user_id))
+    except ScopeCatalogUnavailableError as exc:
+        raise ConnectionsError(
+            "INFORMATION_CATALOG_UNAVAILABLE",
+            "Available information could not be checked. Please try again.",
+            status_code=503,
+        ) from exc
 
 
 class ConnectionsService:
@@ -255,6 +292,7 @@ class ConnectionsService:
         notifier: Callable[..., Any] | None = None,
         cancel_notifier: Callable[..., Any] | None = None,
         resolution_notifier: Callable[..., Any] | None = None,
+        disconnect_notifier: Callable[..., Any] | None = None,
     ) -> None:
         self._directory_lookup = directory_lookup or _default_directory_lookup
         self._directory_search = directory_search or _default_directory_search
@@ -266,6 +304,9 @@ class ConnectionsService:
         )
         self._resolution_notifier = (
             resolution_notifier if resolution_notifier is not None else _default_resolution_notifier
+        )
+        self._disconnect_notifier = (
+            disconnect_notifier if disconnect_notifier is not None else _default_disconnect_notifier
         )
 
     # ---- DB seam ----
@@ -518,7 +559,11 @@ class ConnectionsService:
 
     # ---- Resolution ----
     def _resolve_query(self, owner_user_id: str, query: str) -> str:
-        needle = (query or "").strip().lower()
+        # The directory implementation and the in-memory fallback both fold
+        # supported name separators before matching. Keep the query identical
+        # when this service delegates to either path; otherwise punctuation or
+        # repeated whitespace changes which person is discoverable.
+        needle = normalize_directory_name(query or "")
         if not needle:
             raise ConnectionsError(
                 "CONNECTION_QUERY_EMPTY", "No name given to look up.", status_code=422
@@ -584,6 +629,66 @@ class ConnectionsService:
             "offerableItems": self._scope_catalog_for_owner(viewer),
         }
 
+    def get_person_context(self, viewer_user_id: str, counterpart_user_id: str) -> dict[str, Any]:
+        """Directory-bounded identity and participant-only connection state.
+
+        A resolved request is historical information, never present eligibility.
+        Location must independently re-read its own relationship/key rules.
+        """
+        viewer, counterpart = viewer_user_id.strip(), counterpart_user_id.strip()
+        if not viewer or not counterpart or viewer == counterpart:
+            raise ConnectionsError(
+                "CONNECTION_SCOPE_TARGET_INVALID", "Invalid connection target.", status_code=422
+            )
+        self._assert_directory_visible(viewer, counterpart)
+        params = {"viewer": viewer, "counterpart": counterpart}
+        row = self._execute_one(
+            """SELECT identity.display_name,
+            COALESCE(identity.custom_photo_url,identity.photo_url) AS photo_url,
+            EXISTS(SELECT 1 FROM connections c WHERE c.status='active'
+                AND ((c.user_a_id=:viewer AND c.user_b_id=:counterpart)
+                  OR (c.user_b_id=:viewer AND c.user_a_id=:counterpart))) AS connected
+            FROM actor_identity_cache identity WHERE identity.user_id=:counterpart""",
+            params,
+        )
+        if not row:
+            raise ConnectionsError(
+                "CONNECTION_SCOPE_TARGET_FORBIDDEN",
+                "That connection target is not available.",
+                status_code=404,
+            )
+        request = self._execute_one(
+            """SELECT id,requester_user_id,addressee_user_id,status FROM connection_requests
+            WHERE (requester_user_id=:viewer AND addressee_user_id=:counterpart)
+               OR (requester_user_id=:counterpart AND addressee_user_id=:viewer)
+            ORDER BY (status='pending') DESC,created_at DESC,id DESC LIMIT 1""",
+            params,
+        )
+        direction = "outgoing" if request and request["requester_user_id"] == viewer else "incoming"
+        relationship = (
+            "connected"
+            if row["connected"]
+            else f"pending_{direction}"
+            if request and request["status"] == "pending"
+            else "none"
+        )
+        return {
+            "person": {
+                "userId": counterpart,
+                "displayName": row.get("display_name"),
+                "photoUrl": row.get("photo_url"),
+                "email": None,
+                "relationship": relationship,
+            },
+            "request": {
+                "id": str(request["id"]),
+                "direction": direction,
+                "status": request["status"],
+            }
+            if request
+            else None,
+        }
+
     def get_information_scope_catalog(
         self,
         viewer_user_id: str,
@@ -591,7 +696,9 @@ class ConnectionsService:
         *,
         query: str = "",
         domain: str = "",
+        page: int = 1,
         limit: int = 20,
+        catalog_revision: str = "",
     ) -> dict[str, Any]:
         """Search a person's dynamically discoverable ``attr.*`` scopes.
 
@@ -600,41 +707,156 @@ class ConnectionsService:
         separate, consented request bound to a requester-owned connector key
         before an encrypted export can exist.
         """
-        from hushh_mcp.consent.scope_generator import rank_scope_matches
-
         viewer = (viewer_user_id or "").strip()
         counterpart = (counterpart_user_id or "").strip()
         if not viewer or not counterpart or viewer == counterpart:
             raise ConnectionsError(
                 "CONNECTION_SCOPE_TARGET_INVALID", "Invalid connection target.", status_code=422
             )
-        safe_entries = [
-            {
-                "scope": str(entry.get("scope") or ""),
-                "label": str(entry.get("label") or "") or None,
-                "description": str(entry.get("description") or "") or None,
-                "domain": str(entry.get("domain") or "") or None,
-                "path": str(entry.get("path") or "") or None,
-                "wildcard": bool(entry.get("wildcard")),
-                "sensitivity": str(entry.get("sensitivity") or "") or None,
-            }
-            for entry in self._scope_entries_lookup(counterpart)
-            if isinstance(entry, dict)
-            and str(entry.get("scope") or "").startswith("attr.")
-            and entry.get("exposure_eligibility") is not False
-            and entry.get("consumer_visible") is not False
-            and entry.get("internal_only") is not True
-            and entry.get("visibility_posture") != "private"
-        ]
+        safe_entries = self._safe_information_scope_entries(counterpart)
         return {
             "counterpartUserId": counterpart,
-            "items": rank_scope_matches(
+            **self.page_information_scope_entries(
                 safe_entries,
                 query=query,
                 domain=domain,
+                page=page,
                 limit=limit,
+                catalog_revision=catalog_revision,
             ),
         }
+
+    @staticmethod
+    def page_information_scope_entries(
+        safe_entries: list[dict[str, Any]],
+        *,
+        query: str = "",
+        domain: str = "",
+        page: int = 1,
+        limit: int = 100,
+        catalog_revision: str = "",
+    ) -> dict[str, Any]:
+        """Page already-authorized metadata; this helper grants no read authority."""
+        from hushh_mcp.consent.scope_generator import rank_scope_matches
+
+        try:
+            normalized_page = max(1, int(page or 1))
+        except (TypeError, ValueError):
+            normalized_page = 1
+        try:
+            normalized_limit = max(1, min(int(limit or 20), 100))
+        except (TypeError, ValueError):
+            normalized_limit = 20
+        revision = hashlib.sha256(
+            json.dumps(
+                sorted(safe_entries, key=lambda entry: entry["scope"]),
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+        ).hexdigest()
+        reset = bool(catalog_revision and catalog_revision != revision)
+        if reset:
+            normalized_page = 1
+        offset = (normalized_page - 1) * normalized_limit
+        ranked = rank_scope_matches(
+            safe_entries,
+            query=query,
+            domain=domain,
+            # Rank the bounded catalog before slicing it. Ranking only the
+            # requested page makes `hasMore` false on page one and can move a
+            # valid exact scope behind a different page boundary.
+            limit=None,
+        )
+        page_items = ranked[offset : offset + normalized_limit]
+        domain_counts = Counter(str(entry.get("domain") or "") for entry in ranked)
+        return {
+            "items": page_items,
+            "page": normalized_page,
+            "limit": normalized_limit,
+            "hasMore": offset + len(page_items) < len(ranked),
+            "totalCount": len(ranked),
+            "catalogTruncated": False,
+            "catalogRevision": revision,
+            "paginationReset": reset,
+            "nextPage": normalized_page + 1 if offset + len(page_items) < len(ranked) else None,
+            "domains": [
+                {"domain": name, "count": count} for name, count in sorted(domain_counts.items())
+            ],
+        }
+
+    def _safe_information_scope_entries(self, counterpart_user_id: str) -> list[dict[str, Any]]:
+        """Return the current safe catalog before ranking or pagination.
+
+        Enumeration is separate from presentation ranking so a valid opaque
+        scope cannot become unrequestable because it fell beyond a suggestion
+        page. The caller still receives only public metadata; raw PKM values
+        never enter this projection.
+        """
+        safe_entries: list[dict[str, Any]] = []
+        for entry in self._scope_entries_lookup(counterpart_user_id):
+            if not isinstance(entry, dict):
+                continue
+            scope = str(entry.get("scope") or "").strip()
+            if not self._is_requestable_dynamic_scope(scope):
+                # Manifest metadata can contain collection markers, but only
+                # the authored placement accepted by internal-path policy is
+                # eligible for an external selector or token issuer.
+                continue
+            if (
+                entry.get("exposure_eligibility") is False
+                or entry.get("consumer_visible") is False
+                or entry.get("internal_only") is True
+                or entry.get("visibility_posture") == "private"
+            ):
+                continue
+            safe_entries.append(
+                {
+                    "scope": scope,
+                    "label": str(entry.get("label") or "") or None,
+                    "description": str(entry.get("description") or "") or None,
+                    "domain": str(entry.get("domain") or "") or None,
+                    "path": str(entry.get("path") or "") or None,
+                    "wildcard": bool(entry.get("wildcard")),
+                    "sensitivity": str(entry.get("sensitivity") or "") or None,
+                }
+            )
+        return safe_entries
+
+    @staticmethod
+    def _is_requestable_dynamic_scope(scope: str) -> bool:
+        """Keep discovery and token issuance on the same dynamic-scope grammar.
+
+        The manifest catalog also contains structural paths used to describe
+        PKM collections. Those paths are useful to the owner but are not
+        consent selectors. Checking the active token contract here prevents a
+        profile or chat card from offering a value that approval would reject.
+        """
+        if not scope.startswith("attr.") or not ConsentScope.is_dynamic_scope(scope):
+            return False
+        scope_path = scope.split(".", 2)[-1]
+        if is_internal_manifest_path(scope_path):
+            return False
+        return bool(ConsentScope.validate(scope))
+
+    def get_exact_requestable_scope_entries(
+        self, viewer_user_id: str, counterpart_user_id: str
+    ) -> list[dict[str, Any]]:
+        """Return the full current requestable catalog for server validation.
+
+        This intentionally does not call the ranked/paged presentation path.
+        The relationship and consent mutation layer uses this method to
+        validate opaque references against current authority, independent of
+        which page the user happened to load. Public profile visibility remains
+        the owning profile/connection contract; this method only applies the
+        safe, requestable scope policy and never broadens discovery.
+        """
+        viewer = (viewer_user_id or "").strip()
+        counterpart = (counterpart_user_id or "").strip()
+        if not viewer or not counterpart or viewer == counterpart:
+            raise ConnectionsError(
+                "CONNECTION_SCOPE_TARGET_INVALID", "Invalid connection target.", status_code=422
+            )
+        return self._safe_information_scope_entries(counterpart)
 
     def _assert_directory_visible(self, viewer_user_id: str, counterpart_user_id: str) -> None:
         directory_visible = getattr(self, "_directory_visible", None)
@@ -1559,6 +1781,30 @@ class ConnectionsService:
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("connections.notify_resolved_failed error=%s", exc)
+
+    def _notify_connection_removed(
+        self,
+        recipient_user_id: str,
+        counterpart_user_id: str,
+        *,
+        actor_user_id: str,
+        connection_id: str,
+        revocation_id: str,
+    ) -> None:
+        """Wake one side after disconnect commits; notifier failures are inert."""
+        notifier = getattr(self, "_disconnect_notifier", None)
+        if notifier is None:
+            return
+        try:
+            notifier(
+                recipient_user_id=recipient_user_id,
+                counterpart_user_id=counterpart_user_id,
+                actor_user_id=actor_user_id,
+                connection_id=connection_id,
+                revocation_id=revocation_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("connections.notify_removed_failed error=%s", exc)
 
     def _load_request(self, request_id: str, *, for_update: bool = False) -> dict[str, Any]:
         lock_clause = " FOR UPDATE" if for_update else ""
@@ -2778,7 +3024,7 @@ class ConnectionsService:
         user_id = (user_id or "").strip()
         page = max(1, int(page or 1))
         limit = max(1, min(int(limit or 20), 50))
-        needle = (query or "").strip().lower()
+        needle = " ".join((query or "").strip().lower().split())
         # An unknown audience widens rather than narrows: a typo in a caller
         # must not silently hide people who are really there.
         audience = (audience or DIRECTORY_AUDIENCE_ALL).strip().lower()
@@ -2819,18 +3065,19 @@ class ConnectionsService:
                 # bare split() sees one word, the SQL sees two, and whether a
                 # person is findable comes down to which branch a deployment
                 # happened to take.
-                def _folded(value: str) -> str:
-                    folded = value.strip().lower()
-                    for separator in "-'._/,":
-                        folded = folded.replace(separator, " ")
-                    return folded
+                needle = normalize_directory_name(needle)
+                compact_needle = "".join(char for char in needle if char.isalnum())
 
                 def _tier(person: dict[str, Any]) -> int | None:
-                    name = _folded(str(person.get("displayName") or ""))
-                    if name.startswith(needle):
-                        return 0
-                    if any(word.startswith(needle) for word in name.split()):
-                        return 1
+                    rank: int | None = directory_name_rank(
+                        str(person.get("displayName") or ""), needle
+                    )
+                    if rank is not None:
+                        return rank
+                    email = str(person.get("email") or "").strip().lower()
+                    compact_email = "".join(char for char in email if char.isalnum())
+                    if compact_needle and compact_email.startswith(compact_needle):
+                        return 3
                     return None
 
                 ranked = [(tier, p) for p in people if (tier := _tier(p)) is not None]
@@ -3732,6 +3979,7 @@ class ConnectionsService:
 
     def remove_connection(self, user_id: str, connection_id: str) -> dict[str, Any]:
         user_id = (user_id or "").strip()
+        removed_pair: tuple[str, str, str, str] | None = None
         with self._transaction():
             # Resolve the immutable pair without taking a row lock, then share
             # the same deterministic per-user graph gate as contact sync,
@@ -3873,4 +4121,23 @@ class ConnectionsService:
                         event_type="connection_revoked",
                         source_row_id=connection_source_id,
                     )
+                removed_pair = (
+                    user_a_id,
+                    user_b_id,
+                    str(conn.get("id") or connection_id),
+                    str(conn.get("revoked_at") or ""),
+                )
+        if removed_pair:
+            user_a_id, user_b_id, removed_connection_id, revocation_id = removed_pair
+            for recipient, counterpart in (
+                (user_a_id, user_b_id),
+                (user_b_id, user_a_id),
+            ):
+                self._notify_connection_removed(
+                    recipient,
+                    counterpart,
+                    actor_user_id=user_id,
+                    connection_id=removed_connection_id,
+                    revocation_id=revocation_id,
+                )
         return {"removed": 1 if conn else 0}

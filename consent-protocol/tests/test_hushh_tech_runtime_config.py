@@ -6,6 +6,8 @@ import json
 import os
 from pathlib import Path
 
+import pytest
+
 from hushh_mcp import runtime_settings
 
 SYNC_SCRIPT = Path(__file__).resolve().parents[2] / "scripts/ops/sync_backend_runtime_secrets.py"
@@ -17,6 +19,30 @@ def _module():
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
+
+
+def test_passkey_rp_ids_are_derived_from_the_active_frontend_origin():
+    module = _module()
+
+    assert module._canonical_passkey_allowed_rp_ids("https://dev.one.hushh.ai") == (
+        "localhost,127.0.0.1,dev.one.hushh.ai"
+    )
+    assert module._canonical_passkey_allowed_rp_ids("https://uat.one.hushh.ai/") == (
+        "localhost,127.0.0.1,uat.one.hushh.ai"
+    )
+    assert module._canonical_passkey_allowed_rp_ids("https://one.hushh.ai") == (
+        "localhost,127.0.0.1,one.hushh.ai"
+    )
+    assert module._canonical_passkey_allowed_rp_ids("http://localhost:3000") == (
+        "localhost,127.0.0.1"
+    )
+
+
+def test_passkey_rp_origin_must_be_a_bare_http_origin():
+    module = _module()
+
+    with pytest.raises(ValueError, match=r"canonical HTTP\(S\) origin"):
+        module._canonical_passkey_allowed_rp_ids("https://uat.one.hushh.ai/login")
 
 
 def test_generator_and_runtime_hydrate_every_hushh_tech_policy_key(monkeypatch):

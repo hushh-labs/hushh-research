@@ -11,11 +11,17 @@ import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-se
 import { VaultService } from "@/lib/services/vault-service";
 import { resolveLocalReviewerCredentials } from "@/lib/testing/local-reviewer-auth";
 import { useNativeTestConfig } from "@/lib/testing/native-test";
+import { resolveSlowRequestTimeoutMs } from "@/lib/utils/request-timeouts";
 import { useVault } from "@/lib/vault/vault-context";
+
+/** Six characters of a uid: enough to tell two identities apart in a log line, never a secret. */
+function uidPrefix(uid: string | null | undefined): string {
+  return String(uid ?? "").slice(0, 6);
+}
 
 function updateBootstrapStatus(
   stage: string,
-  options?: { userId?: string | null; errorClass?: string | null }
+  options?: { userId?: string | null; errorClass?: string | null; detail?: string | null }
 ) {
   if (typeof window === "undefined") {
     return;
@@ -49,6 +55,9 @@ function updateBootstrapStatus(
   bridge.bootstrapUserId = options?.userId ?? bridge.bootstrapUserId ?? "";
   bridge.bootstrapError = "";
   bridge.bootstrapErrorClass = options?.errorClass ?? "";
+  // Where the identity that decided this stage came from, plus a uid prefix,
+  // so a device run explains a mismatch without a console attached.
+  bridge.bootstrapDetail = options?.detail ?? "";
 }
 
 function nativeTestErrorClass(error: unknown): string {
@@ -68,7 +77,14 @@ let nativeTestReviewerBootstrapCooldownUntil = 0;
 // This stays process-memory-only and exists solely for the native test handoff;
 // it is never written to storage or used outside native test mode.
 let nativeTestBootstrapUser: User | null = null;
-const NATIVE_TEST_VAULT_STEP_TIMEOUT_MS = 20_000;
+// Match the vault service's bounded slow-request policy. Local review runs
+// intentionally use a UAT-backed Cloud SQL proxy, whose first request can
+// exceed the production budget while connections warm; a shorter wrapper here
+// used to mark that healthy request as a vault failure before the service's
+// own retry policy could finish.
+const NATIVE_TEST_VAULT_STEP_TIMEOUT_MS = resolveSlowRequestTimeoutMs(20_000);
+const NATIVE_TEST_VAULT_MAX_ATTEMPTS = 5;
+const NATIVE_TEST_VAULT_RETRY_DELAY_MS = 250;
 
 async function withVaultBootstrapTimeout<T>(
   label: string,
@@ -91,6 +107,47 @@ async function withVaultBootstrapTimeout<T>(
   }
 }
 
+function isRetryableNativeTestVaultError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+  return /network|failed to fetch|connection|timeout|timed out|502|503/.test(message);
+}
+
+/**
+ * Retry only transient reads during the test-only vault admission handoff.
+ *
+ * The reviewer bootstrap runs while the Next shell and the local ADK proxy
+ * are warming. A single failed read must not strand an otherwise valid
+ * session, but authentication, vault-integrity, and setup-state failures must
+ * remain terminal. The operation is supplied as a factory so each attempt
+ * gets a fresh request and the final failure is still surfaced to the native
+ * test bridge.
+ */
+async function withNativeTestVaultRetry<T>(
+  label: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= NATIVE_TEST_VAULT_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      return await withVaultBootstrapTimeout(label, operation());
+    } catch (error) {
+      lastError = error;
+      if (
+        attempt >= NATIVE_TEST_VAULT_MAX_ATTEMPTS ||
+        !isRetryableNativeTestVaultError(error)
+      ) {
+        throw error;
+      }
+      await new Promise((resolve) =>
+        setTimeout(resolve, NATIVE_TEST_VAULT_RETRY_DELAY_MS * attempt),
+      );
+    }
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error(`${label} failed`);
+}
+
 export function NativeTestBootstrap() {
   const config = useNativeTestConfig();
   const { loading: authLoading, user, setNativeUser } = useAuth();
@@ -104,6 +161,8 @@ export function NativeTestBootstrap() {
   const authAttemptedRef = useRef(false);
   const authAttemptedAtRef = useRef(0);
   const identityMismatchForExpectedUserRef = useRef<string | null>(null);
+  const identityMismatchObservedUidRef = useRef<string | null>(null);
+  const replacedPersistedUidRef = useRef<string | null>(null);
   const unlockInFlightForUidRef = useRef<string | null>(null);
   const nativeSessionRecoveryInFlightRef = useRef(false);
 
@@ -120,6 +179,33 @@ export function NativeTestBootstrap() {
     }
 
     if (user) {
+      // A session the device kept from before the audit (a simulator whose
+      // keychain survived an app removal, a phone signed in as its owner) is
+      // not the requested fixture. When the audit names an identity and this
+      // is not it, replace it once instead of auditing as whoever was there
+      // last; a second sighting of the same uid after that is a real
+      // mismatch and falls through to the ordinary failure below.
+      if (
+        config.expectedUserId &&
+        user.uid !== config.expectedUserId &&
+        replacedPersistedUidRef.current !== user.uid
+      ) {
+        replacedPersistedUidRef.current = user.uid;
+        updateBootstrapStatus("authenticating");
+        void AuthService.signOut()
+          .catch(() => undefined)
+          .finally(() => {
+            nativeTestBootstrapUser = null;
+            setBootstrapUser(null);
+            // In native mode the auth context publishes identity only through
+            // its own restore and sign-in paths and ignores Firebase state
+            // changes, so the service sign-out alone leaves the persisted
+            // user published; withdraw it explicitly.
+            setNativeUser(null);
+            setAuthRetryTick((value) => value + 1);
+          });
+        return undefined;
+      }
       updateBootstrapStatus("authenticated", {
         userId: user.uid,
       });
@@ -130,7 +216,10 @@ export function NativeTestBootstrap() {
       config.expectedUserId &&
       identityMismatchForExpectedUserRef.current === config.expectedUserId
     ) {
-      updateBootstrapStatus("uid_mismatch", { errorClass: "identity" });
+      updateBootstrapStatus("uid_mismatch", {
+        errorClass: "identity",
+        detail: `signin_result:${uidPrefix(identityMismatchObservedUidRef.current)}`,
+      });
       return undefined;
     }
 
@@ -164,7 +253,9 @@ export function NativeTestBootstrap() {
         if (Capacitor.isNativePlatform()) {
           await AuthService.signOut().catch(() => undefined);
         }
-        const localReviewerCredentials = Capacitor.isNativePlatform()
+        const useCustomReviewerToken =
+          window.__HUSHH_NATIVE_TEST__?.reviewerAuthMode === "custom_token";
+        const localReviewerCredentials = Capacitor.isNativePlatform() || useCustomReviewerToken
           ? null
           : resolveLocalReviewerCredentials(
               typeof window !== "undefined" ? window.location.hostname : null
@@ -177,6 +268,7 @@ export function NativeTestBootstrap() {
           : await (async () => {
               const { token } = await ApiService.createAppReviewModeSession("reviewer", {
                 smokePassphrase: config.vaultPassphrase,
+                reviewerUid: config.expectedUserId,
               });
               return AuthService.signInWithCustomToken(token);
             })();
@@ -191,8 +283,12 @@ export function NativeTestBootstrap() {
           authenticatedUser.uid !== config.expectedUserId
         ) {
           identityMismatchForExpectedUserRef.current = config.expectedUserId;
+          identityMismatchObservedUidRef.current = authenticatedUser.uid;
           nativeTestReviewerBootstrapCooldownUntil = Date.now() + 5 * 60_000;
-          updateBootstrapStatus("uid_mismatch", { errorClass: "identity" });
+          updateBootstrapStatus("uid_mismatch", {
+            errorClass: "identity",
+            detail: `signin_result:${uidPrefix(authenticatedUser.uid)}`,
+          });
           await AuthService.signOut();
           nativeTestBootstrapUser = null;
           setBootstrapUser(null);
@@ -247,6 +343,13 @@ export function NativeTestBootstrap() {
       bootstrapUser ??
       nativeTestBootstrapUser ??
       AuthService.getCurrentUser();
+    const vaultUserSource = user
+      ? "auth_context"
+      : bootstrapUser
+        ? "bootstrap_state"
+        : nativeTestBootstrapUser
+          ? "bootstrap_module"
+          : "firebase_js_current";
     if (!vaultUser) {
       updateBootstrapStatus("waiting_vault_user");
       if (
@@ -257,6 +360,10 @@ export function NativeTestBootstrap() {
         void AuthService.restoreNativeSession()
           .then((restoredUser) => {
             if (!restoredUser) {
+              return;
+            }
+            // Never adopt a restored session that is not the audited identity.
+            if (config.expectedUserId && restoredUser.uid !== config.expectedUserId) {
               return;
             }
             nativeTestBootstrapUser = restoredUser;
@@ -271,8 +378,19 @@ export function NativeTestBootstrap() {
     }
 
     if (config.expectedUserId && vaultUser.uid !== config.expectedUserId) {
+      // The fallbacks exist for a native sign-in that resolved before the
+      // context published it. A fallback naming a different identity than
+      // the audit expects is a stale session the auth effect is replacing;
+      // judge only the context user.
+      if (vaultUserSource !== "auth_context") {
+        updateBootstrapStatus("waiting_vault_user", {
+          detail: `${vaultUserSource}:${uidPrefix(vaultUser.uid)}`,
+        });
+        return;
+      }
       updateBootstrapStatus("uid_mismatch", {
         errorClass: "identity",
+        detail: `${vaultUserSource}:${uidPrefix(vaultUser.uid)}`,
       });
       return;
     }
@@ -300,9 +418,9 @@ export function NativeTestBootstrap() {
         // for vault presence, phone, and setup state. Calling the native vault
         // plugin first duplicated the same backend lookup and could leave iOS
         // stuck in `checking vault` while this authoritative snapshot waited.
-        const setupState = await withVaultBootstrapTimeout(
+        const setupState = await withNativeTestVaultRetry(
           "Setup state load",
-          PreVaultUserStateService.bootstrapState(vaultUser.uid),
+          () => PreVaultUserStateService.bootstrapState(vaultUser.uid),
         );
         if (!setupState.hasVault) {
           throw new Error(
@@ -310,9 +428,9 @@ export function NativeTestBootstrap() {
           );
         }
 
-        const vaultState = await withVaultBootstrapTimeout(
+        const vaultState = await withNativeTestVaultRetry(
           "Vault state load",
-          VaultService.getVaultState(vaultUser.uid)
+          () => VaultService.getVaultState(vaultUser.uid),
         );
         updateBootstrapStatus("unlocking_vault", {
           userId: vaultUser.uid,

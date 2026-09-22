@@ -1,15 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-
 import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useGmailNudges } from "@/lib/gmail/use-gmail-nudges";
 import { Button } from "@/lib/morphy-ux/button";
-import {
-  GmailReceiptsService,
-  type GmailNudge,
-} from "@/lib/services/gmail-receipts-service";
+import { type GmailNudge } from "@/lib/services/gmail-receipts-service";
 
 type Props = {
   userId: string | null;
@@ -62,7 +58,7 @@ function NudgeCard({ nudge }: { nudge: GmailNudge }) {
 function NudgeListSkeleton({ label }: { label: string }) {
   return (
     <div aria-busy="true" aria-label={`Loading ${label}`} className="space-y-2">
-      <p className="sr-only">Loading {label}. Gmail remains available.</p>
+      <p className="sr-only">Loading {label}. Mail remains available.</p>
       {Array.from({ length: 2 }, (_, index) => (
         <div
           className="flex items-center justify-between gap-3 rounded-xl border border-[color:var(--app-card-border-standard)] bg-background/60 px-3.5 py-3"
@@ -145,42 +141,13 @@ export default function GmailNudgesSection({
   isConnected,
   idTokenProvider,
 }: Props) {
-  const [nudges, setNudges] = useState<GmailNudge[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [loaded, setLoaded] = useState(false);
-
-  const canLoad = Boolean(isConnected && userId && vaultOwnerToken && idTokenProvider);
-
-  const load = useCallback(async () => {
-    if (!userId || !vaultOwnerToken || !idTokenProvider) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const idToken = await idTokenProvider();
-      const response = await GmailReceiptsService.listNudges({
-        idToken,
-        vaultOwnerToken,
-        userId,
-        limit: 10,
-      });
-      setNudges(response.nudges ?? []);
-    } catch {
-      // A background nudge refresh must never spin while the local backend is
-      // unavailable. Keep the failure private and leave a deliberate Refresh
-      // action instead of re-running the effect on every render.
-      setError("Inbox details couldn’t load. Refresh to try again.");
-    } finally {
-      setLoaded(true);
-      setLoading(false);
-    }
-  }, [userId, vaultOwnerToken, idTokenProvider]);
-
-  useEffect(() => {
-    if (canLoad && !loaded && !loading) {
-      void load();
-    }
-  }, [canLoad, loaded, loading, load]);
+  const { nudges, loading, error, loaded, refresh } = useGmailNudges({
+    userId,
+    vaultOwnerToken,
+    isConnected,
+    idTokenProvider,
+    limit: 10,
+  });
 
   if (!isConnected) return null;
 
@@ -195,7 +162,7 @@ export default function GmailNudgesSection({
       loading={loading}
       loaded={loaded}
       error={error}
-      onRefresh={() => void load()}
+      onRefresh={refresh}
     />
   );
 }

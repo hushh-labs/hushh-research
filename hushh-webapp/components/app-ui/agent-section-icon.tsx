@@ -25,70 +25,70 @@ const AGENT_ICON_SURFACE_FALLBACK_CLASSNAME =
 const ICON_SIZE_CLASS = {
   card: {
     surface: "h-14 w-14",
-    lucideSurface:
+    glyphSurface:
       "rounded-[18px] shadow-[0_8px_20px_rgba(0,0,0,0.10)] ring-1 ring-black/[0.04] dark:ring-white/[0.08]",
     imageSurface: "rounded-[18px]",
-    lucide: "h-6 w-6",
+    glyph: "h-9 w-9",
     image: "h-full w-full object-contain",
     pixels: 72,
   },
   launcher: {
     surface: "h-14 w-14 sm:h-16 sm:w-16",
-    lucideSurface:
+    glyphSurface:
       "h-16 w-16 rounded-[20px] shadow-[0_10px_24px_rgba(0,0,0,0.10)] ring-1 ring-black/[0.04] dark:ring-white/[0.08]",
     imageSurface: "rounded-[20px]",
-    lucide: "h-6 w-6 sm:h-7 sm:w-7",
+    glyph: "h-9 w-9 sm:h-10 sm:w-10",
     image: "h-full w-full object-contain",
     pixels: 80,
   },
   topbar: {
     surface: "h-8 w-8",
-    lucideSurface:
+    glyphSurface:
       "h-8 w-8 rounded-[10px] shadow-[0_5px_13px_rgba(0,0,0,0.10)] ring-1 ring-black/[0.04] dark:ring-white/[0.08]",
     imageSurface: "rounded-[10px]",
-    lucide: "h-4 w-4",
+    glyph: "h-5 w-5",
     image: "h-full w-full object-contain",
     pixels: 40,
   },
   menu: {
     surface: "h-9 w-9",
-    lucideSurface:
+    glyphSurface:
       "h-8 w-8 rounded-[10px] shadow-[0_5px_13px_rgba(0,0,0,0.10)] ring-1 ring-black/[0.04] dark:ring-white/[0.08]",
     imageSurface: "rounded-[11px]",
-    lucide: "h-[18px] w-[18px]",
+    glyph: "h-[22px] w-[22px]",
     image: "h-full w-full object-contain",
     pixels: 40,
   },
   setup: {
     surface: "h-9 w-9",
-    lucideSurface: "h-9 w-9 rounded-[10px]",
+    glyphSurface: "h-9 w-9 rounded-[10px]",
     imageSurface: "rounded-[10px]",
-    lucide: "h-[19px] w-[19px]",
+    glyph: "h-[22px] w-[22px]",
     image: "h-full w-full object-contain",
     pixels: 40,
   },
   roster: {
     surface: "h-10 w-10",
-    lucideSurface: "h-10 w-10 rounded-[12px]",
+    glyphSurface: "h-10 w-10 rounded-[12px]",
     imageSurface: "rounded-[12px]",
-    lucide: "h-[20px] w-[20px]",
+    glyph: "h-7 w-7",
     image: "h-full w-full object-contain",
     pixels: 40,
   },
   "roster-dashboard": {
     surface: "h-14 w-14",
-    lucideSurface: "h-14 w-14 rounded-[16px]",
+    glyphSurface: "h-14 w-14 rounded-[16px]",
     imageSurface: "rounded-[16px]",
-    lucide: "h-6 w-6",
+    glyph: "h-[34px] w-[34px]",
     image: "h-full w-full object-contain",
     pixels: 56,
   },
   // Larger rounded-square tile for the dashboard grid card (reference design).
   "roster-lg": {
     surface: "h-[68px] w-[68px]",
-    lucideSurface: "h-[68px] w-[68px] rounded-[18px]",
+    glyphSurface: "h-[68px] w-[68px] rounded-[18px]",
     imageSurface: "rounded-[18px]",
-    lucide: "h-7 w-7",
+    glyph: "h-12 w-12 sm:h-[50px] sm:w-[50px]",
     image: "h-full w-full object-contain",
     pixels: 72,
   },
@@ -157,8 +157,9 @@ export function AgentSectionIcon({
       ? AGENT_THEME_BY_TONE[tone]?.iconStyle
       : undefined;
   const Icon = icon.kind === "lucide" ? icon.icon : null;
+  const CustomIcon = icon.kind === "custom" ? icon.component : null;
 
-  if (treatment === "profile" && Icon) {
+  if (treatment === "profile" && (Icon || CustomIcon)) {
     const active = isActive !== false;
     const profileToneStyle = resolveProfileIconStyle(tone, paletteIndex);
 
@@ -169,8 +170,14 @@ export function AgentSectionIcon({
           classes.surface,
           PROFILE_ICON_RADIUS_CLASS[size],
           active
-            ? "bg-[var(--agent-icon-profile-bg)] text-[var(--agent-icon-profile-fg)] dark:bg-[var(--agent-icon-profile-bg-dark)] dark:text-[var(--agent-icon-profile-fg-dark)]"
-            : AGENT_ICON_SURFACE_FALLBACK_CLASSNAME,
+            ? cn(
+                "bg-[var(--agent-icon-profile-bg)] [background-image:var(--agent-icon-profile-bg)] text-[var(--agent-icon-profile-fg)] dark:bg-[var(--agent-icon-profile-bg-dark)] dark:[background-image:var(--agent-icon-profile-bg-dark)] dark:text-[var(--agent-icon-profile-fg-dark)] shadow-[0_6px_20px_-4px_rgba(0,0,0,0.16)] dark:shadow-[0_8px_24px_-4px_rgba(0,0,0,0.6)] ring-1 ring-inset ring-black/[0.08] dark:ring-white/[0.18]",
+                CustomIcon &&
+                  "!bg-transparent dark:!bg-transparent !bg-none dark:!bg-none !shadow-none !ring-0",
+              )
+            : CustomIcon
+              ? "!bg-transparent dark:!bg-transparent !bg-none dark:!bg-none !shadow-none !ring-0"
+              : AGENT_ICON_SURFACE_FALLBACK_CLASSNAME,
           className,
         )}
         style={active ? (profileStyle ?? profileToneStyle) : undefined}
@@ -178,22 +185,36 @@ export function AgentSectionIcon({
         data-agent-icon-palette-index={
           Number.isInteger(paletteIndex) ? paletteIndex : undefined
         }
-        data-agent-icon-kind="lucide"
+        data-agent-icon-kind={icon.kind}
         aria-hidden
       >
-        <Icon
-          className={cn(
-            classes.lucide,
-            size === "roster" || size === "roster-dashboard"
-              ? "[stroke-width:1.7]"
-              : "[stroke-width:1.8]",
-            active
-              ? glyphContrast === "inverted"
-                ? "!text-white dark:!text-[#1d1d1f]"
-                : "text-current"
-              : "text-muted-foreground/60 dark:text-muted-foreground/50",
-          )}
-        />
+        {CustomIcon ? (
+          <CustomIcon
+            className={cn(
+              classes.glyph,
+              active
+                ? glyphContrast === "inverted"
+                  ? "!text-white dark:!text-[#1d1d1f]"
+                  : "text-current"
+                : "text-muted-foreground/40 dark:text-muted-foreground/30 opacity-40 grayscale",
+            )}
+            color={active ? undefined : "currentColor"}
+          />
+        ) : Icon ? (
+          <Icon
+            className={cn(
+              classes.glyph,
+              size === "roster" || size === "roster-dashboard"
+                ? "[stroke-width:1.7]"
+                : "[stroke-width:1.8]",
+              active
+                ? glyphContrast === "inverted"
+                  ? "!text-white dark:!text-[#1d1d1f]"
+                  : "text-current"
+                : "text-muted-foreground/40 dark:text-muted-foreground/30 opacity-40 grayscale",
+            )}
+          />
+        ) : null}
       </span>
     );
   }
@@ -205,7 +226,12 @@ export function AgentSectionIcon({
         classes.surface,
         icon.kind === "image"
           ? classes.imageSurface
-          : cn(classes.lucideSurface, toneClassName),
+          : cn(
+              classes.glyphSurface,
+              CustomIcon &&
+                "!bg-transparent dark:!bg-transparent !bg-none dark:!bg-none !shadow-none !ring-0",
+              toneClassName,
+            ),
         className,
       )}
       style={toneStyle}
@@ -224,6 +250,16 @@ export function AgentSectionIcon({
           draggable={false}
           className={classes.image}
         />
+      ) : CustomIcon ? (
+        <CustomIcon
+          className={cn(
+              classes.glyph,
+            "drop-shadow-sm",
+            isActive === false &&
+              "text-muted-foreground/40 dark:text-muted-foreground/30 opacity-40 grayscale",
+          )}
+          color={isActive === false ? "currentColor" : undefined}
+        />
       ) : Icon ? (
         <Icon
           // cmdk applies a muted foreground to bare SVGs. Give this icon an
@@ -231,7 +267,14 @@ export function AgentSectionIcon({
           // ancestor cannot override the requested contrast. Branded chips
           // use dark glyphs in light mode and light glyphs in dark mode; the
           // same primitive drives the dashboard grid and the top switcher.
-          className={cn(classes.lucide, tone ? "!text-white" : "text-current")}
+          className={cn(
+              classes.glyph,
+            isActive === false
+              ? "text-muted-foreground/40 dark:text-muted-foreground/30 opacity-40 grayscale"
+              : tone
+                ? "!text-white"
+                : "text-current",
+          )}
           aria-hidden
         />
       ) : null}

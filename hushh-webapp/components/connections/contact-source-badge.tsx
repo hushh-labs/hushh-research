@@ -1,4 +1,4 @@
-import { ContactRound } from "lucide-react";
+import { ContactRound } from "@/components/icons";
 
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";

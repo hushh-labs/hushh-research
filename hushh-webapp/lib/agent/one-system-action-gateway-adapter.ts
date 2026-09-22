@@ -1,6 +1,7 @@
 "use client";
 
 import type { AgentActionRuntimeResult } from "@/lib/agent/agent-action-runtime";
+import { isServerDirectCapability } from "@/lib/agent/server-direct-capability-runtime";
 import type { PendingOneSystemActionInvocation } from "@/lib/capacitor/one-system-action-invocation";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 import { resolveNavigationJourney } from "@/lib/voice/navigation-journey";
@@ -16,6 +17,12 @@ type ExecuteCanonicalAction = (
   goalAuthorization?: GoalAuthorization,
 ) => Promise<AgentActionRuntimeResult>;
 
+type ExecuteServerDirectAction = (
+  actionId: string,
+  slots: Record<string, unknown>,
+  invocationId: string,
+) => Promise<AgentActionRuntimeResult>;
+
 /**
  * Translates a bounded Apple-system request into the exact generated gateway
  * calls One Voice already uses. Domain behavior remains in the mounted action
@@ -25,6 +32,12 @@ type ExecuteCanonicalAction = (
 export async function executeOneSystemActionThroughGateway(input: {
   invocation: PendingOneSystemActionInvocation;
   execute: ExecuteCanonicalAction;
+  /**
+   * The only path a structured native request may use for an audited backend
+   * mutation. It is optional so a partially rolled-out client fails closed
+   * rather than falling back to `execute` and a mounted local handler.
+   */
+  executeServerDirect?: ExecuteServerDirectAction;
   getCurrentRoute: () => { pathname: string | null; screen: string | null };
   waitForScreen: (screen: string) => Promise<boolean>;
   afterSelection: () => Promise<void>;
@@ -40,6 +53,27 @@ export async function executeOneSystemActionThroughGateway(input: {
       resultSummary: "HUSSH does not recognize that action.",
       reason: "missing_action",
     };
+  }
+  if (isServerDirectCapability(invocation.actionId)) {
+    if (!input.executeServerDirect) {
+      return {
+        status: "blocked",
+        actionId: invocation.actionId,
+        label: action.label,
+        routeBefore: input.getCurrentRoute().pathname,
+        resultSummary:
+          "This action requires the secure Agent One runtime, which is not ready yet.",
+        reason: "server_direct_dispatch_unavailable",
+      };
+    }
+    // Do not apply legacy Siri confirmation, route journeys, recipient
+    // selection, or the generic `execute` callback here. The backend runtime
+    // owns slot validation, durable state, idempotency, and settlement.
+    return input.executeServerDirect(
+      invocation.actionId,
+      { ...invocation.slots },
+      invocation.id,
+    );
   }
   if (
     action.execution_policy === "confirm_required" &&

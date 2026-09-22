@@ -31,6 +31,27 @@
  *  minimum touch target, so the slot cannot be narrowed to tighten the row. */
 export const CIRCLE_MEMBER_MENU_SLOT_PX = 44;
 
+/**
+ * Desktop/tablet member actions stay attached to the row that opened them.
+ *
+ * A bottom-aligned popper puts both action rows over the next member, so the
+ * menu appears to belong to that person instead. Place it immediately outside
+ * the row, to the right of the kebab, and centre it on the selected row. That
+ * keeps both the member identity and any Connect/Respond/Cancel control visible
+ * on the wide layouts where an anchored pointer menu is appropriate. Radix may
+ * collision-flip the surface on a narrower pointer viewport; the menu itself
+ * therefore repeats the member name as its visible context.
+ *
+ * These values are exported because the real-browser layout contract measures
+ * the same placement that the component passes to Radix.
+ */
+export const CIRCLE_MEMBER_ACTIONS_MENU_SIDE = "right" as const;
+export const CIRCLE_MEMBER_ACTIONS_MENU_ALIGN = "center" as const;
+/** The trigger ends 16px inside the padded row; 22px leaves a 6px visual gap
+ *  between the card edge and the menu rather than merely clearing the icon. */
+export const CIRCLE_MEMBER_ACTIONS_MENU_SIDE_OFFSET_PX = 22;
+export const CIRCLE_MEMBER_ACTIONS_MENU_COLLISION_PADDING_PX = 12;
+
 /** One-line and two-line rows share this floor, so the list keeps a beat even
  *  where a member has no second line to show. */
 export const CIRCLE_MEMBER_ROW_MIN_HEIGHT_PX = 72;
@@ -85,10 +106,34 @@ export const CIRCLE_MEMBER_TRAILING_CLASSNAME =
  * than it asked for. Same trap `circle-name-row-layout.ts` documents.
  */
 export const CIRCLE_MEMBER_ACTION_CLASSNAME =
-  "h-11 min-h-11 shrink-0 rounded-full px-3 text-[14px] font-medium";
+  "ui-text-compact-button-label h-11 min-h-11 shrink-0 rounded-full px-3";
 
 /** The kebab trigger, and the invisible spacer standing in for it. */
 export const CIRCLE_MEMBER_MENU_CLASSNAME = "h-11 w-11 shrink-0 rounded-full";
+
+/**
+ * Visual treatment for the actionable kebab only.
+ *
+ * Keep the 44px hit target from `CIRCLE_MEMBER_MENU_CLASSNAME`, but do not
+ * paint that entire target. The generic ghost button uses the product accent
+ * tint on hover, which turned this quiet row affordance into a large sky-blue
+ * disc in Circle detail (including the same flow hosted by Connect). The
+ * focus ring remains for keyboard users; pointer hover/open states stay bare.
+ */
+export const CIRCLE_MEMBER_MENU_TRIGGER_CLASSNAME =
+  "h-11 w-11 shrink-0 rounded-full border-0 bg-transparent text-[color:var(--app-secondary-label)] shadow-none hover:bg-transparent hover:text-[color:var(--app-primary-label)] data-[state=open]:bg-transparent data-[state=open]:text-[color:var(--app-primary-label)]";
+
+/**
+ * A row inside the desktop member-actions menu.
+ *
+ * The dropdown primitive's generic focus state pairs an accent background
+ * with accent-foreground text. This menu replaces only that background with a
+ * neutral fill, so leaving the generic text rule in place made the first item
+ * white/grey and apparently disabled on hover. Own both halves of the state,
+ * while preserving destructive red for the remove action.
+ */
+export const CIRCLE_MEMBER_MENU_ITEM_CLASSNAME =
+  "flex min-h-11 items-center gap-3 rounded-[10px] px-3 text-[15px] font-normal leading-5 text-[color:var(--app-primary-label)] hover:!bg-[color:var(--app-neutral-fill)] hover:!text-[color:var(--app-primary-label)] focus:!bg-[color:var(--app-neutral-fill)] focus:!text-[color:var(--app-primary-label)] data-[highlighted]:!bg-[color:var(--app-neutral-fill)] data-[highlighted]:!text-[color:var(--app-primary-label)] data-[variant=destructive]:hover:!text-destructive data-[variant=destructive]:focus:!text-destructive data-[variant=destructive]:data-[highlighted]:!text-destructive dark:hover:!bg-[color:var(--app-neutral-fill-strong)] dark:focus:!bg-[color:var(--app-neutral-fill-strong)] dark:data-[highlighted]:!bg-[color:var(--app-neutral-fill-strong)]";
 
 /**
  * Phones retain one page scroll so touch gestures cannot get trapped inside a
@@ -100,3 +145,18 @@ export const CIRCLE_MEMBERS_CARD_SHELL_CLASSNAME =
 
 export const CIRCLE_MEMBERS_CARD_SCROLL_CLASSNAME =
   "min-h-0 flex-1 sm:overflow-y-auto sm:overscroll-contain sm:[-webkit-overflow-scrolling:touch]";
+
+/**
+ * The SMS handoff follows the complete roster in reading order. It fills a
+ * narrow phone safely, then stays bounded and right-aligned on wider screens.
+ */
+export const CIRCLE_PROCEED_TO_SMS_CLASSNAME =
+  "h-12 min-h-12 w-full max-w-[320px] rounded-[14px] text-[15px] font-semibold";
+
+/**
+ * A member's destructive exit stays easy to tap on a phone without becoming a
+ * full-width desktop banner. It uses the same 320px responsive cap as the
+ * Circle handoff CTA and belongs against the trailing edge of the flow.
+ */
+export const CIRCLE_LEAVE_ACTION_CLASSNAME =
+  "ui-text-button-label h-11 min-h-11 w-full max-w-[320px] rounded-full text-destructive hover:bg-destructive/10 hover:text-destructive";

@@ -16,7 +16,7 @@ import {
   UsersRound,
   X,
   type LucideIcon,
-} from "lucide-react";
+} from "@/components/icons";
 
 import { AppPageShell } from "@/components/app-ui/app-page-shell";
 import {

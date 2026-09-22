@@ -76,7 +76,7 @@ export function ContactListControls({
     <div
       data-testid="contact-list-controls"
       className={cn(
-        "grid gap-2 overflow-hidden transition-all duration-200 ease-out motion-reduce:transition-none",
+        "grid gap-2 overflow-hidden transition-[grid-template-rows,opacity] duration-150 ease-out motion-reduce:transition-none",
         entered ? "mb-3 max-h-40 opacity-100" : "mb-0 max-h-0 opacity-0",
       )}
     >

@@ -93,34 +93,7 @@
       "state_exposure": [],
       "docs_references": []
     },
-    {
-      "action_id": "setup.open_location",
-      "label": "Set up location",
-      "meaning": "Opens Location setup so the person can share location with trusted people they choose.",
-      "aliases": [
-        "set up location",
-        "open location setup",
-        "set up live sharing"
-      ],
-      "search_keywords": ["location", "setup", "sharing"],
-      "reachability": {
-        "routes": ["/one/setup"],
-        "screens": ["one_setup_hub", "one_setup"],
-        "hidden_navigable": false,
-        "navigation_prerequisites": []
-      },
-      "guard_ids": ["auth_signed_in"],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "execution_target": {
-        "status": "wired",
-        "path": "route",
-        "target": "/one/setup/location"
-      },
-      "control_ids": ["one_setup_tile_location"],
-      "state_exposure": [],
-      "docs_references": []
-    },
+    {"action_id": "setup.open_location", "label": "Set up location", "meaning": "Opens Location setup so the person can share location with trusted people they choose.", "aliases": ["set up location", "open location setup", "set up live sharing"], "search_keywords": ["location", "setup", "sharing"], "reachability": {"routes": ["/one/setup"], "screens": ["one_setup_hub", "one_setup"], "hidden_navigable": false, "navigation_prerequisites": []}, "guard_ids": ["auth_signed_in"], "risk_level": "low", "execution_policy": "allow_direct", "execution_target": {"status": "wired", "path": "route", "target": "/one/setup/location"}, "control_ids": ["one_setup_tile_location"], "state_exposure": [], "docs_references": [], "command": {"domain": "location", "review_route": "/one/setup/location"}},
     {
       "action_id": "setup.open_email",
       "label": "Identity checks",

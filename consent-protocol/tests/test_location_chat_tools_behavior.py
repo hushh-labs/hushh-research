@@ -47,13 +47,13 @@ async def test_propose_public_link_rejects_out_of_range_duration():
 
 
 async def test_propose_public_link_refuses_a_duration_the_api_would_reject():
-    # 24 was the PRIVATE share ceiling, copied. The route field is le=1 and the
+    # 24 was the PRIVATE share ceiling, copied. The route field is le=2 and the
     # service stops at PUBLIC_INVITE_MAX_DURATION_HOURS, so anything above an
-    # hour was a proposal the person could accept and then watch 422 -- with
-    # the assistant having promised them a two-hour link.
+    # two hours is now the public-link ceiling; a larger proposal must still be
+    # rejected before the person can accept it.
     with HushhContext(user_id="u1", consent_token="t", vault_keys={}):  # noqa: S106
         with pytest.raises(ValueError):
-            await propose_public_link.__wrapped__(2)
+            await propose_public_link.__wrapped__(3)
         with pytest.raises(ValueError):
             await propose_public_link.__wrapped__(0.1)
         assert (await propose_public_link.__wrapped__(0.5))["durationHours"] == 0.5

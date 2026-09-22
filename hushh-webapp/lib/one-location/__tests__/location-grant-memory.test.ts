@@ -94,6 +94,7 @@ beforeEach(() => {
 
 afterEach(() => {
   delete (globalThis as { window?: unknown }).window;
+  vi.useRealTimers();
   vi.clearAllMocks();
 });
 
@@ -125,6 +126,10 @@ describe("the sealed last-known fix", () => {
   });
 
   it("never writes a coordinate to storage in the clear", async () => {
+    // ISO seconds such as 19.070 otherwise collide with the latitude prefix.
+    // Fake only Date so real crypto and IndexedDB scheduling stay exercised.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-09-15T04:00:00.000Z"));
     await rememberLastKnownFix({ userId: USER, point: point() });
 
     const raw = storage.getItem(FIX_KEY);

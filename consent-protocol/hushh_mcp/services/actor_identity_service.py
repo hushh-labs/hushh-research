@@ -1349,6 +1349,75 @@ class ActorIdentityService:
         )
         return updated or cached
 
+    @staticmethod
+    def validate_display_name(display_name: str) -> str:
+        """Trim and bound a person-authored display name.
+
+        2-60 characters, no control characters, no URLs or @handles: a name is
+        a name, not a link.
+        """
+        value = " ".join(str(display_name or "").split())
+        if len(value) < 2 or len(value) > 60:
+            raise ValueError("Display name must be between 2 and 60 characters.")
+        if any(ord(ch) < 32 or ord(ch) == 127 for ch in value):
+            raise ValueError("Display name contains unsupported characters.")
+        lowered = value.lower()
+        if "@" in value or "://" in lowered or "www." in lowered or lowered.startswith("http"):
+            raise ValueError("Display name cannot contain links or handles.")
+        return value
+
+    async def update_display_name(self, user_id: str, display_name: str) -> dict[str, Any] | None:
+        """Change the person's display name at its source of truth (Firebase Auth),
+        then re-sync the identity shadow so every surface agrees immediately."""
+        normalized_user_id = str(user_id or "").strip()
+        if not normalized_user_id:
+            return None
+        value = self.validate_display_name(display_name)
+        firebase_app = get_firebase_auth_app()
+        if firebase_app is None:
+            raise RuntimeError("Identity provider is not configured.")
+        from firebase_admin import auth as firebase_auth
+
+        await asyncio.to_thread(
+            firebase_auth.update_user,
+            normalized_user_id,
+            display_name=value,
+            app=firebase_app,
+        )
+        # From here the provider holds the new name. Nothing below may turn
+        # that committed write into "your name wasn't changed": a shadow that
+        # fails to catch up is reported as pending, never as a failure.
+        try:
+            updated = await self.sync_from_firebase(normalized_user_id, force=True)
+            if updated is None:
+                # The provider accepted the change; never report the old name back.
+                updated = await self.upsert_identity(
+                    user_id=normalized_user_id,
+                    display_name=value,
+                    email=None,
+                    phone_number=None,
+                    photo_url=None,
+                    email_verified=None,
+                    phone_verified=None,
+                    source="firebase_auth",
+                )
+        except Exception as exc:  # noqa: BLE001 - post-commit shadow errors are opaque
+            logger.warning(
+                "identity.display_name.shadow_sync_pending error=%s",
+                type(exc).__name__,
+            )
+            return {
+                "user_id": normalized_user_id,
+                "display_name": value,
+                "shadow_sync": "pending",
+            }
+        result = dict(updated or {})
+        result.setdefault("user_id", normalized_user_id)
+        if not str(result.get("display_name") or "").strip():
+            result["display_name"] = value
+        result["shadow_sync"] = "synced"
+        return result
+
     async def ensure_many(self, user_ids: Iterable[str]) -> dict[str, dict[str, Any]]:
         normalized_ids = [str(user_id or "").strip() for user_id in user_ids]
         normalized_ids = [user_id for user_id in normalized_ids if user_id]

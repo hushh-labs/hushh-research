@@ -1,8 +1,17 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import {
+  memo,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 
 import { AgentBar } from "@/components/agent/agent-bar";
+import { useAgentVoiceState } from "@/lib/agent/agent-voice-state";
+import { useOptionalLocationCommand } from "@/components/agent/location-command-provider";
 import { Navbar } from "@/components/navbar";
 import { AmbientChromeMask } from "@/components/app-ui/ambient-chrome-mask";
 import { snapKaiBottomChromeVisible } from "@/lib/navigation/kai-bottom-chrome-visibility";
@@ -10,18 +19,32 @@ import { snapKaiBottomChromeVisible } from "@/lib/navigation/kai-bottom-chrome-v
 export type BottomShellModel = {
   ambientEnabled: boolean;
   navigationHidden: boolean;
+  /** Chat owns the primary text composer, so its idle voice launcher is omitted. */
+  agentBarHidden?: boolean;
   /** An immersive route owns the full viewport and has no persistent chrome. */
   hidden?: boolean;
 };
 
+// The stack rides the scroll progress only. It used to add a keyboard lift
+// (-1 * --kb-height) too, but the shell is hidden on every route while the
+// keyboard is up (html.kb-open fades it), so the lift only produced a ghost
+// of the navigation jumping to above the keyboard for the frames of the fade,
+// over the spot the chat composer was rising into. It fades where it stands.
 const BOTTOM_SCROLL_TRANSFORM =
-  "translate3d(0, calc((var(--kb-height, 0px) * -1) + (var(--bottom-chrome-progress, 0) * var(--bottom-nav-travel, 0px))), 0)";
+  "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-nav-travel, 0px)), 0)";
 
-/** Shared persistent bottom chrome: one material/motion owner, separate controls. */
-export function AppBottomShell({ model }: { model: BottomShellModel }) {
+/** Shared persistent bottom chrome: separate voice and navigation bars. */
+export const AppBottomShell = memo(function AppBottomShell({ model }: { model: BottomShellModel }) {
+  const command = useOptionalLocationCommand();
+  const voiceActive = useAgentVoiceState((state) => state.active);
+  const hidden = model.hidden && !command?.active && !voiceActive;
+  // A route may hide the idle launcher without interrupting a command already
+  // in progress. Active capture remains visible and cancellable.
+  const agentBarVisible =
+    !model.agentBarHidden || Boolean(command?.active) || voiceActive;
   const shellRef = useRef<HTMLDivElement | null>(null);
   const navigationSlotRef = useRef<HTMLDivElement | null>(null);
-  // AgentBar reads client-only auth and agent-popover state. Rendering its
+  // AgentBar reads client-only auth and location-command state. Rendering its
   // markup only after the first client commit keeps the server and hydration
   // trees identical while preserving the shared shell slot.
   const [agentBarMounted, setAgentBarMounted] = useState(false);
@@ -31,7 +54,7 @@ export function AppBottomShell({ model }: { model: BottomShellModel }) {
   }, []);
 
   useLayoutEffect(() => {
-    if (model.hidden) {
+    if (hidden) {
       const root = document.documentElement;
       root.style.setProperty("--app-bottom-shell-height", "0px");
       root.style.setProperty("--bottom-nav-travel", "0px");
@@ -46,6 +69,7 @@ export function AppBottomShell({ model }: { model: BottomShellModel }) {
       const navigationHeight = navigationSlotRef.current
         ? Math.ceil(navigationSlotRef.current.getBoundingClientRect().height)
         : 0;
+      // Keep the hide transform clear of the navigation pill's outer border.
       const navigationTravel = `${navigationHeight + 6}px`;
       root.style.setProperty("--app-bottom-shell-height", height);
       root.style.setProperty("--bottom-nav-travel", navigationTravel);
@@ -60,13 +84,22 @@ export function AppBottomShell({ model }: { model: BottomShellModel }) {
     observer.observe(shell);
     if (navigationSlotRef.current) observer.observe(navigationSlotRef.current);
     return () => observer.disconnect();
-  }, [model.hidden, model.navigationHidden]);
+  }, [hidden, model.agentBarHidden, model.navigationHidden]);
 
-  if (model.hidden) return null;
+  if (hidden) return null;
 
+  // The mask rides the scroll progress the way the stack does: as a
+  // transform, never as a height. Its height used to be recomputed on every
+  // scroll frame (full height minus the progress travel), which was one
+  // layout plus a backdrop-blur re-render per frame under the moving bars,
+  // the only non-composited motion in this stack; the feed flick and the tab
+  // ride both read it as hitch. The gradient keeps its shape and the part
+  // that travels down goes off the bottom of the screen.
   const maskStyle = {
-    height:
-      "calc(var(--bottom-chrome-full-height) - (var(--bottom-chrome-progress, 0) * var(--bottom-nav-travel, 0px)))",
+    height: "var(--bottom-chrome-full-height)",
+    transform:
+      "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-nav-travel, 0px)), 0)",
+    willChange: "transform",
   } as CSSProperties;
 
   return (
@@ -81,11 +114,13 @@ export function AppBottomShell({ model }: { model: BottomShellModel }) {
       <div
         ref={shellRef}
         data-app-bottom-shell
+        data-command-active={command?.active || undefined}
         data-ui-role="bottom-shell"
         data-bottom-shell-navigation-hidden={
           model.navigationHidden || undefined
         }
         data-ambient-chrome-ignore
+        data-bottom-chrome-progress-consumer=""
         onPointerDownCapture={
           model.navigationHidden ? undefined : snapKaiBottomChromeVisible
         }
@@ -93,19 +128,21 @@ export function AppBottomShell({ model }: { model: BottomShellModel }) {
       >
         <div
           data-bottom-shell-motion-stack
-          className="flex flex-col items-center gap-1.5 transform-gpu will-change-transform"
+          className="flex flex-col items-center gap-1.5 transform-gpu"
           style={{
             transform: model.navigationHidden
               ? undefined
               : BOTTOM_SCROLL_TRANSFORM,
           }}
         >
-          <div
-            data-bottom-shell-agent-slot
-            className="flex w-full justify-center"
-          >
-            {agentBarMounted ? <AgentBar layout="slot" /> : null}
-          </div>
+          {agentBarVisible ? (
+            <div
+              data-bottom-shell-agent-slot
+              className="flex w-full justify-center"
+            >
+              {agentBarMounted ? <AgentBar layout="slot" /> : null}
+            </div>
+          ) : null}
           <div
             ref={navigationSlotRef}
             data-bottom-shell-navigation-slot
@@ -120,4 +157,4 @@ export function AppBottomShell({ model }: { model: BottomShellModel }) {
       </div>
     </>
   );
-}
+});

@@ -156,7 +156,7 @@ class TestNormalizeToolGroupsCommaSep:
         raw = ",".join(KNOWN_TOOL_GROUPS)
         result = normalize_tool_groups(raw)
         assert set(result) == set(KNOWN_TOOL_GROUPS)
-        assert len(result) == 4
+        assert len(result) == len(KNOWN_TOOL_GROUPS)
 
 
 # ===========================================================================

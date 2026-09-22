@@ -1,0 +1,26 @@
+/* Keep the browser composition unchanged; align native phone summary values
+   without changing shared SettingsRow or edit/action rows. */
+@media (max-width: 639px) {
+  .summary[data-native="true"] .summaryRow > div {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+    align-items: baseline;
+    column-gap: var(--settings-row-gap, 12px);
+    row-gap: 0;
+  }
+
+  .summary[data-native="true"] .summaryRow > div > div:last-child {
+    width: 100%;
+    min-width: 0;
+    padding: 0;
+    align-self: baseline;
+    justify-content: flex-end;
+  }
+
+  .summary[data-native="true"] .value {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    text-align: right;
+    overflow-wrap: anywhere;
+  }
+}

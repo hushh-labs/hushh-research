@@ -265,7 +265,7 @@ async def test_text_runtime_emits_non_partial_final_memory_summary(monkeypatch):
             screen_context={"screen": "one_home"},
             pkm_context="Writing preference: concise summaries.",
             runtime_provider="gemini",
-            runtime_model="gemini-3.5-flash",
+            runtime_model="gemini-3.7-flash",
             runtime_mode="hushh_managed_vertex",
             runtime_credential=None,
         )
@@ -332,7 +332,7 @@ async def test_text_runtime_rejects_silent_model_completion(monkeypatch):
             screen_context={"screen": "one_home"},
             pkm_context="Writing preference: concise summaries.",
             runtime_provider="gemini",
-            runtime_model="gemini-3.5-flash",
+            runtime_model="gemini-3.7-flash",
             runtime_mode="hushh_managed_vertex",
             runtime_credential=None,
         ):

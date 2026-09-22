@@ -37,11 +37,11 @@ describe("Profile, Location People, and Location Links consistency contract", ()
     );
 
     expect(source).toContain('return "Finding you\\u2026";');
-    expect(source).toContain("return locationStatusLabel({");
+    expect(source).toContain("const status = locationStatusLabel({");
     expect(source).toContain("accuracyLimited: vm.locationAccuracyLimited");
   });
 
-  it("uses shared SectionLabel for People and Links section headings", () => {
+  it("keeps accessible People, Circle, and Links section headings", () => {
     const hubSource = readSource(
       "components/one-location/redesign/location-redesign-hub.tsx",
     );
@@ -53,8 +53,8 @@ describe("Profile, Location People, and Location Links consistency contract", ()
       /<SectionLabel\s+as="div"\s+compact\s+role="heading"\s+aria-level=\{2\}/,
     );
     expect(hubSource).toContain('id="one-location-people-heading"');
-    expect(hubSource).toContain(
-      '<SectionLabel\n                as="h2"\n                compact\n                id="one-location-people-heading"',
+    expect(hubSource).toMatch(
+      /<SectionLabel\s+as="h2"\s+compact\s+id="one-location-people-heading"/,
     );
     expect(hubSource).toContain('title="Temporary link"');
     expect(hubSource).not.toContain('<SectionTitle as="h2">Temporary link');
@@ -75,8 +75,8 @@ describe("Profile, Location People, and Location Links consistency contract", ()
     expect(source).toContain('<div className="w-full space-y-4 sm:space-y-5">');
     expect(source).toContain("PUBLIC_LINK_CONTROLS_CLASSNAME");
     expect(source).toContain("equalWidthButtons");
-    expect(ctaLayout).toContain("mx-auto w-full max-w-[280px] space-y-3");
-    expect(ctaLayout).toContain("h-11 min-h-11 w-full rounded-[13px]");
+    expect(ctaLayout).toContain("w-full space-y-3 sm:max-w-[280px]");
+    expect(ctaLayout).toContain("h-11 min-h-11 w-fit min-w-[9rem]");
   });
 
   it("keeps Location Links concise without duplicate active-card title or live pill copy", () => {
@@ -96,7 +96,9 @@ describe("Profile, Location People, and Location Links consistency contract", ()
   });
 
   it("uses semantic Profile icon tones while preserving destructive treatment", () => {
-    const source = readSource("app/profile/profile-workspace-page.tsx");
+    const source = readSource(
+      "components/profile/profile-workspace-page.tsx",
+    );
 
     expect(source).toContain("title={PROFILE_LABELS.referrals}");
     expect(source).toContain("title={PROFILE_LABELS.developerTools}");

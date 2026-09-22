@@ -43,11 +43,16 @@ from hushh_mcp.consent.pkm_scope_policy import (
 )
 from hushh_mcp.consent.scope_helpers import get_scope_description as get_dynamic_scope_description
 from hushh_mcp.consent.scope_helpers import resolve_scope_to_enum
-from hushh_mcp.consent.token import issue_token, revoke_token, validate_token_with_db
+from hushh_mcp.consent.token import (
+    issue_token,
+    revoke_token,
+    validate_owner_renewal_proof,
+    validate_token_with_db,
+)
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.consent_center_service import ConsentCenterService
-from hushh_mcp.services.consent_db import ConsentDBService
+from hushh_mcp.services.consent_db import ConsentDBService, VaultOwnerRenewalRejected
 from hushh_mcp.services.consent_lifecycle_service import (
     ConsentLifecycleError,
     ConsentLifecycleService,
@@ -906,15 +911,29 @@ async def approve_consent(
     # All validation passed - now safe to issue the token.  Scope is passed as
     # the original string (not the enum) so that 'attr.financial.*' is preserved
     # verbatim in the signed payload rather than being collapsed to 'pkm.read'.
-    token = issue_token(
-        user_id=userId,
-        # Keep agent_id aligned with consent_audit so DB revocation checks are
-        # deterministic across Cloud Run instances.
-        agent_id=pending_request["developer"],
-        scope=requested_scope,
-        expires_in_ms=expiry_hours * 60 * 60 * 1000,
-        expires_at_ms=exact_expires_at_ms,
-    )
+    try:
+        token = issue_token(
+            user_id=userId,
+            # Keep agent_id aligned with consent_audit so DB revocation checks are
+            # deterministic across Cloud Run instances.
+            agent_id=pending_request["developer"],
+            scope=requested_scope,
+            expires_in_ms=expiry_hours * 60 * 60 * 1000,
+            expires_at_ms=exact_expires_at_ms,
+        )
+    except ValueError as exc:
+        # A stale or structurally invalid catalog entry must not turn approval
+        # into an opaque server error. Discovery filters these entries, but the
+        # mutation boundary remains defensive for old pending requests and
+        # concurrent catalog changes.
+        logger.warning("consent.scope_not_requestable_on_approval: %s", type(exc).__name__)
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error_code": "SCOPE_NOT_REQUESTABLE",
+                "message": "This information is no longer requestable. Refresh and try again.",
+            },
+        ) from exc
 
     if encryptedData and wrapped_key_bundle:
         payload_data, payload_iv, payload_tag = encrypted_export_payload or (
@@ -1424,7 +1443,7 @@ async def issue_vault_owner_token(request: Request):
         if not user_id:
             raise HTTPException(status_code=400, detail="userId is required")
 
-        firebase_uid = verify_firebase_bearer(auth_header)
+        firebase_uid = await run_in_threadpool(verify_firebase_bearer, auth_header)
 
         # Ensure user is requesting token for their own vault
         if firebase_uid != user_id:
@@ -1432,7 +1451,42 @@ async def issue_vault_owner_token(request: Request):
                 status_code=403, detail="Cannot issue VAULT_OWNER token for another user"
             )
 
-        result = await _issue_or_reuse_vault_owner_token(user_id=user_id)
+        if "renewalOfToken" in body:
+            prior_token = body["renewalOfToken"]
+            if not isinstance(prior_token, str) or not prior_token or len(prior_token) > 8192:
+                raise HTTPException(status_code=400, detail="Invalid renewalOfToken")
+            valid, _, _ = validate_owner_renewal_proof(prior_token, user_id)
+            if not valid:
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "code": "AUTH_VAULT_OWNER_INVALID",
+                        "message": "Vault owner renewal proof is invalid.",
+                    },
+                )
+            try:
+                result = await ConsentDBService().renew_vault_owner_token(user_id, prior_token)
+                result = {**result, "renewalValidated": True}
+            except VaultOwnerRenewalRejected as exc:
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "code": "AUTH_VAULT_OWNER_INVALID",
+                        "message": "Vault owner session was revoked. Unlock again to continue.",
+                    },
+                ) from exc
+            except Exception as exc:
+                logger.warning("vault_owner.renewal_unavailable")
+                raise HTTPException(
+                    status_code=503,
+                    detail={
+                        "code": "AUTH_ACCOUNT_STATUS_UNAVAILABLE",
+                        "message": "Vault session renewal is temporarily unavailable.",
+                    },
+                    headers={"Cache-Control": "no-store", "Retry-After": "30"},
+                ) from exc
+        else:
+            result = await _issue_or_reuse_vault_owner_token(user_id=user_id)
         logger.info("vault_owner.token_issued_or_reused")
         return result
 

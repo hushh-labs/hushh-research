@@ -10,10 +10,22 @@ const coordinatorMocks = vi.hoisted(() => ({
   skip: vi.fn(),
 }));
 
+const readinessMocks = vi.hoisted(() => ({ live: false }));
+
 vi.mock("@/app/one/location/page", () => ({
-  default: () => (
+  OneLocationAgentPage: () => (
     <div data-testid="location-onboarding-journey">Location onboarding</div>
   ),
+}));
+
+vi.mock("@/components/location/setup/location-setup-flow", () => ({
+  LocationSetupFlow: () => (
+    <div data-testid="alternate-location-setup">Alternate setup</div>
+  ),
+}));
+
+vi.mock("@/lib/one-voice/readiness", () => ({
+  useOneVoiceLiveEnabled: () => readinessMocks.live,
 }));
 
 vi.mock("@/components/onboarding/setup/setup-capability-coordinator", () => ({
@@ -41,20 +53,28 @@ describe("completed Location onboarding re-entry", () => {
   beforeEach(() => {
     coordinatorMocks.isAlreadyComplete = false;
     coordinatorMocks.returnToSetup.mockReset();
+    readinessMocks.live = false;
   });
 
   afterEach(() => {
     cleanup();
   });
 
-  it("keeps the full onboarding journey for an incomplete Location setup", () => {
-    render(<LocationOnboardingSetupClient />);
+  it.each([false, true])(
+    "keeps the canonical onboarding journey when One Voice Live is %s",
+    (live) => {
+      readinessMocks.live = live;
+      render(<LocationOnboardingSetupClient />);
 
-    expect(screen.getByTestId("location-onboarding-journey")).toBeTruthy();
-    expect(screen.queryByTestId("location-cinematic-intro")).toBeNull();
-    expect(screen.queryByTestId("location-permission-primer-gate")).toBeNull();
-    expect(screen.queryByTestId("location-onboarding-completed")).toBeNull();
-  });
+      expect(screen.getByTestId("location-onboarding-journey")).toBeTruthy();
+      expect(screen.queryByTestId("alternate-location-setup")).toBeNull();
+      expect(screen.queryByTestId("location-cinematic-intro")).toBeNull();
+      expect(
+        screen.queryByTestId("location-permission-primer-gate"),
+      ).toBeNull();
+      expect(screen.queryByTestId("location-onboarding-completed")).toBeNull();
+    },
+  );
 
   it("returns to setup immediately without rendering a completion flash", async () => {
     coordinatorMocks.isAlreadyComplete = true;

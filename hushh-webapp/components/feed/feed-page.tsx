@@ -21,6 +21,8 @@ import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { SectionLabel as AppSectionLabel } from "@/components/app-ui/typography";
 import { Button } from "@/lib/morphy-ux/button";
 import { useAuth } from "@/hooks/use-auth";
+import { useLocalOnboardingActionHandler, type LocalOnboardingActionHandler, type LocalActionPreparer } from "@/lib/agent/local-onboarding-actions";
+import { ConnectionsService } from "@/lib/services/connections-service";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { CACHE_KEYS } from "@/lib/services/cache-service";
@@ -112,6 +114,65 @@ const FEED_VOICE_ACTIONS = listKaiActionsForSurface({ screen: "one_feed" })
 export function FeedPage() {
   const { user, loading: authLoading } = useAuth();
 
+  const prepareConnectionRequest = (accept: boolean): LocalActionPreparer => async (slots, chosenResourceId) => {
+    if (!user || authLoading) return { status: "blocked", gate: "permission", summary: "Sign in to review requests." };
+    const person = typeof slots.person === "string" ? slots.person.trim() : "";
+    const selected = Object.prototype.hasOwnProperty.call(slots, "requestId") ? slots.requestId : chosenResourceId;
+    if (!person || (selected !== undefined && (typeof selected !== "string" || !selected.trim() || selected.length > 256))) {
+      return { status: "blocked", gate: "input", summary: "Choose one request again." };
+    }
+    try {
+      const idToken = await user.getIdToken();
+      const incoming = await ConnectionsService.listRequests({ idToken, direction: "incoming" });
+      const matches = incoming.filter((request) =>
+        (selected === undefined || request.id === selected) &&
+        request.counterpartDisplayName?.trim().toLocaleLowerCase() === person.toLocaleLowerCase());
+      if (matches.length !== 1) return { status: "blocked", gate: "input", summary: "Choose one current request in your Feed." };
+      const request = matches[0]!;
+      if (accept && request.scopes?.length) return { status: "blocked", gate: "navigation", route: "/one/feed", waitForUser: true, summary: "Review the requested information in your Feed before accepting." };
+      return { status: "ready", binding: { owner: user.uid, requestId: request.id, person: request.counterpartDisplayName, decision: accept ? "accept" : "reject", scopes: request.scopes ?? [] }, summary: `${accept ? "Accept" : "Decline"} ${request.counterpartDisplayName}'s connection request?` };
+    } catch {
+      return { status: "blocked", gate: "permission", summary: "Requests could not be checked. Try again." };
+    }
+  };
+
+  const decideConnectionRequest = (accept: boolean): LocalOnboardingActionHandler => async (slots, context) => {
+    if (context?.preparedBinding) slots = { ...slots, ...context.preparedBinding };
+    if (!user || authLoading) return { status: "blocked", summary: "Sign in to review requests." };
+    if (!context?.directiveId && !context?.humanConfirmationToken) {
+      return { status: "blocked", summary: "Confirm this action in the app first." };
+    }
+    const person = typeof slots.person === "string" ? slots.person.trim() : "";
+    const hasRequestId = Object.prototype.hasOwnProperty.call(slots, "requestId");
+    const requestId = typeof slots.requestId === "string" ? slots.requestId.trim() : "";
+    if (!person || (hasRequestId && (!requestId || requestId.length > 256))) {
+      return { status: "blocked", summary: "Choose the request again." };
+    }
+    try {
+      const idToken = await user.getIdToken();
+      const incoming = await ConnectionsService.listRequests({ idToken, direction: "incoming" });
+      // IDs select only from this owner's current incoming requests. A stale ID
+      // or mismatched label never falls back to a same-name request.
+      const matches = incoming.filter((request) =>
+        (!hasRequestId || request.id === requestId) &&
+        request.counterpartDisplayName?.trim().toLocaleLowerCase() === person.toLocaleLowerCase());
+      if (matches.length !== 1) return { status: "blocked", summary: "Choose one current request in your Feed." };
+      if (context.signal?.aborted) return { status: "blocked", summary: "The action was cancelled." };
+      const request = matches[0]!;
+      // Scope-bearing accepts still require the existing scope-review UI; the
+      // API rejects an accept without those selections rather than guessing.
+      if (accept) await ConnectionsService.accept({ idToken, requestId: request.id });
+      else await ConnectionsService.reject({ idToken, requestId: request.id });
+      if (accept) CacheSyncService.onConnectionGraphMutated(user.uid);
+      else CacheSyncService.onConnectionCapabilityMutated(user.uid);
+      return { status: "succeeded", summary: `${accept ? "Accepted" : "Declined"} ${request.counterpartDisplayName}'s connection request.` };
+    } catch {
+      return { status: "failed", summary: "The request could not be updated. Review it in your Feed." };
+    }
+  };
+  useLocalOnboardingActionHandler("connect.accept_request", decideConnectionRequest(true), { prepare: prepareConnectionRequest(true) });
+  useLocalOnboardingActionHandler("connect.reject_request", decideConnectionRequest(false), { prepare: prepareConnectionRequest(false) });
+
   // Every account owns an independent Feed session. Remounting on uid changes
   // scopes pagination, clear/read watermarks, actionables, and pending requests
   // together, so no state or late response from one account can reach another.
@@ -156,11 +217,6 @@ function FeedPageSession({
   // Remove the old timestamp key on sight. It cannot be losslessly translated
   // to an id: a row appended later may carry an equal/older timestamp. Showing
   // old history once is safer than silently losing a genuinely new alert.
-  const [clearedThroughId, setClearedThroughId] = useState<string | null>(null);
-  const [clearWatermarkHydrated, setClearWatermarkHydrated] = useState(false);
-  const [clearing, setClearing] = useState(false);
-  const [clearArmed, setClearArmed] = useState(false);
-
   const clearedIdStorageKey = user?.uid
     ? `hushh:feed-cleared-through-id:${user.uid}`
     : null;
@@ -168,22 +224,42 @@ function FeedPageSession({
     ? `hushh:feed-cleared-at:${user.uid}`
     : null;
 
-  // Hydrate the persisted watermark once the signed-in user is known. Reading in
-  // an effect (not the initializer) avoids any SSR/hydration mismatch, since the
-  // feed only renders meaningfully after auth resolves client-side.
+  // The persisted watermark is read in the state initialiser. This session
+  // component is remounted per account (`key={user?.uid}`) after auth has
+  // resolved on the client, so there is no server-rendered list to mismatch;
+  // reading it in an effect instead forced every visit to paint the skeleton
+  // first and the warm cached list one commit later (two full layouts per
+  // tab switch). Storage can be disabled; that falls back to no clear.
+  const readPersistedWatermark = () => {
+    if (!clearedIdStorageKey || typeof window === "undefined") return null;
+    try {
+      return window.localStorage.getItem(clearedIdStorageKey);
+    } catch {
+      return null;
+    }
+  };
+  const [clearedThroughId, setClearedThroughId] = useState<string | null>(
+    readPersistedWatermark,
+  );
+  const [clearWatermarkHydrated, setClearWatermarkHydrated] = useState(
+    () => !clearedIdStorageKey || typeof window !== "undefined",
+  );
+  const [clearing, setClearing] = useState(false);
+  const [clearArmed, setClearArmed] = useState(false);
+
+  // Retire the legacy timestamp key on sight (it cannot be translated to an
+  // id); a storage failure here changes nothing the initialiser decided.
   useEffect(() => {
     if (!clearedIdStorageKey || !legacyClearedStorageKey) {
       setClearWatermarkHydrated(true);
       return;
     }
     try {
-      setClearedThroughId(window.localStorage.getItem(clearedIdStorageKey));
       window.localStorage.removeItem(legacyClearedStorageKey);
     } catch {
-      // Storage can be disabled; fall back to no persisted clear.
-    } finally {
-      setClearWatermarkHydrated(true);
+      // Storage can be disabled; nothing to retire.
     }
+    setClearWatermarkHydrated(true);
   }, [clearedIdStorageKey, legacyClearedStorageKey]);
 
   useEffect(() => {
@@ -338,6 +414,10 @@ function FeedPageSession({
     if (data?.items[0]?.id) markSeen();
   }, [data?.items, markSeen]);
 
+  // A poll that returns the same rows must not hand FeedRow new objects: the
+  // rows are memoised on their item, so a row whose id, read flag and time
+  // are unchanged keeps its previous object and skips its render.
+  const previousItemsRef = useRef<Map<string, FeedItem>>(new Map());
   const items = useMemo(() => {
     // useStaleResource can synchronously expose a warm first page. Do not let
     // that cached history render for one frame before the device-local clear
@@ -364,8 +444,18 @@ function FeedPageSession({
         continue;
       }
       seen.add(item.id);
-      merged.push(item);
+      const previous = previousItemsRef.current.get(item.id);
+      merged.push(
+        previous &&
+          previous.read === item.read &&
+          previous.created_at === item.created_at &&
+          previous.event_type === item.event_type &&
+          previous.actor_label === item.actor_label
+          ? previous
+          : item,
+      );
     }
+    previousItemsRef.current = new Map(merged.map((item) => [item.id, item]));
     return merged;
   }, [
     data,
@@ -545,16 +635,16 @@ function FeedPageSession({
               </section>
             ) : null}
 
-            {hasRegularActionables ? (
-              <section aria-label="Needs you">
-                <SectionLabel>Needs you</SectionLabel>
-                <SettingsGroup separatorInset>
-                  {regularActionables.map((item) => (
-                    <FeedActionableRow key={item.id} item={item} />
-                  ))}
-                </SettingsGroup>
-              </section>
-            ) : null}
+          {hasRegularActionables ? (
+            <section aria-label="Needs you">
+              <SectionLabel>Needs you</SectionLabel>
+              <div className="divide-y divide-[color:var(--foundation-hairline)]">
+                {regularActionables.map((item) => (
+                  <FeedActionableRow key={item.id} item={item} />
+                ))}
+              </div>
+            </section>
+          ) : null}
 
             {contentLoading && !hasHistory && !hasActionables ? (
               <FeedRowsSkeleton />

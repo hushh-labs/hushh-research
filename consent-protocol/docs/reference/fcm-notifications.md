@@ -179,6 +179,16 @@ gcloud is used for **GCP resources** that support the FCM-based flow:
    - Pushes the event into a per-user in-app queue for SSE.
 3. **Web client**: Requests permission, gets FCM token (`getToken` with VAPID key), registers token via `POST /api/notifications/register`; handles **onMessage** as a Feed/domain refresh while visible and routes service-worker **notificationclick** to `/one/feed`.
 
+Circle lifecycle transitions use the same dual-transport client contract with a
+separate metadata-only PostgreSQL channel, `one_user_state_changed`. The
+mutation worker publishes one doorbell after commit; every backend
+worker/instance listens and only the worker that owns the recipient's open SSE
+stream enqueues it locally. FCM remains the offline/native lane, while the
+shared transition `message_id` lets the client deduplicate an event received on
+both transports. The channel is deliberately restricted to
+`location_circle_*` event types and carries no Circle roster or private
+location payload.
+
 See the plan in `.cursor/plans/` and [consent-protocol.md](./consent-protocol.md) for full flow.
 
 ---

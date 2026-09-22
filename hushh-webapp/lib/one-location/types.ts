@@ -297,6 +297,15 @@ export type OneLocationPublicInvite = {
    * rather than wrong.
    */
   publicUrl?: string | null;
+  operationReceipt?: PublicLinkOperationReceipt;
+};
+
+export type PublicLinkOperationReceipt = {
+  operation_id: string;
+  invite_id: string;
+  expires_at: string | null;
+  status: string;
+  reused: boolean;
 };
 
 export type OneLocationPublicInviteSubmission = {
@@ -654,6 +663,9 @@ export type OneLocationNearbyAttendee = {
 };
 
 export type OneLocationNearbyPresence = {
+  /** Owner-only operation locators. Older servers require an authored review. */
+  id?: string;
+  version?: number;
   status: "active";
   audience: "all_opted_in";
   /** Fixed mutual-discovery radius selected by the server contract. */
@@ -725,6 +737,8 @@ export type OneLocationRateableVisit = {
 };
 
 export type OneLocationNearbyPresenceState = {
+  operationReceipt?: { operation_id: string; presence_id: string; version: number; expires_at: string } | null;
+  checkoutReceipt?: { operation_id: string; presence_id: string | null; version: number; checked_out: true } | null;
   presence: OneLocationNearbyPresence | null;
   attendees: OneLocationNearbyAttendee[];
   checkedOut?: boolean;
@@ -789,6 +803,15 @@ export type PlainLocationPoint = {
    * Present only for Check-In shares. Encrypted together with the point.
    */
   checkIn?: CheckInSharePayload | null;
+  /**
+   * How much the coordinate was coarsened on this device before encryption.
+   * "approximate" means the point was snapped to a ~1 km grid by
+   * `lib/location/coarsen.ts`; absent or "precise" means the raw fix. The same
+   * tag is mirrored in plaintext as `envelope.metadata.precision` so the
+   * server can refuse an envelope that disagrees with the owner's stored
+   * preference (it can never see the coordinate itself).
+   */
+  precision?: "precise" | "approximate";
 };
 
 export type OneLocationEncryptedEnvelope = {

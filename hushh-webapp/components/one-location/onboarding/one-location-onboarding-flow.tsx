@@ -1,7 +1,5 @@
 "use client";
 
-import { ContactInvitationNotice } from "@/components/connections/contact-invitation-notice";
-
 import {
   useCallback,
   useEffect,
@@ -20,9 +18,11 @@ import {
   MapPin,
   Share2,
   UserPlus,
-} from "lucide-react";
+} from "@/components/icons";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
+import { FlowActionGroup } from "@/components/app-ui/flow-actions";
 import { OnboardingStepper } from "@/components/app-ui/onboarding-stepper";
+import { Button } from "@/components/ui/button";
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import { OnboardingLiveMap } from "@/components/one-location/onboarding/onboarding-live-map";
 import {
@@ -85,10 +85,7 @@ export type OnboardingContactMatch = {
   userId: string;
   displayName: string;
   connectionStatus:
-    | "auto_connected"
-    | "already_connected"
-    | "request_required"
-    | "suppressed";
+    "auto_connected" | "already_connected" | "request_required" | "suppressed";
 };
 
 /**
@@ -164,9 +161,13 @@ type OneLocationOnboardingFlowProps = {
    * Read the address book and return whichever contacts already have One.
    * Called only after the person taps on the contacts screen, never on mount.
    */
-  onSyncOnboardingContacts?: () => Promise<OnboardingContactSyncResult>;
+  onSyncOnboardingContacts?: (options?: {
+    chooseGoogleAccount?: boolean;
+  }) => Promise<OnboardingContactSyncResult>;
   /** Latest settled result, including retries started from the named sheet. */
   contactSyncResult?: OnboardingContactSyncResult | null;
+  /** Offer the Google account chooser after an empty Google read. */
+  showGoogleAccountSwitcher?: boolean;
   /** Send a connection request to one matched contact. */
   onAddOnboardingContact?: (userId: string) => Promise<void>;
   /** Open the OS settings page so a declined permission can be changed. */
@@ -238,13 +239,14 @@ function PrimaryButton({
   className?: string;
 }) {
   return (
-    <button
+    <Button
       type="button"
+      size="prominent"
       onClick={onClick}
       disabled={disabled || busy}
       aria-busy={busy || undefined}
       className={cn(
-        "press-scale flex h-14 w-full items-center justify-center rounded-full px-6 text-[17px] font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+        "w-full disabled:cursor-not-allowed disabled:opacity-50",
         inverse
           ? "bg-white text-[color:var(--app-accent-deep)] dark:bg-white dark:text-[#07111f]"
           : "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent-hover)]",
@@ -255,7 +257,7 @@ function PrimaryButton({
         <Loader2 className="mr-2 h-5 w-5 animate-spin" aria-hidden="true" />
       ) : null}
       {children}
-    </button>
+    </Button>
   );
 }
 
@@ -492,7 +494,9 @@ function WelcomeScreen({
           <div className="flex min-h-0 flex-1 items-center justify-center py-4">
             <WelcomeRadar />
           </div>
-          <div className="shrink-0">
+          {/* Centered measure like the feature-screen CTA below: full-width
+              here stretched edge to edge on desktop and read as a bar. */}
+          <div className="mx-auto w-full max-w-[430px] shrink-0">
             <PrimaryButton inverse onClick={onStart}>
               Get started
             </PrimaryButton>
@@ -957,7 +961,6 @@ function FeaturesScreen({
           onClick={onContinue}
           busy={permissionBusy}
           disabled={permissionBusy}
-          className="h-[52px] min-h-[52px]"
         >
           {locationPreparationRetry
             ? "Try again"
@@ -1159,6 +1162,8 @@ function ContactsScreen({
   onContinue,
   leaving,
   embedded = false,
+  showGoogleAccountSwitcher = false,
+  onSyncDifferentGoogleAccount,
 }: {
   state: OnboardingContactState;
   source: "device" | "google";
@@ -1173,6 +1178,13 @@ function ContactsScreen({
   onContinue: () => void;
   leaving: boolean;
   embedded?: boolean;
+  /**
+   * Offer the Google account chooser after an empty Google read. Silent
+   * retries re-read the same (possibly empty) account, so without this the
+   * person loops on "No eligible contacts matched" with no way out.
+   */
+  showGoogleAccountSwitcher?: boolean;
+  onSyncDifferentGoogleAccount?: () => void;
 }) {
   const MATCH_PAGE_SIZE = 100;
   const [visibleMatchCount, setVisibleMatchCount] = useState(MATCH_PAGE_SIZE);
@@ -1234,7 +1246,6 @@ function ContactsScreen({
                 ? "Your matched ONE contacts and connection results are ready."
                 : "You can always find people later from the People tab."}
           </p>
-          <ContactInvitationNotice />
 
           {primed ? (
             <>
@@ -1340,7 +1351,8 @@ function ContactsScreen({
               ) : null}
               {state.summary || state.partial ? (
                 <li className="rounded-2xl bg-amber-500/10 px-4 py-3 text-sm leading-5 text-foreground">
-                  {state.summary || "Only part of your contact list was checked."}
+                  {state.summary ||
+                    "Only part of your contact list was checked."}
                 </li>
               ) : null}
               <li className="flex justify-center pt-2">
@@ -1363,18 +1375,32 @@ function ContactsScreen({
               </p>
               <p className="mt-2 text-[13px] leading-5 text-[#96999e] dark:text-[color:var(--app-secondary-label)]">
                 {state.partial
-                  ? state.summary || "Only part of your contact list was checked. "
+                  ? state.summary ||
+                    "Only part of your contact list was checked. "
                   : "ONE users with an exact verified phone match connect automatically unless they are hidden, opted out, or were previously disconnected. "}
                 Use the circle code above to invite anyone you want here.
               </p>
-              <button
-                type="button"
-                onClick={onSync}
-                disabled={leaving}
-                className="press-scale mt-4 inline-flex min-h-11 items-center justify-center rounded-full border border-[#d5d9df] bg-white px-5 text-sm font-bold text-[#1f2b3d] disabled:opacity-50 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
-              >
-                Sync again
-              </button>
+              <div className="mt-4 flex flex-col items-center gap-2">
+                {showGoogleAccountSwitcher && onSyncDifferentGoogleAccount ? (
+                  <button
+                    type="button"
+                    onClick={onSyncDifferentGoogleAccount}
+                    disabled={leaving}
+                    aria-label="Check a different Google account"
+                    className="press-scale inline-flex min-h-11 items-center justify-center rounded-full bg-[color:var(--app-accent)] px-5 text-sm font-bold text-[color:var(--app-accent-fg)] disabled:opacity-50"
+                  >
+                    Use a different Google account
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={onSync}
+                  disabled={leaving}
+                  className="press-scale inline-flex min-h-11 items-center justify-center rounded-full border border-[#d5d9df] bg-white px-5 text-sm font-bold text-[#1f2b3d] disabled:opacity-50 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+                >
+                  Sync again
+                </button>
+              </div>
             </div>
           ) : null}
 
@@ -1478,6 +1504,8 @@ function ReadyScreen({
   onSyncContacts,
   onAddContact,
   onOpenContactSettings,
+  showGoogleAccountSwitcher = false,
+  onSyncDifferentGoogleAccount,
 }: {
   currentUserName: string;
   mapPoint: { lat: number; lng: number } | null;
@@ -1517,6 +1545,8 @@ function ReadyScreen({
   onSyncContacts: () => void;
   onAddContact: (userId: string) => void;
   onOpenContactSettings: () => void;
+  showGoogleAccountSwitcher?: boolean;
+  onSyncDifferentGoogleAccount?: () => void;
 }) {
   const formattedCode = invite ? formatCircleCode(invite.code) : "";
   const headingRef = useRef<HTMLHeadingElement | null>(null);
@@ -1630,13 +1660,14 @@ function ReadyScreen({
                 <p className="max-w-[260px] text-sm leading-5 text-[#6f7580] dark:text-[color:var(--app-secondary-label)]">
                   {error}
                 </p>
-                <button
+                <Button
                   type="button"
+                  size="compact"
                   onClick={onRetry}
-                  className="press-scale inline-flex min-h-11 items-center justify-center rounded-full bg-[color:var(--app-accent)] px-5 text-sm font-bold text-[color:var(--app-accent-fg)]"
+                  className="bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
                 >
                   Try again
-                </button>
+                </Button>
               </div>
             ) : invite ? (
               <>
@@ -1662,28 +1693,36 @@ function ReadyScreen({
                 <p className="mt-2 text-[12px] leading-[18px] text-[#96999e] dark:text-[color:var(--app-secondary-label)]">
                   Expires in 72 hours
                 </p>
-                <div className="mt-4 grid grid-cols-2 gap-3">
-                  <button
-                    type="button"
-                    onClick={onCopy}
-                    className="press-scale inline-flex h-11 items-center justify-center gap-2 rounded-full border border-[#d5d9df] bg-white text-[15px] font-bold text-[#1f2b3d] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
-                  >
-                    {copied ? (
-                      <Check className="h-5 w-5" strokeWidth={2.5} />
-                    ) : (
-                      <Copy className="h-5 w-5" strokeWidth={2} />
-                    )}
-                    {copied ? "Copied" : "Copy"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={onShare}
-                    className="press-scale inline-flex h-11 items-center justify-center gap-2 rounded-full bg-[color:var(--app-accent)] text-[15px] font-bold text-[color:var(--app-accent-fg)]"
-                  >
-                    <Share2 className="h-5 w-5" strokeWidth={2} />
-                    Share
-                  </button>
-                </div>
+                <FlowActionGroup
+                  className="mt-4"
+                  secondary={
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="standard"
+                      onClick={onCopy}
+                      className="border-[#d5d9df] bg-white text-[#1f2b3d] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+                    >
+                      {copied ? (
+                        <Check className="h-5 w-5" strokeWidth={2.5} />
+                      ) : (
+                        <Copy className="h-5 w-5" strokeWidth={2} />
+                      )}
+                      {copied ? "Copied" : "Copy"}
+                    </Button>
+                  }
+                  primary={
+                    <Button
+                      type="button"
+                      size="standard"
+                      onClick={onShare}
+                      className="bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
+                    >
+                      <Share2 className="h-5 w-5" strokeWidth={2} />
+                      Share
+                    </Button>
+                  }
+                />
               </>
             ) : (
               <p className="flex min-h-24 items-center justify-center px-2 text-center text-sm leading-5 text-[#6f7580] dark:text-[color:var(--app-secondary-label)]">
@@ -1859,6 +1898,8 @@ function ReadyScreen({
                     onSync={onSyncContacts}
                     onAdd={onAddContact}
                     onOpenSettings={onOpenContactSettings}
+                    showGoogleAccountSwitcher={showGoogleAccountSwitcher}
+                    onSyncDifferentGoogleAccount={onSyncDifferentGoogleAccount}
                     onBack={() => undefined}
                     onSkip={() => undefined}
                     onContinue={() => undefined}
@@ -1898,8 +1939,8 @@ function ReadyScreen({
       </div>
 
       <style>{`
-        [data-one-ready-title] { animation: oneReadyRise 520ms cubic-bezier(0.22, 1, 0.36, 1) both; }
-        [data-one-ready-code] { animation: oneReadyRise 560ms cubic-bezier(0.22, 1, 0.36, 1) both; animation-delay: 140ms; }
+        [data-one-ready-title] { animation: oneReadyRise 150ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+        [data-one-ready-code] { animation: oneReadyRise 150ms cubic-bezier(0.22, 1, 0.36, 1) both; }
         ${READY_MAP_SHORT_WINDOW_CSS}
         @keyframes oneReadyRise {
           from { opacity: 0; transform: translateY(14px); }
@@ -1941,6 +1982,7 @@ export function OneLocationOnboardingFlow({
   contactsSource = "device",
   onSyncOnboardingContacts,
   contactSyncResult,
+  showGoogleAccountSwitcher = false,
   onAddOnboardingContact,
   onOpenContactSettings,
   onPreviewCircleCode,
@@ -2025,6 +2067,11 @@ export function OneLocationOnboardingFlow({
   const [contactState, setContactState] = useState<OnboardingContactState>({
     kind: "idle",
   });
+  // Mirror for the sync handler: dismissing the chooser must restore the
+  // exact state the run started from, which the busy state has covered by
+  // the time a cancellation lands.
+  const contactStateRef = useRef(contactState);
+  contactStateRef.current = contactState;
   const [contactMatches, setContactMatches] = useState<
     OnboardingContactMatch[]
   >([]);
@@ -2229,25 +2276,46 @@ export function OneLocationOnboardingFlow({
   }, [applyContactSyncResult, contactSyncResult]);
 
   const contactSyncInFlightRef = useRef(false);
-  const handleSyncContacts = useCallback(async () => {
-    if (!onSyncOnboardingContacts || contactSyncInFlightRef.current) return;
-    contactSyncInFlightRef.current = true;
-    setContactState({ kind: "busy" });
-    try {
-      applyContactSyncResult(await onSyncOnboardingContacts());
-    } catch (error) {
-      setContactState({
-        kind: "failed",
-        message:
-          error instanceof Error && error.message
-            ? error.message
-            : "We couldn't check your contacts. You can try again later.",
-        canOpenSettings: canOpenContactSettings,
-      });
-    } finally {
-      contactSyncInFlightRef.current = false;
-    }
-  }, [applyContactSyncResult, canOpenContactSettings, onSyncOnboardingContacts]);
+  const handleSyncContacts = useCallback(
+    async (chooseGoogleAccount = false) => {
+      if (!onSyncOnboardingContacts || contactSyncInFlightRef.current) return;
+      contactSyncInFlightRef.current = true;
+      // Dismissing the Google chooser or consent sheet is not a reset: a
+      // cancellation restores exactly this state instead of idling.
+      const resumeState =
+        contactStateRef.current.kind === "matched" ||
+        contactStateRef.current.kind === "none"
+          ? contactStateRef.current
+          : null;
+      setContactState({ kind: "busy" });
+      try {
+        const result = await onSyncOnboardingContacts(
+          chooseGoogleAccount ? { chooseGoogleAccount: true } : undefined,
+        );
+        if (result.status === "cancelled") {
+          setContactState((current) =>
+            current.kind === "busy"
+              ? (resumeState ?? { kind: "idle" })
+              : current,
+          );
+          return;
+        }
+        applyContactSyncResult(result);
+      } catch (error) {
+        setContactState({
+          kind: "failed",
+          message:
+            error instanceof Error && error.message
+              ? error.message
+              : "We couldn't check your contacts. You can try again later.",
+          canOpenSettings: canOpenContactSettings,
+        });
+      } finally {
+        contactSyncInFlightRef.current = false;
+      }
+    },
+    [applyContactSyncResult, canOpenContactSettings, onSyncOnboardingContacts],
+  );
 
   const handleAddContact = useCallback(
     (userId: string) => {
@@ -2574,10 +2642,12 @@ export function OneLocationOnboardingFlow({
             addedContactIds={addedContactIds}
             addingContactIds={addingContactIds}
             onSyncContacts={() => void handleSyncContacts()}
+            onSyncDifferentGoogleAccount={() => void handleSyncContacts(true)}
             onAddContact={handleAddContact}
             onOpenContactSettings={() =>
               onOpenContactSettings?.(() => void handleSyncContacts())
             }
+            showGoogleAccountSwitcher={showGoogleAccountSwitcher}
           />
         ) : null}
       </section>

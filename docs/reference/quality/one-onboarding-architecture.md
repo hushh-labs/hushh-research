@@ -289,7 +289,9 @@ the asynchronous connector-start call, then uses the existing backend-owned
 callback URI. The parent page retains its memory-only vault session. The popup
 holds only an opaque attempt and setup correlation; on verified settlement it
 posts a same-origin terminal result to the exact opener, which refreshes the
-connector before rendering Finish. It never transfers a vault key, owner token,
+connector before rendering Finish. Settlement waits only for the encrypted
+OAuth grant and durable initial-sync record to persist; Gmail watch registration
+and the scan worker continue after the callback response. It never transfers a vault key, owner token,
 Firebase token, OAuth artifact, or receipt content between windows. A blocked
 popup never falls back to a same-tab redirect. Shopping-summary PKM persistence
 is an explicit action; Gmail does not auto-save inferred memory.

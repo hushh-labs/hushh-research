@@ -14,6 +14,7 @@ from hushh_mcp.consent.export_envelope import (
     connector_key_fingerprint,
     scope_handle_for_machine_scope,
 )
+from hushh_mcp.services.consent_center_service import requester_identity_metadata
 from hushh_mcp.services.consent_db import ConsentDBService
 from hushh_mcp.services.consent_request_links import build_consent_request_url
 from hushh_mcp.services.person_profile_service import PersonProfileService, requester_principal
@@ -26,6 +27,9 @@ class InformationRequestError(ValueError):
 
 
 _ONE_INFORMATION_REQUEST_APP_ID = "agent_one"
+# The owner sees one "opened" record per approved item per hour, not one per
+# poll: the requesting device refreshes the encrypted package on every open of
+# its own screen, and a ledger that repeats itself that often stops being read.
 
 
 class InformationRequestService:
@@ -290,6 +294,7 @@ class InformationRequestService:
                     "status": {
                         "CONSENT_GRANTED": "granted",
                         "CONSENT_DENIED": "denied",
+                        "CANCELLED": "cancelled",
                         "REVOKED": "revoked",
                         "TIMEOUT": "expired",
                     }.get(action, "expired" if is_expired else "pending"),
@@ -304,6 +309,105 @@ class InformationRequestService:
             "items": output,
         }
 
+    async def list_outgoing(
+        self, *, requester_user_id: str, limit: int = 10
+    ) -> list[dict[str, Any]]:
+        """Requests this person sent that are still open, newest first.
+
+        ``cancel`` takes a bundle id and nothing could produce one: there was
+        no listing on this side of the lifecycle, so "withdraw the request I
+        just sent" had no way to name its target. Cancelled bundles are
+        excluded because withdrawing a withdrawn request is not a thing anyone
+        means, and a list that offers it invites the model to try.
+
+        Deliberately a projection, not a row dump: the subject's user id and
+        the connector key stay here. The person is named the way the requester
+        already knows them.
+        """
+        rows = await self._rows(
+            """SELECT bundle.bundle_id, bundle.purpose, bundle.created_at,
+                      profile.public_person_ref, identity.display_name
+               FROM one_information_request_bundles bundle
+               JOIN actor_profiles profile ON profile.user_id = bundle.subject_user_id
+               LEFT JOIN actor_identity_cache identity ON identity.user_id = bundle.subject_user_id
+               WHERE bundle.requester_user_id = :requester
+                 AND bundle.cancelled_at IS NULL
+               ORDER BY bundle.created_at DESC
+               LIMIT :limit""",
+            {"requester": requester_user_id, "limit": max(1, min(int(limit or 10), 50))},
+        )
+        return [
+            {
+                "bundleId": str(row["bundle_id"]),
+                "personRef": str(row["public_person_ref"]),
+                "displayName": str(row.get("display_name") or "that person"),
+                "purpose": row.get("purpose"),
+                "sentAt": row.get("created_at"),
+            }
+            for row in rows
+        ]
+
+    async def list_granted_shares(
+        self,
+        *,
+        requester_user_id: str,
+        person_ref: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """Active information shares granted to this user by connections."""
+        normalized_person_ref = str(person_ref or "").strip()
+        person_filter = (
+            "AND profile.public_person_ref = :person_ref" if normalized_person_ref else ""
+        )
+        rows = await self._rows(  # nosec B608 - static SQL fragments only; every value is a bound parameter.
+            f"""SELECT bundle.bundle_id, bundle.purpose, bundle.created_at,
+                      bundle.subject_user_id,
+                      profile.public_person_ref, identity.display_name,
+                      item.request_id, item.scope_ref, item.scope, item.label, item.sensitivity
+               FROM one_information_request_bundles bundle
+               JOIN actor_profiles profile ON profile.user_id = bundle.subject_user_id
+               LEFT JOIN actor_identity_cache identity ON identity.user_id = bundle.subject_user_id
+               JOIN one_information_request_items item ON item.bundle_id = bundle.bundle_id
+               WHERE bundle.requester_user_id = :requester
+                 AND bundle.cancelled_at IS NULL
+                 {person_filter}
+               ORDER BY bundle.created_at DESC, item.created_at
+               LIMIT :limit""",  # nosec B608 - static SQL fragments only; every value is a bound parameter.
+            {
+                "requester": requester_user_id,
+                "limit": max(1, min(int(limit or 50), 100)),
+                **({"person_ref": normalized_person_ref} if normalized_person_ref else {}),
+            },
+        )
+        now_ms = int(time.time() * 1000)
+        granted: list[dict[str, Any]] = []
+        for row in rows:
+            status = await self._consent.get_request_status(
+                str(row["subject_user_id"]), str(row["request_id"])
+            )
+            if not status or str(status.get("action") or "") != "CONSENT_GRANTED":
+                continue
+            expires_at = status.get("expires_at")
+            if expires_at and int(expires_at) <= now_ms:
+                continue
+            person_ref = str(row.get("public_person_ref") or "")
+            granted.append(
+                {
+                    "bundleId": str(row["bundle_id"]),
+                    "requestId": str(row["request_id"]),
+                    "person": str(row.get("display_name") or "Hussh member"),
+                    "personRef": person_ref,
+                    "profilePath": f"/people/{person_ref}?section=shared#shared-with-you"
+                    if person_ref
+                    else None,
+                    "label": row.get("label") or "Shared information",
+                    "scopeRef": row.get("scope_ref"),
+                    "purpose": row.get("purpose"),
+                    "expiresAt": expires_at,
+                }
+            )
+        return granted
+
     async def cancel(self, *, requester_user_id: str, bundle_id: str) -> dict[str, Any]:
         bundle, items = await self._bundle(requester_user_id, bundle_id)
         for item in items:
@@ -316,15 +420,60 @@ class InformationRequestService:
                 user_id=str(bundle["subject_user_id"]),
                 agent_id=str(bundle["requester_principal"]),
                 scope=str((status or {}).get("scope") or item.get("scope") or ""),
-                action="CONSENT_DENIED",
+                # The requester withdrew; the owner never decided. A denial
+                # here would tell the owner they refused something they did
+                # not see, so the ledger says what happened.
+                action="CANCELLED",
                 request_id=str(item["request_id"]),
-                metadata={"cancelled_by_requester": True, "bundle_id": bundle_id},
+                metadata={
+                    # The requester's name and picture travel with the row so
+                    # the owner's history never headlines a withdrawal with
+                    # the raw principal id.
+                    **requester_identity_metadata((status or {}).get("metadata")),
+                    "cancelled_by_requester": True,
+                    "bundle_id": bundle_id,
+                },
             )
         await self._rows(
             "UPDATE one_information_request_bundles SET cancelled_at = COALESCE(cancelled_at, NOW()) WHERE bundle_id = CAST(:bundle AS UUID) RETURNING bundle_id",
             {"bundle": bundle_id},
         )
         return await self.get(requester_user_id=requester_user_id, bundle_id=bundle_id)
+
+    async def _record_export_read(
+        self,
+        *,
+        subject_user_id: str,
+        requester_principal: str,
+        scope: str,
+        request_id: str,
+        bundle_id: str,
+        export_revision: Any,
+        grant_metadata: Any,
+    ) -> None:
+        """Leave the owner an EXPORT_READ record, at most once per request per hour.
+
+        The requester reading the encrypted package is the moment the owner's
+        records actually leave; approval alone is not. The ledger is the only
+        place the owner can see that, so it is written here rather than in a
+        side table nobody surfaces. The ledger serializes the hour-window check
+        and insert across workers so concurrent reads leave only one record.
+
+        ``grant_metadata`` is the GRANTED row's metadata (a copy of the request
+        metadata); the requester identity keys are carried onto this row so the
+        owner's history keeps showing the person, not the principal id.
+        """
+        await self._consent.record_export_read_once(
+            user_id=subject_user_id,
+            agent_id=requester_principal,
+            scope=scope,
+            request_id=request_id,
+            metadata={
+                **requester_identity_metadata(grant_metadata),
+                "bundle_id": bundle_id,
+                "export_revision": export_revision,
+            },
+        )
 
     async def exports(self, *, requester_user_id: str, bundle_id: str) -> dict[str, Any]:
         bundle, items = await self._bundle(requester_user_id, bundle_id)
@@ -367,6 +516,15 @@ class InformationRequestService:
                         "ciphertext_bytes": encrypted.get("ciphertext_bytes"),
                     },
                 }
+                await self._record_export_read(
+                    subject_user_id=str(bundle["subject_user_id"]),
+                    requester_principal=str(bundle["requester_principal"]),
+                    scope=str(status.get("scope") or item.get("scope") or ""),
+                    request_id=str(item["request_id"]),
+                    bundle_id=bundle_id,
+                    export_revision=encrypted.get("export_revision"),
+                    grant_metadata=status.get("metadata"),
+                )
                 exports.append(
                     {
                         "requestId": item["request_id"],

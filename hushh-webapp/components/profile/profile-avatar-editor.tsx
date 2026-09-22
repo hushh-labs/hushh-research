@@ -3,12 +3,12 @@
 import { useState } from "react";
 import Image from "next/image";
 import {
-  Camera as CameraIcon,
-  ImagePlus,
-  Loader2,
-  Trash2,
-  User as UserIcon,
-} from "lucide-react";
+  CameraIcon as CameraIcon,
+  ImageSquareIcon as ImagePlus,
+  SpinnerGapIcon as Loader2,
+  TrashIcon as Trash2,
+  UserIcon as UserIcon,
+} from "@/components/icons";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/sheet";
 import { useAuth } from "@/hooks/use-auth";
 import { useEffectiveAvatarUrl } from "@/hooks/use-effective-avatar-url";
-import { pickAvatarDataUrl } from "@/lib/profile/avatar-capture";
+import { pickAvatar } from "@/lib/profile/avatar-capture";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { isNative } from "@/lib/capacitor/platform";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
@@ -56,18 +56,33 @@ export function ProfileAvatarEditor() {
   const handleChange = async () => {
     setSheetOpen(false);
     if (!user || busy) return;
-    let dataUrl: string | null = null;
-    try {
-      dataUrl = await pickAvatarDataUrl();
-    } catch {
-      toast.error("Could not update photo");
+    const picked = await pickAvatar().catch(
+      () => ({ kind: "failed", reason: "plugin" }) as const,
+    );
+    if (picked.kind === "cancelled") return; // the person changed their mind
+    if (picked.kind === "failed") {
+      // Name only what is known: the picker did not produce a photo. Do not
+      // diagnose a permission problem the platform did not report.
+      toast.error(
+        picked.reason === "plugin"
+          ? "Couldn't open your photos. Try again."
+          : "That photo couldn't be read. Try another one.",
+      );
       return;
     }
-    if (!dataUrl) return; // user cancelled
+    const dataUrl = picked.dataUrl;
 
     setPreviewPhoto(dataUrl);
     setBusy(true);
-    const upload = AccountIdentityService.uploadAvatar(user, dataUrl);
+    // "Updated" only on persisted identity evidence. The service resolves
+    // null when there was no session or the server returned no identity;
+    // a resolved promise is not a stored photo.
+    const upload = AccountIdentityService.uploadAvatar(user, dataUrl).then(
+      (identity) => {
+        if (!identity) throw new Error("Photo wasn't saved. Try again.");
+        return identity;
+      },
+    );
     toast.promise(upload, {
       loading: "Updating photo...",
       success: "Profile photo updated.",
@@ -88,7 +103,14 @@ export function ProfileAvatarEditor() {
     setSheetOpen(false);
     if (!user || busy) return;
     setBusy(true);
-    const removal = AccountIdentityService.removeAvatar(user);
+    // Removal clears the custom override only; the provider photo may
+    // reappear, and that is the returned identity, not an error.
+    const removal = AccountIdentityService.removeAvatar(user).then(
+      (identity) => {
+        if (!identity) throw new Error("Photo wasn't removed. Try again.");
+        return identity;
+      },
+    );
     toast.promise(removal, {
       loading: "Removing photo...",
       success: "Profile photo removed.",
@@ -120,7 +142,7 @@ export function ProfileAvatarEditor() {
           onClick={() => setSheetOpen(true)}
           disabled={busy}
           aria-label="Profile photo options"
-          className="group flex h-full w-full items-center justify-center rounded-full outline-none transition duration-200 ease-out focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-default"
+          className="group flex h-full w-full items-center justify-center rounded-full outline-none transition duration-150 ease-out focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-default"
         >
           {shownPhoto ? (
             <Avatar className="h-full w-full">
@@ -156,7 +178,7 @@ export function ProfileAvatarEditor() {
           disabled={busy}
           aria-label="Change profile photo"
           className={cn(
-            "absolute right-0 bottom-0 z-10 inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground ring-2 ring-background transition duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:scale-95 disabled:cursor-default",
+            "absolute right-0 bottom-0 z-10 inline-flex h-6 w-6 items-center justify-center rounded-full bg-primary text-primary-foreground ring-2 ring-background transition duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:scale-95 disabled:cursor-default",
           )}
         >
           {busy ? (

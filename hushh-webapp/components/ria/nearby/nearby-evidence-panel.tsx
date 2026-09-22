@@ -14,7 +14,7 @@
  * between a claim to act on and one to check first.
  */
 
-import { CheckCircle2, Info } from "lucide-react";
+import { CheckCircle2, Info } from "@/components/icons";
 
 import { StatusPill } from "@/lib/morphy-ux/ui/surface-primitives";
 import { EYEBROW, MUTED_TEXT, SUBCARD_SURFACE } from "@/lib/morphy-ux/tokens/surfaces";

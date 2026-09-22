@@ -440,8 +440,8 @@ describe("useLocationChat — action dispatcher", () => {
   });
 
   it.each([
-    [2, 1, "a proposal above the public ceiling"],
-    [24, 1, "the private-share ceiling, copied"],
+    [3, 2, "a proposal above the public ceiling"],
+    [24, 2, "the private-share ceiling, copied"],
     [0.1, 0.25, "a proposal below the shared minimum"],
     [0.5, 0.5, "a proposal already inside the range"],
   ])(
@@ -449,7 +449,7 @@ describe("useLocationChat — action dispatcher", () => {
     async (proposed, expected) => {
       // The only path to createPublicInvite that does not go through the
       // screen's own duration control. The value arrives from a model-authored
-      // directive, and the endpoint is `gt=0, le=1` — so an unclamped number
+      // directive, and the endpoint is `gt=0, le=2` — so an unclamped number
       // reached an API that would 422 it after the person had already said yes.
       const mockPoint = {
         latitude: 10,
@@ -553,9 +553,9 @@ describe("useLocationChat — action dispatcher", () => {
     });
 
     expect(vi.mocked(OneLocationService.captureCurrentPosition)).toHaveBeenCalledTimes(1);
-    // Clamped to 1, not the 2 the model proposed.
+    // Clamped to 2, the public-link ceiling, not the 3 the model proposed.
     //
-    // `CreatePublicInviteRequest.durationHours` is `gt=0, le=1` and the service
+    // `CreatePublicInviteRequest.durationHours` is `gt=0, le=2` and the service
     // refuses anything above PUBLIC_INVITE_MAX_DURATION_HOURS, because a public
     // link is readable by anyone holding it — 24 was the PRIVATE share ceiling,
     // copied. This is the one path to createPublicInvite that does not go
@@ -563,7 +563,7 @@ describe("useLocationChat — action dispatcher", () => {
     // model-authored directive, so an unclamped number reached an endpoint that
     // would 422 it after the person had already said yes.
     expect(vi.mocked(OneLocationService.createPublicInvite)).toHaveBeenCalledWith(
-      expect.objectContaining({ durationHours: 1, locationSnapshot: mockPoint }),
+        expect.objectContaining({ durationHours: 2, locationSnapshot: mockPoint }),
     );
     expect(mockChat).toHaveBeenLastCalledWith(
       expect.objectContaining({

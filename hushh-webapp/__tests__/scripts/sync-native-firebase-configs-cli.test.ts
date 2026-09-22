@@ -72,4 +72,53 @@ describe("native Firebase config sync CLI", () => {
       rmSync(fixtureRoot, { recursive: true, force: true });
     }
   });
+
+  it("accepts the app-scoped Android Firebase artifact used by Capacitor", () => {
+    const fixtureRoot = mkdtempSync(
+      path.join(tmpdir(), "hushh-native-firebase-app-scoped-"),
+    );
+    const appRoot = path.join(fixtureRoot, "hushh-webapp");
+    const source = path.join(
+      appRoot,
+      "android",
+      "app",
+      "google-services.json",
+    );
+    const scriptPath = path.join(
+      process.cwd(),
+      "scripts",
+      "native",
+      "sync-native-firebase-configs.mjs",
+    );
+
+    try {
+      mkdirSync(path.dirname(source), { recursive: true });
+      writeFileSync(path.join(appRoot, "capacitor.config.ts"), "export {};\n");
+      writeFileSync(
+        source,
+        JSON.stringify({
+          project_info: { project_id: "app-scoped-fixture" },
+          client: [
+            {
+              client_info: {
+                android_client_info: { package_name: "com.hussh.app" },
+              },
+            },
+          ],
+        }),
+      );
+
+      execFileSync(process.execPath, [scriptPath, "--platform", "android"], {
+        cwd: appRoot,
+        encoding: "utf8",
+        stdio: "pipe",
+      });
+
+      expect(JSON.parse(readFileSync(source, "utf8"))).toMatchObject({
+        project_info: { project_id: "app-scoped-fixture" },
+      });
+    } finally {
+      rmSync(fixtureRoot, { recursive: true, force: true });
+    }
+  });
 });

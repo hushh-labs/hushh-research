@@ -192,8 +192,15 @@ def build_index() -> dict[str, Any]:
         if route.get("mode") != "redirect":
             raise ValueError(f"route alias {pathname} must be mode=redirect")
         canonical_url = alias.get("canonical_url")
-        if canonical_url not in semantic_urls:
-            raise ValueError(f"route alias {pathname} targets unregistered semantic URL {canonical_url!r}")
+        if (
+            not isinstance(canonical_url, str)
+            or canonical_url not in semantic_urls
+            and route_path(canonical_url) not in layout_by_route
+        ):
+            raise ValueError(
+                f"route alias {pathname} targets an unknown canonical URL "
+                f"{canonical_url!r}"
+            )
         for field in ("owner", "reason", "retirement_policy"):
             if not isinstance(alias.get(field), str) or not alias[field].strip():
                 raise ValueError(f"route alias {pathname} requires {field}")

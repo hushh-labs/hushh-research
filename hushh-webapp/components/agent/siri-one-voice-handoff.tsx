@@ -14,7 +14,7 @@ import {
   AGENT_CONVERSATION_OUTCOME_EVENT,
   AGENT_CONVERSATION_READY_EVENT,
   isAgentConversationOwnerReady,
-  isAgentGeminiVoiceEnabled,
+  isAgentCommandEnabled,
   requestAgentConversation,
   type AgentConversationOutcome,
 } from "@/lib/agent/agent-voice-settings";
@@ -182,7 +182,7 @@ export function SiriOneVoiceHandoff(): null {
       runtimeReady: Boolean(runtime?.oneVoiceContextSnapshot),
       tier: runtime?.tier ?? null,
       ownerReady: isAgentConversationOwnerReady(),
-      voiceEnabled: isAgentGeminiVoiceEnabled(),
+      voiceEnabled: isAgentCommandEnabled(),
     });
     if (state === "expired") {
       void complete(pending, "expired");

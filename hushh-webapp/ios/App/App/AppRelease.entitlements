@@ -27,6 +27,9 @@
 		<string>webcredentials:one.hushh.ai</string>
 		<string>webcredentials:uat.one.hushh.ai</string>
 		<string>webcredentials:dev.one.hushh.ai</string>
+		<string>applinks:one.hushh.ai</string>
+		<string>applinks:uat.one.hushh.ai</string>
+		<string>applinks:dev.one.hushh.ai</string>
 	</array>
 	<key>keychain-access-groups</key>
 	<array>

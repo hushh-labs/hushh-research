@@ -21,7 +21,7 @@ import {
   RefreshCcw,
   Search,
   UserRound,
-} from "lucide-react";
+} from "@/components/icons";
 import { toast } from "sonner";
 import {
   AppPageContentRegion,
@@ -36,6 +36,16 @@ import {
 } from "@/components/app-ui/settings-ui";
 import { AccessibilityStatusAnnouncer } from "@/components/system/accessibility-status-announcer";
 import { ApiRetryState } from "@/components/system/api-retry-state";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -103,6 +113,7 @@ import { CACHE_KEYS } from "@/lib/services/cache-service";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { Button } from "@/lib/morphy-ux/button";
+import { useArmedAction } from "@/lib/ui/use-armed-action";
 import { buildRiaClientWorkspaceRoute, ROUTES } from "@/lib/navigation/routes";
 import {
   buildConsentCenterTabRoute,
@@ -113,6 +124,7 @@ import { cn } from "@/lib/utils";
 import {
   usePublishVoiceSurfaceMetadata,
   useVoiceSurfaceControlTracking,
+  type VoiceSurfaceActionDefinition,
 } from "@/lib/voice/voice-surface-metadata";
 
 type ConsentTab = "requests" | "active" | "history" | "connections";
@@ -374,7 +386,23 @@ function lifecycleLabel(index: number) {
   return `Access ${index + 1}`;
 }
 
-function formatLifecycleEventLabel(event: ConsentTrailEvent) {
+/**
+ * What the owner reads for one event in a request's history.
+ *
+ * The backend records an EXPORT_READ row whenever the requester opens a live
+ * grant. It is an audit record, not a lifecycle transition, and the generic
+ * fallback below would have printed it as "Export read", a word the owner
+ * never sees. Named actions get their own sentence; anything unnamed still
+ * falls back to the humanised action so a new row type is never blank.
+ */
+const LIFECYCLE_EVENT_LABELS: Record<string, string> = {
+  EXPORT_READ: "Opened",
+};
+
+export function formatLifecycleEventLabel(event: ConsentTrailEvent) {
+  const action = String(event.action || "").trim().toUpperCase();
+  const named = LIFECYCLE_EVENT_LABELS[action];
+  if (named) return named;
   const value = String(event.action || event.status || "Consent event")
     .replaceAll("_", " ")
     .toLowerCase();
@@ -391,7 +419,7 @@ function entrySummary(entry: ConsentCenterEntry) {
           total + (trail.event_count || trail.events?.length || 0),
         0,
       );
-    return `${eventCount} consent event${eventCount === 1 ? "" : "s"} across ${trailCount} lifecycle${trailCount === 1 ? "" : "s"}.`;
+    return `${eventCount} event${eventCount === 1 ? "" : "s"} across ${trailCount} request${trailCount === 1 ? "" : "s"}.`;
   }
   if (isEmailHelperConsent(entry.metadata)) {
     return emailHelperConsentSummary(entry.metadata);
@@ -784,7 +812,9 @@ function ConsentHistoryLifecycleDetails({
           const latestDate = formatDate(trail.issued_at || trail.expires_at);
           const scopeLabel =
             trail.scope_description ||
-            (trail.scope ? humanizeConsentScope(trail.scope) : "Consent scope");
+            (trail.scope
+              ? humanizeConsentScope(trail.scope)
+              : "Shared information");
           const canRevoke =
             Boolean(trail.scope) && isRevocableConsentStatus(trail.status);
           const revokeBusy = isScopeBusy(trail.scope);
@@ -967,6 +997,12 @@ function ConsentEntryDetail({
     .map((proposal) => proposal.scopeHandle)
     .sort()
     .join("|");
+  // Don't allow / Decline is irreversible, so it takes a confirming second tap
+  // (the button reads "Sure?" while armed). Stop sharing confirms through the
+  // stock alert dialog instead. Both reset when a different item is selected.
+  const denyConfirm = useArmedAction();
+  const disarmDeny = denyConfirm.disarm;
+  const [revokeDialogOpen, setRevokeDialogOpen] = useState(false);
   useEffect(() => {
     // Information owners' requested scopes are selected by default; offers
     // demand a deliberate recipient opt-in.
@@ -974,7 +1010,9 @@ function ConsentEntryDetail({
       requestedProposalKey ? requestedProposalKey.split("|") : [],
     );
     setSelectedOfferedScopes([]);
-  }, [entry?.id, requestedProposalKey]);
+    disarmDeny();
+    setRevokeDialogOpen(false);
+  }, [disarmDeny, entry?.id, requestedProposalKey]);
 
   if (!entry) {
     return (
@@ -1016,10 +1054,10 @@ function ConsentEntryDetail({
       : null;
   const relatedWorkspace = emailHelperHref
     ? {
-        title: "Email reply",
-        description: "Review the request and draft a reply in Email.",
+        title: "Mail reply",
+        description: "Review the request and draft a reply in Mail.",
         href: emailHelperHref,
-        label: "Open Email",
+        label: "Open Mail",
         external: false,
       }
     : locationHref
@@ -1077,6 +1115,7 @@ function ConsentEntryDetail({
       : entry.status === "pending");
   const isConnectionDecision =
     isPendingDecision && isConnectionRequestEntry(entry);
+  const denyRestingLabel = isConnectionDecision ? "Decline" : "Don't allow";
   const isMarketplaceDecision =
     isPendingDecision && isMarketplaceConsent(entry.metadata, entry.scope);
   const durationOptions =
@@ -1329,18 +1368,25 @@ function ConsentEntryDetail({
             variant="none"
             effect="fade"
             size="sm"
-            className="min-h-11"
+            className={cn(
+              "min-h-11",
+              denyConfirm.armed &&
+                "bg-destructive text-destructive-foreground hover:bg-destructive/90",
+            )}
             disabled={requestBusy}
-            onClick={() => onDeny(entry)}
+            aria-label={
+              denyConfirm.armed
+                ? denyConfirm.ariaLabel(denyRestingLabel)
+                : undefined
+            }
+            onClick={() => denyConfirm.activate(() => onDeny(entry))}
             data-voice-control-id="consent_deny"
           >
             {denyBusy
               ? isConnectionDecision
                 ? "Declining..."
                 : "Rejecting..."
-              : isConnectionDecision
-                ? "Decline"
-                : "Don't allow"}
+              : denyConfirm.label(denyRestingLabel)}
           </Button>
         </section>
       ) : null}
@@ -1360,13 +1406,39 @@ function ConsentEntryDetail({
                 effect="fade"
                 size="sm"
                 disabled={revokeBusy}
-                onClick={() => onRevoke(entry)}
+                onClick={() => setRevokeDialogOpen(true)}
                 data-voice-control-id="consent_revoke"
               >
                 {revokeBusy ? "Stopping..." : "Stop sharing"}
               </Button>
             }
           />
+          <AlertDialog
+            open={revokeDialogOpen}
+            onOpenChange={setRevokeDialogOpen}
+          >
+            <AlertDialogContent size="sm">
+              <AlertDialogHeader>
+                <AlertDialogTitle>
+                  Stop sharing with {resolveCounterpartLabel(entry)}?
+                </AlertDialogTitle>
+                <AlertDialogDescription>
+                  They lose this access right away. The change stays visible in
+                  History.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel>Keep sharing</AlertDialogCancel>
+                <AlertDialogAction
+                  variant="destructive"
+                  onClick={() => onRevoke(entry)}
+                  className="h-11 w-full sm:w-auto"
+                >
+                  Stop sharing
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
         </SettingsGroup>
       ) : null}
 
@@ -1837,7 +1909,9 @@ export function ConsentCenterPage() {
     }
     window.dispatchEvent(
       new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT, {
-        detail: { reconcile: true },
+        // Named so a listener waiting on one specific request (the voice
+        // review step) ignores completions for other requests.
+        detail: { reconcile: true, requestId: normalized || undefined },
       }),
     );
   }, []);
@@ -1863,7 +1937,7 @@ export function ConsentCenterPage() {
                 scopeSelection?.requestedScopeHandles,
               selectedOfferedScopeHandles: scopeSelection?.offeredScopeHandles,
             });
-            CacheSyncService.onConnectionCapabilityMutated(user.uid);
+            CacheSyncService.onConnectionGraphMutated(user.uid);
             markConnectionRequestHandled(requestId);
           } catch (error) {
             console.error(
@@ -2517,48 +2591,13 @@ export function ConsentCenterPage() {
   const consentVoiceSurfaceMetadata = useMemo(() => {
     const tabTitle =
       tab === "requests" ? "Pending" : tab === "active" ? "Active" : "Previous";
-    const actions = [
-      {
-        id: "consents.search",
-        label: "Search consents",
-        purpose:
-          "Filters the current consent list by name, email, scope, or reason.",
-        voiceAliases: ["search consents", "filter consents"],
-      },
-      {
-        id: "consents.review",
-        label: "Review consent details",
-        purpose: "Opens the selected consent request details and next actions.",
-        voiceAliases: ["review consent", "open consent details"],
-      },
-      ...(selectedEntry?.kind === "incoming_request" &&
-      selectedEntry.status === "pending"
-        ? [
-            {
-              id: "consents.approve",
-              label: "Approve request",
-              purpose: "Approves the selected incoming consent request.",
-              voiceAliases: ["approve request", "approve consent"],
-            },
-            {
-              id: "consents.deny",
-              label: "Deny request",
-              purpose: "Denies the selected incoming consent request.",
-              voiceAliases: ["deny request", "deny consent"],
-            },
-          ]
-        : []),
-      ...(selectedEntry?.kind === "active_grant" && selectedEntry.scope
-        ? [
-            {
-              id: "consents.revoke",
-              label: "Revoke active access",
-              purpose: "Revokes the selected active consent grant.",
-              voiceAliases: ["revoke access", "revoke consent"],
-            },
-          ]
-        : []),
-    ];
+    // Nothing here is advertised as a voice action. The only executable ids on
+    // this screen are the ones the generated gateway contract carries
+    // (route.consents, consent.deny, consent.revoke, ...); the search box and
+    // the decision buttons are state the agent can see, not actions it can
+    // claim to run. Advertising consents.* ids that no handler resolved let the
+    // agent promise an approval it could never perform.
+    const actions: VoiceSurfaceActionDefinition[] = [];
 
     return {
       screenId: "consents",
@@ -2594,14 +2633,12 @@ export function ConsentCenterPage() {
           id: "consent_search",
           label: "Search consents",
           purpose: "Filters the current consent list.",
-          actionId: "consents.search",
           role: "input",
         },
         {
           id: "consent_detail_panel",
           label: "Consent details",
           purpose: "Shows the selected consent request details and actions.",
-          actionId: "consents.review",
           role: "panel",
         },
         ...(selectedEntry?.kind === "incoming_request" &&
@@ -2611,14 +2648,12 @@ export function ConsentCenterPage() {
                 id: "consent_approve",
                 label: "Approve request",
                 purpose: "Approves the selected incoming consent request.",
-                actionId: "consents.approve",
                 role: "button",
               },
               {
                 id: "consent_deny",
                 label: "Deny request",
                 purpose: "Denies the selected incoming consent request.",
-                actionId: "consents.deny",
                 role: "button",
               },
             ]
@@ -2629,7 +2664,6 @@ export function ConsentCenterPage() {
                 id: "consent_revoke",
                 label: "Revoke active access",
                 purpose: "Revokes the selected active grant.",
-                actionId: "consents.revoke",
                 role: "button",
               },
             ]
@@ -2925,7 +2959,7 @@ export function ConsentCenterPage() {
                       commitConsentTab(value as ConsentTab)
                     }
                     panelInset="none"
-                    viewportMinHeight="0px"
+                    viewportMinHeight="fill"
                     heightMode="active"
                   >
                     <ConsentSurfaceListSection

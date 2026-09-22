@@ -26,7 +26,11 @@ export default function PuppyOnePage() {
       <AppPageHeaderRegion>
         <PageHeader
           title="Puppy One"
-          description="A personal supercomputer you own. Answers are generated on your machine."
+          // "Answers are generated on your machine" was an unconditional
+          // per-turn claim, and the pill inside the panel can be set to "any
+          // model", which lets the gateway resolve one that runs off it. The
+          // pin is what makes the promise, so the sentence names the pin.
+          description="A personal supercomputer you own. Pin a model to this machine and answers never leave it."
           accent="neutral"
         />
       </AppPageHeaderRegion>
@@ -35,11 +39,22 @@ export default function PuppyOnePage() {
             for them. A broken link to Hussh One is the exception and stays on
             this strip unasked, because nothing else on the page can tell the
             owner that One has stopped seeing the machine. Spaced with a margin
-            rather than a flex gap on purpose -- this region is content-height,
-            and making it a flex column would let the chat panel's flex-1 basis
-            collapse to nothing. */}
+            rather than a flex gap on purpose: this region stays block-level for
+            that spacing, and making it a flex column would let the chat panel's
+            flex-1 basis collapse to nothing. */}
         <PuppyMachineSheet className="mb-3" />
-        <HermesChatPanel />
+        {/* The panel carries its OWN bounded height here.
+            `AppPageContentRegion` is width-only, so the panel's `flex-1` has
+            nothing to divide and it grew to content height: a long
+            conversation pushed the composer down the document instead of
+            scrolling inside the panel, and the same component behaved
+            correctly inside the workspace. Not the workspace's
+            `100dvh`-minus-chrome height, because the page header and the strip
+            above sit in the same scroll root and a full-viewport panel would
+            push the composer back below the fold. The border and radius mirror
+            the workspace's wrapper so the two entry points read as one
+            component. */}
+        <HermesChatPanel className="h-[min(68dvh,42rem)] min-h-[420px] overflow-hidden rounded-2xl border border-border/60 bg-background" />
       </AppPageContentRegion>
     </AppPageShell>
   );

@@ -13,7 +13,7 @@ import {
   List,
   ListOrdered,
   Underline,
-} from "lucide-react";
+} from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -108,6 +108,27 @@ export function normalizeRichEmailText(value: string): string {
   let normalized = value.replaceAll("\\r\\n", "\n").replaceAll("\\n", "\n");
   normalized = normalized.replace(/([^\n])\s+(?:[\-•]|\*(?!\*))\s+/g, "$1\n- ");
   return normalized;
+}
+
+/**
+ * Converts the reviewed rich editor value into the plain-text companion that
+ * Gmail sends alongside its HTML body. Keeping this here means every sender
+ * uses the same, user-visible content rather than inventing a second parser.
+ */
+export function richEmailPlainText(value: string): string {
+  const normalized = normalizeRichEmailText(value).trim();
+  if (!normalized.startsWith("<") || !normalized.includes(">")) {
+    return normalized;
+  }
+  if (typeof document === "undefined") {
+    return normalized.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  }
+  const container = document.createElement("div");
+  container.innerHTML = sanitizePastedHtml(normalized);
+  return (container.innerText || container.textContent || "")
+    .replace(/\u00a0/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function parseBlocks(value: string): EmailBlock[] {

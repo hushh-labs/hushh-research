@@ -87,6 +87,48 @@ def test_account_session_status_scopes_remote_revocation_check(monkeypatch):
     assert authenticated_uid == "firebase_uid_123"
 
 
+def test_account_session_status_uses_local_uat_liveness_budget(monkeypatch):
+    observed_timeout: float | None = None
+
+    async def _run(*_args, **_kwargs):
+        return "firebase_uid_123"
+
+    async def _wait_for(awaitable, *, timeout: float):
+        nonlocal observed_timeout
+        observed_timeout = timeout
+        return await awaitable
+
+    monkeypatch.setenv("ENVIRONMENT", "development")
+    monkeypatch.setattr(account, "run_in_threadpool", _run)
+    monkeypatch.setattr(account.asyncio, "wait_for", _wait_for)
+
+    authenticated_uid = asyncio.run(account._require_session_status_auth("Bearer firebase-token"))
+
+    assert authenticated_uid == "firebase_uid_123"
+    assert observed_timeout == account._LOCAL_FIREBASE_REVOCATION_CHECK_TIMEOUT_SECONDS
+
+
+def test_account_session_status_keeps_deployed_liveness_budget(monkeypatch):
+    observed_timeout: float | None = None
+
+    async def _run(*_args, **_kwargs):
+        return "firebase_uid_123"
+
+    async def _wait_for(awaitable, *, timeout: float):
+        nonlocal observed_timeout
+        observed_timeout = timeout
+        return await awaitable
+
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setattr(account, "run_in_threadpool", _run)
+    monkeypatch.setattr(account.asyncio, "wait_for", _wait_for)
+
+    authenticated_uid = asyncio.run(account._require_session_status_auth("Bearer firebase-token"))
+
+    assert authenticated_uid == "firebase_uid_123"
+    assert observed_timeout == account._FIREBASE_REVOCATION_CHECK_TIMEOUT_SECONDS
+
+
 def test_account_session_status_performs_one_lifecycle_query(monkeypatch):
     from api.utils import firebase_auth as firebase_auth_module
 
@@ -1481,3 +1523,58 @@ def test_reset_account_maps_failure_to_500(monkeypatch):
 
     assert response.status_code == 500
     assert response.json()["detail"] == "Account reset failed"
+
+
+def test_update_display_name_route_reports_pending_shadow_without_stale_identity(monkeypatch):
+    """A shadow that has not caught up is not a failure (the provider committed)
+    and is not a fresh identity either: the client re-fetches on ``identity: null``."""
+    uid = "firebase_uid_123"
+    _configure_firebase_verifier(monkeypatch, uid=uid)
+    monkeypatch.setattr(AccountDeletionLifecycleService, "is_tombstoned", lambda _uid: False)
+
+    async def pending(self, user_id, display_name):
+        assert user_id == uid
+        return {"user_id": uid, "display_name": "Ayesha S", "shadow_sync": "pending"}
+
+    monkeypatch.setattr(ActorIdentityService, "update_display_name", pending)
+
+    response = TestClient(_build_app()).patch(
+        "/api/account/identity/display-name",
+        headers={"Authorization": "Bearer token"},
+        json={"display_name": "Ayesha S"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["user_id"] == uid
+    assert body["shadow_sync"] == "pending"
+    assert body["identity"] is None
+    assert body["display_name"] == "Ayesha S"
+
+
+def test_update_display_name_route_returns_identity_when_synced(monkeypatch):
+    uid = "firebase_uid_123"
+    _configure_firebase_verifier(monkeypatch, uid=uid)
+    monkeypatch.setattr(AccountDeletionLifecycleService, "is_tombstoned", lambda _uid: False)
+
+    async def synced(self, user_id, display_name):
+        return {
+            "user_id": uid,
+            "display_name": "Ayesha S",
+            "email": "a@x.io",
+            "shadow_sync": "synced",
+        }
+
+    monkeypatch.setattr(ActorIdentityService, "update_display_name", synced)
+
+    response = TestClient(_build_app()).patch(
+        "/api/account/identity/display-name",
+        headers={"Authorization": "Bearer token"},
+        json={"display_name": "Ayesha S"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["shadow_sync"] == "synced"
+    assert body["identity"]["display_name"] == "Ayesha S"
+    assert body["identity"]["email"] == "a@x.io"
+    assert "shadow_sync" not in body["identity"]

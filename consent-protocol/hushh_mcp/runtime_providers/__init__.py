@@ -8,9 +8,9 @@ provider (Anthropic, OpenAI, Grok) is exposed through a native transport
 adapter that translates genai-shaped requests/responses to and from that
 provider's native SDK.
 
-This keeps provider choice orthogonal to the rest of the runtime: the chat
-service, voice lanes, and subagents never branch on provider; they call the
-same contract regardless of which brain answers.
+This keeps provider choice orthogonal to the rest of the runtime: chat,
+command transcription, semantic planning, and subagents call the same
+contract regardless of which brain answers.
 """
 
 from __future__ import annotations
@@ -20,17 +20,19 @@ from .factory import (
     ManagedGeminiRuntimeBinding,
     build_gemini_byok_adk_model,
     build_managed_gemini_adk_model,
+    build_managed_live_client,
     build_managed_runtime_client,
     build_runtime_client,
 )
 from .gemini_config import (
-    GEMINI_36_FLASH,
     GEMINI_37_FLASH,
+    GEMINI_38_FLASH,
     build_generate_content_config,
     generation_config_kwargs,
-    is_gemini_36_flash,
     is_gemini_37_flash,
+    is_gemini_38_flash,
     is_gemini_flash_v3,
+    thinking_config_for,
 )
 from .registry import (
     ModelEntry,
@@ -47,19 +49,21 @@ __all__ = [
     "ProviderId",
     "GeminiByokTransportUnsupportedError",
     "ManagedGeminiRuntimeBinding",
-    "GEMINI_36_FLASH",
     "GEMINI_37_FLASH",
+    "GEMINI_38_FLASH",
     "build_generate_content_config",
     "build_gemini_byok_adk_model",
     "build_managed_gemini_adk_model",
+    "build_managed_live_client",
     "build_managed_runtime_client",
     "build_runtime_client",
     "default_model_for_provider",
     "is_known_provider",
-    "is_gemini_36_flash",
     "is_gemini_37_flash",
+    "is_gemini_38_flash",
     "is_gemini_flash_v3",
     "generation_config_kwargs",
+    "thinking_config_for",
     "normalize_provider",
     "resolve_model_entry",
     "supported_providers",

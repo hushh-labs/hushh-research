@@ -73,6 +73,15 @@ function sourceForRoute(route, contractEntry) {
   if (pageFile) files.add(pageFile);
   const verificationFile = contractEntry?.shellVerification?.file;
   if (verificationFile) files.add(verificationFile);
+  // The canonical root is a route-level chat surface, so include its workspace
+  // in the evidence scan. The page is intentionally a thin auth/vault guard;
+  // scanning only it would misclassify the root as non-streaming.
+  if (
+    route === "/" &&
+    fs.existsSync(path.join(appRoot, "components/agent/agent-chat-workspace.tsx"))
+  ) {
+    files.add("components/agent/agent-chat-workspace.tsx");
+  }
 
   const sources = [];
   for (const relative of files) {
@@ -132,6 +141,7 @@ function flagsForSource(source) {
       source.includes("streamPortfolio"),
     native_beacon:
       source.includes("NativeRouteMarker") ||
+      source.includes("NativeTestBeacon") ||
       source.includes("data-native-test-beacon"),
   };
 }
@@ -155,8 +165,8 @@ function isConnectedSystemsRoute(route) {
 
 function screenClassForRoute(route, mode, flags) {
   if (mode === "redirect") return "redirect/alias";
+  if (route === "/") return "public/auth-split";
   if (
-    route === "/" ||
     route === "/developers" ||
     route === "/portfolio/shared"
   ) {
@@ -177,7 +187,7 @@ function screenClassForRoute(route, mode, flags) {
   ) {
     return "hidden flow";
   }
-  if (flags.sse_or_streaming || route === "/agent") return "realtime/SSE";
+  if (flags.sse_or_streaming) return "realtime/SSE";
   if (route.startsWith("/ria") || route.startsWith("/marketplace"))
     return "RIA/provider";
   if (
@@ -199,6 +209,7 @@ function screenClassForRoute(route, mode, flags) {
 function cachePolicyFor(route, screenClass, flags) {
   if (screenClass === "redirect/alias" || screenClass === "public/static")
     return "none";
+  if (screenClass === "public/auth-split") return "memory-only+sse-background";
   if (screenClass === "auth/pre-vault") return "memory-only";
   if (route === "/kai/portfolio" || route === "/kai/analysis")
     return "secure-resource";
@@ -232,13 +243,10 @@ function routeCacheKeys(route) {
   }
   if (isConsentCenterRoute(route))
     return ["CONSENT_CENTER_SUMMARY", "CONSENT_CENTER_LIST"];
-  if (route === "/agent")
-    return ["PKM_METADATA", "KAI_PROFILE", "ANALYSIS_HISTORY"];
   if (route === "/one/kyc")
     return ["PKM_DOMAIN_RESOURCE", "KYC workflow client state"];
   if (route === "/one/profile")
     return ["KAI_PROFILE", "PKM_METADATA", "VAULT_STATUS"];
-  if (route === "/one/profile/security/devices") return ["TRUSTED_DEVICES"];
   if (route === "/pkm")
     return ["PKM_METADATA", "PKM_DOMAIN_RESOURCE", "PKM_UPGRADE_STATUS"];
   if (route === "/gmail")
@@ -280,6 +288,9 @@ function routeCacheKeys(route) {
 
 function resourceClassesFor(route, screenClass) {
   if (screenClass === "public/static") return ["public_static"];
+  if (screenClass === "public/auth-split") {
+    return ["realtime_stream", "pkm_metadata"];
+  }
   if (screenClass === "auth/pre-vault") return ["auth_state"];
   if (isConsentCenterRoute(route)) return ["consent_list"];
   if (isFeedRoute(route)) {
@@ -330,6 +341,7 @@ function sensitivityClassFor(screenClass, resourceClasses) {
   }
   if (screenClass === "auth/pre-vault") return "auth-state";
   if (screenClass === "public/static") return "public";
+  if (screenClass === "public/auth-split") return "user-metadata";
   return "app-metadata";
 }
 
@@ -389,6 +401,8 @@ function readinessKpisFor(route, screenClass, cachePolicy) {
 function ttlClassFor(route, screenClass) {
   if (screenClass === "redirect/alias" || screenClass === "public/static")
     return "none";
+  if (screenClass === "public/auth-split")
+    return "CACHE_TTL.SHORT for authenticated chat resources; none for anonymous intro";
   if (route.includes("/oauth/return") || route === "/logout")
     return "single-use";
   if (screenClass === "realtime/SSE")
@@ -407,6 +421,8 @@ function ttlClassFor(route, screenClass) {
 function warmSourceFor(route, screenClass) {
   if (screenClass === "public/static" || screenClass === "redirect/alias")
     return "none";
+  if (screenClass === "public/auth-split")
+    return "anonymous intro or route-level chat session memory after vault unlock";
   if (route === "/one/kai/news") {
     return "route resource loader with memory/device stale cache; personalized symbols are added only after vault unlock";
   }
@@ -430,6 +446,8 @@ function warmSourceFor(route, screenClass) {
 function refreshTriggerFor(route, screenClass) {
   if (screenClass === "redirect/alias" || screenClass === "public/static")
     return "none";
+  if (screenClass === "public/auth-split")
+    return "authenticated chat stream and user-session invalidation; none for anonymous intro";
   if (isConsentCenterRoute(route)) {
     return "FCM/SSE consent-change reconciliation plus stale-aware background refresh; explicit user refresh may force";
   }
@@ -458,6 +476,8 @@ function isPkmEpochRoute(route) {
 function invalidatorFor(route, screenClass) {
   if (screenClass === "redirect/alias" || screenClass === "public/static")
     return "none";
+  if (screenClass === "public/auth-split")
+    return "CacheSyncService user/session and PKM metadata invalidation after unlock";
   if (isConsentCenterRoute(route) || route.includes("/requests"))
     return "CacheSyncService.onConsentMutated";
   if (isFeedRoute(route)) {
@@ -488,11 +508,21 @@ function realtimePolicyFor(route, screenClass) {
   if (isConsentCenterRoute(route)) {
     return "FCM consent changes invalidate the shared cache and retained-data refresh the visible summary/list; visible SSE fallback reconciles when push is unavailable";
   }
-  if (screenClass !== "realtime/SSE") return "not realtime";
+  if (
+    screenClass !== "realtime/SSE" &&
+    screenClass !== "public/auth-split"
+  ) return "not realtime";
+  if (screenClass === "public/auth-split") {
+    return "anonymous intro stays static; authenticated Chat streams only after the vault and phone guards settle";
+  }
   return "cached shell/data renders first; stream patches active view state and cache through service-layer adapters only";
 }
 
 function reviewerFixtureFor(route, nativeRow) {
+  // `/agent` is retained only as a web compatibility redirect. Reviewer
+  // rehearsals must exercise the canonical root Chat surface, never the
+  // redirect itself.
+  if (route === "/agent") return "/";
   if (nativeRow?.initialRoute) return nativeRow.initialRoute;
   if (route.startsWith("/ria/clients/[userId]/accounts")) {
     return "/ria/clients/${REVIEWER_UID}/accounts/acct_demo_taxable_main?test_profile=1";
@@ -516,7 +546,12 @@ function findingsFor(route, mode, flags, screenClass, nativeRow) {
     findings.push("review native route beacon coverage");
   }
   if (
-    !["public/static", "redirect/alias", "auth/pre-vault"].includes(
+    ![
+      "public/static",
+      "public/auth-split",
+      "redirect/alias",
+      "auth/pre-vault",
+    ].includes(
       screenClass,
     ) &&
     !flags.use_stale_resource &&
@@ -534,7 +569,12 @@ function findingsFor(route, mode, flags, screenClass, nativeRow) {
   }
   if (
     flags.hushh_loader &&
-    !["auth/pre-vault", "hidden flow", "public/static"].includes(screenClass)
+    ![
+      "auth/pre-vault",
+      "hidden flow",
+      "public/static",
+      "public/auth-split",
+    ].includes(screenClass)
   ) {
     findings.push(
       "loader detected; verify warm cache path avoids blocking loader",
@@ -708,7 +748,7 @@ function linkageInvariants() {
     ["lib/cache/cache-sync-service.ts", "bumpPkmInvalidationEpoch"],
     ["lib/pkm/use-pkm-domain-change-revision.ts", "currentPkmInvalidationEpoch"],
     ["components/profile/pkm-natural-panel.tsx", "usePkmDomainChangeRevision"],
-    ["app/profile/profile-workspace-page.tsx", "currentPkmInvalidationEpoch"],
+    ["components/profile/profile-workspace-page.tsx", "currentPkmInvalidationEpoch"],
   ];
   for (const [relPath, needle] of epochLinks) {
     const source = readSource(relPath);

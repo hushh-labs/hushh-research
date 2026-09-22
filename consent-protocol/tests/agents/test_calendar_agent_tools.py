@@ -127,6 +127,7 @@ def test_calendar_connection_requirement_becomes_a_connect_directive(monkeypatch
     result = asyncio.run(tools.calendar_summary(context))
 
     assert result["status"] == "connection_required"
+    assert result["directive"] == context.state["hussh:pending_directive:calendar"]
     directive = context.state["hussh:pending_directive:calendar"]
     assert directive["delegateAgentId"] == "agent_calendar"
     assert directive["payload"]["type"] == "calendar.connect"
@@ -148,6 +149,7 @@ def test_calendar_write_only_creates_a_confirmation_directive(monkeypatch) -> No
     )
 
     assert result["status"] == "confirmation_required"
+    assert result["directive"] == context.state["hussh:pending_directive:calendar"]
     directive = context.state["hussh:pending_directive:calendar"]
     assert directive["payload"]["proposalId"] == "gcal_example"
     assert directive["payload"]["type"] == "calendar.execute_proposal"
@@ -269,6 +271,118 @@ def test_timezone_falls_back_to_utc_on_a_path_shaped_value() -> None:
     # narrower except clause this replaces did not catch.
     context = SimpleNamespace(state={"hussh:timezone": "../etc"})
     assert tools._timezone(context) == "UTC"
+
+
+def test_calendar_propose_directive_carries_structured_event_fields(monkeypatch) -> None:  # noqa: ANN001
+    # The client card needs title/time/attendees as distinct fields, not just
+    # the flattened `summary` sentence -- this is the additive payload change.
+    context = _context()
+    calendar = _Calendar()
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: calendar)
+
+    asyncio.run(
+        tools.propose_calendar_event(
+            context,
+            title="Planning",
+            start_at="2026-08-11T10:00:00+05:30",
+            end_at="2026-08-11T10:30:00+05:30",
+            attendees=["person@example.com"],
+            location="Room 4",
+        )
+    )
+
+    payload = context.state["hussh:pending_directive:calendar"]["payload"]
+    assert payload["title"] == "Planning"
+    assert payload["startAt"] == "2026-08-11T10:00:00Z"
+    assert payload["endAt"] == "2026-08-11T10:30:00Z"
+    assert payload["attendees"] == ["person@example.com"]
+    assert payload["sendUpdates"] is True
+    # Byte-identical to the pre-existing assertions -- purely additive.
+    assert payload["type"] == "calendar.execute_proposal"
+    assert payload["proposalId"] == "gcal_example"
+
+
+def test_calendar_cancel_directive_reads_structured_fields_from_the_fetched_event(
+    monkeypatch,
+) -> None:  # noqa: ANN001
+    # A cancel proposal's input payload only ever has event_id + send_updates
+    # -- the real title/time/attendees live under plan["current_event"], the
+    # event GoogleCalendarService.propose() fetched from Google. The
+    # directive's structured fields must come from there, not fall back to
+    # the bare event_id the flat `summary` string uses.
+    context = _context()
+    calendar = _Calendar()
+
+    async def propose(**kwargs: object) -> dict[str, object]:
+        return {
+            "proposal_id": "gcal_cancel",
+            "expires_at": "2026-08-11T12:00:00Z",
+            "plan": {
+                "event_id": "evt-1",
+                "send_updates": True,
+                "current_event": {
+                    "title": "Design review",
+                    "start": {"dateTime": "2026-08-11T10:00:00+05:30"},
+                    "end": {"dateTime": "2026-08-11T10:30:00+05:30"},
+                    "location": "Room 4",
+                    "attendees": [{"email": "person@example.com", "response_status": "accepted"}],
+                },
+            },
+        }
+
+    calendar.propose = propose  # type: ignore[method-assign]
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: calendar)
+
+    asyncio.run(tools.propose_calendar_cancellation(context, event_id="evt-1"))
+
+    payload = context.state["hussh:pending_directive:calendar"]["payload"]
+    assert payload["eventId"] == "evt-1"
+    assert payload["title"] == "Design review"
+    assert payload["startAt"] == "2026-08-11T10:00:00+05:30"
+    assert payload["endAt"] == "2026-08-11T10:30:00+05:30"
+    assert payload["location"] == "Room 4"
+    assert payload["attendees"] == ["person@example.com"]
+
+
+def test_calendar_propose_directive_carries_a_structured_conflicts_list(monkeypatch) -> None:  # noqa: ANN001
+    context = _context()
+    calendar = _Calendar()
+
+    async def propose(**kwargs: object) -> dict[str, object]:
+        return {
+            "proposal_id": "gcal_example",
+            "expires_at": "2026-08-11T12:00:00Z",
+            "plan": {
+                "title": "Client call",
+                "start_at": "2026-08-11T10:00:00+05:30",
+                "end_at": "2026-08-11T10:30:00+05:30",
+                "attendees": [],
+                "send_updates": True,
+                "conflicts": [
+                    {
+                        "title": "Design review",
+                        "start": {"dateTime": "2026-08-11T10:00:00+05:30"},
+                    }
+                ],
+            },
+        }
+
+    calendar.propose = propose  # type: ignore[method-assign]
+    monkeypatch.setattr(tools, "get_google_calendar_service", lambda: calendar)
+
+    asyncio.run(
+        tools.propose_calendar_event(
+            context,
+            title="Client call",
+            start_at="2026-08-11T10:00:00+05:30",
+            end_at="2026-08-11T10:30:00+05:30",
+        )
+    )
+
+    payload = context.state["hussh:pending_directive:calendar"]["payload"]
+    assert payload["conflicts"] == [
+        {"title": "Design review", "startAt": "2026-08-11T10:00:00+05:30"}
+    ]
 
 
 def test_calendar_write_permission_becomes_an_incremental_oauth_directive(monkeypatch) -> None:  # noqa: ANN001

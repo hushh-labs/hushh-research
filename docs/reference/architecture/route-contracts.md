@@ -72,7 +72,6 @@ Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.t
 - `/one/profile/security`
 - `/one/profile/security/vault`
 - `/one/profile/security/session`
-- `/one/profile/security/devices`
 - `/one/profile/security/devices/authorize`
 - `/one/profile/my-data`
 - `/one/profile/my-data/domain?key=<domain_key>`
@@ -97,6 +96,7 @@ use `ApiService.apiFetch` and never embed a real person reference at build time.
 - `/one/profile/receipts`
 - `/one/profile/gmail/oauth/return`
 - `/one/connect`
+  - `?reviewPerson=<exact-person-id>` opens Connect's existing scope review after an authenticated directory-bounded lookup. Loading the route sends nothing. Incoming requests open their exact Consent Center review; outgoing requests remain pending. A Location prerequisite retains its original person and task until the owner returns with Continue and current Location eligibility is checked again. Closing the review consumes this query so the same target can be reopened.
 - `/one/connect/settings`
 - `/one/consent`
 - `/one/feed`

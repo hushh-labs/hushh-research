@@ -1,14 +1,31 @@
 manifest_version: 2
 id: agent_personal_information
-name: Information Marketplace
-version: 0.1.0
+name: Memory Agent
+version: 0.2.0
 description: >
-  Marketplace chatbot under One. Lets the owner query, publish, and manage their
-  own PKM data slices with consent, and answers what is published and what it is
-  worth. Delegatable by Agent One over A2A.
+  Memory assistant under One. Lets the owner review what One remembers, what they
+  have made available, and who has asked to see it, with consent. Delegatable by
+  Agent One over A2A.
+one_exposure:
+  service_id: personal_information
+  discovery_status: discoverable
+  exposure_status: active
+  supported_entrypoints:
+    - typed
 model: gemini-default
+runtime:
+  kind: adk
+  adk_mode: task
+  transport:
+    - in_process
+    - chat
 system_instruction: |
-  You are the Information Marketplace agent under One — the assistant inside the
+  You are the owner's Memory Agent under One, the private agent. You help the user understand and control
+  what One remembers, what they have made available, and who has asked to see it. The
+  marketplace remains consent-first and the user's information is never shared without
+  explicit approval.
+
+  You are also the Information Marketplace assistant inside the
   user's personal-data-slice marketplace. You help the user understand and control the
   personal-data slices they publish so they can receive offers, favorable deals,
   or money on THEIR terms. Everything is consent-first: the user's data is never
@@ -73,6 +90,10 @@ required_scopes:
 optional_scopes:
   - cap.pkm.marketplace.manage
 tools:
+  - name: read_my_pkm_domain_summary
+    description: Read a redacted summary of what One remembers for one information area; labels and counts only, never raw records.
+    py_func: hushh_mcp.one_adk.action_tools.read_my_pkm_domain_summary
+    required_scope: pkm.read
   - name: list_published_slices
     description: List the data slices the user has published (set to Available) to the marketplace. Read-only; safe metadata only.
     py_func: hushh_mcp.agents.personal_information.tools.list_published_slices
@@ -97,3 +118,49 @@ tools:
     description: Deny a pending marketplace access request server-side on the owner's explicit instruction. request_id from list_access_requests.
     py_func: hushh_mcp.agents.personal_information.tools.deny_access_request
     required_scope: cap.pkm.marketplace.manage
+subagents:
+  - id: agent_personal_information_attribute_learner
+    name: Attribute Learner
+    description: Extracts explicitly stated preferences from one completed conversation turn for encrypted PKM mutation events.
+    model:
+      provider: gemini
+      name: gemini-default
+      mode: hushh_managed_vertex
+      thinking_level: low
+    runtime:
+      kind: adk
+      adk_mode: single_turn
+      transport:
+        - in_process
+    system_instruction: |
+      You are the Memory Agent's Attribute Learner. Extract only preferences,
+      facts, or characteristics explicitly stated in the supplied user and
+      assistant messages. Do not infer, diagnose, or summarize. Use lowercase
+      snake_case keys and a broad durable domain. Return JSON only in the
+      requested attributes contract; return an empty array when no clear fact
+      is stated. This child never writes PKM and never claims persistence.
+    inputs:
+      - name: conversation_turn
+        type: object
+        description: One completed user and assistant message pair.
+    outputs:
+      - name: attributes
+        type: array
+        description: Explicitly stated attributes with domain, key, value, and confidence.
+    privacy:
+      context_allowlist:
+        - conversation.user_message
+        - conversation.assistant_message
+      plaintext_telemetry: false
+    telemetry_namespace: agent.personal_information.attribute_learner
+    performance:
+      latency_p95_ms: 30000
+      max_output_tokens: 2048
+    rollout:
+      strategy: general
+      rollback: Disable the Attribute Learner child and preserve the conversation without inference.
+    availability:
+      environments:
+        - development
+        - uat
+        - production

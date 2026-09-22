@@ -134,6 +134,18 @@ def test_backend_and_readiness_job_share_the_supported_text_model_regions() -> N
     assert "##_VERIFY_MANAGED_VERTEX_RUNTIME=${verify_managed_vertex_runtime}" in uat_workflow
 
 
+def test_managed_vertex_readiness_job_clears_retained_runtime_secrets() -> None:
+    backend_build = _read("deploy/backend.cloudbuild.yaml")
+    deploy_start = backend_build.index('gcloud run jobs deploy "${job_name}"')
+    execute_start = backend_build.index('gcloud run jobs execute "${job_name}"')
+    readiness_deploy = backend_build[deploy_start:execute_start]
+
+    # The job probes the managed model with synthetic inputs; it must not
+    # retain application secrets, including the retired Live credential.
+    assert "--clear-secrets" in readiness_deploy
+    assert "--set-secrets" not in readiness_deploy
+
+
 def test_backend_vertex_preflight_uses_supported_service_usage_command() -> None:
     backend_build = _read("deploy/backend.cloudbuild.yaml")
 
@@ -176,19 +188,68 @@ def test_cross_project_vertex_fallback_is_dev_or_exact_uat_personal_project_only
     assert '_GENAI_PROJECT_ID: ""' in backend_build
 
 
-def test_uat_uses_the_rehearsed_vertex_live_fallback_when_developer_credits_are_depleted() -> None:
+def test_command_deploys_do_not_restore_live_or_model_pack_dependencies() -> None:
+    sources = [
+        _read("deploy/backend.cloudbuild.yaml"),
+        _read(".github/workflows/deploy-uat.yml"),
+        _read(".github/workflows/deploy-production.yml"),
+        _read("consent-protocol/scripts/verify_managed_vertex_runtime.py"),
+    ]
+    for source in sources:
+        assert "AGENT_ONE_ADK_MODEL" not in source
+        assert "HUSHH_MANAGED_GEMINI_LIVE_API_KEY" not in source
+        assert "LOCATION_COMMAND_GEMINI_LIVE" not in source
+        assert "LOCATION_COMMAND_TRANSCRIBE_MODEL" not in source
+        assert "gemini-3.5-transcribe-live-preview" not in source
+        assert "gemini_live_capacity_pool" not in source
+        assert "HUSHH_LOCAL_RUNTIME_PACK" not in source
+        assert "ONE_VOICE_MODEL_URL_SIGNER" not in source
+        # The retired relay's fail-open flag and the ADK live region pin must
+        # not come back under their old names either.
+        assert "AGENT_GEMINI_LIVE_ENABLED" not in source
+        assert "AGENT_ONE_ADK_LOCATION" not in source
+    assert all("HUSSH_GEMINI_TEXT_MODEL" in source for source in sources[:3])
+    assert "resolve_fleet_model_name" in sources[3]
+
+
+def test_one_voice_live_env_contract_is_explicit_and_dark_in_production() -> None:
+    """One Live Voice runs on Vertex ADC only, behind one flag, with an exact model pin.
+
+    Every lane carries the three names. Production ships with the flag off.
+    The pinned id must be the registry's native-realtime entry, so the deploy
+    substitution and the registry can never disagree.
+    """
+    from hushh_mcp.runtime_providers.registry import resolve_live_model_entry
+
     backend_build = _read("deploy/backend.cloudbuild.yaml")
     uat_workflow = _read(".github/workflows/deploy-uat.yml")
+    dev_workflow = _read(".github/workflows/deploy-dev.yml")
     production_workflow = _read(".github/workflows/deploy-production.yml")
-    readiness_probe = _read("consent-protocol/scripts/verify_managed_vertex_runtime.py")
 
-    fallback = "gemini-live-2.5-flash-native-audio"
-    assert f"##_AGENT_ONE_ADK_MODEL={fallback}" in uat_workflow
-    assert "_AGENT_ONE_ADK_MODEL" not in production_workflow
-    assert 'add_env "AGENT_ONE_ADK_MODEL" "${_AGENT_ONE_ADK_MODEL}"' in backend_build
-    assert "AGENT_ONE_ADK_MODEL=${_AGENT_ONE_ADK_MODEL}" in backend_build
-    assert '_AGENT_ONE_ADK_MODEL: ""' in backend_build
-    assert 'os.getenv("AGENT_ONE_ADK_MODEL") or live_model' in readiness_probe
+    for name in ("ONE_VOICE_LIVE_ENABLED", "VERTEX_LIVE_MODEL_ID", "VERTEX_LIVE_LOCATION"):
+        assert name in backend_build
+        assert f"_{name}=" in uat_workflow
+        assert f"_{name}=" in dev_workflow
+        assert f"_{name}=" in production_workflow
+    assert '_ONE_VOICE_LIVE_ENABLED: "false"' in backend_build
+    assert '_VERTEX_LIVE_MODEL_ID: ""' in backend_build
+    assert '_VERTEX_LIVE_LOCATION: ""' in backend_build
+    assert "_ONE_VOICE_LIVE_ENABLED=false" in production_workflow
+    assert "_ONE_VOICE_LIVE_ENABLED=true" in uat_workflow
+
+    import re
+
+    for source in (uat_workflow, dev_workflow, production_workflow):
+        model = re.search(r"_VERTEX_LIVE_MODEL_ID=([A-Za-z0-9._-]+)", source)
+        location = re.search(r"_VERTEX_LIVE_LOCATION=([a-z0-9-]+)", source)
+        assert model and location
+        entry = resolve_live_model_entry(model.group(1))
+        assert entry.supports_native_realtime is True
+        assert location.group(1) in entry.supported_vertex_locations
+        assert location.group(1) not in {"global", "us", "eu"}
+    # Never an API key for Live in any lane.
+    for source in (backend_build, uat_workflow, dev_workflow, production_workflow):
+        assert "LIVE_API_KEY" not in source
 
 
 def test_production_deploy_builds_candidates_without_serving_traffic() -> None:

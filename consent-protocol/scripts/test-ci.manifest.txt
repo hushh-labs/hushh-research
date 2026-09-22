@@ -3,6 +3,10 @@
 
 tests/quality/test_byok_encryption.py
 tests/test_developer_api_routes.py
+tests/test_encrypted_blob_bounds.py
+tests/test_data_model_audit_script.py
+tests/test_data_model_audit_postgres.py
+tests/services/test_gmail_cache_retention.py
 tests/services/test_consent_request_lock.py
 tests/test_scoped_export_download.py
 tests/test_partner_developer_apps.py
@@ -27,16 +31,27 @@ tests/test_kai_consent_grant_dynamic_scopes.py
 tests/test_kai_analyze_run_store.py
 tests/test_kai_analyze_durable_run_store_deploy_parity.py
 tests/services/test_pkm_service_store_domain_data.py
+tests/test_pkm_served_route_bounds.py
+tests/test_pkm_routes_path_bounds.py
+tests/test_pkm_shared_path_bounds_cwe400.py
+tests/test_pkm_upgrade_run_id_path_bounds.py
 tests/test_pkm_upgrade_routes.py
 tests/test_pkm_upgrade_service.py
 tests/test_vault_keys_metadata.py
 tests/test_one_location_routes.py
 tests/services/test_one_location_agent_service.py
+tests/test_one_capability_runtime_router_mount.py
+tests/services/test_location_brain_semantic_retrieval.py
+tests/services/test_location_circle_direct_executor.py
+tests/services/test_location_circle_name_interaction.py
 tests/services/test_connections_service.py
 tests/services/test_push_notifications.py
 tests/test_fcm_messages.py
 tests/routes/test_connections_route.py
 tests/test_adk_a2a_compliance_script.py
+tests/test_agent_manifests.py
+tests/test_hushh_adk_single_turn.py
+tests/services/test_pkm_agent_lab_service.py
 tests/test_ria_claim_flow.py
 tests/test_ria_iam_service_architecture.py
 tests/test_kai_optimize_realtime_contract.py
@@ -47,6 +62,7 @@ tests/test_llm_operon_stream_error_leak.py
 tests/test_stream_agent_thinking_gemini_error_cwe209.py
 tests/test_one_location_db_error_detail_cwe209.py
 tests/test_cloudbuild_step_arg_limit.py
+tests/test_gmail_information_request_release_contract.py
 tests/test_uat_deploy_no_traffic_contract.py
 tests/test_verify_env_secrets_parity.py
 tests/test_deploy_sha_gate_payload_size.py
@@ -145,6 +161,11 @@ tests/test_account_deletion_tombstone_migration.py
 tests/test_account_deletion_release_workflow.py
 tests/test_cloud_run_image_resolution.py
 
+# First-party document renewal: expiry is not revocation, but revoked lineage
+# can never renew or regain authority through a later grant/duplicate token.
+tests/test_vault_owner_token_renewal.py
+tests/test_internal_vault_owner_token_validation.py
+
 # Contact discovery.
 #
 # `POST /api/marketplace/contacts/match` answers "is the person behind this
@@ -154,6 +175,10 @@ tests/test_cloud_run_image_resolution.py
 # manifest is the only pytest invocation in any lane -- so a guard absent from
 # it is decoration.
 tests/test_contact_discovery_hardening.py
+tests/test_trust.py
+tests/test_trust_routes.py
+tests/test_trust_link_session_binding.py
+tests/test_trust_link_verbatim_scope.py
 tests/test_trusted_device_routes.py
 tests/test_trusted_device_heartbeat.py
 tests/quality/test_revocation_persistence.py
@@ -185,10 +210,147 @@ tests/services/test_one_location_nearby_presence_service.py
 tests/test_one_location_nearby_point_contract_migration.py
 tests/test_one_location_nearby_check_in_preferences_migration.py
 
-# Exact-release license evidence rejects missing, modified and conflicting metadata.
-tests/test_third_party_license_evidence.py
-# The migration authority decides whether every deploy survives a busy
-# database, and none of its tests had ever run: this file was not in this
-# manifest, and this manifest is the only pytest invocation in any lane. R28's
-# masking tests and the lock-contention retry tests were both decoration.
+# Existing retrieval adapter: deterministic tests do not download a model.
+tests/services/test_action_retrieval.py
+
+# Migration locking, checksum authority and failure recovery.
 tests/test_migration_authority.py
+
+tests/test_dev_release_classification.py
+
+tests/test_data_model_audit_postgres.py
+
+tests/test_data_model_audit_script.py
+
+tests/test_third_party_license_evidence.py
+
+# Merged route execution and per-screen context contracts.
+tests/test_live_context_executable_split.py
+tests/test_one_action_search_contract.py
+tests/test_live_context_screen_state.py
+
+tests/test_adk_dispatch.py
+
+tests/test_information_chat_service.py
+
+# Consent lifecycle authorization and the model/rule boundary (2026-09-11).
+# Each of these guards a property that fails SILENTLY when it breaks: a consent
+# mutation authorized by the model instead of the person's tap, a governed action
+# with no browser handler (offered, confirmed, then nothing), a stored key becoming
+# shareable, a rule overruling the agent that answered, or a stage skipped while
+# reporting as one that ran. None of them is caught by a type error or a 500.
+tests/test_consent_lifecycle_chat.py
+tests/test_internal_path_keys.py
+tests/test_scope_catalog_self_corrects_stale_rows.py
+tests/services/test_structure_decision_is_the_models.py
+tests/services/test_intent_frame_is_the_models.py
+tests/test_agent_stage_skips_are_visible.py
+
+# Location command semantics, retirement and atomic recovery lifecycle.
+tests/operons/location/test_location_command.py
+tests/test_location_command_routes.py
+tests/test_location_command_workflow.py
+tests/test_one_location_named_circle_routes.py
+tests/test_location_requested_workflow_authority.py
+tests/test_location_workflow_compatibility.py
+tests/services/test_location_command_postgres.py
+tests/services/test_location_command_finalize_postgres.py
+tests/services/test_location_command_continuation_postgres.py
+tests/test_kai_local_runtime.py
+
+tests/test_location_command_reads.py
+tests/test_location_audience_authority.py
+tests/services/test_location_public_link_command_postgres.py
+tests/services/test_location_circle_command_postgres.py
+tests/services/test_location_nearby_visit_command_postgres.py
+
+# Agent Chat measurement instruments: AG-UI turn timing, the first-tool harness
+# and latency driver (offline math only), ADK EvalSet shape, conformance replay.
+tests/test_agui_turn_timing.py
+tests/test_encrypted_adk_session_service.py
+tests/scripts/test_eval_one_first_tool.py
+tests/scripts/test_eval_pkm_structure_agent.py
+tests/scripts/test_eval_pkm_latency.py
+tests/scripts/test_eval_kai_adk_synthetic.py
+tests/scripts/test_measure_agent_chat_latency.py
+tests/test_evalsets_are_valid.py
+tests/test_conformance_harness.py
+tests/test_nav_conformance.py
+
+# Gemini generation contract: the two-release catalog policy, the measured
+# thinking_level matrix, the fleet switch, the manifest thinking_level field,
+# and the probe's offline guards.
+tests/services/test_gemini_two_release_policy.py
+tests/services/test_gemini_model_contract.py
+tests/test_fleet_text_model_switch.py
+tests/test_hushh_adk_manifest_and_factory.py
+tests/scripts/test_probe_gemini_generation_contract.py
+
+# The pinned ADK version, no workflow-graph imports, session semantics, A2A import.
+tests/test_adk_pin_contract.py
+
+# CI wiring guards (2026-09-14). Each pins a workflow property that fails
+# SILENTLY when it drifts: the ios lane not scheduled for a web surface its
+# XCUITest renders, or the capability graph gate reading HEAD instead of the
+# pull request base so a repurposed action lands with `breaking: []`. An
+# unlisted test never runs in any lane, so a guard outside this manifest is
+# decoration.
+tests/test_ios_lane_path_filter_covers_native_test_surfaces.py
+tests/test_capability_graph_gate_compares_against_base.py
+
+# Consent and information sharing, proven end to end: the lifecycle proof
+# (request, approve with duration, export, decrypt, deny, revoke, cancel,
+# audit trail), the specialist parity golden, and the audit-record suites.
+tests/test_information_sharing_lifecycle_e2e.py
+tests/test_specialist_turn_parity.py
+tests/test_health_review_mode.py
+tests/services/test_person_profile_service.py
+tests/services/test_information_request_service.py
+tests/services/test_consent_export_read_dedupe.py
+tests/test_consent_handshake.py
+tests/test_consent_db_revocation_worker.py
+tests/scripts/test_eval_specialist_turns.py
+tests/test_consent_refresh_bootstrap.py
+tests/test_hushh_adk_turn.py
+tests/test_agent_runtime_declarations.py
+tests/test_one_manifest_subagent_prompts.py
+tests/test_nav_a2a_agent.py
+tests/test_one_adk_agent_tree.py
+tests/test_a2a_delegation_scopes.py
+tests/test_connections_a2a.py
+tests/test_specialist_availability.py
+tests/test_adk_registration.py
+tests/services/test_connections_chat_service.py
+tests/services/test_connections_manifest_sync.py
+tests/services/test_runtime_providers.py
+tests/services/test_action_directive_ledger.py
+
+# One Live Voice (Gemini Live on Vertex ADC + typed tool layer)
+tests/one_voice/test_config.py
+tests/one_voice/test_factory_live_client.py
+tests/one_voice/test_readiness_route.py
+tests/one_voice/test_tickets.py
+tests/one_voice/test_relay_protocol.py
+tests/one_voice/test_sharing_posture_enforcement.py
+tests/one_voice/test_location_settings_routes.py
+tests/one_voice/test_tool_registry_contract.py
+tests/one_voice/test_tools_people.py
+tests/one_voice/test_phonetic_person_matcher.py
+tests/one_voice/test_tools_location_state.py
+tests/one_voice/test_instruction.py
+tests/one_voice/test_live_tool_selection_eval.py
+tests/one_voice/test_alias_independence.py
+tests/one_voice/test_live_circle_tool_selection_eval.py
+tests/one_voice/test_actor_proof.py
+tests/one_voice/test_live_connections_tool_selection_eval.py
+tests/one_voice/test_live_sos_tool_selection_eval.py
+tests/one_voice/test_relay_sos_lifecycle.py
+tests/one_voice/test_confirm_route_actor_proof.py
+tests/one_voice/test_tools_sharing.py
+tests/one_voice/test_tools_circles.py
+tests/one_voice/test_tools_sos.py
+tests/one_voice/test_tools_profile.py
+tests/one_voice/test_tools_account_lifecycle.py
+tests/one_voice/test_relay_account_lifecycle.py
+tests/one_voice/test_tools_onboarding.py
+tests/one_voice/test_one_voice_postgres.py

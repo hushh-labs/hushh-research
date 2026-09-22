@@ -1,7 +1,10 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { useNativeTestConfig } from "@/lib/testing/native-test";
+import {
+  shouldSkipAmbientIdentityHydrationForAutomation,
+  useNativeTestConfig,
+} from "@/lib/testing/native-test";
 
 describe("useNativeTestConfig", () => {
   afterEach(() => {
@@ -32,5 +35,16 @@ describe("useNativeTestConfig", () => {
       expect(result.current.vaultPassphrase).toBe("local-test-passphrase");
       expect(result.current.expectedUserId).toBe("reviewer-user");
     });
+  });
+
+  it("skips ambient identity hydration only for explicit reviewer automation", () => {
+    expect(shouldSkipAmbientIdentityHydrationForAutomation()).toBe(false);
+
+    window.__HUSHH_NATIVE_TEST__ = {
+      enabled: true,
+      autoReviewerLogin: true,
+    };
+
+    expect(shouldSkipAmbientIdentityHydrationForAutomation()).toBe(true);
   });
 });

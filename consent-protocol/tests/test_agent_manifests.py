@@ -31,7 +31,6 @@ def test_authored_manifest_is_strict_v2(path: Path) -> None:
         "memory_merge",
         "memory_segmentation",
         "pkm_structure",
-        "summary_reducer",
     }
     assert manifest.name.strip()
     assert manifest.description.strip()
@@ -48,6 +47,13 @@ def test_one_is_the_only_product_head_and_invocation_is_narrow() -> None:
     assert not (MANIFEST_ROOT / "orchestrator" / "agent.yaml").exists()
 
 
+def test_one_chat_keeps_tool_progress_in_activity_cards() -> None:
+    instruction = load("one").system_instruction
+    assert "Do not repeat that plumbing as transcript prose" in instruction
+    assert "Available information" in instruction
+    assert "Do not announce a profile" in instruction
+
+
 def test_core_specialists_have_distinct_ids_and_reserved_authority() -> None:
     manifests = [load(name) for name in ("kai", "nav", "kyc", "location")]
     assert len({manifest.id for manifest in manifests}) == 4
@@ -55,6 +61,14 @@ def test_core_specialists_have_distinct_ids_and_reserved_authority() -> None:
     assert load("nav").required_scopes == ["agent.nav.review"]
     assert load("kyc").required_scopes == ["agent.kyc.process"]
     assert load("location").required_scopes == ["cap.location.live.share"]
+
+
+def test_kai_chat_behavior_is_manifest_owned() -> None:
+    manifest = load("kai")
+    chat = next(child for child in manifest.subagents if child.id == "agent_kai_chat")
+    assert chat.runtime.adk_mode == "chat"
+    assert "pkm.profile_summary" in chat.privacy.context_allowlist
+    assert "insufficient data" in chat.system_instruction
 
 
 def test_kyc_owns_strict_zero_knowledge_formatter_contract() -> None:
@@ -65,6 +79,107 @@ def test_kyc_owns_strict_zero_knowledge_formatter_contract() -> None:
     assert formatter["contract_id"] == "agent_kyc.approved_disclosure_formatter.v1"
     assert formatter["strict_client_zk"] is True
     assert formatter["backend_plaintext_allowed"] is False
+
+
+def test_kyc_llm_genes_are_manifest_owned_single_turn_contracts() -> None:
+    manifest = load("kyc")
+    genes = {child.id: child for child in manifest.subagents}
+    expected = {
+        "agent_kyc_route",
+        "agent_kyc_redraft",
+        "agent_kyc_redraft_full",
+        "agent_kyc_extract_and_draft",
+    }
+    assert expected <= genes.keys()
+    for gene_id in expected:
+        gene = genes[gene_id]
+        assert gene.runtime.adk_mode == "single_turn"
+        assert gene.runtime.transport == ["in_process"]
+        assert gene.system_instruction.strip()
+        assert gene.privacy.plaintext_telemetry is False
+        assert gene.performance.max_output_tokens > 0
+        assert gene.rollout.rollback.strip()
+
+
+def test_portfolio_import_extractor_is_manifest_owned_single_turn_contract() -> None:
+    manifest = load("portfolio_import")
+    genes = {child.id: child for child in manifest.subagents}
+    expected = {
+        "agent_portfolio_import_extract": 32768,
+        "agent_portfolio_import_relevance": 256,
+        "agent_portfolio_import_comprehensive": 32768,
+    }
+    assert set(expected) <= genes.keys()
+    for gene_id, output_tokens in expected.items():
+        gene = genes[gene_id]
+        assert gene.model.name == "gemini-default"
+        assert resolve_fleet_model_name(gene.model.name) == GEMINI_MODEL
+        assert gene.runtime.adk_mode == "single_turn"
+        assert gene.runtime.transport == ["in_process"]
+        assert gene.privacy.plaintext_telemetry is False
+        assert gene.performance.max_output_tokens == output_tokens
+        assert gene.rollout.rollback.strip()
+
+
+def test_memory_attribute_learner_is_manifest_owned_single_turn_contract() -> None:
+    manifest = load("personal_information")
+    gene = next(
+        child
+        for child in manifest.subagents
+        if child.id == "agent_personal_information_attribute_learner"
+    )
+    assert gene.name == "Attribute Learner"
+    assert gene.model.name == "gemini-default"
+    assert resolve_fleet_model_name(gene.model.name) == GEMINI_MODEL
+    assert gene.runtime.adk_mode == "single_turn"
+    assert gene.runtime.transport == ["in_process"]
+    assert gene.privacy.plaintext_telemetry is False
+    assert gene.performance.max_output_tokens == 2048
+    assert gene.rollout.rollback.strip()
+
+
+def test_location_transcriber_is_manifest_owned_single_turn_contract() -> None:
+    manifest = load("location")
+    gene = next(child for child in manifest.subagents if child.id == "agent_location_transcriber")
+    assert gene.name == "Location Transcriber"
+    assert gene.model.name == "gemini-default"
+    assert resolve_fleet_model_name(gene.model.name) == GEMINI_MODEL
+    assert gene.runtime.adk_mode == "single_turn"
+    assert gene.runtime.transport == ["in_process"]
+    assert gene.privacy.plaintext_telemetry is False
+    assert "location.voice.recording" in gene.privacy.context_allowlist
+    assert gene.performance.max_output_tokens == 2048
+    assert gene.rollout.rollback.strip()
+
+
+def test_ria_brochure_reader_is_manifest_owned_single_turn_contract() -> None:
+    manifest = load("kai")
+    gene = next(child for child in manifest.subagents if child.id == "agent_ria_brochure")
+    assert gene.name == "RIA Brochure Reader"
+    assert gene.model.name == "gemini-default"
+    assert resolve_fleet_model_name(gene.model.name) == GEMINI_MODEL
+    assert gene.runtime.adk_mode == "single_turn"
+    assert gene.runtime.transport == ["in_process"]
+    assert gene.privacy.plaintext_telemetry is False
+    assert "ria.brochure.text" in gene.privacy.context_allowlist
+    assert gene.performance.max_output_tokens == 2048
+    assert gene.rollout.rollback.strip()
+
+
+def test_kai_portfolio_optimizer_is_manifest_owned_single_turn_contract() -> None:
+    manifest = load("kai")
+    gene = next(
+        child for child in manifest.subagents if child.id == "agent_kai_portfolio_optimizer"
+    )
+    assert gene.name == "Portfolio Optimizer"
+    assert gene.model.name == "gemini-default"
+    assert resolve_fleet_model_name(gene.model.name) == GEMINI_MODEL
+    assert gene.runtime.adk_mode == "single_turn"
+    assert gene.runtime.transport == ["in_process"]
+    assert gene.privacy.plaintext_telemetry is False
+    assert "hussh:pkm_context" in gene.privacy.context_allowlist
+    assert gene.performance.max_output_tokens == 4096
+    assert gene.rollout.rollback.strip()
 
 
 def test_connected_systems_schema_mapper_is_manifest_owned_and_toolless() -> None:
@@ -86,7 +201,6 @@ def test_gemini_model_matrix_uses_current_workload_equivalents() -> None:
         "connected_systems",
         "email",
         "financial_guard",
-        "gmail",
         "kai",
         "kyc",
         "location",
@@ -103,18 +217,17 @@ def test_gemini_model_matrix_uses_current_workload_equivalents() -> None:
     # Founder directive 2026-09-02: every text agent runs the switched Flash model. The
     # reducer and the memory chain's salience workers no longer carry their own pins
     # (gemini-3.1-flash-lite and gemini-3.1-pro-preview), so one switch moves the fleet.
-    for name in ("summary_reducer", "memory_intent", "memory_segmentation"):
+    for name in ("memory_intent", "memory_segmentation"):
         assert load(name).model_config_for_runtime().name == GEMINI_MODEL, name
     one = load("one")
     assert one.model_config_for_runtime().name == GEMINI_MODEL
     assert one.capabilities["heads"] == {
         "text": "gemini-default",
         "specialist_text": "gemini-default",
-        "live": "gemini-3.1-flash-live-preview",
     }
 
 
-def test_one_live_is_the_only_interactive_audio_backend() -> None:
+def test_one_command_runtime_has_no_legacy_voice_backends() -> None:
     assert not (ROOT / "api" / "routes" / "kai" / "agent_voice.py").exists()
     assert not (ROOT / "hushh_mcp" / "services" / "agent_voice_service.py").exists()
     kai_routes = (ROOT / "api" / "routes" / "kai" / "__init__.py").read_text()

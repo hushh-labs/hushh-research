@@ -13,8 +13,9 @@ api.routes.agents.kai_chat                -> POST /api/agents/kai/chat
 
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
+from api.middleware import require_vault_owner_token
 from api.models import ChatRequest, ChatResponse, ValidateTokenRequest
 from hushh_mcp.agents.kai.agent import get_kai_agent
 from hushh_mcp.consent.token import validate_token_with_db
@@ -68,7 +69,10 @@ async def validate_token_endpoint(request: ValidateTokenRequest):
 
 
 @router.post("/agents/kai/chat", response_model=ChatResponse)
-async def kai_chat(request: ChatRequest):
+async def kai_chat(
+    request: ChatRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
     """
     Handle Kai Financial agent chat messages.
 
@@ -79,12 +83,20 @@ async def kai_chat(request: ChatRequest):
 
     Orchestrates multi-agent investment analysis (fundamental, sentiment, valuation).
     """
+    if token_data.get("user_id") != request.userId:
+        raise HTTPException(status_code=403, detail="User ID does not match authenticated user")
+
+    consent_token = str(token_data.get("token") or "").strip()
+    if not consent_token:
+        raise HTTPException(status_code=401, detail="A valid owner token is required")
+
     logger.info("agents.kai_chat user=%s msg=%.50r", request.userId, request.message)
 
     try:
         result = await get_kai_agent().handle_message(
             message=request.message,
             user_id=request.userId,
+            consent_token=consent_token,
             # session_state=request.sessionState # Kai likely manages state in context/memory
         )
 

@@ -2,11 +2,63 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import pytest
+from google.adk.models.base_llm import BaseLlm
+from google.adk.models.llm_response import LlmResponse
 from google.genai import types
+from pydantic import PrivateAttr
 
 from hushh_mcp.services.connections_chat_service import ConnectionsChatService
 
 _TOKEN = "tok"  # noqa: S105
+
+
+@pytest.mark.parametrize(
+    "name,args",
+    [
+        ("list_my_connections", {}),
+        ("list_pending_requests", {}),
+        ("find_people", {"query": "Alex"}),
+        ("request_person_choice", {"name": "Alex"}),
+        ("propose_send_request", {"addressee_user_id": "u2"}),
+        ("propose_accept_request", {"request_id": "r1"}),
+        ("propose_reject_request", {"request_id": "r1"}),
+        ("propose_remove_connection", {"connection_id": "c1"}),
+    ],
+)
+async def test_composed_tools_revalidate_before_every_call(name, args):
+    fake = MagicMock()
+    fake.list_connections_page.return_value = {"items": []}
+    fake.list_requests.return_value = []
+    fake.search_directory.return_value = {"items": []}
+    calls = []
+
+    async def before_read():
+        calls.append("checked")
+
+    svc = ConnectionsChatService(service=fake, chat_store=MagicMock())
+    tools = {t.name: t for t in svc.build_read_proposal_tools("u1", before_read)}
+    context = SimpleNamespace(state={}, actions=SimpleNamespace(skip_summarization=False))
+    await tools[name].run_async(args=args, tool_context=context)
+    await tools[name].run_async(args=args, tool_context=context)
+    assert calls == ["checked", "checked"]
+
+
+async def test_revoked_composed_authority_blocks_service_access():
+    fake = MagicMock()
+
+    async def revoked():
+        raise PermissionError("authority revoked")
+
+    svc = ConnectionsChatService(service=fake, chat_store=MagicMock())
+    fake.reset_mock()
+    for tool in svc.build_read_proposal_tools("u1", revoked):
+        with pytest.raises(PermissionError, match="authority revoked"):
+            await tool.run_async(
+                args={},
+                tool_context=SimpleNamespace(state={}, actions=SimpleNamespace()),
+            )
+    assert fake.mock_calls == []
 
 
 class _Turn:
@@ -41,21 +93,36 @@ def _text_response(text):
     return SimpleNamespace(function_calls=[], text=text, candidates=[])
 
 
-def _scripted_model_call(responses):
-    seq = iter(responses)
+class ScriptedLlm(BaseLlm):
+    _responses: list = PrivateAttr(default_factory=list)
+    _requests: list = PrivateAttr(default_factory=list)
 
-    async def _call(contents, config):
-        return next(seq)
+    def __init__(self, responses):
+        super().__init__(model="gemini-3.7-flash")
+        self._responses = list(responses)
 
-    return _call
+    async def generate_content_async(self, llm_request, stream=False):
+        self._requests.append(llm_request)
+        response = self._responses.pop(0)
+        if isinstance(response, Exception):
+            raise response
+        calls = response.function_calls
+        parts = (
+            [
+                types.Part(function_call=types.FunctionCall(name=call.name, args=call.args))
+                for call in calls
+            ]
+            if calls
+            else [types.Part(text=response.text)]
+        )
+        yield LlmResponse(content=types.Content(role="model", parts=parts))
 
 
 def _loop_service(*, service, store, responses, ready=True):
     return ConnectionsChatService(
         service=service,
         chat_store=store,
-        model_call=_scripted_model_call(responses),
-        genai_types=types,
+        model=ScriptedLlm(responses),
         ready=lambda: ready,
     )
 
@@ -190,6 +257,69 @@ async def test_unready_model_returns_unavailable():
     )
     assert "unavailable" in out["response"].lower()
     assert out["isComplete"] is False
+
+
+async def test_proposal_stops_before_another_model_call():
+    fake = MagicMock()
+    model = ScriptedLlm(
+        [
+            _fc_response("propose_send_request", {"addressee_user_id": "u2", "label": "Alex"}),
+        ]
+    )
+    svc = ConnectionsChatService(service=fake, chat_store=_FakeStore(), model=model)
+    out = await svc.handle_turn(user_id="u1", message="Connect with Alex", consent_token=_TOKEN)
+    assert len(model._requests) == 1
+    assert out["clientPrompt"]["purpose"] == "confirm_send_request"
+    assert out["isComplete"] is False and out["stateChanged"] is False
+    fake.create_request.assert_not_called()
+
+
+async def test_same_batch_tools_stop_after_proposal():
+    fake = MagicMock()
+    response = _fc_response("propose_send_request", {"addressee_user_id": "u2", "label": "Alex"})
+    response.function_calls.append(SimpleNamespace(name="find_people", args={"query": "Other"}))
+    model = ScriptedLlm([response])
+    svc = ConnectionsChatService(service=fake, chat_store=_FakeStore(), model=model)
+    out = await svc.handle_turn(user_id="u1", message="Connect with Alex", consent_token=_TOKEN)
+    assert out["clientPrompt"]["purpose"] == "confirm_send_request"
+    fake.search_directory.assert_not_called()
+    fake.create_request.assert_not_called()
+
+
+async def test_model_failure_after_read_does_not_replay():
+    fake = MagicMock()
+    fake.list_connections_page.return_value = {"items": [], "totalCount": 0}
+    model = ScriptedLlm(
+        [
+            _fc_response("list_my_connections", {}),
+            RuntimeError("fixture provider failed"),
+        ]
+    )
+    store = _FakeStore()
+    svc = ConnectionsChatService(service=fake, chat_store=store, model=model)
+    out = await svc.handle_turn(user_id="u1", message="List connections", consent_token=_TOKEN)
+    fake.list_connections_page.assert_called_once()
+    assert out["isComplete"] is False
+    assert store.added[-1]["status"] == "error"
+    assert "unavailable" in out["response"]
+
+
+async def test_prompt_state_does_not_leak_between_turns():
+    fake = MagicMock()
+    model = ScriptedLlm(
+        [
+            _fc_response("propose_remove_connection", {"connection_id": "c1", "label": "Alex"}),
+            _text_response("Connections are people you trust."),
+        ]
+    )
+    svc = ConnectionsChatService(service=fake, chat_store=_FakeStore(), model=model)
+    first = await svc.handle_turn(user_id="u1", message="Remove Alex", consent_token=_TOKEN)
+    second = await svc.handle_turn(
+        user_id="u1", message="Explain connections", consent_token=_TOKEN
+    )
+    assert "clientPrompt" in first and "clientPrompt" not in second
+    assert second["response"] == "Connections are people you trust."
+    fake.remove_connection.assert_not_called()
 
 
 def _svc_with_mock():

@@ -74,10 +74,10 @@ try {
   fail(`cannot read native privacy/build metadata (${error.message})`);
 }
 
-if (contract?.protocol_version !== "one.voice.privacy-contract.v1") {
+if (contract?.protocol_version !== "one.voice.privacy-contract.v2") {
   fail("privacy contract protocol version is missing or unsupported.");
 }
-if (contract?.app_store_declaration_contract_version !== "one-voice-privacy-v1") {
+if (contract?.app_store_declaration_contract_version !== "one-voice-privacy-v2") {
   fail("privacy contract must require the current App Store declaration version.");
 }
 for (const key of contract?.required_info_plist_keys ?? []) {
@@ -94,33 +94,18 @@ for (const fileName of ["OneVoicePrivacyContract.v1.json", "OneVoiceModelNotices
   }
 }
 
-const fluidModel = findNotice(notices, "fluid-audio-parakeet-eou-120m-coreml-v1");
-if (!fluidModel || fluidModel.license !== "NVIDIA Open Model License") {
-  fail("FluidAudio model notice must identify the exact upstream model license.");
-}
-const fluidEnabled = plistBoolean(infoPlist, "OneVoiceFluidAudioEnabled");
-const fluidBenchmarkEligible = plistBoolean(infoPlist, "OneVoiceFluidAudioBenchmarkEligible");
-if (fluidEnabled === null || fluidBenchmarkEligible === null) {
-  fail("Info.plist must explicitly declare FluidAudio release and benchmark flags.");
-}
-const allowedBuckets = plistStringArray(infoPlist, "OneVoiceModelPackAllowedBuckets");
-if (
-  allowedBuckets.length !== 1 ||
-  allowedBuckets[0] !== "$(ONE_VOICE_MODEL_PACK_BUCKET)"
-) {
-  fail("Info.plist must use the environment-owned One Voice model-bucket build setting.");
-}
-if (!xcodeProject.includes("ONE_VOICE_MODEL_PACK_BUCKET = hushh-pda-uat-one-voice-model-packs;")) {
-  fail("The native UAT default must define its One Voice model bucket explicitly.");
-}
-if (fluidEnabled === "true") {
-  if (fluidModel.approval_state !== "approved" || fluidModel.release_enabled !== true) {
-    fail("FluidAudio cannot be enabled without an approved, release-enabled model notice.");
-  }
-  if (fluidBenchmarkEligible !== "true") {
-    fail("FluidAudio release selection requires benchmark eligibility.");
-  }
-}
+// v2: bounded command capture stays; One Live Voice adds a server-relayed Live
+// session whose generated audio is streamed for playback only (never stored),
+// with no provider fallback, no background audio, and a hard session ceiling.
+const capture = contract?.voice_capture ?? {};
+if (capture.maximum_duration_seconds !== 60) fail("Command capture must stay bounded to 60 seconds.");
+if (capture.live_conversation !== "server_relay_gemini_live_vertex_adc") fail("Live conversation must be the server relay on Vertex ADC.");
+if (capture.generated_audio !== "streamed_playback_memory_only") fail("Generated audio must be streamed playback only, never stored.");
+if (capture.provider_fallback !== "forbidden") fail("Provider fallback must stay forbidden.");
+if (!Number.isInteger(capture.maximum_live_session_seconds) || capture.maximum_live_session_seconds > 1800) fail("Live sessions must be bounded to at most 30 minutes.");
+if (!["webview_getusermedia", "native_live_audio"].includes(capture.live_capture_path)) fail("Live capture path must be declared.");
+if (contract?.background_audio !== "not_required") fail("Live voice must not require background audio.");
+if (/<string>audio<\/string>/.test(infoPlist)) fail("UIBackgroundModes must not include audio.");
 
 if (!process.exitCode) {
   console.log("One Voice iOS privacy preflight passed.");

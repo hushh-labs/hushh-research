@@ -12,10 +12,12 @@ const {
   mockUpdateAutoApprovePreference: vi.fn(),
   mockUpdateSosVoicePreference: vi.fn(),
 }));
-const { mockGetVoicePreferences, mockUpdateVoicePreferences } = vi.hoisted(() => ({
-  mockGetVoicePreferences: vi.fn(),
-  mockUpdateVoicePreferences: vi.fn(),
-}));
+const { mockGetVoicePreferences, mockUpdateVoicePreferences } = vi.hoisted(
+  () => ({
+    mockGetVoicePreferences: vi.fn(),
+    mockUpdateVoicePreferences: vi.fn(),
+  }),
+);
 
 vi.mock("@/lib/one-location/service", () => ({
   OneLocationService: {
@@ -39,7 +41,6 @@ import {
   forgetVoicePreferences,
   readVoicePreferences,
 } from "@/lib/agent/voice-preferences";
-import { VOICE_ENGINE_VERSION } from "@/lib/agent/voice-engine-changelog";
 
 const userId = "voice-preferences-panel-user";
 
@@ -48,28 +49,18 @@ afterEach(() => {
 });
 
 describe("VoicePreferencesPanel", () => {
-  it("shows the One header with the current engine version", () => {
-    render(
-      <VoicePreferencesPanel userId={userId} onOpenChangelog={() => {}} onOpenExamples={() => {}} />,
-    );
+  it("shows the One command header", () => {
+    render(<VoicePreferencesPanel userId={userId} />);
 
     expect(screen.getByRole("heading", { name: "One" })).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        `Voice engine ${VOICE_ENGINE_VERSION} — powered by Gemini Live`,
-      ),
-    ).toBeInTheDocument();
+    expect(screen.getByText("Location commands")).toBeInTheDocument();
   });
 
   it("opens with voice on and every enforceable domain allowed, matching today's behavior", () => {
-    render(
-      <VoicePreferencesPanel userId={userId} onOpenChangelog={() => {}} onOpenExamples={() => {}} />,
-    );
+    render(<VoicePreferencesPanel userId={userId} />);
 
     expect(screen.getByRole("switch", { name: "Voice control" })).toBeChecked();
-    expect(
-      screen.getByRole("switch", { name: "Location" }),
-    ).toBeChecked();
+    expect(screen.getByRole("switch", { name: "Location" })).toBeChecked();
   });
 
   it("unenforced domains show as coming soon, not a switch", () => {
@@ -78,9 +69,7 @@ describe("VoicePreferencesPanel", () => {
     // switch would silently do nothing. Email and Identity verification
     // do route through them but are not maintained right now, so offering
     // a switch would present them as supported.
-    render(
-      <VoicePreferencesPanel userId={userId} onOpenChangelog={() => {}} onOpenExamples={() => {}} />,
-    );
+    render(<VoicePreferencesPanel userId={userId} />);
 
     for (const label of [
       "Finance",
@@ -93,18 +82,20 @@ describe("VoicePreferencesPanel", () => {
     // Derived from the source of truth rather than hardcoded, so flipping a
     // domain back on updates this test by construction instead of leaving
     // a stale number to chase.
-    const unenforced = VOICE_ENGINE_DOMAINS.filter((domain) => !domain.enforced);
+    const unenforced = VOICE_ENGINE_DOMAINS.filter(
+      (domain) => !domain.enforced,
+    );
     expect(screen.getAllByText("Coming soon")).toHaveLength(unenforced.length);
   });
 
   it("still offers a working switch for the domains that are supported", () => {
     // The counterpart guard: marking things Coming soon must not quietly
     // empty the panel of every real control.
-    render(
-      <VoicePreferencesPanel userId={userId} onOpenChangelog={() => {}} onOpenExamples={() => {}} />,
-    );
+    render(<VoicePreferencesPanel userId={userId} />);
 
-    for (const domain of VOICE_ENGINE_DOMAINS.filter((entry) => entry.enforced)) {
+    for (const domain of VOICE_ENGINE_DOMAINS.filter(
+      (entry) => entry.enforced,
+    )) {
       expect(
         screen.getByRole("switch", { name: domain.label }),
       ).toBeInTheDocument();
@@ -112,9 +103,7 @@ describe("VoicePreferencesPanel", () => {
   });
 
   it("turning off a domain persists to voice preferences", () => {
-    render(
-      <VoicePreferencesPanel userId={userId} onOpenChangelog={() => {}} onOpenExamples={() => {}} />,
-    );
+    render(<VoicePreferencesPanel userId={userId} />);
 
     fireEvent.click(screen.getByRole("switch", { name: "Location" }));
 
@@ -122,110 +111,42 @@ describe("VoicePreferencesPanel", () => {
   });
 
   it("turning off the master toggle disables the domain and safety switches", () => {
-    render(
-      <VoicePreferencesPanel userId={userId} onOpenChangelog={() => {}} onOpenExamples={() => {}} />,
-    );
+    render(<VoicePreferencesPanel userId={userId} />);
 
     fireEvent.click(screen.getByRole("switch", { name: "Voice control" }));
 
     expect(readVoicePreferences(userId).voiceEnabled).toBe(false);
     expect(screen.getByRole("switch", { name: "Location" })).toBeDisabled();
-    expect(
-      screen.getByRole("switch", { name: "Require a tap to confirm" }),
-    ).toBeDisabled();
-    expect(
-      screen.getByRole("switch", { name: "Walk-through mode" }),
-    ).toBeDisabled();
   });
 
-  it("walk-through mode defaults on and persists when turned off", () => {
-    render(
-      <VoicePreferencesPanel userId={userId} onOpenChangelog={() => {}} onOpenExamples={() => {}} />,
-    );
+  it("explains semantic commands without a handwritten phrase catalog", () => {
+    render(<VoicePreferencesPanel userId={userId} />);
 
-    const toggle = screen.getByRole("switch", { name: "Walk-through mode" });
-    expect(toggle).toBeChecked();
-
-    fireEvent.click(toggle);
-
-    expect(readVoicePreferences(userId).walkthroughMode).toBe(false);
-    expect(toggle).not.toBeChecked();
-  });
-
-  it("changelog shows a preview and \"See all updates\" opens the dedicated changelog page", () => {
-    const onOpenChangelog = vi.fn();
-    render(
-      <VoicePreferencesPanel userId={userId} onOpenChangelog={onOpenChangelog} onOpenExamples={() => {}} />,
-    );
-
-    expect(screen.getByText("What's new")).toBeInTheDocument();
-    const seeAll = screen.getByRole("button", { name: "See all updates" });
-    expect(seeAll).toBeInTheDocument();
-
-    fireEvent.click(seeAll);
-
-    expect(onOpenChangelog).toHaveBeenCalledTimes(1);
-  });
-
-  it("voice defaults to Default and persists a pick", () => {
-    render(
-      <VoicePreferencesPanel userId={userId} onOpenChangelog={() => {}} onOpenExamples={() => {}} />,
-    );
-
-    expect(
-      screen.getByRole("combobox", { name: "Voice" }).textContent,
-    ).toContain("Default");
-
-    fireEvent.click(screen.getByRole("combobox", { name: "Voice" }));
-    fireEvent.click(screen.getByRole("option", { name: "Leda — Youthful" }));
-
-    expect(readVoicePreferences(userId).voiceName).toBe("Leda");
-  });
-
-  it("turning off the master toggle disables the voice picker too", () => {
-    render(
-      <VoicePreferencesPanel userId={userId} onOpenChangelog={() => {}} onOpenExamples={() => {}} />,
-    );
-
-    fireEvent.click(screen.getByRole("switch", { name: "Voice control" }));
-
-    expect(screen.getByRole("combobox", { name: "Voice" })).toBeDisabled();
-  });
-
-  it("\"What can I say\" opens the examples page", () => {
-    const onOpenExamples = vi.fn();
-    render(
-      <VoicePreferencesPanel
-        userId={userId}
-        onOpenChangelog={() => {}}
-        onOpenExamples={onOpenExamples}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: /What can I say/ }));
-
-    expect(onOpenExamples).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Use your own words")).toBeInTheDocument();
+    expect(screen.queryByText("What can I say")).toBeNull();
+    expect(screen.queryByText("See all updates")).toBeNull();
   });
 
   it("Location agent defaults load from state and persist through the dedicated endpoint", async () => {
     mockGetState.mockResolvedValue({
       recipients: [],
-      autoApprovePreference: { enabled: false, scope: null, enabledAt: null, ruleVersion: 0 },
-      nearbyCheckInPreferences: { visible: true, allowConnectionRequests: false },
+      autoApprovePreference: {
+        enabled: false,
+        scope: null,
+        enabledAt: null,
+        ruleVersion: 0,
+      },
+      nearbyCheckInPreferences: {
+        visible: true,
+        allowConnectionRequests: false,
+      },
     });
     mockUpdateNearbyCheckInPreferences.mockResolvedValue({
       visible: true,
       allowConnectionRequests: true,
     });
 
-    render(
-      <VoicePreferencesPanel
-        userId={userId}
-        vaultOwnerToken="vault-token"
-        onOpenChangelog={() => {}}
-        onOpenExamples={() => {}}
-      />,
-    );
+    render(<VoicePreferencesPanel userId={userId} vaultOwnerToken="vault-token" />);
 
     const toggle = await screen.findByRole("switch", {
       name: "Allow connection requests",
@@ -246,22 +167,23 @@ describe("VoicePreferencesPanel", () => {
   it("SOS default loads as Open the screen and persists a pick through the dedicated endpoint", async () => {
     mockGetState.mockResolvedValue({
       recipients: [],
-      autoApprovePreference: { enabled: false, scope: null, enabledAt: null, ruleVersion: 0 },
-      nearbyCheckInPreferences: { visible: true, allowConnectionRequests: false },
+      autoApprovePreference: {
+        enabled: false,
+        scope: null,
+        enabledAt: null,
+        ruleVersion: 0,
+      },
+      nearbyCheckInPreferences: {
+        visible: true,
+        allowConnectionRequests: false,
+      },
       sosVoicePreference: { defaultAction: "open" },
     });
     mockUpdateSosVoicePreference.mockResolvedValue({
       defaultAction: "trigger",
     });
 
-    render(
-      <VoicePreferencesPanel
-        userId={userId}
-        vaultOwnerToken="vault-token"
-        onOpenChangelog={() => {}}
-        onOpenExamples={() => {}}
-      />,
-    );
+    render(<VoicePreferencesPanel userId={userId} vaultOwnerToken="vault-token" />);
 
     const combobox = await screen.findByRole("combobox", {
       name: "In an emergency",
@@ -290,14 +212,7 @@ describe("VoicePreferencesPanel", () => {
     });
     const getIdToken = vi.fn().mockResolvedValue("id-token");
 
-    render(
-      <VoicePreferencesPanel
-        userId={userId}
-        getIdToken={getIdToken}
-        onOpenChangelog={() => {}}
-        onOpenExamples={() => {}}
-      />,
-    );
+    render(<VoicePreferencesPanel userId={userId} getIdToken={getIdToken} />);
 
     const toggle = await screen.findByRole("switch", {
       name: "Reuse access from last time",
@@ -314,24 +229,18 @@ describe("VoicePreferencesPanel", () => {
     );
   });
 
-  it("does not claim these actions already ask to confirm", () => {
-    // The copy this replaces said "For actions that already ask to
-    // confirm." Nothing already asks -- voice does not confirm by default,
-    // so that named a set which is empty in practice, and the switch read as
-    // broken to anyone who tried it. Pinned because the failure was silent:
-    // the control worked the whole time, only the words were wrong.
-    render(
-      <VoicePreferencesPanel userId={userId} onOpenChangelog={() => {}} onOpenExamples={() => {}} />,
-    );
+  it("explains that commands pause at an authoritative confirmation card", () => {
+    render(<VoicePreferencesPanel userId={userId} />);
 
     expect(screen.queryByText(/already ask to confirm/i)).toBeNull();
     expect(
-      screen.getByText("For actions that share or change something."),
+      screen.getByText(
+        "Location commands show a card when an action requires your approval. Tap Confirm to continue.",
+      ),
     ).toBeInTheDocument();
-    // The switch itself must survive the rewording.
     expect(
-      screen.getByRole("switch", { name: "Require a tap to confirm" }),
-    ).toBeInTheDocument();
+      screen.queryByRole("switch", { name: "Require a tap to confirm" }),
+    ).toBeNull();
   });
 
   it("says the reuse setting asks as well as offers", async () => {
@@ -344,12 +253,7 @@ describe("VoicePreferencesPanel", () => {
       shareScopesFromLastRequest: false,
     });
     render(
-      <VoicePreferencesPanel
-        userId={userId}
-        getIdToken={async () => "id-token"}
-        onOpenChangelog={() => {}}
-        onOpenExamples={() => {}}
-      />,
+      <VoicePreferencesPanel userId={userId} getIdToken={async () => "id-token"} />,
     );
 
     const description = await screen.findByText(/repeat voice request/i);

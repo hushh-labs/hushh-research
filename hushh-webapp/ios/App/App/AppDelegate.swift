@@ -44,6 +44,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             print("ℹ️ [AppDelegate] Firebase already initialized")
         }
 
+        AppLifecycleHandlers.install()
         NativeTestResetter.resetAppStateIfNeeded(configuration: nativeTestConfig)
         requestVoiceDeviceTestMicrophonePermissionIfNeeded()
 
@@ -91,51 +92,22 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         completionHandler(.newData)
     }
 
-    func applicationWillResignActive(_ application: UIApplication) {
-        // Cover the WebView before iOS captures an app-switcher snapshot. The
-        // cover remains after resume until JavaScript acknowledges this exact
-        // lifecycle generation after account/session validation.
-        HushhSessionPrivacyShield.shared.protectForAppInactive()
-    }
+    // Active/background transitions are observed by AppLifecycleHandlers
+    // through the UIApplication notifications (installed in
+    // didFinishLaunching), so they behave the same under the scene lifecycle,
+    // where UIKit no longer calls the app delegate's transition methods.
 
-    func applicationDidEnterBackground(_ application: UIApplication) {
-        // Use this method to release shared resources, save user data, invalidate timers, and store enough application state information to restore your application to its current state in case it is terminated later.
-        // If your application supports background execution, this method is called instead of applicationWillTerminate: when the user quits.
-    }
-
-    func applicationWillEnterForeground(_ application: UIApplication) {
-        // Called as part of the transition from the background to the active state; here you can undo many of the changes made on entering the background.
-    }
-
-    func applicationDidBecomeActive(_ application: UIApplication) {
-        // Restart any tasks that were paused (or not yet started) while the application was inactive. If the application was previously in the background, optionally refresh the user interface.
-        HushhSessionPrivacyShield.shared.markAppActive()
-        logNotificationSettings(context: "applicationDidBecomeActive")
-        OneVoiceInvocationCoordinator.shared.publishAvailability(state: "foregrounded")
-        OneSystemActionInvocationCoordinator.shared.publishAvailability(state: "foregrounded")
-        OneSystemRequestInvocationCoordinator.shared.publishAvailability(state: "foregrounded")
-    }
-
-    func applicationWillTerminate(_ application: UIApplication) {
-        // Called when the application is about to terminate. Save data if appropriate. See also applicationDidEnterBackground:.
+    /// Called by AppLifecycleHandlers on activation.
+    func logNotificationSettingsOnActivation() {
+        logNotificationSettings(context: "didBecomeActive")
     }
 
     func application(_ app: UIApplication, open url: URL, options: [UIApplication.OpenURLOptionsKey: Any] = [:]) -> Bool {
-        // Handle Google Sign-In URL callback
-        if GIDSignIn.sharedInstance.handle(url) {
-            return true
-        }
-        
-        // Called when the app was launched with a url. Feel free to add additional processing here,
-        // but if you want the App API to support tracking app url opens, make sure to keep this call
-        return ApplicationDelegateProxy.shared.application(app, open: url, options: options)
+        AppLifecycleHandlers.open(url: url, legacyOptions: options)
     }
 
     func application(_ application: UIApplication, continue userActivity: NSUserActivity, restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void) -> Bool {
-        // Called when the app was launched with an activity, including Universal Links.
-        // Feel free to add additional processing here, but if you want the App API to support
-        // tracking app url opens, make sure to keep this call
-        return ApplicationDelegateProxy.shared.application(application, continue: userActivity, restorationHandler: restorationHandler)
+        AppLifecycleHandlers.continueActivity(userActivity)
     }
 
 }

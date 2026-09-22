@@ -203,6 +203,21 @@ jobs:
               - 'hushh-webapp/capacitor.config.ts'
               - 'hushh-webapp/package.json'
               - 'hushh-webapp/package-lock.json'
+              # Web surfaces the CI-run XCUITest renders
+              # (AppUITests/testAccountNotFoundRecoveryReturnsToLogin). A change
+              # here can break the native lane without touching ios/**, so it
+              # must schedule it. Guarded by
+              # consent-protocol/tests/test_ios_lane_path_filter_covers_native_test_surfaces.py
+              - 'hushh-webapp/app/login/**'
+              - 'hushh-webapp/components/onboarding/**'
+              - 'hushh-webapp/components/auth/**'
+              - 'hushh-webapp/components/app-ui/native-*'
+              - 'hushh-webapp/components/vault/**'
+              - 'hushh-webapp/lib/auth/session-invalidation.ts'
+              - 'hushh-webapp/lib/firebase/auth-context.tsx'
+              - 'hushh-webapp/lib/testing/**'
+              - 'hushh-webapp/app/providers.tsx'
+              - 'hushh-webapp/components/one-location/onboarding/location-picker-map.tsx'
               - '.github/workflows/ci.yml'
 
       - id: override
@@ -282,7 +297,9 @@ jobs:
   web-core-check:
     name: "Web Core (Next.js)"
     needs: [preflight-gate]
-    if: needs.preflight-gate.outputs.frontend == 'true'
+    if: >-
+      !cancelled() && needs['preflight-gate'].result == 'success' &&
+      (needs['preflight-gate'].outputs.frontend == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
@@ -326,7 +343,9 @@ jobs:
   web-targeted-check:
     name: "Web Targeted Contracts"
     needs: [preflight-gate]
-    if: needs.preflight-gate.outputs.frontend == 'true'
+    if: >-
+      !cancelled() && needs['preflight-gate'].result == 'success' &&
+      (needs['preflight-gate'].outputs.frontend == 'true')
     runs-on: ubuntu-latest
     # Was 15, which the job could not fit. Downloading Chromium and WebKit
     # took 13-15 minutes on its own, so the lane either died mid-download or
@@ -345,6 +364,16 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
           cache-dependency-path: hushh-webapp/package-lock.json
+
+      # The One Voice verification includes the checked-in CapabilityGraphV1
+      # compiler.  It is deliberately a source-of-truth check, so the
+      # frontend-targeted lane must use the same locked runtime dependencies
+      # rather than falling back to the runner's ambient Python installation.
+      - uses: ./consent-protocol/.github/actions/setup-python-uv
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          protocol-dir: ./consent-protocol
+          sync-dev-group: "false"
 
       # The browsers are the whole cost of this lane, and they only change when
       # the Playwright dependency does. Keying on the lockfile means a normal
@@ -392,7 +421,9 @@ jobs:
   ios-native-check:
     name: "iOS Native (Xcode)"
     needs: [preflight-gate]
-    if: needs.preflight-gate.outputs.ios == 'true'
+    if: >-
+      !cancelled() && needs['preflight-gate'].result == 'success' &&
+      (needs['preflight-gate'].outputs.ios == 'true')
     runs-on: macos-15
     timeout-minutes: 45
     env:
@@ -593,11 +624,31 @@ jobs:
   protocol-check:
     name: "Protocol (Python)"
     needs: [preflight-gate]
-    if: needs.preflight-gate.outputs.backend == 'true'
+    if: >-
+      !cancelled() && needs['preflight-gate'].result == 'success' &&
+      (needs['preflight-gate'].outputs.backend == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    services:
+      command-postgres:
+        image: pgvector/pgvector:0.8.6-pg17-bookworm
+        env:
+          POSTGRES_USER: command_test
+          POSTGRES_PASSWORD: command_test
+          POSTGRES_DB: command_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U command_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v6
+        with:
+          # The capability graph check diffs against the PR base ref, which a
+          # shallow clone does not carry.
+          fetch-depth: 0
 
       - uses: ./consent-protocol/.github/actions/setup-python-uv
         with:
@@ -608,6 +659,8 @@ jobs:
         timeout-minutes: 22
         run: bash scripts/ci/orchestrate.sh protocol
         env:
+          CAPABILITY_GRAPH_BASE_REF: origin/${{ github.base_ref || 'main' }}
+          ONE_COMMAND_TEST_DATABASE_URL: "postgresql+psycopg2://command_test:command_test@127.0.0.1:5432/command_test"
           TESTING: "true"
           APP_SIGNING_KEY: "test_secret_key_for_ci_only_32chars_min"
           VAULT_DATA_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
@@ -616,7 +669,9 @@ jobs:
   mcp-package-check:
     name: "MCP Package"
     needs: [preflight-gate]
-    if: needs.preflight-gate.outputs.backend == 'true'
+    if: >-
+      !cancelled() && needs['preflight-gate'].result == 'success' &&
+      (needs['preflight-gate'].outputs.backend == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -642,7 +697,9 @@ jobs:
   integration-check:
     name: "Integration"
     needs: [preflight-gate]
-    if: needs.preflight-gate.outputs.frontend == 'true' || needs.preflight-gate.outputs.backend == 'true'
+    if: >-
+      !cancelled() && needs['preflight-gate'].result == 'success' &&
+      (needs['preflight-gate'].outputs.frontend == 'true' || needs['preflight-gate'].outputs.backend == 'true')
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:

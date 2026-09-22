@@ -1,7 +1,7 @@
 "use client";
 
-import { Phone, User, Users } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
+import { Phone, User, Users } from "@/components/icons";
+import type { LucideIcon } from "@/components/icons";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { buildRiaClaimRoute } from "@/lib/ria/ria-claim-entry";

@@ -1587,6 +1587,72 @@ async def test_push_history_batch_reports_handled_only_when_a_message_created_wo
     assert result["message_count"] == 2
 
 
+def test_history_listing_paginates_all_gmail_history_pages():
+    service = _service(_FakeDb(), _FakeConsentDb())
+    responses = iter(
+        [
+            {
+                "history": [{"messagesAdded": [{"message": {"id": "first"}}]}],
+                "nextPageToken": "page-2",
+            },
+            {
+                "history": [
+                    {"messagesAdded": [{"message": {"id": "second"}}]},
+                    {"messagesAdded": [{"message": {"id": "first"}}]},
+                ],
+            },
+        ]
+    )
+    seen_params: list[dict[str, str]] = []
+
+    def _get_json(_url, *, params):
+        seen_params.append(params)
+        return next(responses)
+
+    service._get_json_sync = _get_json  # type: ignore[method-assign]
+
+    assert service._list_message_ids_from_history("100") == ["first", "second"]
+    assert seen_params[0] == {"startHistoryId": "100", "historyTypes": "messageAdded"}
+    assert seen_params[1]["pageToken"] == "page-2"
+
+
+@pytest.mark.asyncio
+async def test_history_notification_advances_cursor_even_when_one_message_fails_to_process():
+    # A message that will *never* parse (malformed MIME, unclassifiable
+    # content) must not wedge every subsequent webhook against the same
+    # poison message forever -- Gmail History cursors cannot skip one
+    # entry, so a checkpoint that only advances on an all-succeed batch
+    # can never advance again once one message permanently fails. The
+    # checkpoint must advance regardless; the failed message is still
+    # logged individually in the returned results.
+    service = _service(_FakeDb(), _FakeConsentDb())
+    service._get_mailbox_state = lambda: {"history_id": "100"}  # type: ignore[method-assign]
+    service._list_message_ids_from_history = lambda _history_id: ["unprocessed"]  # type: ignore[method-assign]
+    service.process_message_id = AsyncMock(side_effect=RuntimeError("temporary failure"))
+    upserts: list[dict[str, object]] = []
+    service._upsert_mailbox_state = lambda **kwargs: upserts.append(kwargs)  # type: ignore[method-assign]
+    payload = {
+        "message": {
+            "data": base64.b64encode(
+                json.dumps({"emailAddress": "one@hushh.ai", "historyId": "101"}).encode("utf-8")
+            ).decode("utf-8")
+        }
+    }
+
+    result = await service.handle_push_notification(payload, headers={})
+
+    assert result["accepted"] is True
+    assert result["handled"] is False
+    assert result["results"] == [
+        {
+            "handled": False,
+            "reason": "message_process_failed",
+            "message_id": "unprocessed",
+        }
+    ]
+    assert upserts == [{"history_id": "101", "last_notification": True}]
+
+
 @pytest.mark.asyncio
 async def test_process_message_matches_dynamic_available_scope_for_email_helper_request():
     """LLM Pass 1 routing identifies the correct scope for a natural-language request.

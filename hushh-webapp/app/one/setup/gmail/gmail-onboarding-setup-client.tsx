@@ -50,13 +50,13 @@ function EnabledGmailOnboardingSetup() {
   });
 
   if (!coordinator.isReady) {
-    return <SetupCapabilityLoading label="Preparing Gmail setup…" />;
+    return <SetupCapabilityLoading label="Preparing Mail setup…" />;
   }
 
   return (
     <CapabilityCinematicIntroGate capabilityId="gmail">
       <CapabilityVaultPrerequisite
-        capabilityLabel="Gmail"
+        capabilityLabel="Mail"
         routeKey={ROUTES.ONE_SETUP_GMAIL}
         checkingFallback={<GmailWorkspaceSkeleton />}
       >

@@ -29,7 +29,7 @@ function clean(value) {
 }
 
 try {
-  session = await reviewer.openSession(browser, "/agent");
+  session = await reviewer.openSession(browser, "/");
   let { page } = session;
   ownerToken = await session.capture.ownerToken();
   const conversationIds = async () => {
@@ -42,7 +42,7 @@ try {
     return new Set((payload.conversations || []).map((item) => String(item.id)));
   };
   baselineConversationIds = await conversationIds();
-  await page.goto(`${appOrigin}/one/connect`, { waitUntil: "domcontentloaded" });
+  await reviewer.navigateInApp(page, "/one/connect");
   await reviewer.assertVaultContinuity(page, "/one/connect");
   const identityToken = await session.capture.identityToken();
   const fetchIdentityJson = async (pathname) => {
@@ -70,20 +70,31 @@ try {
   const scopeLabel = clean(fixture.scope.label);
   const scopeDomain = clean(fixture.scope.domain);
   if (!skipAgentDiscovery) {
-    await page.goto(`${appOrigin}/agent`, { waitUntil: "domcontentloaded" });
-    await reviewer.assertVaultContinuity(page, "/agent");
+    await reviewer.navigateInApp(page, "/");
+    await reviewer.assertVaultContinuity(page, "/");
+    const openHistoryButton = page.getByRole("button", { name: "Open chat history", exact: true }).first();
+    if (await openHistoryButton.count() && await openHistoryButton.isVisible()) {
+      await openHistoryButton.click();
+      await page.getByRole("dialog", { name: "Agent chat history" }).waitFor({ state: "visible" });
+    }
+    const newChatButton = page.getByRole("button", { name: "Create new chat", exact: true }).first();
+    if (await newChatButton.count() && await newChatButton.isVisible()) {
+      await newChatButton.click();
+    }
     const prompt = `Show the exact ${scopeDomain || "information"} fields I can request from ${fixture.displayName}, and explain the next consent step.`;
     const baselineTurns = await page.locator('[data-message-role="assistant"]').count();
     await page.getByTestId("agent-chat-composer-textarea").fill(prompt);
     await page.getByRole("button", { name: "Send message" }).click();
-    await page.waitForFunction(
+    const waitForDiscoveryOrSelection = () => page.waitForFunction(
       ({ baseline, expectedLabel, expectedPath }) => {
         const turns = [...document.querySelectorAll('[data-message-role="assistant"]')];
         const latest = turns.at(-1);
         if (turns.length <= baseline || latest?.getAttribute("data-message-status") === "streaming") return false;
         const text = latest?.textContent || "";
         const hasProfileLink = Boolean(latest?.querySelector(`a[href="${expectedPath}"]`));
-        return text.includes(expectedLabel) && hasProfileLink;
+        const profileLink = latest?.querySelector(`a[href="${expectedPath}"]`);
+        const hasPersonSelection = Boolean(profileLink?.parentElement?.querySelector("button"));
+        return hasPersonSelection || (text.includes(expectedLabel) && hasProfileLink && text.includes("Review request"));
       },
       {
         baseline: baselineTurns,
@@ -93,9 +104,36 @@ try {
       { timeout: timeoutMs },
     );
 
-    const latestTurn = page.locator('[data-message-role="assistant"]').last();
+    await waitForDiscoveryOrSelection();
+    let latestTurn = page.locator('[data-message-role="assistant"]').last();
+    const candidateProfileLink = latestTurn.locator(`a[href="/people/${fixture.personRef}"]`);
+    if (await candidateProfileLink.count()) {
+      const candidateButton = candidateProfileLink.locator("..").getByRole("button");
+      if (await candidateButton.count()) {
+        const selectionBaseline = await page.locator('[data-message-role="assistant"]').count();
+        await candidateButton.click();
+        await page.waitForFunction(
+          ({ baseline, expectedLabel, expectedPath }) => {
+            const turns = [...document.querySelectorAll('[data-message-role="assistant"]')];
+            const latest = turns.at(-1);
+            if (turns.length <= baseline || latest?.getAttribute("data-message-status") === "streaming") return false;
+            return Boolean(
+              (latest?.textContent || "").includes(expectedLabel) &&
+                latest?.querySelector(`a[href="${expectedPath}"]`),
+            );
+          },
+          {
+            baseline: selectionBaseline,
+            expectedLabel: scopeLabel,
+            expectedPath: `/people/${fixture.personRef}`,
+          },
+          { timeout: timeoutMs },
+        );
+        latestTurn = page.locator('[data-message-role="assistant"]').last();
+      }
+    }
     await latestTurn.getByRole("button", { name: /Activity/i }).waitFor({ state: "visible" });
-    await latestTurn.getByRole("link", { name: "Review information", exact: true }).waitFor({
+    await latestTurn.getByRole("button", { name: "Review request", exact: true }).waitFor({
       state: "visible",
     });
   }

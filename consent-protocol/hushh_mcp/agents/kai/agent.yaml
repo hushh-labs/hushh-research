@@ -1,8 +1,16 @@
 manifest_version: 2
 id: agent_kai
 name: Kai Financial Agent
-version: 2.0.0
+version: 2.1.0
 description: Advanced financial analyst that orchestrates fundamental, sentiment, and valuation analysis.
+one_exposure:
+  service_id: finance
+  discovery_status: discoverable
+  exposure_status: active
+  supported_entrypoints:
+    - typed
+    - voice
+    - siri_app_shortcut
 model:
   provider: gemini
   name: gemini-default
@@ -144,6 +152,56 @@ subagents:
     rollout:
       strategy: canary
       rollback: Disable RIA delegation and keep the Finance head active.
+  - id: agent_ria_brochure
+    name: RIA Brochure Reader
+    description: Extracts bounded advisory services and fee categories from a public Form ADV Part 2A filing.
+    model:
+      provider: gemini
+      name: gemini-default
+      mode: hushh_managed_vertex
+      thinking_level: low
+    runtime:
+      kind: adk
+      adk_mode: single_turn
+      transport:
+        - in_process
+    system_instruction: |
+      You are the RIA Brochure Reader, an internal Kai child. Extract only
+      facts stated in the supplied public Form ADV Part 2A text. Return the
+      requested JSON object and never infer, advertise, or invent. Fee output
+      must contain categories only, never rates or dollar amounts. A stated
+      absence of an account minimum is null, never zero. Do not expose filing
+      text in telemetry and never claim that a profile write occurred.
+    inputs:
+      - name: brochure_text
+        type: string
+        description: Bounded text extracted from a public Form ADV Part 2A filing.
+    outputs:
+      - name: services_offered
+        type: array
+        description: Advisory service categories stated in the filing.
+      - name: fee_structure
+        type: array
+        description: Fee categories stated in the filing, without rates.
+      - name: min_engagement_amount
+        type: number
+        description: Required minimum engagement, or null when absent or explicitly unavailable.
+    privacy:
+      context_allowlist:
+        - ria.brochure.text
+      plaintext_telemetry: false
+    telemetry_namespace: agent.kai.ria_brochure
+    performance:
+      latency_p95_ms: 30000
+      max_output_tokens: 2048
+    rollout:
+      strategy: general
+      rollback: Disable brochure enrichment and retain the verified RIA claim profile fields.
+    availability:
+      environments:
+        - development
+        - uat
+        - production
   - id: agent_investor
     name: Investor
     description: Personal portfolio-review subagent owned by Kai Finance.
@@ -171,3 +229,365 @@ subagents:
     rollout:
       strategy: canary
       rollback: Disable Investor delegation and keep the Finance head active.
+  - id: agent_kai_portfolio_optimizer
+    name: Portfolio Optimizer
+    description: Produces a bounded, auditable portfolio optimization proposal from supplied market and Renaissance context.
+    model:
+      provider: gemini
+      name: gemini-default
+      mode: hushh_managed_vertex
+      thinking_level: high
+    runtime:
+      kind: adk
+      adk_mode: single_turn
+      transport:
+        - in_process
+    system_instruction: |
+      You are Kai's Portfolio Optimizer, an internal single-turn child. Return
+      only the requested JSON contract using the supplied portfolio snapshot,
+      market context, and Renaissance rubric. Never invent holdings, prices,
+      performance, or criteria. Propose illustrative allocation changes only;
+      never place trades or recommend leverage, margin, derivatives, shorting,
+      or guaranteed outcomes. Do not expose supplied private context in
+      telemetry and never claim that an external action occurred.
+    inputs:
+      - name: portfolio_snapshot
+        type: object
+        description: Bounded holdings, market, and Renaissance context for this turn.
+    outputs:
+      - name: summary
+        type: object
+        description: Portfolio health scores, diagnostics, and allocation plans.
+      - name: losers
+        type: array
+        description: Per-position grounded recommendations.
+      - name: portfolio_level_takeaways
+        type: array
+        description: Grounded portfolio-level observations.
+      - name: analytics
+        type: object
+        description: Optional health radar and sector-shift metrics.
+    privacy:
+      context_allowlist:
+        - hussh:pkm_context
+      plaintext_telemetry: false
+    telemetry_namespace: agent.kai.portfolio_optimizer
+    performance:
+      latency_p95_ms: 120000
+      max_output_tokens: 4096
+    rollout:
+      strategy: general
+      rollback: Disable Portfolio Optimizer delegation and retain deterministic fallback behavior.
+  - id: agent_kai_fundamental
+    name: Kai Fundamental Analyst
+    description: Produces a bounded, evidence-backed fundamental analysis from supplied SEC and market data.
+    model:
+      provider: gemini
+      name: gemini-default
+      mode: hushh_managed_vertex
+      thinking_level: low
+    runtime:
+      kind: adk
+      adk_mode: single_turn
+      transport:
+        - in_process
+    system_instruction: |
+      You are Kai's Fundamental Analyst, an internal single-turn child.
+      Analyze only the supplied SEC filing, market, quantitative, and investor
+      context. Return JSON with business_moat, financial_resilience,
+      growth_efficiency, bull_case, bear_case, summary, confidence, and
+      recommendation. Every claim must be grounded in the supplied numbers;
+      use "insufficient data" when evidence is missing. Recommendation must be
+      exactly buy, hold, or reduce. Never invent holdings, prices, filings, or
+      user facts. Return JSON only, with no markdown or tool claims.
+    outputs:
+      - name: business_moat
+        type: string
+      - name: financial_resilience
+        type: string
+      - name: growth_efficiency
+        type: string
+      - name: bull_case
+        type: string
+      - name: bear_case
+        type: string
+      - name: summary
+        type: string
+      - name: confidence
+        type: number
+      - name: recommendation
+        type: string
+    privacy:
+      context_allowlist:
+        - kai.sec_context
+        - kai.market_context
+        - pkm.profile_summary
+      plaintext_telemetry: false
+    telemetry_namespace: agent.kai.fundamental
+    performance:
+      latency_p95_ms: 60000
+      max_output_tokens: 4096
+    rollout:
+      strategy: general
+      rollback: Retain the deterministic fundamental analysis and keep the legacy report path disabled.
+  - id: agent_kai_sentiment
+    name: Kai Sentiment Analyst
+    description: Produces a bounded market sentiment analysis from supplied news and market context.
+    model:
+      provider: gemini
+      name: gemini-default
+      mode: hushh_managed_vertex
+      thinking_level: low
+    runtime:
+      kind: adk
+      adk_mode: single_turn
+      transport:
+        - in_process
+    system_instruction: |
+      You are Kai's Sentiment Analyst, an internal single-turn child.
+      Analyze only the supplied news articles, market snapshot, and investor
+      context. Return JSON with summary, sentiment_score from -1 to 1,
+      key_catalysts, news_highlights, momentum_signal, confidence, and
+      recommendation. Weigh recent evidence, identify both positive and
+      negative signals, and use "insufficient data" when evidence is missing.
+      Recommendation must be exactly bullish, neutral, or bearish. Return JSON
+      only, with no markdown or tool claims.
+    outputs:
+      - name: summary
+        type: string
+      - name: sentiment_score
+        type: number
+      - name: key_catalysts
+        type: array
+      - name: news_highlights
+        type: array
+      - name: momentum_signal
+        type: string
+      - name: confidence
+        type: number
+      - name: recommendation
+        type: string
+    privacy:
+      context_allowlist:
+        - kai.news_context
+        - kai.market_context
+        - pkm.profile_summary
+      plaintext_telemetry: false
+    telemetry_namespace: agent.kai.sentiment
+    performance:
+      latency_p95_ms: 45000
+      max_output_tokens: 4096
+    rollout:
+      strategy: general
+      rollback: Retain the deterministic sentiment analysis and keep the legacy report path disabled.
+  - id: agent_kai_valuation
+    name: Kai Valuation Analyst
+    description: Produces a bounded valuation analysis from supplied market and peer data.
+    model:
+      provider: gemini
+      name: gemini-default
+      mode: hushh_managed_vertex
+      thinking_level: low
+    runtime:
+      kind: adk
+      adk_mode: single_turn
+      transport:
+        - in_process
+    system_instruction: |
+      You are Kai's Valuation Analyst, an internal single-turn child.
+      Analyze only the supplied market, peer, and investor context. Return JSON
+      with summary, valuation_verdict, valuation_metrics, peer_ranking,
+      price_targets, upside_downside, confidence, and recommendation. Use
+      multiple supplied valuation measures when available, and use
+      "insufficient data" when evidence is missing. Valuation verdict and
+      recommendation must be exactly undervalued, fair, or overvalued. Return
+      JSON only, with no markdown or tool claims.
+    outputs:
+      - name: summary
+        type: string
+      - name: valuation_verdict
+        type: string
+      - name: valuation_metrics
+        type: object
+      - name: peer_ranking
+        type: string
+      - name: price_targets
+        type: object
+      - name: upside_downside
+        type: object
+      - name: confidence
+        type: number
+      - name: recommendation
+        type: string
+    privacy:
+      context_allowlist:
+        - kai.market_context
+        - kai.peer_context
+        - pkm.profile_summary
+      plaintext_telemetry: false
+    telemetry_namespace: agent.kai.valuation
+    performance:
+      latency_p95_ms: 45000
+      max_output_tokens: 4096
+    rollout:
+      strategy: general
+      rollback: Retain the deterministic valuation analysis and keep the legacy report path disabled.
+  - id: agent_kai_debate
+    name: Kai Debate Statement
+    description: Produces one bounded XML-compatible rebuttal statement for Kai's deterministic debate organ.
+    model:
+      provider: gemini
+      name: gemini-default
+      mode: hushh_managed_vertex
+      thinking_level: low
+    runtime:
+      kind: adk
+      adk_mode: single_turn
+      transport:
+        - in_process
+    system_instruction: |
+      You are an internal Kai debate analyst. Return one JSON object with a
+      single `statement` string. The statement must follow the XML-compatible
+      format requested by the caller, including only evidence-backed claims,
+      portfolio impact, personalized bull and bear cases, and any requested
+      Renaissance verdict. Use only the supplied analyst outputs and context;
+      never invent market data, holdings, prices, or actions. Return JSON only;
+      with no markdown, role labels, or tool claims.
+    outputs:
+      - name: statement
+        type: string
+        description: XML-compatible, evidence-backed debate statement.
+    privacy:
+      context_allowlist:
+        - kai.debate_context
+        - pkm.profile_summary
+      plaintext_telemetry: false
+    telemetry_namespace: agent.kai.debate
+    performance:
+      latency_p95_ms: 60000
+      max_output_tokens: 4096
+    rollout:
+      strategy: general
+      rollback: Retain deterministic debate statements and disable model rebuttals.
+  - id: agent_kai_synthesis
+    name: Kai Recommendation Synthesis
+    description: Produces a bounded, personalized recommendation card from finalized Kai analysis and debate evidence.
+    model:
+      provider: gemini
+      name: gemini-default
+      mode: hushh_managed_vertex
+      thinking_level: high
+    runtime:
+      kind: adk
+      adk_mode: single_turn
+      transport:
+        - in_process
+    system_instruction: |
+      You are Kai's Chief Investment Strategist, an internal single-turn child.
+      Return one JSON object with thesis, key_drivers, key_risks, action_plan,
+      watchlist_triggers, and horizon_fit. Fuse only the supplied analyst,
+      debate, Renaissance, and user context. Every claim must be evidence-backed
+      and personalized to the supplied risk profile or portfolio context. State
+      conflicts and uncertainty clearly; never invent market data, holdings,
+      prices, or actions. Keep each list item concise, with no markdown. Return
+      JSON only and never claim an external action occurred.
+    outputs:
+      - name: thesis
+        type: string
+        description: Concise evidence-backed investment thesis.
+      - name: key_drivers
+        type: array
+        description: Three to six specific evidence-backed drivers.
+      - name: key_risks
+        type: array
+        description: Three to six concrete downside risks.
+      - name: action_plan
+        type: array
+        description: Three to five practical next actions for this user.
+      - name: watchlist_triggers
+        type: array
+        description: Three to six measurable monitoring triggers.
+      - name: horizon_fit
+        type: string
+        description: Fit for the user's horizon, style, and risk profile.
+    privacy:
+      context_allowlist:
+        - kai.debate_context
+        - kai.renaissance_context
+        - pkm.profile_summary
+      plaintext_telemetry: false
+    telemetry_namespace: agent.kai.synthesis
+    performance:
+      latency_p95_ms: 90000
+      max_output_tokens: 8192
+    rollout:
+      strategy: general
+      rollback: Retain deterministic recommendation-card fallback and disable model synthesis.
+  - id: agent_kai_chat
+    name: Kai Chat
+    description: Conversational Kai surface for grounded financial questions and profile guidance.
+    model:
+      provider: gemini
+      name: gemini-default
+      mode: hushh_managed_vertex
+    runtime:
+      kind: adk
+      adk_mode: chat
+      transport:
+        - chat
+        - in_process
+    system_instruction: |
+      You are Kai, a friendly and knowledgeable personal AI assistant from Hussh. You help users manage their personal data, analyze investments, and provide personalized insights.
+
+      Personality:
+      - Warm, approachable, and professional
+      - Concise but thorough
+      - Proactive when it is clearly helpful
+      - Privacy-conscious; remind users their data is encrypted and under their control when relevant
+
+      Capabilities:
+      - Analyze investment portfolios and identify underperformers
+      - Learn user preferences and remember them for personalized advice
+      - Help users understand their financial risk profile
+      - Provide insights based only on the supplied PKM and chat context
+
+      Grounding rules:
+      - Only use information explicitly provided in the supplied context.
+      - Do not assume missing data.
+      - If the available context is not enough to support a claim, say "insufficient data".
+      - Do not fabricate market details, portfolio details, holdings, prices, performance, or user-specific facts.
+      - Do not imply you know more about the user than what is shown in the provided context.
+      - Separate confirmed facts from suggestions or general guidance.
+
+      Proactive behaviors:
+      1. If the user is new and no portfolio data is present, offer portfolio import.
+      2. When discussing investments without portfolio context, explain that personalization is limited by insufficient data.
+      3. After learning user preferences from the current exchange, acknowledge them clearly.
+      4. If the user seems unsure, guide them through available features without inventing missing facts.
+
+      Provided user context:
+      {user_context}
+
+      Response guidelines:
+      1. Keep responses conversational, clear, and informative.
+      2. If the user mentions preferences, acknowledge what was explicitly stated.
+      3. If asked about portfolio analysis, offer portfolio import when relevant.
+      4. When discussing investments, be balanced and mention risks.
+      5. Never give specific financial advice; provide analysis and let the user decide.
+      6. For new users, warmly welcome them and suggest starting with portfolio import.
+      7. If context is incomplete, explicitly say "insufficient data" instead of guessing.
+
+      Current conversation context:
+      {chat_history}
+    privacy:
+      context_allowlist:
+        - pkm.profile_summary
+        - chat.history
+      plaintext_telemetry: false
+    telemetry_namespace: agent.kai.chat
+    performance:
+      latency_p95_ms: 30000
+      max_output_tokens: 1024
+    rollout:
+      strategy: internal
+      rollback: Disable Kai Chat delegation and keep the Finance head active.

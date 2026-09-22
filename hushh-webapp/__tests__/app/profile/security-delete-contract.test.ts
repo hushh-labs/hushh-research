@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const profilePageSource = readFileSync(
-  join(process.cwd(), "app/profile/profile-workspace-page.tsx"),
+  join(process.cwd(), "components/profile/profile-workspace-page.tsx"),
   "utf8",
 );
 const topAppBarSource = readFileSync(
@@ -28,6 +28,19 @@ describe("profile security deletion contract", () => {
     expect(profilePageSource).toContain("setShowDeleteConfirm(true);");
     expect(profilePageSource).toContain("Deletes cloud-linked records.");
     expect(profilePageSource).not.toContain("Create vault to delete account");
+  });
+
+  it("keeps the delete row interactive when the vault probe fails", () => {
+    expect(profilePageSource).toContain(
+      'testId="profile-account-delete-row"',
+    );
+    expect(profilePageSource).toContain(
+      'onClick={() => void handleDeleteClick()}',
+    );
+    expect(profilePageSource).toContain(
+      'setHasVault(true);\n        nextHasVault = true;',
+    );
+    expect(profilePageSource).toContain('requestVaultUnlock("delete_account")');
   });
 
   it("keeps the One account delete confirmation button mobile-safe", () => {
@@ -57,7 +70,7 @@ describe("profile security deletion contract", () => {
     expect(deleteFlowSource).toContain("UserLocalStateService.clearForUser");
     expect(deleteFlowSource).toContain("DELETE_ACCOUNT_DIALOG_TITLE");
     expect(deleteFlowSource).toContain(
-      "Required security or legal records may be retained under our policy.",
+      "Deletes account, Vault, data, and access. Required records may remain. Can’t undo.",
     );
     expect(profilePageSource).toContain("DELETE_ACCOUNT_DIALOG_TITLE");
     expect(topAppBarSource).toContain("DELETE_ACCOUNT_DIALOG_TITLE");
@@ -74,11 +87,70 @@ describe("profile security deletion contract", () => {
 
   it("offers a reset-account path that keeps the account and re-runs setup", () => {
     expect(profilePageSource).toContain("Reset account?");
+    expect(profilePageSource).toContain(
+      "Clears saved details and setup progress. Your sign-in and vault stay.",
+    );
     expect(profilePageSource).toContain('"Reset account"');
     expect(profilePageSource).toContain(
       "AccountService.resetAccount(resolution.token)",
     );
     expect(profilePageSource).toContain("router.replace(ROUTES.ONE_SETUP)");
     expect(profilePageSource).toContain("setOnboardingRequiredCookie(true)");
+  });
+});
+
+describe("profile lifecycle voice settlement contract", () => {
+  // Graph observations 5 and 7: reset discarded its result and ran success
+  // cleanup unconditionally; delete and marketplace fired-and-forgot and
+  // narrated "started" as done. The behaviour lives in
+  // lib/profile/profile-action-outcomes.ts (unit-tested); this proves the
+  // page consumes it rather than re-growing a bare `void` + "started".
+
+  it("runs reset success cleanup only on a backend-confirmed reset", () => {
+    expect(profilePageSource).toContain(
+      "const result = await AccountService.resetAccount(resolution.token);",
+    );
+    expect(profilePageSource).toContain("const resetOutcome = resolveResetOutcome(result);");
+    expect(profilePageSource).toContain("settlement.committed = true;");
+    expect(profilePageSource).toContain("if (error instanceof AccountResetNotConfirmedError) return error.outcome;");
+    expect(profilePageSource).toContain('return settlement.committed ? "reset" : "unknown";');
+    expect(profilePageSource).toContain(
+      "throw new AccountResetNotConfirmedError(resetOutcome);",
+    );
+    // The flag check sits before the first cleanup call, not after.
+    const resetBody = profilePageSource.slice(
+      profilePageSource.indexOf("const handleResetAccount = async ()"),
+      profilePageSource.indexOf("const handleResetClick = async ()"),
+    );
+    expect(resetBody.indexOf("resolveResetOutcome(result)")).toBeLessThan(
+      resetBody.indexOf("CacheSyncService.onAccountDeleted(user.uid)"),
+    );
+    expect(resetBody).toContain("error: (error: unknown) => resetErrorMessage(error)");
+    expect(resetBody).not.toContain('error: "Failed to reset account. Please try again."');
+  });
+
+  it("awaits deletion and narrates its typed outcome, never 'started'", () => {
+    expect(profilePageSource).toContain("const outcome = await handleDeleteAccount();");
+    expect(profilePageSource).toContain("return lifecycleOutcomeToVoice(outcome);");
+    expect(profilePageSource).toContain("return classifyDeletionError(error);");
+    expect(profilePageSource).not.toContain("void handleDeleteAccount();\n      return {");
+    expect(profilePageSource).not.toContain(
+      '"Starting account deletion. You may need to unlock your vault."',
+    );
+  });
+
+  it("applies the reviewed marketplace target instead of flipping, and reports the stored value", () => {
+    expect(profilePageSource).toContain(
+      "const handleMarketplaceOptInToggle = async (\n    target?: boolean,\n  ): Promise<MarketplaceOutcome>",
+    );
+    expect(profilePageSource).toContain("target ?? !marketplaceOptIn,");
+    expect(profilePageSource).toContain(
+      "const outcome = await handleMarketplaceOptInToggle(desired ?? undefined);",
+    );
+    expect(profilePageSource).toContain("return marketplaceOutcomeToVoice(outcome);");
+    expect(profilePageSource).not.toContain("void handleMarketplaceOptInToggle();\n      return {");
+    expect(profilePageSource).not.toContain('summary: "Updating your visibility."');
+    // The manual switch still flips (no target), which is its meaning.
+    expect(profilePageSource).toContain("onCheckedChange={() => void handleMarketplaceOptInToggle()}");
   });
 });

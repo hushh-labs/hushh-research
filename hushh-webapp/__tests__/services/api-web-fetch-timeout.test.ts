@@ -44,6 +44,28 @@ describe("fetchWithWebTimeout", () => {
     expect(error.name).toBe("TimeoutError");
   });
 
+  it("supports a shorter deadline for auxiliary asset loads", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_url: string, init: RequestInit) =>
+          new Promise((_resolve, reject) => {
+            init.signal?.addEventListener("abort", () =>
+              reject((init.signal as AbortSignal).reason),
+            );
+          }),
+      ),
+    );
+
+    const promise = fetchWithWebTimeout("https://example.test/template.json", {}, 1000);
+    const captured = promise.catch((error: unknown) => error);
+
+    await vi.advanceTimersByTimeAsync(1000);
+
+    const error = (await captured) as DOMException;
+    expect(error.name).toBe("TimeoutError");
+  });
+
   it("stays above the proxy's own ceiling so its 504 wins", async () => {
     // The Next proxy times its upstream call out at 45s and returns a real 504,
     // which the retry logic understands. Aborting earlier would replace a

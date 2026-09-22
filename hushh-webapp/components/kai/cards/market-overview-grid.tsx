@@ -6,7 +6,7 @@ import {
   TrendingDown,
   TrendingUp,
   type LucideIcon,
-} from "lucide-react";
+} from "@/components/icons";
 
 import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";
 import {

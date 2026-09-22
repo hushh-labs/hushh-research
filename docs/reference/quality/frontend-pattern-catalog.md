@@ -55,6 +55,25 @@ Rules:
 1. `components/app-ui/surfaces.tsx` is the semantic bridge, not a second primitive system.
 2. Feature folders consume these surfaces; they do not fork them.
 
+## Pattern: Canonical Form Controls
+
+Use the shared field primitives for direct-entry and selection controls:
+`Input`, `InputGroup`, `Textarea`, `SelectTrigger`, `CommandInput`, and
+combobox field shells.
+
+Rules:
+
+1. The outer field geometry comes from `--app-input-radius`, which is the
+   capsule field stop. Compound controls keep inner inputs square so the
+   outer shell owns the silhouette.
+2. Use `--app-form-field-gap` between a label and its control,
+   `--app-form-related-gap` inside a related-method group, and
+   `--app-form-section-gap` between a primary action and its secondary group.
+3. Keep secondary recovery or fallback paths visibly subordinate. A text link
+   may own a 44px hit area, but it should not look like a second filled CTA.
+4. Do not add route-local radius or spacing values when the shared field and
+   form tokens already express the relationship.
+
 ## Pattern: Shared Segmented Tabs
 
 Use the shared segmented control for app-facing rounded tab groups.
@@ -113,8 +132,8 @@ import {
 
 Rules:
 
-1. Keep the signed-in primary bottom utility bar constant: `One`, `Connect`, and `Search`. Search is a third segment, never a detached control. The three equal-width segments use the Agent Bar frame and remain centered at every breakpoint.
-2. Keep the bar compact and fixed. The agent bar joins it with a 6px visual gutter; do not add route-local navigation or empty slots.
+1. Keep the signed-in primary bottom navigation constant and ordered: `Chat`, `One`, `Connect`, `Feed`, and `Search`. `Chat` is the canonical home route `/`; Search is a segment, never a detached control. The five equal-width segments use the shared bottom-chrome frame and remain centered at every breakpoint.
+2. Keep the bar compact and fixed. The voice-only agent control occupies a narrower content-sized slot in the same bottom surface; do not add a divider, inter-slot gap, route-local navigation, or empty Chat launcher.
 3. Finance owns `Market`, `Portfolio`, and `Analysis`; RIA owns `Home`, `Clients`, and `Picks`. Those context tabs render only in the shared top shell. Profile remains the rightmost signed-in top-bar action.
 4. Route files should link to canonical destinations such as `/one/gmail`, `/one/pkm`, and `/one/connected-systems`; legacy Profile panels may redirect, but should not own new mode navigation.
 5. `Search` opens `KaiCommandBarGlobal` command/action discovery through `openKaiCommandBar`; do not route Search to `/agent` or call `agentPopover.openAgent`.
@@ -302,10 +321,11 @@ Rules:
 
 ## Pattern: Icon Usage
 
-Use Lucide through the icon wrapper for consistent sizing behavior.
+Use the canonical Phosphor registry through the icon wrapper for consistent
+geometry, weight, and sizing behavior.
 
 ```tsx
-import { Shield } from "lucide-react";
+import { Shield } from "@/components/icons";
 import { Icon } from "@/lib/morphy-ux/ui";
 
 <Icon icon={Shield} size="sm" className="text-primary" />;
