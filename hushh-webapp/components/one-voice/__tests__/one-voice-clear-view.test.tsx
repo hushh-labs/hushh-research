@@ -13,11 +13,19 @@ import {
   type VoiceSessionState,
 } from "@/lib/one-voice/session-types";
 
+const toast = vi.hoisted(() => ({ success: vi.fn() }));
+
 vi.mock("@/components/agent/agent-voice-waveform", () => ({
   AgentVoiceWaveform: () => <div data-testid="waveform" />,
 }));
+vi.mock("@/lib/morphy-ux/morphy", () => ({
+  morphyToast: toast,
+}));
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  toast.success.mockReset();
+});
 
 const NOW = Date.parse("2026-09-22T10:00:00.000Z");
 
@@ -117,9 +125,11 @@ describe("Clear chat view", () => {
     expect(ctrl.sendText).not.toHaveBeenCalled();
     expect(ctrl.setMuted).not.toHaveBeenCalled();
     expect(ctrl.start).not.toHaveBeenCalled();
+    expect(toast.success).toHaveBeenCalledOnce();
+    expect(toast.success).toHaveBeenCalledWith("Chat view cleared");
   });
 
-  it("keeps the panel and its controls usable after the history is gone", () => {
+  it("keeps a compact conversation panel after the history is gone", () => {
     const cleared = reduceVoiceSession(withHistory(), { type: "clear_view" });
     // The dock decides whether to mount the panel at all from this predicate;
     // a cleared view must not make the panel and its toggle disappear.
@@ -128,8 +138,15 @@ describe("Clear chat view", () => {
     render(<OneVoicePanel state={cleared} controller={controller()} />);
     expect(screen.getByTestId("one-voice-panel")).toBeInTheDocument();
     expect(screen.queryByTestId("one-voice-transcript-line")).toBeNull();
-    expect(screen.getByTestId("one-voice-transcript-empty")).toBeInTheDocument();
-    expect(screen.getByTestId("one-voice-clear-history")).toBeDisabled();
+    expect(screen.getByTestId("one-voice-panel-title")).toHaveTextContent(
+      "Conversation",
+    );
+    expect(screen.getByTestId("one-voice-transcript-empty")).toHaveTextContent(
+      "Your messages will appear here.",
+    );
+    expect(screen.queryByTestId("one-voice-clear-history")).toBeNull();
+    expect(screen.queryByTestId("one-voice-clear-status")).toBeNull();
+    expect(screen.queryByText("Chat view cleared")).toBeNull();
   });
 
   it("does not offer Clear when there is no history to clear", () => {
@@ -151,6 +168,50 @@ describe("Clear chat view", () => {
 
     render(<OneVoicePanel state={cleared} controller={controller()} />);
     expect(screen.getByText("Microphone blocked")).toBeInTheDocument();
+    expect(screen.queryByTestId("one-voice-transcript-empty")).toBeNull();
+  });
+
+  it("lets pending decisions and progress own a cleared panel", () => {
+    const cleared = reduceVoiceSession(withHistory(), { type: "clear_view" });
+    const decision: VoiceSessionState = {
+      ...cleared,
+      pendingAction: {
+        pending_action_id: "pa_1",
+        tool: "share_with",
+        gateway_action_id: "location.share_selected",
+        tier: "voice",
+        summary: "Share with Priya",
+        args: {},
+        status: "pending",
+        shown_at: null,
+        expires_at: null,
+        result: null,
+        riskLevel: "medium",
+        requiresTap: false,
+        entities: [],
+        receiptToken: null,
+        resolvedStatus: null,
+        resolvedResult: null,
+      },
+    };
+    const { rerender } = render(
+      <OneVoicePanel state={decision} controller={controller()} />,
+    );
+    expect(screen.getByTestId("one-voice-pending-action")).toBeInTheDocument();
+    expect(screen.queryByTestId("one-voice-transcript-empty")).toBeNull();
+
+    const progress: VoiceSessionState = {
+      ...cleared,
+      clientStep: {
+        stepId: "s1",
+        kind: "publish_location_envelopes",
+        payload: { purpose: "sos" },
+        timeoutS: 25,
+      },
+    };
+    rerender(<OneVoicePanel state={progress} controller={controller()} />);
+    expect(screen.getByTestId("one-voice-sos-publishing")).toBeInTheDocument();
+    expect(screen.queryByTestId("one-voice-transcript-empty")).toBeNull();
   });
 });
 
@@ -169,6 +230,12 @@ describe("Clear chat view — defects an adversarial review found", () => {
     expect(document.activeElement).toBe(
       screen.getByTestId("one-voice-clear-history"),
     );
+
+    fireEvent.click(screen.getByTestId("one-voice-clear-history"));
+    fireEvent.click(screen.getByTestId("one-voice-clear-confirm-action"));
+    expect(document.activeElement).toBe(
+      screen.getByTestId("one-voice-panel-title"),
+    );
   });
 
   it("uses the repo's inline-confirmation role so it is announced", () => {
@@ -179,31 +246,14 @@ describe("Clear chat view — defects an adversarial review found", () => {
     expect(confirm).toHaveAccessibleName("Clear chat view?");
   });
 
-  it("stops claiming 'cleared' once the panel has content again", () => {
-    const cleared = reduceVoiceSession(withHistory(), { type: "clear_view" });
-    const { rerender } = render(
-      <OneVoicePanel state={cleared} controller={controller()} />,
-    );
-    expect(screen.getByTestId("one-voice-clear-status")).toHaveTextContent(
-      "Chat view cleared",
-    );
-
-    // A result card arrives: the view is no longer empty, so the notice goes
-    // even though no transcript text landed.
-    const withResult = {
-      ...cleared,
-      entities: [{ kind: "person", name: "Priya" }],
-    } as typeof cleared;
-    rerender(<OneVoicePanel state={withResult} controller={controller()} />);
-    expect(screen.getByTestId("one-voice-clear-status")).toHaveTextContent("");
-  });
-
-  it("pins the toolbar so the control survives the transcript scrolling", () => {
+  it("uses a labelled header utility while history is available", () => {
     render(<OneVoicePanel state={withHistory()} controller={controller()} />);
-    // The panel is the scroll container; a static toolbar scrolls out of
-    // reach exactly when there is history to clear.
-    expect(screen.getByTestId("one-voice-panel-toolbar").className).toContain(
+    const clear = screen.getByTestId("one-voice-clear-history");
+    expect(screen.getByTestId("one-voice-panel-header").className).toContain(
       "sticky",
     );
+    expect(clear).toHaveAccessibleName("Clear chat view");
+    expect(clear).toHaveAttribute("title", "Clear chat view");
+    expect(clear).toHaveTextContent("Clear view");
   });
 });

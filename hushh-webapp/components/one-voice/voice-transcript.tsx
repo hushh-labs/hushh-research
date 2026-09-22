@@ -18,6 +18,8 @@ export type VoiceTranscriptProps = {
   items: TranscriptItem[];
   /** Show only the latest line, on one line. */
   collapsed?: boolean;
+  /** The panel owns whether an empty conversation should be shown beside live work. */
+  showEmptyState?: boolean;
   className?: string;
 };
 
@@ -41,6 +43,7 @@ export function transcriptStatusLine(items: TranscriptItem[]): string | null {
 export function VoiceTranscript({
   items,
   collapsed = false,
+  showEmptyState = true,
   className,
 }: VoiceTranscriptProps) {
   const endRef = useRef<HTMLDivElement | null>(null);
@@ -64,12 +67,12 @@ export function VoiceTranscript({
       data-collapsed={collapsed || undefined}
       className={cn("flex flex-col gap-1.5", className)}
     >
-      {shown.length === 0 ? (
+      {showEmptyState && shown.length === 0 ? (
         <p
-          className="text-[13px] text-[color:var(--app-tertiary-label)]"
+          className="text-[14px] font-normal leading-5 text-[color:var(--app-secondary-label)]"
           data-testid="one-voice-transcript-empty"
         >
-          Say what you need. One is listening.
+          Your messages will appear here.
         </p>
       ) : null}
       {shown.map((item) => (
