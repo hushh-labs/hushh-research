@@ -127,7 +127,7 @@ describe("VoiceStatePill", () => {
     expect(screen.getByTestId("one-voice-static-level")).toBeInTheDocument();
   });
 
-  it("shows the collapsed status line, the degraded hint and the panel toggle", () => {
+  it("shows the collapsed status line, the degraded hint and a labelled expand control", () => {
     const onToggleExpanded = vi.fn();
     renderPill({
       statusLine: "You said: share with Priya",
@@ -141,8 +141,20 @@ describe("VoiceStatePill", () => {
     expect(screen.getByTestId("one-voice-degraded")).toBeInTheDocument();
     const toggle = screen.getByTestId("one-voice-toggle-panel");
     expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(toggle).toHaveAccessibleName("Expand voice panel");
+    expect(toggle).toHaveTextContent("Expand");
+    expect(toggle.className).toContain("h-11");
+    expect(toggle.className).toContain("min-w-11");
     fireEvent.click(toggle);
     expect(onToggleExpanded).toHaveBeenCalledTimes(1);
+  });
+
+  it("labels an open panel control as Minimize", () => {
+    renderPill({ expanded: true, onToggleExpanded: vi.fn() });
+    const toggle = screen.getByTestId("one-voice-toggle-panel");
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(toggle).toHaveAccessibleName("Minimize voice panel");
+    expect(toggle).toHaveTextContent("Minimize");
   });
 
   it("maps phases onto the waveform palette", () => {
