@@ -470,6 +470,26 @@ Three small mobile UX/nav fixes (commit `909ea793d`):
 - **Fix:** the sweep takes signed-in, non-callback routes only; it aborts on the first launch that sits on the sign-in screen (`PERF_SWEEP_ABORTED reason=signed-out`) instead of burning 90 s per route; `scripts/perf/ios-reviewer-signin.sh` restores the session in one command (Debug bootstrap with `-UITestResetAppState false`; the Release install lands on top and keeps it).
 - **Tool:** `xcrun devicectl device capture screenshot --device <udid> --destination <png>` reads the phone's screen from the Mac with no test running.
 
+### B54 — On Android the keyboard was subtracted twice: the vault gate collapsed to 44 dp
+- **Symptom (founder):** "the passkey screen is totally broken on android when keyboard is opened". With the keyboard up the gate showed only the top half of the field; heading, Unlock and every link were gone.
+- **Evidence:** the UI tree put the gate's box at [60,217]→[1383,371], 154 px (44 dp), while its content kept full height. The WebView itself had shrunk to 1440×1775 of 3120.
+- **Root cause:** `KeyboardInsetManager` published the whole keyboard as `--kb-height` on every native platform. iOS keeps its frame (resize "none"), so that is right there; Android shrinks the WebView for the keyboard even with `adjustNothing`, so every consumer subtracted it again (507 − 62 − 384 − 16 = 45 dp).
+- **Fix:** the inset is the keyboard minus what the viewport already gave up, recomputed on resize (Android can resize before or after the plugin event); `kb-open` still means "a keyboard is up" and `kb-resizes` marks Android. On `kb-resizes` the tab bar steps aside (iOS: the keyboard covers it), the root composer gives back the bar's room and gets a background band, and the search palette stops reserving the tab bar's height on both platforms (it floated ~160 dp above the keyboard with its top under the status bar).
+- **GOTCHA:** the Samsung Edge Panel handle (`CocktailBarService`) is a bar on the right edge of every screen; it is not the WebView's scrollbar.
+
+### B55 — Settings-row chevrons at four different x positions, values cut to "Equi…" / "+.."
+- **Root cause:** a `max-width: 58%` on the trailing column, which sits in an `auto` grid track sized from that same box, so 58% resolved against the value's own width: each value was clipped to 58% of itself and the box sat at the track's start.
+- **Fix:** the bound moved to the track (`fit-content(58%)`, relative to the row). Measured after: every chevron at x=1280 on the S24, full values on both phones.
+
+### B56 — Consent rows printed the stored scope key
+- **Symptom:** "attr.professional.work_preferences.entities._entities.observations._items was revoked." in the Feed.
+- **Fix:** the Feed uses `humanizeConsentScope`, which now drops structural segments (`entities`, `_items`, …). **Open:** the chat card's chip ("Saved Places Locations Items Longitude") comes pre-labelled from the backend scope catalog via `information_request_service.py`.
+
+### B57 — Android runs "crashed" when a previous run was still alive on the phone
+- **Symptom:** `Process crashed` with a framework NullPointerException in `WindowTokenClient.onConfigurationChanged`, no app frames; a normal launch was fine.
+- **Root cause:** an instrumentation outlives the adb client that started it. Stopping a card on the Mac left its 30-minute hold running on the phone, and the next card's instrumentation tore it down mid-run.
+- **Fix:** the card force-stops the package before starting. `PERF_SKIP_INSTALL=1` skips the reinstall (wireless streamed installs of an unchanged APK hung for minutes).
+
 ---
 
 ## 🧪 QA test phone numbers (UAT, fixed OTP `000000`)
