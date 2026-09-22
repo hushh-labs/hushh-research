@@ -22,6 +22,7 @@ import {
   SOS_PUBLISH_STEP_KIND,
   type ToolResultPublic,
 } from "@/lib/one-voice/protocol";
+import { panelHasClearableHistory } from "@/lib/one-voice/session-reducer";
 import type {
   ClientStepView,
   ToolTimelineItem,
@@ -47,6 +48,10 @@ export type OneVoicePanelProps = {
 };
 
 const MAX_LOOSE_ENTITIES = 3;
+// A 44px-tall text control, matching the dock's touch-target floor. Disabled
+// state is a real `disabled` attribute so assistive tech reports it too.
+const CLEAR_ACTION_BUTTON =
+  "flex h-11 min-w-11 shrink-0 touch-manipulation items-center justify-center rounded-full px-3 text-[12px] font-semibold leading-none text-[color:var(--app-secondary-label)] disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-focus-ring)]";
 const HANDOFF_STATUSES = new Set<string>([
   "confirmation_required",
   "tap_required",
@@ -149,6 +154,9 @@ export function isSosPublishStep(step: ClientStepView | null): boolean {
 /** True when there is anything worth opening the panel for. */
 export function panelHasContent(state: VoiceSessionState): boolean {
   return (
+    // A cleared view is still a view: the panel keeps its controls and its
+    // empty state instead of vanishing and taking the toggle with it.
+    state.historyCleared ||
     state.transcript.some((item) => item.text.trim().length > 0) ||
     state.entities.length > 0 ||
     state.candidatePicker !== null ||
@@ -168,6 +176,9 @@ export function OneVoicePanel({
 }: OneVoicePanelProps) {
   const [pickedId, setPickedId] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
+  // Local view state only. It never touches the pending-action contract: a
+  // clear consumes no receipt and resolves no server decision.
+  const [askingClear, setAskingClear] = useState(false);
   const picker = state.candidatePicker;
   const pending = state.pendingAction;
   // A confirmation is actionable only until its matching terminal receipt
@@ -184,6 +195,11 @@ export function OneVoicePanel({
   useEffect(() => {
     setPickedId(null);
   }, [picker]);
+
+  const canClearHistory = panelHasClearableHistory(state);
+  // The reducer owns "the view is cleared", so the control and its notice
+  // survive a remount and disappear on their own once a new turn arrives.
+  const showClearRow = canClearHistory || state.historyCleared;
 
   const pendingEntityKeys = new Set(
     (openPending?.entities ?? []).map(
@@ -231,6 +247,68 @@ export function OneVoicePanel({
         className,
       )}
     >
+      {askingClear ? (
+        <div
+          role="group"
+          aria-label="Clear chat view?"
+          data-testid="one-voice-clear-confirm"
+          className="flex flex-col gap-2 rounded-[var(--app-card-radius-standard,24px)] border border-[color:var(--app-separator)] bg-[color:var(--app-card-surface-default-solid)] p-3"
+        >
+          <p className="text-[13px] font-semibold text-[color:var(--app-label)]">
+            Clear chat view?
+          </p>
+          <p className="text-[12px] text-[color:var(--app-secondary-label)]">
+            Removes earlier messages from this view. Voice stays active, and One
+            can still use earlier conversation context.
+          </p>
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              data-testid="one-voice-clear-cancel"
+              onClick={() => setAskingClear(false)}
+              className={CLEAR_ACTION_BUTTON}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              data-testid="one-voice-clear-confirm-action"
+              onClick={() => {
+                setAskingClear(false);
+                controller.clearView();
+              }}
+              className={CLEAR_ACTION_BUTTON}
+            >
+              Clear view
+            </button>
+          </div>
+        </div>
+      ) : showClearRow ? (
+        <div
+          data-testid="one-voice-panel-toolbar"
+          className="flex min-h-11 items-center justify-between gap-2"
+        >
+          <p
+            data-testid="one-voice-clear-status"
+            role="status"
+            aria-live="polite"
+            className="text-[12px] text-[color:var(--app-tertiary-label)]"
+          >
+            {state.historyCleared ? "Chat view cleared" : ""}
+          </p>
+          <button
+            type="button"
+            data-testid="one-voice-clear-history"
+            disabled={!canClearHistory}
+            aria-label="Clear chat view"
+            onClick={() => setAskingClear(true)}
+            className={CLEAR_ACTION_BUTTON}
+          >
+            Clear chat view
+          </button>
+        </div>
+      ) : null}
+
       <VoiceTranscript items={state.transcript} />
 
       {looseEntities.length > 0 ? (

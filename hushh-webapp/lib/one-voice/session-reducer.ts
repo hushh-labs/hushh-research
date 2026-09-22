@@ -20,6 +20,7 @@ import {
   NOT_SUCCESS_STATUSES,
   SOS_GRANTS_CREATED,
   SOS_REPORT_TOOL,
+  SOS_TRIGGER_TOOL,
 } from "@/lib/one-voice/protocol";
 import type {
   EntityCardPayload,
@@ -42,6 +43,9 @@ import {
 // --- bounds -------------------------------------------------------------------
 
 const MAX_TRANSCRIPT_ITEMS = 200;
+// Only turns still streaming at the moment of a clear are suppressed, so this
+// list holds at most the handful of turns in flight at once.
+const MAX_CLEARED_TURN_IDS = 8;
 const MAX_TIMELINE_ITEMS = 50;
 const MAX_ENTITIES = 20;
 const MAX_CANDIDATES = 5;
@@ -404,6 +408,24 @@ function mergeTranscript(
   return next;
 }
 
+/** True when the transcript has anything a person would actually read. */
+function hasVisibleTranscript(transcript: TranscriptItem[]): boolean {
+  return transcript.some((item) => item.text.trim().length > 0);
+}
+
+/**
+ * Whether "Clear chat view" has anything to act on. Deliberately narrow: a
+ * pending decision, a candidate list, a running step or an unresolved error is
+ * live work, not history, so none of them enables the control.
+ */
+export function panelHasClearableHistory(state: VoiceSessionState): boolean {
+  return (
+    hasVisibleTranscript(state.transcript) ||
+    state.entities.length > 0 ||
+    state.lastResult !== null
+  );
+}
+
 function findLastIndex<T>(items: T[], predicate: (item: T) => boolean): number {
   for (let index = items.length - 1; index >= 0; index -= 1) {
     if (predicate(items[index]!)) return index;
@@ -473,17 +495,35 @@ function reduceServerFrame(
     case "transcript.output": {
       const role: TranscriptItem["role"] =
         frame.type === "transcript.input" ? "you" : "one";
+      if (state.clearedTurnIds.includes(frame.turn_id)) {
+        // This turn was already on screen when the view was cleared. Its
+        // remaining chunks and its finalization belong to the cleared
+        // exchange, so they never re-enter the displayed history. Once the
+        // turn ends there is nothing left to suppress.
+        return {
+          ...state,
+          turnId: frame.turn_id,
+          idleDeadlineAt: null,
+          clearedTurnIds: frame.final
+            ? state.clearedTurnIds.filter((id) => id !== frame.turn_id)
+            : state.clearedTurnIds,
+        };
+      }
+      const transcript = mergeTranscript(
+        state.transcript,
+        role,
+        frame.turn_id,
+        frame.text,
+        frame.final,
+      );
       return {
         ...state,
         turnId: frame.turn_id,
         idleDeadlineAt: null,
-        transcript: mergeTranscript(
-          state.transcript,
-          role,
-          frame.turn_id,
-          frame.text,
-          frame.final,
-        ),
+        transcript,
+        historyCleared: hasVisibleTranscript(transcript)
+          ? false
+          : state.historyCleared,
       };
     }
     case "turn": {
@@ -823,6 +863,33 @@ export function reduceVoiceSession(
   switch (event.type) {
     case "reset":
       return INITIAL_VOICE_SESSION_STATE;
+    case "clear_view": {
+      // A presentation clear. The socket, the mic, the turn and One's own
+      // conversation context are untouched; only what this client displays
+      // changes. Work that was still running keeps its card so its outcome is
+      // not lost, and an unresolved error stays because it is recovery
+      // content, not history.
+      const pending = state.pendingAction;
+      return {
+        ...state,
+        transcript: [],
+        entities: [],
+        toolTimeline: [],
+        lastResult: null,
+        pendingAction:
+          pending &&
+          (pending.resolvedStatus === null ||
+            pending.tool === SOS_TRIGGER_TOOL)
+            ? pending
+            : null,
+        clearedTurnIds: Array.from(
+          new Set(
+            state.transcript.filter((item) => !item.final).map((i) => i.turnId),
+          ),
+        ).slice(-MAX_CLEARED_TURN_IDS),
+        historyCleared: true,
+      };
+    }
     case "connecting": {
       const sameConversation = state.conversationId === event.conversationId;
       if (sameConversation) {
