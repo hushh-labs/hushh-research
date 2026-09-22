@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import httpx
+from opentelemetry.instrumentation.utils import suppress_instrumentation
 
 DRIVE_FILE_SCOPE = "https://www.googleapis.com/auth/drive.file"
 DRIVE_BASE = "https://www.googleapis.com/drive/v3"
@@ -105,6 +106,15 @@ def _decode_json(payload: bytes) -> dict[str, Any]:
 
 class GoogleDriveAdapter:
     async def _get(
+        self, path: str, *, access_token: str, params: dict[str, str], limit: int
+    ) -> bytes:
+        # Provider identifiers must not reach the global HTTPX trace exporter.
+        with suppress_instrumentation():
+            return await self._get_private(
+                path, access_token=access_token, params=params, limit=limit
+            )
+
+    async def _get_private(
         self, path: str, *, access_token: str, params: dict[str, str], limit: int
     ) -> bytes:
         # This is not a general HTTP executor. Even internal callers cannot

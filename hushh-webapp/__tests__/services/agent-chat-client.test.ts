@@ -75,6 +75,43 @@ import {
 import { ApiService } from "@/lib/services/api-service";
 
 describe("AG-UI Agent One client", () => {
+  it("forwards safe Mail provenance without dispatching a smuggled action or storing tool text", async () => {
+    const onStructuredExperience = vi.fn();
+    const onToolResult = vi.fn();
+    const onToolWaiting = vi.fn();
+    const onSpecialistDirective = vi.fn();
+    mockTransport.emitEvents = (subscriber) => {
+      subscriber.onToolCallStartEvent({ event: { toolCallId: "mail-call", toolCallName: "ask_email_agent" } });
+      subscriber.onToolCallResultEvent({ event: { toolCallId: "mail-call", content: JSON.stringify({
+        text: "PRIVATE_TOOL_RESULT", status: "ok", structured: {
+          schema_version: "specialist_read.v1", connector: "mail", status: "ok",
+          sources: [{ source_ref: "mail:1", label: "Mail", kind: "metadata" }],
+          truncated: false, metadata_only: true,
+        }, directive: { action_id: "route.profile", slots: {}, execution: "frontend" },
+      }) } });
+    };
+    await streamAgentChat({ userId: "u1", message: "Read mail", vaultOwnerToken: "fixture",
+      handlers: { onStructuredExperience, onToolResult, onToolWaiting, onSpecialistDirective } });
+    expect(onStructuredExperience).toHaveBeenCalledWith(expect.objectContaining({
+      type: "one.connector_read.v1", sourceRefs: ["mail:1"],
+    }));
+    expect(JSON.stringify(onToolResult.mock.calls)).not.toContain("PRIVATE_TOOL_RESULT");
+    expect(onToolWaiting).not.toHaveBeenCalled();
+    expect(onSpecialistDirective).not.toHaveBeenCalled();
+  });
+
+  it("restores only safe read receipts on assistant history", async () => {
+    const specialist_read = { schema_version: "specialist_read.v1", connector: "mail", status: "ok",
+      sources: [], truncated: false, metadata_only: true };
+    vi.mocked(ApiService.getAgentChatHistory).mockResolvedValueOnce(new Response(JSON.stringify({
+      messages: ["assistant", "user"].map((role) => ({ id: role, role, content: "Answer",
+        metadata: { specialist_read, provider_subject: "PRIVATE" } })),
+    })));
+    const messages = await getAgentChatHistory({ conversationId: "c1", vaultOwnerToken: "fixture" });
+    expect(messages[0].metadata?.connectorRead).toMatchObject({ type: "one.connector_read.v1", status: "ok" });
+    expect(messages[1].metadata?.connectorRead).toBeNull();
+    expect(JSON.stringify(messages)).not.toContain("PRIVATE");
+  });
   beforeEach(() => {
     mockTransport.runAgent.mockClear();
     mockTransport.outcome = "success";

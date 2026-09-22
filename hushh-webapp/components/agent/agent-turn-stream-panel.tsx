@@ -37,6 +37,7 @@ export type AgentTurnStreamPanelProps = {
     id: string;
     experience: AgentStructuredExperienceWithPresentation;
   }>;
+  onOpenConnections?: (trigger: HTMLButtonElement) => void;
 };
 
 const MAX_VISIBLE_SOURCES = 8;
@@ -143,6 +144,7 @@ export function AgentTurnStreamPanel({
   sources = [],
   structuredExperience = null,
   structuredExperiences = [],
+  onOpenConnections,
 }: AgentTurnStreamPanelProps) {
   const progressItems = useMemo<AppStreamProgressItem[]>(
     () =>
@@ -175,7 +177,11 @@ export function AgentTurnStreamPanel({
         experienceItems.length > 0 ? (
           <div className="space-y-3">
             {experienceItems.map(({ id, experience }) => (
-              <AgentStructuredExperienceView key={id} experience={experience} />
+              <AgentStructuredExperienceView
+                key={id}
+                experience={experience}
+                onOpenConnections={onOpenConnections}
+              />
             ))}
           </div>
         ) : null

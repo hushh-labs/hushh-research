@@ -102,7 +102,7 @@ test.beforeEach(async ({ page }) => {
   await page.route("http://localhost/connections-fixture", (route) =>
     route.fulfill({
       contentType: "text/html",
-      body: `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`,
+      body: `<!doctype html><html><head><title>One Connections contract</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`,
     }),
   );
   await page.route("**/api/connectors**", async (route) => {
@@ -173,6 +173,36 @@ test.beforeEach(async ({ page }) => {
 });
 
 for (const width of [320, 390, 768, 1440])
+  test(`Mail reconnect receipt preserves draft and returns focus at ${width}px`, async ({ page }, testInfo) => {
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.setViewportSize({ width, height: 820 });
+    await expect(page).toHaveTitle("One Connections contract");
+    await expect(page).toHaveURL("http://localhost/connections-fixture");
+    const draft = page.getByRole("textbox", { name: "Chat draft" });
+    await draft.fill("Keep this draft and conversation");
+    const original = await draft.elementHandle();
+    const receipt = page.getByRole("region", { name: "Mail read details" });
+    await expect(receipt).toHaveText(/Reconnect Mail to continue/);
+    const button = receipt.getByRole("button", { name: "Open Connections" });
+    const bounds = (await button.boundingBox())!;
+    expect(bounds.height).toBeGreaterThanOrEqual(44);
+    expect(bounds.x).toBeGreaterThanOrEqual(0);
+    expect(bounds.x + bounds.width).toBeLessThanOrEqual(width);
+    await button.click();
+    await expect(page.getByRole("dialog", { name: "Connections", exact: true })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(page.getByRole("dialog", { name: "Connections", exact: true })).not.toBeVisible();
+    await expect(button).toBeFocused();
+    await expect(draft).toHaveValue("Keep this draft and conversation");
+    expect(await original!.evaluate((element) => element.isConnected)).toBe(true);
+    await expect(page.getByTestId("stream")).toHaveText("Streaming turn 1");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    expect(errors).toEqual([]);
+    await testInfo.attach("Mail reconnect receipt", { body: await page.screenshot({ path: testInfo.outputPath("mail-receipt.png") }), contentType: "image/png" });
+  });
+
+for (const width of [320, 390, 768, 1440])
   test(`mounted drawer retains chat and wraps controls at ${width}px`, async ({
     page,
   }, testInfo) => {
@@ -186,7 +216,7 @@ for (const width of [320, 390, 768, 1440])
     await page
       .getByRole("searchbox", { name: "Search chats" })
       .fill("History filter");
-    await page.getByRole("button", { name: "Open Connections" }).click();
+    await page.getByLabel("Open Connections", { exact: true }).click();
     const drawer = page.getByRole("dialog", {
       name: "Connections",
       exact: true,
@@ -247,7 +277,7 @@ test("Picker focus, explicit admission, removal, and independent disconnect", as
   page,
 }) => {
   await page.getByRole("button", { name: "Open drawer", exact: true }).click();
-  await page.getByRole("button", { name: "Open Connections" }).click();
+  await page.getByLabel("Open Connections", { exact: true }).click();
   await page.getByRole("button", { name: "Choose files", exact: true }).click();
   await expect(
     page.getByRole("dialog", { name: "Synthetic Google Picker" }),
@@ -305,7 +335,7 @@ test("blocked popup keeps draft in chat and makes no start request", async ({
   });
   await page.getByRole("textbox", { name: "Chat draft" }).fill("Unsent draft");
   await page.getByRole("button", { name: "Open drawer", exact: true }).click();
-  await page.getByRole("button", { name: "Open Connections" }).click();
+  await page.getByLabel("Open Connections", { exact: true }).click();
   await page.getByRole("button", { name: "Disconnect Drive" }).click();
   await page.getByRole("button", { name: "Confirm", exact: true }).click();
   await page.evaluate(() => {
@@ -356,7 +386,7 @@ test("real popup ignores forged settlement and reconciles server status after cl
       }),
   );
   await page.getByRole("button", { name: "Open drawer", exact: true }).click();
-  await page.getByRole("button", { name: "Open Connections" }).click();
+  await page.getByLabel("Open Connections", { exact: true }).click();
   await page.getByRole("button", { name: "Disconnect Drive" }).click();
   await page.getByRole("button", { name: "Confirm", exact: true }).click();
   const popupEvent = page.waitForEvent("popup");

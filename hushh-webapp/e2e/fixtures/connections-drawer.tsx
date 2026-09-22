@@ -6,6 +6,7 @@ import {
 } from "../../components/agent/agent-connections-drawer";
 import { AgentHistorySidebar } from "../../components/agent/agent-history-sidebar";
 import { ConnectorsPanel } from "../../components/agent/connectors-panel";
+import { ConnectorReadReceipt } from "../../components/agent/connector-read-receipt";
 
 // Fake only Google's external UI; exercise the actual Picker adapter and its
 // real DOM focus interaction with the mounted production drawer.
@@ -102,7 +103,7 @@ function Fixture() {
       <button
         ref={triggerRef}
         className="h-14 shrink-0"
-        onClick={() => setOpen(!open)}
+        onClick={(event) => { triggerRef.current = event.currentTarget; setOpen(!open); }}
       >
         Open drawer
       </button>
@@ -138,6 +139,9 @@ function Fixture() {
         }
       />
       <section inert={open} className="flex min-h-0 flex-1 flex-col p-4">
+        <ConnectorReadReceipt experience={{ type: "one.connector_read.v1", connector: "mail",
+          status: "reconnect_required", sourceRefs: [], truncated: false, metadataOnly: true }}
+          onOpenConnections={(trigger) => { triggerRef.current = trigger; setMode("connections"); setOpen(true); }} />
         <p>Conversation one</p>
         <p data-testid="stream">Streaming turn {turns}</p>
         <button onClick={() => setTurns(turns + 1)}>

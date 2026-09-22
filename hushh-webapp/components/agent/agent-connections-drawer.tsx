@@ -46,18 +46,22 @@ export function AgentConnectionsDrawer({
       (element) =>
         !element.closest("[hidden], [inert]") && element.offsetParent !== null,
     );
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!open) return;
     // WebKit pointer activation doesn't focus buttons; an explicit trigger
     // reference restores focus reliably for both pointer and keyboard users.
     returnFocus.current = triggerRef.current;
-    const frame = requestAnimationFrame(() => focused()[0]?.focus());
-    return () => {
-      cancelAnimationFrame(frame);
-      returnFocus.current?.focus();
-      returnFocus.current = null;
-    };
+    // The transcript becomes inert in this commit. Move focus now so an
+    // immediate Escape cannot land on the old, inert trigger before a RAF.
+    focused()[0]?.focus();
   }, [open, triggerRef]);
+  useEffect(() => {
+    if (open) return;
+    // Passive closed-state effect runs after sibling inert attributes clear.
+    const target = returnFocus.current;
+    if (target?.isConnected && !target.closest("[inert], [hidden]")) target.focus();
+    returnFocus.current = null;
+  }, [open]);
   useEffect(() => {
     if (!open || modalActive.current) return;
     const frame = requestAnimationFrame(() => {

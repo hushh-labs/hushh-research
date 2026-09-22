@@ -100,6 +100,24 @@ function makeToolEvent(overrides: Partial<AgentChatToolEvent> = {}): AgentChatTo
 }
 
 describe("AgentTurnStreamPanel", () => {
+  it("renders metadata provenance and opens Connections only on explicit click", () => {
+    const onOpenConnections = vi.fn();
+    const experience = { type: "one.connector_read.v1" as const, connector: "mail" as const,
+      status: "ok" as const, sourceRefs: ["mail:1"], metadataOnly: true as const, truncated: true };
+    const { rerender } = render(<AgentTurnStreamPanel streamEvents={[]} responseText="Your answer."
+      isStreaming={false} structuredExperience={experience} onOpenConnections={onOpenConnections} />);
+    expect(screen.getByRole("region", { name: "Mail read details" })).toBeInTheDocument();
+    expect(screen.getByText("Metadata only · 1 cited source")).toBeInTheDocument();
+    expect(screen.getByText("Mail 1")).toBeInTheDocument();
+    expect(screen.getByText("Some matches or metadata were omitted.")).toBeInTheDocument();
+    expect(onOpenConnections).not.toHaveBeenCalled();
+    rerender(<AgentTurnStreamPanel streamEvents={[]} responseText="Reconnect your Mail."
+      isStreaming={false} structuredExperience={{ ...experience, status: "reconnect_required", sourceRefs: [] }}
+      onOpenConnections={onOpenConnections} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open Connections" }));
+    expect(onOpenConnections).toHaveBeenCalledOnce();
+    expect(screen.queryByText("Mail 1")).not.toBeInTheDocument();
+  });
   it("renders tool progress without leaking raw action payloads", () => {
     const event = agentToolEventToVisibleStreamEvent("waiting", makeToolEvent(), 1_700_000);
 

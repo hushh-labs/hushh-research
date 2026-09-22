@@ -280,7 +280,12 @@ class TestAgentTreeShape:
         assert "it is not semantic authority" in ONE_IDENTITY_INSTRUCTION
         assert "Deterministic policy may validate" in ONE_IDENTITY_INSTRUCTION
         assert "KYC app surface" in ONE_IDENTITY_INSTRUCTION
-        assert "Gmail receipt sync and inbox search are paused" in ONE_IDENTITY_INSTRUCTION
+        assert "Gmail receipt sync is not part of One's chat read lane" in ONE_IDENTITY_INSTRUCTION
+        assert "MAIL READ ADMISSION below explicitly enables it" in ONE_IDENTITY_INSTRUCTION
+        assert (
+            "Otherwise do not claim inbox access or call ask_email_agent"
+            in ONE_IDENTITY_INSTRUCTION
+        )
         assert "named CRM" in ONE_IDENTITY_INSTRUCTION
         # One names that it summons specialists rather than doing their work
         # itself (the roster line from build_specialist_capability_catalog).

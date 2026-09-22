@@ -117,6 +117,13 @@ class TimedADKAgent(ADKAgent):
 
     head: str = HEAD_UNLABELED
 
+    def _default_run_config(self, input: RunAgentInput):
+        from hushh_mcp.hushh_adk.telemetry import private_telemetry
+
+        config = super()._default_run_config(input)
+        config.telemetry = private_telemetry()
+        return config
+
     @classmethod
     def from_app(cls, app: Any, *, head: str, **kwargs: Any) -> TimedADKAgent:
         """Build the agent from an ADK ``App`` and label it with ``head``.

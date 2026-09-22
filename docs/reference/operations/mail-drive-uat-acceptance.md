@@ -54,6 +54,23 @@ parsing, embeddings and document access control remain outside Google AI service
   are encrypted together. Source denial purges the prior index; transient failures preserve it.
   The orchestration has an explicit processor port, not a production default or startup hook.
   No real document has been parsed/embedded, and no scheduler is activated by this checkpoint.
+- Mail chat checkpoint: the registered typed-chat Email specialist now performs only
+  metadata-only `list_needs_reply` / `search_inbox`, behind the default-off Mail flag,
+  internal cohort and owner/task/call-bound invocation authority. It reuses Gmail grants,
+  skips body/ICS enrichment, preserves One's conversation and does not persist an Email turn.
+  The interpreter has no tools; One's tool gate closes before reading external data.
+  Disconnect/credential changes suppress late answers. Existing receipts and reviewed Send
+  are outside this new lane. Authenticated Gmail consent/read acceptance is still outstanding.
+- Mail results render bounded source receipts and explicit connection recovery in the
+  existing drawer, including history reload. Mail payloads are not retained in raw tool
+  history or frontend result storage. Tests exercise the actual registered SDK dispatch
+  with synthetic model/provider boundaries, invocation lockout and next-turn recovery,
+  CAS persistence races, thought-signature/call correlation and single-receipt history.
+- Privacy checkpoint: content-disabled One/specialist telemetry, sanitized SDK content/error
+  logs, export-time exception redaction and suppressed provider HTTP tracing. Real local SDK
+  span-export tests include a positive control for exception leakage; no cloud exporter
+  or live mailbox is used. Mounted browser tests verify the Mail recovery button, immediate
+  Escape/focus restoration and retained drafts without waits or test retries.
 
 Focused automated coverage includes a disposable socket-only PostgreSQL cluster (or the
 existing explicitly test-only CI PostgreSQL service), real concurrent claim/refresh tests,
@@ -110,7 +127,8 @@ revoke a provider grant or mutate an active connection.
 - [ ] Specific-document requests, explicit owner decisions, recipient/version/mode/expiry
   grants, immediate revocation and metadata-only audit in the existing Consent Center.
 - [ ] Mail metadata-only delegated reads with stable One conversation identity; unchanged
-  receipts, Calendar, Firebase and reviewed Send.
+  receipts, Calendar, Firebase and reviewed Send. Implementation and focused regression
+  coverage exist; this checkbox remains open until authenticated UAT acceptance.
 - [x] Mounted left-drawer Chats/Connections UI with independent Mail/Drive cards; web popup
   settlement and in-place draft preservation. No permanent desktop sidebar.
 - [ ] Encrypted one-use full-page recovery; currently blocked popups offer retry in chat.
@@ -127,3 +145,17 @@ revoke a provider grant or mutate an active connection.
   tested feature-disable/revision rollback. No destructive schema rollback.
 
 Drive writes/download UI/voice execution and production deployment remain out of scope.
+
+## Latest read-only release preflight (2026-09-22)
+
+The observed UAT backend served main SHA `76b37d6f`, revision suffix `01337-quj`, not this
+branch. Runtime metadata did not contain direct bindings for `GOOGLE_DRIVE_OAUTH_CLIENT_ID`,
+`GOOGLE_DRIVE_OAUTH_CLIENT_SECRET`, `GOOGLE_DRIVE_PICKER_API_KEY`, `DRIVE_DOCUMENT_KEY_V1`
+or `EXTERNAL_CONNECTOR_CREDENTIAL_KEY`; matching secrets were absent from the inspected
+runtime-project metadata. No secret payload was read. Existing Gmail bindings were present.
+The inspected Scheduler inventory had no connector cleanup or Drive ingestion job.
+
+Owner consent, cohort values, registry policy and applied migrations remain unverified,
+not proven absent. Callback sink exclusions, a restricted Picker key, native artifacts and
+isolated processor capacity also remain unproven. Recheck current state before rollout;
+these observations do not authorize a production deployment or substitute for acceptance.

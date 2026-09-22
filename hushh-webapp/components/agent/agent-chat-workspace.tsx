@@ -1318,6 +1318,7 @@ function AgentThinkingDots() {
 
 function AgentBubble({
   message,
+  onOpenConnections,
   userAvatarUrl,
   userInitials = "YO",
   onRetry,
@@ -1333,6 +1334,7 @@ function AgentBubble({
   onRate,
 }: {
   message: AgentMessage;
+  onOpenConnections?: (trigger: HTMLButtonElement) => void;
   userAvatarUrl?: string | null;
   userInitials?: string;
   onRetry?: () => void;
@@ -1470,6 +1472,7 @@ function AgentBubble({
               sources={message.sources}
               structuredExperience={message.structuredExperience}
               structuredExperiences={structuredExperiences}
+              onOpenConnections={onOpenConnections}
               responseText={assistantText}
               isStreaming={isStreaming}
               isError={isError}
@@ -1661,7 +1664,19 @@ export function storedMessageToAgentMessage(
         },
       ]
     : [];
-  const structuredExperiences = candidates.filter(entry => {
+  const connectorRead =
+    message.role === "assistant" ? message.metadata?.connectorRead : null;
+  const structuredExperiences = [
+    ...candidates,
+    ...(connectorRead
+      ? [
+          {
+            id: `${message.id}:connector-read`,
+            experience: connectorRead,
+          },
+        ]
+      : []),
+  ].filter(entry => {
     if (seenExperienceIds.has(entry.id)) return false;
     seenExperienceIds.add(entry.id);
     return true;
@@ -5550,7 +5565,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               <ShellActionSurface
                 variant="icon"
                 ref={historyDrawerTriggerRef}
-                onClick={toggleHistoryDrawer}
+                onClick={(event) => { historyDrawerTriggerRef.current = event.currentTarget; toggleHistoryDrawer(); }}
                 aria-label={isHistoryDrawerOpen ? "Close chat history" : "Open chat history"}
                 title={isHistoryDrawerOpen ? "Close chat history" : "Open chat history"}
                 className="relative z-[540]"
@@ -5896,6 +5911,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   ) : (
                     <AgentBubble
                       message={message}
+                      onOpenConnections={(trigger) => { historyDrawerTriggerRef.current = trigger; setDrawerMode("connections"); setIsHistoryDrawerOpen(true); }}
                       userAvatarUrl={userAvatarUrl}
                       userInitials={userInitials}
                       retryDisabled={isChatLoading || isStreaming}
@@ -6708,6 +6724,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 <AgentBubble
                   key={message.id}
                   message={message}
+                  onOpenConnections={(trigger) => { historyDrawerTriggerRef.current = trigger; setDrawerMode("connections"); setIsHistoryDrawerOpen(true); }}
                   retryDisabled={isChatLoading || isStreaming}
                 />
               ))}

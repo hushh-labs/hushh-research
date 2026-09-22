@@ -11,6 +11,8 @@ import time
 from dataclasses import dataclass
 from typing import Literal
 
+from pydantic import BaseModel, ConfigDict, Field
+
 
 class A2AAuthorityRequired(PermissionError):
     """Stable fail-closed signal for a missing attenuated authority object."""
@@ -116,6 +118,7 @@ class A2ATask:
     expected_tenant_id: str | None = None
     expected_task_id: str | None = None
     specialist_target: Literal["consent", "connections"] | None = None
+    execution_surface: Literal["typed_chat"] | None = None
 
 
 @dataclass(frozen=True)
@@ -125,6 +128,36 @@ class A2ADirective:
 
     kind: Literal["action", "prompt"]
     payload: dict
+
+
+class SpecialistReadSource(BaseModel):
+    model_config = ConfigDict(extra="forbid", strict=True)
+    source_ref: str = Field(pattern=r"^(mail|document):[A-Za-z0-9_-]{1,80}$")
+    label: str = Field(max_length=80)
+    kind: Literal["metadata", "document"]
+
+
+class SpecialistReadResult(BaseModel):
+    """Additive, bounded provenance/status; never credentials or raw content."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+    schema_version: Literal["specialist_read.v1"] = "specialist_read.v1"
+    connector: Literal["mail", "drive"]
+    status: Literal[
+        "ok",
+        "input_required",
+        "connect_required",
+        "reconnect_required",
+        "connection_changed",
+        "permission_denied",
+        "source_changed",
+        "response_too_large",
+        "invalid_argument",
+        "unavailable",
+    ]
+    sources: list[SpecialistReadSource] = Field(default_factory=list, max_length=25)
+    truncated: bool = False
+    metadata_only: bool = False
 
 
 @dataclass(frozen=True)
@@ -137,3 +170,4 @@ class SpecialistTurnResult:
     is_complete: bool
     state_changed: bool
     model: str
+    structured: SpecialistReadResult | None = None

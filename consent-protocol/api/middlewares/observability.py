@@ -315,6 +315,8 @@ def configure_opentelemetry(app: FastAPI) -> None:
         from opentelemetry.sdk.resources import Resource
         from opentelemetry.sdk.trace import TracerProvider
         from opentelemetry.sdk.trace.export import BatchSpanProcessor
+
+        from api.utils.private_trace_exporter import PrivateTraceExporter
     except Exception:
         logger.exception("observability.otel_import_failed")
         return
@@ -327,7 +329,9 @@ def configure_opentelemetry(app: FastAPI) -> None:
             }
         )
         provider = TracerProvider(resource=resource)
-        provider.add_span_processor(BatchSpanProcessor(CloudTraceSpanExporter()))
+        provider.add_span_processor(
+            BatchSpanProcessor(PrivateTraceExporter(CloudTraceSpanExporter()))
+        )
 
         trace.set_tracer_provider(provider)
         FastAPIInstrumentor.instrument_app(app)

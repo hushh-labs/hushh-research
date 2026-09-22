@@ -1035,6 +1035,38 @@ is not native Picker completion. Application redaction covers query `code`/`stat
 and Drive file-ID paths, but does not sanitize platform-managed request logs.
 See [Mail + Drive UAT acceptance](../operations/mail-drive-uat-acceptance.md).
 
+### Delegated Mail metadata reads (default-off)
+
+One's existing AG-UI typed-chat route can delegate `list_needs_reply` or `search_inbox`
+through the authored Email specialist. Admission requires the internal owner cohort,
+`gmail_chat_reads`, a current Vault Owner session and a manifest-declared invocation
+capability bound to the same owner, task, call and expiry. Voice, arbitrary operations,
+client-supplied delegated results and action plans cannot enter this path. Existing
+Gmail credentials, receipt/sync routes, Calendar and reviewed sending are unchanged.
+
+The reader requests fixed Gmail metadata fields only: sender, subject, date and labels.
+It never fetches message bodies, snippets, attachments or ICS enrichment. Reads default
+to ten results (maximum 25), one page, a 20-second provider deadline and a 256 KiB
+aggregate provider-response budget. A no-tools interpreter returns a bounded answer
+and ephemeral source references. The grant is rechecked before releasing results;
+disconnect or credential changes suppress a late answer. The delegated path creates
+no separate Email conversation and persists no Email turn.
+
+Specialist results add optional `specialist_read.v1` structured data with safe status,
+source references, truncation and explicit connect/reconnect actions. The frontend
+accepts a strict display-only projection; it neither performs OAuth nor executes a
+directive from retrieved content. The existing Connections drawer opens only after a
+user presses its button. On reload, the final visible assistant answer may carry the
+same redacted receipt in `metadata.specialist_read`; preambles and user turns do not.
+
+Mail invocation tool arguments and raw responses are replaced with a redacted durable
+projection, preserving call correlation and opaque thought signatures. Normal encrypted
+assistant answers remain. One and specialist telemetry suppress content; export-time
+exception sanitization and provider HTTP tracing suppression also cover SDK failure
+paths. Tool execution closes before external Mail data enters the model and remains
+closed for the rest of that SDK invocation. A new user turn starts a new invocation.
+These controls are automated-test evidence, not authenticated provider/UAT acceptance.
+
 ## External Developer API
 
 ### Consent Flow

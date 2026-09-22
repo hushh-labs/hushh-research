@@ -1,5 +1,6 @@
 import { ApiService } from "@/lib/services/api-service";
 import { nativeStreamFetch } from "@/lib/services/native-sse-fetch";
+import { parseConnectorReadReceipt, type ConnectorReadExperience } from "@/lib/agent/connector-read-receipt";
 import { HttpAgent, type AgentSubscriber, type Tool } from "@ag-ui/client";
 import { applyPatch, type Operation } from "fast-json-patch";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
@@ -28,6 +29,7 @@ export type AgentChatMessage = {
     } | null;
     structuredExperienceId?: string | null;
     structuredExperiences?: Array<{ id: string; activityType: string; content: unknown }>;
+    connectorRead?: ConnectorReadExperience | null;
   } | null;
 };
 
@@ -520,6 +522,18 @@ export async function streamAgentChat(input: {
     },
     onToolCallResultEvent: ({ event }) => {
       const toolName = toolNames.get(event.toolCallId) || "";
+      // A Mail receipt is display-only, even if an invalid result attempts to
+      // smuggle a parked navigation/send directive alongside it.
+      if (toolName === "ask_email_agent") {
+        const experience = parseAgentToolResultExperience(toolName, event.content);
+        const payload = toolPayload(event.toolCallId, toolName);
+        payload.execution = "server";
+        payload.message = experience ? "Mail read finished." : "Mail could not complete that read.";
+        payload.raw = { protocol: "ag-ui", toolName };
+        handlers.onToolResult?.(payload);
+        if (experience) handlers.onStructuredExperience?.(experience);
+        return;
+      }
       const payload = toolPayload(
         event.toolCallId,
         toolName,
@@ -802,7 +816,21 @@ export async function getAgentChatHistory(input: {
   if (!response.ok) {
     throw new Error(await readError(response));
   }
-  const payload = (await response.json()) as { messages?: AgentChatMessage[] };
+  const payload = (await response.json()) as {
+    messages?: Array<Omit<AgentChatMessage, "metadata"> & {
+      metadata?: {
+        kind?: string;
+        display?: string;
+        structuredExperience?: {
+          activityType?: string;
+          content?: unknown;
+        } | null;
+        structuredExperienceId?: string | null;
+        structuredExperiences?: Array<{ id: string; activityType: string; content: unknown }>;
+        specialist_read?: unknown;
+      } | null;
+    }>;
+  };
   if (!Array.isArray(payload.messages)) return [];
   return payload.messages
     .filter((message) => ["user", "assistant", "system", "tool"].includes(message.role))
@@ -816,7 +844,17 @@ export async function getAgentChatHistory(input: {
       created_at: message.created_at,
       completed_at: message.completed_at,
       metadata: message.metadata
-        ? { kind: message.metadata.kind, display: message.metadata.display }
+        ? {
+            kind: message.metadata.kind,
+            display: message.metadata.display,
+            structuredExperience: message.metadata.structuredExperience,
+            structuredExperienceId: message.metadata.structuredExperienceId,
+            structuredExperiences: message.metadata.structuredExperiences,
+            connectorRead:
+              message.role === "assistant"
+                ? parseConnectorReadReceipt(message.metadata.specialist_read)
+                : null,
+          }
         : message.metadata,
     }));
 }

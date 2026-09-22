@@ -8,6 +8,7 @@ import { InformationRequestReviewFields } from "@/components/consent/information
 import { DEFAULT_REQUEST_DURATION_HOURS } from "@/lib/agent/action-directive-summary";
 import { PersonProfileService, mergePersonScopePage, type ViewerPersonProfile } from "@/lib/services/person-profile-service";
 import { ConsentScopeNestedList } from "@/components/consent/consent-scope-nested-list";
+import { ConnectorReadReceipt } from "@/components/agent/connector-read-receipt";
 import { ConsentScopeList } from "@/components/consent/consent-scope-list";
 import {
   domainLabelFor,
@@ -39,11 +40,15 @@ export const AgentPersonSelectionContext = createContext<((handle: string, name:
 
 export function AgentStructuredExperienceView({
   experience,
+  onOpenConnections,
 }: {
   experience: AgentStructuredExperience;
+  onOpenConnections?: (trigger: HTMLButtonElement) => void;
 }) {
   const selectPerson = useContext(AgentPersonSelectionContext);
   switch (experience.type) {
+    case "one.connector_read.v1":
+      return <ConnectorReadReceipt experience={experience} onOpenConnections={onOpenConnections} />;
     case "one.person_selection.v1":
       return <ExperienceShell experienceType={experience.type} label="Choose a person" title="Who do you mean?"
         summary="Choose the right person before we check what you can ask for." icon={<UserRound className="size-5" />}>
