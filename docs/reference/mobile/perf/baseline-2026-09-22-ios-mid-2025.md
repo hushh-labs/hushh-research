@@ -1,5 +1,24 @@
 # Render performance baseline (ios-mid-2025)
 
+## Visual Context
+
+Canonical visual owner: [Mobile Reference Index](../README.md); the measurement
+flow and the bar are in [render-performance-charter.md](../render-performance-charter.md),
+and this page is one dated reading beneath them.
+
+The reading taken after the motion-sync pass (`56ae2a6e7`): the composer and the
+bottom navigation now ride together, and the keyboard's descent no longer steps.
+Read it against [the 2026-09-19 reading](./baseline-2026-09-19-ios-mid-2025.md),
+which is the first from this phone.
+
+Every gesture here is at or under the 16.7 ms budget at p95 except the two
+keyboard windows, and those were attributed to the system keyboard rather than
+to the page (bug-log B43): the typing stall is WebKit's autocorrection context
+and the presentation stall is the keyboard's own. The `critical` verdicts in the
+table come from the hitch column, which the charter reads against Apple's 5 ms/s
+"good" line, not from a dropped frame.
+
+
 Captured 2026-09-22T04:45:52.884Z at 56ae2a6e7. Device run, Release, test mode off: certifying. rAF 61.1 Hz (nominal 60, budget 16.7 ms); engine iPhone AppleWebKit/605.
 
 | Gesture | Windows | Frames | p95 ms (median) | p99 ms (median) | Worst ms | Frames > 50 ms | Hitch ms/s (median) | Verdict |

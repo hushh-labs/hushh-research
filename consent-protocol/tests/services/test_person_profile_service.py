@@ -165,6 +165,16 @@ async def test_profile_compatibility_catalog_walks_beyond_five_hundred_entries(m
         },
     )
     monkeypatch.setattr(service, "_execute_one", lambda *_args: {"public_person_ref": "viewer-ref"})
+    # The request-history read goes through the module's get_db, not through
+    # the two methods patched above. Left unpatched this test only passes when
+    # the process happens to have no database configured, so it turns red the
+    # moment any earlier test in the run installs one.
+    monkeypatch.setattr(
+        "hushh_mcp.services.person_profile_service.get_db",
+        lambda: SimpleNamespace(
+            execute_raw=lambda *_args: SimpleNamespace(data=[]),
+        ),
+    )
 
     page = await service.get_viewer_profile(
         viewer_user_id="viewer", public_person_ref=person_ref, catalog_page=1
