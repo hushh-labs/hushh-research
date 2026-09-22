@@ -9,6 +9,9 @@ declare global {
       autoReviewerLogin?: boolean;
       reviewerAuthMode?: "local_credentials" | "custom_token";
       reviewerMutationPolicy?: "read_only" | "preparation_only" | "bounded_mutation" | "mutation_authorized";
+      pkmProofEnabled?: boolean;
+      pkmProofExpectation?: import("@/lib/testing/reviewer-pkm-proof").ReviewerPkmExpectation;
+      pkmProof?: import("@/lib/testing/reviewer-pkm-proof").ReviewerPkmBridge | null;
       vaultPassphrase?: string;
       expectedUserId?: string;
       expectedMarker?: string;
