@@ -4739,7 +4739,7 @@ class OneLocationAgentService:
         all_tokens_match_sql = f"""NOT EXISTS (
             SELECT 1 FROM unnest(CAST(:token_prefixes AS TEXT[])) AS query_token(pattern)
             WHERE (' ' || {_DIRECTORY_SEPARATOR_SQL}) NOT LIKE query_token.pattern ESCAPE '!'
-        )"""
+        )"""  # nosec B608 - static SQL fragments only; every value is a bound parameter.
         rows = self._execute_many(
             f"""
             SELECT
@@ -4837,7 +4837,7 @@ class OneLocationAgentService:
               LOWER(COALESCE(NULLIF(BTRIM(a.display_name), ''), a.phone_number, a.user_id)),
               a.user_id
             LIMIT :fetch_limit OFFSET :offset
-            """,
+            """,  # nosec B608 - static SQL fragments only; every value is a bound parameter.
             {
                 "owner_user_id": owner_user_id,
                 "candidate_user_id": target,

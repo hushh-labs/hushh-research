@@ -366,6 +366,11 @@ describe("VaultFlow create validation", () => {
 
   it("uses passphrase and recovery alternatives when passkey is primary", async () => {
     checkVaultMock.mockResolvedValue(true);
+    // This is about what the gate offers WHILE the passkey is the primary
+    // method. The shared beforeEach rejects the automatic unlock, and that
+    // rejection moves the gate on to the passphrase form, so leaving it to
+    // settle asserted a different screen and failed about one run in three.
+    unlockGeneratedDefaultVaultMock.mockReturnValue(new Promise(() => {}));
     getVaultStateMock.mockResolvedValue(
       vaultState("generated_default_web_prf", [
         passphraseWrapper,

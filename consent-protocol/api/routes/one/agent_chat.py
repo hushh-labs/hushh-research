@@ -258,7 +258,7 @@ def _safe_scope_catalog(value: Any, *, scope_count: int) -> dict[str, Any] | Non
             return None
         if maximum is not None and raw > maximum:
             return None
-        return raw
+        return int(raw)
 
     page = bounded_integer(catalog.get("page"), minimum=1)
     limit = bounded_integer(catalog.get("limit"), minimum=1, maximum=100)
@@ -352,19 +352,19 @@ def _safe_discovery_descriptor(
         if isinstance(raw_scopes, list):
             for raw_scope in raw_scopes[:250]:
                 scope = _record(raw_scope)
-                scope_ref = _bounded_text(scope.get("scopeRef") if scope else None, 180)
-                label = _bounded_text(scope.get("label") if scope else None, 120)
-                domain = _bounded_text(scope.get("domain") if scope else None, 80)
+                if scope is None:
+                    continue
+                scope_ref = _bounded_text(scope.get("scopeRef"), 180)
+                label = _bounded_text(scope.get("label"), 120)
+                domain = _bounded_text(scope.get("domain"), 80)
                 if not scope_ref or not label or not domain:
                     continue
-                sensitivity = _bounded_text(scope.get("sensitivity") if scope else None, 32)
+                sensitivity = _bounded_text(scope.get("sensitivity"), 32)
                 scopes.append(
                     {
                         "scopeRef": scope_ref,
                         "label": label,
-                        "description": _bounded_text(
-                            scope.get("description") if scope else None, 280
-                        ),
+                        "description": _bounded_text(scope.get("description"), 280),
                         "domain": domain,
                         "sensitivity": sensitivity or "standard",
                         "pathSegments": [

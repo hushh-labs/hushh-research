@@ -836,7 +836,7 @@ class ConnectionsService:
         scope_path = scope.split(".", 2)[-1]
         if is_internal_manifest_path(scope_path):
             return False
-        return ConsentScope.validate(scope)
+        return bool(ConsentScope.validate(scope))
 
     def get_exact_requestable_scope_entries(
         self, viewer_user_id: str, counterpart_user_id: str
@@ -3069,7 +3069,9 @@ class ConnectionsService:
                 compact_needle = "".join(char for char in needle if char.isalnum())
 
                 def _tier(person: dict[str, Any]) -> int | None:
-                    rank = directory_name_rank(str(person.get("displayName") or ""), needle)
+                    rank: int | None = directory_name_rank(
+                        str(person.get("displayName") or ""), needle
+                    )
                     if rank is not None:
                         return rank
                     email = str(person.get("email") or "").strip().lower()

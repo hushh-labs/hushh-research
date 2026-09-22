@@ -359,7 +359,7 @@ class InformationRequestService:
         person_filter = (
             "AND profile.public_person_ref = :person_ref" if normalized_person_ref else ""
         )
-        rows = await self._rows(
+        rows = await self._rows(  # nosec B608 - static SQL fragments only; every value is a bound parameter.
             f"""SELECT bundle.bundle_id, bundle.purpose, bundle.created_at,
                       bundle.subject_user_id,
                       profile.public_person_ref, identity.display_name,
@@ -372,7 +372,7 @@ class InformationRequestService:
                  AND bundle.cancelled_at IS NULL
                  {person_filter}
                ORDER BY bundle.created_at DESC, item.created_at
-               LIMIT :limit""",
+               LIMIT :limit""",  # nosec B608 - static SQL fragments only; every value is a bound parameter.
             {
                 "requester": requester_user_id,
                 "limit": max(1, min(int(limit or 50), 100)),

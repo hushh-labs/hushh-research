@@ -254,7 +254,9 @@ def _tool_session_id(tool_context: ToolContext | None) -> str:
     if live_id:
         return live_id
     state = getattr(tool_context, "state", None)
-    value = state.get(_STATE_CONVERSATION_ID) if hasattr(state, "get") else None
+    value = (
+        state.get(_STATE_CONVERSATION_ID) if state is not None and hasattr(state, "get") else None
+    )
     return str(value or "").strip()
 
 
@@ -2258,23 +2260,24 @@ def _resolve_person_for_information(
                     selection_handle = str(selected.get("handle") or "")
                     retained_selection = bool(selection_handle)
     if selection_handle:
-        requested_handle = (
-            str(tool_context.state.get(_STATE_REQUESTED_INFORMATION_PERSON) or "")
-            if tool_context
-            else ""
-        )
-        selected = (
-            tool_context.state.get(_STATE_SELECTED_INFORMATION_PERSON) if tool_context else None
-        )
+        # Without a tool context there is no admission record to check the
+        # handle against, which is the same refusal the mismatch below raises.
+        # Stating it here keeps the rest of this block free of None handling
+        # for a case that can never reach it.
+        if tool_context is None:
+            raise ConsentLifecycleError(
+                "PERSON_REQUIRED",
+                "Choose a person in the conversation before we continue.",
+            )
+        requested_handle = str(tool_context.state.get(_STATE_REQUESTED_INFORMATION_PERSON) or "")
+        selected = tool_context.state.get(_STATE_SELECTED_INFORMATION_PERSON)
         admitted_handle = str(selected.get("handle") or "") if isinstance(selected, dict) else ""
         if not requested_handle and selection_handle != admitted_handle:
             raise ConsentLifecycleError(
                 "PERSON_REQUIRED",
                 "Choose a person in the conversation before we continue.",
             )
-        choices = (
-            tool_context.state.get(_STATE_INFORMATION_PERSON_CHOICES) if tool_context else None
-        )
+        choices = tool_context.state.get(_STATE_INFORMATION_PERSON_CHOICES)
         choice = choices.get(selection_handle) if isinstance(choices, dict) else None
         session_id = _tool_session_id(tool_context)
         if not isinstance(choice, dict):
@@ -2297,7 +2300,11 @@ def _resolve_person_for_information(
             raise ConsentLifecycleError(
                 "PERSON_REQUIRED", "That choice expired. Please choose the person again."
             )
-        if selection_handle and float(choice.get("expiresAt") or 0) <= time.time():
+        if (
+            selection_handle
+            and isinstance(choice, dict)
+            and float(choice.get("expiresAt") or 0) <= time.time()
+        ):
             if retained_selection:
                 # A persisted conversational selection is a convenience, not
                 # identity authority. Discard only the stale retention and
@@ -2316,7 +2323,9 @@ def _resolve_person_for_information(
                 raise ConsentLifecycleError(
                     "PERSON_REQUIRED", "That choice expired. Please choose the person again."
                 )
-        if selection_handle:
+        # `choice` is a dict here: the branch above either raised or cleared the
+        # handle when it was not one.
+        if selection_handle and isinstance(choice, dict):
             # The handle fixes identity; the profile service rechecks current authority.
             previous = tool_context.state.get(_STATE_SELECTED_INFORMATION_PERSON)
             tool_context.state[_STATE_SELECTED_INFORMATION_PERSON] = {

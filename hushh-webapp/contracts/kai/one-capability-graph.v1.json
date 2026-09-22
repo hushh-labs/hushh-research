@@ -43095,21 +43095,16 @@
     }
   ],
   "semantic_diff": {
-    "added": [
-      "actions:profile.reset_account"
-    ],
+    "added": [],
     "breaking": [],
     "changed": [
-      "actions:consent.cancel_request",
-      "screens:screen:/one/profile",
-      "screens:screen:/one/profile/account",
-      "screens:screen:/one/profile/account/phone"
+      "actions:consent.cancel_request"
     ],
     "compatible": [
       "actions:consent.cancel_request"
     ],
     "deprecated": [],
-    "from_revision": "771cbd282b3b3c1a",
+    "from_revision": "525e1bea6e22f1da",
     "migrated": [],
     "removed": [
       "screens:screen:/one/setup/capabilities"
@@ -45577,6 +45572,7 @@
           "12f82fc1dec40c31",
           "37cb394043f0f125",
           "511758965444c3bb",
+          "525e1bea6e22f1da",
           "55a233b9b6e923ea",
           "5fe7cf2eaf8964c8",
           "6448b901792d40a4",
@@ -45610,6 +45606,7 @@
           "12f82fc1dec40c31",
           "37cb394043f0f125",
           "511758965444c3bb",
+          "525e1bea6e22f1da",
           "55a233b9b6e923ea",
           "5fe7cf2eaf8964c8",
           "6448b901792d40a4",
@@ -45643,6 +45640,7 @@
           "12f82fc1dec40c31",
           "37cb394043f0f125",
           "511758965444c3bb",
+          "525e1bea6e22f1da",
           "55a233b9b6e923ea",
           "5fe7cf2eaf8964c8",
           "6448b901792d40a4",
@@ -45676,6 +45674,7 @@
           "12f82fc1dec40c31",
           "37cb394043f0f125",
           "511758965444c3bb",
+          "525e1bea6e22f1da",
           "55a233b9b6e923ea",
           "5fe7cf2eaf8964c8",
           "6448b901792d40a4",
@@ -45709,6 +45708,7 @@
           "12f82fc1dec40c31",
           "37cb394043f0f125",
           "511758965444c3bb",
+          "525e1bea6e22f1da",
           "55a233b9b6e923ea",
           "5fe7cf2eaf8964c8",
           "6448b901792d40a4",
@@ -45742,6 +45742,7 @@
           "12f82fc1dec40c31",
           "37cb394043f0f125",
           "511758965444c3bb",
+          "525e1bea6e22f1da",
           "55a233b9b6e923ea",
           "5fe7cf2eaf8964c8",
           "6448b901792d40a4",
@@ -45775,6 +45776,7 @@
           "12f82fc1dec40c31",
           "37cb394043f0f125",
           "511758965444c3bb",
+          "525e1bea6e22f1da",
           "55a233b9b6e923ea",
           "5fe7cf2eaf8964c8",
           "6448b901792d40a4",
