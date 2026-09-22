@@ -208,12 +208,17 @@ function SheetContent(
         data-slot="sheet-content"
         className={cn(
           "data-[state=open]:animate-in data-[state=closed]:animate-out fixed z-(--z-sheet) flex flex-col gap-4 border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-feature)] transition-[transform,opacity] data-[state=closed]:duration-100 data-[state=closed]:ease-[cubic-bezier(0.4,0,1,1)] data-[state=open]:duration-140 data-[state=open]:ease-[cubic-bezier(0.16,1,0.3,1)]",
+          // A full-height side sheet reaches the top of the window; on the
+          // phone that is under the status bar and the Dynamic Island unless
+          // it pads by the safe area (0 on the web, so nothing changes there).
+          // Measured on the iPhone: the MCP connections title and its close
+          // control sat at y = 15 pt, under the clock and the battery.
           side === "right" &&
-            "data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right inset-y-0 right-0 h-full w-3/4 border-l sm:max-w-sm sm:rounded-l-[var(--app-card-radius-feature)]",
+            "data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right inset-y-0 right-0 h-full w-3/4 border-l pt-[var(--app-safe-area-top-effective,0px)] pb-[var(--app-safe-area-bottom-effective,0px)] sm:max-w-sm sm:rounded-l-[var(--app-card-radius-feature)]",
           side === "left" &&
-            "data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left inset-y-0 left-0 h-full w-3/4 border-r sm:max-w-sm sm:rounded-r-[var(--app-card-radius-feature)]",
+            "data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left inset-y-0 left-0 h-full w-3/4 border-r pt-[var(--app-safe-area-top-effective,0px)] pb-[var(--app-safe-area-bottom-effective,0px)] sm:max-w-sm sm:rounded-r-[var(--app-card-radius-feature)]",
           side === "top" &&
-            "data-[state=closed]:slide-out-to-top data-[state=open]:slide-in-from-top inset-x-0 top-0 h-auto border-b rounded-b-[var(--app-card-radius-feature)]",
+            "data-[state=closed]:slide-out-to-top data-[state=open]:slide-in-from-top inset-x-0 top-0 h-auto border-b pt-[var(--app-safe-area-top-effective,0px)] rounded-b-[var(--app-card-radius-feature)]",
           // bottom sheet lifts above the on-screen keyboard by --kb-height
           // (KeyboardInsetManager; 0 on desktop → inert), max-h shrinks to match.
           side === "bottom" &&

@@ -1249,6 +1249,42 @@ final class AppUITests: XCTestCase {
             app.terminate()
         }
 
+        // The MCP connections panel (a right-side sheet off the chat history
+        // drawer): open it, hold it for a capture, and read where its title
+        // and close control sit against the top of the window.
+        if section == "connectors" {
+            let (app, _) = try launchAttached(route: "/")
+            perfSettle(3)
+            NSLog("PERF_APP_READY route=/")
+            let openHistory = app.webViews.descendants(matching: .any)
+                .matching(NSPredicate(format: "label == %@", "Open chat history")).firstMatch
+            if openHistory.waitForExistence(timeout: 10) {
+                perfGesture("history-drawer-open", rep: 0) {
+                    openHistory.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+                    perfSettle(1.2)
+                }
+                let openConnectors = app.webViews.descendants(matching: .any)
+                    .matching(NSPredicate(format: "label == %@", "Open MCP connections")).firstMatch
+                if openConnectors.waitForExistence(timeout: 5) {
+                    perfGesture("connectors-open", rep: 0) {
+                        openConnectors.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+                        perfSettle(1.5)
+                    }
+                    let title = app.webViews.staticTexts.matching(NSPredicate(format: "label == %@", "MCP connections")).firstMatch
+                    let close = app.webViews.buttons.matching(NSPredicate(format: "label == %@", "Close")).firstMatch
+                    NSLog("PERF_CONNECTORS_GEOMETRY title_top=\(title.exists ? Int(title.frame.minY) : -1) close_top=\(close.exists ? Int(close.frame.minY) : -1) window_safe_top=\(Int(app.windows.firstMatch.frame.minY))")
+                    NSLog("PERF_CONNECTORS_OPEN 1")
+                    perfSettle(8)
+                } else {
+                    NSLog("PERF_SKIPPED name=connectors-open reason=button_not_found")
+                }
+            } else {
+                NSLog("PERF_SKIPPED name=history-drawer-open reason=button_not_found")
+            }
+            NSLog("PERF_DONE route=/")
+            app.terminate()
+        }
+
         if section == "all" || section == "kai" {
             let (app, webView) = try launchAttached(route: "/one/kai")
             guard perfWaitForLabel(app, label: "Portfolio", timeout: 60) else {
@@ -1692,6 +1728,19 @@ final class AppUITests: XCTestCase {
                 app.webViews.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap()
             }
             perfSettle(1.2)
+        }
+
+        // The transcript ride: a flick up hides the bottom chrome and the
+        // composer rides down with it, a flick down brings both back. The
+        // probe reads the two bars' transforms per frame during these.
+        let webView = app.webViews.firstMatch
+        for rep in 0..<2 {
+            perfGesture("chat-transcript-flick", rep: rep) {
+                perfFlick(webView, fromY: 0.55, toY: 0.25)
+                perfSettle(0.9)
+                perfFlick(webView, fromY: 0.25, toY: 0.55)
+                perfSettle(0.9)
+            }
         }
         return true
     }

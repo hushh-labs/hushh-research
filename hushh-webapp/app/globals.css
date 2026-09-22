@@ -2219,7 +2219,14 @@ body:has(.profile-account-content)
   );
 }
 
-/* Chat's text composer moves down relatively with the bottom chrome navigation. */
+/* Chat's text composer rides down with the bottom navigation. The
+ * navigation stack follows the scroll progress directly, frame by frame,
+ * with no easing (kai-bottom-chrome-visibility writes the value on both
+ * elements in one pass); the composer used to reach the same value through a
+ * 140 ms eased transition that restarted on every frame, so it trailed the
+ * navigation by up to that much and the two bars read as two motions. No
+ * transition here: one value, one clock, both bars in lockstep. The keyboard
+ * lift keeps its own timing on the separate `translate` property. */
 .agent-chat-workspace[data-agent-chat-route="root"]
   [data-agent-chat-composer-form="root"] {
   transform: translate3d(
@@ -2227,7 +2234,6 @@ body:has(.profile-account-content)
     calc(var(--bottom-chrome-progress, 0) * var(--bottom-nav-travel, 0px)),
     0
   );
-  transition: transform var(--motion-duration-lg) cubic-bezier(0.16, 1, 0.3, 1);
   will-change: transform;
 }
 
@@ -2271,9 +2277,7 @@ html.native-keyboard-inset
   [data-agent-chat-composer-form="root"] {
   padding-bottom: calc(var(--app-bottom-shell-height, 4.5rem) + 0.5rem);
   translate: 0 calc(var(--agent-chat-composer-lift, 0px) * -1);
-  transition:
-    transform var(--motion-duration-lg) cubic-bezier(0.16, 1, 0.3, 1),
-    translate var(--kb-motion-duration) var(--kb-motion-curve);
+  transition: translate var(--kb-motion-duration) var(--kb-motion-curve);
 }
 
 html.native-keyboard-inset
@@ -5064,7 +5068,7 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
    surface. */
 @media (prefers-reduced-motion: reduce) {
   [data-bottom-shell-motion-stack] {
-    transform: translate3d(0, calc(var(--kb-height, 0px) * -1), 0) !important;
+    transform: none !important;
   }
 
   [data-bottom-shell-motion-stack],

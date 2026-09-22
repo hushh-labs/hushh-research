@@ -99,6 +99,32 @@ type EventTimingSummary = {
 };
 /** One of the longest frames in a window: its gap and where in the window it ended. */
 type WorstFrame = { gap_ms: number; at_ms: number };
+/**
+ * The two bottom bars on the chat route (the navigation stack and the
+ * composer) ride the same scroll progress; per frame the probe reads both
+ * transforms and keeps the largest vertical divergence. Two bars on one clock
+ * read 0; a bar easing behind the other reads its lag in pixels.
+ */
+type BottomChromeSync = { samples: number; max_divergence_px: number };
+const CHROME_NAV_STACK = "[data-bottom-shell-motion-stack]";
+const CHROME_COMPOSER = '[data-agent-chat-composer-form="root"]';
+
+function translateY(element: Element): number | null {
+  const transform = getComputedStyle(element).transform;
+  if (!transform || transform === "none") return 0;
+  const name = transform.slice(0, transform.indexOf("(")).trim();
+  const values = transform
+    .slice(transform.indexOf("(") + 1, transform.lastIndexOf(")"))
+    .split(",")
+    .map((v) => Number.parseFloat(v));
+  if (values.some((v) => Number.isNaN(v))) return null;
+  // An engine resolves to a matrix; a test environment hands back the declared function.
+  if (name === "matrix" && values.length === 6) return values[5] ?? null;
+  if (name === "matrix3d" && values.length === 16) return values[13] ?? null;
+  if (name === "translate3d" || name === "translate") return values[1] ?? 0;
+  if (name === "translateY") return values[0] ?? null;
+  return null;
+}
 const WORST_FRAMES_KEPT = 3;
 const EVENT_ENTRIES_KEPT = 3;
 type LongTaskSummary = { count: number; total_ms: number };
@@ -128,6 +154,8 @@ type ProbeWindow = {
   worst: WorstFrame[];
   /** Elements in the document when the window closed: the size of a whole-document style pass. */
   domNodes: number | null;
+  /** Divergence between the bottom navigation and the chat composer while they ride a scroll. */
+  chromeSync: BottomChromeSync | null;
 };
 
 function keepTop<T>(list: T[], item: T, limit: number, value: (item: T) => number): void {
@@ -196,6 +224,7 @@ export type ProbeWindowReport = FrameWindowStats & {
   route_enter: RouteEnterReport | null;
   worst_frames: WorstFrame[];
   dom_nodes: number | null;
+  bottom_chrome_sync: BottomChromeSync | null;
 };
 
 export type ProbeExport = {
@@ -372,6 +401,23 @@ export function startFramePacingProbe(options: { hud: boolean; experiments?: str
     else idleFor(`idle:${route}`).commits.add(commit);
   });
 
+  // Both bars exist only on the chat route; elsewhere the reading stays null.
+  const sampleChromeSync = (w: ProbeWindow) => {
+    // With the keyboard up the navigation is hidden and lifted by the
+    // keyboard on `transform` while the composer lifts on `translate`; only
+    // the scroll ride, keyboard down, is one motion to compare.
+    if (document.documentElement.classList.contains("kb-open")) return;
+    const nav = document.querySelector(CHROME_NAV_STACK);
+    const composer = document.querySelector(CHROME_COMPOSER);
+    if (!nav || !composer) return;
+    const navY = translateY(nav);
+    const composerY = translateY(composer);
+    if (navY === null || composerY === null) return;
+    const sync = (w.chromeSync ??= { samples: 0, max_divergence_px: 0 });
+    sync.samples += 1;
+    sync.max_divergence_px = Math.max(sync.max_divergence_px, round(Math.abs(navY - composerY)));
+  };
+
   const closeWindow = (now: number) => {
     if (!current) return;
     current.endPerf = now;
@@ -406,6 +452,7 @@ export function startFramePacingProbe(options: { hud: boolean; experiments?: str
       routeEnter: null,
       worst: [],
       domNodes: null,
+      chromeSync: null,
     };
     windows.push(current);
   };
@@ -458,6 +505,7 @@ export function startFramePacingProbe(options: { hud: boolean; experiments?: str
         if (delta > budgetMs) {
           keepTop(current.worst, { gap_ms: round(delta), at_ms: round(now - current.startPerf) }, WORST_FRAMES_KEPT, (f) => f.gap_ms);
         }
+        if (current.kind === "scroll") sampleChromeSync(current);
         const sinceScroll = now - lastScrollAt;
         const settleMs = NAVIGATION_KINDS.has(current.kind) ? NAV_SETTLE_MS : POINTER_SETTLE_MS;
         const settled =
@@ -610,6 +658,7 @@ export function startFramePacingProbe(options: { hud: boolean; experiments?: str
         route_enter: w.routeEnter,
         worst_frames: w.worst,
         dom_nodes: w.domNodes,
+        bottom_chrome_sync: w.chromeSync,
       };
     });
     const idleReports = Array.from(idle.entries()).map(([key, entry]) => ({

@@ -158,6 +158,26 @@ describe("frame pacing probe stream window", () => {
     probe.stop();
   });
 
+  it("reads the bottom chrome divergence per scroll frame on the chat route", () => {
+    document.body.innerHTML =
+      '<div data-app-scroll-root="true"><div data-bottom-shell-motion-stack style="transform: translate3d(0px, 40px, 0px)"></div>' +
+      '<form data-agent-chat-composer-form="root" style="transform: translate3d(0px, 10px, 0px)"></form></div>';
+    const probe = startFramePacingProbe({ hud: false });
+    for (let i = 0; i < 70; i += 1) frame();
+    const root = document.querySelector('[data-app-scroll-root="true"]')!;
+    root.dispatchEvent(new Event("touchstart", { bubbles: true }));
+    for (let i = 0; i < 5; i += 1) frame();
+    (document.querySelector("form") as HTMLElement).style.transform = "translate3d(0px, 40px, 0px)";
+    for (let i = 0; i < 5; i += 1) frame();
+    root.dispatchEvent(new Event("touchend", { bubbles: true }));
+    for (let i = 0; i < 70; i += 1) frame();
+    const [w] = probe.export().windows;
+    expect(w?.kind).toBe("scroll");
+    expect(w?.bottom_chrome_sync?.samples).toBeGreaterThan(5);
+    expect(w?.bottom_chrome_sync?.max_divergence_px).toBe(30);
+    probe.stop();
+  });
+
   it("does not open a stream window without the marker", () => {
     const probe = startFramePacingProbe({ hud: false });
     for (let i = 0; i < 120; i += 1) frame();

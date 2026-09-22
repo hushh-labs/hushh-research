@@ -389,21 +389,43 @@ export function useKaiBottomChromeProgressCssVar(enabled: boolean): void {
     // been quiet for a beat, for anything unregistered.
     const root = document.documentElement;
     const ROOT_SETTLE_MS = 160;
+    // The chat composer mounts after this shell (behind the vault gate and a
+    // Suspense boundary), so a set collected once at mount never held it: it
+    // read only the settled root value, 160 ms after each scroll went quiet,
+    // and rode a beat behind the navigation (measured as the full travel of
+    // divergence on the phone). While no composer is held, look for one at
+    // most every COMPOSER_LOOKUP_MS on a write; a hit recollects the set.
+    const COMPOSER_SELECTOR = '[data-agent-chat-composer-form="root"]';
+    const COMPOSER_LOOKUP_MS = 250;
     let consumers: HTMLElement[] = [];
+    let composer: HTMLElement | null = null;
+    let composerLookedUpAt = Number.NEGATIVE_INFINITY;
     let rootWriteTimer = 0;
     let lastWritten = "";
     const collectConsumers = () => {
       consumers = Array.from(
         document.querySelectorAll<HTMLElement>(
-          '[data-bottom-chrome-progress-consumer], .ambient-chrome-mask--bottom, [data-agent-chat-composer-form="root"]',
+          `[data-bottom-chrome-progress-consumer], .ambient-chrome-mask--bottom, ${COMPOSER_SELECTOR}`,
         ),
       );
+      composer = consumers.find((element) => element.matches(COMPOSER_SELECTOR)) ?? null;
+    };
+    const composerJoined = () => {
+      if (composer?.isConnected) return false;
+      const now = performance.now();
+      if (now - composerLookedUpAt < COMPOSER_LOOKUP_MS) return false;
+      composerLookedUpAt = now;
+      return document.querySelector(COMPOSER_SELECTOR) !== null;
     };
     const writeVar = () => {
       const next = String(getSnapshot());
       if (next === lastWritten) return;
       lastWritten = next;
-      if (consumers.length === 0 || consumers.some((element) => !element.isConnected)) {
+      if (
+        consumers.length === 0 ||
+        consumers.some((element) => !element.isConnected) ||
+        composerJoined()
+      ) {
         collectConsumers();
       }
       for (const element of consumers) {

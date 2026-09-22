@@ -422,6 +422,17 @@ Three small mobile UX/nav fixes (commit `909ea793d`):
 - **Root cause:** `html.kb-open [data-app-bottom-shell]` fades the shell (`opacity: 0; pointer-events: none`) but the shell's stack still rides up by `--kb-height`, and the navigation pill's own `pointer-events: auto` overrides the shell's `none`. The invisible pill landed exactly over the lifted composer (nav at y 444..519, bar at 450..506). Present on main too; the double clearance had hidden it by pushing the bar above the pill's ghost.
 - **Fix:** `visibility: hidden` on the faded shell (a child's pointer-events cannot override it), flipping after the 150 ms fade and returning at once.
 
+### B46 — The chat composer rode a beat behind the bottom navigation: two bars, two motions
+- **Symptom (founder):** "the bottom bar and the text input bar are not synchronous and both are performing their own animations, it also does not feel smooth". Measured by the probe's new `bottom_chrome_sync` reading (per scroll frame, the vertical divergence between the navigation stack's and the composer's transforms): **73 px**, the navigation's whole travel, during every transcript flick.
+- **Root cause (ours, from Phase 2):** `9230d6ae4` moved the per-frame `--bottom-chrome-progress` write from `<html>` onto the consumer elements and collected those consumers once, at the shell's mount. The chat composer mounts later (behind the vault gate and a Suspense boundary), so it never joined the per-frame set and only received the settled root value 160 ms after each scroll went quiet. On top of that the composer's ride had a 140 ms eased transition that restarted every frame while the navigation follows the finger with none.
+- **Fix:** the writer looks for a composer at most every 250 ms while it holds none and recollects on a hit (regression test: a composer mounted after the first write receives the very next per-frame value); the composer's ride transition is gone (the keyboard lift keeps its own timing on `translate`). Verified on the phone: divergence 73 px → see the run in the charter.
+- **GOTCHA:** a consumer set collected once is a set that is stale for anything that mounts later. Any future consumer of a per-frame variable either registers itself or the writer must look for it.
+
+### B47 — A ghost of the navigation jumped above the keyboard for the frames of its fade
+- **Symptom:** at keyboard open the navigation stack's transform included `-1 * --kb-height`, with no transition, so the pill teleported to just above the keyboard and faded there over 150 ms, over the spot the composer was rising into.
+- **Root cause:** a leftover from before `html.kb-open` hid the shell everywhere; with the shell hidden on every route while the keyboard is up, the lift had no purpose.
+- **Fix:** the stack rides the scroll progress only and fades where it stands; the reduced-motion rule pins it with `transform: none`.
+
 ---
 
 ## 🧪 QA test phone numbers (UAT, fixed OTP `000000`)

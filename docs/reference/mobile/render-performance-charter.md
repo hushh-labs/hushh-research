@@ -192,6 +192,14 @@ handler from a stall the page did not cause (a 614-element document cannot
 spend 80 ms in a style pass; a frame with no event and no commit under it
 is the system, or a layout the size of the change explains).
 
+Two things that must move as one are measured as one: on the chat route,
+every scroll-window frame reads the navigation stack's and the composer's
+transforms and the window keeps their largest vertical divergence
+(`bottom_chrome_sync`, a "Bottom chrome sync" table in the summary; keyboard-up
+frames are skipped because the composer lifts on `translate` while the hidden
+navigation does not lift at all). Two bars on one clock read 0 px; the phone
+read 73 px, the navigation's whole travel, before bug log B46.
+
 When the table cannot decide, a one-launch experiment can: `PERF_EXPERIMENT=<name>`
 on the card (native launch argument `hushh_perf_experiment`, applied by the
 probe, named in the export; such a run never certifies). `autocorrect-off`

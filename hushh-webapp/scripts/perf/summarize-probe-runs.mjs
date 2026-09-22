@@ -160,6 +160,16 @@ for (const [name, ws] of byGesture.entries()) {
 }
 routeEnterRows.sort((a, b) => (b.first_frame_ms ?? 0) - (a.first_frame_ms ?? 0));
 
+// The two bottom bars on one clock read 0 here; a bar easing behind the
+// other reads its lag in pixels.
+const chromeSyncRows = [];
+for (const w of windows) {
+  const sync = w.bottom_chrome_sync;
+  if (!sync || !sync.samples) continue;
+  const gesture = gestures.find((g) => w.start_epoch_ms >= g.start - 300 && w.start_epoch_ms <= g.end + 300);
+  chromeSyncRows.push({ gesture: gesture?.name ?? "(none)", samples: sync.samples, max_divergence_px: sync.max_divergence_px });
+}
+
 // One row per stalled window: the worst frames with their offsets, the
 // longest event-timing entries by name, the element count. This is what
 // tells a React commit from a style pass from an event handler.
@@ -191,6 +201,7 @@ const summary = {
   route_enter: routeEnterRows,
   keyboard_geometry: keyboardGeometry,
   stalls: stallRows,
+  bottom_chrome_sync: chromeSyncRows,
 };
 
 const md = [
@@ -218,6 +229,16 @@ const md = [
           (r) =>
             `| ${r.gesture} | ${r.kind} | ${r.worst} | ${r.event} | ${r.dom_nodes ?? "-"} | ${r.commits} |`,
         ),
+        "",
+      ]
+    : []),
+  ...(chromeSyncRows.length
+    ? [
+        "Bottom chrome sync (chat route, scroll windows): largest vertical divergence between the navigation and the composer, per frame.",
+        "",
+        "| Gesture | Samples | Max divergence px |",
+        "|---|---|---|",
+        ...chromeSyncRows.map((r) => `| ${r.gesture} | ${r.samples} | ${r.max_divergence_px} |`),
         "",
       ]
     : []),
