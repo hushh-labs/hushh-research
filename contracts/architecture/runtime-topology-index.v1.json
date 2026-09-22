@@ -100,6 +100,40 @@
       }
     },
     {
+      "id": "agent_documents",
+      "parent": "agent_one",
+      "rollout": {
+        "kill_switch": "GOOGLE_DRIVE_CHAT_READS",
+        "rollback": "Disable Drive chat reads without changing Google permissions or Mail.",
+        "strategy": "internal"
+      },
+      "runtime": {
+        "adk_mode": "task",
+        "factory": null,
+        "kind": "adk",
+        "transport": [
+          "in_process",
+          "chat"
+        ]
+      },
+      "status": "experimental",
+      "surfaces": {
+        "a2a": false,
+        "android": false,
+        "chat": true,
+        "ios": false,
+        "mcp": false,
+        "not_applicable_reason": "No voice execution, remote A2A, MCP or native authorization is exposed by this read specialist.",
+        "voice": false,
+        "web": true
+      },
+      "wiring": {
+        "a2a_scope": null,
+        "in_process_dispatch": true,
+        "one_specialist_tool": null
+      }
+    },
+    {
       "id": "agent_email",
       "parent": "agent_one",
       "rollout": {
@@ -740,6 +774,29 @@
       "lifecycle_status": "transitional",
       "owner": "vault-pkm-governance",
       "primary_access_path": "legacy/domain reference compatibility during PKM scope migration"
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "drive_share_file_claims",
+        "drive_share_events"
+      ],
+      "id": "drive_original_sharing_coordination",
+      "lifecycle_status": "customer0",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "PostgreSQL file-level mutation serialization and transactional generic notification outbox; no model/caller-controlled provider endpoint."
+    },
+    {
+      "data_class": "personal_encrypted",
+      "exact_tables": [
+        "drive_share_requests",
+        "drive_share_reviews",
+        "drive_share_permission_operations"
+      ],
+      "id": "drive_original_sharing_records",
+      "lifecycle_status": "customer0",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Default-off private domain stores for participant requests, exact-file owner review and durable fixed Google Viewer permission operations. No routes, Feed delivery or active background dispatcher yet."
     },
     {
       "data_class": "workflow_state",
@@ -5608,10 +5665,10 @@
   "source_sha256": {
     "a2a_scope_map": "7379039859448ff3db422aa5ee50124bbcadcecc8c9c49e3c1471791f54208c1",
     "action_gateway": "f64403d3031e97fd519101bf242c5072cc94d592a44197277cb1870324990160",
-    "agent_registry": "15f7f0719f09933ca0b4a5d92f5d5308c0524a9d0c90a8110980ef8740247451",
+    "agent_registry": "2bbc775480882732405a4207253e79f5fa4126c54081b6940498d9cc45dec880",
     "cache_manifest": "57b4267b6f316b4612e23f1a36a2107ab96e687883271bf70e0bd12e681865d3",
-    "data_plane": "e326d5e76404f1c52483804369dd4be0ae70c08d19bd0364444e93e34160d83f",
-    "in_process_dispatch": "ad8d8820504442fb99a05a903d23c26d6a181ba70708bff08b86043971ce4d09",
+    "data_plane": "c69d6897092e0a86cb2a1ab95b54ac60a95d6640f1d447657f7af68c75d6e5aa",
+    "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
     "one_specialist_tools": "7ab79a909f538da320c13994d446316905bd6db8a0e87c0b8ac484ab0ffd51c5",
     "route_index": "ab7e206f2ffbfe0dfab96a5462fdfb31a9af1af437ac2732a9567579805faa41",
     "route_layout": "4cf774a9ebb6cc26db9cbacc38aeea491f01a6b7bf440c3aaae3d8fddc567bd1",
@@ -5622,13 +5679,13 @@
   "summary": {
     "a2a_scope_gated_agents": 5,
     "actions": 231,
-    "agents": 18,
+    "agents": 19,
     "aliases": 4,
     "decision_required": 2,
-    "in_process_specialists": 4,
+    "in_process_specialists": 5,
     "one_specialist_tools": 6,
     "physical_routes": 141,
     "semantic_routes": 14,
-    "table_families": 69
+    "table_families": 71
   }
 }
