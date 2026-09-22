@@ -1607,6 +1607,22 @@ class PKMAgentLabService:
         agent_id = str(getattr(manifest, "id", "unknown") or "unknown")
 
         def record(status: str, *, attempts: int, error_type: str = "") -> None:
+            elapsed_seconds = max(0.0, time.perf_counter() - started_at)
+            # Observe the ordinary cached path without enabling execution-trace
+            # mode (which intentionally bypasses cache/inflight reuse). Never
+            # include prompts, response values, owner IDs, or exception messages.
+            logger.info(
+                "pkm.agent_contract_completed agent=%s status=%s attempts=%s "
+                "latency_ms=%s allocated_budget_ms=%s remaining_budget_ms=%s",
+                agent_id,
+                status,
+                attempts,
+                round(elapsed_seconds * 1000, 2),
+                round(timeout_seconds * 1000, 2) if timeout_seconds is not None else None,
+                round(max(0.0, timeout_seconds - elapsed_seconds) * 1000, 2)
+                if timeout_seconds is not None
+                else None,
+            )
             if execution_trace is None:
                 return
             execution_trace.append(
@@ -1614,7 +1630,7 @@ class PKMAgentLabService:
                     "agent_id": agent_id,
                     "status": status,
                     "attempts": attempts,
-                    "latency_ms": round((time.perf_counter() - started_at) * 1000, 2),
+                    "latency_ms": round(elapsed_seconds * 1000, 2),
                     "error_type": error_type,
                 }
             )

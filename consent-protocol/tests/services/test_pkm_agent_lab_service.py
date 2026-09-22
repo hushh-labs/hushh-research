@@ -278,6 +278,79 @@ def test_managed_client_uses_shared_adc_authority_without_api_key(monkeypatch) -
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("managed", [False, True])
+async def test_contract_budget_diagnostics_without_trace_or_provider_call(
+    monkeypatch, caplog, managed
+):
+    service = PKMAgentLabService()
+    generate_content = AsyncMock()
+    service._client = SimpleNamespace(
+        aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+    )
+    monkeypatch.setattr(service, "_should_use_adk_single_turn", lambda _manifest: managed)
+    run_single_turn = AsyncMock()
+    monkeypatch.setattr(pkm_agent_lab_module, "run_single_turn", run_single_turn)
+    monkeypatch.setattr(pkm_agent_lab_module.time, "perf_counter", lambda: 100.0)
+    caplog.set_level("INFO", logger=pkm_agent_lab_module.__name__)
+
+    result = await service._run_agent_contract(
+        manifest=SimpleNamespace(id="agent_memory_intent", model="test-model"),
+        prompt="PRIVATE_SOURCE_SENTINEL",
+        response_schema={"type": "OBJECT"},
+        timeout_seconds=0.2,
+    )
+
+    assert result is None
+    generate_content.assert_not_awaited()
+    run_single_turn.assert_not_awaited()
+    completion = [
+        record.getMessage()
+        for record in caplog.records
+        if record.getMessage().startswith("pkm.agent_contract_completed ")
+    ]
+    assert len(completion) == 1
+    assert "status=budget_exhausted attempts=0" in completion[0]
+    assert "latency_ms=0.0 allocated_budget_ms=200.0 remaining_budget_ms=200.0" in completion[0]
+    assert "PRIVATE_SOURCE_SENTINEL" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_contract_completion_diagnostics_do_not_log_model_values(monkeypatch, caplog):
+    service = PKMAgentLabService()
+    generate_content = AsyncMock(
+        return_value=SimpleNamespace(parsed={"private_value": "PRIVATE_RESULT_SENTINEL"}, text="")
+    )
+    service._client = SimpleNamespace(
+        aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+    )
+    monkeypatch.setattr(pkm_agent_lab_module.time, "perf_counter", lambda: 100.0)
+    caplog.set_level("INFO", logger=pkm_agent_lab_module.__name__)
+    trace = []
+
+    result = await service._run_agent_contract(
+        manifest=SimpleNamespace(id="agent_memory_intent", model="test-model"),
+        prompt="PRIVATE_SOURCE_SENTINEL",
+        response_schema={"type": "OBJECT"},
+        timeout_seconds=1.0,
+        execution_trace=trace,
+    )
+
+    assert result == {"private_value": "PRIVATE_RESULT_SENTINEL"}
+    assert trace == [
+        {
+            "agent_id": "agent_memory_intent",
+            "status": "success",
+            "attempts": 1,
+            "latency_ms": 0.0,
+            "error_type": "",
+        }
+    ]
+    assert "status=success attempts=1" in caplog.text
+    assert "PRIVATE_SOURCE_SENTINEL" not in caplog.text
+    assert "PRIVATE_RESULT_SENTINEL" not in caplog.text
+
+
+@pytest.mark.asyncio
 async def test_agent_contract_retries_one_timeout_within_preview_budget(monkeypatch):
     service = PKMAgentLabService()
     generate_content = AsyncMock(
