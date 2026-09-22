@@ -217,6 +217,52 @@ describe("PeopleHub requests sent manage surface", () => {
     expect(onStartAsk).toHaveBeenCalledWith("owner_roopmann");
   });
 
+  it("keeps inline Ask and Share as independent, accessible actions", () => {
+    const onStartShare = vi.fn();
+    const onStartAsk = vi.fn();
+    renderPeopleHub({
+      viewModel: vm({ requestedByMe: [], receivedGrants: [], editingGrantId: null }),
+      onStartShare,
+      onStartAsk,
+    });
+
+    const peopleList = screen.getByTestId("one-location-people-list");
+    const group = within(peopleList).getByRole("group", {
+      name: "Actions for Roopmann V",
+    });
+    fireEvent.click(within(group).getByRole("button", {
+      name: "Ask Roopmann V for their location",
+    }));
+    fireEvent.click(within(group).getByRole("button", {
+      name: "Share your location with Roopmann V",
+    }));
+
+    expect(onStartAsk).toHaveBeenCalledExactlyOnceWith("owner_roopmann");
+    expect(onStartShare).toHaveBeenCalledExactlyOnceWith("owner_roopmann");
+    expect(peopleList.querySelector("button button")).toBeNull();
+  });
+
+  it("places the Circles +N counter outside the two-circle identity stack", () => {
+    renderPeopleHub({
+      viewModel: vm({
+        circles: [
+          { id: "a", name: "Family", memberCount: 3, role: "owner" },
+          { id: "b", name: "Friends", memberCount: 5, role: "owner" },
+          { id: "c", name: "Neighbors", memberCount: 4, role: "owner" },
+          { id: "d", name: "Team", memberCount: 6, role: "member" },
+        ] as LocationHubViewModel["circles"],
+      }),
+    });
+
+    const summary = screen.getByTestId("one-location-circles-summary");
+    const stack = summary.querySelector("[data-circle-identity-stack]");
+    const counter = summary.querySelector("[data-circle-overflow-count]");
+    expect(stack?.children).toHaveLength(2);
+    expect(counter?.textContent).toBe("+2");
+    expect(counter?.parentElement).toBe(stack?.parentElement);
+    expect(stack?.contains(counter)).toBe(false);
+  });
+
   it("keeps pending request cancellation in the person actions sheet", () => {
     const pendingRequest = {
       ...approvedRequest,
