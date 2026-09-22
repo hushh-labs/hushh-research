@@ -1,5 +1,9 @@
 "use client";
 
+import { Capacitor } from "@capacitor/core";
+
+import { HushhPlaidLink } from "@/lib/capacitor/plaid-link";
+
 declare global {
   interface Window {
     Plaid?: {
@@ -12,12 +16,80 @@ declare global {
   }
 }
 
-let plaidScriptPromise: Promise<NonNullable<Window["Plaid"]>> | null = null;
+type PlaidLinkStatic = NonNullable<Window["Plaid"]>;
+type PlaidLinkConfig = {
+  token?: string;
+  onSuccess?: (publicToken: string, metadata: Record<string, unknown>) => void;
+  onExit?: (error: Record<string, unknown> | null, metadata?: Record<string, unknown>) => void;
+  onEvent?: (eventName: string, metadata: Record<string, unknown>) => void;
+};
+
+let plaidScriptPromise: Promise<PlaidLinkStatic> | null = null;
+let nativePlaidLink: PlaidLinkStatic | null = null;
 const PLAID_LINK_LOAD_TIMEOUT_MS = 15_000;
 
-export async function loadPlaidLink(): Promise<NonNullable<Window["Plaid"]>> {
+/**
+ * On the native shell, Plaid's own SDK (LinkKit on iOS) behind the same
+ * `create(config).open()` shape the page already uses, so a bank's OAuth leg
+ * and its return into the app are the SDK's, not the WebView's. Where the
+ * native plugin is absent (Android, for now) the web SDK loads as before.
+ */
+function createNativePlaidLink(): PlaidLinkStatic {
+  return {
+    create: (rawConfig: Record<string, unknown>) => {
+      const config = rawConfig as PlaidLinkConfig;
+      let eventHandle: { remove: () => Promise<void> } | null = null;
+      let opened = false;
+      const detach = () => {
+        void eventHandle?.remove();
+        eventHandle = null;
+      };
+      return {
+        open: () => {
+          if (opened) return;
+          opened = true;
+          const token = String(config.token ?? "");
+          void (async () => {
+            if (config.onEvent) {
+              eventHandle = await HushhPlaidLink.addListener("plaidLinkEvent", (event) => {
+                config.onEvent?.(event.eventName, event.metadata);
+              }).catch(() => null);
+            }
+            try {
+              const result = await HushhPlaidLink.open({ token });
+              detach();
+              if (result.exit) {
+                config.onExit?.(result.error ? { ...result.error } : null, result.metadata);
+              } else {
+                config.onSuccess?.(result.publicToken, result.metadata);
+              }
+            } catch (error) {
+              detach();
+              config.onExit?.(
+                { code: "NATIVE_LINK_FAILED", message: error instanceof Error ? error.message : String(error) },
+                {},
+              );
+            }
+          })();
+        },
+        exit: (_options?: Record<string, unknown>, callback?: () => void) => {
+          callback?.();
+        },
+        destroy: () => {
+          detach();
+        },
+      };
+    },
+  };
+}
+
+export async function loadPlaidLink(): Promise<PlaidLinkStatic> {
   if (typeof window === "undefined") {
     throw new Error("Plaid Link is only available in the browser.");
+  }
+  if (Capacitor.isNativePlatform() && Capacitor.isPluginAvailable("HushhPlaidLink")) {
+    nativePlaidLink ??= createNativePlaidLink();
+    return nativePlaidLink;
   }
   if (window.Plaid) {
     return window.Plaid;
@@ -26,7 +98,7 @@ export async function loadPlaidLink(): Promise<NonNullable<Window["Plaid"]>> {
     return plaidScriptPromise;
   }
 
-  const loadPromise = new Promise<NonNullable<Window["Plaid"]>>((resolve, reject) => {
+  const loadPromise = new Promise<PlaidLinkStatic>((resolve, reject) => {
     const existing = document.querySelector<HTMLScriptElement>('script[data-plaid-link="true"]');
     const script = existing ?? document.createElement("script");
     let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
