@@ -583,6 +583,12 @@ export function SettingsRow({
       <div
         className={cn(
           "relative z-0 flex max-w-full shrink-0 items-center justify-end self-center gap-2.5 pr-0.5 sm:pr-1",
+          // A wide inline trailing value must never squeeze the title into a
+          // one-word-per-line column (a statement label did exactly that on
+          // the phone): on narrow screens the trailing column keeps under
+          // 58 % of the row and its content truncates; a stacked trailing
+          // owns its own line and is not bounded.
+          !shouldStackTrailing && "min-w-0 max-w-[58%] shrink [&>*]:min-w-0 [&>*]:truncate sm:max-w-none sm:shrink-0",
           shouldStackTrailing &&
             "w-full min-w-0 justify-between pl-[var(--settings-row-stack-indent,2.65rem)] pt-1 sm:w-auto sm:justify-end sm:pl-0 sm:pt-0",
         )}
