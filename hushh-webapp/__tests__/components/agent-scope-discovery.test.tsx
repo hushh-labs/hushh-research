@@ -58,8 +58,9 @@ describe("current-authority inline Chat catalog", () => {
   it("refreshes retained descriptors, loads consecutive pages, and never replays actions", async () => {
     mocks.getViewer.mockResolvedValueOnce(page(1)).mockResolvedValueOnce(page(2));
     render(<AgentStructuredExperienceView experience={experience} />);
-    expect(screen.queryByText("Stale history label")).not.toBeInTheDocument();
+    expect(screen.getByText("Stale history label")).toBeInTheDocument();
     await screen.findByText("Synthetic field 1");
+    expect(screen.queryByText("Stale history label")).not.toBeInTheDocument();
     fireEvent.click(screen.getByText("Load more information"));
     await screen.findByText("Synthetic field 2");
     expect(screen.getByText("Synthetic field 1")).toBeInTheDocument();

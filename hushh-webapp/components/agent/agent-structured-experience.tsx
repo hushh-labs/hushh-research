@@ -207,24 +207,30 @@ function ScopeDiscoveryView({
       if (run === generation.current) { setLoading(false); inFlight.current = false; }
     }
   }
-  // Retained cards are descriptors, never current authority. Refresh them
-  // without replaying their original tool or any request/approval mutation.
-  const scopes = profile?.requestableScopes || [];
+  // Retained/live cards are safe descriptors, never current authority. Show
+  // the validated descriptor immediately so a person is not left with an
+  // empty "checking" surface, then replace it with the current Profile
+  // catalog as soon as that authority refresh completes. Selection and
+  // mutation remain unavailable until the current catalog is loaded.
+  const authorityScopes = profile?.requestableScopes || [];
+  const displayScopes = profile?.requestableScopes || experience.scopes;
   const grantedIds = new Set(profile?.grants.map(grant => grant.scopeRef) || []);
-  const selectedScopes = scopes.filter(scope => selectedIds.has(scope.scopeRef) && !grantedIds.has(scope.scopeRef));
-  const total = profile?.scopeCatalog?.totalCount ?? scopes.length;
+  const selectedScopes = authorityScopes.filter(scope => selectedIds.has(scope.scopeRef) && !grantedIds.has(scope.scopeRef));
+  const total = profile?.scopeCatalog?.totalCount
+    ?? experience.scopeCatalog?.totalCount
+    ?? displayScopes.length;
   // Profile and Chat deliberately consume the same adapter and recursive
   // selector. Opaque refs stay leaves; only authored attr paths can create
   // hierarchy.
   const items = scopeItemsFromRequestable(
-    scopes.map((scope) => ({
+    displayScopes.map((scope) => ({
       scopeRef: scope.scopeRef,
       pathSegments: scope.pathSegments,
       label: scope.label,
       description: scope.description,
       domain: scope.domain,
       sensitivity: scope.sensitivity,
-      wildcard: scope.wildcard,
+      wildcard: "wildcard" in scope ? scope.wildcard : false,
     })),
   );
 
@@ -257,13 +263,16 @@ function ScopeDiscoveryView({
             items={items}
             rootLabel="All information"
             testIdPrefix="scope-discovery-scopes"
-            selection={!reviewing && !request.pending ? {
+            selection={profile && !reviewing && !request.pending ? {
               selectedIds,
               onToggleMany: (ids, select) => {
                 setSent(false);
                 setSelectedIds(currentIds => {
                   const next = new Set(currentIds);
-                  ids.forEach(id => { if (select && !grantedIds.has(id)) next.add(id); else next.delete(id); });
+                  ids.forEach(id => {
+                    if (select && authorityScopes.some(scope => scope.scopeRef === id) && !grantedIds.has(id)) next.add(id);
+                    else next.delete(id);
+                  });
                   return next;
                 });
               },
@@ -274,7 +283,7 @@ function ScopeDiscoveryView({
 
       {unavailable ? <p role="alert" className="text-sm text-muted-foreground">We couldn’t check available information. Please try again.</p> : null}
       {profile?.scopeCatalog?.hasMore ? <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
-        <p className="text-muted-foreground">{scopes.length} of {total} loaded. Search checks loaded information.</p>
+        <p className="text-muted-foreground">{displayScopes.length} of {total} loaded. Search checks loaded information.</p>
         <MorphyButton type="button" size="sm" disabled={loading} onClick={() => void loadMore()}>
           {loading ? "Loading more…" : unavailable ? "Try loading more again" : "Load more information"}
         </MorphyButton>
