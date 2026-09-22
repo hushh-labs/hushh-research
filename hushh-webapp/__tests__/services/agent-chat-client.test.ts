@@ -208,8 +208,14 @@ describe("AG-UI Agent One client", () => {
       ]) {
         expect(subscriber.onEvent({ event: { type } })).toEqual({ stopPropagation: true });
       }
-      expect(subscriber.onMessagesSnapshotEvent({ event: { messages: [privateMessage, answer] } }))
+      expect(subscriber.onMessagesSnapshotEvent({ event: { messages: [privateMessage, answer] }, messages: [] }))
         .toEqual({ messages: [answer], stopPropagation: true });
+      const activity = { id: "activity-1", role: "activity", content: { status: "working" } };
+      expect(subscriber.onMessagesSnapshotEvent({
+        event: { messages: [privateMessage, answer] }, messages: [activity, privateMessage],
+      })).toEqual({ messages: [activity, answer], stopPropagation: true });
+      expect(subscriber.onMessagesSnapshotEvent({ event: { messages: [answer] }, messages: [activity] }))
+        .toBeUndefined();
       expect(subscriber.onEvent({ event: { type: "TOOL_CALL_RESULT" } })).toBeUndefined();
       expect(subscriber.onReasoningMessageContentEvent).toBeUndefined();
     };

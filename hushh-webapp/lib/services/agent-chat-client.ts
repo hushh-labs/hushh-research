@@ -102,10 +102,34 @@ const publicOutputSubscriber: Pick<
     }
     return undefined;
   },
-  onMessagesSnapshotEvent: ({ event }) => ({
-    messages: event.messages.filter((message) => message.role !== "reasoning"),
-    stopPropagation: true,
-  }),
+  onMessagesSnapshotEvent: ({ event, messages }) => {
+    if (![...event.messages, ...messages].some((message) => message.role === "reasoning")) {
+      return undefined; // Keep the SDK's normal replay semantics untouched.
+    }
+    const incoming = event.messages
+      .filter((message) => message.role !== "reasoning")
+      .map((message) => {
+        if (message.subagentRunId !== null) return message;
+        const normalized = { ...message };
+        delete normalized.subagentRunId;
+        return normalized;
+      });
+    const byId = new Map(incoming.map((message) => [message.id, message]));
+    // Match SDK replay: retain existing activity when the snapshot omits it,
+    // preserve existing ordering, then append newly observed messages.
+    const preserveActivity = !incoming.some((message) => message.role === "activity");
+    const merged = messages.flatMap((message) => {
+      if (message.role === "reasoning") return [];
+      if (preserveActivity && message.role === "activity") return [message];
+      const replacement = byId.get(message.id);
+      return replacement ? [replacement] : [];
+    });
+    const seen = new Set(merged.map((message) => message.id));
+    return {
+      messages: [...merged, ...incoming.filter((message) => !seen.has(message.id))],
+      stopPropagation: true,
+    };
+  },
 };
 
 function asRecord(value: unknown): Record<string, unknown> | null {
