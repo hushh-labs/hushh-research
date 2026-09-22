@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -262,11 +262,18 @@ describe("AgentTurnStreamPanel", () => {
     expect(
       screen.getByRole("region", { name: "Information available from Alex Morgan" }),
     ).toHaveAttribute("data-experience-type", "one.scope_discovery.v1");
-    fireEvent.click(await screen.findByRole("button", { name: "Open Identity" }));
-    expect(screen.getByText("Employment status")).toBeInTheDocument();
-    fireEvent.click(screen.getByTestId("scope-discovery-scopes-back"));
-    fireEvent.click(screen.getByRole("button", { name: "Open Financial" }));
-    expect(screen.getByText("Tax residency")).toBeInTheDocument();
+    await waitFor(() => expect(mocks.getViewer).toHaveBeenCalled());
+    await act(async () => {
+      screen.getByRole("button", { name: "Open Identity" }).click();
+    });
+    expect(await screen.findByRole("button", { name: "Employment status" })).toBeInTheDocument();
+    await act(async () => {
+      screen.getByTestId("scope-discovery-scopes-back").click();
+    });
+    await act(async () => {
+      screen.getByRole("button", { name: "Open Financial" }).click();
+    });
+    expect(await screen.findByRole("button", { name: "Tax residency" })).toBeInTheDocument();
     expect(screen.getByRole("checkbox", { name: "Tax residency" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "View profile" })).toHaveAttribute(
       "href",
@@ -276,6 +283,42 @@ describe("AgentTurnStreamPanel", () => {
     expect(
       screen.queryByText("You can review these fields before asking for access."),
     ).toBeInTheDocument();
+  });
+
+  it("shows safe discovery descriptors while current authority is refreshing", async () => {
+    mocks.getViewer.mockReturnValue(new Promise(() => undefined));
+
+    render(
+      <AgentTurnStreamPanel
+        streamEvents={[]}
+        responseText="I found information you can review."
+        isStreaming={false}
+        structuredExperience={{
+          type: "one.scope_discovery.v1",
+          person: {
+            personRef: "1234567890abcdef",
+            displayName: "Alex Morgan",
+            profilePath: "/people/1234567890abcdef",
+            relationship: "connected",
+          },
+          domainFilter: "Professional",
+          scopes: [
+            {
+              scopeRef: "scope_ref_private_789",
+              label: "Employment status",
+              description: "Current employment eligibility status.",
+              domain: "Professional",
+              sensitivity: "standard",
+            },
+          ],
+        }}
+      />,
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: "Open Professional" }));
+    expect(screen.getByText("Employment status")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Review request/ })).toBeDisabled();
+    expect(screen.getByText("Checking what is currently available to request.")).toBeInTheDocument();
   });
 
   it("keeps supplementary notes alongside multiple distinct cards", () => {
