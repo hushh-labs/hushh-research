@@ -197,7 +197,12 @@ rewrite connector records.
 
 This runner composes the harness's optional `admitMutation` policy. The policy
 is installed before navigation in every context and retry; explicit mutation
-authorization remains required. Only the exact reviewed request and its bound
+authorization remains required. Its `bounded_mutation` browser policy suppresses
+ambient unlock writes (key publication, delivery/export sweeps, and pending
+profile synchronization) while preserving read warming. Explicit UI actions are
+still checked by the network admission callback. Normal sessions and unrestricted
+mutation-authorized rehearsals keep their existing background behavior.
+Only the exact reviewed request and its bound
 approval are admitted during their respective actions. Unrelated writes fail
 the run. The runner proves a visible vault challenge, fresh pending/granted
 request identity, 24-hour approval and grant duration, exact browser-local domain

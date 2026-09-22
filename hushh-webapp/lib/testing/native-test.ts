@@ -8,7 +8,7 @@ declare global {
       enabled?: boolean;
       autoReviewerLogin?: boolean;
       reviewerAuthMode?: "local_credentials" | "custom_token";
-      reviewerMutationPolicy?: "read_only" | "preparation_only" | "mutation_authorized";
+      reviewerMutationPolicy?: "read_only" | "preparation_only" | "bounded_mutation" | "mutation_authorized";
       vaultPassphrase?: string;
       expectedUserId?: string;
       expectedMarker?: string;
@@ -167,7 +167,7 @@ export function shouldSkipAmbientIdentityHydrationForAutomation(
 }
 
 /**
- * Read-only and preparation-only reviewer runs must not start background
+ * Read-only, preparation-only and action-bounded reviewer runs must not start background
  * migrations or connector registration while they prove UI/read behavior.
  * The policy is injected in-memory by the canonical reviewer harness and is
  * never persisted or honored outside an explicit automated reviewer session.
@@ -178,7 +178,7 @@ export function shouldSkipReviewerBackgroundWritesForAutomation(): boolean {
     typeof window !== "undefined" &&
     window.__HUSHH_NATIVE_TEST__?.enabled === true &&
     window.__HUSHH_NATIVE_TEST__?.autoReviewerLogin === true &&
-    ["read_only", "preparation_only"].includes(
+    ["read_only", "preparation_only", "bounded_mutation"].includes(
       window.__HUSHH_NATIVE_TEST__?.reviewerMutationPolicy || "",
     )
   );

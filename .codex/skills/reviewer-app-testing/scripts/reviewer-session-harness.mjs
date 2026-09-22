@@ -190,7 +190,7 @@ export async function createReviewerSessionHarness({
 
   async function installBridge(page, { includePassphrase = true } = {}) {
     const reviewerMutationPolicy = process.env.REVIEWER_ALLOW_SHARED_MUTATIONS === "true"
-      ? "mutation_authorized"
+      ? admitMutation ? "bounded_mutation" : "mutation_authorized"
       : allowMemoryPreparation
         ? "preparation_only"
         : "read_only";

@@ -155,6 +155,7 @@ describe("reviewer preparation-only authority", () => {
   it.each([
     ["preparation_only", true],
     ["read_only", true],
+    ["bounded_mutation", true],
     ["mutation_authorized", false],
   ])("skips background writes only for the non-mutating bridge policy (%s)", (policy, expected) => {
     const target = window as unknown as {

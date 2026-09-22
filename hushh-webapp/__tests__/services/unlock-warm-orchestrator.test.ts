@@ -170,6 +170,9 @@ import {
   settleWithConcurrency,
   UnlockWarmOrchestrator,
 } from "@/lib/services/unlock-warm-orchestrator";
+import { bootstrapCurrentUserLocationRecipientKey } from "@/lib/one-location/key-bootstrap";
+import { bootstrapCurrentUserMarketplaceRecipientKey } from "@/lib/one-marketplace/key-bootstrap";
+import { runMarketplaceDeliverySweep } from "@/lib/one-marketplace/delivery-sweep";
 
 /* ---------- helpers ---------- */
 
@@ -204,6 +207,45 @@ function setupDefaultMocks() {
 /* ---------- tests ---------- */
 
 describe("UnlockWarmOrchestrator", () => {
+  it.each([false, true])("preserves ordinary and broadly authorized warming (reviewer=%s)", async reviewer => {
+    const target = window as unknown as { __HUSHH_NATIVE_TEST__?: Record<string, unknown> };
+    const original = target.__HUSHH_NATIVE_TEST__;
+    try {
+      target.__HUSHH_NATIVE_TEST__ = { enabled: reviewer, autoReviewerLogin: reviewer, reviewerMutationPolicy: "mutation_authorized" };
+      setupDefaultMocks();
+      await UnlockWarmOrchestrator.run({ ...BASE_PARAMS, userId: `ordinary-warm-${reviewer}`, routePath: "/one/consent" });
+      expect(bootstrapCurrentUserLocationRecipientKey).toHaveBeenCalledTimes(1);
+      expect(bootstrapCurrentUserMarketplaceRecipientKey).toHaveBeenCalledTimes(1);
+      expect(runMarketplaceDeliverySweep).toHaveBeenCalledTimes(1);
+      expect(consentRefreshEnsureRunningMock).toHaveBeenCalledTimes(1);
+    } finally { target.__HUSHH_NATIVE_TEST__ = original; }
+  });
+  it("reads dashboard metadata without synchronizing pending reviewer information", async () => {
+    const target = window as unknown as { __HUSHH_NATIVE_TEST__?: Record<string, unknown> };
+    const original = target.__HUSHH_NATIVE_TEST__;
+    try {
+      target.__HUSHH_NATIVE_TEST__ = { enabled: true, autoReviewerLogin: true, reviewerMutationPolicy: "read_only" };
+      setupDefaultMocks();
+      await UnlockWarmOrchestrator.run({ ...BASE_PARAMS, userId: "reviewer-dashboard", routePath: "/one" });
+      expect(pkmGetMetadataMock).toHaveBeenCalled();
+      expect(profileSyncMock).not.toHaveBeenCalled();
+    } finally { target.__HUSHH_NATIVE_TEST__ = original; }
+  });
+  it.each(["read_only", "preparation_only", "bounded_mutation"])("keeps %s reviewer warming read-only", async policy => {
+    const target = window as unknown as { __HUSHH_NATIVE_TEST__?: Record<string, unknown> };
+    const original = target.__HUSHH_NATIVE_TEST__;
+    try {
+      target.__HUSHH_NATIVE_TEST__ = { enabled: true, autoReviewerLogin: true, reviewerMutationPolicy: policy };
+      setupDefaultMocks();
+      await UnlockWarmOrchestrator.run({ ...BASE_PARAMS, userId: `reviewer-${policy}`, routePath: "/one/consent" });
+      expect(apiGetVaultStatusMock).toHaveBeenCalled();
+      expect(profileSyncMock).not.toHaveBeenCalled();
+      expect(bootstrapCurrentUserLocationRecipientKey).not.toHaveBeenCalled();
+      expect(bootstrapCurrentUserMarketplaceRecipientKey).not.toHaveBeenCalled();
+      expect(runMarketplaceDeliverySweep).not.toHaveBeenCalled();
+      expect(consentRefreshEnsureRunningMock).not.toHaveBeenCalled();
+    } finally { target.__HUSHH_NATIVE_TEST__ = original; }
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     // Clear internal static state between tests
