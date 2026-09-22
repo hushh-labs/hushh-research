@@ -1344,6 +1344,43 @@ final class AppUITests: XCTestCase {
             }
         }
 
+        // Every route the inventory says the phone must serve, one launch each.
+        //
+        // The other sections above drive gestures on a handful of surfaces
+        // that were chosen by hand, which is how coverage rots: a route added
+        // later is invisible here by default. This section takes its list from
+        // the shell (which reads native-route-inventory.json), so the set can
+        // only ever be as stale as the inventory itself.
+        //
+        // One launch per route, settle, then an idle window. That is enough to
+        // find the route that costs 300 ms to paint or never settles at all;
+        // gesture work on a named surface still belongs in its own section.
+        if section == "routes" {
+            let list = (environment["HUSHH_PERF_ROUTES"] ?? "")
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+            if list.isEmpty {
+                NSLog("PERF_SKIPPED name=routes reason=no_route_list")
+            }
+            for route in list {
+                let (app, _) = try launchAttached(route: route)
+                NSLog("PERF_APP_READY route=\(route)")
+                // The probe keys its idle bucket on the route it settled on,
+                // so a redirect (locked vault, missing prerequisite) is
+                // recorded under where it actually landed, not where we aimed.
+                let settled = app.webViews.firstMatch.waitForExistence(timeout: 20)
+                if !settled {
+                    NSLog("PERF_ROUTE_UNREACHABLE route=\(route)")
+                    app.terminate()
+                    continue
+                }
+                Thread.sleep(forTimeInterval: 6)
+                NSLog("PERF_DONE route=\(route)")
+                app.terminate()
+            }
+        }
+
         // Connecting a bank through Plaid Link on the phone, step by step,
         // with a marker per screen for captures. It only proceeds past the
         // institution list when Link is plainly in sandbox (the test bank is

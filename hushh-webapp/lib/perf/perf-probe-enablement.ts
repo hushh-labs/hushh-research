@@ -35,7 +35,16 @@ export const PERF_ROUTE_PREFERENCE_KEY = "hushh_perf_route";
  * it. Known experiments are listed in `PERF_EXPERIMENTS`.
  */
 export const PERF_EXPERIMENT_PREFERENCE_KEY = "hushh_perf_experiment";
-export const PERF_EXPERIMENTS = ["autocorrect-off", "spellcheck-off", "kb-inset-off"] as const;
+export const PERF_EXPERIMENTS = [
+  "autocorrect-off",
+  "spellcheck-off",
+  "kb-inset-off",
+  // The ambient chrome mask is a backdrop-filter at both edges: the
+  // compositor re-samples and blurs what is behind it whenever that content
+  // moves, which is every frame of a flick. This turns the blur off so its
+  // cost can be read directly instead of argued about.
+  "ambient-mask-off",
+] as const;
 export type PerfExperiment = (typeof PERF_EXPERIMENTS)[number];
 
 export type PerfProbeEnablement = {

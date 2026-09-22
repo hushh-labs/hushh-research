@@ -4583,6 +4583,14 @@ md-ripple.morphy-md-ripple {
   --ambient-chrome-bottom-fg: #f5f5f7;
 }
 
+/* Attribution experiment only (never certifies): drop the backdrop blur so
+   the ambient mask's compositing cost can be measured against the same run's
+   baseline. The gradient and geometry stay, so layout is unchanged. */
+html[data-perf-experiment*="ambient-mask-off"] .ambient-chrome-mask {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
 .ambient-chrome-mask {
   /* Persistent chrome uses one neutral, theme-derived feather. Surface
      sampling still drives native system-bar contrast, but it must not cast a

@@ -120,6 +120,25 @@ RUN_START_MS="$(( $(date +%s) * 1000 ))"
 # result bundle, which would put the passphrase on disk. The bundle goes to a
 # path this run owns and is removed as soon as the test exits; the bundles
 # xcodebuild also drops under DerivedData/Logs/Test for this run go with it.
+# PERF_SECTION=routes walks the route inventory rather than a list written by
+# hand in the test. Coverage then rots only if the inventory does, and the
+# inventory is already a governed artifact (native static parity checks it).
+# PERF_ROUTES overrides the selection for a narrower sweep.
+PERF_ROUTE_LIST="${PERF_ROUTES:-}"
+if [ "${PERF_SECTION:-}" = "routes" ] && [ -z "$PERF_ROUTE_LIST" ]; then
+  PERF_ROUTE_LIST="$(node -e '
+    const inv = require("./native-route-inventory.json");
+    const routes = inv.routes
+      .filter((r) => String(r.classification || "").startsWith("native-required"))
+      .map((r) => r.route)
+      // A route carrying a path parameter needs a real id to mean anything;
+      // the sweep measures the static surfaces and says so.
+      .filter((r) => !r.includes("[") && !r.includes(":"));
+    process.stdout.write(routes.join(","));
+  ')"
+  echo "perf routes: $(printf %s "$PERF_ROUTE_LIST" | awk -F, "{print NF}") native-required routes"
+fi
+
 RESULT_BUNDLE="$OUT_DIR/run.xcresult"
 rm -rf "$RESULT_BUNDLE"
 touch "$OUT_DIR/.run-start"
@@ -128,6 +147,7 @@ env "$ENABLE_VAR=true" \
     TEST_RUNNER_HUSHH_PERF_REPS="$REPS" \
     TEST_RUNNER_HUSHH_PERF_ATTACHED_SECTION="${PERF_SECTION:-all}" \
     TEST_RUNNER_HUSHH_PERF_EXPERIMENT="${PERF_EXPERIMENT:-}" \
+    TEST_RUNNER_HUSHH_PERF_ROUTES="$PERF_ROUTE_LIST" \
     TEST_RUNNER_HUSHH_UI_TEST_REVIEWER_UID="$REVIEWER_UID" \
     TEST_RUNNER_HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE="${HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE:-$REVIEWER_VAULT_PASSPHRASE}" \
     TEST_RUNNER_REVIEWER_UID="$REVIEWER_UID" \
