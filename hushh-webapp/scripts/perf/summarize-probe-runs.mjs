@@ -160,6 +160,31 @@ for (const [name, ws] of byGesture.entries()) {
 }
 routeEnterRows.sort((a, b) => (b.first_frame_ms ?? 0) - (a.first_frame_ms ?? 0));
 
+// Keyboard rise and fall, edge by edge.
+const keyboardTraceRows = [];
+for (const r of runs) {
+  for (const t of r.data.keyboard_traces ?? []) {
+    if (since && t.started_epoch_ms < since) continue;
+    if (!(t.composer_bottom ?? []).length) continue;
+    const c = t.composer_bottom ?? [];
+    const l = t.last_row_bottom ?? [];
+    keyboardTraceRows.push({
+      phase: t.phase,
+      frames: c.length,
+      composer_from: c[0] ?? "-",
+      composer_to: c[c.length - 1] ?? "-",
+      composer_step: t.composer_max_step?.px ?? "-",
+      composer_step_frame: t.composer_max_step?.frame ?? "-",
+      row_from: l[0] ?? "-",
+      row_to: l[l.length - 1] ?? "-",
+      row_step: t.last_row_max_step?.px ?? "-",
+      row_step_frame: t.last_row_max_step?.frame ?? "-",
+      steps: c.slice(1).map((v, i) => Math.round(Math.abs(v - c[i]))).filter((v) => v > 0).join(" "),
+      series: { composer: c, last_row: l },
+    });
+  }
+}
+
 // The two bottom bars on one clock read 0 here; a bar easing behind the
 // other reads its lag in pixels.
 const chromeSyncRows = [];
@@ -202,6 +227,7 @@ const summary = {
   keyboard_geometry: keyboardGeometry,
   stalls: stallRows,
   bottom_chrome_sync: chromeSyncRows,
+  keyboard_motion: keyboardTraceRows,
 };
 
 const md = [
@@ -228,6 +254,19 @@ const md = [
         ...stallRows.map(
           (r) =>
             `| ${r.gesture} | ${r.kind} | ${r.worst} | ${r.event} | ${r.dom_nodes ?? "-"} | ${r.commits} |`,
+        ),
+        "",
+      ]
+    : []),
+  ...(keyboardTraceRows.length
+    ? [
+        "Keyboard motion (chat route): the composer field's bottom edge and the last transcript row's bottom edge, per frame, from the moment the keyboard state flips. Largest single-frame step per edge.",
+        "",
+        "| Phase | Frames | Composer: from → to | Composer max step | Last row: from → to | Last row max step | Composer steps (px per frame) |",
+        "|---|---|---|---|---|---|---|",
+        ...keyboardTraceRows.map(
+          (r) =>
+            `| ${r.phase} | ${r.frames} | ${r.composer_from} → ${r.composer_to} | ${r.composer_step} px @ f${r.composer_step_frame} | ${r.row_from} → ${r.row_to} | ${r.row_step} px @ f${r.row_step_frame} | ${r.steps} |`,
         ),
         "",
       ]

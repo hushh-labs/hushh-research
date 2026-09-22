@@ -2280,10 +2280,34 @@ html.native-keyboard-inset
   transition: translate var(--kb-motion-duration) var(--kb-motion-curve);
 }
 
+/* The web composer lifts 4 px more while focused. On native that 4 px landed
+ * as a step at the first frame of every keyboard rise and fall, on top of the
+ * lift; the keyboard trace read it. One resting value here. */
 html.native-keyboard-inset
   .agent-chat-workspace[data-agent-chat-route="root"]
   [data-agent-chat-composer-form="root"]:focus-within {
-  padding-bottom: calc(var(--app-bottom-shell-height, 4.5rem) + 0.75rem);
+  padding-bottom: calc(var(--app-bottom-shell-height, 4.5rem) + 0.5rem);
+}
+
+/* The transcript reserves the keyboard's height under its last row through
+ * --agent-chat-composer-bottom. That reservation changed in one layout at
+ * keyboardWillShow and keyboardWillHide, so the messages snapped while the
+ * composer glided (the first dismiss after a reply read as a 78 px step in
+ * the keyboard trace). It now moves on the keyboard's own clock, so the rows
+ * travel with the bar. The element is the workspace's transcript region;
+ * its accessible name is the stable hook until it carries a data attribute. */
+html.native-keyboard-inset
+  .agent-chat-workspace[data-agent-chat-route="root"]
+  [role="region"][aria-label="Agent conversation history"] {
+  transition: padding-bottom var(--kb-motion-duration) var(--kb-motion-curve);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html.native-keyboard-inset
+    .agent-chat-workspace[data-agent-chat-route="root"]
+    [role="region"][aria-label="Agent conversation history"] {
+    transition: none;
+  }
 }
 
 /* While the keyboard is up the bottom navigation is hidden, so the composer
@@ -2362,8 +2386,14 @@ html.kb-open [data-agent-bar-shell][data-agent-bar-layout="fixed"] {
  * Send and the mic (the probe classed them as bottom-nav taps, bug log B45).
  * `visibility: hidden` cannot be overridden by a child's pointer-events; it
  * flips once the fade has run and returns at once. */
-html.kb-open [data-app-bottom-shell],
-html.kb-open .ambient-chrome-mask--bottom {
+/* Mobile web only. In the native shell the stack no longer lifts with the
+ * keyboard (bug log B47), so the keyboard simply covers the navigation and
+ * there is nothing to hide; hiding it anyway cost the return: visibility
+ * flipping and two backdrop-blur layers taking their first paint in the
+ * middle of the composer's descent, which the keyboard trace showed as a
+ * 4 px step followed by a 74 px step (bug log B48). */
+html.kb-open:not(.native-keyboard-inset) [data-app-bottom-shell],
+html.kb-open:not(.native-keyboard-inset) .ambient-chrome-mask--bottom {
   opacity: 0;
   visibility: hidden;
   pointer-events: none;

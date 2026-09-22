@@ -28,11 +28,13 @@ type ProfileBodyGesture = {
 };
 
 function isOneSurfaceRoute(pathname: string): boolean {
-  // The body gesture belongs to the dashboard surface only. Profile remains
-  // available from the top-shell affordance on other authenticated routes,
-  // but a finance/location/connect surface must retain ownership of its own
-  // horizontal gestures and tab pagers.
-  return pathname === ROUTES.ONE_HOME;
+  // The body gesture belongs to the dashboard surface and to the chat
+  // surface (whose only horizontal gesture is the mirror one that opens the
+  // chat history drawer). Profile remains available from the top-shell
+  // affordance on other authenticated routes, but a finance/location/connect
+  // surface must retain ownership of its own horizontal gestures and tab
+  // pagers.
+  return pathname === ROUTES.ONE_HOME || pathname === ROUTES.HOME;
 }
 
 function hasHorizontalScrollParent(target: HTMLElement | null): boolean {
@@ -65,9 +67,10 @@ function shouldIgnoreSwipeTarget(target: EventTarget | null): boolean {
 }
 
 function hasBlockingOverlay(): boolean {
+  // The chat history drawer and an open keyboard own the surface too.
   return Boolean(
     document.querySelector(
-      '[data-slot="dialog-content"][data-state="open"], [data-slot="sheet-content"][data-state="open"], [data-slot="alert-dialog-content"][data-state="open"], [data-slot="command"]',
+      '[data-slot="dialog-content"][data-state="open"], [data-slot="sheet-content"][data-state="open"], [data-slot="alert-dialog-content"][data-state="open"], [data-slot="command"], [data-agent-history-drawer-open="true"], html.kb-open',
     ),
   );
 }

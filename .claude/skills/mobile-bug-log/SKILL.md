@@ -433,6 +433,12 @@ Three small mobile UX/nav fixes (commit `909ea793d`):
 - **Root cause:** a leftover from before `html.kb-open` hid the shell everywhere; with the shell hidden on every route while the keyboard is up, the lift had no purpose.
 - **Fix:** the stack rides the scroll progress only and fades where it stands; the reduced-motion rule pins it with `transform: none`.
 
+### B48 — The composer's way back down after the keyboard was jittery while its way up was smooth
+- **Symptom (founder):** "when keyboard is closed, this going back down is jittery and not as smooth". Frame pacing during the dismiss was clean (p95 20 to 24 ms), so the probe gained a keyboard trace: from the moment `html.kb-open` flips, the composer field's bottom edge and the last transcript row's bottom edge per frame. Show read "43 5 46 46 36 20 12 8 5 4 2 1" px per frame; hide read "33 **4** 43 **74** 36 19 13 8 5 4 3": a near-zero step then a double step in the middle of the descent.
+- **Root cause:** everything that returned at `keyboardWillHide` landed in one frame mid-descent: the bottom shell and the ambient mask flipping back to visible (two backdrop-blur layers taking their first paint), the transcript's bottom padding collapsing by the keyboard height in a single layout, the composer's 4 px focus padding dropping at blur. The show pays the system keyboard's presentation early and glides after; the hide paid ours in the middle.
+- **Fix:** on native the shell is not hidden at all while the keyboard is up (it no longer lifts, so the keyboard simply covers it; the hide stays for mobile web); the transcript's padding rides the keyboard's own clock so the rows travel with the bar; the focus padding is one value on native. Traces after: "27 19 42 49 41 27 16 9 6 4 3 2 1 1" (largest step 49, monotone tail).
+- **GOTCHA:** a first dismiss right after a streamed reply is the case people live; measure that one, not a fresh screen.
+
 ---
 
 ## 🧪 QA test phone numbers (UAT, fixed OTP `000000`)

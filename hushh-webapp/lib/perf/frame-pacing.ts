@@ -106,6 +106,26 @@ type WorstFrame = { gap_ms: number; at_ms: number };
  * read 0; a bar easing behind the other reads its lag in pixels.
  */
 type BottomChromeSync = { samples: number; max_divergence_px: number };
+/**
+ * The keyboard's rise or fall, edge by edge: when `html.kb-open` flips, the
+ * probe records for KEYBOARD_TRACE_MS the composer field's bottom edge and
+ * the last transcript row's bottom edge on every frame. A smooth motion is a
+ * monotonic series with no step larger than the curve's largest per-frame
+ * move; a step is what a person calls a jitter.
+ */
+type KeyboardTrace = {
+  phase: "show" | "hide";
+  started_epoch_ms: number;
+  composer_bottom: number[];
+  last_row_bottom: number[];
+  /** Largest per-frame move of each edge, and the frame it happened on. */
+  composer_max_step: { px: number; frame: number };
+  last_row_max_step: { px: number; frame: number };
+};
+const KEYBOARD_TRACE_MS = 450;
+const KEYBOARD_TRACE_FRAMES_KEPT = 40;
+const TRACE_COMPOSER = 'textarea[data-testid="agent-chat-composer-textarea"]';
+const TRACE_LAST_ROW = ".agent-chat-workspace [data-message-role]";
 const CHROME_NAV_STACK = "[data-bottom-shell-motion-stack]";
 const CHROME_COMPOSER = '[data-agent-chat-composer-form="root"]';
 
@@ -246,6 +266,8 @@ export type ProbeExport = {
   windows: ProbeWindowReport[];
   idle_by_route: Array<FrameWindowStats & { route: string; duration_ms: number; commits: CommitSummary }>;
   attribution: { loaf_top_scripts: Array<{ source: string; blocking_ms: number }> };
+  /** Every keyboard rise and fall the probe saw, edge by edge per frame. */
+  keyboard_traces: KeyboardTrace[];
   /** True once React reported a commit: a `next build --profile` bundle (attribution only, never certifies). */
   react_profiling: boolean;
   /** Attribution experiments applied for this launch; any entry means the run never certifies. */
@@ -468,7 +490,54 @@ export function startFramePacingProbe(options: { hud: boolean; experiments?: str
     rafHandle = window.requestAnimationFrame(tick);
   };
 
+  // Keyboard trace: armed when html.kb-open flips, sampled each frame after.
+  const keyboardTraces: KeyboardTrace[] = [];
+  let keyboardOpen = document.documentElement.classList.contains("kb-open");
+  let activeTrace: { trace: KeyboardTrace; startPerf: number; frames: number } | null = null;
+  const sampleKeyboardTrace = (now: number) => {
+    const open = document.documentElement.classList.contains("kb-open");
+    if (open !== keyboardOpen) {
+      keyboardOpen = open;
+      const trace: KeyboardTrace = {
+        phase: open ? "show" : "hide",
+        started_epoch_ms: Date.now(),
+        composer_bottom: [],
+        last_row_bottom: [],
+        composer_max_step: { px: 0, frame: 0 },
+        last_row_max_step: { px: 0, frame: 0 },
+      };
+      keyboardTraces.push(trace);
+      activeTrace = { trace, startPerf: now, frames: 0 };
+    }
+    if (!activeTrace) return;
+    if (now - activeTrace.startPerf > KEYBOARD_TRACE_MS || activeTrace.frames >= KEYBOARD_TRACE_FRAMES_KEPT) {
+      activeTrace = null;
+      return;
+    }
+    const composer = document.querySelector(TRACE_COMPOSER);
+    const rows = document.querySelectorAll(TRACE_LAST_ROW);
+    const lastRow = rows.length ? rows[rows.length - 1] : null;
+    const { trace } = activeTrace;
+    const frame = activeTrace.frames;
+    const push = (list: number[], value: number | null, step: { px: number; frame: number }) => {
+      if (value === null) return;
+      const previous = list[list.length - 1];
+      list.push(round(value));
+      if (previous !== undefined) {
+        const move = round(Math.abs(value - previous));
+        if (move > step.px) {
+          step.px = move;
+          step.frame = frame;
+        }
+      }
+    };
+    push(trace.composer_bottom, composer ? composer.getBoundingClientRect().bottom : null, trace.composer_max_step);
+    push(trace.last_row_bottom, lastRow ? lastRow.getBoundingClientRect().bottom : null, trace.last_row_max_step);
+    activeTrace.frames += 1;
+  };
+
   const tickBody = (now: number) => {
+    sampleKeyboardTrace(now);
     if (booting) {
       if (bootStart === 0) {
         bootStart = now;
@@ -694,6 +763,7 @@ export function startFramePacingProbe(options: { hud: boolean; experiments?: str
       windows: reports,
       idle_by_route: idleReports,
       attribution: { loaf_top_scripts: topScripts },
+      keyboard_traces: keyboardTraces,
       react_profiling: reactProfiling,
       experiments,
       tick_errors: tickErrors,

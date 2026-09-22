@@ -1285,6 +1285,143 @@ final class AppUITests: XCTestCase {
             app.terminate()
         }
 
+        // The person's own information on the Memory route: the scope
+        // catalogue as the person sees it. Logs the visible labels (never
+        // values) at the root and inside the financial branch.
+        if section == "memory" {
+            let (app, _) = try launchAttached(route: "/one/pkm")
+            let readyAt = perfEpochMs()
+            NSLog("PERF_APP_READY route=/one/pkm")
+            func logLabels(_ tag: String) {
+                let texts = app.webViews.staticTexts.allElementsBoundByIndex
+                let labels = texts.prefix(120).map { $0.label }.filter { !$0.isEmpty }
+                NSLog("PERF_MEMORY_LABELS \(tag) count=\(labels.count) :: \(labels.joined(separator: " | "))")
+            }
+            func find(_ text: String) -> XCUIElement {
+                app.webViews.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH[c] %@", text)).firstMatch
+            }
+            // The categories arrive after the memories load; note how long that takes.
+            let financial = find("Financial")
+            let listed = financial.waitForExistence(timeout: 25)
+            NSLog("PERF_MEMORY_CATEGORIES listed=\(listed ? 1 : 0) after_ms=\(perfEpochMs() - readyAt)")
+            logLabels("saved-root")
+            if listed {
+                financial.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+                perfSettle(3)
+                logLabels("saved-financial")
+                let firstBranch = app.webViews.descendants(matching: .any)
+                    .matching(NSPredicate(format: "label CONTAINS[c] %@", "Portfolio")).firstMatch
+                if firstBranch.waitForExistence(timeout: 5) {
+                    firstBranch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+                    perfSettle(3)
+                    logLabels("saved-financial-portfolio")
+                }
+                // Back to the root, then the Sharing tab: what a person can share.
+                app.terminate()
+                let (again, _) = try launchAttached(route: "/one/pkm")
+                let sharing = again.webViews.descendants(matching: .any)
+                    .matching(NSPredicate(format: "label ==[c] %@", "Sharing")).firstMatch
+                if sharing.waitForExistence(timeout: 20) {
+                    sharing.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+                    perfSettle(4)
+                    let texts = again.webViews.staticTexts.allElementsBoundByIndex.prefix(120).map { $0.label }.filter { !$0.isEmpty }
+                    NSLog("PERF_MEMORY_LABELS sharing count=\(texts.count) :: \(texts.joined(separator: " | "))")
+                    let fin = again.webViews.descendants(matching: .any).matching(NSPredicate(format: "label BEGINSWITH[c] %@", "Financial")).firstMatch
+                    if fin.waitForExistence(timeout: 8) {
+                        fin.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+                        perfSettle(3)
+                        let inner = again.webViews.staticTexts.allElementsBoundByIndex.prefix(120).map { $0.label }.filter { !$0.isEmpty }
+                        NSLog("PERF_MEMORY_LABELS sharing-financial count=\(inner.count) :: \(inner.joined(separator: " | "))")
+                    }
+                }
+                perfSettle(3)
+                NSLog("PERF_DONE route=/one/pkm")
+                again.terminate()
+            } else {
+                NSLog("PERF_SKIPPED name=memory-financial reason=categories_never_listed")
+                NSLog("PERF_DONE route=/one/pkm")
+                app.terminate()
+            }
+        }
+
+        // Connecting a bank through Plaid Link on the phone, step by step,
+        // with a marker per screen for captures. It only proceeds past the
+        // institution list when Link is plainly in sandbox (the test bank is
+        // listed); against anything else it stops there and never types.
+        if section == "plaid" {
+            let (app, _) = try launchAttached(route: "/one/kai?tab=portfolio")
+            perfSettle(5)
+            NSLog("PERF_APP_READY route=/one/kai?tab=portfolio")
+            func element(_ label: String, exact: Bool = true) -> XCUIElement {
+                let format = exact ? "label == %@" : "label CONTAINS[c] %@"
+                return app.webViews.descendants(matching: .any).matching(NSPredicate(format: format, label)).firstMatch
+            }
+            func tap(_ e: XCUIElement) { e.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap() }
+            func step(_ name: String, settle: TimeInterval = 1.5) {
+                perfSettle(settle)
+                NSLog("PERF_PLAID_STEP \(name)")
+            }
+            func labels(_ tag: String) {
+                let texts = app.webViews.staticTexts.allElementsBoundByIndex.prefix(60).map { $0.label }.filter { !$0.isEmpty }
+                NSLog("PERF_PLAID_LABELS \(tag) :: \(texts.joined(separator: " | "))")
+            }
+            step("kai-dashboard", settle: 1)
+            let settings = element("Portfolio source settings")
+            if settings.waitForExistence(timeout: 8) {
+                tap(settings)
+                step("source-settings")
+                let add = element("Add a statement", exact: false)
+                if add.waitForExistence(timeout: 5) { tap(add); step("import-view") }
+            } else {
+                NSLog("PERF_PLAID_NOTE no source settings control; expecting the import view directly")
+            }
+            let bank = element("Bank account (via Plaid)", exact: false)
+            if bank.waitForExistence(timeout: 8) {
+                tap(bank)
+                step("link-opening", settle: 6)
+                labels("link-first")
+                let cont = app.webViews.buttons.matching(NSPredicate(format: "label ==[c] %@", "Continue")).firstMatch
+                if cont.waitForExistence(timeout: 10) {
+                    tap(cont)
+                    step("link-institutions", settle: 3)
+                    labels("institutions")
+                    let sandboxBank = element("Platypus", exact: false)
+                    if sandboxBank.waitForExistence(timeout: 4) {
+                        tap(sandboxBank)
+                        step("link-credentials", settle: 3)
+                        let user = app.webViews.textFields.firstMatch
+                        let pass = app.webViews.secureTextFields.firstMatch
+                        if user.waitForExistence(timeout: 6), pass.exists {
+                            tap(user); user.typeText("user_good")
+                            tap(pass); pass.typeText("pass_good")
+                            let submit = app.webViews.buttons.matching(NSPredicate(format: "label ==[c] %@ OR label ==[c] %@", "Submit", "Continue")).firstMatch
+                            if submit.exists { tap(submit) }
+                            step("link-accounts", settle: 6)
+                            labels("accounts")
+                            let next = app.webViews.buttons.matching(NSPredicate(format: "label ==[c] %@", "Continue")).firstMatch
+                            if next.waitForExistence(timeout: 8) { tap(next); step("link-finish", settle: 6); labels("finish") }
+                            let done = app.webViews.buttons.matching(NSPredicate(format: "label ==[c] %@ OR label ==[c] %@", "Continue", "Done")).firstMatch
+                            if done.waitForExistence(timeout: 8) { tap(done) }
+                            step("exchange", settle: 12)
+                            labels("after-exchange")
+                        } else {
+                            NSLog("PERF_PLAID_NOTE credential fields not reachable")
+                        }
+                    } else {
+                        NSLog("PERF_PLAID_STOP reason=not_sandbox")
+                    }
+                } else {
+                    NSLog("PERF_PLAID_NOTE Link's first screen did not expose a Continue control")
+                }
+            } else {
+                NSLog("PERF_SKIPPED name=plaid reason=bank_row_not_found")
+                labels("import-missing")
+            }
+            perfSettle(4)
+            NSLog("PERF_DONE route=/one/kai")
+            app.terminate()
+        }
+
         if section == "all" || section == "kai" {
             let (app, webView) = try launchAttached(route: "/one/kai")
             guard perfWaitForLabel(app, label: "Portfolio", timeout: 60) else {
