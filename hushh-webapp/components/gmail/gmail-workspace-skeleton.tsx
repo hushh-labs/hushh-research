@@ -31,7 +31,7 @@ export function GmailWorkspaceSkeleton() {
 
       <AppPageContentRegion>
         <SurfaceStack compact>
-          <SurfaceInset className="space-y-3 border border-accent-border bg-accent-surface px-4 py-4 sm:px-5 sm:py-5">
+          <SurfaceInset className="space-y-3 px-4 py-4 sm:px-5 sm:py-5">
             <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
               Mail
             </p>
