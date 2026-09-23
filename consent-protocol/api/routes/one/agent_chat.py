@@ -34,6 +34,7 @@ from hushh_mcp.one_adk.agent_tree import (
 )
 from hushh_mcp.one_adk.agui_action_tools import action_id_from_tool_name
 from hushh_mcp.one_adk.agui_turn_timing import HEAD_INTRO, HEAD_ONE, TimedADKAgent
+from hushh_mcp.one_adk.drive_tools import DRIVE_CHAT_ADMISSION_STATE
 from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionService
 from hushh_mcp.one_adk.request_secrets import store_request_secret
 from hushh_mcp.services.action_gateway import get_action_gateway_action, list_action_gateway_actions
@@ -114,12 +115,13 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         STATE_SCREEN: str(screen_context.get("screen") or "")[:64],
         STATE_VOICE_CONTEXT: screen_context,
         STATE_PKM_CONTEXT: store_request_secret(str(forwarded.get("pkmContext") or "")[:20000]),
+        DRIVE_CHAT_ADMISSION_STATE: bool(token),
     }
 
 
 _app = App(
     name=ONE_APP_NAME,
-    root_agent=build_one_text_agent(),
+    root_agent=build_one_text_agent(allow_owner_drive_tools=True),
     resumability_config=ResumabilityConfig(is_resumable=True),
 )
 _intro_app = App(

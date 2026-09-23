@@ -191,10 +191,11 @@ export function ConnectorsPanel({
           <SheetHeader className="text-left">
             <SheetTitle className="flex items-center gap-2">
               <PlugIcon className="h-5 w-5" aria-hidden="true" />
-              MCP connections
+              Connections
             </SheetTitle>
             <SheetDescription>
-              Manage the services you connect to One.
+              Manage services One can use. Drive uses MCP; other services use
+              their existing app integrations.
             </SheetDescription>
           </SheetHeader>
 

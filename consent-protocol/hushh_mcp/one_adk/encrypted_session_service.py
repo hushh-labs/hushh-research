@@ -16,6 +16,7 @@ from pydantic import BaseModel
 from pydantic_core import PydanticSerializationError
 
 from db.db_client import DatabaseExecutionError, get_db
+from hushh_mcp.one_adk.drive_result_privacy import redact_drive_session_json
 from hushh_mcp.services.agent_chat_service import AgentChatService
 
 logger = logging.getLogger(__name__)
@@ -94,7 +95,7 @@ class EncryptedAdkSessionService(BaseSessionService):
             # failures rather than silently dropping or stringifying information.
             _prepare_deferred_model_serializers(session)
             plain = session.model_dump_json(by_alias=True)
-        payload = self._cipher._encrypt_text(plain)
+        payload = self._cipher._encrypt_text(redact_drive_session_json(plain))
         return {
             "ciphertext": payload.ciphertext,
             "iv": payload.iv,

@@ -22,6 +22,8 @@ from ag_ui.core import (
     RunFinishedEvent,
     RunStartedEvent,
     TextMessageContentEvent,
+    ToolCallArgsEvent,
+    ToolCallResultEvent,
     ToolCallStartEvent,
     UserMessage,
 )
@@ -140,6 +142,27 @@ async def test_log_line_carries_no_identifying_records(monkeypatch, caplog):
     assert USER_ID not in line
     assert RUN_ID not in line, "only the eight-character run label may appear"
     assert "sealed" not in line, "state values never reach the log"
+
+
+@pytest.mark.asyncio
+async def test_drive_tool_arguments_and_result_do_not_stream(monkeypatch):
+    private_value = "PRIVATE_DRIVE_SENTINEL"
+    script = [
+        (0.0, ToolCallStartEvent(tool_call_id="drive-1", tool_call_name="read_google_drive")),
+        (0.0, ToolCallArgsEvent(tool_call_id="drive-1", delta=private_value)),
+        (
+            0.0,
+            ToolCallResultEvent(
+                message_id="result-1",
+                tool_call_id="drive-1",
+                content='{"source":"google_drive_mcp","result":"PRIVATE_DRIVE_SENTINEL"}',
+            ),
+        ),
+    ]
+    monkeypatch.setattr(ADKAgent, "run", _scripted_run(script))
+    events = await _drain(_agent())
+    assert len(events) == 2
+    assert private_value not in "".join(event.model_dump_json() for event in events)
 
 
 @pytest.mark.asyncio

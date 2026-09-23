@@ -88,6 +88,7 @@ from hushh_mcp.one_adk.action_tools import (
     set_preferred_model,
     start_app_goal,
 )
+from hushh_mcp.one_adk.drive_tools import discover_google_drive_tools, read_google_drive
 from hushh_mcp.one_adk.one_persona import build_one_persona_grounding
 from hushh_mcp.one_adk.request_secrets import resolve_request_secret
 from hushh_mcp.one_adk.specialist_availability import (
@@ -1905,7 +1906,12 @@ def _build_wallet_agent(*, model: Any | None = None) -> LlmAgent:
     )
 
 
-def _one_roster_tools(*, specialist_model: Any | None = None, tool_mode: str = "full") -> list:
+def _one_roster_tools(
+    *,
+    specialist_model: Any | None = None,
+    tool_mode: str = "full",
+    allow_owner_drive_tools: bool = False,
+) -> list:
     """The /one specialist roster, shared by every One head.
 
     ``tool_mode`` selects a restricted subset:
@@ -1979,6 +1985,8 @@ def _one_roster_tools(*, specialist_model: Any | None = None, tool_mode: str = "
         tools.index(ask_email_agent),
         AgentTool(agent=_build_wallet_agent(model=specialist_model)),
     )
+    if allow_owner_drive_tools and not pod_mode():
+        tools.extend([discover_google_drive_tools, read_google_drive])
     return tools
 
 
@@ -1989,7 +1997,9 @@ def build_one_root_agent(
     return build_one_text_agent(model=model or specialist_model)
 
 
-def build_one_text_agent(*, model: Any | None = None) -> LlmAgent:
+def build_one_text_agent(
+    *, model: Any | None = None, allow_owner_drive_tools: bool = False
+) -> LlmAgent:
     """Build the One TEXT head: same brain, same tools, text model.
 
     Used by Agent Chat and external A2A non-audio entries.
@@ -2006,7 +2016,10 @@ def build_one_text_agent(*, model: Any | None = None) -> LlmAgent:
         model=text_model,
         description=_ONE_MANIFEST.description,
         instruction=_one_runtime_instruction,
-        tools=_one_roster_tools(specialist_model=text_model),
+        tools=_one_roster_tools(
+            specialist_model=text_model,
+            allow_owner_drive_tools=allow_owner_drive_tools,
+        ),
         # Surface Gemini reasoning summaries so Agent Chat can stream a visible
         # "Thinking" trace. The provider default remains the baseline; an
         # explicit Chat-only switch can request LOW for measured comparison.

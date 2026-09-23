@@ -121,6 +121,55 @@ def test_session_serializer_preserves_sdk_bytes_and_event_types():
     assert decoded.events[0].content.parts[0].thought_signature == b"\xff\x00\x81"
 
 
+def test_drive_result_is_available_live_but_not_retained_in_session():
+    private_value = "PRIVATE_DRIVE_SENTINEL"
+    response = types.FunctionResponse(
+        name="read_google_drive",
+        id="drive-call-1",
+        response={"source": "google_drive_mcp", "status": "ok", "result": private_value},
+    )
+    event = Event(
+        author="one",
+        content=types.Content(role="tool", parts=[types.Part(function_response=response)]),
+    )
+    session = Session(id="thread", app_name="one", user_id="owner", events=[event])
+    service = EncryptedAdkSessionService()
+    encoded = service._encode(session)
+    decoded = service._decode({f"payload_{key}": value for key, value in encoded.items()})
+
+    assert event.content.parts[0].function_response.response["result"] == private_value
+    assert private_value not in decoded.model_dump_json(by_alias=True)
+    restored = decoded.events[0].content.parts[0].function_response
+    assert restored.name == "read_google_drive"
+    assert restored.response == {
+        "status": "ok",
+        "private_result": "not_retained",
+        "truncated": False,
+    }
+
+
+def test_drive_call_arguments_remain_live_but_not_retained():
+    private_value = "PRIVATE_DRIVE_SEARCH_SENTINEL"
+    call = types.FunctionCall(
+        name="read_google_drive", id="drive-call-1", args={"query": private_value}
+    )
+    session = Session(
+        id="thread",
+        app_name="one",
+        user_id="owner",
+        events=[Event(author="one", content=types.Content(parts=[types.Part(function_call=call)]))],
+    )
+    service = EncryptedAdkSessionService()
+    encoded = service._encode(session)
+    decoded = service._decode({f"payload_{key}": value for key, value in encoded.items()})
+    assert call.args == {"query": private_value}
+    assert private_value not in decoded.model_dump_json(by_alias=True)
+    restored = decoded.events[0].content.parts[0].function_call
+    assert restored.name == "read_google_drive"
+    assert restored.id == "drive-call-1"
+    assert restored.args == {}
+
+
 def test_unrelated_serialization_failure_is_not_repaired(monkeypatch):
     def unexpected_repair(_session):
         pytest.fail("Unrelated failures must not invoke deferred-model repair")

@@ -85,6 +85,10 @@ describe("supported connector catalog", () => {
     state.list.mockResolvedValue([drive]);
     render(<ConnectorsPanel open onOpenChange={vi.fn()} />);
     expect(await screen.findByText("Example Docs")).toBeInTheDocument();
+    expect(screen.getByText("Connections")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Drive uses MCP; other services use/),
+    ).toBeInTheDocument();
     expect(screen.getByText("Google Drive")).toBeInTheDocument();
     expect(screen.getByText("Gmail")).toBeInTheDocument();
     expect(
