@@ -342,8 +342,12 @@ evicting what is already stored is an upgrade step that has not run.
 - An explicit valid empty segmentation is a successful no-op, not a provider
   failure. Missing, malformed, or wholly rejected source quotes fail closed;
   the product proposal route returns a recoverable unavailable response when
-  no preview can be prepared. Degraded previews are not cached, so retrying
-  the same draft performs fresh preparation instead of repeating a cached error.
+  no preview can be prepared. Degraded previews are not cached as successful
+  results. An exact-bound retry may reuse only schema-valid earlier decisions
+  when a later merge or structure stage times out; the failed stage and every
+  downstream stage run again. Owner, credential, draft, state, instruction, and
+  runtime changes invalidate that in-memory preparation prefix. No fallback
+  decision or preview card is retained as a successful result.
 - Large free-form imports are split client-side below the proposal request
   limit and recursively narrowed when the segmentation model detects more than
   eight facts. Diagnostic events carry only a correlation id, chunk index,
