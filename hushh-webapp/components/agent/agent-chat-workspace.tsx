@@ -1,5 +1,6 @@
 "use client";
 
+import { Capacitor } from "@capacitor/core";
 import {
   Fragment,
   FormEvent,
@@ -2512,16 +2513,35 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     textarea.style.height = "0px";
     const nextHeight = textarea.scrollHeight;
     if (!input.trim()) setComposerExpanded(false);
-    // The expanded writing surface owns its fixed, spacious height. The compact
-    // pill grows only to its CSS ceiling and then scrolls internally.
+    // The compact pill grows to its CSS ceiling; text that outgrows it moves
+    // into the expanded writing surface (the same place the expand button
+    // opens) instead of scrolling inside the pill, which drew a scrollbar
+    // beside the expand icon (founder report, 2026-09-22).
+    const compactCeiling = Number.parseFloat(
+      window.getComputedStyle(textarea).maxHeight,
+    );
+    if (
+      !composerExpanded &&
+      Number.isFinite(compactCeiling) &&
+      nextHeight > compactCeiling + 1
+    ) {
+      setComposerExpanded(true);
+      return;
+    }
+    // The expanded writing surface owns its fixed, spacious height.
     textarea.style.height = composerExpanded ? "" : `${nextHeight}px`;
   }, [composerExpanded, input, voiceActive]);
 
   useEffect(() => {
     if (!composerExpanded) return;
-    const frame = window.requestAnimationFrame(() =>
-      composerTextareaRef.current?.focus(),
-    );
+    const frame = window.requestAnimationFrame(() => {
+      const textarea = composerTextareaRef.current;
+      if (!textarea) return;
+      textarea.focus();
+      // Keep typing where the person was: at the end of what they wrote.
+      const end = textarea.value.length;
+      textarea.setSelectionRange(end, end);
+    });
     return () => window.cancelAnimationFrame(frame);
   }, [composerExpanded]);
 
@@ -7084,7 +7104,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                             }
                             event.preventDefault();
                             if (canSend) {
-                              event.currentTarget.form?.requestSubmit();
+                              const composer = event.currentTarget;
+                              composer.form?.requestSubmit();
+                              // On a phone, sending puts the keyboard away so
+                              // the reply has the screen (founder report,
+                              // 2026-09-22: Enter left it up). The desktop
+                              // keeps focus for the next message.
+                              if (Capacitor.isNativePlatform()) composer.blur();
                             }
                           }}
                           disabled={
@@ -7100,7 +7126,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                               : "Message One..."
                           }
                           rows={1}
-                          className="h-auto max-h-28 min-h-0 min-w-0 flex-1 resize-none overscroll-contain overflow-y-auto border-0 bg-transparent px-0 py-2.5 text-[15px] leading-snug text-foreground caret-[color:var(--app-accent)] outline-none shadow-none focus-visible:border-transparent focus-visible:ring-0 placeholder:text-muted-foreground/60 disabled:cursor-not-allowed disabled:opacity-60 sm:max-h-36 sm:text-sm break-words [overflow-wrap:anywhere] [word-break:break-word]"
+                          className="h-auto max-h-28 min-h-0 min-w-0 flex-1 resize-none overscroll-contain overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden border-0 bg-transparent px-0 py-2.5 text-[15px] leading-snug text-foreground caret-[color:var(--app-accent)] outline-none shadow-none focus-visible:border-transparent focus-visible:ring-0 placeholder:text-muted-foreground/60 disabled:cursor-not-allowed disabled:opacity-60 sm:max-h-36 sm:text-sm break-words [overflow-wrap:anywhere] [word-break:break-word]"
                         />
                         <Button
                           type="button"
