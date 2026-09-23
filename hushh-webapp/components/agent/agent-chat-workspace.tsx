@@ -250,6 +250,12 @@ import { GmailInformationRequestsService } from "@/lib/services/gmail-informatio
 
 type AgentMessage = {
   id: string;
+  /**
+   * The server's id for this answer (ADK event id), set when the run's closing
+   * snapshot arrives. Ratings key on this, so a thumbs given during the live
+   * turn matches the same reply after a reload and joins to its turn.
+   */
+  serverMessageId?: string;
   role: "user" | "assistant";
   text: string;
   timestamp: string;
@@ -4541,6 +4547,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             setIsChatLoading(false);
             setIsStreaming(false);
           },
+          onServerMessageId: (serverMessageId) => {
+            updateMessage(assistantMessageId, (message) => ({
+              ...message,
+              serverMessageId,
+            }));
+          },
           onComplete: ({ conversationId: nextConversationId }) => {
             if (streamAbortController.signal.aborted) return;
             flushAssistantDelta();
@@ -4746,6 +4758,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             updateMessage(assistantMessageId, (message) => ({
               ...message,
               sources,
+            }));
+          },
+          onServerMessageId: (serverMessageId) => {
+            updateMessage(assistantMessageId, (message) => ({
+              ...message,
+              serverMessageId,
             }));
           },
           onComplete: ({ conversationId: nextConversationId }) => {
@@ -6010,8 +6028,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       userAvatarUrl={userAvatarUrl}
                       userInitials={userInitials}
                       retryDisabled={isChatLoading || isStreaming}
-                      rating={messageRatings[message.id] ?? null}
-                      onRate={(next) => handleRateMessage(message.id, next)}
+                      rating={messageRatings[message.serverMessageId ?? message.id] ?? null}
+                      onRate={(next) =>
+                        handleRateMessage(message.serverMessageId ?? message.id, next)
+                      }
                       onRetry={
                         message.id === latestRetryableAssistantId
                           ? () => handleRetryAssistantResponse(message.id)

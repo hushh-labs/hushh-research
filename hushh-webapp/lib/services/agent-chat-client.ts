@@ -89,7 +89,30 @@ export type AgentChatStreamHandlers = {
   /** The optional id is the AG-UI activity/tool identity for transport dedupe. */
   onStructuredExperience?: (experience: AgentStructuredExperience, eventId?: string) => void;
   onSpecialistDirective?: (directive: SpecialistDirectiveEvent) => void;
+  /**
+   * The server's id for this turn's answer (the ADK event id), from the run's
+   * closing messages snapshot. The live bubble is created under a browser id
+   * before the server has one; a rating keyed by that browser id could never
+   * be joined to the turn, or matched after a reload (history uses event ids).
+   */
+  onServerMessageId?: (serverMessageId: string) => void;
 };
+
+/** The last assistant message with content in a messages snapshot: this turn's answer. */
+export function lastAssistantMessageId(messages: unknown): string | null {
+  if (!Array.isArray(messages)) return null;
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = asRecord(messages[index]);
+    if (!message || message.role !== "assistant") continue;
+    const content = message.content;
+    const hasContent =
+      (typeof content === "string" && content.trim().length > 0) ||
+      (Array.isArray(content) && content.length > 0);
+    const id = typeof message.id === "string" ? message.id.trim() : "";
+    if (hasContent && id) return id;
+  }
+  return null;
+}
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
@@ -462,6 +485,10 @@ export async function streamAgentChat(input: {
   };
   const subscriber: AgentSubscriber = {
     onRunStartedEvent: () => handlers.onStart?.({ conversationId: threadId }),
+    onMessagesSnapshotEvent: ({ event }) => {
+      const serverMessageId = lastAssistantMessageId(event.messages);
+      if (serverMessageId) handlers.onServerMessageId?.(serverMessageId);
+    },
     onTextMessageContentEvent: ({ event }) => {
       text += event.delta;
       handlers.onToken?.(event.delta);
@@ -709,6 +736,10 @@ export async function streamAgentIntro(input: {
   let failure: Error | null = null;
   const subscriber: AgentSubscriber = {
     onRunStartedEvent: () => handlers.onStart?.({ conversationId: threadId }),
+    onMessagesSnapshotEvent: ({ event }) => {
+      const serverMessageId = lastAssistantMessageId(event.messages);
+      if (serverMessageId) handlers.onServerMessageId?.(serverMessageId);
+    },
     onTextMessageContentEvent: ({ event }) => {
       text += event.delta;
       handlers.onToken?.(event.delta);
@@ -774,7 +805,10 @@ export async function getAgentChatFeedback(input: {
   vaultOwnerToken: string;
 }): Promise<Record<string, "up" | "down">> {
   try {
-    const response = await fetch(
+    // Through the platform-aware transport like every sibling call: a bare
+    // relative fetch resolves against the app's own static files in the
+    // native shell, so ratings never reached the backend on the phones.
+    const response = await ApiService.apiFetch(
       `/api/one/agent-chat/feedback?conversation_id=${encodeURIComponent(input.conversationId)}`,
       {
         headers: { Authorization: `Bearer ${input.vaultOwnerToken}` },
@@ -797,7 +831,7 @@ export async function setAgentChatFeedback(input: {
   rating: "up" | "down" | null;
   vaultOwnerToken: string;
 }): Promise<void> {
-  const response = await fetch("/api/one/agent-chat/feedback", {
+  const response = await ApiService.apiFetch("/api/one/agent-chat/feedback", {
     method: "PUT",
     headers: {
       Authorization: `Bearer ${input.vaultOwnerToken}`,
