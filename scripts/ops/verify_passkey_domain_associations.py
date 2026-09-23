@@ -16,11 +16,9 @@ from typing import Any
 
 UNIVERSAL_LINK_PATHS = (
     "/one/kai/plaid/oauth/return",
-    "/one/kai/alpaca/oauth/return",
     "/one/profile/google/oauth/return",
     "/one/profile/gmail/oauth/return",
     "/kai/plaid/oauth/return",
-    "/kai/alpaca/oauth/return",
     "/profile/google/oauth/return",
     "/profile/gmail/oauth/return",
 )
