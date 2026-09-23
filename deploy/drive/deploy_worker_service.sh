@@ -227,7 +227,9 @@ for fixed_job in drive-work-drain-uat drive-work-suggestions-uat drive-work-shar
     if gcloud logging read \
       "resource.type=cloud_scheduler_job AND resource.labels.job_id=${fixed_job} AND timestamp>=${triggered_at}" \
       --project="${PROJECT_ID}" --freshness=10m --limit=20 --format=json \
-      | python3 -c 'import json,sys; rows=json.load(sys.stdin); sys.exit(0 if any("URL_CRAWLED. Original HTTP response code number = 200" in json.dumps(row) for row in rows) else 1)'
+      | EXPECTED_URL="${worker_url}/api/internal/drive-work/drain" \
+          EXPECTED_JOB="projects/${PROJECT_ID}/locations/${REGION}/jobs/${fixed_job}" \
+          python3 -c 'import json,os,sys; rows=json.load(sys.stdin); expected_url=os.environ["EXPECTED_URL"]; expected_job=os.environ["EXPECTED_JOB"]; sys.exit(0 if any((payload:=row.get("jsonPayload") or {}).get("@type")=="type.googleapis.com/google.cloud.scheduler.logging.AttemptFinished" and payload.get("jobName")==expected_job and payload.get("url")==expected_url and "URL_CRAWLED. Original HTTP response code number = 200" in str(payload.get("debugInfo") or "") for row in rows if isinstance(row,dict)) else 1)'
     then
       verified=true
       break

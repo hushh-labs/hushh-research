@@ -161,8 +161,17 @@ elif args[:3] == ["scheduler", "jobs", "run"]:
     save()
 elif args[:2] == ["logging", "read"]:
     job = next((name for name in jobs if "resource.labels.job_id=" + name in args[2]), "")
-    if job in state.get("triggered", []) and job != os.environ.get("MOCK_FAIL_LOG_JOB"):
-        print(json.dumps([{"textPayload": "URL_CRAWLED. Original HTTP response code number = 200"}]))
+    if job in state.get("triggered", []):
+        url = jobs[job]["httpTarget"]["uri"]
+        if job == os.environ.get("MOCK_FAIL_LOG_JOB"):
+            # A stale success against the old API must not attest the worker.
+            url = "https://api.uat.hushh.ai/api/internal/drive-work/drain"
+        print(json.dumps([{"jsonPayload": {
+            "@type": "type.googleapis.com/google.cloud.scheduler.logging.AttemptFinished",
+            "jobName": "projects/hushh-pda-uat/locations/us-central1/jobs/" + job,
+            "url": url,
+            "debugInfo": "URL_CRAWLED. Original HTTP response code number = 200",
+        }}]))
     else:
         print("[]")
 else:
