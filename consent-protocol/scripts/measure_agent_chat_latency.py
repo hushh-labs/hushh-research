@@ -8,6 +8,8 @@ turn:
 
 * ``first_visible``: the first ``TEXT_MESSAGE_CONTENT`` or ``TOOL_CALL_START``
   frame, which is the earliest moment a person sees the agent respond;
+* ``first_answer_token``: the first assistant ``TEXT_MESSAGE_CONTENT`` frame,
+  separately from tool activity that may be visible earlier;
 * ``total``: the terminal ``RUN_FINISHED`` or ``RUN_ERROR`` frame.
 
 With ``--server-log`` the driver also tails the backend log for the
@@ -92,6 +94,7 @@ _SERVER_HEAD_RE = re.compile(r"\bhead=([A-Za-z0-9_-]+)")
 ONE_HEAD_LABEL = "one"  # hushh_mcp.one_adk.agui_turn_timing.HEAD_ONE; kept literal so the driver never imports the runtime
 _SERVER_RUN_RE = re.compile(r"\brun=([0-9a-fA-F-]{1,8})")
 _SERVER_FIRST_VISIBLE_RE = re.compile(r"\bfirst_visible_ms=([^\s,]+)")
+_SERVER_FIRST_ANSWER_TOKEN_RE = re.compile(r"\bfirst_answer_token_ms=([^\s,]+)")
 _SERVER_ELAPSED_RE = re.compile(r"\belapsed_ms=([^\s,]+)")
 RUN_PREFIX_LEN = 8
 
@@ -136,8 +139,10 @@ class TurnSample:
     run: str
     outcome: str
     client_first_visible_ms: float | None = None
+    client_first_answer_token_ms: float | None = None
     client_total_ms: float | None = None
     server_first_visible_ms: float | None = None
+    server_first_answer_token_ms: float | None = None
     server_elapsed_ms: float | None = None
     first_visible_event: str | None = None
     event_count: int = 0
@@ -282,6 +287,8 @@ def drive_turn(
             if sample.client_first_visible_ms is None and event_type in FIRST_VISIBLE_EVENT_TYPES:
                 sample.client_first_visible_ms = _elapsed_ms(started_at, now)
                 sample.first_visible_event = event_type
+            if sample.client_first_answer_token_ms is None and event_type == "TEXT_MESSAGE_CONTENT":
+                sample.client_first_answer_token_ms = _elapsed_ms(started_at, now)
             if event_type in TERMINAL_EVENT_TYPES:
                 sample.client_total_ms = _elapsed_ms(started_at, now)
                 sample.outcome = (
@@ -424,6 +431,7 @@ def parse_server_turn_lines(lines: Iterable[str]) -> dict[str, dict[str, float |
         head_match = _SERVER_HEAD_RE.search(tail)
         by_run[run_match.group(1)] = {
             "first_visible_ms": _numeric_field(_SERVER_FIRST_VISIBLE_RE, tail),
+            "first_answer_token_ms": _numeric_field(_SERVER_FIRST_ANSWER_TOKEN_RE, tail),
             "elapsed_ms": _numeric_field(_SERVER_ELAPSED_RE, tail),
             # Kept so a turn the route answered from the pre-vault intro head
             # (a rejected vault-owner token falls back silently) is refused,
@@ -452,6 +460,7 @@ def attach_server_timings(
         if timing is None:
             continue
         sample.server_first_visible_ms = timing.get("first_visible_ms")
+        sample.server_first_answer_token_ms = timing.get("first_answer_token_ms")
         sample.server_elapsed_ms = timing.get("elapsed_ms")
         matched += 1
     return matched
@@ -557,10 +566,12 @@ def summarize(samples: list[TurnSample]) -> dict[str, Any]:
     return {
         "client": {
             "first_visible": latency_block(_present(samples, "client_first_visible_ms")),
+            "first_answer_token": latency_block(_present(samples, "client_first_answer_token_ms")),
             "total": latency_block(_present(samples, "client_total_ms")),
         },
         "server": {
             "first_visible": latency_block(_present(samples, "server_first_visible_ms")),
+            "first_answer_token": latency_block(_present(samples, "server_first_answer_token_ms")),
             "elapsed": latency_block(_present(samples, "server_elapsed_ms")),
         },
     }
@@ -723,10 +734,12 @@ def format_sample(sample: TurnSample) -> str:
     if sample.server_elapsed_ms is not None:
         server = (
             f" server_first_visible={_ms(sample.server_first_visible_ms)}"
+            f" server_first_answer_token={_ms(sample.server_first_answer_token_ms)}"
             f" server_elapsed={_ms(sample.server_elapsed_ms)}"
         )
     return (
         f"{sample.prompt_id} rep={sample.rep} first_visible={_ms(sample.client_first_visible_ms)}"
+        f" first_answer_token={_ms(sample.client_first_answer_token_ms)}"
         f" total={_ms(sample.client_total_ms)} outcome={sample.outcome}{server}"
     )
 
