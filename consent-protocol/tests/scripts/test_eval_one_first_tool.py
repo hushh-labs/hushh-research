@@ -129,6 +129,19 @@ def test_drive_email_first_tool_must_identify_file_before_draft(cases):
     assert not harness.is_hit("open_gmail_email_draft", case.expected)
 
 
+def test_selected_drive_share_status_has_its_own_first_tool_fixture(roster_names):
+    path = (
+        harness.CONSENT_PROTOCOL_ROOT
+        / "scripts/eval_cases/one_selected_drive_status_first_tool.v1.json"
+    )
+    cases = harness.load_cases(path)
+    assert len(cases) == 2
+    assert {case.expected for case in cases} == {("inspect_selected_drive_files",)}
+    assert "inspect_selected_drive_files" in roster_names
+    assert not harness.is_hit("list_my_connections", cases[0].expected)
+    assert not harness.is_hit("open_gmail_email_draft", cases[0].expected)
+
+
 def test_granted_readback_uses_grant_authority_not_open_outgoing_requests(cases):
     case = next(case for case in cases if case.id == "consent.granted_readback")
     assert case.expected == ("list_information_shared_with_me",)
@@ -173,7 +186,7 @@ def test_production_instruction_preserves_identity_and_disables_reads_under_empt
     assert text == (
         agent_tree.ONE_IDENTITY_INSTRUCTION
         + "\n\nMAIL READ ADMISSION: disabled. Do not call ask_email_agent or claim inbox access."
-        + "\n\nSELECTED-FILE DRIVE READ ADMISSION: disabled. Do not call ask_documents_agent or claim access to the selected-file library. Drive MCP tools, if present, require their separate read grant and must not bypass this disabled capability."
+        + "\n\nSELECTED-FILE DRIVE READ ADMISSION: disabled. Do not call ask_documents_agent or inspect_selected_drive_files. Do not claim the owner is disconnected or that a named file is absent without a current status check. Drive MCP tools, if present, require their separate read grant and must not bypass this disabled capability."
     )
     assert "discover_person_information" in text
     assert "Preserve the selected recipient and selection handle" in text

@@ -94,5 +94,5 @@ async def test_drive_mcp_missing_grant_does_not_misrepresent_selected_file_conne
     monkeypatch.setattr(drive_tools, "_service", Service)
     result = await drive_tools.read_google_drive("search_files", {"query": "notes"}, _context())
     assert result["status"] == "permission_required"
-    assert "selected-file library in Connections is separate" in result["message"]
+    assert "selected-file library in Connectors is separate" in result["message"]
     assert "private provider detail" not in str(result)

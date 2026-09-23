@@ -89,7 +89,7 @@ class DriveChatService:
                     await reader.require_current()
                     return result(
                         conversation_id,
-                        "No selected files are ready to read. Choose files in Connections and allow processing first.",
+                        "I can't read a selected file yet. In Connectors, check that it is selected and processing has finished.",
                         "input_required",
                     )
                 answer = DocumentAnswer.model_validate(
@@ -130,19 +130,19 @@ class DriveChatService:
             if code in {"connect_required", "not_connected"}:
                 return result(
                     conversation_id,
-                    "Connect your own Drive in Connections, then choose the files One may read.",
+                    "Connect your own Drive in Connectors, then choose the files One may read.",
                     "connect_required",
                 )
             if code in {"reconnect_required", "needs_reauth"}:
                 return result(
                     conversation_id,
-                    "Reconnect Drive in Connections to continue.",
+                    "Reconnect Drive in Connectors to continue.",
                     "reconnect_required",
                 )
             if code == "narrow_selection_required":
                 return result(
                     conversation_id,
-                    "This selected library is too large for one bounded read. Narrow your selected files in Connections.",
+                    "This selected library is too large for one bounded read. Narrow your selected files in Connectors.",
                     "input_required",
                 )
             if code == "invalid_argument":
