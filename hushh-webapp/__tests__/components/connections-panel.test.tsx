@@ -429,7 +429,7 @@ describe("Connections owner and mutation fences", () => {
 
       fireEvent.click(
         screen.getByRole("checkbox", {
-          name: /allow one to process these files/i,
+          name: /allow hushh to process these files/i,
         }),
       );
       const pendingCalls = state.nativePickerPending.mock.calls.length;
@@ -450,7 +450,7 @@ describe("Connections owner and mutation fences", () => {
       );
       expect(
         screen.getByRole("checkbox", {
-          name: /allow one to process these files/i,
+          name: /allow hushh to process these files/i,
         }),
       ).toBeChecked();
       await waitFor(() =>
