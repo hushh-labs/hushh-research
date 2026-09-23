@@ -883,7 +883,7 @@ export function AdaptiveDetailSurface({
               (event.currentTarget as HTMLElement).focus();
             }}
           >
-            <SheetHeader className="morphy-theme-content sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[var(--activeGlassColor)] px-4 pt-7 pb-3 text-left backdrop-blur-[var(--blur-standard)]">
+            <SheetHeader className="morphy-theme-content sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 pt-7 pb-3 text-left">
               <div
                 className={cn(
                   "flex min-w-0 items-center gap-3 text-left",
@@ -949,7 +949,7 @@ export function AdaptiveDetailSurface({
             (e.currentTarget as HTMLElement).focus();
           }}
         >
-          <DrawerHeader className="morphy-theme-content sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[var(--activeGlassColor)] px-4 pt-8 pb-2 pr-14 text-left backdrop-blur-[var(--blur-standard)] sm:px-5 sm:pt-6 sm:pb-3 sm:pr-14">
+          <DrawerHeader className="morphy-theme-content sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 pt-8 pb-2 pr-14 text-left sm:px-5 sm:pt-6 sm:pb-3 sm:pr-14">
             <div className="flex min-w-0 items-center gap-3 text-left">
               {leading ? <div className="shrink-0">{leading}</div> : null}
               <div className="min-w-0 text-left">
