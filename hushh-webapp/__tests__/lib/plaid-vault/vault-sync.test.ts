@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 const client = vi.hoisted(() => ({
   createVaultLinkToken: vi.fn(),
@@ -221,6 +222,9 @@ describe("refreshing on unlock", () => {
     });
     expect(call.confirmation.confirmedByUser).toBeUndefined();
     expect(plans[0]?.mergeDecision?.merge_mode).toBe("replace_domain");
+    await expect(call.beforeEffect()).resolves.toBeUndefined();
+    advanceVaultSessionEpoch();
+    await expect(call.beforeEffect()).rejects.toMatchObject({ name: "AbortError" });
   });
 
   it("runs one background refresh per person at a time", async () => {
@@ -233,6 +237,32 @@ describe("refreshing on unlock", () => {
     // Finished runs do not block the next one.
     await refreshVaultConnections(params);
     expect(client.fetchVaultSnapshot).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not write an old vault session after lock and lets a new session refresh", async () => {
+    saveRunsBuild(linked);
+    let releaseFirst!: (value: ReturnType<typeof snapshot>) => void;
+    const delayed = new Promise<ReturnType<typeof snapshot>>((resolve) => { releaseFirst = resolve; });
+    client.fetchVaultSnapshot.mockReturnValueOnce(delayed).mockResolvedValueOnce(snapshot());
+    const params = { userId: "owner", vaultKey: "vk", vaultOwnerToken: "vot", financial: linked };
+    const first = refreshVaultConnections(params);
+    await vi.waitFor(() => expect(client.fetchVaultSnapshot).toHaveBeenCalledTimes(1));
+
+    advanceVaultSessionEpoch();
+    const second = refreshVaultConnections(params);
+    expect(await second).toMatchObject({ refreshed: 1, saved: true });
+    releaseFirst(snapshot());
+    expect(await first).toMatchObject({ refreshed: 0, saved: false });
+    expect(client.fetchVaultSnapshot).toHaveBeenCalledTimes(2);
+    expect(coordinator.saveMergedDomain).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not report a refresh when the encrypted save fails", async () => {
+    coordinator.saveMergedDomain.mockResolvedValue({ success: false });
+    const outcome = await refreshVaultConnections({
+      userId: "owner", vaultKey: "vk", vaultOwnerToken: "vot", financial: linked,
+    });
+    expect(outcome).toMatchObject({ refreshed: 0, saved: false });
   });
 
   it("leaves a connection refreshed moments ago alone", async () => {

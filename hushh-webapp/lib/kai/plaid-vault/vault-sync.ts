@@ -45,6 +45,7 @@ import {
 } from "@/lib/kai/plaid-vault/vault-client";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
+import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 /** A connection refreshed more recently than this is not re-read on unlock. */
 export const VAULT_REFRESH_FRESHNESS_MS = 15 * 60 * 1000;
@@ -333,26 +334,28 @@ type VaultRefreshParams = {
   force?: boolean;
 };
 
-// One background refresh per person at a time. Unlock warming and the Kai
+// One background refresh per person and vault session at a time. Unlock warming and the Kai
 // finance loader both ask for one; overlapping runs would read the same pages
 // twice and save twice. A forced (person-initiated) refresh always runs.
 const refreshInFlight = new Map<string, Promise<VaultRefreshOutcome>>();
 
 export function refreshVaultConnections(params: VaultRefreshParams): Promise<VaultRefreshOutcome> {
-  if (params.force === true) return runVaultRefresh(params);
-  const existing = refreshInFlight.get(params.userId);
+  const vaultEpoch = snapshotVaultSessionEpoch();
+  if (params.force === true) return runVaultRefresh(params, vaultEpoch);
+  const key = `${params.userId}:${vaultEpoch}`;
+  const existing = refreshInFlight.get(key);
   if (existing) return existing;
-  const run = runVaultRefresh(params).finally(() => {
-    if (refreshInFlight.get(params.userId) === run) refreshInFlight.delete(params.userId);
+  const run = runVaultRefresh(params, vaultEpoch).finally(() => {
+    if (refreshInFlight.get(key) === run) refreshInFlight.delete(key);
   });
-  refreshInFlight.set(params.userId, run);
+  refreshInFlight.set(key, run);
   return run;
 }
 
-async function runVaultRefresh(params: VaultRefreshParams): Promise<VaultRefreshOutcome> {
+async function runVaultRefresh(params: VaultRefreshParams, vaultEpoch: number): Promise<VaultRefreshOutcome> {
   const outcome: VaultRefreshOutcome = { refreshed: 0, needsRelink: [], failed: 0, saved: false };
   const { userId, vaultKey, vaultOwnerToken } = params;
-  if (!vaultKey || !vaultOwnerToken) return outcome;
+  if (!vaultKey || !vaultOwnerToken || !isVaultSessionEpochCurrent(vaultEpoch)) return outcome;
   const nowMs = Date.now();
   const due = Object.entries(vaultConnections(params.financial)).filter(
     ([, connection]) => params.force === true || isStale(connection, nowMs),
@@ -361,19 +364,21 @@ async function runVaultRefresh(params: VaultRefreshParams): Promise<VaultRefresh
 
   const read: Array<{ itemId: string; pages: PlaidVaultSnapshot[] }> = [];
   for (const [itemId, connection] of due) {
+    if (!isVaultSessionEpochCurrent(vaultEpoch)) return outcome;
     try {
       const pages = await readSnapshotPages({
         vaultOwnerToken,
         accessToken: connection.access_token,
         cursor: connection.transactions_cursor,
       });
+      if (!isVaultSessionEpochCurrent(vaultEpoch)) return outcome;
       read.push({ itemId, pages });
       if (pages.some((page) => page.item?.error)) outcome.needsRelink.push(itemId);
     } catch {
       outcome.failed += 1;
     }
   }
-  if (read.length === 0) return outcome;
+  if (read.length === 0 || !isVaultSessionEpochCurrent(vaultEpoch)) return outcome;
 
   const now = new Date().toISOString();
   const result = await PkmWriteCoordinator.saveMergedDomain({
@@ -381,6 +386,11 @@ async function runVaultRefresh(params: VaultRefreshParams): Promise<VaultRefresh
     domain: "financial",
     vaultKey,
     vaultOwnerToken,
+    beforeEffect: async () => {
+      if (!isVaultSessionEpochCurrent(vaultEpoch)) {
+        throw new DOMException("The vault session changed.", "AbortError");
+      }
+    },
     confirmation: {
       authorizationMode: "owner_connected_source_sync",
       surface: params.surface ?? "web",
@@ -401,7 +411,7 @@ async function runVaultRefresh(params: VaultRefreshParams): Promise<VaultRefresh
       };
     },
   });
-  outcome.refreshed = read.length;
+  outcome.refreshed = result.success ? read.length : 0;
   outcome.saved = result.success;
   return outcome;
 }

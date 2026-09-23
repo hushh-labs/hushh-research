@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 /* ---------- mocks (before any real imports) ---------- */
 
@@ -244,6 +245,11 @@ describe("UnlockWarmOrchestrator", () => {
       UnlockWarmOrchestrator.invalidateForUser(userId);
       await UnlockWarmOrchestrator.run({ ...BASE_PARAMS, userId, routePath });
       expect(refreshVaultConnectionsMock).toHaveBeenCalledTimes(1);
+      // A lock and re-unlock starts a new vault generation in the same app.
+      advanceVaultSessionEpoch();
+      UnlockWarmOrchestrator.invalidateForUser(userId);
+      await UnlockWarmOrchestrator.run({ ...BASE_PARAMS, userId, routePath });
+      await vi.waitFor(() => expect(refreshVaultConnectionsMock).toHaveBeenCalledTimes(2));
     },
   );
   it("does not refresh when nothing is sealed, or for a read-only reviewer session", async () => {

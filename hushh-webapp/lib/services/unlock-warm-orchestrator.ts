@@ -24,6 +24,7 @@ import { warmGeminiRuntimeConnection } from "@/lib/connections/gemini-runtime-co
 import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
 import { KaiFinancialResourceService } from "@/lib/kai/kai-financial-resource";
 import { loadFinancialForVault, refreshVaultConnections } from "@/lib/kai/plaid-vault/vault-sync";
+import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { toDurationBucket, trackEvent } from "@/lib/observability/client";
 import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
 import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
@@ -303,7 +304,7 @@ export class UnlockWarmOrchestrator {
     });
   }
 
-  private static vaultPlaidRefreshedByUser = new Set<string>();
+  private static vaultPlaidRefreshedByUser = new Map<string, number>();
 
   // Refresh on unlock for Plaid connections sealed in the owner's vault. The
   // server holds no token and cannot refresh them, so the device does, once per
@@ -318,17 +319,21 @@ export class UnlockWarmOrchestrator {
     vaultOwnerToken: string;
   }): void {
     if (shouldSkipReviewerBackgroundWritesForAutomation()) return;
-    if (this.vaultPlaidRefreshedByUser.has(params.userId)) return;
-    this.vaultPlaidRefreshedByUser.add(params.userId);
+    const vaultEpoch = snapshotVaultSessionEpoch();
+    if (this.vaultPlaidRefreshedByUser.get(params.userId) === vaultEpoch) return;
+    this.vaultPlaidRefreshedByUser.set(params.userId, vaultEpoch);
     void loadFinancialForVault(params)
       .then((financial) =>
+        isVaultSessionEpochCurrent(vaultEpoch) &&
         financial?.connections_v1 && Object.keys(financial.connections_v1).length > 0
           ? refreshVaultConnections({ ...params, financial })
           : null,
       )
       .catch((error) => {
         // Never block unlock warming; allow a later retry this session.
-        this.vaultPlaidRefreshedByUser.delete(params.userId);
+        if (this.vaultPlaidRefreshedByUser.get(params.userId) === vaultEpoch) {
+          this.vaultPlaidRefreshedByUser.delete(params.userId);
+        }
         console.warn("[UnlockWarmOrchestrator] Vault Plaid refresh failed:", error);
       });
   }
