@@ -49,6 +49,30 @@ REGISTERED_REDIRECT_URIS = (
     NATIVE_PICKER_REDIRECT_URI,
 )
 
+_LOAD_CONNECTOR_SQL = text(
+    """
+    SELECT connector_id, display_name, description, mcp_endpoint, auth_style,
+           oauth_authorize_url, oauth_token_url, oauth_scopes,
+           oauth_client_id_env, oauth_client_secret_env, api_key_header_name,
+           is_active, transport_kind, capability_policy,
+           registered_redirect_uris, created_by
+    FROM external_mcp_connectors
+    WHERE connector_id = :connector_id
+    """
+)
+_LOAD_CONNECTOR_FOR_UPDATE_SQL = text(
+    """
+    SELECT connector_id, display_name, description, mcp_endpoint, auth_style,
+           oauth_authorize_url, oauth_token_url, oauth_scopes,
+           oauth_client_id_env, oauth_client_secret_env, api_key_header_name,
+           is_active, transport_kind, capability_policy,
+           registered_redirect_uris, created_by
+    FROM external_mcp_connectors
+    WHERE connector_id = :connector_id
+    FOR UPDATE
+    """
+)
+
 
 class DriveUatRegistryProvisioningError(ValueError):
     """Safe operator-facing failure; never include DB details or credentials."""
@@ -193,19 +217,8 @@ class DriveUatRegistryProvisioner:
 
     @staticmethod
     def _load(connection: Any, *, lock: bool) -> dict[str, Any] | None:
-        suffix = " FOR UPDATE" if lock else ""
         result = connection.execute(
-            text(
-                """
-                SELECT connector_id, display_name, description, mcp_endpoint, auth_style,
-                       oauth_authorize_url, oauth_token_url, oauth_scopes,
-                       oauth_client_id_env, oauth_client_secret_env, api_key_header_name,
-                       is_active, transport_kind, capability_policy,
-                       registered_redirect_uris, created_by
-                FROM external_mcp_connectors
-                WHERE connector_id = :connector_id"""
-                + suffix
-            ),
+            _LOAD_CONNECTOR_FOR_UPDATE_SQL if lock else _LOAD_CONNECTOR_SQL,
             {"connector_id": CONNECTOR_ID},
         )
         row = result.mappings().first()

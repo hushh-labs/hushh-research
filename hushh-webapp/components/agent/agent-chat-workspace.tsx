@@ -1688,6 +1688,7 @@ export function storedMessageToAgentMessage(
     id: message.id,
     role: message.role,
     text: displayText,
+    structuredExperience: connectorRead,
     timestamp:
       createdAt && !Number.isNaN(createdAt.getTime())
         ? new Intl.DateTimeFormat(undefined, {
