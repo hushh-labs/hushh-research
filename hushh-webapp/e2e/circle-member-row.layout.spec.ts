@@ -223,7 +223,7 @@ export default function Link({ href, children, ...props }: AnchorHTMLAttributes<
   fs.writeFileSync(
     path.join(dir, "src/main.tsx"),
     `import React from "react";
-import { createRoot } from "react-dom/client";
+import { createRoot, type Root } from "react-dom/client";
 import { CircleMemberActionsMenu } from "/@fs/${componentPath}";
 
 const memberName = ${JSON.stringify(memberName)};
@@ -278,7 +278,11 @@ function App() {
   );
 }
 
-createRoot(document.getElementById("root")!).render(<App />);`,
+const container = document.getElementById("root")! as HTMLElement & { fixtureRoot?: Root };
+// Vite may re-evaluate this fixture entrypoint after dependency optimization.
+// Reuse its root so that the test observes component errors, not harness noise.
+const root = container.fixtureRoot ??= createRoot(container);
+root.render(<App />);`,
   );
 
   const [{ createServer }, { default: react }] = await Promise.all([
@@ -748,6 +752,11 @@ test.describe("Circle roster row", () => {
 
       const menu = page.getByTestId("circle-member-actions-menu");
       await expect(menu).toBeVisible();
+      await menu.evaluate(async (element) => {
+        await Promise.all(
+          element.getAnimations().map((animation) => animation.finished),
+        );
+      });
       await expect(menu).toHaveAttribute("data-side", "right");
       await expect(menu).toHaveAttribute("data-align", "center");
       await expect(
@@ -836,6 +845,11 @@ test.describe("Circle roster row", () => {
 
       const sheet = page.getByTestId("circle-member-actions-sheet");
       await expect(sheet).toBeVisible();
+      await sheet.evaluate(async (element) => {
+        await Promise.all(
+          element.getAnimations().map((animation) => animation.finished),
+        );
+      });
       await expect(sheet).toContainText(fixture.memberName);
       await expect(
         page.getByRole("menu", { name: `Actions for ${fixture.memberName}` }),
