@@ -243,6 +243,7 @@ async def test_viewer_profile_exposes_export_revision_as_metadata_for_grants() -
                 }
             ],
             [{"public_person_ref": "22222222-2222-4222-8222-222222222222"}],
+            [{"request_id": "request-1", "bundle_id": "bundle-older-than-history-limit"}],
             [],
             [],
             [],
@@ -256,6 +257,7 @@ async def test_viewer_profile_exposes_export_revision_as_metadata_for_grants() -
             public_person_ref="11111111-1111-4111-8111-111111111111",
         )
     assert payload["grants"][0]["exportRevision"] == 7
+    assert payload["grants"][0]["bundleId"] == "bundle-older-than-history-limit"
 
 
 class _ConsentWithHistory(_Consent):

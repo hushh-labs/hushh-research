@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode, TextareaHTMLAttributes } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -64,8 +64,28 @@ vi.mock("@/lib/services/one-kyc-client-zk-service", () => ({
   OneKycClientZkService: {
     decryptScopedExport: vi.fn(),
     ensureConnector: vi.fn(),
+    readStoredConnector: vi.fn(),
   },
 }));
+
+function mockCurrentGrant(requestId: string, bundleId: string, scopeRef = "scope-0") {
+  mocks.getInformationRequest.mockResolvedValue({
+    bundleId, personRef: "actual-public-ref", purpose: "Synthetic review", durationSeconds: 86400,
+    cancelled: false,
+    items: [{ requestId, scopeRef, label: "Synthetic detail", sensitivity: "standard", status: "granted" }],
+  });
+  return {
+    requestId, scopeRef,
+    encryptedExport: {
+      request_id: requestId, scope: "attr.professional.synthetic", export_revision: 1,
+      export_envelope: { version: 2, export_id: "synthetic-export", aad: {
+        version: 2, app_id: "agent_one", grant_id: requestId, export_id: "synthetic-export",
+        revision: 1, machine_scope: "attr.professional.synthetic", payload_algorithm: "AES-256-GCM",
+        expires_at_ms: Date.now() + 3_600_000,
+      } },
+    },
+  };
+}
 
 vi.mock("@/components/app-ui/app-page-shell", () => ({
   AppPageShell: ({ children }: { children: ReactNode }) => <main>{children}</main>,
@@ -562,9 +582,9 @@ describe("PersonProfilePage request catalog tools", () => {
     const { PersonProfileService } = await import("@/lib/services/person-profile-service");
     const { OneKycClientZkService } = await import("@/lib/services/one-kyc-client-zk-service");
     const { toast } = await import("sonner");
-    (OneKycClientZkService.ensureConnector as ReturnType<typeof vi.fn>).mockResolvedValue({ connector_key_id: "ck_1" });
+    (OneKycClientZkService.readStoredConnector as ReturnType<typeof vi.fn>).mockResolvedValue({ connector_key_id: "ck_1" });
     (PersonProfileService.getInformationRequestExports as ReturnType<typeof vi.fn>).mockResolvedValue([
-      { requestId: "req-grant", encryptedExport: { sealed: true } },
+      mockCurrentGrant("req-grant", "bundle-grant"),
     ]);
     (OneKycClientZkService.decryptScopedExport as ReturnType<typeof vi.fn>).mockResolvedValue({ city: "Pune" });
     const writeText = vi.fn().mockResolvedValue(undefined);
@@ -626,9 +646,9 @@ describe("PersonProfilePage request catalog tools", () => {
   it("unwraps the domain envelope before rendering an encrypted grant", async () => {
     const { PersonProfileService } = await import("@/lib/services/person-profile-service");
     const { OneKycClientZkService } = await import("@/lib/services/one-kyc-client-zk-service");
-    (OneKycClientZkService.ensureConnector as ReturnType<typeof vi.fn>).mockResolvedValue({ connector_key_id: "ck_1" });
+    (OneKycClientZkService.readStoredConnector as ReturnType<typeof vi.fn>).mockResolvedValue({ connector_key_id: "ck_1" });
     (PersonProfileService.getInformationRequestExports as ReturnType<typeof vi.fn>).mockResolvedValue([
-      { requestId: "req-domain", encryptedExport: { sealed: true } },
+      mockCurrentGrant("req-domain", "bundle-domain"),
     ]);
     (OneKycClientZkService.decryptScopedExport as ReturnType<typeof vi.fn>).mockResolvedValue({
       professional: { summary: "Synthetic approved detail" },
@@ -669,12 +689,35 @@ describe("PersonProfilePage request catalog tools", () => {
     );
   });
 
+  it("opens an old active grant from its bound bundle even after recent history is truncated", async () => {
+    const { PersonProfileService } = await import("@/lib/services/person-profile-service");
+    const { OneKycClientZkService } = await import("@/lib/services/one-kyc-client-zk-service");
+    (OneKycClientZkService.readStoredConnector as ReturnType<typeof vi.fn>).mockResolvedValue({ connector_key_id: "ck_1" });
+    (PersonProfileService.getInformationRequestExports as ReturnType<typeof vi.fn>).mockResolvedValue([
+      mockCurrentGrant("req-old", "bundle-old"),
+    ]);
+    (OneKycClientZkService.decryptScopedExport as ReturnType<typeof vi.fn>).mockResolvedValue({
+      professional: { role: "Synthetic reviewer" },
+    });
+    mocks.getViewer.mockResolvedValue(viewerProfile({
+      grants: [{ bundleId: "bundle-old", scopeRef: "scope-0", label: "Professional role", domain: "Professional",
+        requestId: "req-old", issuedAt: null, expiresAt: null, status: "granted", encryptedExportAvailable: true, exportRevision: 1 }],
+      requestHistory: [],
+    }));
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    expect(await screen.findByTestId("person-profile-grant-value")).toHaveTextContent("Synthetic reviewer");
+    expect(PersonProfileService.getInformationRequestExports).toHaveBeenCalledWith({ bundleId: "bundle-old", vaultOwnerToken: "owner-token" });
+    mocks.getViewer.mockResolvedValue(viewerProfile({ grants: [], requestHistory: [] }));
+    act(() => window.dispatchEvent(new Event("consent-state-changed")));
+    await waitFor(() => expect(screen.queryByTestId("person-profile-grant-value")).toBeNull());
+  });
+
   it("keeps nested approved summaries visible in an encrypted grant", async () => {
     const { PersonProfileService } = await import("@/lib/services/person-profile-service");
     const { OneKycClientZkService } = await import("@/lib/services/one-kyc-client-zk-service");
-    (OneKycClientZkService.ensureConnector as ReturnType<typeof vi.fn>).mockResolvedValue({ connector_key_id: "ck_1" });
+    (OneKycClientZkService.readStoredConnector as ReturnType<typeof vi.fn>).mockResolvedValue({ connector_key_id: "ck_1" });
     (PersonProfileService.getInformationRequestExports as ReturnType<typeof vi.fn>).mockResolvedValue([
-      { requestId: "req-nested", encryptedExport: { sealed: true } },
+      mockCurrentGrant("req-nested", "bundle-nested"),
     ]);
     (OneKycClientZkService.decryptScopedExport as ReturnType<typeof vi.fn>).mockResolvedValue({
       professional: { profile: { summary: "Synthetic nested detail" } },
@@ -719,7 +762,8 @@ describe("PersonProfilePage request catalog tools", () => {
     const { PersonProfileService } = await import("@/lib/services/person-profile-service");
     const { OneKycClientZkService } = await import("@/lib/services/one-kyc-client-zk-service");
     const { toast } = await import("sonner");
-    (OneKycClientZkService.ensureConnector as ReturnType<typeof vi.fn>).mockResolvedValue({ connector_key_id: "ck_1" });
+    (OneKycClientZkService.readStoredConnector as ReturnType<typeof vi.fn>).mockResolvedValue({ connector_key_id: "ck_1" });
+    mockCurrentGrant("req-grant-fail", "bundle-grant");
     (PersonProfileService.getInformationRequestExports as ReturnType<typeof vi.fn>).mockRejectedValue(
       new Error("psycopg2.errors.UndefinedColumn: column consent_exports.sealed does not exist"),
     );
@@ -776,7 +820,8 @@ describe("PersonProfilePage request catalog tools", () => {
     };
     mocks.vaultKey = "vault-key";
     mocks.vaultOwnerToken = "owner-token";
-    (OneKycClientZkService.ensureConnector as ReturnType<typeof vi.fn>).mockResolvedValue({ connector_key_id: "ck_1" });
+    (OneKycClientZkService.readStoredConnector as ReturnType<typeof vi.fn>).mockResolvedValue({ connector_key_id: "ck_1" });
+    mockCurrentGrant("req-grant-fail", "bundle-grant");
     (PersonProfileService.getInformationRequestExports as ReturnType<typeof vi.fn>).mockRejectedValue(
       new Error("psycopg2.errors.SerializationFailure: temporary export failure"),
     );

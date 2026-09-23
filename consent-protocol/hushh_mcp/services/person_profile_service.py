@@ -427,6 +427,39 @@ class PersonProfileService:
             export_revisions = await self._consent_db.get_active_token_export_revisions(
                 [str(grant.get("token_id") or "") for grant in active]
             )
+            active_request_ids = [
+                str(grant["request_id"]) for grant in active if grant.get("request_id")
+            ]
+            bundle_rows = (
+                await asyncio.to_thread(
+                    lambda: (
+                        get_db()
+                        .execute_raw(
+                            """
+                        SELECT item.request_id, bundle.bundle_id
+                        FROM one_information_request_items item
+                        JOIN one_information_request_bundles bundle
+                          ON bundle.bundle_id = item.bundle_id
+                        WHERE item.request_id = ANY(:request_ids)
+                          AND bundle.requester_user_id = :viewer
+                          AND bundle.subject_user_id = :subject
+                        """,
+                            {
+                                "request_ids": active_request_ids,
+                                "viewer": viewer_user_id,
+                                "subject": subject_user_id,
+                            },
+                        )
+                        .data
+                        or []
+                    )
+                )
+                if active_request_ids
+                else []
+            )
+            bundle_by_request = {
+                str(item["request_id"]): str(item["bundle_id"]) for item in bundle_rows
+            }
             for grant in active:
                 scope_projection = scope_by_name.get(str(grant.get("scope") or ""))
                 token_id = str(grant.get("token_id") or "")
@@ -436,6 +469,7 @@ class PersonProfileService:
                         "label": (scope_projection or {}).get("label") or "Shared information",
                         "domain": (scope_projection or {}).get("domain"),
                         "requestId": grant.get("request_id"),
+                        "bundleId": bundle_by_request.get(str(grant.get("request_id") or "")),
                         "issuedAt": grant.get("issued_at"),
                         "expiresAt": grant.get("expires_at"),
                         "status": "granted",

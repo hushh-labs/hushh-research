@@ -200,6 +200,10 @@ grant authority; individual grant status remains governed by the consent ledger.
 Concurrent inserts can appear ahead of an existing cursor and require a fresh
 first-page read to see them. The existing `GET /api/one/people/{person_ref}`
 `requestHistory` field remains unchanged for current callers.
+Active `grants` in that viewer profile include a viewer/subject-bound `bundleId`
+when the grant belongs to a person request. Clients use it to fetch current
+bundle status and encrypted exports even after the recent `requestHistory`
+projection is truncated; it is a locator, not decryption authority.
 
 ### One Runtime Configuration
 

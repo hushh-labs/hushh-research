@@ -33,6 +33,9 @@ import {
 import { InformationRequestReviewFields } from "@/components/consent/information-request-review-fields";
 import { usePersonInformationRequest } from "@/lib/consent/use-person-information-request";
 import { projectGrantPayload } from "@/lib/consent/project-grant-payload";
+import { isCurrentPersonExport } from "@/lib/consent/person-export-binding";
+import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
+import { FCM_MESSAGE_EVENT } from "@/lib/notifications";
 import {
   SectionCard,
   StatusPill,
@@ -302,6 +305,28 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
   }, [resolvedPersonRef, user?.uid]);
 
   useEffect(() => {
+    if (!user) return;
+    const refresh = () => {
+      requestGeneration.current += 1;
+      setDecryptedByRequest({});
+      setDecryptedRevisionByRequest({});
+      setViewerProfileState((current) => current.personRef === resolvedPersonRef && current.viewerUid === user.uid
+        ? { ...current, profile: null } : current);
+      setViewerReloadToken((value) => value + 1);
+    };
+    const onPush = (event: Event) => {
+      const detail = (event as CustomEvent<{ data?: { type?: string } }>).detail;
+      if (["consent_resolved", "shared_information_updated"].includes(String(detail?.data?.type || ""))) refresh();
+    };
+    window.addEventListener(CONSENT_STATE_CHANGED_EVENT, refresh);
+    window.addEventListener(FCM_MESSAGE_EVENT, onPush);
+    return () => {
+      window.removeEventListener(CONSENT_STATE_CHANGED_EVENT, refresh);
+      window.removeEventListener(FCM_MESSAGE_EVENT, onPush);
+    };
+  }, [resolvedPersonRef, user]);
+
+  useEffect(() => {
     if (isVaultUnlocked) return;
     setDecryptedByRequest({});
     setDecryptedRevisionByRequest({});
@@ -506,12 +531,9 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
       }
       const grant = viewerProfile.grants.find((item) => item.requestId === requestId);
       const expectedRevision = grant?.exportRevision;
-      if (
-        decryptedByRequest[requestId]
-        && (expectedRevision == null || decryptedRevisionByRequest[requestId] === expectedRevision)
-      ) return;
       const history = viewerProfile.requestHistory.find((item) => item.requestId === requestId);
-      if (!history) {
+      const bundleId = grant?.bundleId || history?.bundleId;
+      if (!grant || !bundleId) {
         toast.error("This shared information is not available right now.");
         return;
       }
@@ -524,27 +546,40 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
       });
       const generation = requestGeneration.current;
       try {
+        const bundle = await withGrantDecryptTimeout(
+          PersonProfileService.getInformationRequest({ bundleId, vaultOwnerToken }),
+          "The request status took too long to check. Try again.",
+        );
+        const item = bundle.items.find((entry) => entry.requestId === requestId);
+        if (bundle.bundleId !== bundleId || bundle.personRef !== resolvedPersonRef || item?.status !== "granted") {
+          throw new Error("This access is no longer available.");
+        }
+        if (decryptedByRequest[requestId] && expectedRevision != null
+          && decryptedRevisionByRequest[requestId] === expectedRevision) return;
         const connector = await withGrantDecryptTimeout(
-          OneKycClientZkService.ensureConnector({
+          OneKycClientZkService.readStoredConnector({
             userId: user.uid,
             vaultKey,
             vaultOwnerToken,
           }),
-          "The receiving device took too long to prepare. Try opening this again.",
+          "The receiving device took too long to open. Try again.",
         );
+        if (!connector) throw new Error("The receiving device is unavailable.");
         const exports = await withGrantDecryptTimeout(
           PersonProfileService.getInformationRequestExports({
-            bundleId: history.bundleId,
+            bundleId,
             vaultOwnerToken,
           }),
           "The shared information took too long to load. Try opening this again.",
         );
         const exact = exports.find((item) => item.requestId === requestId);
-        if (!exact) throw new Error("This shared information is not available right now.");
+        if (!exact || !isCurrentPersonExport({ item, scopeRef: exact.scopeRef, exportPackage: exact.encryptedExport, nowMs: Date.now() })) {
+          throw new Error("This shared information is not available right now.");
+        }
         const packageRevision = typeof exact.encryptedExport.export_revision === "number"
           ? exact.encryptedExport.export_revision
           : null;
-        if (expectedRevision != null && packageRevision != null && expectedRevision !== packageRevision) {
+        if (expectedRevision != null && expectedRevision !== packageRevision) {
           throw new Error("This shared information changed. Please check again.");
         }
         const payload = await withGrantDecryptTimeout(
@@ -554,6 +589,11 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
           }),
           "The shared information took too long to open. Try again.",
         );
+        const latest = await PersonProfileService.getInformationRequest({ bundleId, vaultOwnerToken });
+        if (latest.bundleId !== bundleId || latest.personRef !== resolvedPersonRef
+          || !latest.items.some((entry) => entry.requestId === requestId && entry.status === "granted")) {
+          throw new Error("This access changed while opening information.");
+        }
         if (generation !== requestGeneration.current) return;
         setDecryptedByRequest((current) => ({
           ...current,

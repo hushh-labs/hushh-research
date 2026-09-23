@@ -26,6 +26,7 @@ export type RequestablePersonScope = {
 };
 
 export type PersonGrant = {
+  bundleId?: string | null;
   scopeRef: string | null;
   label: string;
   domain: string | null;
