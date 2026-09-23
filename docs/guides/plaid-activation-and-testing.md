@@ -9,7 +9,7 @@ Runbook for enabling Kai’s read-only Plaid brokerage connectivity on localhost
 
 ## What This Enables
 
-- bank and brokerage Link connect, sealed in the person's vault (the server stores nothing)
+- bank and brokerage Link connect, with the new connection sealed in the person's vault; the vault route does not persist Plaid tokens or snapshots server-side
 - OAuth banks on web, iOS and Android
 - accounts, holdings, securities and transactions
 - refresh on unlock and on an explicit Refresh
@@ -18,6 +18,9 @@ Runbook for enabling Kai’s read-only Plaid brokerage connectivity on localhost
 
 It does not enable live trading. Contract and device behaviour:
 [Plaid Vault Passthrough](../reference/kai/plaid-vault-passthrough.md).
+The backend and web proxy process readable provider responses transiently. Legacy server-held
+Items can coexist until migration 239 and environment-specific retirement and disconnection
+are verified.
 
 ## Required Allowlisted Redirect URIs
 
