@@ -190,6 +190,32 @@ def test_merge_timeout_retains_only_validated_pre_merge_decisions():
     assert continuation.checkpoint(message="synthetic", response=response, trace=trace[:1]) is None
 
 
+def test_intent_timeout_retains_only_validated_pre_intent_decisions():
+    records, response, _ = checkpoint_fixture()
+    del records["agent_memory_intent"]
+    del records["agent_memory_merge"]
+    response.update(
+        used_fallback=True,
+        intent_used_fallback=True,
+        error="memory_intent_agent_fallback; memory_merge_agent_fallback; pkm_structure_agent_fallback",
+    )
+    trace = [{"agent_id": "agent_memory_intent", "status": "timeout"}]
+    continuation = PreviewContinuation(
+        run=AsyncMock(), resolve_model=lambda *_: "test", records=records
+    )
+    assert continuation.checkpoint(message="synthetic", response=response, trace=trace) == records
+    assert continuation.checkpoint(message=" synthetic", response=response, trace=trace) is None
+    assert continuation.checkpoint(message="synthetic", response=response, trace=[]) is None
+    trace[0]["status"] = "invalid_response"
+    assert continuation.checkpoint(message="synthetic", response=response, trace=trace) is None
+    trace[0]["status"] = "timeout"
+    response["routing_decision"] = "financial_core"
+    assert continuation.checkpoint(message="synthetic", response=response, trace=trace) is None
+    response["routing_decision"] = "non_financial_or_ephemeral"
+    response["error"] += "; financial_guard_agent_fallback"
+    assert continuation.checkpoint(message="synthetic", response=response, trace=trace) is None
+
+
 @pytest.mark.parametrize(
     "defect",
     [
@@ -239,6 +265,7 @@ def test_checkpoint_rejects_fallback_meaning_and_incomplete_prefix(defect):
         "trace",
         "success",
         "merge_timeout",
+        "intent_timeout",
         "expired",
         "unbound",
     ],
@@ -288,19 +315,39 @@ async def test_real_preview_retry_reuses_only_same_request_validated_prefix(monk
     async def run(**kwargs):
         agent = kwargs["manifest"].id
         calls.append(agent)
+        if (
+            changed == "intent_timeout"
+            and agent == "agent_memory_intent"
+            and calls.count(agent) == 1
+        ):
+            kwargs["execution_trace"].append(
+                {"agent_id": agent, "status": "timeout", "attempts": 1, "latency_ms": 1}
+            )
+            return None
+        if (
+            changed == "intent_timeout"
+            and agent == "agent_memory_merge"
+            and calls.count(agent) == 1
+        ):
+            kwargs["execution_trace"].append(
+                {"agent_id": agent, "status": "budget_exhausted", "attempts": 0, "latency_ms": 1}
+            )
+            return None
         if changed == "merge_timeout" and agent == "agent_memory_merge" and calls.count(agent) == 1:
             kwargs["execution_trace"].append(
                 {"agent_id": agent, "status": "timeout", "attempts": 1, "latency_ms": 1}
             )
             return None
         if (
-            changed in {"success", "merge_timeout"}
+            changed in {"success", "merge_timeout", "intent_timeout"}
             and agent == "agent_pkm_structure"
             and (
                 changed == "success"
                 and len(calls) == 6
                 or changed == "merge_timeout"
                 and len(calls) == 7
+                or changed == "intent_timeout"
+                and len(calls) == 8
             )
         ):
             return {
@@ -327,7 +374,8 @@ async def test_real_preview_retry_reuses_only_same_request_validated_prefix(monk
                 "agent_id": agent,
                 "status": (
                     "budget_exhausted"
-                    if changed == "merge_timeout" and agent == "agent_pkm_structure"
+                    if changed in {"merge_timeout", "intent_timeout"}
+                    and agent == "agent_pkm_structure"
                     else "timeout"
                     if agent == "agent_pkm_structure"
                     else "success"
@@ -352,6 +400,8 @@ async def test_real_preview_retry_reuses_only_same_request_validated_prefix(monk
     assert first["error"] == (
         "memory_merge_agent_fallback; pkm_structure_agent_fallback"
         if changed == "merge_timeout"
+        else "memory_intent_agent_fallback; memory_merge_agent_fallback; pkm_structure_agent_fallback"
+        if changed == "intent_timeout"
         else "pkm_structure_agent_fallback"
     )
     assert len(calls) == 5
@@ -372,7 +422,13 @@ async def test_real_preview_retry_reuses_only_same_request_validated_prefix(monk
         module._PREVIEW_CACHE[key] = (0, module._PREVIEW_CACHE[key][1])
     second = await service.generate_structure_preview(**request)
     assert len(calls) == (
-        7 if changed == "merge_timeout" else 6 if changed in {None, "success"} else 10
+        8
+        if changed == "intent_timeout"
+        else 7
+        if changed == "merge_timeout"
+        else 6
+        if changed in {None, "success"}
+        else 10
     )
     assert "__validated_preparation_prefix" not in second
     if changed is None:
@@ -389,6 +445,14 @@ async def test_real_preview_retry_reuses_only_same_request_validated_prefix(monk
         assert calls[-2:] == ["agent_memory_merge", "agent_pkm_structure"]
         assert [row["status"] for row in second["performance"]["agent_execution"][:3]] == [
             "reused",
+            "reused",
+            "reused",
+        ]
+        assert second["used_fallback"] is False
+        assert second["error"] is None
+    if changed == "intent_timeout":
+        assert calls[-3:] == ["agent_memory_intent", "agent_memory_merge", "agent_pkm_structure"]
+        assert [row["status"] for row in second["performance"]["agent_execution"][:2]] == [
             "reused",
             "reused",
         ]

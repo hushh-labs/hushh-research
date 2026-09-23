@@ -344,8 +344,8 @@ evicting what is already stored is an upgrade step that has not run.
   the product proposal route returns a recoverable unavailable response when
   no preview can be prepared. Degraded previews are not cached as successful
   results. An exact-bound retry may reuse only schema-valid earlier decisions
-  when a later merge or structure stage times out; the failed stage and every
-  downstream stage run again. Owner, credential, draft, state, instruction, and
+  when a later intent, merge, or structure stage times out; the failed stage
+  and every downstream stage run again. Owner, credential, draft, state, instruction, and
   runtime changes invalidate that in-memory preparation prefix. No fallback
   decision or preview card is retained as a successful result.
 - Large free-form imports are split client-side below the proposal request
