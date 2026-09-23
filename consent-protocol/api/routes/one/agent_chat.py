@@ -95,6 +95,7 @@ def _drive_context_builder() -> DriveContextEnvelopeBuilder:
 @_drive_preview_router.post("/api/one/agent-chat/drive-context/preview")
 async def preview_drive_context(
     _payload: _DrivePreviewRequest,
+    request: Request,
     response: Response,
     token: dict = Depends(require_vault_owner_token),
     builder: DriveContextEnvelopeBuilder = Depends(_drive_context_builder),
@@ -104,6 +105,10 @@ async def preview_drive_context(
     user_id = token.get("user_id")
     if not isinstance(user_id, str) or not user_id:
         raise HTTPException(401, "Owner authorization required.")
+    if request.query_params:
+        raise HTTPException(
+            422, {"code": "invalid_argument", "message": "Use an empty request object."}
+        )
     try:
         return await builder.assemble(user_id, f"preview:{uuid4()}")
     except DriveReadError as error:

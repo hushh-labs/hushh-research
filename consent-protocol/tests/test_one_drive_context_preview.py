@@ -41,6 +41,11 @@ def test_preview_requires_owner_auth_and_no_body_authority():
         assert rejected.status_code == 422
         assert rejected.headers["Cache-Control"] == "private, no-store"
         assert "attacker" not in rejected.text
+    for forged_query in ("user_id=attacker", "turn_id=chosen", "grant_state=succeeded"):
+        rejected = client.post(f"{path}?{forged_query}", json={})
+        assert rejected.status_code == 422
+        assert rejected.headers["Cache-Control"] == "private, no-store"
+        assert "attacker" not in rejected.text
     builder.assemble.assert_not_awaited()
     accepted = client.post(path, json={})
     assert accepted.status_code == 200

@@ -17,6 +17,7 @@ one authenticated private-agent turn. `POST /api/one/agent-chat/drive-context/pr
 accepts exactly `{}` with a current Vault Owner token and issues its own preview
 turn ID. It returns no document text, filename, provider ID, stable fingerprint,
 OAuth credential, or private target binding. Responses are `private, no-store`.
+The route rejects query parameters and nonempty request bodies.
 The preview does not call a model, decrypt chunks, contact Google, enqueue work,
 or change sharing state.
 
