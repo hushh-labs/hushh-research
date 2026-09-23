@@ -149,6 +149,9 @@ for (const dark of [false, true]) {
               actions: actions.map((button) => ({
                 height: button.getBoundingClientRect().height,
                 left: button.getBoundingClientRect().left - box.left,
+                width: button.getBoundingClientRect().width,
+                top: button.getBoundingClientRect().top,
+                bottom: button.getBoundingClientRect().bottom,
               })),
             };
           }),
@@ -168,6 +171,10 @@ for (const dark of [false, true]) {
             expect(action.height).toBeGreaterThanOrEqual(44);
           if (width < 640 && row.actions.length)
             expect.soft(row.actions[0].left).toBeCloseTo(68, 0);
+          if (width < 640 && row.actions.length === 2) {
+            expect.soft(row.actions[0].width).toBeCloseTo(row.actions[1].width, 0);
+            expect(row.actions[1].top).toBeGreaterThanOrEqual(row.actions[0].bottom);
+          }
         }
         await expect(
           page.locator("button button, button a, a button"),
