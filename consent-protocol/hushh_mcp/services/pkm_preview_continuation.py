@@ -91,7 +91,9 @@ class PreviewContinuation:
         return result
 
     def checkpoint(self, *, message: str, response: dict, trace: list[dict]) -> dict | None:
-        if set(self.records) != PREFIX_AGENTS:
+        recorded = set(self.records)
+        merge_pending = recorded == PREFIX_AGENTS - {"agent_memory_merge"}
+        if not merge_pending and recorded != PREFIX_AGENTS:
             return None
         segmentation = self.records["agent_memory_segmentation"]["value"]
         segments = segmentation.get("segments")
@@ -100,6 +102,11 @@ class PreviewContinuation:
             or len(segments) != 1
             or segments[0].get("source_text") != message
             or segmentation.get("has_more_candidates") is not False
+        ):
+            return None
+        guard = self.records["agent_financial_guard"]["value"]
+        if not guard.get("routing_decision") or guard["routing_decision"] != response.get(
+            "routing_decision"
         ):
             return None
         # Schema-valid empty fields can still inherit fallback meaning during
@@ -116,6 +123,27 @@ class PreviewContinuation:
         for field in ("save_class", "intent_class", "mutation_intent"):
             if intent.get(field) != response.get("intent_frame", {}).get(field):
                 return None
+        if merge_pending:
+            # Only a timed-out merge may retain the three validated earlier
+            # decisions. The fallback merge and any structure built from it are
+            # discarded; both agents must run on the next exact-bound attempt.
+            if (
+                response.get("merge_used_fallback") is not True
+                or response.get("error")
+                != "memory_merge_agent_fallback; pkm_structure_agent_fallback"
+                or not any(
+                    row.get("agent_id") == "agent_memory_merge"
+                    and row.get("status") in {"timeout", "budget_exhausted"}
+                    for row in trace
+                )
+                or not any(
+                    row.get("agent_id") == "agent_pkm_structure"
+                    and row.get("status") == "budget_exhausted"
+                    for row in trace
+                )
+            ):
+                return None
+            return deepcopy(self.records)
         merge = self.records["agent_memory_merge"]["value"]
         for field in (
             "merge_mode",
