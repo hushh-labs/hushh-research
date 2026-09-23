@@ -21,29 +21,31 @@ describe("Drive native source contract (not device acceptance)", () => {
       "iOS",
       swift.slice(
         swift.indexOf("@objc func connectDrive"),
-        swift.indexOf("// MARK: - Sign Out"),
+        swift.indexOf("// MARK: - Fresh same-user Google proof"),
       ),
     ],
     [
       "Android",
       kotlin.slice(
-        kotlin.indexOf("// ==================== Drive Connect"),
-        kotlin.indexOf("// ==================== Sign Out"),
+        kotlin.indexOf("// ==================== Native Drive OAuth"),
+        kotlin.indexOf("// ==================== Fresh same-user Google proof"),
       ),
     ],
   ])(
-    "%s requests only read-only Drive permission and returns no app identity",
+    "%s accepts only a bound server-authored Drive attempt and returns no credentials",
     (_, source) => {
-      expect(source).toContain(
-        "https://www.googleapis.com/auth/drive.readonly",
-      );
-      expect(
-        source.match(/https:\/\/www.googleapis.com\/auth\/[^"\s]+/g),
-      ).toEqual(["https://www.googleapis.com/auth/drive.readonly"]);
-      expect(source).toContain("serverAuthCode");
-      expect(source).toContain("USER_CANCELLED");
+      expect(source).toContain("authorizeUrl");
+      expect(source).toContain("attemptId");
+      expect(source).toContain("expectedUserId");
+      expect(source).toContain("expiresAt");
+      expect(source).toContain("accounts.google.com");
+      expect(source).toContain("/o/oauth2/v2/auth");
+      expect(source).toContain("cancelled");
+      expect(source).toContain("outcome");
+      expect(source).not.toContain("serverAuthCode");
+      expect(source).not.toContain("drive.file");
       expect(source).not.toMatch(
-        /signInWithCredential|Auth\.auth\(|firebaseAuth\.|currentIdToken\s*=|currentUser\s*=|print\(|Log\./,
+        /signInWithCredential|currentIdToken\s*=|currentUser\s*=|print\(|Log\./,
       );
     },
   );

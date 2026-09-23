@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import { Capacitor } from "@capacitor/core";
+import { useRouter } from "next/navigation";
 import { ArrowLeftIcon } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
@@ -134,6 +135,7 @@ function OwnerConnectorsPanel({
   onPrepareRecovery,
   onClearRecovery,
 }: Props) {
+  const router = useRouter();
   const { user } = useAuth();
   const { vaultOwnerToken } = useVault();
   const [overview, setOverview] = useState<ConnectorOverview | null>(null);
@@ -177,6 +179,7 @@ function OwnerConnectorsPanel({
   const restorePickerFocus = useRef(false);
   const overviewRead = useRef(0);
   const documentRead = useRef(0);
+  const previousOpen = useRef(open);
   const mailToken = useCallback(
     () => user?.getIdToken() ?? Promise.resolve(""),
     [user],
@@ -253,6 +256,13 @@ function OwnerConnectorsPanel({
   useEffect(() => {
     if (vaultOwnerToken) void refresh(controller.current?.signal);
   }, [vaultOwnerToken, refresh]);
+  useEffect(() => {
+    if (previousOpen.current === open) return;
+    previousOpen.current = open;
+    overviewRead.current++;
+    documentRead.current++;
+    if (open && vaultOwnerToken) void refresh(controller.current?.signal);
+  }, [open, vaultOwnerToken, refresh]);
   const drive = overview?.connectors.find(
     (item) => item.connectorId === "google_drive",
   );
@@ -993,7 +1003,7 @@ function OwnerConnectorsPanel({
               className="space-y-3 rounded-xl border border-border p-3"
             >
               <h3 id="connection-mail-title" className="font-semibold">
-                Mail
+                Gmail
               </h3>
               <p className="break-all text-sm text-muted-foreground">
                 {gmail.status?.google_email || "Gmail"}
@@ -1060,7 +1070,7 @@ function OwnerConnectorsPanel({
               className="space-y-3 rounded-xl border border-border p-3"
             >
               <h3 id="connection-drive-title" className="font-semibold">
-                Drive
+                Google Drive
               </h3>
               <p className="break-all text-sm text-muted-foreground">
                 {drive?.accountLabel || "Only files you choose"}
@@ -1121,7 +1131,7 @@ function OwnerConnectorsPanel({
               </div>
               {!canConnectDrive && (
                 <p className="text-sm text-muted-foreground">
-                  New Drive connections are not available here yet.
+                  Drive connection is unavailable in this session. Try again after reconnecting.
                 </p>
               )}
               <p
@@ -1306,6 +1316,23 @@ function OwnerConnectorsPanel({
                   ))}
                 </ul>
               )}
+            </section>
+            <section aria-labelledby="connection-more-title" className="space-y-3 rounded-xl border border-border p-3">
+              <h3 id="connection-more-title" className="font-semibold">More connections</h3>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" className={touch} onClick={() => { onBack(); router.push(ROUTES.CALENDAR); }}>
+                  Manage Calendar
+                </Button>
+                <Button variant="outline" className={touch} onClick={() => { onBack(); router.push(ROUTES.KAI_PORTFOLIO_SOURCES); }}>
+                  Manage Plaid
+                </Button>
+              </div>
+              {overview?.connectors.filter((item) => item.connectorId !== "google_drive").map((item) => (
+                <div key={item.connectorId} className="flex min-h-11 items-center justify-between gap-3 border-t border-border pt-3 text-sm">
+                  <span className="font-medium">{item.displayName}</span>
+                  <span className="text-muted-foreground">{labels[item.status] ?? "Status unavailable"}</span>
+                </div>
+              ))}
             </section>
             {confirm && (
               <section

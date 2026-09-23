@@ -10,10 +10,12 @@ function read(relativePath: string) {
 }
 
 describe("private-agent chat shell contract", () => {
-  it("exposes the existing connector panel from chat history", () => {
+  it("exposes connections from chat history in the shared drawer", () => {
     const workspace = read("components/agent/agent-chat-workspace.tsx");
-    expect(workspace).toContain("onOpenConnectors={() => setConnectorsPanelOpen(true)}");
+    expect(workspace).toContain('setDrawerMode("connections")');
+    expect(workspace).toContain("<AgentConnectionsDrawer");
     expect(workspace).toContain("<ConnectorsPanel");
+    expect(workspace).toContain('onBack={() => setDrawerMode("chats")}');
   });
   it("keeps the floating frame singular and lets the workspace reach its edges", () => {
     const workspace = read("components/agent/agent-chat-workspace.tsx");

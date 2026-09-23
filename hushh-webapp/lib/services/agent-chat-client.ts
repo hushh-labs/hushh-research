@@ -529,9 +529,11 @@ export async function streamAgentChat(input: {
   const subscriber: AgentSubscriber = {
     ...publicOutputSubscriber,
     onRunStartedEvent: () => handlers.onStart?.({ conversationId: threadId }),
-    onMessagesSnapshotEvent: ({ event }) => {
+    onMessagesSnapshotEvent: (snapshot) => {
+      const { event } = snapshot;
       const serverMessageId = lastAssistantMessageId(event.messages);
       if (serverMessageId) handlers.onServerMessageId?.(serverMessageId);
+      return publicOutputSubscriber.onMessagesSnapshotEvent?.(snapshot);
     },
     onTextMessageContentEvent: ({ event }) => {
       text += event.delta;
@@ -797,9 +799,11 @@ export async function streamAgentIntro(input: {
   const subscriber: AgentSubscriber = {
     ...publicOutputSubscriber,
     onRunStartedEvent: () => handlers.onStart?.({ conversationId: threadId }),
-    onMessagesSnapshotEvent: ({ event }) => {
+    onMessagesSnapshotEvent: (snapshot) => {
+      const { event } = snapshot;
       const serverMessageId = lastAssistantMessageId(event.messages);
       if (serverMessageId) handlers.onServerMessageId?.(serverMessageId);
+      return publicOutputSubscriber.onMessagesSnapshotEvent?.(snapshot);
     },
     onTextMessageContentEvent: ({ event }) => {
       text += event.delta;
