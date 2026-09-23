@@ -1,5 +1,5 @@
 
-import { type LucideIcon } from "lucide-react";
+import { type LucideIcon } from "@/components/icons";
 
 import {
   FinanceAgentIcon,
@@ -151,7 +151,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     // pass). Kai remains the internal finance runtime naming: id, routes,
     // contracts, and code identifiers unchanged.
     title: "Finance",
-    description: "Market, portfolio, analysis, and RIA handoff.",
+    description: "Market, portfolio, analysis, and Advisor handoff.",
     previewLabel: "Market, portfolio & analysis",
     href: ROUTES.KAI_HOME,
     icon: customCapabilityIcon(FinanceAgentIcon),
@@ -198,7 +198,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     // RIA setup is an account/persona workflow owned by the existing RIA
     // onboarding route. It is not a separate product-agent delegation lane.
     agentId: null,
-    title: "RIA",
+    title: "Advisor",
     description: "Advisor verification, profile, clients, and requests.",
     previewLabel: "Advisor profile & verification",
     href: ROUTES.RIA_ONBOARDING,
@@ -214,7 +214,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     // Gmail remains a setup/product surface; its conversational reads now
     // belong to the unified Email specialist.
     agentId: "agent_email",
-    title: "Email",
+    title: "Mail",
     description: "Receipt sync and purchase-memory review.",
     previewLabel: "Receipt & purchase memory",
     href: ROUTES.GMAIL,

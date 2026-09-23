@@ -28,6 +28,8 @@ flowchart TD
   root --> n7
   n10["Morphy Agent Experience"]
   root --> n10
+  n12["ADK Orchestration Documentation Audit"]
+  root --> n12
 ```
 
 This is the north-star entrypoint for design-system rules plus verification contracts that decide whether UI and analytics behavior are trustworthy.
@@ -47,3 +49,4 @@ This is the north-star entrypoint for design-system rules plus verification cont
 - [morphy-agent-experience.md](./morphy-agent-experience.md): internal AX snapshot, intelligence-validation boundary, presentation posture, and performance contract.
 - [pr-contributor-readiness.md](./pr-contributor-readiness.md): contributor-facing merge readiness, common blockers, maintainer patch/harvest handling, and attribution rules.
 - [analytics-verification-contract.md](./analytics-verification-contract.md): proof ladder for GA4, Firebase, BigQuery, and growth dashboard trust.
+- [adk-orchestration-docs-audit.md](./adk-orchestration-docs-audit.md): revision-bound source audit for One delegation, Plaid passthrough, and related operational documentation.

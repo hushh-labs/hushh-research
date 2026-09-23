@@ -26,7 +26,7 @@ import {
   UsersRound,
   WifiOff,
   X,
-} from "lucide-react";
+} from "@/components/icons";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 
@@ -101,6 +101,8 @@ import {
 } from "@/lib/one-location/nearby-private-navigation";
 import { OneLocationService } from "@/lib/one-location/service";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
+import { subscribeToOneLocationStateChanges } from "@/lib/one-location/one-location-state-events";
+import { publishOneLocationMapPreferences } from "@/lib/one-location/use-one-location-map-preferences";
 import type {
   OneLocationMapMarker,
   OneLocationMapPreferences,
@@ -111,6 +113,7 @@ import type {
 } from "@/lib/one-location/types";
 import { getPlatform, isNative } from "@/lib/capacitor/platform";
 import { ROUTES } from "@/lib/navigation/routes";
+import { pushAndroidBackHandler } from "@/lib/navigation/android-back";
 import {
   isLocationMapDemoAvailable,
   isLocationMapDemoEnabled,
@@ -128,9 +131,10 @@ import {
 } from "@/lib/one-location/native-map-lifecycle";
 import {
   GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
-  readCachedRendererConsentAccepted,
   writeCachedRendererConsentAccepted,
 } from "@/lib/one-location/map-renderer-consent";
+import { registerPeriodicTask } from "@/lib/perf/idle-scheduler";
+import { useCoarseClock } from "@/lib/perf/use-periodic-task";
 
 const MAP_ID = "one-location-private-map";
 
@@ -474,9 +478,8 @@ function radiusBounds(
 /**
  * Bounds that contain two points with breathing room around them.
  *
- * Used to frame the owner and the place they are checking in to together: if
- * either falls off-screen, the gap between them stops being legible, which is
- * the one thing this view exists to show.
+ * Used while previewing a place before check-in, when the owner still needs to
+ * compare their live device fix with the venue they are about to choose.
  */
 function pairBounds(
   first: { lat: number; lng: number },
@@ -571,6 +574,7 @@ export function LocationImmersiveMap({
   const markerByMapIdRef = useRef<Map<string, RenderMarker>>(new Map());
   const framedInitialMarkersRef = useRef(false);
   const refreshInFlightRef = useRef(false);
+  const preferenceRevisionRef = useRef(0);
   /** A tick that arrived mid-refresh, to be served once the current one ends. */
   const refreshRequestedWhileBusyRef = useRef(false);
   /** Lets the finally block re-enter refresh without depending on itself. */
@@ -596,9 +600,9 @@ export function LocationImmersiveMap({
   // Seeded from the local cache so a returning owner's map starts
   // initializing immediately instead of waiting on the consent re-check
   // below. That fetch still runs and remains authoritative.
-  const [acceptedRenderer, setAcceptedRenderer] = useState(() =>
-    readCachedRendererConsentAccepted(auth.userId),
-  );
+  // Coordinates stay gated until the server confirms consent for this account.
+  // The device mirror must never override a revoked or outdated server value.
+  const [acceptedRenderer, setAcceptedRenderer] = useState(false);
   const [preferences, setPreferences] = useState<OneLocationMapPreferences>({
     presenceMode: "ghost",
   });
@@ -610,11 +614,9 @@ export function LocationImmersiveMap({
   // has to go grey while nothing at all is happening. The marker refresh alone
   // would never notice, because a phone that stopped publishing sends nothing
   // to notice.
-  const [staleClockMs, setStaleClockMs] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = window.setInterval(() => setStaleClockMs(Date.now()), 15_000);
-    return () => window.clearInterval(timer);
-  }, []);
+  // One shared 15 s clock for every consumer of a coarse "now" (lib/perf),
+  // instead of a private interval that re-rendered this component alone.
+  const staleClockMs = useCoarseClock(15_000);
   const [selfMarker, setSelfMarker] = useState<RenderMarker | null>(null);
   /**
    * What the renderer is currently showing, so the HTML name pills can be put
@@ -854,7 +856,13 @@ export function LocationImmersiveMap({
   }, [isCheckInSurface, nearbyCheckInAvailable, router, searchParams]);
 
   const openNearbyCheckIn = useCallback(() => {
-    if (!nearbyCheckInAvailable || !rendererReady || demoMode) {
+    // Check-in's own route opens its sheet as the screen itself: the map
+    // behind is context, not the gate. Requiring renderer consent here is what
+    // held the whole flow behind Your Map's Continue on a fresh session.
+    if (!nearbyCheckInAvailable || demoMode) {
+      return;
+    }
+    if (!isCheckInSurface && !rendererReady) {
       return;
     }
     // Already on the flow's own route: re-opening is a state change, not a
@@ -933,7 +941,15 @@ export function LocationImmersiveMap({
     nearbyConnectGenerationRef.current += 1;
     nearbyConnectInFlightRef.current = false;
     setNearbyConnectionBusyAlias(null);
-    setNearbyPresenceState({ presence: null, attendees: [] });
+    const emptyPresenceState: OneLocationNearbyPresenceState = {
+      presence: null,
+      attendees: [],
+    };
+    // Clear the synchronous race guard with the owner/session boundary too.
+    // Otherwise an old account's venue could suppress the new account's first
+    // legitimate camera focus until React commits the reset state.
+    nearbyPresenceStateRef.current = emptyPresenceState;
+    setNearbyPresenceState(emptyPresenceState);
   }, [auth.userId, demoMode, nearbyCheckInAvailable, vaultOwnerToken]);
 
   const captureCurrentLocation = useCallback(
@@ -990,6 +1006,11 @@ export function LocationImmersiveMap({
 
   const handleNearbyStateChange = useCallback(
     (next: OneLocationNearbyPresenceState) => {
+      // Keep the ref current in the same turn as the callback. The entry GPS
+      // request can already be in flight here, and waiting for the state-sync
+      // effect would leave a small window where its late result can still move
+      // the camera away from a venue that has just been restored.
+      nearbyPresenceStateRef.current = next;
       setNearbyPresenceState(next);
       if (!auth.userId) return;
       updateOneLocationControlState(auth.userId, (current) => ({
@@ -1005,7 +1026,11 @@ export function LocationImmersiveMap({
   const focusSelfPoint = useCallback(
     async (
       point: PlainLocationPoint,
-      options: { animate: boolean; select: boolean },
+      options: {
+        animate: boolean;
+        select: boolean;
+        moveCamera?: boolean;
+      },
     ) => {
       const currentLocation: RenderMarker = {
         key: "current-device-location",
@@ -1024,6 +1049,7 @@ export function LocationImmersiveMap({
           myLocationPoint: point,
         });
       }
+      if (options.moveCamera === false) return;
       await mapRef.current?.setCamera({
         coordinate: { lat: point.latitude, lng: point.longitude },
         zoom: zoomForAccuracy(point.accuracyM),
@@ -1059,6 +1085,7 @@ export function LocationImmersiveMap({
       return;
     }
     refreshInFlightRef.current = true;
+    const preferenceRevision = preferenceRevisionRef.current;
     setStatus("loading");
     try {
       if (demoMode) {
@@ -1102,7 +1129,9 @@ export function LocationImmersiveMap({
       const nextMarkers = resolved.filter(
         (item): item is RenderMarker => item !== null,
       );
-      setPreferences(state.preferences);
+      if (preferenceRevisionRef.current === preferenceRevision) {
+        setPreferences(state.preferences);
+      }
       if (
         Number.isFinite(state.freshnessSeconds) &&
         state.freshnessSeconds > 0
@@ -1149,6 +1178,30 @@ export function LocationImmersiveMap({
   }, [auth.userId, demoMode, vaultOwnerToken]);
 
   useEffect(() => {
+    if (!auth.userId || !vaultOwnerToken || demoMode) return;
+    return subscribeToOneLocationStateChanges((detail) => {
+      if (
+        detail.userId !== auth.userId ||
+        !detail.domains.includes("map_preferences")
+      )
+        return;
+      const revision = ++preferenceRevisionRef.current;
+      void OneLocationService.getMapPreferences(vaultOwnerToken)
+        .then((next) => {
+          if (!mountedRef.current || preferenceRevisionRef.current !== revision)
+            return;
+          const accepted =
+            next.rendererConsentVersion ===
+            GOOGLE_MAPS_RENDERER_CONSENT_VERSION;
+          setPreferences(next);
+          setAcceptedRenderer(accepted);
+          writeCachedRendererConsentAccepted(auth.userId, accepted);
+        })
+        .catch(() => undefined);
+    });
+  }, [auth.userId, demoMode, vaultOwnerToken]);
+
+  useEffect(() => {
     if (!sharingPopoverOpen) return;
     const close = () => setSharingPopoverOpen(false);
     window.addEventListener("scroll", close, true);
@@ -1185,20 +1238,15 @@ export function LocationImmersiveMap({
   // every Map entry; no envelope is decrypted in this bootstrap step.
   useEffect(() => {
     if (!vaultOwnerToken || !auth.userId) return;
+    const revision = ++preferenceRevisionRef.current;
     if (demoMode) {
       setPreferences({ presenceMode: "ghost" });
       return;
     }
-    // Re-apply the cache on every userId change (covers the case where the
-    // very first render ran before auth.userId was available, so the lazy
-    // useState initializer above saw nothing to read yet).
-    if (readCachedRendererConsentAccepted(auth.userId)) {
-      setAcceptedRenderer(true);
-    }
     let cancelled = false;
     void OneLocationService.getMapState(vaultOwnerToken)
       .then((state) => {
-        if (cancelled) return;
+        if (cancelled || preferenceRevisionRef.current !== revision) return;
         setPreferences(state.preferences);
         const accepted =
           state.preferences.rendererConsentVersion ===
@@ -1228,14 +1276,20 @@ export function LocationImmersiveMap({
     void refresh();
     if (demoMode) return;
     void refreshShareCount();
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") void refresh();
-    }, 5_000);
-    // The outgoing-share count changes far less often than live positions, so
-    // poll it on a much slower cadence than the 5s marker refresh.
-    const shareCountTimer = window.setInterval(() => {
-      if (document.visibilityState === "visible") void refreshShareCount();
-    }, 30_000);
+    // Both polls ride the shared idle clock: one wake, after a frame, never
+    // while hidden (lib/perf/idle-scheduler.ts). The outgoing-share count
+    // changes far less often than live positions, so it keeps the slower
+    // cadence.
+    const unregisterRefresh = registerPeriodicTask({
+      id: "location-map:markers",
+      intervalMs: 5_000,
+      run: () => refresh(),
+    });
+    const unregisterShareCount = registerPeriodicTask({
+      id: "location-map:share-count",
+      intervalMs: 30_000,
+      run: () => refreshShareCount(),
+    });
     // Returning to the app is exactly when the map is most wrong, and the
     // interval only ever checked visibility on its own schedule -- so coming
     // back showed a position up to five seconds stale before anything moved.
@@ -1257,8 +1311,8 @@ export function LocationImmersiveMap({
       });
     }
     return () => {
-      window.clearInterval(timer);
-      window.clearInterval(shareCountTimer);
+      unregisterRefresh();
+      unregisterShareCount();
       document.removeEventListener("visibilitychange", onVisibility);
       void appListener?.remove();
     };
@@ -1469,17 +1523,38 @@ export function LocationImmersiveMap({
     const cachedPoint = readLocationWorkspaceMemory(
       auth.userId,
     ).myLocationPoint;
+    const shouldMoveCameraToDevice = () => {
+      if (!isCheckInSurface) return true;
+      const activePresence = nearbyPresenceStateRef.current.presence;
+      return !(
+        typeof activePresence?.placeLat === "number" &&
+        typeof activePresence.placeLng === "number" &&
+        Number.isFinite(activePresence.placeLat) &&
+        Number.isFinite(activePresence.placeLng)
+      );
+    };
 
     void (async () => {
       if (cachedPoint) {
         framedInitialMarkersRef.current = true;
-        await focusSelfPoint(cachedPoint, { animate: false, select: false });
+        await focusSelfPoint(cachedPoint, {
+          animate: false,
+          select: false,
+          moveCamera: shouldMoveCameraToDevice(),
+        });
       }
       try {
         const point = await captureCurrentLocation();
         if (cancelled) return;
         framedInitialMarkersRef.current = true;
-        await focusSelfPoint(point, { animate: true, select: false });
+        await focusSelfPoint(point, {
+          animate: true,
+          select: false,
+          // Presence and GPS load concurrently. If presence won the race, keep
+          // the freshly captured point as device state without letting its late
+          // completion pan away from the active venue.
+          moveCamera: shouldMoveCameraToDevice(),
+        });
       } catch {
         // Entry focus is best-effort. The explicit Locate control remains
         // available for denied permissions, disabled services, or timeouts.
@@ -1495,6 +1570,7 @@ export function LocationImmersiveMap({
     auth.userId,
     captureCurrentLocation,
     focusSelfPoint,
+    isCheckInSurface,
     mapReady,
     rendererReady,
   ]);
@@ -1524,75 +1600,152 @@ export function LocationImmersiveMap({
     [],
   );
 
+  const hasActivePresence = Boolean(nearbyPresenceState.presence);
+  const activePlaceLatitude = nearbyPresenceState.presence?.placeLat;
+  const activePlaceLongitude = nearbyPresenceState.presence?.placeLng;
+  const activePlaceLabel = nearbyPresenceState.presence?.placeLabel;
+  const activeCheckedInAt = nearbyPresenceState.presence?.checkedInAt;
+
   /**
-   * The check-in venue as its own pin.
+   * The sheet publishes selection focus only while it is open, but the active
+   * presence is authoritative and survives dismiss/reopen. Build the live
+   * venue focus from that server state so closing the drawer cannot snap the
+   * avatar back to the device's GPS coordinate mid check-in.
+   */
+  const displayedPlaceFocus = useMemo<NearbyCheckInPlaceFocus | null>(() => {
+    if (!isCheckInSurface || !hasActivePresence) {
+      return nearbyPlaceFocus;
+    }
+    if (
+      typeof activePlaceLatitude !== "number" ||
+      typeof activePlaceLongitude !== "number" ||
+      !Number.isFinite(activePlaceLatitude) ||
+      !Number.isFinite(activePlaceLongitude)
+    ) {
+      return nearbyPlaceFocus;
+    }
+    return {
+      placeId: nearbyPlaceFocus?.active ? nearbyPlaceFocus.placeId : "",
+      label: activePlaceLabel?.trim() || "Your check-in place",
+      latitude: activePlaceLatitude,
+      longitude: activePlaceLongitude,
+      distanceMeters: nearbyPlaceFocus?.active
+        ? nearbyPlaceFocus.distanceMeters
+        : null,
+      active: true,
+    };
+  }, [
+    activePlaceLabel,
+    activePlaceLatitude,
+    activePlaceLongitude,
+    hasActivePresence,
+    isCheckInSurface,
+    nearbyPlaceFocus,
+  ]);
+
+  /**
+   * The owner marker shown on this map.
    *
-   * Shown while the drawer is open (the place being chosen) and for as long as
-   * a check-in is live (the anchor). Kept separate from the "you" dot on
-   * purpose: the whole point is that the owner can see the gap between where
-   * they are standing and the place they are visible at.
+   * Before confirmation it is the device's live fix, so the owner can judge
+   * the distance to a candidate place. Once the check-in is active, the public
+   * product fact is the venue they chose. Move only the presentation marker to
+   * that anchor; `selfMarker` remains the untouched GPS fix used by Locate Me,
+   * workspace memory, and every non-check-in workflow.
+   *
+   * The server-backed venue also makes this resilient when location permission
+   * is later unavailable: a live check-in can still show the owner's avatar at
+   * the place where they deliberately checked in.
+   */
+  const mapSelfMarker = useMemo<RenderMarker | null>(() => {
+    if (!isCheckInSurface || !displayedPlaceFocus?.active) return selfMarker;
+    return {
+      key: selfMarker?.key ?? "active-check-in-owner",
+      kind: "self",
+      label: selfMarker?.label ?? "You",
+      shortLabel: selfMarker?.shortLabel ?? SELF_SHORT_LABEL,
+      point: {
+        latitude: displayedPlaceFocus.latitude,
+        longitude: displayedPlaceFocus.longitude,
+        capturedAt:
+          activeCheckedInAt ??
+          selfMarker?.point.capturedAt ??
+          new Date(0).toISOString(),
+        sourcePlatform: selfMarker?.point.sourcePlatform ?? "unknown",
+      },
+      tint: SELF_TINT,
+    };
+  }, [isCheckInSurface, displayedPlaceFocus, activeCheckedInAt, selfMarker]);
+
+  /**
+   * A venue pin is useful only while choosing: it lets the owner compare the
+   * candidate with their current position. After confirmation the avatar owns
+   * the venue coordinate, so a second green pin would duplicate the same fact.
    */
   const nearbyPlaceMarker = useMemo<RenderMarker | null>(() => {
-    if (!nearbyPlaceFocus) return null;
-    if (!nearbyCheckInOpen && !nearbyPlaceFocus.active) return null;
+    if (!displayedPlaceFocus) return null;
+    if (isCheckInSurface && displayedPlaceFocus.active) return null;
+    if (!nearbyCheckInOpen && !displayedPlaceFocus.active) return null;
     return {
-      key: `nearby-place:${nearbyPlaceFocus.placeId || "active"}`,
+      key: `nearby-place:${displayedPlaceFocus.placeId || "active"}`,
       kind: "place",
-      label: nearbyPlaceFocus.label,
+      label: displayedPlaceFocus.label,
       // A venue is a public place the owner picked, so the pill may name it in
       // full -- unlike a person, whose full name stays in the tray.
-      shortLabel: nearbyPlaceFocus.label,
+      shortLabel: displayedPlaceFocus.label,
       point: {
-        latitude: nearbyPlaceFocus.latitude,
-        longitude: nearbyPlaceFocus.longitude,
+        latitude: displayedPlaceFocus.latitude,
+        longitude: displayedPlaceFocus.longitude,
         // A published venue location, not a reading from any receiver.
         capturedAt: new Date(0).toISOString(),
         sourcePlatform: "unknown",
       },
-      tint: nearbyPlaceFocus.active ? PLACE_ACTIVE_TINT : PLACE_PENDING_TINT,
+      tint: displayedPlaceFocus.active ? PLACE_ACTIVE_TINT : PLACE_PENDING_TINT,
     };
-  }, [nearbyCheckInOpen, nearbyPlaceFocus]);
+  }, [displayedPlaceFocus, isCheckInSurface, nearbyCheckInOpen]);
 
   const visibleMarkers = useMemo(() => {
     // Private-share pins are Your Map's answer to "where are the people who
     // share with me". Drawing them behind the check-in flow put that answer on
-    // both screens and made the two read as one feature. Check-in shows only
-    // the two points its own question needs: where you are, and the place you
-    // are checking in to.
+    // both screens and made the two read as one feature. Check-in previews the
+    // owner and candidate separately, then collapses them into the owner's
+    // avatar at the venue once the check-in becomes active.
     const next = isCheckInSurface ? [] : [...markers];
-    if (selfMarker) next.push(selfMarker);
+    if (mapSelfMarker) next.push(mapSelfMarker);
     if (nearbyPlaceMarker) next.push(nearbyPlaceMarker);
     return next;
-  }, [isCheckInSurface, markers, nearbyPlaceMarker, selfMarker]);
+  }, [isCheckInSurface, mapSelfMarker, markers, nearbyPlaceMarker]);
 
   /**
    * The owner's own position is drawn as their avatar in HTML, so the renderer
-   * must not also draw a pin under it — two markers on one coordinate.
+   * must never draw a pin under it -- two markers on one coordinate, and the
+   * generic pin flashes on first paint / for a beat on every cold start while
+   * the camera has not reported yet.
    *
-   * Three flags, none of which changes more than once per screen, so this does
-   * not churn the marker bridge: `rendererReady` is the consent gate,
-   * `cameraReported` is whether anything can be projected at all, and
-   * Both Your Map and Check-in use the same owner marker. Check-in still keeps
-   * its place pin, connector and place-color key; only the generic blue
-   * self-location pin is replaced by the owner's avatar.
+   * The self marker stays in `visibleMarkers` (initial framing, people tray,
+   * search index all count it) but is always filtered out of `rendererMarkers`
+   * and `nameLabels` below: before the avatar can project there is briefly NO
+   * self marker rather than the WRONG one. The HTML avatar itself carries the
+   * initials fallback, so it still reads as a face the moment it appears.
    *
-   * Check-in still answers "how far am I from the place I am checking in to?"
-   * with the place pin, connector and place-color key. Its owner key is now the
-   * avatar itself, so the legend and map agree about the owner's marker.
-   *
-   * Everything else about the self marker is unchanged — it stays in
-   * `visibleMarkers`, so initial framing, the people tray and the search index
-   * still count it.
+   * Both Your Map and Check-in use the same avatar layer. During place
+   * selection Check-in also keeps its pending place pin and connector. Once
+   * active, the avatar moves to the checked-in venue and becomes the only
+   * marker for that check-in identity.
    */
   const selfPinDrawnAsAvatar = rendererReady && cameraReported;
 
-  /** What the renderer is asked to draw: everything except the owner's own pin. */
+  /**
+   * What the native renderer is asked to draw.
+   *
+   * The owner is an avatar on every map surface, including an active check-in.
+   * A renderer pin is not an acceptable compatibility substitute: it creates
+   * a second visual identity for the same person and can remain visible when a
+   * WebView never reports camera projection. If projection is late, wait for
+   * the avatar rather than drawing a generic location indicator.
+   */
   const rendererMarkers = useMemo(
-    () =>
-      selfPinDrawnAsAvatar
-        ? visibleMarkers.filter((marker) => marker.kind !== "self")
-        : visibleMarkers,
-    [selfPinDrawnAsAvatar, visibleMarkers],
+    () => visibleMarkers.filter((marker) => marker.kind !== "self"),
+    [visibleMarkers],
   );
 
   /**
@@ -1878,7 +2031,9 @@ export function LocationImmersiveMap({
     const generation = ++nearbyCircleGenerationRef.current;
     const searchPoint = nearbyCheckInOpen ? nearbySearchPoint : null;
     const placeFocus =
-      nearbyCheckInOpen || nearbyPlaceFocus?.active ? nearbyPlaceFocus : null;
+      nearbyCheckInOpen || displayedPlaceFocus?.active
+        ? displayedPlaceFocus
+        : null;
     const placeCenter = placeFocus
       ? { lat: placeFocus.latitude, lng: placeFocus.longitude }
       : null;
@@ -1943,6 +2098,7 @@ export function LocationImmersiveMap({
       // Draw the gap the owner is being asked to confirm. Below ~25 m the two
       // pins overlap and a line is just noise.
       const connectorWorthDrawing =
+        !placeFocus?.active &&
         searchPoint &&
         placeCenter &&
         (placeFocus?.distanceMeters ?? Number.POSITIVE_INFINITY) >= 25;
@@ -1970,10 +2126,11 @@ export function LocationImmersiveMap({
         }
       }
 
-      // Frame both points when they differ, so the owner never has to hunt for
-      // the pin that is off-screen.
+      // Frame both points only during selection. Once active there is one
+      // presentation point -- the venue-anchored avatar -- and the map should
+      // frame the check-in radius rather than the owner's earlier GPS fix.
       const bounds =
-        searchPoint && placeCenter
+        !placeFocus?.active && searchPoint && placeCenter
           ? pairBounds(
               { lat: searchPoint.latitude, lng: searchPoint.longitude },
               placeCenter,
@@ -2011,7 +2168,7 @@ export function LocationImmersiveMap({
         addedLineIds = [];
       }).catch(() => undefined);
     };
-  }, [mapReady, nearbyCheckInOpen, nearbyPlaceFocus, nearbySearchPoint]);
+  }, [displayedPlaceFocus, mapReady, nearbyCheckInOpen, nearbySearchPoint]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -2137,18 +2294,23 @@ export function LocationImmersiveMap({
     visibleMarkers,
     freshnessSeconds,
     staleClockMs,
+    selfPinDrawnAsAvatar,
   ]);
 
   const acceptRenderer = useCallback(async () => {
     if (!vaultOwnerToken) return;
+    const revision = ++preferenceRevisionRef.current;
     try {
       const next = await OneLocationService.updateMapPreferences({
         vaultOwnerToken,
         rendererConsentVersion: GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
       });
+      if (!mountedRef.current || preferenceRevisionRef.current !== revision)
+        return;
       setPreferences(next);
       setAcceptedRenderer(true);
       writeCachedRendererConsentAccepted(auth.userId, true);
+      if (auth.userId) publishOneLocationMapPreferences(auth.userId, next);
     } catch {
       toast.error("Your Map could not be prepared.");
     }
@@ -2157,6 +2319,7 @@ export function LocationImmersiveMap({
   const setPresence = useCallback(async () => {
     if (!vaultOwnerToken) return;
     setBusy("presence");
+    const revision = ++preferenceRevisionRef.current;
     try {
       const nextMode =
         preferences.presenceMode === "ghost" ? "foreground_private" : "ghost";
@@ -2176,7 +2339,10 @@ export function LocationImmersiveMap({
         vaultOwnerToken,
         presenceMode: nextMode,
       });
+      if (!mountedRef.current || preferenceRevisionRef.current !== revision)
+        return;
       setPreferences(next);
+      if (auth.userId) publishOneLocationMapPreferences(auth.userId, next);
       // "Nobody sees you on their map" was the old copy, and it described the
       // old bug rather than the feature: it was true only because Ghost Mode
       // was silently cancelling private shares the person had deliberately
@@ -2195,7 +2361,13 @@ export function LocationImmersiveMap({
     } finally {
       setBusy(null);
     }
-  }, [demoMode, preferences.presenceMode, privateShareCount, vaultOwnerToken]);
+  }, [
+    auth.userId,
+    demoMode,
+    preferences.presenceMode,
+    privateShareCount,
+    vaultOwnerToken,
+  ]);
 
   const focusMarker = useCallback(async (marker: RenderMarker) => {
     setSelected(marker);
@@ -2215,6 +2387,19 @@ export function LocationImmersiveMap({
     const activeUserId = auth.userId;
     if (!vaultOwnerToken || !activeUserId) return;
     setBusy("locate");
+    // On the active Check-in surface the avatar intentionally represents the
+    // chosen venue, not the device's live GPS fix. Keep this control aligned
+    // with what is actually visible instead of panning to an unmarked point and
+    // making the avatar appear lost. Locate Me retains its original publish
+    // behavior everywhere else, including the pre-confirmation preview.
+    if (isCheckInSurface && displayedPlaceFocus?.active && mapSelfMarker) {
+      try {
+        await focusMarker(mapSelfMarker);
+      } finally {
+        setBusy(null);
+      }
+      return;
+    }
     // Getting a position and telling other people about it are two different
     // jobs that used to share one catch, so a failed network call and a device
     // that would not answer produced the same sentence: "we could not update
@@ -2316,7 +2501,11 @@ export function LocationImmersiveMap({
     auth.userId,
     captureCurrentLocation,
     demoMode,
+    displayedPlaceFocus?.active,
+    focusMarker,
     focusSelfPoint,
+    isCheckInSurface,
+    mapSelfMarker,
     preferences.presenceMode,
     vaultOwnerToken,
   ]);
@@ -2560,21 +2749,17 @@ export function LocationImmersiveMap({
     }, 1_200);
   }, [router]);
 
+  // Back goes through the app-wide owner (lib/navigation/android-back.ts),
+  // which closes an open sheet first; this screen only claims what is left.
   useEffect(() => {
     if (!isNative() || getPlatform() !== "android") return;
-    let listener: { remove: () => Promise<void> } | undefined;
-    void CapacitorApp.addListener("backButton", () => {
+    return pushAndroidBackHandler(() => {
       if (nearbyCheckInOpen) {
         closeNearbyCheckIn();
         return;
       }
       closeMap();
-    }).then((handle) => {
-      listener = handle;
     });
-    return () => {
-      void listener?.remove();
-    };
   }, [closeMap, closeNearbyCheckIn, nearbyCheckInOpen]);
 
   const toggleDemoPeople = useCallback(() => {
@@ -2698,34 +2883,43 @@ export function LocationImmersiveMap({
 
         Rendered after the pills so it paints over a name that lands on the same
         pixels, and only once the renderer has reported a camera to project
-        with. When it cannot draw, `selfPinDrawnAsAvatar` is false and the
-        renderer keeps its own pin — the marker is never simply missing.
+        with. When it cannot draw, `selfPinDrawnAsAvatar` is false and we wait
+        for a camera report rather than substituting a generic location pin.
       */}
       {selfPinDrawnAsAvatar &&
-      selfMarker &&
+      mapSelfMarker &&
       mapReady &&
       status !== "unavailable" &&
       !closing ? (
         <MapSelfAvatarMarker
-          point={selfMarker.point}
+          point={mapSelfMarker.point}
           camera={mapCamera}
           viewport={mapBox}
           avatarUrl={selfAvatarUrl}
           displayName={selfDisplayName}
-          stale={isStaleAt(
-            selfMarker.capturedAt,
-            freshnessSeconds,
-            staleClockMs,
-          )}
+          accessibleLabel={
+            isCheckInSurface && displayedPlaceFocus?.active
+              ? `Your check-in at ${displayedPlaceFocus.label}`
+              : "Your location"
+          }
+          stale={
+            isCheckInSurface && displayedPlaceFocus?.active
+              ? false
+              : isStaleAt(
+                  mapSelfMarker.point.capturedAt,
+                  freshnessSeconds,
+                  staleClockMs,
+                )
+          }
           stalePositions={cameraMoving}
           onSelect={() => {
             // Exactly what the renderer's marker-click listener did for this
             // pin: select it, then move the camera in to street level.
-            setSelected(selfMarker);
+            setSelected(mapSelfMarker);
             void mapRef.current?.setCamera({
               coordinate: {
-                lat: selfMarker.point.latitude,
-                lng: selfMarker.point.longitude,
+                lat: mapSelfMarker.point.latitude,
+                lng: mapSelfMarker.point.longitude,
               },
               zoom: 15,
               animate: true,
@@ -2974,8 +3168,12 @@ export function LocationImmersiveMap({
                 className={`pointer-events-auto !h-14 !w-14 touch-manipulation border shadow-lg backdrop-blur-md ${MAP_ACCENT_CONTROL_CLASSNAME}`}
                 aria-label={
                   busy === "locate"
-                    ? "Finding your location"
-                    : "Show my location"
+                    ? isCheckInSurface && displayedPlaceFocus?.active
+                      ? "Centering your check-in place"
+                      : "Finding your location"
+                    : isCheckInSurface && displayedPlaceFocus?.active
+                      ? "Show my check-in place"
+                      : "Show my location"
                 }
                 aria-busy={busy === "locate"}
                 data-testid="one-location-map-locate"
@@ -3007,8 +3205,8 @@ export function LocationImmersiveMap({
         removing the only part of it that was answering a question.
       */}
       {rendererReady &&
-      (nearbyCheckInOpen || nearbyPlaceFocus?.active) &&
-      (nearbySearchPoint || nearbyPlaceFocus) ? (
+      (nearbyCheckInOpen || displayedPlaceFocus?.active) &&
+      (nearbySearchPoint || displayedPlaceFocus) ? (
         <div
           className="pointer-events-none absolute left-4 right-4 z-20 flex max-w-[18rem] flex-col gap-1.5 rounded-2xl border border-[var(--app-accent-border)] bg-background/90 px-3 py-2 text-xs font-semibold shadow-lg backdrop-blur-md md:right-auto"
           style={{
@@ -3016,7 +3214,20 @@ export function LocationImmersiveMap({
           }}
           data-testid="one-location-nearby-search-area-legend"
         >
-          {nearbySearchPoint ? (
+          {displayedPlaceFocus?.active ? (
+            <span
+              className="flex items-center gap-2"
+              data-testid="one-location-nearby-place-legend"
+            >
+              <MapSelfAvatarLegend
+                avatarUrl={selfAvatarUrl}
+                displayName={selfDisplayName}
+              />
+              <span className="truncate text-foreground">
+                Checked in at {displayedPlaceFocus.label}
+              </span>
+            </span>
+          ) : nearbySearchPoint ? (
             <span className="flex items-center gap-2">
               <MapSelfAvatarLegend
                 avatarUrl={selfAvatarUrl}
@@ -3030,7 +3241,7 @@ export function LocationImmersiveMap({
               <span className="truncate text-foreground">You are here</span>
             </span>
           ) : null}
-          {nearbyPlaceFocus ? (
+          {displayedPlaceFocus && !displayedPlaceFocus.active ? (
             <span
               className="flex items-center gap-2"
               data-testid="one-location-nearby-place-legend"
@@ -3038,26 +3249,22 @@ export function LocationImmersiveMap({
               <span
                 className="h-2.5 w-2.5 shrink-0 rounded-full"
                 style={{
-                  backgroundColor: tintCss(
-                    nearbyPlaceFocus.active
-                      ? PLACE_ACTIVE_TINT
-                      : PLACE_PENDING_TINT,
-                  ),
+                  backgroundColor: tintCss(PLACE_PENDING_TINT),
                 }}
                 aria-hidden="true"
               />
               <span className="truncate text-foreground">
-                {nearbyPlaceFocus.active ? "Checked in at " : "Checking in at "}
-                {nearbyPlaceFocus.label}
+                Checking in at {displayedPlaceFocus.label}
               </span>
             </span>
           ) : null}
-          {nearbyPlaceFocus?.distanceMeters != null &&
-          nearbyPlaceFocus.distanceMeters >= 25 ? (
+          {!displayedPlaceFocus?.active &&
+          displayedPlaceFocus?.distanceMeters != null &&
+          displayedPlaceFocus.distanceMeters >= 25 ? (
             <span className="pl-[1.125rem] font-normal text-muted-foreground">
-              {nearbyPlaceFocus.distanceMeters < 1_000
-                ? `${nearbyPlaceFocus.distanceMeters} m`
-                : `${(nearbyPlaceFocus.distanceMeters / 1_000).toFixed(1)} km`}{" "}
+              {displayedPlaceFocus.distanceMeters < 1_000
+                ? `${displayedPlaceFocus.distanceMeters} m`
+                : `${(displayedPlaceFocus.distanceMeters / 1_000).toFixed(1)} km`}{" "}
               from you
             </span>
           ) : null}
@@ -3066,7 +3273,7 @@ export function LocationImmersiveMap({
                 also hid a real difference: the live circle is drawn around the
                 PLACE, the search circle around the PERSON (see the circle title
                 at ~1396). Naming the anchor says both things in plain words. */}
-            {nearbyPlaceFocus?.active
+            {displayedPlaceFocus?.active
               ? "500 m around your place"
               : "500 m around you"}
           </span>
@@ -3099,9 +3306,20 @@ export function LocationImmersiveMap({
               aria-hidden
             />
           </span>
-          <p className="relative text-sm font-medium text-muted-foreground">
-            Loading your map…
-          </p>
+          {isCheckInSurface ? (
+            <>
+              <p className="relative text-[17px] font-semibold leading-[22px] text-foreground">
+                Checking you in…
+              </p>
+              <p className="relative -mt-1.5 text-sm font-normal leading-5 text-muted-foreground">
+                Getting the map and nearby places ready.
+              </p>
+            </>
+          ) : (
+            <p className="relative text-sm font-medium text-muted-foreground">
+              Loading your map…
+            </p>
+          )}
         </div>
       ) : null}
       {/*
@@ -3111,7 +3329,7 @@ export function LocationImmersiveMap({
         control, instead of offering a Continue that leads back to the same
         blank canvas.
       */}
-      {!rendererReady && status !== "unavailable" ? (
+      {!rendererReady && !isCheckInSurface && status !== "unavailable" ? (
         <section
           className={MAP_CONSENT_PANEL_CLASSNAME}
           data-testid="one-location-map-disclosure"
@@ -3158,6 +3376,7 @@ export function LocationImmersiveMap({
             {MAP_CONSENT_SUPPORTING_LINE}
           </p>
           <Button
+            size="prominent"
             className={`mt-4 w-full ${MAP_ACCENT_ACTIVE_CLASSNAME}`}
             onClick={() => void acceptRenderer()}
           >
@@ -3165,6 +3384,7 @@ export function LocationImmersiveMap({
           </Button>
           {demoAvailable ? (
             <Button
+              size="standard"
               className="mt-2 w-full"
               variant="secondary"
               data-testid="one-location-map-demo-preview"
@@ -3229,6 +3449,7 @@ export function LocationImmersiveMap({
             <Button
               type="button"
               variant="secondary"
+              size="standard"
               className="relative"
               data-testid="one-location-map-unavailable-retry"
               onClick={handleRetryMap}
@@ -3294,14 +3515,14 @@ export function LocationImmersiveMap({
             onClick={() => setTrayExpanded((current) => !current)}
           >
             <span
-              className={`absolute left-1/2 top-1.5 h-1 w-10 -translate-x-1/2 rounded-full bg-[var(--app-accent-border)] transition-[opacity,transform,background-color] duration-300 group-hover:bg-[var(--app-accent)] ${
+              className={`absolute left-1/2 top-1.5 h-1 w-10 -translate-x-1/2 rounded-full bg-[var(--app-accent-border)] transition-[opacity,transform,background-color] duration-150 group-hover:bg-[var(--app-accent)] ${
                 trayExpanded
                   ? "scale-x-100 opacity-100"
                   : "scale-x-75 opacity-0"
               }`}
             />
             <span
-              className={`absolute inset-0 grid place-items-center transition-[opacity,transform] duration-300 ${
+              className={`absolute inset-0 grid place-items-center transition-[opacity,transform] duration-150 ${
                 trayExpanded
                   ? "pointer-events-none scale-75 opacity-0"
                   : "scale-100 opacity-100"
@@ -3316,7 +3537,7 @@ export function LocationImmersiveMap({
               ) : null}
             </span>
             <span
-              className={`mt-2 flex min-w-0 flex-1 items-center gap-3 transition-[opacity,transform] duration-300 ${
+              className={`mt-2 flex min-w-0 flex-1 items-center gap-3 transition-[opacity,transform] duration-150 ${
                 trayExpanded
                   ? "translate-y-0 opacity-100"
                   : "pointer-events-none translate-y-2 opacity-0"
@@ -3448,9 +3669,9 @@ export function LocationImmersiveMap({
                               attendee.relationship === "none" ? (
                                 <Button
                                   type="button"
-                                  size="sm"
+                                  size="compact"
                                   variant="secondary"
-                                  className="h-8 shrink-0 rounded-full px-3"
+                                  className="shrink-0"
                                   aria-label={`Connect with ${attendee.displayName}`}
                                   disabled={nearbyConnectionBusyAlias !== null}
                                   onClick={() =>
@@ -3472,9 +3693,9 @@ export function LocationImmersiveMap({
                                 "pending_incoming" ? (
                                 <Button
                                   type="button"
-                                  size="sm"
+                                  size="compact"
                                   variant="secondary"
-                                  className="h-8 shrink-0 rounded-full px-3"
+                                  className="shrink-0"
                                   aria-label={`Respond to ${attendee.displayName}`}
                                   onClick={openNearbyCheckIn}
                                 >
@@ -3837,7 +4058,8 @@ export function LocationImmersiveMap({
                   >
                     {demoAvailable ? (
                       <Button
-                        className={`h-11 min-w-0 rounded-2xl px-2 ${
+                        size="standard"
+                        className={`min-w-0 px-2 ${
                           demoMode ? MAP_ACCENT_ACTIVE_CLASSNAME : ""
                         }`}
                         variant="secondary"
@@ -3853,7 +4075,8 @@ export function LocationImmersiveMap({
                     ) : null}
                     {checkInActionAvailable ? (
                       <Button
-                        className="h-auto min-h-11 min-w-0 px-1 py-1 text-sm font-semibold underline underline-offset-4"
+                        size="compact"
+                        className="h-auto min-h-11 min-w-0 px-1 py-1 underline underline-offset-4"
                         variant="link"
                         aria-label={
                           nearbyPresenceState.presence
@@ -3886,7 +4109,9 @@ export function LocationImmersiveMap({
           </div>
         </section>
       ) : null}
-      {rendererReady && nearbyCheckInAvailable && !demoMode ? (
+      {(isCheckInSurface ? true : rendererReady) &&
+      nearbyCheckInAvailable &&
+      !demoMode ? (
         <NearbyCheckInSheet
           open={nearbyCheckInOpen}
           ownerId={auth.userId}

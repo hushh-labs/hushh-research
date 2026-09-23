@@ -1,0 +1,34 @@
+{
+  "displayName": "Private UAT native build artifacts",
+  "rules": [
+    {
+      "denyRule": {
+        "deniedPrincipals": [
+          "principalSet://goog/public:all"
+        ],
+        "exceptionPrincipals": [
+          "principal://iam.googleapis.com/projects/-/serviceAccounts/github-actions-uat-deployer@hushh-pda-uat.iam.gserviceaccount.com",
+          "principal://iam.googleapis.com/projects/-/serviceAccounts/claude-code-gcp-operator@hussh-developer-platform.iam.gserviceaccount.com",
+          "principalSet://cloudresourcemanager.googleapis.com/projects/189326466264/type/ServiceAgent"
+        ],
+        "deniedPermissions": [
+          "storage.googleapis.com/objects.get",
+          "storage.googleapis.com/objects.list"
+        ]
+      }
+    },
+    {
+      "denyRule": {
+        "deniedPrincipals": [
+          "principalSet://goog/group/developers@hushh.ai"
+        ],
+        "exceptionPrincipals": [
+          "principal://iam.googleapis.com/projects/-/serviceAccounts/claude-code-gcp-operator@hussh-developer-platform.iam.gserviceaccount.com"
+        ],
+        "deniedPermissions": [
+          "storage.googleapis.com/objects.*"
+        ]
+      }
+    }
+  ]
+}

@@ -492,6 +492,50 @@ def test_nearby_check_in_preferences_default_visible_true_requests_false(
     }
 
 
+def test_settings_sync_notification_is_silent_and_metadata_only(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pushes: list[dict] = []
+    streams: list[tuple[str, dict]] = []
+    service = OneLocationAgentService()
+
+    monkeypatch.setattr(
+        service,
+        "_send_metadata_notification",
+        lambda **kwargs: pushes.append(kwargs) or True,
+    )
+    monkeypatch.setattr(
+        "api.consent_listener.publish_user_state_event_threadsafe",
+        lambda user_id, data: streams.append((user_id, data)) or True,
+    )
+
+    service._send_settings_sync_notification(
+        user_id="user_a",
+        setting="map_preferences",
+    )
+
+    assert len(pushes) == 1
+    assert pushes[0]["notification_type"] == "location_settings_changed"
+    assert pushes[0]["show_alert"] is False
+    assert pushes[0]["data"]["setting"] == "map_preferences"
+    assert pushes[0]["data"]["sync_only"] == "true"
+    assert set(pushes[0]["data"]) == {"setting", "sync_only", "message_id"}
+    assert streams == [
+        (
+            "user_a",
+            {
+                "type": "location_settings_changed",
+                "user_id": "user_a",
+                "request_url": "/one/location?action=settings",
+                "deep_link": "/one/location?action=settings",
+                "notification_tag": pushes[0]["data"]["message_id"],
+                "notification_category": "ONE_LOCATION",
+                **pushes[0]["data"],
+            },
+        )
+    ]
+
+
 def test_nearby_check_in_preferences_update_upserts_and_returns_stored_row(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -2931,6 +2975,19 @@ class FourUserMemoryService(OneLocationAgentService):
                 and envelope["recipient_user_id"] == params["recipient_user_id"]
             ]
             return matches[-1] if matches else None
+        if "metadata->'command_operations'->>:operation AS command_fingerprint" in sql:
+            for request in self.requests.values():
+                operations = (request.get("metadata") or {}).get("command_operations") or {}
+                if (
+                    request["owner_user_id"] == params["owner"]
+                    and request["requester_user_id"] == params["requester"]
+                    and params["operation"] in operations
+                ):
+                    return {
+                        **request,
+                        "command_fingerprint": operations[params["operation"]],
+                    }
+            return None
         if (
             "FROM one_location_access_requests" in sql
             and "requester_user_id = :requester_user_id" in sql
@@ -2993,9 +3050,20 @@ class FourUserMemoryService(OneLocationAgentService):
                 "requested_duration_mode": params.get("requested_duration_mode"),
                 "extends_grant_id": params.get("extends_grant_id"),
                 "request_revision": 1,
+                "metadata": {},
             }
             self.requests[request_id] = row
             return row
+        if "SET metadata=" in sql and "command_operations" in sql:
+            request = self.requests.get(params["id"])
+            if not request:
+                return None
+            metadata = dict(request.get("metadata") or {})
+            operations = dict(metadata.get("command_operations") or {})
+            operations[params["operation"]] = params["fingerprint"]
+            metadata["command_operations"] = operations
+            request["metadata"] = metadata
+            return request
         if (
             "UPDATE one_location_access_requests" in sql
             and "SET message = CASE WHEN :exact_message" in sql
@@ -3806,8 +3874,12 @@ def test_directory_candidate_search_filters_before_pagination(
         "owner_user_id": "owner",
         "candidate_user_id": None,
         "query": "cara",
+        "exact_name": "cara",
         "name_prefix": "cara%",
         "word_prefix": "% cara%",
+        "token_prefixes": ["% cara%"],
+        "email_prefix": "cara%",
+        "email_query": "cara",
         # Every caller that predates the advisor split still asks for both
         # halves, so adding the tab changed nobody else's result set.
         "audience": "all",
@@ -3859,6 +3931,8 @@ def test_directory_search_matches_prefixes_not_substrings() -> None:
     # that also returns "Anand" because it contains an n is not an index.
     assert service.params["name_prefix"] == "n%"
     assert service.params["word_prefix"] == "% n%"
+    assert service.params["email_prefix"] == "n%"
+    assert service.params["email_query"] == "n"
     assert service.sql.count("LIKE :name_prefix ESCAPE '!'") == 2
     assert "LIKE :word_prefix ESCAPE '!'" in service.sql
 
@@ -3876,8 +3950,9 @@ def test_directory_search_ranks_name_prefix_above_word_prefix_then_alphabeticall
     # applied to the page afterwards can only reshuffle rows that were already
     # chosen wrongly.
     assert "CASE" in ordering
-    assert "LIKE :name_prefix ESCAPE '!' THEN 0" in ordering
-    assert "ELSE 1" in ordering
+    assert "LIKE :name_prefix ESCAPE '!' THEN 1" in ordering
+    assert "LIKE :word_prefix ESCAPE '!' THEN 2" in ordering
+    assert "ELSE 4" in ordering
     assert "LOWER(COALESCE(NULLIF(BTRIM(a.display_name), '')" in ordering
     # Deterministic tie-break, or OFFSET paging duplicates and skips rows.
     assert ordering.strip().endswith("a.user_id")
@@ -3915,11 +3990,16 @@ def test_directory_search_folds_separators_so_tiering_is_about_the_name() -> Non
 
     # " Nilesh" must not be demoted out of the first tier by a leading space,
     # and "Abdul-Rashid" / "Abdul R." must still reach the second one.
+    #
+    # Eight sites: the filter and the tiering each compare the stored name
+    # against the exact, name-prefix, word-prefix and per-token patterns. A new
+    # tier moves this number on both halves at once; one half moving alone is
+    # the drift this test exists to catch.
     assert (
         service.sql.count(
             "TRANSLATE(LOWER(BTRIM(COALESCE(a.display_name, ''))), '-''._/,', '      ')"
         )
-        == 3
+        == 8
     )
 
 
@@ -3957,7 +4037,7 @@ def test_directory_search_escapes_like_metacharacters(
         ("K.R.", "k r"),
         ("Smith-Jones", "smith jones"),
         ("de/la", "de la"),
-        ("Singh, Ankit", "singh  ankit"),
+        ("Singh, Ankit", "singh ankit"),
     ],
 )
 def test_directory_search_folds_the_typed_name_the_same_way_as_the_stored_one(
@@ -3990,7 +4070,7 @@ def test_directory_search_folds_both_sides_with_one_separator_list() -> None:
     service = RecipientDirectoryProbe()
     service.search_directory_candidates(owner_user_id="owner", query="n")
 
-    assert service.sql.count(_DIRECTORY_SEPARATOR_SQL) == 3
+    assert service.sql.count(_DIRECTORY_SEPARATOR_SQL) == 8
     # The Python side folds exactly the characters the SQL side names.
     for separator in _DIRECTORY_SEPARATORS:
         assert f"a{separator}b".translate(_DIRECTORY_SEPARATOR_FOLD) == "a b"
@@ -5043,6 +5123,106 @@ def test_location_request_creation_does_not_require_requester_key_material() -> 
             require_recipient_phone_verified=False,
         )
     assert missing_key.value.code == "LOCATION_RECIPIENT_UNAVAILABLE"
+
+
+def test_direct_location_request_rechecks_peer_eligibility_before_writing() -> None:
+    service = FourUserMemoryService()
+
+    with pytest.raises(OneLocationAgentError) as disconnected:
+        service.request_access(
+            requester_user_id="user_b",
+            owner_user_id="user_a",
+            message="Can I see your location?",
+            enforce_peer_eligibility=True,
+        )
+
+    assert disconnected.value.code == "LOCATION_RECIPIENT_NOT_CONNECTED"
+    assert not service.requests
+    assert not service.events
+    assert not service.notifications
+
+    service._seed_connection("user_a", "user_b")
+    direct = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        enforce_peer_eligibility=True,
+    )
+    assert direct["status"] == "pending"
+
+
+def test_direct_location_request_allows_current_circle_only_peer() -> None:
+    service = FourUserMemoryService()
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+    service._seed_named_circle(circle_id, "user_a", "user_c")
+
+    request = service.request_access(
+        requester_user_id="user_c",
+        owner_user_id="user_a",
+        enforce_peer_eligibility=True,
+    )
+
+    assert request["status"] == "pending"
+    assert request["requesterUserId"] == "user_c"
+
+
+def test_direct_location_request_replays_after_relationship_removal() -> None:
+    service = FourUserMemoryService()
+    operation_id = "123e4567-e89b-12d3-a456-426614174099"
+    service._seed_connection("user_a", "user_b")
+
+    first = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        message="Can I see your location?",
+        client_operation_id=operation_id,
+        enforce_peer_eligibility=True,
+    )
+    event_count = len(service.events)
+    notification_count = len(service.notifications)
+    service._revoke_connection_origin(
+        "user_a",
+        "user_b",
+        origin_kind="direct_request",
+    )
+
+    replay = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        message="Can I see your location?",
+        client_operation_id=operation_id,
+        enforce_peer_eligibility=True,
+    )
+
+    assert replay == first
+    assert len(service.requests) == 1
+    assert len(service.events) == event_count
+    assert len(service.notifications) == notification_count
+
+
+def test_direct_location_extension_allows_current_grant_without_connection() -> None:
+    service = FourUserMemoryService()
+    service.register_recipient_key(
+        user_id="user_b",
+        key_id="key-user-b",
+        public_key_jwk={"kty": "EC", "crv": "P-256", "x": "b", "y": "b"},
+    )
+    grant = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user-b",
+        duration_hours=1,
+    )
+
+    request = service.request_access(
+        requester_user_id="user_b",
+        owner_user_id="user_a",
+        requested_duration_hours=2,
+        extends_grant_id=grant["id"],
+        enforce_peer_eligibility=True,
+    )
+
+    assert request["isExtension"] is True
+    assert request["extendsGrantId"] == grant["id"]
 
 
 def test_one_location_activity_summary_uses_existing_metadata_events() -> None:
@@ -7307,11 +7487,19 @@ def test_revoking_an_sms_share_names_the_lane_in_its_copy() -> None:
     from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
 
     source = inspect.getsource(OneLocationAgentService.revoke_grant)
+    transition_source = inspect.getsource(OneLocationAgentService._revoke_grant_transition)
 
-    # The lane is read from the grant rather than guessed. Both queries in
-    # revoke_grant select `*`, so share_kind is already on the row.
-    assert 'row.get("share_kind")' in source
-    assert 'revoked_share_kind == "sos"' in source or "revoked_via_sms" in source
+    # The lane is read from the grant rather than guessed -- and read from
+    # where it actually lives. `share_kind` is NOT a column on
+    # `one_location_share_grants`; it is `metadata->>'share_kind'` with the
+    # legacy `reason = 'sos_panic'` fallback. The behavioural tests
+    # `test_stopping_an_sos_share_names_the_sms_lane_in_event_and_push` and
+    # its legacy twin prove the branch is taken, not merely present.
+    assert 'row.get("share_kind")' not in transition_source
+    assert '_loads_json(row.get("metadata"))' in transition_source
+    assert "_is_sos_lane(" in transition_source
+    assert "_classify_share_kind(" in transition_source
+    assert "revoked_via_sms" in source
 
     # The recipient's word is SMS -- an SMS alert is how it reached them.
     assert "SMS location sharing stopped" in source
@@ -8332,3 +8520,99 @@ def test_public_invite_named_url_keeps_bare_token_compatible(name: str, slug: st
     with pytest.raises(OneLocationAgentError) as exc:
         service.resolve_public_invite(public_token=named_token)
     assert exc.value.status_code == 410
+
+
+def test_stopping_an_sos_share_names_the_sms_lane_in_event_and_push() -> None:
+    """Behavioural twin of the source-scan test above.
+
+    `share_kind` is not a column on `one_location_share_grants`; it lives in
+    `metadata->>'share_kind'` (migration 186 and `_SHARE_LANE_MATCH_SQL`). The
+    revoke transition read `row.get("share_kind")`, which is always empty, so
+    every Save My Soul stop was recorded as `share_kind: "standard"` and pushed
+    as "Location access revoked" -- the ordinary wording the scan test proves
+    is *present* but never proved was *taken*.
+    """
+    service = _lane_service()
+    service.add_sms_contact(owner_user_id="user_a", contact_user_id="user_b")
+
+    sos = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=8,
+        share_kind="sos",
+        reason="Come get me",
+        enforce_connection=True,
+    )
+    assert service.grants[sos["id"]]["metadata"]["share_kind"] == "sos"
+
+    service.revoke_grant(owner_user_id="user_a", grant_id=sos["id"])
+
+    revoke_events = [
+        event
+        for event in service.events.values()
+        if event["event_type"] == "location_share_revoked" and event["grant_id"] == sos["id"]
+    ]
+    assert revoke_events, "revoke must record an event"
+    assert revoke_events[-1]["metadata"]["share_kind"] == "sos"
+
+    push = service.notifications[-1]
+    assert push["user_id"] == "user_b"
+    assert push["title"] == "SMS location sharing stopped"
+    assert (push.get("data") or {}).get("share_kind") == "sos"
+
+
+def test_stopping_an_ordinary_share_keeps_the_standard_lane_wording() -> None:
+    """Fixing the SOS lane must not relabel ordinary shares."""
+    service = _lane_service()
+
+    normal = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=4,
+        share_kind="share",
+        enforce_connection=True,
+    )
+
+    service.revoke_grant(owner_user_id="user_a", grant_id=normal["id"])
+
+    revoke_events = [
+        event
+        for event in service.events.values()
+        if event["event_type"] == "location_share_revoked" and event["grant_id"] == normal["id"]
+    ]
+    assert revoke_events[-1]["metadata"]["share_kind"] == "standard"
+
+    push = service.notifications[-1]
+    assert push["user_id"] == "user_b"
+    assert push["title"] == "Location access revoked"
+    assert (push.get("data") or {}).get("share_kind") == "standard"
+
+
+def test_stopping_a_legacy_sos_share_without_stored_kind_still_names_the_sms_lane() -> None:
+    """Rows written before `share_kind` was persisted carry only the
+    `reason = 'sos_panic'` marker. The lane predicate in SQL honours that
+    fallback; the revoke transition must too."""
+    service = _lane_service()
+    service.add_sms_contact(owner_user_id="user_a", contact_user_id="user_b")
+
+    sos = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=8,
+        share_kind="sos",
+        reason="Come get me",
+        enforce_connection=True,
+    )
+    # Simulate a pre-186 row: no stored kind, only the legacy reason marker.
+    metadata = service.grants[sos["id"]]["metadata"]
+    metadata.pop("share_kind", None)
+    metadata["reason"] = "sos_panic"
+
+    service.revoke_grant(owner_user_id="user_a", grant_id=sos["id"])
+
+    push = service.notifications[-1]
+    assert push["title"] == "SMS location sharing stopped"
+    assert (push.get("data") or {}).get("share_kind") == "sos"

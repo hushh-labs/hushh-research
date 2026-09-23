@@ -317,6 +317,128 @@
           }
         }
       ]
+    },
+    {
+      "eval_id": "consent_14_fields_in_professional",
+      "conversation": [
+        {
+          "invocation_id": "consent_14",
+          "user_content": {
+            "parts": [
+              {
+                "text": "what professional information can I ask Dev for"
+              }
+            ],
+            "role": "user"
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "args": {},
+                "name": "discover_person_information"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "eval_id": "consent_15_financial_fields_from_dev",
+      "conversation": [
+        {
+          "invocation_id": "consent_15",
+          "user_content": {
+            "parts": [
+              {
+                "text": "list the financial fields I can request from Dev"
+              }
+            ],
+            "role": "user"
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "args": {},
+                "name": "discover_person_information"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "eval_id": "consent_16_granted_readback",
+      "conversation": [
+        {
+          "invocation_id": "consent_16",
+          "user_content": {
+            "parts": [
+              {
+                "text": "Dev approved my information request; can I see it here now"
+              }
+            ],
+            "role": "user"
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "args": {},
+                "name": "list_information_shared_with_me"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "eval_id": "consent_17_cancel_most_recent",
+      "conversation": [
+        {
+          "invocation_id": "consent_17",
+          "user_content": {
+            "parts": [
+              {
+                "text": "cancel that request I just sent"
+              }
+            ],
+            "role": "user"
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "args": {
+                  "action_id": "consent.cancel_request"
+                },
+                "name": "run_app_action"
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "eval_id": "consent_18_exact_email_clarification",
+      "conversation": [
+        {
+          "invocation_id": "consent_18",
+          "user_content": {
+            "parts": [
+              {
+                "text": "check the information available to request from dev@example.invalid"
+              }
+            ],
+            "role": "user"
+          },
+          "intermediate_data": {
+            "tool_uses": [
+              {
+                "args": {},
+                "name": "discover_person_information"
+              }
+            ]
+          }
+        }
+      ]
     }
   ]
 }

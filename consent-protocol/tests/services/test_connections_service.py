@@ -18,6 +18,26 @@ def _svc():
     return ConnectionsService.__new__(ConnectionsService)
 
 
+def test_unavailable_scope_authority_returns_retryable_error_not_empty_catalog():
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.consent.scope_generator import (
+        DynamicScopeGenerator,
+        ScopeCatalogUnavailableError,
+    )
+    from hushh_mcp.services.connections_service import _default_scope_entries_lookup
+
+    with patch.object(
+        DynamicScopeGenerator,
+        "get_available_scope_entries",
+        new=AsyncMock(side_effect=ScopeCatalogUnavailableError("unavailable")),
+    ):
+        with pytest.raises(ConnectionsError) as caught:
+            _default_scope_entries_lookup("synthetic-owner")
+    assert caught.value.status_code == 503
+    assert "could not be checked" in str(caught.value)
+
+
 def _db_returning(rows):
     """Mock get_db() whose execute_raw returns the given rows for every call."""
     db = SimpleNamespace(execute_raw=lambda sql, params=None: SimpleNamespace(data=rows))
@@ -319,6 +339,72 @@ def test_information_scope_catalog_is_connection_independent_and_filters_private
     svc._execute_one = lambda _sql, _params=None: None
     without_connection = svc.get_information_scope_catalog("user-a", "user-b")
     assert [entry["scope"] for entry in without_connection["items"]] == ["attr.financial.holdings"]
+
+
+def test_information_scope_catalog_pages_more_than_500_entries_and_resets_on_revision():
+    entries = [
+        {
+            "scope": f"attr.professional.field_{index}",
+            "label": f"Professional field {index}",
+            "description": "Synthetic test metadata",
+            "domain": "professional",
+            "path": f"field_{index}",
+            "exposure_eligibility": True,
+            "consumer_visible": True,
+            "internal_only": False,
+            "visibility_posture": "consent_required",
+        }
+        for index in range(601)
+    ]
+    svc = ConnectionsService(scope_entries_lookup=lambda _owner: entries)
+
+    pages = [
+        svc.get_information_scope_catalog("user-a", "user-b", page=page, limit=100)
+        for page in range(1, 8)
+    ]
+    assert [len(page["items"]) for page in pages] == [100] * 6 + [1]
+    assert all(page["hasMore"] for page in pages[:-1])
+    assert pages[-1]["hasMore"] is False
+    assert pages[-1]["nextPage"] is None
+    assert pages[0]["totalCount"] == 601
+    assert pages[0]["domains"] == [{"domain": "professional", "count": 601}]
+    assert len({page["catalogRevision"] for page in pages}) == 1
+    assert {item["scope"] for page in pages for item in page["items"]} == {
+        entry["scope"] for entry in entries
+    }
+    entries.pop()
+    refreshed = svc.get_information_scope_catalog(
+        "user-a",
+        "user-b",
+        page=7,
+        limit=100,
+        catalog_revision=pages[0]["catalogRevision"],
+    )
+    assert refreshed["page"] == 1
+    assert refreshed["paginationReset"] is True
+    assert refreshed["totalCount"] == 600
+    assert refreshed["catalogRevision"] != pages[0]["catalogRevision"]
+
+
+def test_exact_requestable_scope_entries_do_not_depend_on_ranked_page():
+    entries = [
+        {
+            "scope": f"attr.professional.field_{index}",
+            "label": f"Professional field {index}",
+            "domain": "professional",
+            "exposure_eligibility": True,
+            "consumer_visible": True,
+            "internal_only": False,
+            "visibility_posture": "consent_required",
+        }
+        for index in range(60)
+    ]
+    svc = ConnectionsService(scope_entries_lookup=lambda _owner: entries)
+
+    exact = svc.get_exact_requestable_scope_entries("user-a", "user-b")
+
+    assert len(exact) == 60
+    assert exact[-1]["scope"] == "attr.professional.field_59"
 
 
 class _RecordingDB:
@@ -1567,6 +1653,8 @@ def test_reject_feed_failure_rolls_back_the_relationship_transition() -> None:
 
 def test_remove_connection_feed_projection_uses_connection_id() -> None:
     svc = _svc()
+    notifications: list[dict] = []
+    svc._disconnect_notifier = lambda **kwargs: notifications.append(kwargs)
     svc._transaction = nullcontext
     rows = iter(
         [
@@ -1601,6 +1689,53 @@ def test_remove_connection_feed_projection_uses_connection_id() -> None:
         "conn-1:2026-08-26T12:00:00+00:00"
     }
     assert all("counterpart_user_id" not in params for _, params in feed_inserts)
+    assert notifications == [
+        {
+            "recipient_user_id": "user-a",
+            "counterpart_user_id": "user-b",
+            "actor_user_id": "user-a",
+            "connection_id": "conn-1",
+            "revocation_id": "2026-08-26T12:00:00+00:00",
+        },
+        {
+            "recipient_user_id": "user-b",
+            "counterpart_user_id": "user-a",
+            "actor_user_id": "user-a",
+            "connection_id": "conn-1",
+            "revocation_id": "2026-08-26T12:00:00+00:00",
+        },
+    ]
+
+
+def test_connection_removed_notifier_failure_never_rolls_back_disconnect() -> None:
+    svc = _svc()
+    svc._transaction = nullcontext
+    rows = iter(
+        [
+            {
+                "id": "conn-1",
+                "user_a_id": "user-a",
+                "user_b_id": "user-b",
+                "status": "active",
+            },
+            {"id": "conn-1", "revoked_at": "2026-08-26T12:00:00+00:00"},
+            {"id": "conn-1"},
+        ]
+    )
+
+    def execute_one(sql, params=None):
+        if "INSERT INTO feed_events" in sql:
+            return None
+        return next(rows)
+
+    svc._execute_one = execute_one
+    svc._execute_many = lambda _sql, _params=None: []
+    svc._revoke_pair_capabilities = lambda **_kwargs: None
+    svc._end_one_location_circle_memberships = lambda **_kwargs: None
+    svc._display_name_for = lambda user_id: {"user-a": "Alice", "user-b": "Bob"}[user_id]
+    svc._disconnect_notifier = lambda **_kwargs: (_ for _ in ()).throw(RuntimeError("push down"))
+
+    assert svc.remove_connection("user-a", "conn-1") == {"removed": 1}
 
 
 def test_search_directory_reuses_ready_people_and_annotates_relationship():
@@ -1690,6 +1825,27 @@ def test_search_directory_fallback_folds_separators_like_the_sql_path():
     found = [i["userId"] for i in out["items"]]
     assert found[0] == "u-spaced"
     assert sorted(found[1:]) == ["u-hyphen", "u-initial"]
+
+
+def test_search_directory_fallback_can_match_an_eligible_email_handle_without_exposing_it():
+    svc = _svc()
+    svc._directory_lookup = lambda owner_user_id: [
+        {
+            "userId": "user-c",
+            "displayName": None,
+            "email": "kushaltrivedi54@gmail.com",
+        },
+        {
+            "userId": "user-d",
+            "displayName": "Another person",
+            "email": "other@example.com",
+        },
+    ]
+    db = _RecordingDB([[], [], []])
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        out = svc.search_directory("user-a", query="kushal trivedi", page=1, limit=20)
+
+    assert [item["userId"] for item in out["items"]] == ["user-c"]
 
 
 def test_search_directory_fallback_pages_the_ranked_list_not_the_raw_one():

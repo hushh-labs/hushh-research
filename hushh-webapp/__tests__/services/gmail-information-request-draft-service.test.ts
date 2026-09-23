@@ -259,8 +259,8 @@ describe("prepareScopedGmailInformationRequestDraft", () => {
     expect(prepared.body).not.toContain("attr.");
   });
 
-  it("handles deep nesting correctly", async () => {
-    pkmMocks.getStaleFirst.mockResolvedValueOnce({
+  it("uses only the approved nested address leaf and rejects a parent object", async () => {
+    pkmMocks.getStaleFirst.mockResolvedValue({
       data: {
         identity_profile: {
           address: {
@@ -273,12 +273,12 @@ describe("prepareScopedGmailInformationRequestDraft", () => {
 
     const prepared = await prepareScopedGmailInformationRequestDraft({
       workflow: {
-        requested_field_labels: ["Address"],
+        requested_field_labels: ["Street"],
         candidate_scopes: [
           {
-            scope: "attr.identity.identity_profile.address",
+            scope: "attr.identity.identity_profile.address.street",
             domain: "identity",
-            label: "Address",
+            label: "Street",
             segment_ids: ["identity_profile"],
           },
         ],
@@ -289,6 +289,24 @@ describe("prepareScopedGmailInformationRequestDraft", () => {
     });
 
     expect(prepared.body).toContain("123 Main St");
+    expect(prepared.body).not.toContain("10001");
     expect(prepared.unavailableLabels).toEqual([]);
+
+    const parent = await prepareScopedGmailInformationRequestDraft({
+      workflow: {
+        requested_field_labels: ["Address"],
+        candidate_scopes: [{
+          scope: "attr.identity.identity_profile.address",
+          domain: "identity",
+          label: "Address",
+          segment_ids: ["identity_profile"],
+        }],
+      },
+      userId: "user-1",
+      vaultKey: "vault-key",
+      vaultOwnerToken: "owner-token",
+    });
+    expect(parent.body).toBeNull();
+    expect(parent.unavailableLabels).toEqual(["Address"]);
   });
 });

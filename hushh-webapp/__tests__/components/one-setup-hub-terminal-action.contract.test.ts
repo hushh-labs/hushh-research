@@ -4,20 +4,6 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("One setup hub terminal action contract", () => {
-  it("routes completed rows through their canonical setup entry", () => {
-    const source = readFileSync(
-      join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
-      "utf8",
-    );
-
-    expect(source.match(/href=\{item\.copy\.href\}/g)).toHaveLength(2);
-    // The route coordinator owns durable completion. The hub must not invent a
-    // second target that would diverge for taps, voice navigation, or deep links.
-    expect(source).not.toContain(
-      "resolveCompletedSetupCapabilityEntry(item.id)",
-    );
-  });
-
   it("always finishes root setup through the required vault boundary", () => {
     const source = readFileSync(
       join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
@@ -25,7 +11,6 @@ describe("One setup hub terminal action contract", () => {
     );
 
     expect(source).toContain('const masterActionLabel = "Finish setup"');
-    expect(source).toContain("isCapabilitySetupComplete(item.status)");
     expect(source).toContain('actionId="setup.hub_master_ack"');
     expect(source).toContain('variant="blue-gradient"');
     expect(source).toContain('effect="fill"');
@@ -43,9 +28,7 @@ describe("One setup hub terminal action contract", () => {
 
     expect(source).toContain("<SetupCompletionFooter");
     expect(source).toContain('testId="one-setup-master-ack"');
-    // Both root prerequisites now gate the exit, so the footer reads the combined
-    // value rather than the AI-access half. A person must not be able to leave the
-    // hub having connected a model but no cloud for it to run in.
+    // Cloud, verified phone, and AI choice gate the exit together.
     expect(source).toContain("disabled={!setupPrerequisitesComplete}");
     expect(source).toContain(
       "cloudComplete && phoneVerified && runtimeChoiceComplete",
@@ -98,7 +81,7 @@ describe("One setup hub terminal action contract", () => {
     expect(source).toContain('voiceControlId="one_setup_tile_connections"');
     expect(source).not.toContain("Private configuration");
     expect(source.indexOf('title="Choose your AI"')).toBeLessThan(
-      source.indexOf("remainingItems.map"),
+      source.indexOf('title="Complete"'),
     );
   });
 
@@ -150,8 +133,8 @@ describe("One setup hub terminal action contract", () => {
     expect(tile).toContain("AgentSectionIcon");
     expect(tile).toContain('size="setup"');
     expect(icon).toContain("setup: {");
-    expect(icon).toContain('lucideSurface: "h-9 w-9 rounded-[10px]"');
-    expect(icon).toContain('lucide: "h-[19px] w-[19px]"');
+    expect(icon).toContain('glyphSurface: "h-9 w-9 rounded-[10px]"');
+    expect(icon).toContain('glyph: "h-[22px] w-[22px]"');
   });
 
   it("counts the mandatory AI access choice in the same progress projection as capability rows", () => {
@@ -185,25 +168,18 @@ describe("One setup hub terminal action contract", () => {
     expect(source).not.toContain("const total = items.length");
   });
 
-  it("does not publish coarse setup sections before bootstrap and enrichment settle", () => {
+  it("does not publish the master action before the pod prerequisites settle", () => {
     const source = readFileSync(
       join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
       "utf8",
     );
-    const stateHook = readFileSync(
-      join(process.cwd(), "lib/onboarding/use-capability-setup-states.ts"),
-      "utf8",
-    );
 
-    expect(source).toContain("const hubStateLoading =");
-    expect(source).toContain("isLoading || isEnriching");
+    expect(source).toContain('runtimeChoiceState === "loading"');
+    expect(source).toContain('cloudComplete && phoneVerified && runtimeChoiceComplete');
     expect(source).toContain("<SetupHubLoadingState />");
     expect(source).not.toContain("<Skeleton");
     expect(source).toContain("Checking your setup…");
-    expect(source).toMatch(/actions:\s*hubStateLoading\s*\?\s*\[\]\s*:/);
-    expect(stateHook).toContain("useState(enrichVault)");
-    expect(stateHook).toContain("useState(enrichOauth)");
-    expect(stateHook).toContain("useState(enrichRia)");
+    expect(source).toContain('dismissing || !setupPrerequisitesComplete');
   });
 
   it("spends the accent only on a finish that can actually go through", () => {
@@ -449,11 +425,11 @@ describe("One setup hub terminal action contract", () => {
     expect(page).toContain("RUNTIME_PROVIDER_CATALOG");
     expect(gate).not.toContain("data-runtime-provider-lane");
 
-    // Taking the recommended option is the entire decision, so it finishes the
-    // step. Bring-your-own-key still continues through the footer, because it
-    // has a form left to fill.
+    // Taking the recommended option finishes AI choice and returns to the hub,
+    // where cloud and phone prerequisites still guard the master exit.
     expect(page).toContain('if (choice === "hushh_managed_vertex") {');
-    expect(page).toContain("returnToSetupHub();");
+    expect(page).toContain('PreVaultSensitiveDraftService.clearGeminiRuntime(user.uid)');
+    expect(page).toContain('returnToSetupHub();');
   });
 
   it("names the recommended AI option so the default is not worked out by elimination", () => {
@@ -577,4 +553,3 @@ describe("One setup hub reaches the cloud choice", () => {
     );
   });
 });
-

@@ -408,6 +408,7 @@ async def _propose(
         conflicts=conflicts,
         display_time_zone=_timezone(tool_context),
     )
+    event_fields = _directive_event_fields(action=action, plan=plan)
     directive = {
         "kind": "action",
         "delegateAgentId": "agent_calendar",
@@ -418,6 +419,22 @@ async def _propose(
             "summary": summary,
             "confirmLabel": confirm_label,
             "expiresAt": expires_at,
+            # Structured fields alongside `summary` so the client can render a
+            # real card (title/time/attendees) instead of a flattened
+            # sentence. `summary` stays authoritative for voice/non-card
+            # surfaces -- these are additive, not a replacement.
+            "eventId": plan.get("event_id"),
+            "title": event_fields["title"],
+            "startAt": event_fields["startAt"],
+            "endAt": event_fields["endAt"],
+            "attendees": event_fields["attendees"],
+            "location": event_fields["location"],
+            "sendUpdates": bool(plan.get("send_updates")),
+            "conflicts": [
+                {"title": item.get("title"), "startAt": _flat_iso(item.get("start"))}
+                for item in conflicts
+                if isinstance(item, dict)
+            ],
         },
     }
     tool_context.state[f"{_STATE_PENDING_DIRECTIVE}:calendar"] = directive
@@ -467,6 +484,49 @@ def _proposal_summary(
             f"{verb} “{title}”{timing}{attendee_note} anyway?"
         )
     return f"{verb} “{title}”{timing}{attendee_note}?"
+
+
+def _flat_iso(value: object) -> str | None:
+    """Normalize Google's `{dateTime|date}` shape and a plain ISO string into
+    one flat string the client always gets, regardless of which shape the
+    source field happened to carry."""
+    if isinstance(value, dict):
+        value = value.get("dateTime") or value.get("date")
+    text = str(value or "").strip()
+    return text or None
+
+
+def _directive_event_fields(*, action: str, plan: dict[str, Any]) -> dict[str, Any]:
+    """Normalize the proposed event's title/time/attendees/location across all
+    three actions for the client directive payload.
+
+    `create`/`reschedule` proposals carry the new title/time directly on
+    `plan` (from the tool's own input). `cancel` only ever receives an
+    `event_id` + `send_updates` -- its real title/time/attendees live under
+    `plan["current_event"]`, the real event `propose()` fetched from Google
+    before staging the proposal (see `GoogleCalendarService.propose`).
+    """
+    if action == "cancel":
+        current = plan.get("current_event")
+        current = current if isinstance(current, dict) else {}
+        return {
+            "title": current.get("title"),
+            "startAt": _flat_iso(current.get("start")),
+            "endAt": _flat_iso(current.get("end")),
+            "attendees": [
+                str(item.get("email"))
+                for item in current.get("attendees", [])
+                if isinstance(item, dict) and item.get("email")
+            ],
+            "location": current.get("location") or None,
+        }
+    return {
+        "title": plan.get("title"),
+        "startAt": _flat_iso(plan.get("start_at")),
+        "endAt": _flat_iso(plan.get("end_at")),
+        "attendees": [str(item) for item in plan.get("attendees", [])],
+        "location": plan.get("location") or None,
+    }
 
 
 def _conflict_detail(event: dict[str, Any], *, time_zone: str) -> str:

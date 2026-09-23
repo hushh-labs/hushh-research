@@ -22,9 +22,14 @@ describe("agent chat prompt queue", () => {
   });
 
   it("edits in place without moving a pending prompt", () => {
-    const queue = editQueuedAgentPrompt([first, second, third], "second", "Updated");
+    const queue = editQueuedAgentPrompt(
+      [first, { ...second, deferPkmContext: true }, third],
+      "second",
+      "Updated",
+    );
     expect(queue.map((prompt) => prompt.id)).toEqual(["first", "second", "third"]);
     expect(queue[1].text).toBe("Updated");
+    expect(queue[1].deferPkmContext).toBe(true);
   });
 
   it("removes a pending prompt without affecting the remaining order", () => {

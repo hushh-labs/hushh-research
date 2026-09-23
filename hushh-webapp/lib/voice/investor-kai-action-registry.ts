@@ -152,9 +152,9 @@ function describeGuard(guardId: string): string {
     case "manual_user_execution":
       return "User must complete this action manually.";
     case "gmail_configured":
-      return "Gmail configuration must be available.";
+      return "Mail configuration must be available.";
     case "gmail_connected":
-      return "Gmail must already be connected.";
+      return "Mail must already be connected.";
     case "ria_persona_available":
       return "RIA workspace must be available for this account.";
     default:

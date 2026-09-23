@@ -21,7 +21,7 @@ const mocks = vi.hoisted(() => ({
   updateSavedLocationAddress: vi.fn(),
   captureCurrentPosition: vi.fn(),
   reverseGeocode: vi.fn(),
-  getMapState: vi.fn(),
+  getMapPreferences: vi.fn(),
   updateMapPreferences: vi.fn(),
   toastError: vi.fn(),
 }));
@@ -35,6 +35,7 @@ vi.mock("@/lib/vault/vault-context", () => ({
 }));
 
 vi.mock("@/lib/one-location/saved-locations", () => ({
+  LOCATION_PKM_DOMAIN: "location",
   DuplicateSavedLocationError: class DuplicateSavedLocationError extends Error {},
   // Real behaviour, not a stub: the modal opens on whatever this returns, and
   // a stub would hide a label being pre-selected over a saved place.
@@ -77,7 +78,7 @@ vi.mock("@/lib/one-location/service", () => ({
   OneLocationService: {
     captureCurrentPosition: mocks.captureCurrentPosition,
     reverseGeocode: mocks.reverseGeocode,
-    getMapState: mocks.getMapState,
+    getMapPreferences: mocks.getMapPreferences,
     updateMapPreferences: mocks.updateMapPreferences,
   },
 }));
@@ -175,11 +176,9 @@ describe("SavedLocationsSection", () => {
       name: null,
       countryCode: "IN",
     });
-    mocks.getMapState.mockReset().mockResolvedValue({
-      preferences: {
-        presenceMode: "ghost",
-        rendererConsentVersion: "google-maps-renderer-v1",
-      },
+    mocks.getMapPreferences.mockReset().mockResolvedValue({
+      presenceMode: "ghost",
+      rendererConsentVersion: "google-maps-renderer-v1",
       freshnessSeconds: 60,
       markers: [],
     });
@@ -215,7 +214,7 @@ describe("SavedLocationsSection", () => {
       vaultKey: "vault-key",
       vaultOwnerToken: "vault-owner-token",
     });
-    expect(mocks.getMapState).toHaveBeenCalledWith("vault-owner-token");
+    expect(mocks.getMapPreferences).toHaveBeenCalledWith("vault-owner-token");
   });
 
   it("fails closed while the vault is locked", async () => {

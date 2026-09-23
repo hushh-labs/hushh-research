@@ -12,6 +12,7 @@ import {
   formatCountdown,
   pendingActionInstruction,
   pendingActionRole,
+  resolvedLabel,
 } from "@/components/one-voice/pending-action-card";
 import type { PendingActionView } from "@/lib/one-voice/session-types";
 
@@ -245,5 +246,221 @@ describe("PendingActionCard", () => {
       "Didn't go through",
     );
     expect(screen.queryByText("Done")).toBeNull();
+  });
+
+  it("an armed Save My Soul says it is sending the position, never Done", () => {
+    const sos = (
+      resolvedStatus: "executed" | "failed",
+      result: Record<string, unknown>,
+    ) =>
+      pending({
+        tool: "trigger_save_my_soul",
+        gateway_action_id: "location.trigger_sos",
+        tier: "tap",
+        requiresTap: true,
+        summary: "Send a Save My Soul alert to Priya Sharma",
+        entities: [],
+        status: resolvedStatus,
+        resolvedStatus,
+        resolvedResult: { status: "unused", ...result },
+      });
+    const { container, rerender } = render(
+      <PendingActionCard
+        action={sos("executed", {
+          status: "sos_grants_created",
+          grant_ids: ["grant_SECRET"],
+        })}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    const card = screen.getByTestId("one-voice-pending-action");
+    expect(screen.getByTestId("one-voice-pending-resolved")).toHaveTextContent(
+      "Armed · sending your position",
+    );
+    expect(card).toHaveAttribute("data-outcome", "pending");
+    expect(card).toHaveAttribute(
+      "aria-label",
+      "Action armed · sending your position",
+    );
+    expect(container.textContent).not.toContain("Done");
+    expect(container.textContent).not.toMatch(/\bSent\b/);
+    expect(container.textContent).not.toContain("grant_SECRET");
+    expect(screen.queryByTestId("one-voice-pending-confirm")).toBeNull();
+
+    const cases: Array<
+      ["executed" | "failed", string, string, "success" | "neutral"]
+    > = [
+      ["executed", "sos_sent", "Sent", "success"],
+      ["executed", "sos_partial", "Partly sent", "neutral"],
+      ["failed", "sos_not_sent", "Not sent", "neutral"],
+      ["failed", "sos_unverified", "Couldn't confirm delivery", "neutral"],
+      ["executed", "sos_stopped", "Stopped", "success"],
+      ["executed", "sos_partially_stopped", "Partly stopped", "neutral"],
+    ];
+    for (const [resolved, status, label, kind] of cases) {
+      rerender(
+        <PendingActionCard
+          action={sos(resolved, { status })}
+          onConfirm={vi.fn()}
+          onCancel={vi.fn()}
+        />,
+      );
+      expect(
+        screen.getByTestId("one-voice-pending-resolved"),
+        status,
+      ).toHaveTextContent(label);
+      expect(
+        screen.getByTestId("one-voice-pending-action"),
+        status,
+      ).toHaveAttribute("data-outcome", kind);
+      expect(screen.queryByText("Done"), status).toBeNull();
+    }
+  });
+
+  it("an armed alert the session dropped reads unconfirmed, not Sent and not Not sent", () => {
+    const { container } = render(
+      <PendingActionCard
+        action={pending({
+          tool: "trigger_save_my_soul",
+          tier: "tap",
+          requiresTap: true,
+          summary: "Send a Save My Soul alert to Priya Sharma",
+          entities: [],
+          status: "executed",
+          resolvedStatus: "executed",
+          resolvedResult: {
+            status: "sos_unverified",
+            reason_code: "client_session_closed",
+            spoken_facts: [
+              "The connection dropped before delivery was confirmed. Ask 'did it go through?' or check Save My Soul.",
+            ],
+          },
+        })}
+        onConfirm={vi.fn()}
+        onCancel={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("one-voice-pending-resolved")).toHaveTextContent(
+      "Couldn't confirm delivery",
+    );
+    expect(screen.getByTestId("one-voice-pending-action")).toHaveAttribute(
+      "data-outcome",
+      "neutral",
+    );
+    expect(container.textContent).not.toMatch(/\bSent\b|Not sent|sending|Done/);
+    expect(container.querySelector(".animate-spin")).toBeNull();
+  });
+
+  it("emergency-contact cards say what changed: Added/Removed only for added/removed", () => {
+    const contact = (
+      tool: string,
+      status: string,
+      resolvedStatus: "executed" | "failed" = "executed",
+    ) =>
+      pending({
+        tool,
+        tier: "tap",
+        requiresTap: true,
+        summary: "Add Priya Sharma as an emergency contact",
+        status: resolvedStatus,
+        resolvedStatus,
+        resolvedResult: { status, display_name: "Priya Sharma" },
+      });
+    const cases: Array<[string, string, string, "success" | "neutral"]> = [
+      ["add_emergency_contact", "added", "Added", "success"],
+      ["add_emergency_contact", "roster_full", "Not added", "neutral"],
+      ["add_emergency_contact", "not_phone_verified", "Not added", "neutral"],
+      ["add_emergency_contact", "not_connected", "Not added", "neutral"],
+      ["add_emergency_contact", "already_contact", "Not added", "neutral"],
+      ["remove_emergency_contact", "removed", "Removed", "success"],
+      ["remove_emergency_contact", "not_a_contact", "No change", "neutral"],
+    ];
+    for (const [tool, status, label, kind] of cases) {
+      const view = render(
+        <PendingActionCard
+          action={contact(tool, status)}
+          onConfirm={vi.fn()}
+          onCancel={vi.fn()}
+        />,
+      );
+      const resolved = screen.getByTestId("one-voice-pending-resolved");
+      expect(resolved, `${tool}/${status}`).toHaveTextContent(label);
+      expect(
+        screen.getByTestId("one-voice-pending-action"),
+        `${tool}/${status}`,
+      ).toHaveAttribute("data-outcome", kind);
+      expect(screen.queryByText("Done"), `${tool}/${status}`).toBeNull();
+      // The success check marks only a real addition or removal.
+      expect(
+        resolved.querySelector("svg") !== null,
+        `${tool}/${status} check`,
+      ).toBe(kind === "success");
+      view.unmount();
+    }
+    // A failed resolution keeps the ordinary failure label.
+    expect(
+      resolvedLabel({
+        tool: "add_emergency_contact",
+        resolvedStatus: "failed",
+        resolvedResult: { status: "rejected" },
+      }),
+    ).toEqual({ label: "Didn't go through", kind: "neutral" });
+    // Any executed action whose result is a truthful "nothing changed" is not Done.
+    expect(
+      resolvedLabel({
+        tool: "turn_sharing_off",
+        resolvedStatus: "executed",
+        resolvedResult: { status: "already_off" },
+      }),
+    ).toEqual({ label: "No change", kind: "neutral" });
+    expect(
+      resolvedLabel({
+        tool: "stop_share",
+        resolvedStatus: "executed",
+        resolvedResult: { status: "not_active" },
+      }),
+    ).toEqual({ label: "No change", kind: "neutral" });
+    expect(
+      resolvedLabel({
+        tool: "delete_circle",
+        resolvedStatus: "executed",
+        resolvedResult: { status: "deleted" },
+      }),
+    ).toEqual({ label: "Done", kind: "success" });
+  });
+
+  it("derives the resolved label from the result status only for Save My Soul", () => {
+    expect(
+      resolvedLabel({
+        resolvedStatus: "executed",
+        resolvedResult: { status: "sos_grants_created" },
+      }),
+    ).toEqual({ label: "Armed · sending your position", kind: "pending" });
+    // A mis-flagged sos_sent on a failed resolution is not a success.
+    expect(
+      resolvedLabel({
+        resolvedStatus: "failed",
+        resolvedResult: { status: "sos_sent" },
+      }),
+    ).toEqual({ label: "Sent", kind: "neutral" });
+    expect(
+      resolvedLabel({
+        resolvedStatus: "executed",
+        resolvedResult: { status: "share_created" },
+      }),
+    ).toEqual({ label: "Done", kind: "success" });
+    expect(
+      resolvedLabel({ resolvedStatus: "executed", resolvedResult: null }),
+    ).toEqual({ label: "Done", kind: "success" });
+    expect(
+      resolvedLabel({
+        resolvedStatus: "cancelled",
+        resolvedResult: null,
+      }),
+    ).toEqual({ label: "Cancelled", kind: "neutral" });
+    expect(
+      resolvedLabel({ resolvedStatus: null, resolvedResult: null }),
+    ).toBeNull();
   });
 });

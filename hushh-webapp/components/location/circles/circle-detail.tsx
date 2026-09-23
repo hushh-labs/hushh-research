@@ -25,7 +25,7 @@ import {
   UserRoundPlus,
   UsersRound,
   X,
-} from "lucide-react";
+} from "@/components/icons";
 
 import {
   AlertDialog,
@@ -102,6 +102,7 @@ const PENDING_TOOLS = new Set([
   "leave_circle",
   "remove_circle_member",
   "rename_circle",
+  "set_circle_kind",
   "add_circle_member",
 ]);
 
@@ -198,6 +199,9 @@ export function CircleDetail({ circleId }: CircleDetailProps) {
           primaryEntity: overview?.name ?? null,
           actions: VOICE_ACTIONS,
           availableActions: VOICE_ACTIONS.map((action) => action.label),
+          // The one id this surface publishes: lets One resolve "this circle"
+          // through the authorized service. Never in screenState.
+          activeCircleId: circleId,
         }
       : null,
   );
@@ -765,15 +769,21 @@ export function CircleDetail({ circleId }: CircleDetailProps) {
           </div>
 
           {canLeave || canDelete ? (
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
               {canLeave ? (
                 <Button
                   size="sm"
                   variant="outline"
+                  className="w-full max-w-[320px] text-[color:var(--app-destructive)]"
                   disabled={busy !== null}
                   onClick={() => setConfirmLeave(true)}
                 >
-                  <LogOut className="h-4 w-4" aria-hidden />
+                  <LogOut
+                    className="h-4 w-4"
+                    weight="regular"
+                    aria-hidden
+                    data-testid="circle-leave-icon"
+                  />
                   Leave circle
                 </Button>
               ) : null}

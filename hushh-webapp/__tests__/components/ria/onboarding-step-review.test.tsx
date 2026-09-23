@@ -104,4 +104,24 @@ describe("OnboardingStepReview detail card alignment", () => {
     );
     expect(detachedCertificationChips).toHaveLength(0);
   });
+
+  it("does not repeat a bare certification as its own chip", () => {
+    // certificationCode() extracts the same string it was given when a
+    // certification IS already just "Series 66" -- the regression this
+    // guards is the chip then rendering the identical text a second time.
+    render(
+      <OnboardingStepReview {...baseProps} certifications={["Series 66"]} />,
+    );
+
+    const certificationValue = screen.getByTestId(
+      "ria-review-row-certifications",
+    );
+    // The item-text span and a would-be chip span are siblings, never
+    // nested, so this is exact -- unlike matching on textContent at any
+    // element depth, which double-counts a wrapper against its only child.
+    const matches = Array.from(
+      certificationValue.querySelectorAll("span"),
+    ).filter((node) => node.textContent === "Series 66");
+    expect(matches).toHaveLength(1);
+  });
 });

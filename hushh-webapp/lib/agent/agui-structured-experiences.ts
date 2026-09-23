@@ -1,4 +1,13 @@
+import type { PersonScopeCatalog } from "@/lib/services/person-profile-service";
+import { parseConnectorReadReceipt, type ConnectorReadExperience } from "./connector-read-receipt";
+
 export const SCOPE_DISCOVERY_EXPERIENCE_TYPE = "one.scope_discovery.v1" as const;
+export const PERSON_SELECTION_EXPERIENCE_TYPE = "one.person_selection.v1" as const;
+export type PersonSelectionExperience = {
+  type: typeof PERSON_SELECTION_EXPERIENCE_TYPE;
+  candidates: Array<{ selectionHandle: string; personRef: string; displayName: string; profilePath: string; detail: string | null }>;
+  candidatesIncomplete?: boolean;
+};
 export const INFORMATION_REQUEST_REVIEW_EXPERIENCE_TYPE = "one.information_request_review.v1" as const;
 export const KYC_READINESS_EXPERIENCE_TYPE = "one.kyc_readiness.v1" as const;
 export const MEMORY_IMPORT_REVIEW_EXPERIENCE_TYPE = "one.memory_import_review.v1" as const;
@@ -6,6 +15,13 @@ export const EVIDENCE_BRIEF_EXPERIENCE_TYPE = "one.evidence_brief.v1" as const;
 
 const MAX_SCOPES = 250;
 const PROFILE_PATH_PATTERN = /^\/people\/[A-Za-z0-9_-]{16,128}$/;
+const PUBLIC_PERSON_REF_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
+
+/**
+ * A turn may carry an authored card and a short prose note. This role is
+ * explicit so the client never guesses by comparing or stripping text.
+ */
+export type AgentExperiencePresentation = "primary_card" | "supplementary_note";
 
 export type ScopeDiscoverySensitivity =
   | "standard"
@@ -14,6 +30,7 @@ export type ScopeDiscoverySensitivity =
 
 export type ScopeDiscoveryItem = {
   scopeRef: string;
+  pathSegments?: string[];
   label: string;
   description: string | null;
   domain: string;
@@ -23,27 +40,46 @@ export type ScopeDiscoveryItem = {
 export type ScopeDiscoveryExperience = {
   type: typeof SCOPE_DISCOVERY_EXPERIENCE_TYPE;
   person: {
+    /** Public subject reference retained for authority binding; never rendered as an identifier. */
+    personRef: string | null;
     displayName: string;
     profilePath: string;
     relationship: string | null;
   };
   domainFilter: string | null;
   scopes: ScopeDiscoveryItem[];
+  scopeCatalog?: PersonScopeCatalog;
+  catalogIncomplete?: boolean;
 };
 
 type ReviewField = {
   label: string;
   domain: string;
   sensitivity: ScopeDiscoverySensitivity;
+  /** Safe per-item reference used only to reconcile current status. */
+  requestId?: string;
 };
+
+export type InformationRequestItemStatus =
+  | "pending"
+  | "cancelled"
+  | "granted"
+  | "denied"
+  | "expired"
+  | "revoked";
 
 export type InformationRequestReviewExperience = {
   type: typeof INFORMATION_REQUEST_REVIEW_EXPERIENCE_TYPE;
   personName: string;
   purpose: string;
   durationLabel: string;
-  status: "awaiting_review" | "pending" | "cancelled" | "granted" | "denied";
-  fields: ReviewField[];
+  direction: "incoming" | "outgoing" | "unknown";
+  phase: "draft" | "submitted" | "historical";
+  subjectRef: string | null;
+  bundleId: string | null;
+  requestId: string | null;
+  status: "awaiting_review" | "pending" | "mixed" | "cancelled" | "granted" | "denied" | "expired" | "revoked";
+  fields: Array<ReviewField & { status?: InformationRequestItemStatus }>;
 };
 
 export type KycReadinessExperience = {
@@ -59,6 +95,7 @@ export type MemoryImportReviewExperience = {
   type: typeof MEMORY_IMPORT_REVIEW_EXPERIENCE_TYPE;
   sourceBlockCount: number;
   accountedBlockCount: number;
+  presentationIncomplete: boolean;
   groups: Array<{
     domain: string;
     candidates: Array<{
@@ -82,11 +119,17 @@ export type EvidenceBriefExperience = {
 };
 
 export type AgentStructuredExperience =
+  | PersonSelectionExperience
+  | ConnectorReadExperience
   | ScopeDiscoveryExperience
   | InformationRequestReviewExperience
   | KycReadinessExperience
   | MemoryImportReviewExperience
   | EvidenceBriefExperience;
+
+export type AgentStructuredExperienceWithPresentation = AgentStructuredExperience & {
+  presentation?: AgentExperiencePresentation;
+};
 
 type ExperienceParser = (
   content: unknown,
@@ -130,6 +173,14 @@ function unwrapToolResult(value: unknown): Record<string, unknown> | null {
   return record;
 }
 
+function parsePresentation(value: unknown): AgentExperiencePresentation | null {
+  const record = unwrapToolResult(value);
+  const presentation = record?.presentation;
+  return presentation === "primary_card" || presentation === "supplementary_note"
+    ? presentation
+    : null;
+}
+
 function normalizeSensitivity(value: unknown): ScopeDiscoverySensitivity {
   const normalized = boundedString(value, 32)?.toLowerCase();
   if (normalized === "restricted" || normalized === "high") {
@@ -153,7 +204,13 @@ function parseReviewFields(value: unknown, max = 100): ReviewField[] {
     const label = boundedString(field?.label, 120);
     const domain = boundedString(field?.domain, 80);
     if (!label || !domain) return [];
-    return [{ label, domain, sensitivity: normalizeSensitivity(field?.sensitivity) }];
+    const requestId = boundedString(field?.requestId, 128);
+    return [{
+      label,
+      domain,
+      sensitivity: normalizeSensitivity(field?.sensitivity),
+      ...(requestId && /^[A-Za-z0-9_-]{8,128}$/.test(requestId) ? { requestId } : {}),
+    }];
   });
 }
 
@@ -164,8 +221,98 @@ function parseInformationRequestReview(content: unknown): InformationRequestRevi
   const purpose = boundedString(record.purpose, 500);
   const durationLabel = boundedString(record.durationLabel, 100);
   const status = boundedString(record.status, 32) as InformationRequestReviewExperience["status"] | null;
-  if (!personName || !purpose || !durationLabel || !status || !["awaiting_review", "pending", "cancelled", "granted", "denied"].includes(status)) return null;
-  return { type: INFORMATION_REQUEST_REVIEW_EXPERIENCE_TYPE, personName, purpose, durationLabel, status, fields: parseReviewFields(record.fields) };
+  if (!personName || !purpose || !durationLabel || !status || !["awaiting_review", "pending", "mixed", "cancelled", "granted", "denied", "expired", "revoked"].includes(status)) return null;
+  const directionValue = boundedString(record.direction, 16);
+  const phaseValue = boundedString(record.phase, 16);
+  const subjectRef = boundedString(record.subjectRef, 128);
+  const safeSubjectRef = subjectRef && /^[A-Za-z0-9_-]{16,128}$/.test(subjectRef) ? subjectRef : null;
+  const safeDirection = directionValue === "incoming" || directionValue === "outgoing"
+    ? directionValue
+    : "unknown";
+  const hasReliableBinding = Boolean(safeSubjectRef) && safeDirection !== "unknown";
+  const bundleId = boundedString(record.bundleId, 128);
+  const requestId = boundedString(record.requestId, 128);
+  const fields = parseReviewFields(record.fields).map((field, index) => {
+    const raw = Array.isArray(record.fields) ? asRecord(record.fields[index]) : null;
+    const fieldStatus = boundedString(raw?.status, 32) as InformationRequestItemStatus | null;
+    return fieldStatus && ["pending", "cancelled", "granted", "denied", "expired", "revoked"].includes(fieldStatus)
+      ? { ...field, status: fieldStatus }
+      : field;
+  });
+  return {
+    type: INFORMATION_REQUEST_REVIEW_EXPERIENCE_TYPE,
+    personName,
+    purpose,
+    durationLabel,
+    // A descriptor without a bound subject is a legacy preview only. It must
+    // not imply who is involved or trigger a current authority lookup that
+    // could attach another person's status.
+    direction: hasReliableBinding ? safeDirection : "unknown",
+    phase: hasReliableBinding && (phaseValue === "draft" || phaseValue === "submitted")
+      ? phaseValue
+      : "historical",
+    subjectRef: safeSubjectRef,
+    bundleId: bundleId && /^[A-Za-z0-9_-]{8,128}$/.test(bundleId) ? bundleId : null,
+    requestId: requestId && /^[A-Za-z0-9_-]{8,128}$/.test(requestId) ? requestId : null,
+    status,
+    fields,
+  };
+}
+
+function parseInformationRequestProposal(
+  content: unknown,
+): InformationRequestReviewExperience | null {
+  const record = unwrapToolResult(content);
+  if (!record || record.status !== "proposal_ready") return null;
+  const person = asRecord(record.person);
+  const personName = boundedString(person?.displayName, 120);
+  const subjectRef = boundedString(person?.personRef, 128);
+  const profilePath = boundedString(person?.profilePath, 180);
+  const purpose = boundedString(record.purpose, 500);
+  const durationHours = boundedInteger(record.durationHours, 720);
+  if (
+    !personName ||
+    !subjectRef ||
+    !PUBLIC_PERSON_REF_PATTERN.test(subjectRef) ||
+    !profilePath ||
+    !PROFILE_PATH_PATTERN.test(profilePath) ||
+    profilePath.slice("/people/".length) !== subjectRef ||
+    !purpose ||
+    durationHours === null ||
+    durationHours < 1
+  ) {
+    return null;
+  }
+
+  const fields = (Array.isArray(record.fields) ? record.fields : []).flatMap(
+    (field) => {
+      if (typeof field === "string") {
+        const label = boundedString(field, 120);
+        return label
+          ? [{ label, domain: "Information", sensitivity: "standard" as const }]
+          : [];
+      }
+      return parseReviewFields([field], 1);
+    },
+  );
+  if (!fields.length) return null;
+  const durationLabel =
+    durationHours % 24 === 0
+      ? `${durationHours / 24} ${durationHours / 24 === 1 ? "day" : "days"}`
+      : `${durationHours} ${durationHours === 1 ? "hour" : "hours"}`;
+  return {
+    type: INFORMATION_REQUEST_REVIEW_EXPERIENCE_TYPE,
+    personName,
+    purpose,
+    durationLabel,
+    direction: "outgoing",
+    phase: "draft",
+    subjectRef,
+    bundleId: null,
+    requestId: null,
+    status: "awaiting_review",
+    fields,
+  };
 }
 
 function parseKycReadiness(content: unknown): KycReadinessExperience | null {
@@ -191,22 +338,35 @@ function parseMemoryImportReview(content: unknown): MemoryImportReviewExperience
   const sourceBlockCount = boundedInteger(record.sourceBlockCount);
   const accountedBlockCount = boundedInteger(record.accountedBlockCount);
   if (sourceBlockCount === null || accountedBlockCount === null || accountedBlockCount > sourceBlockCount) return null;
-  const groups = (Array.isArray(record.groups) ? record.groups.slice(0, 50) : []).flatMap((rawGroup) => {
+  const rawGroups = record.groups;
+  let presentationIncomplete = sourceBlockCount !== accountedBlockCount || !Array.isArray(rawGroups);
+  if (Array.isArray(rawGroups) && rawGroups.length > 50) presentationIncomplete = true;
+  const seenCandidateRefs = new Set<string>();
+  const groups = (Array.isArray(rawGroups) ? rawGroups.slice(0, 50) : []).flatMap((rawGroup) => {
     const group = asRecord(rawGroup);
     const domain = boundedString(group?.domain, 80);
-    if (!domain) return [];
-    const candidates = (Array.isArray(group?.candidates) ? group.candidates.slice(0, 250) : []).flatMap((rawCandidate) => {
+    if (!domain || !Array.isArray(group?.candidates)) {
+      presentationIncomplete = true;
+      return [];
+    }
+    const rawCandidates = group.candidates;
+    if (rawCandidates.length > 250) presentationIncomplete = true;
+    const candidates = rawCandidates.slice(0, 250).flatMap((rawCandidate) => {
       const candidate = asRecord(rawCandidate);
       const candidateRef = boundedString(candidate?.candidateRef, 180);
       const label = boundedString(candidate?.label, 120);
       const preview = boundedString(candidate?.preview, 280);
       const sharingPosture = boundedString(candidate?.sharingPosture, 32) as MemoryImportReviewExperience["groups"][number]["candidates"][number]["sharingPosture"] | null;
-      if (!candidateRef || !label || !preview || !sharingPosture || !["private", "ask_first", "discoverable"].includes(sharingPosture)) return [];
+      if (!candidateRef || !label || !preview || !sharingPosture || !["private", "ask_first", "discoverable"].includes(sharingPosture) || seenCandidateRefs.has(candidateRef)) {
+        presentationIncomplete = true;
+        return [];
+      }
+      seenCandidateRefs.add(candidateRef);
       return [{ candidateRef, label, preview, sharingPosture, sensitivity: normalizeSensitivity(candidate?.sensitivity) }];
     });
     return [{ domain, candidates }];
   });
-  return { type: MEMORY_IMPORT_REVIEW_EXPERIENCE_TYPE, sourceBlockCount, accountedBlockCount, groups };
+  return { type: MEMORY_IMPORT_REVIEW_EXPERIENCE_TYPE, sourceBlockCount, accountedBlockCount, presentationIncomplete, groups };
 }
 
 function parseEvidenceBrief(content: unknown): EvidenceBriefExperience | null {
@@ -253,6 +413,16 @@ function parseScopeDiscovery(
   ) {
     return null;
   }
+  const profilePersonRef = profilePath.slice("/people/".length);
+  const rawPersonRef = boundedString(person.personRef, 128);
+  const personRef = rawPersonRef && PUBLIC_PERSON_REF_PATTERN.test(rawPersonRef)
+    && rawPersonRef === profilePersonRef
+    ? rawPersonRef
+    : null;
+  // A supplied subject reference is security-relevant. A malformed or
+  // mismatched reference must invalidate the card instead of falling back to
+  // identity reconstructed from a display route.
+  if (rawPersonRef && !personRef) return null;
 
   const rawScopes = Array.isArray(record.requestableScopes)
     ? record.requestableScopes.slice(0, MAX_SCOPES)
@@ -267,6 +437,8 @@ function parseScopeDiscovery(
       {
         scopeRef,
         label,
+        ...(Array.isArray(scope.pathSegments) ? { pathSegments: scope.pathSegments
+          .slice(0, 32).flatMap((part) => { const value = boundedString(part, 120); return value ? [value] : []; }) } : {}),
         description: boundedString(scope.description, 280),
         domain,
         sensitivity: normalizeSensitivity(scope.sensitivity),
@@ -274,15 +446,41 @@ function parseScopeDiscovery(
     ];
   });
 
+  const catalog = asRecord(record.scopeCatalog);
+  const page = Number(catalog?.page);
+  const nextPage = catalog?.nextPage;
+  const totalCount = Number(catalog?.totalCount);
+  const revision = boundedString(catalog?.catalogRevision, 64);
+  const validCatalog = catalog && Number.isInteger(page) && page > 0
+    && Number.isInteger(totalCount) && totalCount >= scopes.length
+    && revision && /^[a-f0-9]{64}$/.test(revision)
+    && typeof catalog.hasMore === "boolean"
+    && (catalog.hasMore ? nextPage === page + 1 : nextPage === null);
+
   return {
     type: SCOPE_DISCOVERY_EXPERIENCE_TYPE,
     person: {
+      personRef,
       displayName,
       profilePath,
       relationship: boundedString(person.relationship, 64),
     },
     domainFilter: boundedString(record.domainFilter, 80),
     scopes,
+    ...(validCatalog ? { scopeCatalog: {
+      page, nextPage: nextPage as number | null, totalCount,
+      limit: Math.max(1, Math.min(Number(catalog.limit) || 100, 100)),
+      hasMore: catalog.hasMore as boolean, catalogRevision: revision,
+      paginationReset: catalog.paginationReset === true,
+      domains: (Array.isArray(catalog.domains) ? catalog.domains : []).flatMap(value => {
+        const entry = asRecord(value);
+        const domain = boundedString(entry?.domain, 80);
+        const count = Number(entry?.count);
+        return domain && Number.isInteger(count) && count >= 0 ? [{ domain, count }] : [];
+      }),
+    } } : {}),
+    ...(record.catalogIncomplete === true || (Array.isArray(record.requestableScopes) && record.requestableScopes.length > MAX_SCOPES)
+      ? { catalogIncomplete: true } : {}),
   };
 }
 
@@ -297,15 +495,53 @@ const EXPERIENCE_REGISTRY: Record<string, ExperienceParser> = {
 export function parseAgentActivityExperience(
   activityType: string,
   content: unknown,
-): AgentStructuredExperience | null {
+): AgentStructuredExperienceWithPresentation | null {
   const parser = EXPERIENCE_REGISTRY[activityType];
-  return parser ? parser(content) : null;
+  const experience = parser ? parser(content) : null;
+  const presentation = experience ? parsePresentation(content) : null;
+  return experience && presentation ? { ...experience, presentation } : experience;
 }
 
 export function parseAgentToolResultExperience(
   toolName: string,
   content: unknown,
-): AgentStructuredExperience | null {
-  if (toolName !== "discover_person_information") return null;
-  return parseScopeDiscovery(content);
+): AgentStructuredExperienceWithPresentation | null {
+  if (toolName === "ask_email_agent" || toolName === "ask_documents_agent") {
+    const receipt = parseConnectorReadReceipt(unwrapToolResult(content)?.structured);
+    return receipt?.connector === (toolName === "ask_email_agent" ? "mail" : "drive")
+      ? receipt : null;
+  }
+  const supportsPersonSelection =
+    toolName === "discover_person_information" ||
+    toolName === "propose_information_request" ||
+    toolName === "list_information_shared_with_me";
+  if (!supportsPersonSelection) return null;
+  const result = unwrapToolResult(content);
+  if (result?.status === "needs_clarification" && Array.isArray(result.candidates)) {
+    const candidates = result.candidates.slice(0, 20).flatMap((value) => {
+      const candidate = asRecord(value);
+      const selectionHandle = boundedString(candidate?.selectionHandle, 64);
+      const personRef = boundedString(candidate?.personRef, 128);
+      const displayName = boundedString(candidate?.displayName, 120);
+      const profilePath = boundedString(candidate?.profilePath, 180);
+      const profilePersonRef = profilePath?.slice("/people/".length);
+      if (!selectionHandle || !/^[a-f0-9]{32}$/.test(selectionHandle) || !displayName ||
+          !personRef || !PUBLIC_PERSON_REF_PATTERN.test(personRef) || !profilePath ||
+          !PROFILE_PATH_PATTERN.test(profilePath) || personRef !== profilePersonRef) return [];
+      return [{ personRef, selectionHandle, displayName, profilePath, detail: boundedString(candidate?.detail, 120) }];
+    });
+    return candidates.length
+      ? {
+          type: PERSON_SELECTION_EXPERIENCE_TYPE,
+          candidates,
+          ...(result.candidatesIncomplete === true ? { candidatesIncomplete: true } : {}),
+        }
+      : null;
+  }
+  if (toolName === "propose_information_request") {
+    return parseInformationRequestProposal(content);
+  }
+  const experience = parseScopeDiscovery(content);
+  const presentation = experience ? parsePresentation(content) : null;
+  return experience && presentation ? { ...experience, presentation } : experience;
 }

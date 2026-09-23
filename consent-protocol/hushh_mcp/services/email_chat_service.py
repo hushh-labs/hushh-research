@@ -223,6 +223,27 @@ class EmailChatService:
 
         return await self._finish(turn, reply or "Done.", user_id, errored=errored)
 
+    async def handle_delegated_turn(
+        self,
+        *,
+        user_id: str,
+        consent_token: str,
+        conversation_id: str,
+        message: str,
+        require_access: Callable[[], Awaitable[None]],
+    ) -> dict[str, Any]:
+        """Read Mail for One without creating or writing a second conversation."""
+        from hushh_mcp.services.email_delegated_read import run_delegated_mail_read
+
+        return await run_delegated_mail_read(
+            gmail=self._gmail,
+            user_id=user_id,
+            consent_token=consent_token,
+            conversation_id=conversation_id,
+            message=message,
+            require_access=require_access,
+        )
+
     async def _run_adk_tool_loop(
         self, *, user_id: str, consent_token: str, message: str, history: list[Any]
     ) -> tuple[str, bool]:

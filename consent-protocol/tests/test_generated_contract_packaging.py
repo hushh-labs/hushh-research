@@ -47,6 +47,11 @@ RUNTIME_CONTRACTS = (
     ("kai", "kai-action-gateway.vnext.json"),
     ("kai", "one-route-orchestration-index.v1.json"),
     ("agents", "product-agent-registry.v2.json"),
+    # internal_path_keys.py hit this exact bug: get_available_scope_entries
+    # crashed with FileNotFoundError for any person with a non-empty
+    # pkm_manifests.externalizable_paths, 500ing /api/one/people/{person_ref}
+    # in UAT while every local checkout worked.
+    ("pkm", "internal-path-keys.v1.json"),
 )
 
 

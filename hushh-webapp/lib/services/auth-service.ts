@@ -27,6 +27,7 @@ import {
   signInWithCredential,
   signInWithCustomToken as firebaseSignInWithCustomToken,
   signInWithPopup,
+  reauthenticateWithPopup,
   signOut as firebaseSignOut,
   updatePhoneNumber,
   User,
@@ -507,6 +508,71 @@ export class AuthService {
       return this.nativeGoogleSignIn();
     } else {
       return this.webGoogleSignIn();
+    }
+  }
+
+  /** Fresh Google proof for an existing owner, never a replacement sign-in. */
+  static async reauthenticateGoogleIdentity(
+    expectedUserId: string,
+    isCurrent: () => boolean,
+  ): Promise<string> {
+    if (!expectedUserId || !isCurrent()) throw new Error("session_changed");
+    if (Capacitor.isNativePlatform()) {
+      // The native Firebase user is authoritative. The web SDK observer may
+      // not have published that identity yet and must not replace its session.
+      let deadline: ReturnType<typeof setTimeout> | undefined;
+      try {
+        const result = await Promise.race([
+          HushhAuth.reauthenticateGoogleIdentity({ expectedUserId }),
+          // Older iOS shells can leave an unknown bridge method unsettled.
+          // This bounds the UI wait without pretending to cancel native OAuth.
+          new Promise<never>((_, reject) => {
+            deadline = setTimeout(() => reject(new Error("identity_timeout")), 125_000);
+          }),
+        ]);
+        if (!isCurrent()) throw new Error("session_changed");
+        if (result.userId !== expectedUserId) throw new Error("identity_mismatch");
+        if (typeof result.idToken !== "string" || !result.idToken.trim()) throw new Error("identity_verification_failed");
+        return result.idToken;
+      } catch (error) {
+        if (!isCurrent()) throw new Error("session_changed");
+        const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
+        const safeCode = code || (error instanceof Error ? error.message : "");
+        if (code === "UNIMPLEMENTED" || code === "UNAVAILABLE") throw new Error("native_identity_unavailable");
+        if (["identity_cancelled", "identity_mismatch", "google_identity_required", "session_changed", "identity_busy", "identity_timeout"].includes(safeCode)) {
+          throw new Error(safeCode);
+        }
+        throw new Error("identity_verification_failed");
+      } finally {
+        clearTimeout(deadline);
+      }
+    }
+    const currentUser = auth.currentUser;
+    if (!currentUser || currentUser.uid !== expectedUserId ||
+        !currentUser.providerData.some((provider) => provider.providerId === "google.com")) {
+      throw new Error("google_identity_required");
+    }
+    const assertCurrent = () => {
+      if (!isCurrent() || auth.currentUser !== currentUser || currentUser.uid !== expectedUserId) throw new Error("session_changed");
+    };
+    assertCurrent();
+    const provider = this.createWebProvider("google");
+    try {
+      // No await before Firebase receives the originating user gesture.
+      const result = await reauthenticateWithPopup(currentUser, provider);
+      assertCurrent();
+      if (result.user.uid !== expectedUserId) throw new Error("identity_mismatch");
+      const token = await result.user.getIdToken(true);
+      assertCurrent();
+      return token;
+    } catch (error) {
+      assertCurrent();
+      if (this.isExpectedPopupClose(error)) throw new Error("identity_cancelled");
+      const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
+      if (code === "auth/popup-blocked") throw new Error("identity_popup_blocked");
+      if (code === "auth/user-mismatch" || error instanceof Error && error.message === "identity_mismatch") throw new Error("identity_mismatch");
+      // No OAuth payload/credential or Firebase error object crosses this seam.
+      throw new Error("identity_verification_failed");
     }
   }
 

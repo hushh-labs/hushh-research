@@ -68,10 +68,28 @@ const mocks = vi.hoisted(() => ({
       opened: true,
       sourcePlatform: "ios",
     })),
+    // Never called by the bridge: the relay armed the grants and the server
+    // verifies delivery. Spied so a regression that re-runs the manual SOS
+    // path (a second publisher) fails loudly.
+    createGrant: vi.fn(),
+    sendSosEmails: vi.fn(),
+    revokeGrant: vi.fn(),
   },
+  runSosPanic: vi.fn(),
+  pathname: "/one/location",
   getSetupProgress: vi.fn(),
   toast: { warning: vi.fn(), error: vi.fn(), success: vi.fn(), info: vi.fn() },
 }));
+
+vi.mock("next/navigation", () => ({
+  usePathname: () => mocks.pathname,
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+}));
+vi.mock("@/lib/one-location/sos-trigger", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/one-location/sos-trigger")>();
+  return { ...actual, runSosPanic: mocks.runSosPanic };
+});
 
 vi.mock("@capacitor/core", () => ({
   Capacitor: { isNativePlatform: () => false, getPlatform: () => "web" },
@@ -150,8 +168,17 @@ vi.mock("@/lib/one-location/background-share-runtime", () => ({
 }));
 vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: mocks.toast }));
 
-import { LocationPublisherBridge } from "@/components/location/location-publisher-bridge";
+import {
+  LocationPublisherBridge,
+  hasValidCoordinates,
+} from "@/components/location/location-publisher-bridge";
 import { LocationAccountSettingsResource } from "@/lib/location/account-settings";
+import { encryptLocationForRecipient } from "@/lib/one-location/encryption";
+import {
+  clearSosIncident,
+  loadSosIncident,
+  saveSosIncident,
+} from "@/lib/one-location/sos-incident";
 import { useVoiceSessionStore } from "@/lib/one-voice/session-store";
 
 type SharingValue = typeof mocks.sharing.value;
@@ -165,6 +192,9 @@ beforeEach(() => {
   useVoiceSessionStore.getState().reset();
   useVoiceSessionStore.getState().effects.clear();
   LocationAccountSettingsResource.__resetForTests();
+  clearSosIncident();
+  mocks.pathname = "/one/location";
+  window.history.replaceState({}, "", "/one/location");
   mocks.service.watchCurrentPosition.mockResolvedValue("watch-1");
   setSharing({
     appSharing: true,
@@ -512,5 +542,301 @@ describe("LocationPublisherBridge", () => {
         });
     });
     expect(mocks.service.stopBackgroundShare.mock.calls.length).toBe(before);
+  });
+});
+
+describe("LocationPublisherBridge: Save My Soul", () => {
+  const BOB = {
+    userId: "bob",
+    displayName: "Bob",
+    phoneVerified: true,
+    keyId: "k-bob",
+    publicKeyJwk: { kty: "EC" },
+    keyAlgorithm: "ECDH-P256-AES256-GCM",
+    canReceiveLocation: true,
+  };
+  const ALICE = (mocks.state.value as { recipients: unknown[] }).recipients[0];
+  const FIX = {
+    latitude: 12.97194,
+    longitude: 77.59456,
+    accuracyM: 8,
+    capturedAt: new Date().toISOString(),
+    sourcePlatform: "web",
+  };
+  /** The step the relay sends after `trigger_save_my_soul` armed two grants. */
+  const sosStep = (stepId: string) => ({
+    stepId,
+    kind: "publish_location_envelopes",
+    payload: {
+      purpose: "sos",
+      sos: true,
+      grant_ids: ["sos-a", "sos-b"],
+      grants: [
+        { grant_id: "sos-a", user_id: "alice", key_id: "k-alice" },
+        { grant_id: "sos-b", user_id: "bob", key_id: "k-bob" },
+      ],
+      timeout_s: 25,
+    },
+    timeoutS: 25,
+  });
+
+  function armServerState() {
+    // The state read lags the write: neither SOS grant is listed yet, so the
+    // step's own `grants` rows are what the bridge publishes to.
+    mocks.service.getState.mockResolvedValue({
+      ...(mocks.state.value as Record<string, unknown>),
+      recipients: [ALICE, BOB],
+      ownerGrants: [],
+    });
+    mocks.service.captureCurrentPosition.mockResolvedValue({ ...FIX });
+    mocks.service.storeEnvelope.mockResolvedValue({
+      envelope: {},
+      recipientAlerted: true,
+    });
+  }
+
+  async function mountBridge() {
+    render(<LocationPublisherBridge />);
+    await waitFor(() =>
+      expect(useVoiceSessionStore.getState().effects.size).toBeGreaterThan(0),
+    );
+  }
+
+  function storedGrantIds(): string[] {
+    return mocks.service.storeEnvelope.mock.calls.map(
+      (call) => (call[0] as { grantId: string }).grantId,
+    );
+  }
+
+  it("(i) publishes an SOS step from Home: the route never gates the bridge", async () => {
+    mocks.pathname = "/one";
+    window.history.replaceState({}, "", "/one");
+    armServerState();
+    await mountBridge();
+    expect(window.location.pathname).toBe("/one");
+
+    const report = vi.fn();
+    await act(async () => {
+      useVoiceSessionStore.getState().emitClientStep(sosStep("sos-step-1"), report);
+    });
+    await waitFor(() => expect(report).toHaveBeenCalledTimes(1));
+    const [status, payload] = report.mock.calls[0]! as [
+      string,
+      Record<string, unknown>,
+    ];
+    expect(status).toBe("ok");
+    expect(payload.published).toEqual(["sos-a", "sos-b"]);
+    expect(payload.failures).toEqual([]);
+    // SOS is always precise, and always a fresh fix.
+    expect(payload.precision).toBe("precise");
+    expect(mocks.service.captureCurrentPosition).toHaveBeenCalledWith({
+      maxAgeMs: 0,
+    });
+    expect(storedGrantIds().sort()).toEqual(["sos-a", "sos-b"]);
+    for (const call of mocks.service.storeEnvelope.mock.calls) {
+      const params = call[0] as {
+        vaultOwnerToken: string;
+        envelope: { metadata?: Record<string, unknown> };
+      };
+      expect(params.vaultOwnerToken).toBe("vot");
+      expect(params.envelope.metadata?.precision).toBe("precise");
+      expect(JSON.stringify(params.envelope)).not.toContain("12.97194");
+    }
+  });
+
+  it("(ii) the same step id delivered twice is published and reported once", async () => {
+    armServerState();
+    await mountBridge();
+    const report = vi.fn();
+    await act(async () => {
+      useVoiceSessionStore.getState().emitClientStep(sosStep("sos-step-2"), report);
+      useVoiceSessionStore.getState().emitClientStep(sosStep("sos-step-2"), report);
+    });
+    await waitFor(() => expect(report).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(report).toHaveBeenCalledTimes(1);
+    expect(mocks.service.captureCurrentPosition).toHaveBeenCalledTimes(1);
+    expect(storedGrantIds().sort()).toEqual(["sos-a", "sos-b"]);
+  });
+
+  it("(iii) one store failure out of two still reports ok, naming the failed grant", async () => {
+    armServerState();
+    mocks.service.storeEnvelope.mockImplementation(
+      async (params: { grantId: string }) => {
+        if (params.grantId === "sos-b") throw new Error("store boom");
+        return { envelope: {}, recipientAlerted: true };
+      },
+    );
+    await mountBridge();
+    const report = vi.fn();
+    await act(async () => {
+      useVoiceSessionStore.getState().emitClientStep(sosStep("sos-step-3"), report);
+    });
+    await waitFor(() => expect(report).toHaveBeenCalledTimes(1));
+    const [status, payload] = report.mock.calls[0]! as [
+      string,
+      { published: string[]; failures: Array<Record<string, unknown>> },
+    ];
+    expect(status).toBe("ok");
+    expect(payload.published).toEqual(["sos-a"]);
+    expect(payload.failures).toHaveLength(1);
+    expect(payload.failures[0]).toMatchObject({
+      grant_id: "sos-b",
+      code: "store_failed",
+    });
+    // The report never claims the failed one; the server decides "reached".
+    expect(JSON.stringify(payload)).not.toMatch(/sent|delivered/);
+  });
+
+  it("(iv) an invalid coordinate is never encrypted: it reports no fix", async () => {
+    expect(hasValidCoordinates({ latitude: 0, longitude: 0 })).toBe(true);
+    expect(hasValidCoordinates({ latitude: -90, longitude: 180 })).toBe(true);
+    expect(hasValidCoordinates({ latitude: Number.NaN, longitude: 1 })).toBe(false);
+    expect(hasValidCoordinates({ latitude: 1, longitude: Number.POSITIVE_INFINITY })).toBe(false);
+    expect(hasValidCoordinates({ latitude: 90.0001, longitude: 0 })).toBe(false);
+    expect(hasValidCoordinates({ latitude: 0, longitude: -180.5 })).toBe(false);
+
+    for (const bad of [
+      { latitude: Number.NaN, longitude: 77.59456 },
+      { latitude: 12.97194, longitude: 181 },
+      { latitude: -91, longitude: 77.59456 },
+    ]) {
+      vi.clearAllMocks();
+      useVoiceSessionStore.getState().effects.clear();
+      armServerState();
+      mocks.service.captureCurrentPosition.mockResolvedValue({ ...FIX, ...bad });
+      const { unmount } = render(<LocationPublisherBridge />);
+      await waitFor(() =>
+        expect(useVoiceSessionStore.getState().effects.size).toBeGreaterThan(0),
+      );
+      const report = vi.fn();
+      await act(async () => {
+        useVoiceSessionStore
+          .getState()
+          .emitClientStep(sosStep(`sos-step-4-${bad.latitude}-${bad.longitude}`), report);
+      });
+      await waitFor(() => expect(report).toHaveBeenCalledTimes(1));
+      const [status, payload] = report.mock.calls[0]! as [
+        string,
+        Record<string, unknown>,
+      ];
+      expect(status, JSON.stringify(bad)).toBe("failed");
+      expect(payload.code).toBe("no_fix");
+      expect(payload.grant_ids).toEqual(["sos-a", "sos-b"]);
+      expect(payload.failures).toEqual([
+        { grant_id: "sos-a", code: "store_failed", reason: "invalid_coordinates" },
+        { grant_id: "sos-b", code: "store_failed", reason: "invalid_coordinates" },
+      ]);
+      expect(mocks.service.storeEnvelope).not.toHaveBeenCalled();
+      expect(vi.mocked(encryptLocationForRecipient)).not.toHaveBeenCalled();
+      // No coordinate leaves the device in the report either.
+      expect(JSON.stringify(payload)).not.toMatch(/77\.59456|12\.97194/);
+      unmount();
+    }
+  });
+
+  it("(v) an SOS step never re-runs the manual path: no runSosPanic, no emails, no new grants", async () => {
+    armServerState();
+    await mountBridge();
+    const report = vi.fn();
+    await act(async () => {
+      useVoiceSessionStore.getState().emitClientStep(sosStep("sos-step-5"), report);
+    });
+    await waitFor(() => expect(report).toHaveBeenCalledTimes(1));
+    expect(report.mock.calls[0]![0]).toBe("ok");
+    expect(mocks.runSosPanic).not.toHaveBeenCalled();
+    expect(mocks.service.sendSosEmails).not.toHaveBeenCalled();
+    expect(mocks.service.createGrant).not.toHaveBeenCalled();
+    expect(mocks.service.revokeGrant).not.toHaveBeenCalled();
+  });
+
+  it("(vi) persists the owner-scoped incident when the trigger card resolves armed, on any route", async () => {
+    mocks.pathname = "/one";
+    window.history.replaceState({}, "", "/one");
+    armServerState();
+    await mountBridge();
+    const armed = {
+      status: "sos_grants_created",
+      grant_ids: ["sos-a", "sos-b"],
+      armed: [
+        { grant_id: "sos-a", user_id: "alice", display_name: "Alice" },
+        { grant_id: "sos-b", user_id: "bob", display_name: "Bob" },
+      ],
+      note: "note_SECRET",
+      client_step: { kind: "publish_location_envelopes", purpose: "sos", grant_ids: ["sos-a", "sos-b"] },
+    };
+    await act(async () => {
+      useVoiceSessionStore
+        .getState()
+        .emitPendingResolved("pa-sos", "executed", armed);
+    });
+    const stored = loadSosIncident("u1");
+    expect(stored).not.toBeNull();
+    expect(stored!.grantIds).toEqual(["sos-a", "sos-b"]);
+    expect(stored!.ownerUserId).toBe("u1");
+    expect(typeof stored!.startedAt).toBe("string");
+    // Owner-scoped: another account never sees it.
+    expect(loadSosIncident("u2")).toBeNull();
+    // Nothing but ids, a time and the owner reaches storage.
+    const raw = window.localStorage.getItem("one_location_sos_incident_v1")!;
+    expect(raw).not.toContain("note_SECRET");
+    expect(raw).not.toContain("Alice");
+    expect(raw).not.toContain("alice");
+
+    // The relay mirrors the arming as a tool.result too: same alert, same record.
+    await act(async () => {
+      useVoiceSessionStore
+        .getState()
+        .emitToolResult("trigger_save_my_soul", { ...armed });
+    });
+    expect(loadSosIncident("u1")).toEqual(stored);
+
+    // A failed resolution never records an incident.
+    clearSosIncident();
+    await act(async () => {
+      useVoiceSessionStore
+        .getState()
+        .emitPendingResolved("pa-sos-2", "failed", {
+          status: "rejected",
+          reason_code: "sos_audience_changed",
+        });
+    });
+    expect(loadSosIncident("u1")).toBeNull();
+  });
+
+  it("clears the incident on sos_stopped and keeps only the unresolved shares on sos_partially_stopped", async () => {
+    await mountBridge();
+    saveSosIncident({
+      grantIds: ["sos-a", "sos-b"],
+      startedAt: "2026-09-15T10:00:00.000Z",
+      ownerUserId: "u1",
+    });
+    await act(async () => {
+      useVoiceSessionStore
+        .getState()
+        .emitPendingResolved("pa-stop", "executed", {
+          status: "sos_partially_stopped",
+          stopped: [{ grant_id: "sos-a", user_id: "alice", display_name: "Alice" }],
+          unresolved: [{ grant_id: "sos-b", user_id: "bob", display_name: "Bob" }],
+          unresolved_grant_ids: ["sos-b"],
+        });
+    });
+    expect(loadSosIncident("u1")).toEqual({
+      grantIds: ["sos-b"],
+      startedAt: "2026-09-15T10:00:00.000Z",
+      ownerUserId: "u1",
+    });
+    await act(async () => {
+      useVoiceSessionStore
+        .getState()
+        .emitToolResult("stop_save_my_soul", {
+          status: "sos_stopped",
+          stopped_count: 1,
+        });
+    });
+    expect(loadSosIncident("u1")).toBeNull();
+    expect(mocks.service.revokeGrant).not.toHaveBeenCalled();
   });
 });

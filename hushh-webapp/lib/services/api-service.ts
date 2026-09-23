@@ -488,14 +488,25 @@ async function classifyVaultOwnerAuthFailure(
  * this only ever bounds a request the proxy itself could not bound.
  */
 const WEB_FETCH_TIMEOUT_MS = 60_000;
+const KYC_SCAN_WEB_FETCH_TIMEOUT_MS = 95_000;
+
+/**
+ * Keep the browser alive long enough to receive the KYC scan proxy's bounded
+ * response. The extra five seconds ensure a proxy 504 remains a structured,
+ * retryable API response rather than becoming a client-side abort.
+ */
+export function webFetchTimeoutMsForPath(path: string): number {
+  const pathname = path.split("?", 1)[0];
+  return pathname === "/api/one/email/information-requests/scan"
+    ? KYC_SCAN_WEB_FETCH_TIMEOUT_MS
+    : WEB_FETCH_TIMEOUT_MS;
+}
 
 /**
  * Pod turns may use a slow, owner-local model. Keep a client ceiling above the
  * hub and pod route ceilings so typed backend timeouts reach the caller.
  */
 export const POD_TURN_FETCH_TIMEOUT_MS = 170_000;
-
-export type ApiFetchOptions = RequestInit & { timeoutMs?: number };
 
 /**
  * `fetch` has no default timeout. A request that never receives a response
@@ -540,11 +551,24 @@ export async function fetchWithWebTimeout(
   }
 }
 
+export type ApiFetchOptions = RequestInit & {
+  timeoutMs?: number;
+  /** Revalidate effect authority after async transport setup, including retries. */
+  beforeDispatch?: () => Promise<void>;
+  /** Synchronous final check: no await may separate authority from dispatch. */
+  isEffectCurrent?: () => boolean;
+};
+
 async function apiFetch(
   path: string,
   options: ApiFetchOptions = {},
 ): Promise<Response> {
-  const { timeoutMs: requestTimeoutMs, ...fetchInit } = options;
+  const { beforeDispatch, isEffectCurrent, timeoutMs: requestTimeoutMs, ...fetchOptions } = options;
+  const assertEffectCurrent = () => {
+    if (isEffectCurrent && isEffectCurrent() !== true) {
+      throw new DOMException("The effect session changed.", "AbortError");
+    }
+  };
   const initiatingAuthUser = AuthService.getCurrentUser();
   // Native auth may intentionally live only in the Capacitor SDK. Bind its
   // refresh to the central validated owner generation, not an absent JS user.
@@ -855,7 +879,8 @@ async function apiFetch(
       // generous ceiling for the RIA scrape routes, a tight one otherwise.
       const isLongRunningRoute =
         path.includes("/ria/onboarding/") ||
-        path.includes("/ria/profile/refresh-license");
+        path.includes("/ria/profile/refresh-license") ||
+        path === "/api/one/email/information-requests/scan";
       // 90s ceiling for the RIA scrape routes; a generous 60s otherwise so we
       // only ever bound a genuinely hung request (native calls were previously
       // unbounded — keep legitimately-slow uploads/downloads working).
@@ -883,11 +908,13 @@ async function apiFetch(
       ) {
         if (options.body instanceof FormData) {
           // Multipart uploads route through native plugins; keep fetch fallback for safety.
+          await beforeDispatch?.();
+          assertEffectCurrent();
           const formResponse = await fetchWithWebTimeout(url, {
-            ...fetchInit,
+            ...fetchOptions,
             credentials: "include",
             headers: mergedHeaders,
-          });
+          }, requestTimeoutMs ?? webFetchTimeoutMsForPath(path));
           return await settleAuthenticatedResponse(formResponse);
         }
         if (typeof options.body === "string") {
@@ -937,7 +964,10 @@ async function apiFetch(
       // CapacitorHttp can't cancel, so the in-flight native request is abandoned.
       // The abort listener is removed on completion (finally) so a request that
       // wins the race doesn't leak a listener + closure on the signal.
+      await beforeDispatch?.();
+      assertEffectCurrent();
       const signal = options.signal;
+      if (signal?.aborted) throw new DOMException("The operation was aborted.", "AbortError");
       let nativeResponse: Awaited<ReturnType<typeof CapacitorHttp.request>>;
       if (signal) {
         let onAbort: (() => void) | undefined;
@@ -969,11 +999,13 @@ async function apiFetch(
       return await settleAuthenticatedResponse(response);
     }
 
+    await beforeDispatch?.();
+    assertEffectCurrent();
     const response = await fetchWithWebTimeout(url, {
-      ...fetchInit,
+      ...fetchOptions,
       credentials: "include",
       headers: mergedHeaders,
-    }, requestTimeoutMs ?? WEB_FETCH_TIMEOUT_MS);
+    }, requestTimeoutMs ?? webFetchTimeoutMsForPath(path));
     return await settleAuthenticatedResponse(response);
   } catch (error) {
     recordApiRequestMetric(null);
@@ -1329,9 +1361,7 @@ export interface AccountPhoneTestStartResponse {
  * API Service for platform-aware API calls
  */
 export class ApiService {
-  private static appReviewModeSessionInflight: Promise<{
-    token: string;
-  }> | null = null;
+  private static readonly appReviewModeSessions = new Map<string, Promise<{ token: string }>>();
 
   private static readonly dashboardProfilePicksInflight = new Map<
     string,
@@ -1924,13 +1954,13 @@ export class ApiService {
    */
   static async createAppReviewModeSession(
     subject: "reviewer" = "reviewer",
-    options?: { smokePassphrase?: string | null },
+    options?: { smokePassphrase?: string | null; reviewerUid?: string | null },
   ): Promise<{ token: string }> {
-    if (this.appReviewModeSessionInflight) {
-      return this.appReviewModeSessionInflight;
-    }
+    const identityKey = `${subject}:${options?.reviewerUid ?? "default"}`;
+    const existing = this.appReviewModeSessions.get(identityKey);
+    if (existing) return existing;
 
-    this.appReviewModeSessionInflight = (async () => {
+    const request = (async () => {
       const response = await apiFetch("/api/app-config/review-mode/session", {
         method: "POST",
         cache: "no-store",
@@ -1939,6 +1969,7 @@ export class ApiService {
         },
         body: JSON.stringify({
           subject,
+          reviewer_uid: options?.reviewerUid || undefined,
           smoke_passphrase:
             typeof options?.smokePassphrase === "string" &&
             options.smokePassphrase.trim().length > 0
@@ -1968,10 +1999,11 @@ export class ApiService {
       return { token };
     })();
 
+    this.appReviewModeSessions.set(identityKey, request);
     try {
-      return await this.appReviewModeSessionInflight;
+      return await request;
     } finally {
-      this.appReviewModeSessionInflight = null;
+      this.appReviewModeSessions.delete(identityKey);
     }
   }
 

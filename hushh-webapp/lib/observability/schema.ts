@@ -1,8 +1,16 @@
-import type {
-  EventPayloadWithContextFor,
-  ObservabilityEventName,
-  PrimitiveEventValue,
+import {
+  ONE_LOCATION_JOURNEY_ACTIONS,
+  type EventPayloadWithContextFor,
+  type ObservabilityEventName,
+  type PrimitiveEventValue,
 } from "@/lib/observability/events";
+
+/*
+ * These enums are intentionally long, human-readable strings. They are safe
+ * only in the exact event/key position declared here; every other long opaque
+ * string still follows the conservative token/identifier rejection rule.
+ */
+const ONE_LOCATION_JOURNEY_ACTION_SET = new Set<string>(ONE_LOCATION_JOURNEY_ACTIONS);
 
 const BASE_ALLOWED_KEYS = [
   "env",
@@ -358,6 +366,19 @@ function looksSensitiveValue(value: PrimitiveEventValue): boolean {
   return false;
 }
 
+function isGovernedLongString(
+  eventName: ObservabilityEventName,
+  key: string,
+  value: PrimitiveEventValue,
+): boolean {
+  return (
+    eventName === "one_location_journey_action" &&
+    key === "action" &&
+    typeof value === "string" &&
+    ONE_LOCATION_JOURNEY_ACTION_SET.has(value)
+  );
+}
+
 export interface EventValidationResult {
   ok: boolean;
   sanitized: Record<string, PrimitiveEventValue>;
@@ -388,7 +409,7 @@ export function validateAndSanitizeEvent<T extends ObservabilityEventName>(
       continue;
     }
 
-    if (looksSensitiveValue(value)) {
+    if (looksSensitiveValue(value) && !isGovernedLongString(eventName, key, value)) {
       droppedKeys.push(key);
       continue;
     }

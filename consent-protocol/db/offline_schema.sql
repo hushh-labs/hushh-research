@@ -355,6 +355,7 @@ CREATE TABLE IF NOT EXISTS "vault_keys" (
   "nav_setup_completed_at" INTEGER,
   "nav_setup_skipped_at" INTEGER,
   "setup_capability_ids" TEXT,
+  "setup_capability_declined_ids" TEXT,
   "setup_capabilities_updated_at" INTEGER,
   "setup_state_updated_at" INTEGER,
   "one_runtime_setup_choice" TEXT CHECK ("one_runtime_setup_choice" IS NULL OR "one_runtime_setup_choice" IN ('hushh_managed_vertex', 'byok_pending_vault')),

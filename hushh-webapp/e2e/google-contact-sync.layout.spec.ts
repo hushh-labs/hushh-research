@@ -57,7 +57,9 @@ test.beforeAll(async () => {
         },
       },
     ],
-    oxc: { jsx: { runtime: "automatic" } },
+    // The fixture bundles production React below. Keep JSX on its production
+    // entrypoint too; jsxDEV is absent there and can fail browser startup.
+    oxc: { jsx: { runtime: "automatic", development: false } },
     resolve: {
       alias: [
         {
@@ -201,7 +203,7 @@ for (const width of [393, 1440]) {
     ).toBeVisible();
     await expect(
       results.getByRole("button", { name: "Choose Google account" }),
-    ).toHaveClass(/bg-\[color:var\(--app-accent\)\]/);
+    ).toHaveClass(/bg-\[[^\]]*var\(--app-accent\)/);
     await expect(
       results.getByRole("button", { name: "Invite contacts" }),
     ).toHaveCount(0);

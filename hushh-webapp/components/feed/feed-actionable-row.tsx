@@ -2,14 +2,16 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2 } from "@/components/icons";
 
+import { FlowActionGroup } from "@/components/app-ui/flow-actions";
 import { SettingsRow } from "@/components/app-ui/settings-ui";
 import {
   Avatar,
   AvatarFallback,
   AvatarImage,
 } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { cn } from "@/lib/utils";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
@@ -49,8 +51,16 @@ function ActionButton({
   }, [actionsLocked, disarm, isRunning]);
 
   return (
-    <button
+    <Button
       type="button"
+      size="compact"
+      variant={
+        showConfirm
+          ? "destructive"
+          : action.tone === "primary"
+            ? "default"
+            : "secondary"
+      }
       disabled={action.disabled || actionsLocked}
       aria-label={
         action.confirm ? confirmTap.ariaLabel(action.label) : undefined
@@ -67,22 +77,17 @@ function ActionButton({
         runNow();
       }}
       className={cn(
-        "inline-flex min-h-11 max-w-full items-center justify-center gap-1.5 rounded-full px-3.5 text-[13px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
-        action.tone === "primary" &&
-          "bg-accent text-accent-foreground hover:bg-accent/90",
-        action.tone === "ghost" &&
-          "bg-foreground/[0.06] text-foreground hover:bg-foreground/[0.1]",
+        "w-full min-w-0 sm:min-w-28",
         action.tone === "danger" &&
-          "bg-foreground/[0.06] text-destructive hover:bg-destructive/10",
-        showConfirm &&
-          "bg-destructive text-destructive-foreground hover:bg-destructive/90",
+          !showConfirm &&
+          "text-destructive hover:bg-destructive/10",
       )}
     >
       {isRunning ? (
         <Icon icon={Loader2} size="xs" className="animate-spin" />
       ) : null}
       {action.confirm ? confirmTap.label(action.label) : action.label}
-    </button>
+    </Button>
   );
 }
 
@@ -107,17 +112,32 @@ function ActionButtons({ actions }: { actions: FeedActionButton[] }) {
   };
 
   if (!actions.length) return null;
+  const renderAction = (action: FeedActionButton) => (
+    <ActionButton
+      key={action.key}
+      action={action}
+      runningActionKey={runningActionKey}
+      runAction={runAction}
+    />
+  );
+
+  if (actions.length <= 2) {
+    const primary =
+      actions.find((action) => action.tone === "primary") ??
+      actions[actions.length - 1]!;
+    const secondary = actions.find((action) => action !== primary);
+    return (
+      <FlowActionGroup
+        primary={renderAction(primary)}
+        secondary={secondary ? renderAction(secondary) : undefined}
+      />
+    );
+  }
+
   return (
-    <span className="flex min-w-0 flex-wrap items-center gap-2">
-      {actions.map((action) => (
-        <ActionButton
-          key={action.key}
-          action={action}
-          runningActionKey={runningActionKey}
-          runAction={runAction}
-        />
-      ))}
-    </span>
+    <div className="grid w-full gap-2.5 sm:flex sm:flex-wrap sm:justify-end">
+      {actions.map(renderAction)}
+    </div>
   );
 }
 

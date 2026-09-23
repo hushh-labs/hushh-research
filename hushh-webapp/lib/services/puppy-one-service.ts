@@ -19,6 +19,7 @@
  */
 
 import { ApiService } from "@/lib/services/api-service";
+import { registerPeriodicTask } from "@/lib/perf/idle-scheduler";
 import { HEARTBEAT_FRESH_MS } from "@/lib/trusted-device/sync-display";
 
 export interface PuppyStatus {
@@ -656,7 +657,8 @@ type LinkListener = (link: PuppyLink | null) => void;
 const linkStore: {
   link: PuppyLink | null;
   listeners: Set<LinkListener>;
-  timer: ReturnType<typeof setInterval> | null;
+  /** The poll's unregister handle while a subscriber exists. */
+  timer: (() => void) | null;
   inFlight: Promise<PuppyLink> | null;
 } = { link: null, listeners: new Set(), timer: null, inFlight: null };
 
@@ -691,12 +693,20 @@ export function subscribePuppyLink(listener: LinkListener): () => void {
   linkStore.listeners.add(listener);
   if (linkStore.timer === null) {
     void refreshPuppyLink();
-    linkStore.timer = setInterval(() => void refreshPuppyLink(), PUPPY_LINK_POLL_MS);
+    // On the shared idle clock (one wake with the other polls, after a
+    // frame, never while hidden); the handle is the unregister function.
+    linkStore.timer = registerPeriodicTask({
+      id: "puppy:link",
+      intervalMs: PUPPY_LINK_POLL_MS,
+      run: async () => {
+        await refreshPuppyLink();
+      },
+    });
   }
   return () => {
     linkStore.listeners.delete(listener);
     if (linkStore.listeners.size === 0 && linkStore.timer !== null) {
-      clearInterval(linkStore.timer);
+      linkStore.timer();
       linkStore.timer = null;
     }
   };
@@ -704,7 +714,7 @@ export function subscribePuppyLink(listener: LinkListener): () => void {
 
 /** Test seam: forget the last read and stop any poll. */
 export function resetPuppyLinkStoreForTests(): void {
-  if (linkStore.timer !== null) clearInterval(linkStore.timer);
+  if (linkStore.timer !== null) linkStore.timer();
   linkStore.timer = null;
   linkStore.link = null;
   linkStore.inFlight = null;

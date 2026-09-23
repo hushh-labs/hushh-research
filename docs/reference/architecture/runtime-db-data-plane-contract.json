@@ -21,9 +21,6 @@
     "agent_chat_messages",
     "one_action_directive_ledger",
     "one_capability_runs",
-    "kai_funding_webhook_events",
-    "kai_funding_transfer_events",
-    "kai_funding_trade_events",
     "one_kyc_workflows"
   ],
   "retention_registry": [
@@ -44,12 +41,6 @@
       "owner": "backend-runtime-governance",
       "mode": "report_only",
       "job_id": "gmail_owner_delivery_retention_report"
-    },
-    {
-      "family_id": "kai_brokerage_provider_cache",
-      "owner": "backend-runtime-governance",
-      "mode": "report_only",
-      "job_id": "plaid_retention_report"
     },
     {
       "family_id": "pkm_encrypted_memory",
@@ -92,12 +83,6 @@
       "owner": "iam-consent-governance",
       "mode": "report_only",
       "job_id": "kyc_retention_report"
-    },
-    {
-      "family_id": "funding_trading_audit",
-      "owner": "iam-consent-governance",
-      "mode": "report_only",
-      "job_id": "regulated_funding_retention_report"
     }
   ],
   "table_families": [
@@ -409,22 +394,6 @@
       "trust_boundary": "Official/public investor reference records only; rows do not create signed-in marketplace users and are not connectable without opt-in.",
       "plaintext_posture": "reference_metadata",
       "expected_row_growth": "low_reference"
-    },
-    {
-      "id": "kai_brokerage_provider_cache",
-      "owner": "backend-runtime-governance",
-      "data_class": "provider_cache",
-      "lifecycle_status": "current",
-      "glob_tables": [
-        "kai_plaid_*",
-        "kai_portfolio_source_preferences"
-      ],
-      "primary_access_path": "Plaid link, refresh, portfolio source preference, and portfolio-read services",
-      "retention_policy": "Short-lived provider cache; refresh or purge stale derived state and keep encrypted provider tokens only as required.",
-      "deletion_behavior": "Delete on disconnect/account deletion; revoke provider access where supported.",
-      "trust_boundary": "Encrypted provider tokens and bounded derived state; not durable PKM unless consented and re-written into PKM.",
-      "plaintext_posture": "encrypted_tokens_and_cache_metadata",
-      "expected_row_growth": "medium_provider"
     },
     {
       "id": "kai_gmail_receipts_provider_cache",
@@ -792,21 +761,6 @@
       "expected_row_growth": "medium_reference"
     },
     {
-      "id": "funding_trading_audit",
-      "owner": "backend-runtime-governance",
-      "data_class": "audit_regulated",
-      "lifecycle_status": "current",
-      "glob_tables": [
-        "kai_funding_*"
-      ],
-      "primary_access_path": "Alpaca/Plaid funding, ACH, transfer, webhook, reconciliation, and trade-intent services",
-      "retention_policy": "Long-retention operational/audit metadata for money movement and trade execution.",
-      "deletion_behavior": "Do not hard-delete regulated operational evidence without explicit legal/compliance process.",
-      "trust_boundary": "Execution metadata and encrypted provider/account references; no plaintext secrets or raw vault data.",
-      "plaintext_posture": "regulated_metadata",
-      "expected_row_growth": "high_append_only"
-    },
-    {
       "id": "one_email_kyc_workflow",
       "owner": "backend-runtime-governance",
       "data_class": "workflow_state",
@@ -935,6 +889,116 @@
       "trust_boundary": "Public CRM schema metadata and normalized field-role keys only. Never store CRM records, verified profile values, record IDs, credentials, consent/vault material, prompts, telemetry plaintext, or unvalidated model output.",
       "plaintext_posture": "public_schema_metadata_and_normalized_field_keys_only",
       "expected_row_growth": "low_ttl_cache"
+    },
+    {
+      "id": "selected_drive_documents",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_encrypted",
+      "lifecycle_status": "customer0",
+      "exact_tables": ["connected_documents", "document_chunks"],
+      "primary_access_path": "Owner-authenticated selection/management and durable connection-first ingestion leases. Atomic versioned publication via drive_ingestion_store.py; no global vector search or client database access.",
+      "retention_policy": "Keep encrypted source metadata and at most 128 encrypted chunks per selected document while the connection generation remains active. Prior versions are removed atomically on successful publication. Failed retryable refresh preserves the previous version; provider denial deletes it. Runtime processor and retention scheduler acceptance remain rollout prerequisites.",
+      "deletion_behavior": "Connection-generation/status trigger deletes sources atomically on disconnect/account switch; connection deletion cascades to sources and composite owner/document FK cascades to chunks. Owner removal is repeat-safe and does not need the processing key. Original-file Google sharing receipts are independent of the removable index; deleting a selection does not revoke an existing Google ACL.",
+      "trust_boundary": "Separate server-readable processing domain, not client-key PKM. Source IDs/names, text, provenance and vectors use DRIVE_DOCUMENT_KEY_V1 AES-256-GCM with purpose/owner/document/generation AAD; chunks additionally bind version/ordinal. Owner-keyed HMAC source fingerprints support idempotency; no plaintext content hashes, OAuth credentials or vault keys.",
+      "plaintext_posture": "encrypted_source_metadata_content_and_vectors_with_bounded_workflow_status_only",
+      "expected_row_growth": "bounded_100_documents_128_chunks_each_per_owner"
+    },
+    {
+      "id": "drive_original_sharing_records",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_encrypted",
+      "lifecycle_status": "customer0",
+      "exact_tables": ["drive_share_requests", "drive_share_reviews", "drive_share_permission_operations"],
+      "primary_access_path": "Default-off owner-protected request/review/approval/delivery/removal routes and finite durable worker entrypoints. One OIDC-protected, default-off bounded UAT sweep sequences indexing, suggestions, permission delivery/reconciliation and notification work; it remains unverified until the scheduler and authenticated acceptance are configured.",
+      "retention_policy": "Requests have a 30-day authority lifetime and reviews five minutes; those bounds do not themselves delete records. Encrypted management receipts survive ordinary disconnect/index removal. Hard scheduled retention remains a release prerequisite.",
+      "deletion_behavior": "Transactional reset/deletion erases private requests, reviews and app-identity linkage. Recipient erasure preserves only another owner's encrypted exact Google-management facts, not request narratives, filenames, source versions, recipient provider subject or full ACL snapshots. Owner erasure removes those receipts; it never claims to revoke external Google sharing.",
+      "trust_boundary": "DRIVE_SHARING_KEY_V1 is independent of document/OAuth keys. AES-256-GCM envelopes bind owner, resource and purpose. Google IDs, names, verified account identity, purpose, coverage, exact approval and permission receipts remain encrypted; only opaque workflow IDs, statuses and keyed binding digests are plaintext. A confirmation claim and pending work commit atomically before external calls.",
+      "plaintext_posture": "encrypted_private_request_approval_and_provider_evidence_with_workflow_metadata",
+      "expected_row_growth": "up_to_25_operations_per_review_retention_gate_before_enablement"
+    },
+    {
+      "id": "drive_original_sharing_coordination",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "customer0",
+      "exact_tables": ["drive_share_file_claims", "drive_share_events", "drive_share_management_contexts"],
+      "primary_access_path": "PostgreSQL file-level mutation serialization, owner-only removal contexts and a finite metadata-only notification outbox worker. It emits only a closed document_share_* type plus opaque request/event IDs; web/native derives its fixed local review route and the generic push adapter is called outside the lease transaction. No model/caller-controlled provider endpoint or request/provider URL is forwarded.",
+      "retention_policy": "A file claim remains through uncertain outcomes until GET-only reconciliation; never expire a potentially dispatched mutation into an automatic retry. An erased-owner uncertain effect retains only an ownerless keyed-file fence without age-based release, requiring Google management. Stable file-lock HMAC keys/fences must survive rotation. Each notification event has at most three dispatch attempts with crash-safe lease recovery; a settled timestamp means dispatch work ended, never device/user receipt. The default-off OIDC scheduler route has a fixed small batch/deadline; configuring it, token registration and live acceptance remain release prerequisites.",
+      "deletion_behavior": "Known terminal operations remove live claims. Account reset/deletion removes outbox/private linkage and contexts; recipient erasure retains owner-only contexts for necessary encrypted removal receipts. Owner erasure detaches uncertain claims from deleted operations, leaving no user ID, recipient, provider file ID or credential. Late results cannot reconstruct erased private data.",
+      "trust_boundary": "Only opaque request/operation/event IDs, owner linkage, timestamps and keyed file equality HMACs. No filenames, purpose, emails, provider IDs, credentials or content in queued notification metadata.",
+      "plaintext_posture": "opaque_workflow_identifiers_keyed_equality_digests_and_status_only",
+      "expected_row_growth": "one_active_claim_per_file_and_deduplicated_events_per_request_revision"
+    },
+    {
+      "id": "drive_picker_selection_sessions",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "customer0",
+      "exact_tables": ["drive_picker_sessions"],
+      "primary_access_path": "Single-use owner/generation-bound web Picker selection sessions; never a document-read or sharing grant.",
+      "retention_policy": "Ten-minute authorization lifetime; at most one session per owner, replaced at next Picker start and deleted on connection invalidation. Scheduled expiry cleanup must be proven before rollout.",
+      "deletion_behavior": "Owner connection deletion cascades; disconnect/account switch deletes in the same transaction. Contains no source identifiers or provider credentials.",
+      "trust_boundary": "Only Vault Owner protected routes create/consume sessions. A browser event or isAppAuthorized provider field alone cannot authorize ingestion; authenticated explicit confirmation and current generation are both required.",
+      "plaintext_posture": "opaque_workflow_identifiers_timestamps_only",
+      "expected_row_growth": "bounded_one_per_owner"
+    },
+    {
+      "id": "drive_native_picker_attempts",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "customer0",
+      "exact_tables": ["drive_native_picker_attempts"],
+      "primary_access_path": "Vault Owner starts, reviews, confirms or cancels an owner/generation/credential-version-bound mobile Google One Picker attempt; the fixed HTTPS callback stages only already-validated candidates before the same catalog admission transaction as web Picker.",
+      "retention_policy": "Ten-minute attempt lifetime. Starting a new Picker, cancellation, disconnect, generation/version change and expiry invalidate the linked single-use selection session. Completed rows retain no PKCE proof or staged metadata.",
+      "deletion_behavior": "The linked drive_picker_sessions foreign key cascades native-attempt removal. Disconnect/account switch removes the session transactionally; late callbacks and confirmations cannot recreate it.",
+      "trust_boundary": "PKCE proof and staged metadata are AES-GCM encrypted using the external connector credential service with owner/attempt/generation/version AAD. The drive.file-only callback token is transient and never stored. Plaintext workflow fields do not include OAuth code, token, Google subject, file ID, or filename.",
+      "plaintext_posture": "opaque_workflow_identifiers_generation_version_status_and_timestamps_only",
+      "expected_row_growth": "low_ttl_workflow"
+    },
+    {
+      "id": "external_mcp_connector_registry",
+      "owner": "iam-consent-governance",
+      "data_class": "reference",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "external_mcp_connectors"
+      ],
+      "primary_access_path": "Operator-curated catalog of external MCP servers (Notion, HubSpot, ...) a user can connect from chat or the connectors manage page, resolved via external_connector_registry_service.py",
+      "retention_policy": "Retain active connector definitions while offered; deactivate rather than delete so historical per-user connections remain explainable.",
+      "deletion_behavior": "Operator-managed reference config, registered via scripts/ops/configure_external_mcp_connector.py; not user-delete scoped.",
+      "trust_boundary": "Operator-controlled connector endpoint, transport, registered redirects, verified capability policy, auth style, and OAuth client-id/secret ENV VAR NAMES only -- never credential values. Policy and rollout admission are separate authorities; neither endpoints nor raw schemas are returned in customer status.",
+      "plaintext_posture": "config_and_endpoint_urls_plaintext_no_secrets",
+      "expected_row_growth": "low_reference"
+    },
+    {
+      "id": "external_mcp_connector_user_credentials",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_encrypted",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "user_external_connector_connections"
+      ],
+      "primary_access_path": "Per-user connect/disconnect status and encrypted credential envelope for one external MCP connector, via external_connector_credentials_service.py",
+      "retention_policy": "Retain the encrypted credential while the connection is active; clear the ciphertext immediately on disconnect and keep only the revoked status row.",
+      "deletion_behavior": "Explicit account deletion removes credentials and OAuth attempts. Reset scrubs credentials and account labels while retaining revoked monotonic generation/version counters to fence late results. Disconnect clears credential_ciphertext/credential_iv immediately rather than waiting for a bounded window.",
+      "trust_boundary": "AES-GCM via EXTERNAL_CONNECTOR_CREDENTIAL_KEY, separate from google_provider_connections and enterprise_crm_registry. Legacy envelopes retain owner/connector AAD. V2 adds generation/version binding and encrypts verified account identity, client, scopes, expiry, and refresh material; queryable expiry is integrity-checked. Lifecycle generations, refresh leases, capability verification, and bounded revocation outcomes contain no provider secrets. Disconnect scrubs credentials before bounded in-memory revocation; failed revocation is not a promise of background retry.",
+      "plaintext_posture": "encrypted_credential_no_plaintext_at_rest",
+      "expected_row_growth": "low_per_user"
+    },
+    {
+      "id": "external_mcp_connector_oauth_attempts",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "external_connector_oauth_attempts"
+      ],
+      "primary_access_path": "Short-lived PKCE attempt state for an oauth-style external connector's start()/complete() round trip, via external_connector_oauth_service.py",
+      "retention_policy": "10-minute authorization lifetime. Finalization, cancellation, disconnect, and superseding attempts scrub pending secrets. Bounded opportunistic cleanup on connector lifecycle traffic scrubs expired material and deletes expired workflow rows older than 24 hours; this is not a scheduled wall-clock purge guarantee.",
+      "deletion_behavior": "Disconnect invalidates all attempts for the owner/connector. Account deletion also removes these workflow rows. Cleanup never revokes provider grants or alters an active connection.",
+      "trust_boundary": "V2 PKCE verifier and OIDC nonce are encrypted with owner/connector/attempt AAD. Native callbacks may stage an encrypted verified token envelope additionally bound to connection generation; it cannot execute or activate until the original owner finalizes. No plaintext tokens, provider identity, OAuth codes, client secrets, or Vault Owner tokens are stored.",
+      "plaintext_posture": "encrypted_pkce_and_pending_credential_no_plaintext_secret_at_rest",
+      "expected_row_growth": "low_ttl_workflow"
     },
     {
       "id": "hushh_tech_client_identity_state",

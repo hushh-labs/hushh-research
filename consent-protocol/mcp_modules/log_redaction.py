@@ -19,7 +19,7 @@ _TOKEN_PREFIXES = ("HCT:", "Bearer ", "pst1.")
 _TOKEN_VALUE_RE = re.compile(r"\b(?:Bearer\s+|HCT:|pst1\.)[A-Za-z0-9._~+/=-]+")
 _QUERY_SECRET_RE = re.compile(
     r"([?&](?:access_token|api[_-]?key|apikey|auth|client_secret|key|"
-    r"private_key|refresh_token|secret|signature|token|"
+    r"private_key|refresh_token|secret|signature|token|code|state|picked_file_ids|q|pageToken|"
     # A person's position is as sensitive as a credential and leaks the same
     # way. httpx logs every outbound request URL at INFO, so any provider call
     # that carries coordinates in its query string — the advisor directory, the
@@ -27,6 +27,19 @@ _QUERY_SECRET_RE = re.compile(
     r"lat|latitude|latlng|lng|lon|longitude|coords|coordinates|postal_?code|zip)=)"
     r"([^&\s\"'<>]+)",
     flags=re.IGNORECASE,
+)
+_DRIVE_PERMISSION_PATH_RE = re.compile(
+    r"(https://www\.googleapis\.com/drive/v3/files/)[^/?\s\"'<>]+"
+    r"(/permissions/)[^/?\s\"'<>]+",
+    re.IGNORECASE,
+)
+_DRIVE_FILE_PATH_RE = re.compile(
+    r"(https://www\.googleapis\.com/drive/v3/files/)[^/?\s\"'<>]+", re.IGNORECASE
+)
+_GMAIL_RESOURCE_PATH_RE = re.compile(
+    r"(https://(?:gmail|www)\.googleapis\.com/gmail/v1/users/)[^/?\s\"'<>]+"
+    r"(/(?:messages|threads)/)[^/?\s\"'<>]+(?:/attachments/[^/?\s\"'<>]+)?",
+    re.IGNORECASE,
 )
 
 _SQL_PARAMS_MARKER = "[parameters:"
@@ -58,6 +71,11 @@ _SENSITIVE_EXACT_KEYS = {
     "user_id",
     "user_identifier",
     "wrapped_export_key",
+    "query",
+    "gmail_message_id",
+    "gmail_thread_id",
+    "thread_id",
+    "attachment_id",
 }
 
 _SENSITIVE_KEY_TERMS = (
@@ -133,6 +151,13 @@ def _redact_sql_bound_parameters(value: str) -> str:
 
 def _redact_sensitive_substrings(value: str) -> str:
     redacted = _TOKEN_VALUE_RE.sub(REDACTED, value)
+    redacted = _DRIVE_PERMISSION_PATH_RE.sub(
+        lambda match: f"{match.group(1)}{REDACTED}{match.group(2)}{REDACTED}", redacted
+    )
+    redacted = _DRIVE_FILE_PATH_RE.sub(lambda match: f"{match.group(1)}{REDACTED}", redacted)
+    redacted = _GMAIL_RESOURCE_PATH_RE.sub(
+        lambda match: f"{match.group(1)}me{match.group(2)}{REDACTED}", redacted
+    )
     redacted = _QUERY_SECRET_RE.sub(lambda match: f"{match.group(1)}{REDACTED}", redacted)
     return _redact_sql_bound_parameters(redacted)
 
@@ -207,6 +232,38 @@ class SensitiveLogFilter(logging.Filter):
     """Redact secrets from runtime log records before handler formatting."""
 
     def filter(self, record: logging.LogRecord) -> bool:
+        sdk_record = record.name.startswith(("google_adk.", "google.adk.", "ag_ui_adk."))
+        if sdk_record and record.exc_info:
+            record.msg = "SDK failure type=" + getattr(record.exc_info[0], "__name__", "Exception")
+            record.args = ()
+            record.exc_info = None
+            record.exc_text = None
+        elif sdk_record and record.levelno <= logging.DEBUG:
+            # SDK debug payload formats are not a stable privacy contract.
+            record.msg = "SDK debug content=" + REDACTED
+            record.args = ()
+        # SDK content logs occur before public-output projection, sometimes at
+        # INFO. Preserve operational messages but never record model prompts,
+        # thoughts, external content, or full AG-UI response bodies.
+        if isinstance(record.msg, str):
+            message = record.msg.lstrip()
+            if record.name == "ag_ui_adk.adk_agent" and message.startswith("[ADK_EVENT] "):
+                record.msg = "[ADK_EVENT] content=" + REDACTED
+                record.args = ()
+            elif (
+                record.name == "google_adk.google.adk.models.google_llm"
+                and message.startswith(("LLM Request:", "LLM Response:"))
+            ) or (record.name == "ag_ui_adk.endpoint" and message.startswith("HTTP Response:")):
+                record.msg = "SDK content=" + REDACTED
+                record.args = ()
+            elif record.name == "ag_ui_adk.adk_agent" and message.startswith(
+                (
+                    "Will wrap callable InstructionProvider and append SystemMessage:",
+                    "Will append SystemMessage to string instructions:",
+                )
+            ):
+                record.msg = "SDK instructions=" + REDACTED
+                record.args = ()
         if isinstance(record.msg, str):
             record.msg = _redact_sensitive_substrings(record.msg)
         else:

@@ -21,6 +21,8 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { trackEvent } from "@/lib/observability/client";
+import { trackLocationShareConfirmed } from "@/lib/observability/location-events";
 import { useLocalOnboardingActionHandler, canonicalActionBinding, type LocalOnboardingActionContext, type LocalActionPreparation, type LocalActionContinuation } from "@/lib/agent/local-onboarding-actions";
 import { pendingAudienceBinding } from "@/lib/one-location/command-continuation";
 import { privateCheckInDigest, readPrivateCheckInDraft, type PrivateCheckInDraft } from "@/lib/one-location/command-private-check-in";
@@ -31,7 +33,7 @@ import {
   Search,
   Shield,
   UsersRound,
-} from "lucide-react";
+} from "@/components/icons";
 
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import { circleMemberCountLabel } from "@/lib/one-location/circle-member-count";
@@ -58,6 +60,7 @@ import {
   mergeRecipientsByUserId,
   type CircleRecipientSelection,
 } from "@/lib/one-location/circle-recipient-selection";
+import { isForeignSmsSystemCircle } from "@/lib/one-location/system-circles";
 import { ContactAvatar } from "@/components/one-location/redesign/contact-picker/atoms";
 import { CircleGrowActions } from "@/components/one-location/redesign/circles/circle-grow-actions";
 
@@ -249,9 +252,16 @@ export function CheckInFlow({
   const [circleLoadingId, setCircleLoadingId] = useState<string | null>(null);
   // Trusted is an auto-managed contact-sync view and may contain thousands of
   // connections. Private Check-In must stay an explicit, bounded choice, so
-  // only user-managed/SMS Circles and direct contacts are selectable here.
+  // only user-managed Circles, the viewer's own SMS Circle, and direct
+  // contacts are selectable here. Someone else's SMS Circle cannot authorize
+  // recipients, so it is hidden rather than offered and refused.
   const selectableCircles = useMemo(
-    () => vm.circles.filter((circle) => circle.systemKind !== "trusted"),
+    () =>
+      vm.circles.filter(
+        (circle) =>
+          circle.systemKind !== "trusted" &&
+          !isForeignSmsSystemCircle(circle),
+      ),
     [vm.circles],
   );
   const [confirmedPoint, setConfirmedPoint] =
@@ -481,7 +491,24 @@ export function CheckInFlow({
         setCompletedRecipientIds((current) => [
           ...new Set([...current, ...result.succeededRecipientIds]),
         ]);
+        trackLocationShareConfirmed({
+          route_id: "one_location_check_in",
+          result: "success",
+          selected_count: recipientIds.length,
+          success_count: result.succeededRecipientIds.length,
+          failure_count: result.failedRecipientIds.length,
+          duration_bucket: retained?.duration ?? effectiveDuration,
+          review_required: false,
+        });
       }
+      trackEvent("one_location_check_in_completed", {
+        route_id: "one_location_check_in",
+        result: result.succeededRecipientIds.length > 0 ? "success" : "error",
+        selected_count: recipientIds.length,
+        success_count: result.succeededRecipientIds.length,
+        failure_count: result.failedRecipientIds.length,
+        circle_targeted: Boolean(retained ? retained.sourceCircleId : circleSelection?.circle.id),
+      });
       if (result.failedRecipientIds.length > 0) {
         setCheckedIds(result.failedRecipientIds);
       }

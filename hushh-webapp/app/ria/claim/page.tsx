@@ -18,7 +18,7 @@ import {
   Loader2,
   ShieldCheck,
   UserRound,
-} from "lucide-react";
+} from "@/components/icons";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -556,7 +556,7 @@ export default function RiaClaimPage() {
             <button
               type="button"
               onClick={handleBack}
-              className="flex h-10 w-10 items-center justify-center rounded-full bg-muted/20 text-muted-foreground transition-all hover:bg-muted/40 hover:text-foreground active:scale-95"
+              className="flex h-10 w-10 items-center justify-center rounded-full bg-muted/20 text-muted-foreground transition-[background-color,color,transform] duration-150 hover:bg-muted/40 hover:text-foreground active:scale-95"
               aria-label="Back"
             >
               <ChevronLeft className="h-5 w-5" aria-hidden="true" />
@@ -885,7 +885,7 @@ export default function RiaClaimPage() {
                   data-testid="ria-claim-dossier-line"
                 >
                   Your dossier is on its way to{" "}
-                  {completeResult.dossier.email_masked || "your email"}
+                  {completeResult.dossier.email_masked || "your mail"}
                 </p>
               ) : null}
               {completeResult.facts ? (

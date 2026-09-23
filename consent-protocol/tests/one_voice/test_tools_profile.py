@@ -523,3 +523,45 @@ def test_ctx_service_uses_injected_double_over_factory():
         raise AssertionError("factory must not be called when a double is injected")
 
     assert ctx.service(profile.IAM_SERVICE, explode) is sentinel
+
+
+async def test_update_display_name_pending_shadow_is_committed_not_failed():
+    """Provider accepted the name; the shadow is still syncing. One must not
+    say the name wasn't changed, and must speak the name the provider holds."""
+    identity = IdentityDouble(_identity())
+
+    async def pending_update(user_id: str, display_name: str) -> dict[str, Any]:
+        identity.update_calls.append((user_id, display_name))
+        return {
+            "user_id": USER,
+            "display_name": " ".join(display_name.split()),
+            "shadow_sync": "pending",
+        }
+
+    identity.update_display_name = pending_update  # type: ignore[method-assign]
+    ctx = _ctx(identity=identity)
+    result = await profile.update_display_name(
+        ctx, profile.UpdateDisplayNameInput(display_name="Ayesha S")
+    )
+    assert result.status == "committed_sync_pending"
+    assert result.display_name == "Ayesha S"
+    assert result.reason_code == "identity_shadow_sync_pending"
+    spoken = " ".join(result.spoken_facts)
+    assert "Ayesha S" in spoken
+    assert "wasn't changed" not in spoken
+    assert "didn't save" not in spoken
+
+
+async def test_update_display_name_synced_shadow_is_plain_updated():
+    identity = IdentityDouble(_identity())
+
+    async def synced_update(user_id: str, display_name: str) -> dict[str, Any]:
+        return {"user_id": USER, "display_name": display_name, "shadow_sync": "synced"}
+
+    identity.update_display_name = synced_update  # type: ignore[method-assign]
+    ctx = _ctx(identity=identity)
+    result = await profile.update_display_name(
+        ctx, profile.UpdateDisplayNameInput(display_name="Ayesha S")
+    )
+    assert result.status == "updated"
+    assert result.spoken_facts == ["Your Hussh name is now Ayesha S."]

@@ -3,7 +3,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   prepareDomainWriteContext: vi.fn(),
   getDomainStaleFirst: vi.fn(),
-  getPlaidStatus: vi.fn(),
   secureRead: vi.fn(),
   secureWrite: vi.fn(),
   secureInvalidate: vi.fn(),
@@ -16,12 +15,6 @@ vi.mock("@/lib/pkm/pkm-domain-resource", () => ({
   PkmDomainResourceService: {
     prepareDomainWriteContext: mocks.prepareDomainWriteContext,
     getStaleFirst: mocks.getDomainStaleFirst,
-  },
-}));
-
-vi.mock("@/lib/kai/brokerage/plaid-portfolio-service", () => ({
-  PlaidPortfolioService: {
-    getStatus: mocks.getPlaidStatus,
   },
 }));
 
@@ -58,21 +51,6 @@ vi.mock("@/lib/cache/request-audit-log", () => ({
 import { KaiFinancialResourceService } from "@/lib/kai/kai-financial-resource";
 import { CacheService } from "@/lib/services/cache-service";
 
-const emptyPlaidStatus = {
-  configured: true,
-  environment: "production",
-  user_id: "user-1",
-  source_preference: "statement",
-  items: [],
-  aggregate: {
-    item_count: 0,
-    account_count: 0,
-    holdings_count: 0,
-    institution_names: [],
-    sync_status: "idle",
-    portfolio_data: null,
-  },
-};
 
 describe("KaiFinancialResourceService missing finance state", () => {
   beforeEach(() => {
@@ -81,7 +59,6 @@ describe("KaiFinancialResourceService missing finance state", () => {
     mocks.secureRead.mockResolvedValue(null);
     mocks.secureWrite.mockResolvedValue(undefined);
     mocks.getDomainStaleFirst.mockResolvedValue(null);
-    mocks.getPlaidStatus.mockResolvedValue(emptyPlaidStatus);
   });
 
   afterEach(() => {
@@ -100,8 +77,8 @@ describe("KaiFinancialResourceService missing finance state", () => {
 
     expect(resource?.hasFinancialData).toBe(false);
     expect(resource?.financialDomain).toBeNull();
-    expect(resource?.plaidStatus).toEqual(emptyPlaidStatus);
-    expect(mocks.getPlaidStatus).toHaveBeenCalledTimes(1);
+    // Plaid status comes from sealed connections in memory; there are none.
+    expect(resource?.plaidStatus).toBeNull();
     expect(mocks.prepareDomainWriteContext).not.toHaveBeenCalled();
     expect(mocks.saveMergedDomain).not.toHaveBeenCalled();
   });

@@ -1,7 +1,7 @@
 {
-  "generated_at": "2026-09-02",
-  "total_routes": 122,
-  "native_required_routes": 104,
+  "generated_at": "2026-09-20",
+  "total_routes": 121,
+  "native_required_routes": 103,
   "excluded_routes": 18,
   "routes": [
     {
@@ -106,20 +106,6 @@
       "expectedAuth": "authenticated",
       "allowedDataStates": [
         "loaded"
-      ],
-      "legacyAlias": true
-    },
-    {
-      "route": "/kai/alpaca/oauth/return",
-      "classification": "native-required-callback",
-      "initialRoute": "/login?redirect=%2Fkai%2Falpaca%2Foauth%2Freturn",
-      "expectedMarker": "native-route-kai-alpaca-return",
-      "expectedRoute": "/one/kai/alpaca/oauth/return",
-      "autoReviewerLogin": true,
-      "expectedAuth": "authenticated",
-      "allowedDataStates": [
-        "redirect-valid",
-        "unavailable-valid"
       ],
       "legacyAlias": true
     },
@@ -246,6 +232,11 @@
       ]
     },
     {
+      "route": "/manishhussh",
+      "classification": "excluded-web-only",
+      "reason": "Public marketing and founder profile content. The native shell ships the signed-in product; the public site is web."
+    },
+    {
       "route": "/marketplace",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fmarketplace",
@@ -299,11 +290,6 @@
         "loaded",
         "empty-valid"
       ]
-    },
-    {
-      "route": "/manishhussh",
-      "classification": "excluded-web-only",
-      "reason": "Public marketing and founder profile content. The native shell ships the signed-in product; the public site is web."
     },
     {
       "route": "/oauth/authorize",
@@ -380,6 +366,21 @@
       ]
     },
     {
+      "route": "/one/email",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Femail",
+      "expectedMarker": "native-route-email-agent",
+      "expectedRoute": "/one/email",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loading",
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
+    },
+    {
       "route": "/one/feed",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fone%2Ffeed",
@@ -407,21 +408,6 @@
       ]
     },
     {
-      "route": "/one/email",
-      "classification": "native-required-functional",
-      "initialRoute": "/login?redirect=%2Fone%2Femail",
-      "expectedMarker": "native-route-email-agent",
-      "expectedRoute": "/one/email",
-      "autoReviewerLogin": true,
-      "expectedAuth": "authenticated",
-      "allowedDataStates": [
-        "loading",
-        "loaded",
-        "empty-valid",
-        "unavailable-valid"
-      ]
-    },
-    {
       "route": "/one/kai",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fone%2Fkai",
@@ -433,19 +419,6 @@
         "loaded"
       ],
       "legacyAlias": true
-    },
-    {
-      "route": "/one/kai/alpaca/oauth/return",
-      "classification": "native-required-callback",
-      "initialRoute": "/login?redirect=%2Fone%2Fkai%2Falpaca%2Foauth%2Freturn",
-      "expectedMarker": "native-route-kai-alpaca-return",
-      "expectedRoute": "/one/kai/alpaca/oauth/return",
-      "autoReviewerLogin": true,
-      "expectedAuth": "authenticated",
-      "allowedDataStates": [
-        "redirect-valid",
-        "unavailable-valid"
-      ]
     },
     {
       "route": "/one/kai/analysis",
@@ -764,6 +737,21 @@
       ]
     },
     {
+      "route": "/one/profile/connectors",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fconnectors",
+      "expectedMarker": "native-route-profile-connectors",
+      "expectedRoute": "/one/profile/connectors",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loading",
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
+    },
+    {
       "route": "/one/profile/gmail",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fgmail",
@@ -1072,6 +1060,11 @@
       ]
     },
     {
+      "route": "/one/puppy",
+      "classification": "excluded-web-only",
+      "reason": "Puppy One requires a loopback connection to the Mac running the local model. A phone cannot reach 127.0.0.1 on another device, and the bridge key is host remote-code-execution, so forwarding it off-machine is refused by design. Needs the outbound rendezvous before this becomes buildable."
+    },
+    {
       "route": "/one/setup",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fone%2Fsetup",
@@ -1084,6 +1077,11 @@
       ]
     },
     {
+      "route": "/one/setup/calendar",
+      "classification": "excluded-web-only",
+      "reason": "GAP, not a permanent exclusion. This is the Calendar agent's setup step and inherits the same gap as /one/calendar. Revisit alongside it."
+    },
+    {
       "route": "/one/setup/cloud",
       "classification": "native-required-functional",
       "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Fcloud",
@@ -1094,11 +1092,6 @@
       "allowedDataStates": [
         "loaded"
       ]
-    },
-    {
-      "route": "/one/setup/calendar",
-      "classification": "excluded-web-only",
-      "reason": "GAP, not a permanent exclusion. This is the Calendar agent's setup step and inherits the same gap as /one/calendar. Revisit alongside it."
     },
     {
       "route": "/one/setup/connected-systems",
@@ -1219,9 +1212,18 @@
       ]
     },
     {
-      "route": "/one/puppy",
-      "classification": "excluded-web-only",
-      "reason": "Puppy One requires a loopback connection to the Mac running the local model. A phone cannot reach 127.0.0.1 on another device, and the bridge key is host remote-code-execution, so forwarding it off-machine is refused by design. Needs the outbound rendezvous before this becomes buildable."
+      "route": "/one/wallet",
+      "classification": "native-required-functional",
+      "initialRoute": "/login?redirect=%2Fone%2Fwallet",
+      "expectedMarker": "native-route-one-wallet",
+      "expectedRoute": "/one/wallet",
+      "autoReviewerLogin": true,
+      "expectedAuth": "authenticated",
+      "allowedDataStates": [
+        "loaded",
+        "empty-valid",
+        "unavailable-valid"
+      ]
     },
     {
       "route": "/one/wallet-card",
@@ -1238,16 +1240,16 @@
       ]
     },
     {
-      "route": "/one/wallet",
+      "route": "/people/[personRef]",
       "classification": "native-required-functional",
-      "initialRoute": "/login?redirect=%2Fone%2Fwallet",
-      "expectedMarker": "native-route-one-wallet",
-      "expectedRoute": "/one/wallet",
-      "autoReviewerLogin": true,
-      "expectedAuth": "authenticated",
+      "initialRoute": "/people/00000000-0000-4000-8000-000000000001",
+      "expectedMarker": "native-route-person-profile",
+      "expectedRoute": "/people/00000000-0000-4000-8000-000000000001",
+      "autoReviewerLogin": false,
+      "expectedAuth": "public",
       "allowedDataStates": [
+        "loading",
         "loaded",
-        "empty-valid",
         "unavailable-valid"
       ]
     },
@@ -1278,20 +1280,6 @@
       "allowedDataStates": [
         "loaded",
         "empty-valid"
-      ]
-    },
-    {
-      "route": "/people/[personRef]",
-      "classification": "native-required-functional",
-      "initialRoute": "/people/00000000-0000-4000-8000-000000000001",
-      "expectedMarker": "native-route-person-profile",
-      "expectedRoute": "/people/00000000-0000-4000-8000-000000000001",
-      "autoReviewerLogin": false,
-      "expectedAuth": "public",
-      "allowedDataStates": [
-        "loading",
-        "loaded",
-        "unavailable-valid"
       ]
     },
     {

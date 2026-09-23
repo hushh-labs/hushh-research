@@ -11,7 +11,7 @@ import logging
 from typing import Any, cast
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from hushh_mcp.services.gmail_delivery_service import GmailDeliveryError, get_gmail_delivery_service
@@ -39,12 +39,26 @@ class EmailEnvelope(BaseModel):
     html_body: str | None = Field(default=None, max_length=50_000)
 
 
+class DriveAttachmentRef(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    file_id: str = Field(min_length=1, max_length=256)
+    revision: str | None = Field(default=None, min_length=1, max_length=256)
+    sha256: str | None = Field(default=None, min_length=64, max_length=64)
+
+
 class EmailPrepareRequest(EmailEnvelope):
+    model_config = ConfigDict(extra="forbid")
+
     idempotency_key: str = Field(min_length=16, max_length=256)
+    drive_attachment: DriveAttachmentRef | None = None
 
 
 class EmailSendRequest(EmailEnvelope):
+    model_config = ConfigDict(extra="forbid")
+
     action_id: str = Field(min_length=1, max_length=128)
+    attachment_token: str | None = Field(default=None, min_length=32, max_length=2048)
 
 
 def _owner_user_id(*, firebase_uid: str, token_data: dict[str, Any]) -> str:
@@ -119,7 +133,7 @@ async def gmail_email_prepare(
             dict[str, Any],
             await get_gmail_delivery_service().prepare(
                 user_id=user_id,
-                draft_payload=payload.model_dump(exclude={"idempotency_key"}),
+                draft_payload=payload.model_dump(exclude={"idempotency_key"}, exclude_none=True),
                 idempotency_key=payload.idempotency_key,
             ),
         )
@@ -144,7 +158,7 @@ async def gmail_email_send(
             await get_gmail_delivery_service().execute(
                 user_id=user_id,
                 action_id=payload.action_id,
-                draft_payload=payload.model_dump(exclude={"action_id"}),
+                draft_payload=payload.model_dump(exclude={"action_id"}, exclude_none=True),
             ),
         )
     except Exception as exc:

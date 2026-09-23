@@ -4,7 +4,9 @@
 
 The executable lifecycle route is `./bin/hushh codex route-task product-agent-development`.
 Runtime product agents live under `consent-protocol/hushh_mcp/agents`; repo-scoped
-engineering evidence agents live under `agents/`. They are separate namespaces.
+engineering evidence agents are authored under root `agents/`; host mirrors are
+generated. They
+are separate namespaces.
 
 `agent.yaml` is the only authored product-agent source. The strict
 `AgentManifestV2` loader rejects unknown fields, and
@@ -36,7 +38,14 @@ In this shared-runtime branch, omitted individual ports retain shared defaults;
 these hooks alone do not establish private isolation. No ingress binding is added
 by the generic dependency seam.
 
-This branch retains Location, Nav and Personal Information registrations. Nav
+The default shared-runtime `adk_bridge.dispatch` registry registers
+`agent_documents`, `agent_location`, `agent_email`, `agent_nav`, and
+`agent_personal_information`. An owner-bound pod may register Connections and
+Connected Systems for its own turn; those are not ambient shared-runtime
+handlers. This registry is separate from `SPECIALIST_A2A_SCOPE_MAP`,
+which validates five external A2A identifiers: One, Kai, Nav, KYC, and Personal
+Information. A scope-map entry does not register an in-process handler, and a
+local dispatch registration does not create an A2A endpoint. Nav
 uses a manifest-owned Consent AgentTool child with scoped read tools. A selected
 Connections turn additionally requires exact manifest invocation capabilities,
 trusted task/owner bindings, and a database-confirmed owner token before and
@@ -53,6 +62,37 @@ or establish deployment readiness. Preserve shared defaults when transferring
 portable changes from a private deployment branch; keep deployment adapters and
 pod admission policy with their owning topology.
 
+## Architecture Review Questions
+
+Apply these questions to each orchestration change at the pinned ADK revision:
+
+1. **One decision owner:** Does One remain the only top-level semantic router?
+   Use an in-process `AgentTool` for a bounded local child and A2A only for a
+   process or deployment boundary. Neither an MCP tool nor a new API route
+   should become a second specialist router.
+2. **Three separate authorities:** Which verified principal may invoke the
+   specialist, which exact information may it read, and which action may it
+   propose or execute? Revalidate owner and scope at ingress and at protected
+   tool calls; model instructions and agent-card metadata grant neither.
+3. **State ownership:** Is every turn's ADK state owner-scoped? Specialist turns
+   use fresh in-memory sessions; shared Agent Chat persists encrypted sessions
+   with per-snapshot revision checks. Keep credentials out of model-visible
+   session state and events. A private pod's owner-isolated recovery is a
+   separate topology, not a reason to add ambient shared-runtime memory.
+4. **Effects and failure:** Are writes idempotent or explicitly confirmed? Do
+   model-call budgets, first/idle/total deadlines and cancellation preserve
+   completed tool receipts without replaying effects? A failed turn is not
+   permission to repeat the whole invocation.
+5. **Promotion evidence:** Does the manifest declare each surface, evaluation,
+   telemetry, kill switch and rollback? A generated registry and green unit
+   tests prove source consistency, not a deployed A2A Task lifecycle or live
+   owner-consent acceptance.
+
+These decisions follow Google's [ADK safety guidance](https://adk.dev/safety/),
+[credential and session-state guidance](https://adk.dev/tools-custom/authentication/),
+and [A2A integration guidance](https://adk.dev/a2a/). The checked-in code and
+pin-specific tests decide what this repository actually supports.
+
 ## Visual Context
 
 Canonical visual owner: [consent-protocol](../README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
@@ -65,50 +105,49 @@ Founder-language mapping:
 
 ## Visual Map
 
-A contributor authors only the two boxes on the left; everything downstream is
-generated, loaded, or gated. The registry is a build artifact, and consent is
-re-checked at each entry point and again per tool call.
+A contributor authors manifests and implementation code. The map below shows
+separate execution lanes; it is not one pipeline used by every agent. A generated
+registry proves manifest consistency, while each runtime boundary owns its own
+invocation and information checks.
 
 ```mermaid
 flowchart LR
-  subgraph author["1. What a contributor authors"]
-    yaml["hushh_mcp/agents/NAME/agent.yaml<br/>the only authored manifest source"]
-    tools["hushh_mcp/agents/NAME/tools.py<br/>hushh_tool decorator with a scope"]
+  subgraph source["1. Authored source and generated projection"]
+    yaml["hushh_mcp/agents/NAME/agent.yaml<br/>authored product-agent contract"]
+    impl["Agent implementation and tools<br/>separate source code"]
+    loader["AgentManifestV2 loader"]
+    gen["generate_product_agent_registry.py"]
+    registry["Generated product-agent registry"]
+    verify["Contract checks<br/>source consistency only"]
+    yaml --> loader
+    yaml --> gen --> registry --> verify
   end
 
-  subgraph contract["2. Strict contract and generated registry"]
-    loader["AgentManifestV2 + ManifestLoader<br/>hushh_mcp/hushh_adk/manifest.py<br/>extra forbid, rejects unknown fields"]
-    gen["scripts/generate_product_agent_registry.py"]
-    registry["contracts/agents/product-agent-registry.v2.json<br/>generated, do not hand-edit"]
-    verify["verify_agent_hierarchy_contract.py<br/>verify_adk_a2a_compliance.py"]
+  subgraph local["2. Same-process agent execution"]
+    caller["Typed chat caller"] --> runner["ADK Runner + One root"]
+    runner --> root["One LlmAgent"]
+    root -->|bounded in-process child| toolchild["ADK AgentTool<br/>e.g. Kai, Wallet"]
+    root -->|calls bounded tool| dispatchTool["Typed dispatch tool"]
+    dispatchTool --> dispatch["adk_bridge.dispatch<br/>five default shared handlers"]
+    dispatch --> handler["Registered handler<br/>owner and invocation checks"]
   end
 
-  subgraph entry["3. Entry points that hold consent"]
-    onetree["hushh_mcp/one_adk/agent_tree.py<br/>loads one and kai manifests,<br/>dispatches via adk_bridge/dispatch.py"]
-    bridge["hushh_mcp/adk_bridge/NAME_agent.py<br/>A2A entry, requires X-Consent-Token<br/>plus the specialist scope"]
-    route["api/routes/NAME/*.py APIRouter<br/>wired in server.py"]
+  subgraph a2a["3. Cross-process A2A boundary"]
+    remote["Remote process or deployment"] --> task["A2A Task entrypoint<br/>where an endpoint is registered"]
+    task --> scope["SPECIALIST_A2A_SCOPE_MAP<br/>five admitted identifiers;<br/>does not register endpoints"]
   end
 
-  subgraph exec["4. Execution layers"]
-    ctx["HushhContext<br/>contextvars: user_id + consent_token"]
-    tooldec["hushh_tool wrapper<br/>validate_token_with_db + user_id match"]
-    operons["hushh_mcp/operons/DOMAIN/*.py<br/>calculators, fetchers, llm, storage"]
-    services["hushh_mcp/services/*<br/>only layer that touches the DB"]
+  subgraph api["4. Service-backed API boundary"]
+    request["Web or native request"] --> route["FastAPI route<br/>route-owned auth and validation"]
+    route --> service["Domain service<br/>persistence and provider adapters"]
   end
 
-  yaml --> loader
-  yaml --> gen
-  gen --> registry
-  registry --> verify
-  loader --> onetree
-  route --> bridge
-  route --> services
-  onetree --> ctx
-  bridge --> ctx
-  ctx --> tooldec
-  tools --> tooldec
-  tooldec --> operons
-  operons --> services
+  loader -.where supported.-> root
+  impl -.where registered.-> dispatch
+  toolchild --> localAuth["Child-specific authority checks"]
+  handler --> localAuth
+  scope --> remoteAuth["Endpoint and per-tool authority checks"]
+  service --> store["Database or provider boundary"]
 ```
 
 ---
@@ -121,7 +160,7 @@ Hussh agents are built from four composable layers. Each layer has a single resp
 ┌─────────────────────────────────────────────────────┐
 │ AGENT                                                │
 │ Orchestrates tools, owns a manifest, enforces        │
-│ consent at entry via HushhAgent.run_turn()           │
+│ entry authority belongs to the runtime boundary       │
 ├─────────────────────────────────────────────────────┤
 │ TOOLS                                                │
 │ LLM-callable functions decorated with @hushh_tool    │
@@ -139,6 +178,13 @@ Hussh agents are built from four composable layers. Each layer has a single resp
 ```
 
 ### Dependency Rules
+
+The table is the intended placement rule. It is not yet an enforcement claim:
+retained Nav, Location, and Personal Information tools still import service
+classes directly. New specialist work should receive replaceable service ports
+from verified ingress; existing imports need bounded migrations with behavior
+parity before this rule can be enforced repo-wide. Persistence remains owned by
+services throughout that migration.
 
 | Layer    | Can Import       | Cannot Import    |
 | -------- | ---------------- | ---------------- |
@@ -159,34 +205,40 @@ with a fresh-process import test.
 
 ---
 
-## Consent Validation -- Three Layers
+## Consent Checks by Runtime Boundary
 
-Consent is validated at multiple points during execution. This is belt-and-suspenders by design.
+There is no single consent stack used by every route. Apply the owning runtime
+contract and re-check authority at each protected tool or service boundary.
 
-### Layer 1: Agent Entry
+- In-process ADK children use One's current session contract and child-specific tools.
+- The process-local dispatch registry separately checks owner and invocation authority.
+- External A2A entrypoints validate the mapped scope; that scope admits invocation
+  only and does not itself grant information or action authority.
+- FastAPI routes and their services enforce their route-specific authentication,
+  consent and persistence contracts.
 
-`HushhAgent.run_turn()` validates the consent token against the agent's `required_scopes` before any tool executes.
+The following HushhAgent and decorator examples apply only to lanes that use those
+wrappers; they are not a description of the One ADK AgentTool or A2A paths.
+
+### HushhAgent application entry
+
+`HushhAgent.run_turn()` validates the token against the agent's
+`required_scopes` before any tool executes. Call this application entrypoint;
+do not override ADK's internal `run()` protocol.
 
 ```python
-# hushh_mcp/hushh_adk/core.py
-class HushhAgent(LlmAgent):
-    def run(self, prompt, user_id, consent_token, vault_keys=None):
-        # 1. Validate token against required_scopes
-        for scope in self.required_scopes:
-            valid, reason, _ = validate_token(consent_token, expected_scope=scope)
-            if valid:
-                break
-        if not valid:
-            raise PermissionError(f"Agent Access Denied: {reason}")
-
-        # 2. Inject context for tools
-        with HushhContext(user_id=user_id, consent_token=consent_token):
-            return super().run(input=prompt)
+# Application caller; HushhAgent owns validation, context, and Runner setup.
+response = await agent.run_turn(
+    prompt=prompt,
+    user_id=verified_user_id,
+    consent_token=verified_consent_token,
+)
 ```
 
-### Layer 2: Tool Invocation
+### Decorated tool invocation
 
-The `@hushh_tool` decorator re-validates consent with the tool's specific scope before the function body runs.
+Where a handler uses `@hushh_tool`, the decorator re-validates consent with the
+tool's specific scope before the function body runs.
 
 ```python
 # hushh_mcp/hushh_adk/tools.py
@@ -201,9 +253,11 @@ The decorator:
 2. Validates token scope matches the tool's required scope
 3. Verifies `token.user_id == context.user_id` (anti-spoofing)
 
-### Layer 3: Operon-Level (Impure Only)
+### Impure operon checks
 
-Impure operons (fetchers, analysis, LLM, storage) validate consent inline as their first operation. Pure calculators skip this.
+Where an impure operon is called through this tool path, it validates consent
+inline as its first operation. Pure calculators skip this check; other lanes use
+their owning service and invocation contracts.
 
 ```python
 # hushh_mcp/operons/kai/analysis.py
@@ -217,7 +271,8 @@ def analyze_fundamentals(ticker, user_id, sec_filings, consent_token):
 
 ### HushhContext Propagation
 
-Context flows via Python's `contextvars` module -- thread-safe, zero argument passing.
+In lanes that bind `HushhContext`, context flows via Python's `contextvars` module.
+Other runtime paths pass their typed session and authority explicitly.
 
 ```python
 # Set by HushhAgent.run_turn():
@@ -377,7 +432,13 @@ from hushh_mcp.operons.kai.calculators import calculate_bollinger_bands
 
 ---
 
-## How to Build a New Agent (30 min)
+## How to Build or Extend an Agent
+
+Extend a bounded specialist when its current task/result contract already fits.
+Use the `product-agent-development` workflow for a new agent or a changed
+authority boundary. A passing loader alone is insufficient: the schema has
+defaults for runtime mode, authorities, telemetry, and evaluation that do not
+establish a safe deployment decision.
 
 ### Step 1: Create Directory
 
@@ -386,34 +447,16 @@ mkdir -p hushh_mcp/agents/my_agent
 touch hushh_mcp/agents/my_agent/__init__.py
 ```
 
-### Step 2: Write the Manifest (agent.yaml)
+### Step 2: Author the V2 Manifest
 
-```yaml
-# hushh_mcp/agents/my_agent/agent.yaml
-id: agent_my_domain
-name: MyDomain Agent
-version: "1.0.0"
-description: Analyzes user data for the my_domain domain.
-model: gemini-3.7-flash
-system_instruction: |
-  You are a Hussh agent specializing in [domain].
-  Always respect user consent and privacy.
-  Provide structured, actionable insights.
-required_scopes:
-  - attr.my_domain.*
-tools:
-  - name: analyze_domain_data
-    description: Analyze user's domain data
-    py_func: hushh_mcp.agents.my_agent.tools.analyze_domain_data
-    required_scope: attr.my_domain.*
-inputs:
-  - name: query
-    type: string
-outputs:
-  - name: analysis
-    type: object
-ui_type: chat
-```
+Use a nearby checked `agent.yaml` for its current structure and consult
+`AgentManifestV2` in `hushh_mcp/hushh_adk/manifest.py` for the exact field
+types. Declare `manifest_version: 2`, parent, runtime factory and mode,
+invocation/information/action authorities, typed inputs and outputs, failure
+states, side effects and confirmation, PKM behavior, surface applicability,
+privacy allowlist, telemetry, evaluations, performance, kill switch, rollout,
+and rollback. Do not rely on schema defaults to make those product decisions.
+Keep the instruction in this YAML; a Python prompt copy will drift.
 
 ### Semantic Contract Requirement
 
@@ -453,28 +496,23 @@ Reference:
 - `../../../docs/reference/quality/morphy-agent-experience.md`
 - `../../../docs/reference/one/one-voice-runtime-architecture.md`
 
-### Step 3: Subclass HushhAgent
+### Step 3: Bind the Existing Runtime
 
 ```python
-# hushh_mcp/agents/my_agent/agent.py
-import os
+from pathlib import Path
 from hushh_mcp.hushh_adk.core import HushhAgent
-from hushh_mcp.hushh_adk.manifest import ManifestLoader
-from .tools import analyze_domain_data
 
-class MyDomainAgent(HushhAgent):
-    def __init__(self):
-        manifest_path = os.path.join(os.path.dirname(__file__), "agent.yaml")
-        self.manifest = ManifestLoader.load(manifest_path)
-
-        super().__init__(
-            name=self.manifest.name,
-            model=self.manifest.model,
-            tools=[analyze_domain_data],
-            system_prompt=self.manifest.system_instruction,
-            required_scopes=self.manifest.required_scopes,
-        )
+agent = HushhAgent.from_manifest(str(Path(__file__).with_name("agent.yaml")))
 ```
+
+For a specialist needing a custom builder, declare its path in YAML
+`runtime.factory` and wire it through the owning runtime. The generic
+`HushhAgent.from_manifest()` consumes the manifest's instruction, model,
+importable tools and required scopes; it does not invoke `runtime.factory` or
+select `adk_mode`. Keep the specialist's task/result contract intact. ADK 2.x
+agents are Pydantic models: assigning undeclared fields such as `self.manifest` before
+`super().__init__()` raises immediately. Prefer the existing manifest factory
+and explicit runtime dependencies over a subclass for simple agents.
 
 ### Step 4: Define Tools
 
@@ -490,32 +528,18 @@ async def analyze_domain_data(query: str) -> dict:
     if not ctx:
         raise PermissionError("No active context")
 
-    # Call operons (never services)
-    return {"result": "analysis complete", "user_id": ctx.user_id}
+    # Call a bounded operon or verified service port; return only allowed fields.
+    return {"result": "analysis complete"}
 ```
 
-### Step 5: Create API Routes
+### Step 5: Wire Only Declared Surfaces
 
-```python
-# api/routes/my_agent/__init__.py
-from fastapi import APIRouter
-router = APIRouter(prefix="/api/my-agent", tags=["my-agent"])
+Register the specialist through the existing One roster and dispatch. Add a
+direct API route only when the manifest declares that surface and the route has
+an authenticated owner, exact consent gate, typed request/response contract,
+and a test. Do not create a route merely because an agent exists.
 
-# api/routes/my_agent/chat.py
-@router.post("/chat")
-async def chat(request: Request):
-    # ... validate consent, call agent
-```
-
-### Step 6: Register in server.py
-
-```python
-# server.py (add 2 lines)
-from api.routes.my_agent import router as my_agent_router
-app.include_router(my_agent_router)
-```
-
-### Step 7: Regenerate and Verify One's Roster
+### Step 6: Regenerate and Verify One's Roster
 
 Do not add a public MCP delegation tool or a second routing enum. Declare the
 agent's parent, runtime mode, authority, tools, and surface applicability in
@@ -523,72 +547,27 @@ agent's parent, runtime mode, authority, tools, and surface applicability in
 One's runtime registry consumes the generated contract; remote process or
 deployment hops use official A2A Tasks only after the pinned SDK gate passes.
 
+```bash
+cd consent-protocol
+uv run python scripts/generate_product_agent_registry.py --check
+uv run pytest tests/test_product_agent_registry_v2.py tests/test_agent_manifests.py -q
+uv run python scripts/verify_agent_hierarchy_contract.py
+```
+
 ---
 
-## Existing Agents
+## Current Roster and Workflow Owners
 
-The cross-surface One-led hierarchy lives in `docs/reference/one/one-agent-hierarchy.md`. This backend page owns the package-local agent/tool/operon implementation rules below that hierarchy.
+The generated [product-agent registry](../../../contracts/agents/product-agent-registry.v2.json)
+is the complete roster; [One Agent Hierarchy](../../../docs/reference/one/one-agent-hierarchy.md)
+owns the cross-surface roles. Keep this page on package-local agent, tool and
+operon implementation rules instead of maintaining a second roster table.
 
-| Agent               | Directory                    | Scopes                          | Tools                            |
-| ------------------- | ---------------------------- | ------------------------------- | -------------------------------- |
-| OneAgent            | `agents/one/` with a temporary compatibility runtime in `agents/orchestrator/` | `cap.one.invoke` | task invocation only; downstream authority is attenuated |
-| KaiAgent            | `agents/kai/`                | `agent.kai.analyze`             | `perform_fundamental_analysis`, `perform_sentiment_analysis`, `perform_valuation_analysis` |
-| NavAgent            | `agents/nav/`                | `agent.nav.review`              | scope review, vault/deletion/revocation guidance |
-| KycAgent            | `agents/kyc/`                | `agent.kyc.process`             | identity workflow state, approval-gated drafts, structured PKM writeback contract |
-| PortfolioImportAgent| (inline in `kai/portfolio.py`)| `vault.owner`                  | File parsing + LLM fallback      |
-
-### One Email KYC Intake
-
-The broker/KYC email lane is One-led, not Kai-owned. Full architecture
-contract: `../../../docs/reference/architecture/one-email-kyc.md`.
-
-**Two-pass LLM flow (current):**
-
-**Pass 1 — LLM routing (`classify_kyc_request`):** On inbound Gmail message,
-after sender-identity matching and client-connector gate, One calls the
-server-side LLM with the request text and the sanitized PKM index
-(`available_domains`, `domain_summaries`, `computed_tags` — no raw values).
-The LLM returns `{ classification, requested_items, primary_domains,
-confidence, reasoning }`. If `classification` is `"unsupported"` or
-`confidence < 0.5`, the workflow parks and surfaces the reasoning to the
-user. Otherwise the workflow enters `needs_confirm`.
-
-**Confirm gate (`POST /kyc/workflows/{id}/confirm-proposal`):** The `/one/kyc`
-UI shows the LLM's proposed domain(s), fields, and reasoning. The user
-approves a subset of proposed scopes; this is the explicit consent act. One
-creates one `agent_kyc` consent request per approved data scope (shared bundle
-id). Rejected or edited scopes are discarded before any data leaves the
-client. The `agent.kyc.disclose.llm` scope labels the PII-to-LLM endpoints
-for audit but is not added as a separate consent request here; the effective
-gate is the vault-owner session plus the per-field data-scope grants above.
-
-**Pass 2 — LLM extract + draft (`POST /kyc/workflows/{id}/extract-draft`):**
-The frontend decrypts only the one approved domain and sends the full
-plaintext values to the server LLM. The LLM returns `{ extracted[], missing[],
-draft{ subject, body } }`. The renderer wraps the LLM body in Gmail-safe HTML
-chrome. The subset invariant and draft value-provenance check run
-fail-closed before the draft is surfaced.
-
-**Redraft (`POST /kyc/workflows/{id}/redraft-full`):** Reuses every memory-only
-decrypted export for the workflow's exact approved scopes so the LLM can revise
-the response from the user's instruction. The backend requires exact scope and
-export-revision parity before the provider call, never persists or logs the
-plaintext, and rejects scope-expansion attempts with a typed error.
-
-Additional plumbing (unchanged):
-
-- `one@hushh.ai` is the Workspace user mailbox.
-- `POST /api/one/email/webhook` receives Gmail Pub/Sub notifications.
-- `POST /api/one/email/watch/renew` renews the mailbox watch.
-- Workflow state lives in `one_kyc_workflows`; `draft_body` must remain null
-  server-side (the LLM draft is assembled client-side only).
-- Outbound Gmail send is blocked until every selected scope is granted/current,
-  `draft_status=ready`, `status=waiting_on_user`, and the vault owner approves
-  the final body.
-- If any selected scope is denied, One does not send and surfaces an
-  internal-only explanation.
-
-Do not store raw email bodies, raw vault contents, broad decrypted PKM, tokens, or chain-of-thought in this lane.
+For One-led email KYC, use the [One Email KYC architecture](../../../docs/reference/architecture/one-email-kyc.md)
+for routing, consent, drafts and send gates. Its attachment points here are
+the `agent_kyc` manifest, typed gene contracts and the existing One Email KYC
+services. Never put raw email bodies, decrypted PKM values, credentials or
+model reasoning in ADK session state or telemetry.
 
 ---
 
@@ -606,7 +585,7 @@ status: string                # experimental | active | deprecated
 owner: string                 # Owning runtime family
 parent: string | null         # One is null; specialists name their parent
 description: string           # What this agent does
-model: string                 # LLM model identifier
+model: string | object        # Model identifier or AgentModelConfig
 system_instruction: string    # System prompt
 runtime: object               # kind, factory, ADK mode, transports
 authorities: object           # invocation, data, and action authority
@@ -691,6 +670,13 @@ testing. It uses the official `to_a2a()` adapter, advertises ADK's A2A
 extension, forces the new executor implementation, and validates
 `X-Consent-Token` before ADK runs. It is not the default transport until its
 local parity and A2A v1 gates are both satisfied.
+
+The current opt-in adapter admits only fresh `message/send` and
+`message/stream` requests. Task lookup, cancellation, resubscription, push
+configuration, and message continuation are refused before the SDK handler:
+the SDK's default in-memory task store does not bind stored tasks to a consent
+owner. An owner-bound store and complete Task lifecycle tests are required
+before enabling those operations. This containment is not A2A v1 parity.
 
 ```bash
 cd consent-protocol

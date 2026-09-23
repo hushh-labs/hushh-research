@@ -50,7 +50,12 @@ APP_FRONTEND_ORIGIN_ENV = "APP_FRONTEND_ORIGIN"
 FIREBASE_ADMIN_CREDENTIALS_JSON_ENV = "FIREBASE_ADMIN_CREDENTIALS_JSON"
 FIREBASE_SERVICE_ACCOUNT_JSON_ENV = "FIREBASE_SERVICE_ACCOUNT_JSON"
 GMAIL_OAUTH_TOKEN_KEY_ENV = "GMAIL_OAUTH_TOKEN_KEY"  # noqa: S105
+# Server-held Plaid custody is retired. These two keys exist solely so
+# scripts/ops/plaid_server_custody_retire.py can decrypt the remaining stored
+# tokens and disconnect them at Plaid. Remove both once that script has run in
+# every environment and migration 239 has dropped the tables.
 PLAID_ACCESS_TOKEN_KEY_ENV = "PLAID_ACCESS_TOKEN_KEY"  # noqa: S105
+FUNDING_SECRET_ENCRYPTION_KEY_ENV = "FUNDING_SECRET_ENCRYPTION_KEY"  # noqa: S105
 # Apple Wallet pass signing material. The three PEMs arrive as their own Cloud
 # Run secret refs (never inside BACKEND_RUNTIME_CONFIG_JSON) and are read here so
 # that no service reads them from the environment directly.
@@ -99,6 +104,15 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "plaid_redirect_uri": "PLAID_REDIRECT_URI",
     "plaid_tx_history_days": "PLAID_TX_HISTORY_DAYS",
     "one_location_read_only_state_enabled": "ONE_LOCATION_READ_ONLY_STATE_ENABLED",
+    "connections_panel_v2": "CONNECTIONS_PANEL_V2",
+    "google_drive_connection": "GOOGLE_DRIVE_CONNECTION",
+    "google_drive_picker": "GOOGLE_DRIVE_PICKER",
+    "drive_document_indexing": "DRIVE_DOCUMENT_INDEXING",
+    "drive_document_sharing": "DRIVE_DOCUMENT_SHARING",
+    "gmail_chat_reads": "GMAIL_CHAT_READS",
+    "google_drive_chat_reads": "GOOGLE_DRIVE_CHAT_READS",
+    "connector_internal_owner_cohort": "CONNECTOR_INTERNAL_OWNER_COHORT",
+    "connector_uat_all_users": "CONNECTOR_UAT_ALL_USERS",
     # Nearby check-in admission. Both are required to open the flow in
     # production -- the mode alone leaves it closed -- so that a half-finished
     # rollout fails safe. See `_nearby_presence_enabled` in the location routes.
@@ -291,7 +305,13 @@ def get_optional_gmail_oauth_token_key() -> str:
 
 
 def get_optional_plaid_access_token_key() -> str:
+    """Retirement-script only; see the note on PLAID_ACCESS_TOKEN_KEY_ENV."""
     return _clean_env(PLAID_ACCESS_TOKEN_KEY_ENV)
+
+
+def get_optional_funding_secret_encryption_key() -> str:
+    """Retirement-script only; see the note on PLAID_ACCESS_TOKEN_KEY_ENV."""
+    return _clean_env(FUNDING_SECRET_ENCRYPTION_KEY_ENV)
 
 
 def get_connector_secrets_key() -> str:

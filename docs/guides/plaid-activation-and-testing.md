@@ -9,15 +9,15 @@ Runbook for enabling Kai’s read-only Plaid brokerage connectivity on localhost
 
 ## What This Enables
 
-- brokerage Link connect
-- OAuth resume on web and native builds
-- holdings sync
-- investment transaction sync
-- manual refresh
-- webhook-driven updates
+- bank and brokerage Link connect, sealed in the person's vault (the server stores nothing)
+- OAuth banks on web, iOS and Android
+- accounts, holdings, securities and transactions
+- refresh on unlock and on an explicit Refresh
+- relink (Plaid update mode) for a connection that needs a new login
 - read-only Plaid source in dashboard, debate context, and optimize context
 
-It does not enable live trading.
+It does not enable live trading. Contract and device behaviour:
+[Plaid Vault Passthrough](../reference/kai/plaid-vault-passthrough.md).
 
 ## Required Allowlisted Redirect URIs
 
@@ -27,9 +27,8 @@ Register the full callback path in Plaid Dashboard:
 - `https://uat.one.hushh.ai/one/kai/plaid/oauth/return`
 - `https://one.hushh.ai/one/kai/plaid/oauth/return`
 
-Plaid requires the full absolute URI, not just the domain.
-
-Webhook URLs do not need dashboard allowlisting. They are supplied by the backend during Link token creation and must be publicly reachable.
+Plaid requires the full absolute URI, not just the domain. Native Android sends no redirect
+URI; it registers the app package name in the Plaid dashboard instead.
 
 ## Backend Env
 
@@ -41,69 +40,40 @@ Set these in the backend runtime profile:
 - `PLAID_CLIENT_NAME=Hussh Kai`
 - `PLAID_COUNTRY_CODES=US`
 - `PLAID_REDIRECT_PATH=/one/kai/plaid/oauth/return`
-- `PLAID_WEBHOOK_URL=https://<public-domain-or-tunnel>/api/kai/plaid/webhook`
-- `PLAID_ACCESS_TOKEN_KEY=<recommended but optional>`
 - `PLAID_TX_HISTORY_DAYS=730`
 
 `APP_FRONTEND_ORIGIN` must match the active frontend origin for the current profile.
 
-Webhook values to use:
-
-- local active stack: `https://<your-current-tunnel>/api/kai/plaid/webhook`
-- UAT: `https://uat.one.hushh.ai/api/kai/plaid/webhook`
-- production: `https://one.hushh.ai/api/kai/plaid/webhook`
-
-`PLAID_WEBHOOK_URL` is the exact value that must be added to the backend env. It is not relative, and it is not allowlisted in the Plaid dashboard.
+The vault flow uses no webhooks. `PLAID_WEBHOOK_URL` is still read by the Plaid config and
+required by the deploy lanes until that requirement is removed; its value is not sent to Plaid.
+`PLAID_ACCESS_TOKEN_KEY` exists only for the one-time server-custody retirement script.
 
 ## Localhost
 
-Use:
-
 - frontend: `http://localhost:3000`
 - backend runtime file: `consent-protocol/.env`
-- webhook tunnel: ngrok or Cloudflare tunnel
-
-Example webhook target:
-
-- `https://<your-tunnel>/api/kai/plaid/webhook`
 
 ## Hosted
 
-Use:
-
-- UAT: `https://uat.one.hushh.ai`
+- UAT: `https://uat.one.hushh.ai` (UAT uses **production** Plaid: never link test credentials
+  or capture bank screens there)
 - Prod-like: `https://one.hushh.ai`
-
-Hosted webhook targets:
-
-- `https://uat.one.hushh.ai/api/kai/plaid/webhook`
-- `https://one.hushh.ai/api/kai/plaid/webhook`
-
-Backend must use the matching `APP_FRONTEND_ORIGIN` for each profile so the callback origin validation succeeds.
 
 ## Activation Steps
 
-1. Apply `consent-protocol/db/migrations/023_kai_plaid_portfolio.sql`.
-2. Set `PLAID_WEBHOOK_URL` for the active backend:
-   - localhost/local: your current tunnel URL ending in `/api/kai/plaid/webhook`
-   - UAT: `https://uat.one.hushh.ai/api/kai/plaid/webhook`
-3. Set a stable `PLAID_ACCESS_TOKEN_KEY`.
-4. Restart the backend so the new Plaid env values load.
-5. Start the frontend on the matching origin.
-6. Open Kai import or dashboard.
-7. Click `Connect Plaid`.
-8. Complete Link.
-9. For OAuth institutions, confirm you return to `/one/kai/plaid/oauth/return` and then back into Kai.
-10. If you changed webhook targets after Items already existed, do a one-time operator update for existing Items using Plaid's `/item/webhook/update`.
+1. Start the backend and the frontend on matching origins.
+2. Unlock the vault, open Finance, and click `Connect a bank`.
+3. Complete Link. The connection and its first snapshot are saved to the vault in one
+   owner-confirmed write.
+4. For OAuth institutions on the web, the bank takes the page away and returns to
+   `/one/kai/plaid/oauth/return`; unlock again and Link finishes there.
 
 ### Native OAuth return
 
-Native builds use the matching hosted HTTPS redirect URI when minting a Link
-token. The OS may then deliver that callback to the app through an iOS
-Universal Link or Android App Link. The app resumes the opaque browser session,
-reopens Plaid Link with the original HTTPS redirect URI, and exchanges the
-public token in the same authenticated Vault-owner session. It must not pass
-`app://localhost` back to Plaid.
+Native builds run Plaid's own SDK (LinkKit on iOS, the Link SDK on Android), so the bank's
+return lands back in Link inside the app. iOS mints the link token with the matching hosted
+HTTPS redirect URI, which the OS may deliver to the app through a Universal Link; it must not
+pass `app://localhost` back to Plaid.
 
 Before testing on a device, verify both hosted association documents:
 
@@ -123,10 +93,9 @@ cache to refresh; on Android, repeat the verified-link check on the device.
 
 BYOK note:
 
-- the callback flow re-issues a fresh `VAULT_OWNER` token
-- it does not persist the vault key
-- the browser/native return keeps only the opaque resume session in session memory; it never stores the Vault key
-- if the web session fully reloads during OAuth, Kai may still ask you to unlock the vault again before showing the full dashboard
+- the access token and every record live only in the person's encrypted vault
+- the web OAuth return keeps only the link token (never an access token) in tab session
+  storage for 30 minutes, single use; the vault key is never persisted
 
 ### Statement upload and Save to Vault
 
@@ -156,7 +125,7 @@ Validate both completion branches:
 - `Plaid` is read-only
 - `Combined` is comparison-only
 - transaction activity appears in the dashboard when broker activity exists
-- refresh creates a background task and transitions to fresh data after webhook or fallback completion
+- unlocking refreshes sealed connections in the background once per vault session
 
 ## Core Tests
 
@@ -179,15 +148,15 @@ Validate both completion branches:
 
 ### OAuth
 
-- use an OAuth institution
-- confirm redirect to the bank and back to `/one/kai/plaid/oauth/return`
-- confirm the public token exchange completes
+- use an OAuth institution (sandbox: Platypus OAuth Bank)
+- confirm the bank page and the return to Link (native) or to `/one/kai/plaid/oauth/return` (web)
+- confirm the connection is sealed
 
-### Refresh
+### Refresh and relink
 
-- click `Refresh`
-- confirm a background task is created
-- confirm status moves from `queued/running` to `completed`
+- lock and unlock: the connection refreshes once
+- force a sandbox Item into `ITEM_LOGIN_REQUIRED`, relink it, and confirm it refreshes without
+  a new connection
 
 ### Source rules
 
@@ -199,17 +168,16 @@ Validate both completion branches:
 
 - missing `cost_basis`
 - stale or missing `institution_price_as_of`
-- `ITEM: NEW_ACCOUNTS_AVAILABLE`
-- `ITEM: PENDING_EXPIRATION`
-- `ITEM: USER_PERMISSION_REVOKED`
+- a connection returning `ITEM_LOGIN_REQUIRED` (shows needs relink)
+- the app closed between the token exchange and the vault save (next unlock disconnects it)
 - duplicate institution relink attempt
 - reconnect/update-mode success
 
 ## Verification Commands
 
-- `python3 -m py_compile consent-protocol/hushh_mcp/services/plaid_portfolio_service.py consent-protocol/api/routes/kai/plaid.py consent-protocol/api/routes/kai/__init__.py`
+- `cd consent-protocol && .venv/bin/python -m pytest tests/test_plaid_vault_routes.py`
+- `cd hushh-webapp && npx vitest run __tests__/lib/plaid-vault`
 - `cd hushh-webapp && npm run typecheck`
-- manual runtime smoke for `/kai/import` and `/kai/portfolio`
 
 ## Capability Reminder
 

@@ -8,17 +8,54 @@ const AVATAR_SIZE = 256;
 const JPEG_QUALITY = 0.82;
 
 /**
+ * What a photo pick actually produced.
+ *
+ * `cancelled` and `failed` used to both come back as `null`, so a broken
+ * plugin looked like "the person changed their mind" and got no feedback.
+ * The cause is only named where the platform names it: @capacitor/camera
+ * rejects a dismissed picker with a message containing "cancel"; anything
+ * else it throws is a plugin failure. Web has no cancel event at all, so a
+ * closed dialog is `cancelled` and only a reader error is `failed`.
+ */
+export type AvatarPickResult =
+  | { kind: "selected"; dataUrl: string }
+  | { kind: "cancelled" }
+  | { kind: "failed"; reason: "plugin" | "read" | "encoding" };
+
+/**
  * Pick a profile photo — native camera/library on iOS (@capacitor/camera with
  * the native square-crop editor), or a file picker on web — then center-crop +
- * downscale to a small square JPEG data-URL. Resolves null if the user cancels.
+ * downscale to a small square JPEG data-URL.
  */
-export async function pickAvatarDataUrl(): Promise<string | null> {
+export async function pickAvatar(): Promise<AvatarPickResult> {
   const raw = await pickRawImage();
-  if (!raw) return null;
-  return normalizeToAvatarDataUrl(raw);
+  if (raw.kind !== "selected") return raw;
+  try {
+    return { kind: "selected", dataUrl: await normalizeToAvatarDataUrl(raw.dataUrl) };
+  } catch {
+    return { kind: "failed", reason: "encoding" };
+  }
 }
 
-async function pickRawImage(): Promise<string | null> {
+/** Compat wrapper: null for cancel *and* failure. Prefer `pickAvatar`. */
+export async function pickAvatarDataUrl(): Promise<string | null> {
+  const result = await pickAvatar();
+  return result.kind === "selected" ? result.dataUrl : null;
+}
+
+export function isCameraCancellation(error: unknown): boolean {
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : typeof (error as { message?: unknown })?.message === "string"
+          ? String((error as { message: string }).message)
+          : "";
+  return /cancel/i.test(message);
+}
+
+async function pickRawImage(): Promise<AvatarPickResult> {
   if (isNative()) {
     try {
       const { Camera, CameraResultType, CameraSource } = await import(
@@ -36,20 +73,22 @@ async function pickRawImage(): Promise<string | null> {
         promptLabelPhoto: "Choose from Library",
         promptLabelPicture: "Take Photo",
       });
-      return photo.dataUrl ?? null;
-    } catch {
-      // Cancel or plugin error → treat as no-op.
-      return null;
+      if (!photo.dataUrl) return { kind: "failed", reason: "plugin" };
+      return { kind: "selected", dataUrl: photo.dataUrl };
+    } catch (error) {
+      return isCameraCancellation(error)
+        ? { kind: "cancelled" }
+        : { kind: "failed", reason: "plugin" };
     }
   }
   return pickImageViaFileInput();
 }
 
 // Web fallback: a transient hidden <input type="file"> → data-URL.
-function pickImageViaFileInput(): Promise<string | null> {
+function pickImageViaFileInput(): Promise<AvatarPickResult> {
   return new Promise((resolve) => {
     if (typeof document === "undefined") {
-      resolve(null);
+      resolve({ kind: "failed", reason: "plugin" });
       return;
     }
     const input = document.createElement("input");
@@ -58,7 +97,7 @@ function pickImageViaFileInput(): Promise<string | null> {
     input.style.cssText = "position:fixed;left:-9999px;width:1px;height:1px;";
     let settled = false;
     let cancelTimer: number | undefined;
-    const done = (value: string | null) => {
+    const done = (value: AvatarPickResult) => {
       if (settled) return;
       settled = true;
       window.removeEventListener("focus", onFocus);
@@ -77,19 +116,23 @@ function pickImageViaFileInput(): Promise<string | null> {
       }
       const file = input.files?.[0];
       if (!file) {
-        done(null);
+        done({ kind: "cancelled" });
         return;
       }
       const reader = new FileReader();
       reader.onload = () =>
-        done(typeof reader.result === "string" ? reader.result : null);
-      reader.onerror = () => done(null);
+        done(
+          typeof reader.result === "string"
+            ? { kind: "selected", dataUrl: reader.result }
+            : { kind: "failed", reason: "read" },
+        );
+      reader.onerror = () => done({ kind: "failed", reason: "read" });
       reader.readAsDataURL(file);
     };
     // No reliable "cancel" event for a file dialog; when the window regains
     // focus without an onchange, resolve null after a short grace period.
     const onFocus = () => {
-      cancelTimer = window.setTimeout(() => done(null), 600);
+      cancelTimer = window.setTimeout(() => done({ kind: "cancelled" }), 600);
     };
     window.addEventListener("focus", onFocus);
     document.body.appendChild(input);

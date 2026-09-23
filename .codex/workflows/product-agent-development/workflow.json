@@ -23,7 +23,7 @@
     "cd consent-protocol && uv run python scripts/generate_product_agent_registry.py --check",
     "cd consent-protocol && uv run python scripts/generate_pod_specialist_capability_matrix.py --check",
     "cd consent-protocol && uv run pytest tests/test_product_agent_registry_v2.py tests/test_agent_manifests.py -q",
-    "cd consent-protocol && python3 scripts/verify_agent_hierarchy_contract.py"
+    "cd consent-protocol && uv run python scripts/verify_agent_hierarchy_contract.py"
   ],
   "verification_bundle": {
     "id": "product-agent-development",
@@ -31,12 +31,12 @@
       "cd consent-protocol && uv run python scripts/generate_product_agent_registry.py --check",
       "cd consent-protocol && uv run python scripts/generate_pod_specialist_capability_matrix.py --check",
       "cd consent-protocol && uv run pytest tests/test_product_agent_registry_v2.py tests/test_agent_manifests.py -q",
-      "cd consent-protocol && python3 scripts/verify_agent_hierarchy_contract.py",
+      "cd consent-protocol && uv run python scripts/verify_agent_hierarchy_contract.py",
       "./bin/hushh docs verify"
     ],
     "tests": [
       "cd consent-protocol && uv run pytest tests/test_product_agent_registry_v2.py tests/test_agent_manifests.py -q",
-      "cd consent-protocol && python3 scripts/verify_agent_hierarchy_contract.py"
+      "cd consent-protocol && uv run python scripts/verify_agent_hierarchy_contract.py"
     ]
   },
   "deliverables": [

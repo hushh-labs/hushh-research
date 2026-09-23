@@ -588,11 +588,11 @@ Every floating surface that takes modal focus shares one backdrop language so op
 
 Rules:
 
-1. The canonical scrim is `bg-black/22 backdrop-blur-[8px]` plus the `-webkit-backdrop-filter` fallback, sitting at `z-[499]` directly below the surface at `z-[500]`. Radix overlays (`DialogOverlay`, sheet, drawer, alert dialog) already carry this via their `data-state` motion classes.
+1. The canonical scrim is `bg-[color:var(--app-scrim-color)]` with `backdrop-filter` and `-webkit-backdrop-filter` set to `var(--app-scrim-filter)`, sitting directly below its surface. Desktop gets a 24% dim with a 12px blur; touch screens (`pointer: coarse`) get a 40% dim and no blur, because a full-screen blur fading in re-blurs the page on every frame and starved sheet motion on the phone (Galaxy S24 Ultra, 2026-09-22). Radix overlays (`DialogOverlay`, sheet, drawer, alert dialog) and `PopoverContent withBackdrop` all carry it; never restate the values.
 2. Dialogs, sheets, drawers, and the command palette inherit the scrim through `DialogOverlay`; do not add a second hand-rolled scrim on top. Vault create, unlock, recovery, passkey, and biometric credential surfaces are the focused credential exception: every entry point uses one opaque neutral theme canvas without blur, suppressing persistent top chrome, bottom navigation, and the Agent Bar so route content never competes beneath the form. The non-dismissible `VaultLockGuard` uses the same canvas but also suppresses backdrop animation; contextual vault prompts remain dismissible and retain their standard enter/exit motion except while a newly generated one-time recovery key is disclosed. That disclosure blocks Escape and outside-pointer dismissal until the person explicitly confirms the key was saved.
    Passkey or biometric enrollment is an explicit choice within vault setup or Security; never auto-open that prompt merely because a person navigated to a signed-in route.
 3. Popovers that take modal focus opt into the same backdrop with `PopoverContent withBackdrop`. The scrim renders as `data-slot="popover-scrim"` and animates through the shared `overlay-scrim-in` / `overlay-scrim-out` keyframes registered in `globals.css`. Do not hand-roll a popover scrim with ad hoc opacity or blur values.
-4. Scrim animation tokens (`--motion-overlay-*`) are shared. Do not override per-surface enter/exit durations, and honor the reduced-motion media query already wired in `globals.css`.
+4. Scrim animation tokens (`--motion-overlay-*`) are shared. Do not override per-surface enter/exit durations, and honor the reduced-motion media query already wired in `globals.css`. Sheets (`sheet-content`, `sheet-overlay`) use the shared `--motion-sheet-*` tier instead (300ms enter on the iOS sheet curve, 200ms exit), because they travel most of the screen; that tier is also app-wide, never per surface.
 5. Non-modal helper popovers (tooltips, inline hint bubbles, hover cards) do not take a backdrop. Reserve `withBackdrop` for surfaces that should pull focus away from the page.
 6. The shared `SheetContent` owns bottom-sheet physics: the mobile drag handle,
    4px engagement threshold, scroll-top handoff, distance/velocity dismissal,
@@ -792,20 +792,20 @@ Use the `Subtle Apple` depth model:
 
 Rules:
 
-1. Use Lucide icons with meaning-first selection.
+1. Use the canonical Phosphor icon registry with meaning-first selection.
 2. Choose icons for what they depict, not for a vague use case:
-   - use `Target`, `BarChart3`, `Building2`, `Newspaper`, `UserRound`, `Shield`, `Wallet`, etc. when they describe the surface directly
+   - use the registry's `Target`, `ChartBar`, `Buildings`, `Newspaper`, `UserCircle`, `Shield`, `Wallet`, etc. exports when they describe the surface directly
    - do not use generic `Sparkles` as a fallback for AI, optimize, onboarding, or premium semantics
-3. For static app surfaces, import icons directly from `lucide-react` so tree-shaking keeps bundles tight. Do not use dynamic icon loading for normal page chrome.
+3. For application-owned surfaces, import icons from `@/components/icons`. The registry owns official Phosphor geometry, native viewBoxes, and default weight so that shell, route, and Profile treatments stay visually aligned. Do not use dynamic icon loading for normal page chrome.
 4. Icon emphasis must match text emphasis in active and highlighted states.
 5. Prefer relative icons that describe the section or action directly.
-6. When building custom icon wells or icon-bearing surfaces, preserve Lucide’s visual assumptions:
-   - 2px stroke language
+6. When building custom icon wells or icon-bearing surfaces, preserve the canonical Phosphor assumptions:
+   - native `viewBox="0 0 256 256"` and the registry's duotone geometry
    - visually centered composition
    - similar optical weight across sibling headers and actions
 7. Refer to:
-   - `https://lucide.dev/guide/packages/lucide-react`
-   - `https://lucide.dev/guide/design/icon-design-guide`
+   - `skills/hushh-icon-theme/SKILL.md`
+   - `docs/ui-migration/iconography-and-motion-audit.md`
 
 ## Market-Specific Rules
 

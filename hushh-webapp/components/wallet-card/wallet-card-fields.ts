@@ -163,7 +163,7 @@ export const PREFERRED_CONTACT_FIELD_META: Record<
 > = {
   email: {
     key: "email",
-    label: "Email",
+    label: "Mail",
     placeholder: "you@example.com",
     type: "email",
     inputMode: "email",
@@ -200,7 +200,7 @@ export const WALLET_CARD_PREFERRED_CONTACT_OPTIONS: ReadonlyArray<{
   label: string;
   field: WalletCardFieldKey;
 }> = [
-  { value: "email", label: "Email", field: "email" },
+  { value: "email", label: "Mail", field: "email" },
   { value: "phone", label: "Phone", field: "phone" },
   { value: "linkedin", label: "LinkedIn", field: "linkedin" },
   { value: "website", label: "Link", field: "website" },
@@ -324,7 +324,7 @@ export function validateDraft(
 
   const email = draft.email.trim();
   if (email && !EMAIL_SHAPE.test(email)) {
-    errors.email = "Enter a valid email address.";
+    errors.email = "Enter a valid mail address.";
   }
 
   const phone = draft.phone.trim();
@@ -442,7 +442,7 @@ export function describeSharedFields(draft: WalletCardDraft): string[] {
   if (draft.locationLabel.trim()) shared.push("Location");
   if (draft.summary.trim()) shared.push("Short summary");
   if (splitSkills(draft.skills).length > 0) shared.push("Skills");
-  if (draft.email.trim()) shared.push("Email");
+  if (draft.email.trim()) shared.push("Mail");
   if (draft.phone.trim()) shared.push("Phone");
   if (draft.website.trim()) shared.push("Public link");
   if (draft.linkedin.trim()) shared.push("LinkedIn");

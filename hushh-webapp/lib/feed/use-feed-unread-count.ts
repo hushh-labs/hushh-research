@@ -10,6 +10,7 @@ import {
 import { useFeedLiveRefresh } from "@/lib/feed/use-feed-live-refresh";
 import { CACHE_KEYS, CacheService } from "@/lib/services/cache-service";
 import { FeedService } from "@/lib/services/feed-service";
+import { useRootChatDeferredReady } from "@/lib/navigation/use-root-chat-deferred-ready";
 
 /**
  * Returns `null` until the count has resolved. Consumers must treat that as
@@ -18,6 +19,7 @@ import { FeedService } from "@/lib/services/feed-service";
  */
 export function useFeedUnreadCount(options?: { enabled?: boolean }): number | null {
   const { user } = useAuth();
+  const rootChatReady = useRootChatDeferredReady();
   const currentUserId = user?.uid ?? null;
   // Object identity distinguishes separate sessions even when an A -> B -> A
   // account cycle returns to the same uid. State from the first A session is
@@ -88,25 +90,25 @@ export function useFeedUnreadCount(options?: { enabled?: boolean }): number | nu
     setCountState({ session, count: null });
     // A hidden badge does not fetch: the reset above already cleared the count,
     // so a disabled consumer simply reads null without spending a connection.
-    if (!user?.uid || !enabled) {
+    if (!user?.uid || !enabled || !rootChatReady) {
       return;
     }
     void load();
-  }, [user, load, session, enabled]);
+  }, [user, load, session, enabled, rootChatReady]);
 
   // Shares the Feed's live signal rather than keeping a private timer, so the
   // badge and the Feed list re-check on the same tick and cannot drift into
   // saying different things about the same unread rows.
   useFeedLiveRefresh(
     useCallback(() => void load(true), [load]),
-    Boolean(user?.uid) && enabled,
+    Boolean(user?.uid) && enabled && rootChatReady,
   );
 
   // The badge additionally recounts on a read-only change — that shared signal
   // skips those, precisely so a list does not re-fetch rows it just marked read.
   // For the badge it is the whole point: it is the number that has to drop.
   useEffect(() => {
-    if (!user?.uid) return;
+    if (!user?.uid || !enabled || !rootChatReady) return;
     const recount = (event: Event) => {
       const reason = feedStateChangeReason(event);
       if (reason === "read") {
@@ -131,7 +133,7 @@ export function useFeedUnreadCount(options?: { enabled?: boolean }): number | nu
     };
     window.addEventListener(FEED_STATE_CHANGED_EVENT, recount);
     return () => window.removeEventListener(FEED_STATE_CHANGED_EVENT, recount);
-  }, [user?.uid, load, session]);
+  }, [enabled, load, rootChatReady, session, user?.uid]);
 
   return countState.session === session ? countState.count : null;
 }

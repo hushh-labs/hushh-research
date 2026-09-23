@@ -15,7 +15,13 @@
  *     different id never clears the card that is showing
  */
 
-import { CLOSE_CODES, NOT_SUCCESS_STATUSES } from "@/lib/one-voice/protocol";
+import {
+  CLOSE_CODES,
+  NOT_SUCCESS_STATUSES,
+  SOS_GRANTS_CREATED,
+  SOS_REPORT_TOOL,
+  SOS_TRIGGER_TOOL,
+} from "@/lib/one-voice/protocol";
 import type {
   EntityCardPayload,
   PendingActionPublic,
@@ -37,6 +43,9 @@ import {
 // --- bounds -------------------------------------------------------------------
 
 const MAX_TRANSCRIPT_ITEMS = 200;
+// Only turns still streaming at the moment of a clear are suppressed, so this
+// list holds at most the handful of turns in flight at once.
+const MAX_CLEARED_TURN_IDS = 8;
 const MAX_TIMELINE_ITEMS = 50;
 const MAX_ENTITIES = 20;
 const MAX_CANDIDATES = 5;
@@ -54,6 +63,7 @@ const NEUTRAL_STATUSES = new Set<string>([
   "multiple",
   "single_likely",
   "low_confidence",
+  "truncated",
   "unverified",
   "invalid",
   "unavailable",
@@ -61,6 +71,13 @@ const NEUTRAL_STATUSES = new Set<string>([
   "in_progress",
   "sos_partial",
   "sos_not_sent",
+  // Verification could not read the stored envelopes: not "nothing changed",
+  // never "sent".
+  "sos_unverified",
+  // Some shares ended, some are unresolved and may still be live.
+  "sos_partially_stopped",
+  // The emergency roster is at its limit; nobody was added.
+  "roster_full",
   "step_order",
   "recipient_key_missing",
   "recipient_not_ready",
@@ -85,7 +102,22 @@ export function isSuccessStatus(status: string | null | undefined): boolean {
   return !isNeutralStatus(value);
 }
 
-export type ToolResultTone = "success" | "neutral" | "failure";
+export type ToolResultTone = "success" | "neutral" | "failure" | "pending";
+
+/**
+ * Interim statuses that read as "in progress" rather than as a failure: the
+ * action ran, a device step is still outstanding, and the settled result is
+ * what decides success or failure. Deliberately narrow: `grant_created`,
+ * `check_in_created`, `position_publish_pending` and
+ * `location_updates_pending` keep their pinned failure tone (their screens
+ * render the interim state themselves and the panel hides the card).
+ */
+const PENDING_STATUSES = new Set<string>([SOS_GRANTS_CREATED]);
+
+/** An armed-but-unsent outcome: neither success nor failure yet. */
+export function isPendingStatus(status: string | null | undefined): boolean {
+  return PENDING_STATUSES.has(String(status || "").trim());
+}
 
 /** How a tool result should read on screen; success needs both `ok` and a success status. */
 export function toolResultTone(
@@ -93,6 +125,9 @@ export function toolResultTone(
   ok: boolean | undefined,
 ): ToolResultTone {
   const value = String(status || "").trim();
+  // An armed Save My Soul is "sending your position", whatever `ok` says: the
+  // relay sends it with ok:false because nothing has been delivered yet.
+  if (isPendingStatus(value)) return "pending";
   if (
     !ok ||
     !value ||
@@ -270,6 +305,9 @@ export function isLocalCloseReason(reason: string | null | undefined): boolean {
 const INFORMATIONAL_ERROR_CODES = new Set<string>([
   "protocol",
   "firebase_proof_required",
+  // The tap's proof failed verification (expired, revoked, other account);
+  // the card stays pending and a fresh tap can still complete it.
+  "firebase_proof_invalid",
 ]);
 
 function summarizeArgs(
@@ -370,6 +408,24 @@ function mergeTranscript(
   return next;
 }
 
+/** True when the transcript has anything a person would actually read. */
+function hasVisibleTranscript(transcript: TranscriptItem[]): boolean {
+  return transcript.some((item) => item.text.trim().length > 0);
+}
+
+/**
+ * Whether "Clear chat view" has anything to act on. Deliberately narrow: a
+ * pending decision, a candidate list, a running step or an unresolved error is
+ * live work, not history, so none of them enables the control.
+ */
+export function panelHasClearableHistory(state: VoiceSessionState): boolean {
+  return (
+    hasVisibleTranscript(state.transcript) ||
+    state.entities.length > 0 ||
+    state.lastResult !== null
+  );
+}
+
 function findLastIndex<T>(items: T[], predicate: (item: T) => boolean): number {
   for (let index = items.length - 1; index >= 0; index -= 1) {
     if (predicate(items[index]!)) return index;
@@ -439,17 +495,41 @@ function reduceServerFrame(
     case "transcript.output": {
       const role: TranscriptItem["role"] =
         frame.type === "transcript.input" ? "you" : "one";
+      if (role === "one" && state.clearedTurnIds.includes(frame.turn_id)) {
+        // An answer that was mid-sentence when the view was cleared belongs
+        // to the cleared exchange, so its remaining chunks and its
+        // finalization stay out. Once it ends there is nothing left to
+        // suppress.
+        //
+        // Only the answer is suppressed. A turn id covers BOTH sides of the
+        // exchange, and the relay stamps a typed message with the turn
+        // already in flight, so suppressing by turn id alone swallowed the
+        // person's own next message and let their final un-suppress the
+        // answer. What someone says or types is never stale history.
+        return {
+          ...state,
+          turnId: frame.turn_id,
+          idleDeadlineAt: null,
+          clearedTurnIds: frame.final
+            ? state.clearedTurnIds.filter((id) => id !== frame.turn_id)
+            : state.clearedTurnIds,
+        };
+      }
+      const transcript = mergeTranscript(
+        state.transcript,
+        role,
+        frame.turn_id,
+        frame.text,
+        frame.final,
+      );
       return {
         ...state,
         turnId: frame.turn_id,
         idleDeadlineAt: null,
-        transcript: mergeTranscript(
-          state.transcript,
-          role,
-          frame.turn_id,
-          frame.text,
-          frame.final,
-        ),
+        transcript,
+        historyCleared: hasVisibleTranscript(transcript)
+          ? false
+          : state.historyCleared,
       };
     }
     case "turn": {
@@ -492,8 +572,26 @@ function reduceServerFrame(
     case "tool.result": {
       const ok = frame.ok === true;
       const result = frame.result_public;
+      // A normal confirmed action emits `pending_action.resolved` first, but
+      // a terminal result can still arrive without that frame after a relay
+      // reconnect. Its exact pending id lets the client retire only the card
+      // it settles; matching by tool name could close a newer confirmation.
+      const pending = state.pendingAction;
+      const pendingActionId = String(frame.pending_action_id || "").trim();
+      const matchesOpenPending = Boolean(
+        pending &&
+          pending.resolvedStatus === null &&
+          pendingActionId &&
+          pendingActionId === pending.pending_action_id,
+      );
+      const awaitingDevice = isPendingStatus(result.status);
+      const resolvedStatus: PendingActionView["resolvedStatus"] =
+        awaitingDevice || ok ? "executed" : "failed";
       // A device-settled result reuses the originating call id; it replaces
       // the interim `location_updates_pending` entry rather than adding one.
+      // The Save My Soul delivery report has no call id (the trigger was a
+      // tap-confirmed card), so it is keyed on the interim status instead: it
+      // replaces the armed entry so the panel shows one SOS card, not two.
       const index = frame.call_id
         ? findLastIndex(
             state.toolTimeline,
@@ -502,7 +600,12 @@ function reduceServerFrame(
               (!item.result ||
                 item.result.status === "location_updates_pending"),
           )
-        : -1;
+        : frame.tool === SOS_REPORT_TOOL
+          ? findLastIndex(
+              state.toolTimeline,
+              (item) => item.result?.status === SOS_GRANTS_CREATED,
+            )
+          : -1;
       let timeline: ToolTimelineItem[];
       if (index === -1) {
         timeline = [
@@ -517,13 +620,37 @@ function reduceServerFrame(
         ].slice(-MAX_TIMELINE_ITEMS);
       } else {
         timeline = state.toolTimeline.slice();
-        timeline[index] = { ...timeline[index]!, result, ok };
+        timeline[index] = {
+          ...timeline[index]!,
+          tool: frame.tool || timeline[index]!.tool,
+          result,
+          ok,
+        };
       }
       return {
         ...state,
         idleDeadlineAt: null,
+        phase:
+          matchesOpenPending && resolvedStatus === "executed" && !awaitingDevice
+            ? "complete"
+            : matchesOpenPending &&
+                state.phase !== "paused" &&
+                state.phase !== "error"
+              ? "listening"
+              : state.phase,
         toolTimeline: timeline,
         lastResult: result,
+        pendingAction:
+          matchesOpenPending && pending
+            ? {
+                ...pending,
+                status: resolvedStatus,
+                result,
+                receiptToken: null,
+                resolvedStatus,
+                resolvedResult: result,
+              }
+            : pending,
       };
     }
     case "pending_action": {
@@ -568,14 +695,20 @@ function reduceServerFrame(
       const executed = frame.status === "executed";
       const rowStatus: PendingActionPublic["status"] =
         frame.status === "not_pending" ? current!.status : frame.status;
+      // "complete" is a success-looking phase. An executed resolution whose
+      // result is still awaiting the device (an armed Save My Soul:
+      // `sos_grants_created`) has completed nothing yet, so the phase stays
+      // listening until the settled result arrives; the relay says the same.
+      const awaitingDevice = isPendingStatus(frame.result_public?.status);
       return {
         ...state,
         idleDeadlineAt: null,
-        phase: executed
-          ? "complete"
-          : state.phase === "paused" || state.phase === "error"
-            ? state.phase
-            : "listening",
+        phase:
+          executed && !awaitingDevice
+            ? "complete"
+            : state.phase === "paused" || state.phase === "error"
+              ? state.phase
+              : "listening",
         pendingAction: {
           ...current!,
           status: rowStatus,
@@ -652,6 +785,81 @@ function reduceServerFrame(
   }
 }
 
+// --- close while a device step is outstanding --------------------------------
+
+/**
+ * The honest outcome of a Save My Soul alert whose publish step never settled
+ * because this session ended first. The grants exist (the alert is armed);
+ * whether a position reached anyone is unknown to this device, and a new
+ * session cannot settle the old step, so the card must stop saying "sending".
+ * Never "sent", never "not sent": `report_save_my_soul_delivery` decides that.
+ */
+export const SOS_CLOSED_UNVERIFIED_REASON = "client_session_closed" as const;
+export const SOS_CLOSED_UNVERIFIED_FACT =
+  "The connection dropped before delivery was confirmed. Ask 'did it go through?' or check Save My Soul.";
+
+function closedUnverifiedResult(armed: ToolResultPublic): ToolResultPublic {
+  const expected = Array.isArray(armed.grant_ids)
+    ? armed.grant_ids.map((id) => String(id ?? "")).filter(Boolean)
+    : [];
+  return {
+    status: "sos_unverified",
+    reason_code: SOS_CLOSED_UNVERIFIED_REASON,
+    spoken_facts: [SOS_CLOSED_UNVERIFIED_FACT],
+    delivered: [],
+    not_alerted: [],
+    expected_grant_ids: expected,
+    alert_active: expected.length > 0,
+  };
+}
+
+/**
+ * On a socket close, an armed-but-unsettled Save My Soul (the card and the
+ * timeline entry still say `sos_grants_created`) becomes `sos_unverified`
+ * with a client reason, so nothing spins forever and nothing reads as sent.
+ * Unrelated state is returned untouched (same reference).
+ */
+export function settleArmedSosOnClose(
+  state: VoiceSessionState,
+): VoiceSessionState {
+  const pending = state.pendingAction;
+  const cardArmed = Boolean(
+    pending &&
+      pending.resolvedStatus !== null &&
+      isPendingStatus(pending.resolvedResult?.status),
+  );
+  const index = findLastIndex(state.toolTimeline, (item) =>
+    isPendingStatus(item.result?.status),
+  );
+  if (!cardArmed && index === -1) return state;
+  const source =
+    (cardArmed ? pending!.resolvedResult : null) ??
+    state.toolTimeline[index]?.result ??
+    {};
+  const marker = closedUnverifiedResult(source as ToolResultPublic);
+  let timeline = state.toolTimeline;
+  let lastResult = state.lastResult;
+  if (index !== -1) {
+    timeline = state.toolTimeline.slice();
+    const item = timeline[index]!;
+    if (lastResult === item.result) lastResult = marker;
+    timeline[index] = { ...item, result: marker, ok: false };
+  }
+  if (cardArmed && lastResult === pending!.resolvedResult) lastResult = marker;
+  return {
+    ...state,
+    toolTimeline: timeline,
+    lastResult,
+    pendingAction: cardArmed
+      ? {
+          ...pending!,
+          result: marker,
+          resolvedResult: marker,
+        }
+      : state.pendingAction,
+  };
+}
+
 // --- reducer ------------------------------------------------------------------
 
 export function reduceVoiceSession(
@@ -661,6 +869,35 @@ export function reduceVoiceSession(
   switch (event.type) {
     case "reset":
       return INITIAL_VOICE_SESSION_STATE;
+    case "clear_view": {
+      // A presentation clear. The socket, the mic, the turn and One's own
+      // conversation context are untouched; only what this client displays
+      // changes. Work that was still running keeps its card so its outcome is
+      // not lost, and an unresolved error stays because it is recovery
+      // content, not history.
+      const pending = state.pendingAction;
+      return {
+        ...state,
+        transcript: [],
+        entities: [],
+        toolTimeline: [],
+        lastResult: null,
+        pendingAction:
+          pending &&
+          (pending.resolvedStatus === null ||
+            pending.tool === SOS_TRIGGER_TOOL)
+            ? pending
+            : null,
+        clearedTurnIds: Array.from(
+          new Set(
+            state.transcript
+              .filter((item) => !item.final && item.role === "one")
+              .map((item) => item.turnId),
+          ),
+        ).slice(-MAX_CLEARED_TURN_IDS),
+        historyCleared: true,
+      };
+    }
     case "connecting": {
       const sameConversation = state.conversationId === event.conversationId;
       if (sameConversation) {
@@ -697,8 +934,12 @@ export function reduceVoiceSession(
             ? state.error
             : null
           : (state.error ?? voiceErrorForClose(event.code, event.reason));
+      // A device step outstanding at close is lost with the session (a
+      // reconnect starts a new one that cannot settle it): an armed Save My
+      // Soul stops saying "sending" and says the outcome is unconfirmed.
+      const settled = settleArmedSosOnClose(state);
       return {
-        ...state,
+        ...settled,
         phase: reconnecting ? "connecting" : "idle",
         serverState: null,
         speaking: false,

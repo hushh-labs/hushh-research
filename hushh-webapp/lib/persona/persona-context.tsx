@@ -230,27 +230,36 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
 
   const chromeSuppressed = useSessionChromeSuppressed();
 
+  // A tab switch does not change who the person is. Once the context holds
+  // a persona and the cache entry is still fresh, a navigation leaves it
+  // alone; refreshing on every pathname change flipped `refreshing` twice
+  // per tap and re-rendered every persona consumer (top shell, command bar,
+  // navbar, runtime providers) in the frame the new route was mounting.
+  // Mount, an expired cache and explicit refreshes still go to the network.
+  const personaStateRef = useRef<PersonaState | null>(null);
+  personaStateRef.current = personaState;
   useEffect(() => {
-    // NOTHING ON A SETUP SURFACE READS A PERSONA. `/api/iam/persona` fired on a
-    // brand-new person's first paint anyway, spending one of four pool
-    // connections while the setup gate waited on the ones it actually needs.
-    // `shouldLoadRiaOnboardingStatus` already declines on these routes; this is
-    // the same judgement applied to the call that precedes it.
-    //
-    // The suppression clause is the load-bearing half: across the post-login
-    // redirect the app renders the setup hub while `pathname` still says
-    // `/login`, so a route check is blind for exactly the window that matters.
     if (isOneSetupSurfaceRoute(pathname) || chromeSuppressed) {
       return undefined;
     }
+    const run = () => {
+      if (
+        !authLoading &&
+        isAuthenticated &&
+        user &&
+        personaStateRef.current &&
+        readCachedPersona(user.uid).personaState
+      ) {
+        return;
+      }
+      void refresh();
+    };
     if (isGmailRoute(pathname)) {
-      return scheduleWhenIdle(() => {
-        void refresh();
-      });
+      return scheduleWhenIdle(run);
     }
-    void refresh();
+    run();
     return undefined;
-  }, [pathname, refresh, chromeSuppressed]);
+  }, [pathname, refresh, chromeSuppressed, authLoading, isAuthenticated, user]);
 
   useEffect(() => {
     if (authLoading || !isAuthenticated || !user) return;

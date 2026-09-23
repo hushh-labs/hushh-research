@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, Loader2, Trash2 } from "lucide-react";
+import { CheckCircleIcon as CheckCircle2, SpinnerGapIcon as Loader2, TrashIcon as Trash2 } from "@/components/icons";
 
 import { ROUTES } from "@/lib/navigation/routes";
 import {

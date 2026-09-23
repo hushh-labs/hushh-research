@@ -12,13 +12,13 @@
 
 import {
   AudioLines,
-  ChevronDown,
-  ChevronUp,
+  Maximize2,
   Mic,
   MicOff,
+  Minimize2,
   Wifi,
   X,
-} from "lucide-react";
+} from "@/components/icons";
 
 import { AgentVoiceWaveform } from "@/components/agent/agent-voice-waveform";
 import type { AgentVoiceStatus } from "@/lib/agent/agent-voice-state";
@@ -125,7 +125,7 @@ function StaticLevelBar({
             ? "bg-[color:var(--app-destructive)]"
             : "bg-[color:var(--app-accent)]",
         )}
-        style={{ width: `${Math.round(width * 100)}%` }}
+        style={{ width: "100%", transform: `scaleX(${width})`, transformOrigin: "left" }}
       />
     </span>
   );
@@ -133,6 +133,11 @@ function StaticLevelBar({
 
 const ICON_BUTTON =
   "flex h-11 w-11 shrink-0 touch-manipulation items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-focus-ring)]";
+
+// The panel toggle is intentionally a labelled control: the neighboring X
+// stops the live session, whereas this only changes the dock presentation.
+const PANEL_TOGGLE_BUTTON =
+  "flex h-11 min-w-11 shrink-0 touch-manipulation items-center justify-center gap-1.5 px-2 text-[11px] font-semibold leading-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-focus-ring)]";
 
 export function VoiceStatePill({
   phase,
@@ -183,7 +188,7 @@ export function VoiceStatePill({
             className="h-6 min-w-6 flex-1"
           />
         )}
-        <span className="flex min-w-0 shrink-0 flex-col leading-tight">
+        <span className="flex min-w-0 flex-col leading-tight">
           <span
             data-testid="one-voice-state-label"
             className="truncate text-[13px] font-medium"
@@ -231,16 +236,17 @@ export function VoiceStatePill({
         <button
           type="button"
           data-testid="one-voice-toggle-panel"
-          aria-label={expanded ? "Hide conversation" : "Show conversation"}
+          aria-label={expanded ? "Minimize voice panel" : "Expand voice panel"}
           aria-expanded={Boolean(expanded)}
           onClick={onToggleExpanded}
-          className={ICON_BUTTON}
+          className={PANEL_TOGGLE_BUTTON}
         >
           {expanded ? (
-            <ChevronDown className="h-4 w-4" aria-hidden />
+            <Minimize2 className="h-4 w-4 shrink-0" aria-hidden />
           ) : (
-            <ChevronUp className="h-4 w-4" aria-hidden />
+            <Maximize2 className="h-4 w-4 shrink-0" aria-hidden />
           )}
+          <span>{expanded ? "Minimize" : "Expand"}</span>
         </button>
       ) : null}
       <button

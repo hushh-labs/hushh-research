@@ -218,7 +218,9 @@ vi.mock("@/lib/share/share-link", async () => {
 });
 
 import ConnectPageClient from "@/app/connect/page-client";
+import { CACHE_KEYS, CacheService } from "@/lib/services/cache-service";
 import { ShareUnavailableError } from "@/lib/share/share-link";
+import { dispatchConnectionGraphChanged } from "@/lib/connections/connection-graph-events";
 import { resolveLocalOnboardingHandler, prepareLocalOnboardingAction } from "@/lib/agent/local-onboarding-actions";
 import {
   parseVoiceCard,
@@ -353,6 +355,9 @@ beforeEach(() => {
   // A leaked search query in sessionStorage would silently seed the next
   // test's render, the same way a leaked `?tab=` would.
   window.sessionStorage.clear();
+  // Connect caches its first page per person; a page cached by one test
+  // would paint the next test's first render.
+  CacheService.getInstance().invalidateUser("me");
   // A fresh URL per test: the outer tab is read from it, so a leaked
   // `?tab=circles` would silently render the wrong surface for everything
   // that ran after it.
@@ -399,6 +404,76 @@ beforeEach(() => {
   });
 });
 
+describe("P0 connection reconciliation", () => {
+  it("refreshes connection, request, and directory projections after a graph event", async () => {
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.listConnectionsPage).toHaveBeenCalled());
+    await waitFor(() => expect(mocks.listRequests).toHaveBeenCalled());
+    mocks.listConnectionsPage.mockClear();
+    mocks.listRequests.mockClear();
+    mocks.searchDirectory.mockClear();
+
+    act(() => dispatchConnectionGraphChanged("me"));
+
+    await waitFor(() => expect(mocks.listConnectionsPage).toHaveBeenCalledOnce());
+    await waitFor(() => expect(mocks.listRequests).toHaveBeenCalledOnce());
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalled());
+  });
+
+  it("reconciles on foreground focus and coalesces a duplicate focus burst", async () => {
+    const visibility = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockReturnValue("visible");
+    try {
+      render(<ConnectPageClient />);
+      await waitFor(() => expect(mocks.listConnectionsPage).toHaveBeenCalled());
+      mocks.listConnectionsPage.mockClear();
+      mocks.listRequests.mockClear();
+
+      act(() => {
+        window.dispatchEvent(new Event("focus"));
+        window.dispatchEvent(new Event("focus"));
+      });
+
+      await waitFor(() =>
+        expect(mocks.listConnectionsPage).toHaveBeenCalledOnce(),
+      );
+      expect(mocks.listRequests).toHaveBeenCalledOnce();
+    } finally {
+      visibility.mockRestore();
+    }
+  });
+
+  it("queues an authoritative pass when connectivity returns mid-refresh", async () => {
+    const visibility = vi
+      .spyOn(document, "visibilityState", "get")
+      .mockReturnValue("visible");
+    const firstPage = deferred<TestConnectionPage>();
+    const page = { items: [], hasMore: false, page: 1, totalCount: 0 };
+    try {
+      render(<ConnectPageClient />);
+      await waitFor(() => expect(mocks.listConnectionsPage).toHaveBeenCalled());
+      mocks.listConnectionsPage.mockClear();
+      mocks.listConnectionsPage
+        .mockImplementationOnce(() => firstPage.promise)
+        .mockResolvedValue(page);
+
+      act(() => window.dispatchEvent(new Event("focus")));
+      await waitFor(() =>
+        expect(mocks.listConnectionsPage).toHaveBeenCalledTimes(1),
+      );
+      act(() => window.dispatchEvent(new Event("online")));
+      firstPage.resolve(page);
+
+      await waitFor(() =>
+        expect(mocks.listConnectionsPage).toHaveBeenCalledTimes(2),
+      );
+    } finally {
+      visibility.mockRestore();
+    }
+  });
+});
+
 describe("Connect — People", () => {
   it("places one directory selector below connections and keeps every directory reachable", async () => {
     render(<ConnectPageClient />);
@@ -406,10 +481,20 @@ describe("Connect — People", () => {
     const selector = screen.getByRole("button", {
       name: "Current directory: People",
     });
+    const connectionsToggle = screen.getByRole("button", {
+      name: "My connections (0)",
+    });
+    const syncContacts = screen.getByRole("button", {
+      name: "Sync contacts",
+    });
+    expect(connectionsToggle).toHaveClass("connect-section-control-label");
     expect(
-      screen
-        .getByRole("button", { name: "My connections (0)" })
-        .compareDocumentPosition(selector) & Node.DOCUMENT_POSITION_FOLLOWING,
+      selector.querySelector(".connect-section-control-label"),
+    ).toBeTruthy();
+    expect(syncContacts).toHaveClass("connect-section-control-label");
+    expect(
+      connectionsToggle.compareDocumentPosition(selector) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(
       within(screen.getByTestId("connect-sticky-header")).queryByRole(
@@ -428,7 +513,7 @@ describe("Connect — People", () => {
     await screen.findByText("Person 0");
   });
 
-  it("keeps My connections collapsed until its disclosure pill is pressed", async () => {
+  it("keeps My connections open by default and collapses on disclosure press", async () => {
     mocks.listConnections.mockResolvedValue([
       {
         connectionId: "c-disclosure",
@@ -443,7 +528,7 @@ describe("Connect — People", () => {
     const toggle = await screen.findByRole("button", {
       name: "My connections (1)",
     });
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
     expect(toggle).toHaveAttribute(
       "aria-controls",
       "connect-my-connections-panel",
@@ -452,13 +537,6 @@ describe("Connect — People", () => {
       "connect-my-connections-panel",
     );
     expect(panel).toBeTruthy();
-    expect(
-      panel?.closest('[data-slot="settings-group-shell"]'),
-    ).toHaveClass("hidden");
-
-    fireEvent.click(toggle);
-
-    expect(toggle).toHaveAttribute("aria-expanded", "true");
     expect(
       panel?.closest('[data-slot="settings-group-shell"]'),
     ).not.toHaveClass("hidden");
@@ -474,6 +552,13 @@ describe("Connect — People", () => {
     expect(
       panel?.closest('[data-slot="settings-group-shell"]'),
     ).toHaveClass("hidden");
+
+    fireEvent.click(toggle);
+
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(
+      panel?.closest('[data-slot="settings-group-shell"]'),
+    ).not.toHaveClass("hidden");
   });
 
   it("discards a late append after a new search starts", async () => {
@@ -2130,6 +2215,9 @@ describe("Connect — the phone-width geometry QA reported", () => {
     const remove = await screen.findByRole("button", {
       name: "Remove connection with Abdul Rashid",
     });
+    expect(remove.className).toContain("h-11");
+    expect(remove.className).toContain("min-h-11");
+    expect(remove.className).not.toContain("before:-inset-y-1.5");
     const trailing = remove.closest("div");
     expect(trailing).toBeTruthy();
 
@@ -2227,6 +2315,8 @@ describe("Connect — the phone-width geometry QA reported", () => {
       name: "Cancel your request to Smirthika Dharmalingam",
     });
     expect(cancel.textContent).toBe("Cancel");
+    expect(cancel.className).toContain("h-11");
+    expect(cancel.className).toContain("min-h-11");
     expect(screen.queryByText("Cancel request")).toBeNull();
 
     // WCAG 2.5.3: the accessible name has to contain the visible label, or
@@ -2514,7 +2604,11 @@ describe("Connect — Circles", () => {
     // The default is not written to the URL on mount: doing that would eat one
     // router.back() step for every arrival.
     expect(await screen.findByText("Search by name.")).toBeTruthy();
-    expect(screen.queryByTestId("connect-circles-tab")).toBeNull();
+    // Both surfaces live in one swipeable pager (as Finance and Consent do);
+    // the one the URL did not ask for is present but inert and hidden.
+    const circles = screen.getByTestId("connect-circles-tab");
+    expect(circles.closest('[aria-hidden="true"]')).not.toBeNull();
+    expect(circles.closest("[inert]")).not.toBeNull();
     expect(mocks.routerPush).not.toHaveBeenCalled();
   });
 
@@ -2523,10 +2617,14 @@ describe("Connect — Circles", () => {
 
     render(<ConnectPageClient />);
 
-    expect(await screen.findByTestId("connect-circles-tab")).toBeTruthy();
-    // The whole directory half is gone, not merely scrolled past: the search
-    // box drives a paged server query that has nothing to do with this tab.
-    expect(screen.queryByLabelText("Search people")).toBeNull();
+    const circles = await screen.findByTestId("connect-circles-tab");
+    expect(circles.closest('[aria-hidden="true"]')).toBeNull();
+    // The directory half is the other pane of the pager: still mounted so a
+    // swipe back lands on it, but inert and hidden so nothing in it is
+    // reachable from this tab.
+    const search = screen.getByLabelText("Search people");
+    expect(search.closest('[aria-hidden="true"]')).not.toBeNull();
+    expect(search.closest("[inert]")).not.toBeNull();
     expect(
       screen.queryByRole("button", { name: /Current directory:/ }),
     ).toBeNull();
@@ -2870,5 +2968,46 @@ describe("Connect — contact sync", () => {
     expect(mocks.toastInfo.mock.calls[0][0]).toBe(
       "No eligible contacts matched",
     );
+  });
+});
+
+// Connect opened on "My connections (0) · No connections yet" and jumped when
+// the list landed half a second later (Galaxy S24 Ultra, 2026-09-22).
+describe("My connections before the first page answers", () => {
+  afterEach(() => {
+    CacheService.getInstance().invalidateUser("me");
+  });
+
+  it("claims no count and no empty list until the list has answered", async () => {
+    const firstPage = deferred<TestConnectionPage>();
+    mocks.listConnectionsPage.mockImplementation(() => firstPage.promise);
+    render(<ConnectPageClient />);
+    expect(await screen.findByText("My connections")).toBeTruthy();
+    expect(screen.queryByText("My connections (0)")).toBeNull();
+    expect(screen.queryByText("No connections yet")).toBeNull();
+
+    await act(async () =>
+      firstPage.resolve({ items: [], page: 1, hasMore: false, totalCount: 0, audience: "all" }),
+    );
+    expect(await screen.findByText("No connections yet")).toBeTruthy();
+    expect(screen.getByText("My connections (0)")).toBeTruthy();
+  });
+
+  it("paints the last first page on the first render of a revisit", () => {
+    CacheService.getInstance().set(
+      CACHE_KEYS.CONNECTIONS_FIRST_PAGE("me", "all"),
+      {
+        items: [{ connectionId: "c1", userId: "u1", displayName: "Cached Friend", photoUrl: null }],
+        page: 1,
+        hasMore: false,
+        totalCount: 1,
+        audience: "all",
+      },
+      60_000,
+    );
+    mocks.listConnectionsPage.mockImplementation(() => new Promise(() => {}));
+    render(<ConnectPageClient />);
+    expect(screen.getByText("Cached Friend")).toBeTruthy();
+    expect(screen.getByText("My connections (1)")).toBeTruthy();
   });
 });

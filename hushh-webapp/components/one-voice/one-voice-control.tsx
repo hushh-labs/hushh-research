@@ -29,7 +29,7 @@ import {
   type FormEvent,
 } from "react";
 import { usePathname } from "next/navigation";
-import { AudioLines, Keyboard, Send, X } from "lucide-react";
+import { AudioLines, Keyboard, Send, X } from "@/components/icons";
 
 import { useVoiceSession } from "@/components/one-voice/voice-session-provider";
 import { useAuth } from "@/hooks/use-auth";
@@ -42,7 +42,11 @@ import {
 } from "@/lib/one-voice/session-store";
 import { cn } from "@/lib/utils";
 
-import { OneVoicePanel, panelHasContent } from "./one-voice-panel";
+import {
+  OneVoicePanel,
+  isSosPublishStep,
+  panelHasContent,
+} from "./one-voice-panel";
 import { VoiceStatePill } from "./voice-state-pill";
 import { transcriptStatusLine } from "./voice-transcript";
 
@@ -54,8 +58,11 @@ import { transcriptStatusLine } from "./voice-transcript";
  */
 const FOCUS_PENDING_EVENT = "one-voice:focus-pending";
 
+// The same column as the tab bar under it and every card above it (16 px
+// gutters). At 1.5rem the dock ran 4 px wider than the tab bar on each side,
+// two stacked pills of different widths.
 const DOCK_WIDTH_SLOT =
-  "max-w-[min(calc(100vw-1.5rem),var(--app-agent-bar-max-width))]";
+  "max-w-[min(calc(100vw-2rem),var(--app-agent-bar-max-width))]";
 const DOCK_WIDTH_FIXED = "max-w-[min(calc(100vw-2rem),34rem)]";
 
 /** Native only: the OS microphone settings screen. Web has no such door. */
@@ -101,14 +108,17 @@ export function OneVoiceControl({
   );
   const pickerOpen = state.candidatePicker !== null;
   const errorCode = state.error?.code ?? null;
+  // A Save My Soul position on its way is shown wherever the person is.
+  const sosPublishing = isSosPublishStep(state.clientStep);
 
   // Anything that needs an answer opens the panel; a fresh session starts open.
   useEffect(() => {
     if (!active) setCollapsed(false);
   }, [active]);
   useEffect(() => {
-    if (pendingOpen || pickerOpen || errorCode) setCollapsed(false);
-  }, [pendingId, pendingOpen, pickerOpen, errorCode]);
+    if (pendingOpen || pickerOpen || errorCode || sosPublishing)
+      setCollapsed(false);
+  }, [pendingId, pendingOpen, pickerOpen, errorCode, sosPublishing]);
   useEffect(() => {
     if (!active) {
       setTyping(false);

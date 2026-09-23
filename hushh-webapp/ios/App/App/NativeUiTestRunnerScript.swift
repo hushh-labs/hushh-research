@@ -448,6 +448,24 @@ enum NativeUiTestRunnerScript {
     throw new Error("url missing " + value + " at " + window.location.href);
   }
 
+  async function waitForExactRoute(route, timeoutMs) {
+    var deadline = Date.now() + (timeoutMs || 30000);
+    while (Date.now() < deadline) {
+      var current = normalizeRoute(
+        window.location.pathname + window.location.search,
+      );
+      if (current === normalizeRoute(route)) return;
+      await sleep(250);
+    }
+    throw new Error(
+      "route did not settle on " +
+        route +
+        "; current=" +
+        window.location.pathname +
+        window.location.search,
+    );
+  }
+
   function clearImportBackgroundState() {
     var keys = [
       "kai_portfolio_import_background_v1",
@@ -1119,7 +1137,27 @@ enum NativeUiTestRunnerScript {
     return window.location.pathname.indexOf("/ria/onboarding") === 0;
   }
 
+  async function waitForRiaWorkspaceOrAdmission(timeoutMs) {
+    var settled = await waitForCondition(function () {
+      return (
+        riaOnboardingAdmissionActive() ||
+        Boolean(firstVisible('[data-testid="top-app-bar-tabs"]'))
+      );
+    }, timeoutMs || 10000);
+    if (!settled) {
+      throw new Error(
+        "RIA workspace did not settle to tabs or onboarding admission route=" +
+          window.location.pathname +
+          window.location.search,
+      );
+    }
+  }
+
   async function assertRiaWorkspaceAdmission() {
+    // Persona switching can settle the route before the persistent RIA shell
+    // has mounted its selector. Wait for the same two authoritative outcomes
+    // used by conditional RIA flows before inspecting the DOM.
+    await waitForRiaWorkspaceOrAdmission(30000);
     if (riaOnboardingAdmissionActive()) return;
     var tabRoot = firstVisible('[data-testid="top-app-bar-tabs"]');
     var clients = tabRoot && findVisibleExactControl(tabRoot, '[role="tab"]', "Clients");
@@ -1135,6 +1173,7 @@ enum NativeUiTestRunnerScript {
         return;
       case "ensure_ria_workspace":
         await ensurePersona("ria");
+        await waitForRiaWorkspaceOrAdmission(step.timeoutMs);
         return;
       case "click_bottom_nav":
         await clickBottomNav(step.label);
@@ -1212,6 +1251,9 @@ enum NativeUiTestRunnerScript {
         return;
       case "navigate_route":
         await navigateWithNativeRouter(step.route);
+        return;
+      case "assert_route":
+        await waitForExactRoute(step.route, step.timeoutMs);
         return;
       case "wait_beacon":
         await waitForBeacon(step.routeIds, step.dataStates, step.timeoutMs);

@@ -14,7 +14,7 @@
 
 import { useCallback, useState } from "react";
 
-import { ChevronDown, Siren } from "lucide-react";
+import { ChevronDown, Siren } from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -220,7 +220,7 @@ export function ShareLanesDisclosure({
       Manage
       <ChevronDown
         className={cn(
-          "h-4 w-4 transition-transform duration-200",
+          "h-4 w-4 transition-transform duration-150",
           expanded && "rotate-180",
         )}
         aria-hidden="true"

@@ -13,7 +13,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2, UserPlus } from "lucide-react";
+import { Loader2, UserPlus } from "@/components/icons";
 
 import {
   selectPendingOutgoingRequests,

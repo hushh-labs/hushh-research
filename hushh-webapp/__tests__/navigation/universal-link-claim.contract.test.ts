@@ -3,10 +3,12 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { UNIVERSAL_LINK_PATHS } from "@/app/.well-known/apple-app-site-association/route";
 import {
-  UNIVERSAL_LINK_PATHS,
-} from "@/app/.well-known/apple-app-site-association/route";
-import { resolveDeepLinkPath } from "@/lib/navigation/use-deep-link-return";
+  resolveDeepLinkPath,
+  resolveNativeConnectorReturn,
+  resolveNativeDrivePickerReturn,
+} from "@/lib/navigation/use-deep-link-return";
 
 /**
  * A Universal Link only works when four independent things agree. Any one of
@@ -72,19 +74,98 @@ describe("Universal Link / App Link claim", () => {
     // The OS handing the URL over is only half of it. Without this resolution
     // the app receives the return and sits on whatever screen was already open.
     expect(
-      resolveDeepLinkPath("https://one.hushh.ai/one/kai/plaid/oauth/return?state=abc"),
+      resolveDeepLinkPath(
+        "https://one.hushh.ai/one/kai/plaid/oauth/return?state=abc",
+      ),
     ).toBe("/one/kai/plaid/oauth/return?state=abc");
 
     // The query carries the OAuth state; dropping it strands the flow.
     expect(
-      resolveDeepLinkPath("https://uat.one.hushh.ai/one/kai/alpaca/oauth/return?code=1#x"),
-    ).toBe("/one/kai/alpaca/oauth/return?code=1#x");
+      resolveDeepLinkPath(
+        "https://uat.one.hushh.ai/one/kai/plaid/oauth/return?code=1#x",
+      ),
+    ).toBe("/one/kai/plaid/oauth/return?code=1#x");
 
     // An incoming link is attacker-influenced: anyone can send one.
-    expect(resolveDeepLinkPath("https://evil.example.com/one/kai/plaid/oauth/return")).toBeNull();
-    expect(resolveDeepLinkPath("http://one.hushh.ai/one/kai/plaid/oauth/return")).toBeNull();
+    expect(
+      resolveDeepLinkPath(
+        "https://evil.example.com/one/kai/plaid/oauth/return",
+      ),
+    ).toBeNull();
+    expect(
+      resolveDeepLinkPath("http://one.hushh.ai/one/kai/plaid/oauth/return"),
+    ).toBeNull();
     expect(resolveDeepLinkPath("not a url")).toBeNull();
     expect(resolveDeepLinkPath("")).toBeNull();
+  });
+
+  it("consumes an opaque native Drive handoff without treating it as navigation", () => {
+    const attemptId = "attempt_123456789012";
+    expect(
+      resolveNativeConnectorReturn(
+        `hushh://connectors/return?attemptId=${attemptId}&outcome=ready`,
+      ),
+    ).toEqual({ attemptId, outcome: "ready" });
+    for (const malformed of [
+      `hushh://connectors/return?attemptId=${attemptId}&outcome=ready&code=secret`,
+      `hushh://connectors/return?attemptId=${attemptId}&outcome=ready&outcome=ready`,
+      `hushh://connectors/other?attemptId=${attemptId}&outcome=ready`,
+      `https://connectors/return?attemptId=${attemptId}&outcome=ready`,
+      `hushh://user@connectors/return?attemptId=${attemptId}&outcome=ready`,
+      `hushh://connectors:444/return?attemptId=${attemptId}&outcome=ready`,
+      `hushh://connectors/return?attemptId=short&outcome=ready`,
+      `hushh://connectors/return?attemptId=${attemptId}&outcome=unknown`,
+    ]) {
+      expect(resolveNativeConnectorReturn(malformed)).toBeNull();
+    }
+
+    const manifest = read("android/app/src/main/AndroidManifest.xml");
+    expect(manifest).toContain('android:scheme="hushh"');
+    expect(manifest).toContain('android:host="connectors"');
+    expect(manifest).toContain('android:path="/return"');
+
+    // The native parsers must enforce the same canonical opaque handoff as
+    // the web parser; accepting credentials/ports creates distinct URLs that
+    // Android and iOS can route differently.
+    const androidAuth = read(
+      "android/app/src/main/java/com/hussh/app/plugins/HushhAuth/HushhAuthPlugin.kt",
+    );
+    const iosAuth = read("ios/App/App/Plugins/HushhAuthPlugin.swift");
+    expect(androidAuth).toContain("uri.userInfo != null || uri.port != -1");
+    expect(androidAuth).toContain("scheduleDriveFallbackCancellation(operation)");
+    expect(iosAuth).toContain(
+      "url.user == nil, url.password == nil, url.port == nil",
+    );
+  });
+
+  it("keeps native Drive Picker returns separate, opaque, and narrowly claimed", () => {
+    const attemptId = "picker_1234567890123";
+    expect(
+      resolveNativeDrivePickerReturn(
+        `hushh://connectors/picker-return?attemptId=${attemptId}&outcome=ready`,
+      ),
+    ).toEqual({ attemptId, outcome: "ready" });
+    for (const malformed of [
+      `hushh://connectors/picker-return?attemptId=${attemptId}&outcome=ready&fileId=private`,
+      `hushh://connectors/return?attemptId=${attemptId}&outcome=ready`,
+      `hushh://connectors/picker-return?attemptId=${attemptId}&outcome=ready&outcome=ready`,
+      `hushh://user@connectors/picker-return?attemptId=${attemptId}&outcome=ready`,
+      `hushh://connectors:444/picker-return?attemptId=${attemptId}&outcome=ready`,
+      `hushh://connectors/picker-return?attemptId=short&outcome=ready`,
+    ]) {
+      expect(resolveNativeDrivePickerReturn(malformed)).toBeNull();
+    }
+
+    const manifest = read("android/app/src/main/AndroidManifest.xml");
+    expect(manifest).toContain('android:path="/picker-return"');
+    const androidAuth = read(
+      "android/app/src/main/java/com/hussh/app/plugins/HushhAuth/HushhAuthPlugin.kt",
+    );
+    const iosAuth = read("ios/App/App/Plugins/HushhAuthPlugin.swift");
+    expect(androidAuth).toContain('PICKER("/picker-return")');
+    expect(androidAuth).toContain("pickDriveFiles(call: PluginCall)");
+    expect(iosAuth).toContain('url.path == "/picker-return"');
+    expect(iosAuth).toContain("pickDriveFiles(_ call: CAPPluginCall)");
   });
 
   it("delegates handle_all_urls, not only login credentials", () => {
@@ -101,8 +182,13 @@ describe("Universal Link / App Link claim", () => {
     // window.location.href is app://localhost/... once the Universal Link claim
     // works, and Plaid matches receivedRedirectUri against what the token was
     // minted with, so the native return would fail a second time.
+    // The return is finished in vault-sync from the https URI remembered
+    // when the link token was minted.
     const page = read("app/one/kai/plaid/oauth/return/page.tsx");
-    expect(page).toContain("resume.redirect_uri");
+    const vaultSync = read("lib/kai/plaid-vault/vault-sync.ts");
+    expect(page).toContain("completeVaultOAuthReturn");
+    expect(vaultSync).toContain("mergePlaidCallbackQuery(session.redirectUri, params.currentUrl)");
     expect(page).not.toContain("receivedRedirectUri: window.location.href");
+    expect(vaultSync).not.toContain("receivedRedirectUri: window.location.href");
   });
 });

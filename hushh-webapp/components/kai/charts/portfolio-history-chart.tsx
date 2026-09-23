@@ -15,6 +15,8 @@ import {
   ChartTooltip,
   ChartTooltipContent,
   type ChartConfig,
+  CHART_ANIMATION_ACTIVE,
+  CHART_TOOLTIP_TRIGGER,
 } from "@/components/ui/chart";
 import { cn } from "@/lib/utils";
 
@@ -248,7 +250,7 @@ export function PortfolioHistoryChart({
             width={58}
             domain={["dataMin * 0.985", "dataMax * 1.015"]}
           />
-          <ChartTooltip
+          <ChartTooltip trigger={CHART_TOOLTIP_TRIGGER}
             cursor={{ stroke: "hsl(var(--border))", strokeDasharray: "3 3" }}
             content={
               <ChartTooltipContent
@@ -257,7 +259,7 @@ export function PortfolioHistoryChart({
               />
             }
           />
-          <Area
+          <Area isAnimationActive={CHART_ANIMATION_ACTIVE}
             dataKey="value"
             type="monotone"
             stroke={chartColor}

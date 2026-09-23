@@ -14,6 +14,7 @@ import {
   parseEnvFile,
   resolveReviewerTestIdentity,
 } from "./reviewer-test-identity.mjs";
+import { waitForReviewerVaultAdmission } from "../../../.codex/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -68,10 +69,9 @@ const NAVIGATION_TIMEOUT_MS = 120000;
 const CLIENT_NAVIGATION_CONTEXT_KEY = "__hushhSignedInRouteContextProbe";
 const INTERNAL_APP_NAVIGATION_REQUEST_EVENT =
   "app-internal-navigation-requested";
-const REVIEWER_BOOTSTRAP_ROUTE = "/ria";
+const REVIEWER_BOOTSTRAP_ROUTE = "/";
 const REVIEWER_BOOTSTRAP_ROUTE_IDS = [
   REVIEWER_BOOTSTRAP_ROUTE,
-  "/ria/onboarding",
 ];
 const SAME_SESSION_SHELL_ROUTES = new Set([
   "/",
@@ -83,7 +83,6 @@ const SAME_SESSION_SHELL_ROUTES = new Set([
   "/one/profile",
   "/one/profile/pkm-agent-lab",
   "/one/kyc",
-  "/ria",
   "/ria/clients",
   "/ria/clients/[userId]",
   "/ria/clients/[userId]/accounts/[accountId]",
@@ -115,11 +114,29 @@ const TRANSIENT_BACKGROUND_FETCH_ERRORS = [
   "[KaiHistory] Failed to get history: TypeError: Failed to fetch",
   "Failed to load profile manager data: TypeError: Failed to fetch",
 ];
+const LOCAL_OPTIONAL_CONSOLE_ERRORS = [
+  // Contact discoverability is an optional, fail-closed Profile preference.
+  // The local reviewer backend may not have that IAM dependency available;
+  // Profile deliberately keeps the preference disabled and remains usable.
+  "[ProfilePage] Failed to load contact discoverability: TypeError: Failed to fetch",
+];
 const TRANSIENT_BACKGROUND_REQUEST_FAILURES = [];
 const TRANSIENT_BACKGROUND_RESPONSE_FAILURES = [
   "/api/connected-systems/salesforce-fsc-customer0/schema?objectType=Contact",
   "/api/connected-systems/salesforce-fsc-customer0/records/search",
 ];
+
+const LOCAL_CRM_ROUTE_PREFIXES = [
+  "/one/connected-systems",
+  "/one/setup/connected-systems",
+  "/one/profile/connected-systems",
+  "/connected-systems",
+];
+const localCrmEnabled = ["1", "true", "yes", "on"].includes(
+  String(process.env.NEXT_PUBLIC_HUSHH_LOCAL_CRM_ENABLED || "")
+    .trim()
+    .toLowerCase(),
+);
 const TRANSIENT_BROWSER_CONSOLE_ERRORS = [
   // Next.js still ships styled-jsx, which uses React.useInsertionEffect for
   // stylesheet insertion. React 19 canary can log this dev-only warning without
@@ -144,11 +161,55 @@ const localRiaIdentityUnavailable = !String(
 ).trim();
 
 function isExpectedLocalOptionalResponseFailure(value) {
+  // A profile without a completed RIA dossier is a valid state. The service
+  // contract deliberately uses 404 for that absence and the client treats it
+  // as null rather than an error.
+  if (value.includes("404 GET ") && value.includes("/api/ria/dossier")) {
+    return true;
+  }
+  // Investor/RIA relationship reads fail closed for a reviewer who is not a
+  // verified RIA. Marketplace/profile surfaces intentionally render an empty
+  // relationship state for this 403; the denial itself remains enforced.
+  if (value.includes("403 GET ") && value.includes("/api/ria/clients")) {
+    return true;
+  }
   if (
     !appOrigin.startsWith("http://localhost:") &&
     !appOrigin.startsWith("http://127.0.0.1:")
   ) {
     return false;
+  }
+  // Calendar availability is optional on the dashboard. A reviewer can have
+  // a calendar status row while lacking the event scope or a usable refresh
+  // token; the backend correctly returns 403 and the client renders a
+  // non-blocking unavailable state. Keep this allowance local-only so a
+  // hosted authorization regression remains visible.
+  if (
+    value.includes("403 POST ") &&
+    value.includes("/api/one/calendar/events")
+  ) {
+    return true;
+  }
+  // Nearby presence is deliberately restricted to profiles with verified
+  // phone identity. The Location page probes the owner state when the local
+  // feature lane is enabled, then renders the feature as unavailable when the
+  // backend returns this fail-closed denial. Keep this exact allowance local
+  // to the reviewer sweep; hosted authorization failures must remain visible.
+  if (
+    value.includes("403 GET ") &&
+    value.includes("/api/one/location/nearby-presence")
+  ) {
+    return true;
+  }
+  // Wallet Profile is intentionally disabled in this local backend unless its
+  // owning feature flag is enabled. The owner client converts the contract's
+  // 404 into an explicit unavailable state; keep this exact local exception so
+  // the route sweep does not require enabling an unrelated feature.
+  if (
+    value.includes("404 GET ") &&
+    value.includes("/api/one/wallet-card")
+  ) {
+    return true;
   }
   if (
     localConsentSseDisabled &&
@@ -213,10 +274,29 @@ const KAI_ONBOARDING_COMPATIBILITY_ROUTE_IDS = [
 ];
 
 const ROUTE_OVERRIDES = {
-  // Gmail remains addressable for compatibility, but the authored capability
-  // registry currently marks it paused. Its client page intentionally settles
-  // on One instead of mounting a disabled workspace.
-  "/one/gmail": {
+  // Legacy Profile entry is intentionally pane-backed now: `/one/profile`
+  // redirects to `/one?profile_pane=1`, whose canonical route beacon is `/one`.
+  // Keep the smoke contract aligned with that surface instead of waiting for
+  // a beacon that the retired standalone page must never emit.
+  "/one/profile": {
+    allowedPathnames: ["/one"],
+    allowedRouteIds: ["/one"],
+  },
+  // Finance analysis is a compatibility pathname. The live workspace is the
+  // query-tabbed /one/kai surface, so prove the canonical route rather than
+  // repeatedly navigating into a redirect-only page.
+  "/one/kai/analysis": {
+    allowedPathnames: ["/one/kai"],
+    allowedRouteIds: ["/one/kai"],
+  },
+  "/one/kai/portfolio": {
+    allowedPathnames: ["/one/kai"],
+    allowedRouteIds: ["/one/kai"],
+  },
+  // Support compose is canonicalized into the parent panel with `kind` in
+  // the query string when the stack is already mounted; direct entry may
+  // still expose the compatibility pathname while it settles.
+  "/one/profile/support/compose": {
     allowedPathnames: ["/one"],
     allowedRouteIds: ["/one"],
   },
@@ -232,6 +312,38 @@ const ROUTE_OVERRIDES = {
     allowedPathnames: KAI_ONBOARDING_COMPATIBILITY_PATHNAMES,
     allowedRouteIds: KAI_ONBOARDING_COMPATIBILITY_ROUTE_IDS,
   },
+  // A completed reviewer is intentionally ejected from the one-time setup hub
+  // to canonical Chat; an incomplete owner remains on /one/setup.
+  "/one/setup": {
+    allowedPathnames: ["/one/setup", "/"],
+    allowedRouteIds: ["/one/setup", "/"],
+  },
+  "/one/setup/location": {
+    path: "/one/setup/location",
+    allowedPathnames: ["/one/location"],
+    allowedRouteIds: ["/one/location"],
+  },
+  "/one/setup/finance": {
+    allowedPathnames: ["/one/setup/finance", "/one/setup/kai", "/one"],
+    allowedRouteIds: KAI_ONBOARDING_COMPATIBILITY_ROUTE_IDS,
+  },
+  // RIA setup reuses the canonical onboarding journey. The setup wrapper
+  // contributes its terminal actions, while the embedded page owns the
+  // route beacon and remains `/ria/onboarding`.
+  "/one/setup/ria": {
+    allowedPathnames: ["/one/setup/ria", "/ria/onboarding", "/ria"],
+    allowedRouteIds: ["/one/setup/ria", "/ria/onboarding", "/ria"],
+  },
+  // Public workspace entries remain reachable anonymously, but an
+  // authenticated reviewer is admitted to canonical Chat at `/`.
+  "/welcome": {
+    allowedPathnames: ["/welcome", "/"],
+    allowedRouteIds: ["/welcome", "/"],
+  },
+  "/research": {
+    allowedPathnames: ["/welcome", "/"],
+    allowedRouteIds: ["/welcome", "/"],
+  },
   "/ria/onboarding": {
     allowedPathnames: ["/ria/onboarding", "/ria"],
     allowedRouteIds: ["/ria/onboarding", "/ria"],
@@ -239,6 +351,49 @@ const ROUTE_OVERRIDES = {
 };
 
 const REDIRECT_EXPECTATIONS = {
+  "/ria": {
+    path: "/ria",
+    expectedPathname: "/ria/profile",
+    allowedRouteIds: ["ria-profile"],
+  },
+  "/r/[slug]": {
+    path: "/r/native-test-referral",
+    expectedPathname: "/one",
+    allowedRouteIds: ["/one"],
+  },
+  "/circle/join": {
+    path: "/circle/join",
+    expectedPathname: "/one/connect",
+    expectedQueryIncludes: ["tab=circles", "action=join-circle"],
+    allowedRouteIds: ["/one/connect"],
+  },
+  "/developers": {
+    path: "/developers",
+    expectedPathname: "/welcome",
+    expectedQueryIncludes: ["tab=developers"],
+    allowedRouteIds: ["/welcome"],
+  },
+  "/one/connect/settings": {
+    path: "/one/connect/settings",
+    expectedPathname: "/one",
+    expectedQueryIncludes: [
+      "profile_pane=1",
+      "profile_panel=preferences",
+      "profile_detail=gemini",
+    ],
+    allowedRouteIds: ["/one"],
+  },
+  "/consents": {
+    path: "/consents",
+    expectedPathname: "/one/consent",
+    allowedRouteIds: ["/one/consent"],
+  },
+  "/one/kai/market": {
+    path: "/one/kai/market",
+    expectedPathname: "/one/kai",
+    expectedQueryIncludes: ["tab=market"],
+    allowedRouteIds: ["/one/kai"],
+  },
   "/agent": {
     path: "/",
     expectedPathname: "/",
@@ -247,8 +402,12 @@ const REDIRECT_EXPECTATIONS = {
   },
   "/one/profile/regulatory": {
     path: "/one/profile/regulatory",
-    allowedPathnames: ["/ria/profile", "/ria/onboarding"],
-    allowedRouteIds: ["/ria/profile", "/ria/onboarding"],
+    // A reviewer without an established RIA persona is correctly returned to
+    // the investor home after the RIA profile's setup guard. Keep that honest
+    // fallback in the compatibility contract; it is not a standalone Profile
+    // surface and must not be mistaken for one.
+    allowedPathnames: ["/ria/profile", "/ria/onboarding", "/one"],
+    allowedRouteIds: ["ria-profile", "/ria/onboarding", "/one"],
   },
   "/": {
     path: "/",
@@ -257,8 +416,8 @@ const REDIRECT_EXPECTATIONS = {
   },
   "/gmail": {
     path: "/gmail",
-    expectedPathname: "/one",
-    allowedRouteIds: ["/one"],
+    expectedPathname: "/one/gmail",
+    allowedRouteIds: ["/one/gmail"],
   },
   "/pkm": {
     path: "/pkm",
@@ -282,13 +441,21 @@ const REDIRECT_EXPECTATIONS = {
   },
   "/kai/analysis": {
     path: "/kai/analysis",
-    expectedPathname: "/one/kai/analysis",
-    allowedRouteIds: ["/one/kai/analysis"],
+    expectedPathname: "/one/kai",
+    expectedQueryIncludes: ["tab=analysis"],
+    allowedRouteIds: ["/one/kai"],
+  },
+  "/one/kai/portfolio": {
+    path: "/one/kai/portfolio",
+    expectedPathname: "/one/kai",
+    expectedQueryIncludes: ["tab=portfolio"],
+    allowedRouteIds: ["/one/kai"],
   },
   "/kai/portfolio": {
     path: "/kai/portfolio",
-    expectedPathname: "/one/kai/portfolio",
-    allowedRouteIds: ["/one/kai/portfolio"],
+    expectedPathname: "/one/kai",
+    expectedQueryIncludes: ["tab=portfolio"],
+    allowedRouteIds: ["/one/kai"],
   },
   "/kai/import": {
     path: "/kai/import",
@@ -301,8 +468,20 @@ const REDIRECT_EXPECTATIONS = {
     expectedQueryIncludes: ["tab=portfolio"],
     allowedRouteIds: ["/one/kai"],
   },
+  "/one/kai/investments": {
+    path: "/one/kai/investments",
+    expectedPathname: "/one/kai",
+    expectedQueryIncludes: ["tab=portfolio"],
+    allowedRouteIds: ["/one/kai"],
+  },
   "/kai/funding-trade": {
     path: "/kai/funding-trade",
+    expectedPathname: "/one/kai",
+    expectedQueryIncludes: ["tab=portfolio"],
+    allowedRouteIds: ["/one/kai"],
+  },
+  "/one/kai/funding-trade": {
+    path: "/one/kai/funding-trade",
     expectedPathname: "/one/kai",
     expectedQueryIncludes: ["tab=portfolio"],
     allowedRouteIds: ["/one/kai"],
@@ -317,31 +496,77 @@ const REDIRECT_EXPECTATIONS = {
     allowedPathnames: ["/one/setup/kai", "/one"],
     allowedRouteIds: ["/one/setup/kai", "/one"],
   },
+  "/one/setup/kai": {
+    path: "/one/setup/kai",
+    allowedPathnames: KAI_ONBOARDING_COMPATIBILITY_PATHNAMES,
+    allowedRouteIds: KAI_ONBOARDING_COMPATIBILITY_ROUTE_IDS,
+  },
+  "/one/setup/[capability]": {
+    path: "/one/setup/gmail",
+    expectedPathname: "/one/setup/gmail",
+    allowedRouteIds: ["/one/setup/gmail"],
+  },
   "/kai/optimize": {
     path: "/kai/optimize",
     expectedPathname: "/one/kai",
     expectedQueryIncludes: ["tab=portfolio"],
     allowedRouteIds: ["/one/kai"],
   },
+  "/one/kai/optimize": {
+    path: "/one/kai/optimize",
+    expectedPathname: "/one/kai",
+    expectedQueryIncludes: ["tab=portfolio"],
+    allowedRouteIds: ["/one/kai"],
+  },
+  "/profile/google/oauth/return": {
+    path: "/profile/google/oauth/return",
+    expectedPathname: "/one/calendar",
+    allowedRouteIds: ["/one/calendar"],
+  },
+  "/one/profile/google/oauth/return": {
+    path: "/one/profile/google/oauth/return",
+    expectedPathname: "/one/calendar",
+    allowedRouteIds: ["/one/calendar"],
+  },
+  "/one/profile/connectors/oauth/return": {
+    path: "/one/profile/connectors/oauth/return",
+    expectedPathname: "/",
+    allowedRouteIds: ["/"],
+    expectedVisibleText: "MCP connections",
+  },
+  "/one/profile/integrations": {
+    path: "/one/profile/integrations",
+    expectedPathname: "/one/calendar",
+    allowedRouteIds: ["/one/calendar"],
+  },
+  "/blog": {
+    path: "/blog",
+    expectedPathname: "/welcome",
+    expectedQueryIncludes: ["tab=blog"],
+    allowedRouteIds: ["/welcome"],
+  },
+  "/research": {
+    path: "/research",
+    expectedPathname: "/welcome",
+    expectedQueryIncludes: ["tab=research"],
+    allowedRouteIds: ["/welcome"],
+  },
   "/kai/plaid/oauth/return": {
     path: "/kai/plaid/oauth/return",
     expectedPathname: "/one/kai/plaid/oauth/return",
     allowedRouteIds: ["/one/kai/plaid/oauth/return"],
   },
-  "/kai/alpaca/oauth/return": {
-    path: "/kai/alpaca/oauth/return",
-    expectedPathname: "/one/kai/alpaca/oauth/return",
-    allowedRouteIds: ["/one/kai/alpaca/oauth/return"],
-  },
   "/kai/dashboard": {
     path: "/kai/dashboard",
-    expectedPathname: "/one/kai/portfolio",
-    allowedRouteIds: ["/one/kai/portfolio"],
+    expectedPathname: "/one/kai",
+    expectedQueryIncludes: ["tab=portfolio"],
+    allowedRouteIds: ["/one/kai"],
   },
   "/kai/dashboard/analysis": {
     path: "/kai/dashboard/analysis",
-    expectedPathname: "/one/kai/analysis",
-    allowedRouteIds: ["/one/kai/analysis"],
+    expectedPathname: "/one/kai",
+    expectedQueryIncludes: ["tab=analysis"],
+    allowedRouteIds: ["/one/kai"],
   },
   "/marketplace/connections": {
     path: "/marketplace/connections",
@@ -369,6 +594,21 @@ const REDIRECT_EXPECTATIONS = {
     allowedRouteIds: ["/one/pkm"],
     requiresColdEntry: true,
   },
+  "/one/profile/gmail": {
+    path: "/one/profile/gmail",
+    expectedPathname: "/one/gmail",
+    allowedRouteIds: ["/one/gmail"],
+  },
+  "/one/profile/gmail/connection": {
+    path: "/one/profile/gmail/connection",
+    expectedPathname: "/one/gmail",
+    allowedRouteIds: ["/one/gmail"],
+  },
+  "/one/profile/gmail/actions": {
+    path: "/one/profile/gmail/actions",
+    expectedPathname: "/one/gmail",
+    allowedRouteIds: ["/one/gmail"],
+  },
   "/one/profile/receipts": {
     path: "/one/profile/receipts",
     expectedPathname: "/one",
@@ -383,20 +623,55 @@ const REDIRECT_EXPECTATIONS = {
   },
 };
 
+// Some browser-only or explicitly staged surfaces do not mount a native route
+// beacon at their first stable state. Keep their browser coverage honest by
+// checking the authored semantic surface instead of inventing a beacon:
+// - Puppy One is intentionally web-only and reaches an owner's loopback agent.
+// - Gmail setup deliberately pauses on its authored cinematic intro until the
+//   user chooses Continue; mounting the connector beacon before that action
+//   would make the verifier simulate a user mutation.
+const ROUTE_HEALTH_EXPECTATIONS = {
+  "/one/puppy": { heading: "Puppy One" },
+  "/one/setup/gmail": { heading: "Your mail, made useful." },
+  "/one/setup/calendar": { heading: "Stay ahead of your schedule." },
+  "/one/setup/email": { heading: "Replies, ready when you are." },
+};
+
 async function installNativeTestBridge(page) {
+  const reviewerMutationPolicy =
+    process.env.REVIEWER_ALLOW_SHARED_MUTATIONS === "true"
+      ? "mutation_authorized"
+      : "preparation_only";
+  // The route verifier supplies the canonical reviewer UID and passphrase,
+  // not a public email/password pair. Select the backend-minted review token
+  // path explicitly so local credential fallbacks cannot choose a stale or
+  // unrelated Firebase identity.
+  const reviewerAuthMode =
+    process.env.REVIEWER_AUTH_MODE === "local_credentials"
+      ? "local_credentials"
+      : "custom_token";
   await page.addInitScript(
-    ({ expectedUserId, vaultPassphrase }) => {
+    ({
+      expectedUserId,
+      vaultPassphrase,
+      reviewerMutationPolicy,
+      reviewerAuthMode,
+    }) => {
       window.__HUSHH_NATIVE_TEST__ = {
         ...(window.__HUSHH_NATIVE_TEST__ || {}),
         enabled: true,
         autoReviewerLogin: true,
         expectedUserId,
         vaultPassphrase,
+        reviewerMutationPolicy,
+        reviewerAuthMode,
       };
     },
     {
       expectedUserId: smokeUserId,
       vaultPassphrase: reviewerPassphrase,
+      reviewerMutationPolicy,
+      reviewerAuthMode,
     },
   );
 }
@@ -407,7 +682,20 @@ function loadRouteContract() {
 
 function shouldIncludeRoute(route) {
   if (route.mode === "hidden") return false;
+  // Connected Systems is deliberately a localhost-only development surface.
+  // Keep the default signed-in sweep aligned with the route guard, while a
+  // dedicated run can opt in with NEXT_PUBLIC_HUSHH_LOCAL_CRM_ENABLED=1.
+  if (
+    !localCrmEnabled &&
+    LOCAL_CRM_ROUTE_PREFIXES.some(
+      (prefix) =>
+        route.route === prefix || route.route.startsWith(`${prefix}/`),
+    )
+  ) {
+    return false;
+  }
   if (!routeFilter) return true;
+  if (routeFilter.startsWith("=")) return route.route.toLowerCase() === routeFilter.slice(1);
   return route.route.toLowerCase().includes(routeFilter);
 }
 
@@ -558,8 +846,30 @@ function startDevServerIfNeeded() {
   };
 }
 
+function isPaneBackedProfileCompatibilityRoute(route) {
+  return (
+    (route === "/one/profile" || route.startsWith("/one/profile/")) &&
+    !route.includes("/oauth/return") &&
+    !PROFILE_DIRECT_ENTRY_ROUTES.has(route)
+  );
+}
+
 function routeSpec(route) {
+  const paneBackedProfileCompatibility = isPaneBackedProfileCompatibilityRoute(
+    route.route,
+  );
   if (route.mode === "redirect") {
+    if (paneBackedProfileCompatibility) {
+      return {
+        kind: "redirect",
+        route: route.route,
+        path: route.route,
+        expectedPathname: "/one",
+        allowedPathnames: ["/one"],
+        allowedRouteIds: ["/one"],
+        expectedQueryIncludes: [],
+      };
+    }
     const expectation = REDIRECT_EXPECTATIONS[route.route];
     if (!expectation) {
       throw new Error(`Missing redirect expectation for ${route.route}`);
@@ -582,10 +892,14 @@ function routeSpec(route) {
   const fixture = DYNAMIC_ROUTE_FIXTURES[route.route];
   const override = ROUTE_OVERRIDES[route.route];
   const allowedPathnames = override?.allowedPathnames || [
-    fixture?.expectedPathname || route.route,
+    ...(paneBackedProfileCompatibility
+      ? ["/one"]
+      : [fixture?.expectedPathname || route.route]),
   ];
   const allowedRouteIds = override?.allowedRouteIds ||
-    fixture?.allowedRouteIds || [route.route];
+    (paneBackedProfileCompatibility
+      ? ["/one"]
+      : fixture?.allowedRouteIds || [route.route]);
   return {
     kind: route.mode,
     route: route.route,
@@ -699,6 +1013,7 @@ async function ensureReviewerSession(page) {
 
   process.stdout.write(`→ wait for reviewer route beacon\n`);
   try {
+    await waitForReviewerVaultAdmission(page, smokeUserId, NAVIGATION_TIMEOUT_MS);
     await waitForRouteBeacon(page, REVIEWER_BOOTSTRAP_ROUTE_IDS);
   } catch (error) {
     const diagnostics = await captureRouteDiagnostics(page);
@@ -707,8 +1022,7 @@ async function ensureReviewerSession(page) {
       { cause: error },
     );
   }
-  process.stdout.write(`→ align reviewer persona to ria\n`);
-  await ensurePersona(page, "ria");
+  // Each route selects its own persona. Chat bootstrap must not require RIA admission.
   process.stdout.write(`→ reviewer route beacon ready\n`);
   process.stdout.write(`✓ reviewer session ready\n`);
 }
@@ -1188,7 +1502,7 @@ async function navigateViaShell(page, spec) {
     case "/one/kai/portfolio":
       await requestNativeTestRoute(
         page,
-        "/one/kai/portfolio",
+        "/one/kai?tab=portfolio",
         spec.allowedRouteIds,
       );
       return true;
@@ -1202,7 +1516,7 @@ async function navigateViaShell(page, spec) {
     case "/one/kai/analysis":
       await requestNativeTestRoute(
         page,
-        "/one/kai/analysis",
+        "/one/kai?tab=analysis",
         spec.allowedRouteIds,
       );
       return true;
@@ -1346,6 +1660,14 @@ function assertNoIssues(route, viewport, issues) {
       return false;
     }
     if (
+      appOrigin.startsWith("http://localhost:") ||
+      appOrigin.startsWith("http://127.0.0.1:")
+    ) {
+      if (LOCAL_OPTIONAL_CONSOLE_ERRORS.some((pattern) => value.includes(pattern))) {
+        return false;
+      }
+    }
+    if (
       value.includes(
         "Failed to load resource: the server responded with a status of 409",
       )
@@ -1367,6 +1689,22 @@ function assertNoIssues(route, viewport, issues) {
     if (
       value.includes(
         "Failed to load resource: the server responded with a status of 410",
+      ) &&
+      issues.responseFailures.some(isExpectedLocalOptionalResponseFailure)
+    ) {
+      return false;
+    }
+    if (
+      value.includes(
+        "Failed to load resource: the server responded with a status of 403",
+      ) &&
+      issues.responseFailures.some(isExpectedLocalOptionalResponseFailure)
+    ) {
+      return false;
+    }
+    if (
+      value.includes(
+        "Failed to load resource: the server responded with a status of 404",
       ) &&
       issues.responseFailures.some(isExpectedLocalOptionalResponseFailure)
     ) {
@@ -1456,9 +1794,8 @@ function assertUrl(spec, finalUrl) {
 
 async function captureRouteDiagnostics(page) {
   return page.evaluate(() => ({
-    url: window.location.href,
+    pathname: window.location.pathname,
     readyState: document.readyState,
-    bodySnippet: (document.body?.innerText || "").trim().slice(0, 500),
     beacons: Array.from(
       document.querySelectorAll("[data-native-test-beacon='true']"),
     ).map((node) => ({
@@ -1469,9 +1806,7 @@ async function captureRouteDiagnostics(page) {
     bridge: window.__HUSHH_NATIVE_TEST__
       ? {
           bootstrapState: window.__HUSHH_NATIVE_TEST__.bootstrapState || "",
-          bootstrapUserId: window.__HUSHH_NATIVE_TEST__.bootstrapUserId || "",
-          bootstrapError: window.__HUSHH_NATIVE_TEST__.bootstrapError || "",
-          beacon: window.__HUSHH_NATIVE_TEST__.beacon || null,
+          bootstrapErrorClass: window.__HUSHH_NATIVE_TEST__.bootstrapErrorClass || "",
         }
       : null,
   }));
@@ -1521,14 +1856,36 @@ async function verifyRoute(page, viewport, spec) {
       throw new Error(`${spec.route} relocked the vault unexpectedly`);
     }
 
-    try {
-      await waitForRouteBeacon(page, spec.allowedRouteIds);
-    } catch (error) {
-      const diagnostics = await captureRouteDiagnostics(page);
-      throw new Error(
-        `${spec.route} route beacon timed out.\n${JSON.stringify(diagnostics, null, 2)}`,
-        { cause: error },
-      );
+    const routeHealthExpectation = ROUTE_HEALTH_EXPECTATIONS[spec.route];
+    if (routeHealthExpectation?.heading) {
+      await page
+        .getByRole("heading", {
+          name: routeHealthExpectation.heading,
+          exact: true,
+        })
+        .waitFor({ state: "visible", timeout: NAVIGATION_TIMEOUT_MS });
+    } else {
+      try {
+        await waitForRouteBeacon(page, spec.allowedRouteIds);
+      } catch (error) {
+        const diagnostics = await captureRouteDiagnostics(page);
+        throw new Error(
+          `${spec.route} route beacon timed out.\n${JSON.stringify(diagnostics, null, 2)}`,
+          { cause: error },
+        );
+      }
+    }
+    // Every direct entry remounts the provider tree. Its route marker can
+    // settle before the test-only reviewer bootstrap has restored the
+    // in-memory vault key. Wait for the actual admission boundary before
+    // attributing late bootstrap/network errors to the route.
+    if (!usedShellNav) {
+      await waitForReviewerVaultAdmission(page, smokeUserId, NAVIGATION_TIMEOUT_MS);
+    }
+    if (spec.expectedVisibleText) {
+      await page
+        .getByRole("heading", { name: spec.expectedVisibleText, exact: true })
+        .waitFor({ state: "visible", timeout: NAVIGATION_TIMEOUT_MS });
     }
     assertUrl(spec, page.url());
     if (contextProbe) {

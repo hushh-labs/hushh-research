@@ -211,6 +211,32 @@ describe("native system-notification routing", () => {
     expect(href).toContain("notificationAction=review");
   });
 
+  it("opens the fixed document review route for an allowlisted opaque body tap", async () => {
+    await prepareFCMListeners();
+    const onAction = mocks.listeners.get("notificationActionPerformed");
+
+    onAction?.({
+      actionId: "tap",
+      notification: {
+        data: {
+          type: "document_share_review_ready",
+          request_id: "11111111-1111-4111-8111-111111111111",
+          request_url: "https://example.com/ignored",
+          deep_link: "/one/profile?ignored=true",
+          file_name: "bank-statement.pdf",
+        },
+      },
+    });
+
+    expect(mocks.requestInternalAppNavigation).toHaveBeenCalledWith({
+      href: "/one/consent?tab=pending&requestId=document_share_request%3A11111111-1111-4111-8111-111111111111",
+      scroll: false,
+    });
+    expect(
+      mocks.requestInternalAppNavigation.mock.calls[0]?.[0]?.href,
+    ).not.toContain("notificationAction");
+  });
+
   it("ignores dismiss actions", async () => {
     await prepareFCMListeners();
     const onAction = mocks.listeners.get("notificationActionPerformed");

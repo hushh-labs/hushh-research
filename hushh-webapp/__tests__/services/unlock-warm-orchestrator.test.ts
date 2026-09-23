@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 /* ---------- mocks (before any real imports) ---------- */
 
@@ -166,10 +167,25 @@ vi.mock("@/lib/one-marketplace/delivery-sweep", () => ({
   ),
 }));
 
+const recoverPendingSealsMock = vi.fn();
+vi.mock("@/lib/kai/plaid-vault/pending-seal", () => ({
+  recoverPendingSeals: (...a: unknown[]) => recoverPendingSealsMock(...a),
+}));
+
+const loadFinancialForVaultMock = vi.fn();
+const refreshVaultConnectionsMock = vi.fn();
+vi.mock("@/lib/kai/plaid-vault/vault-sync", () => ({
+  loadFinancialForVault: (...a: unknown[]) => loadFinancialForVaultMock(...a),
+  refreshVaultConnections: (...a: unknown[]) => refreshVaultConnectionsMock(...a),
+}));
+
 import {
   settleWithConcurrency,
   UnlockWarmOrchestrator,
 } from "@/lib/services/unlock-warm-orchestrator";
+import { bootstrapCurrentUserLocationRecipientKey } from "@/lib/one-location/key-bootstrap";
+import { bootstrapCurrentUserMarketplaceRecipientKey } from "@/lib/one-marketplace/key-bootstrap";
+import { runMarketplaceDeliverySweep } from "@/lib/one-marketplace/delivery-sweep";
 
 /* ---------- helpers ---------- */
 
@@ -199,11 +215,119 @@ function setupDefaultMocks() {
   agentPkmWarmMock.mockResolvedValue(undefined);
   agentHistoryWarmMock.mockResolvedValue(undefined);
   oneLocationGetStateMock.mockResolvedValue({});
+  loadFinancialForVaultMock.mockResolvedValue(null);
+  refreshVaultConnectionsMock.mockResolvedValue({ refreshed: 0, needsRelink: [], failed: 0, saved: false });
+  recoverPendingSealsMock.mockResolvedValue({ disconnected: 0, alreadySealed: 0, failed: 0 });
 }
+
+const SEALED_FINANCIAL = { connections_v1: { item_1: { access_token: "access-sandbox-x", status: "active" } } };
 
 /* ---------- tests ---------- */
 
 describe("UnlockWarmOrchestrator", () => {
+  it.each([false, true])("preserves ordinary and broadly authorized warming (reviewer=%s)", async reviewer => {
+    const target = window as unknown as { __HUSHH_NATIVE_TEST__?: Record<string, unknown> };
+    const original = target.__HUSHH_NATIVE_TEST__;
+    try {
+      target.__HUSHH_NATIVE_TEST__ = { enabled: reviewer, autoReviewerLogin: reviewer, reviewerMutationPolicy: "mutation_authorized" };
+      setupDefaultMocks();
+      await UnlockWarmOrchestrator.run({ ...BASE_PARAMS, userId: `ordinary-warm-${reviewer}`, routePath: "/one/consent" });
+      expect(bootstrapCurrentUserLocationRecipientKey).toHaveBeenCalledTimes(1);
+      expect(bootstrapCurrentUserMarketplaceRecipientKey).toHaveBeenCalledTimes(1);
+      expect(runMarketplaceDeliverySweep).toHaveBeenCalledTimes(1);
+      expect(consentRefreshEnsureRunningMock).toHaveBeenCalledTimes(1);
+    } finally { target.__HUSHH_NATIVE_TEST__ = original; }
+  });
+  it.each(["/one", "/one/consent", "/one/location"])(
+    "refreshes vault-sealed Plaid connections on unlock from %s, not only from the Kai dashboard",
+    async (routePath) => {
+      setupDefaultMocks();
+      loadFinancialForVaultMock.mockResolvedValue(SEALED_FINANCIAL);
+      const userId = `vault-refresh-${routePath}`;
+      await UnlockWarmOrchestrator.run({ ...BASE_PARAMS, userId, routePath });
+      await vi.waitFor(() => expect(refreshVaultConnectionsMock).toHaveBeenCalledTimes(1));
+      expect(refreshVaultConnectionsMock.mock.calls[0]![0]).toMatchObject({ userId, financial: SEALED_FINANCIAL });
+      // Once per session: a second warm for the same person does not refresh again.
+      UnlockWarmOrchestrator.invalidateForUser(userId);
+      await UnlockWarmOrchestrator.run({ ...BASE_PARAMS, userId, routePath });
+      expect(refreshVaultConnectionsMock).toHaveBeenCalledTimes(1);
+      // A lock and re-unlock starts a new vault generation in the same app.
+      advanceVaultSessionEpoch();
+      UnlockWarmOrchestrator.invalidateForUser(userId);
+      await UnlockWarmOrchestrator.run({ ...BASE_PARAMS, userId, routePath });
+      await vi.waitFor(() => expect(refreshVaultConnectionsMock).toHaveBeenCalledTimes(2));
+    },
+  );
+  it("disconnects links that never reached the vault before refreshing, and never without a vault read", async () => {
+    setupDefaultMocks();
+    loadFinancialForVaultMock.mockResolvedValue(SEALED_FINANCIAL);
+    await UnlockWarmOrchestrator.run({ ...BASE_PARAMS, userId: "pending-recovery", routePath: "/one" });
+    await vi.waitFor(() => expect(refreshVaultConnectionsMock).toHaveBeenCalled());
+    const recovery = recoverPendingSealsMock.mock.calls[0]![0];
+    expect([...recovery.sealedItemIds]).toEqual(["item_1"]);
+    expect(recoverPendingSealsMock.mock.invocationCallOrder[0]!).toBeLessThan(
+      refreshVaultConnectionsMock.mock.invocationCallOrder[0]!,
+    );
+
+    vi.clearAllMocks();
+    setupDefaultMocks();
+    loadFinancialForVaultMock.mockResolvedValue({});
+    await UnlockWarmOrchestrator.run({ ...BASE_PARAMS, userId: "pending-recovery-empty", routePath: "/one" });
+    await vi.waitFor(() => expect(recoverPendingSealsMock).toHaveBeenCalled());
+    expect(refreshVaultConnectionsMock).not.toHaveBeenCalled();
+
+    // A failed or empty vault read must not be mistaken for "nothing sealed".
+    vi.clearAllMocks();
+    setupDefaultMocks();
+    await UnlockWarmOrchestrator.run({ ...BASE_PARAMS, userId: "pending-recovery-no-read", routePath: "/one" });
+    await vi.waitFor(() => expect(loadFinancialForVaultMock).toHaveBeenCalled());
+    await Promise.resolve();
+    expect(recoverPendingSealsMock).not.toHaveBeenCalled();
+  });
+  it("does not refresh when nothing is sealed, or for a read-only reviewer session", async () => {
+    setupDefaultMocks();
+    await UnlockWarmOrchestrator.run({ ...BASE_PARAMS, userId: "vault-refresh-none", routePath: "/one" });
+    await vi.waitFor(() => expect(loadFinancialForVaultMock).toHaveBeenCalled());
+    expect(refreshVaultConnectionsMock).not.toHaveBeenCalled();
+
+    const target = window as unknown as { __HUSHH_NATIVE_TEST__?: Record<string, unknown> };
+    const original = target.__HUSHH_NATIVE_TEST__;
+    try {
+      target.__HUSHH_NATIVE_TEST__ = { enabled: true, autoReviewerLogin: true, reviewerMutationPolicy: "read_only" };
+      vi.clearAllMocks();
+      setupDefaultMocks();
+      loadFinancialForVaultMock.mockResolvedValue(SEALED_FINANCIAL);
+      await UnlockWarmOrchestrator.run({ ...BASE_PARAMS, userId: "vault-refresh-reviewer", routePath: "/one" });
+      expect(loadFinancialForVaultMock).not.toHaveBeenCalled();
+      expect(refreshVaultConnectionsMock).not.toHaveBeenCalled();
+    } finally { target.__HUSHH_NATIVE_TEST__ = original; }
+  });
+  it("reads dashboard metadata without synchronizing pending reviewer information", async () => {
+    const target = window as unknown as { __HUSHH_NATIVE_TEST__?: Record<string, unknown> };
+    const original = target.__HUSHH_NATIVE_TEST__;
+    try {
+      target.__HUSHH_NATIVE_TEST__ = { enabled: true, autoReviewerLogin: true, reviewerMutationPolicy: "read_only" };
+      setupDefaultMocks();
+      await UnlockWarmOrchestrator.run({ ...BASE_PARAMS, userId: "reviewer-dashboard", routePath: "/one" });
+      expect(pkmGetMetadataMock).toHaveBeenCalled();
+      expect(profileSyncMock).not.toHaveBeenCalled();
+    } finally { target.__HUSHH_NATIVE_TEST__ = original; }
+  });
+  it.each(["read_only", "preparation_only", "bounded_mutation"])("keeps %s reviewer warming read-only", async policy => {
+    const target = window as unknown as { __HUSHH_NATIVE_TEST__?: Record<string, unknown> };
+    const original = target.__HUSHH_NATIVE_TEST__;
+    try {
+      target.__HUSHH_NATIVE_TEST__ = { enabled: true, autoReviewerLogin: true, reviewerMutationPolicy: policy };
+      setupDefaultMocks();
+      await UnlockWarmOrchestrator.run({ ...BASE_PARAMS, userId: `reviewer-${policy}`, routePath: "/one/consent" });
+      expect(apiGetVaultStatusMock).toHaveBeenCalled();
+      expect(profileSyncMock).not.toHaveBeenCalled();
+      expect(bootstrapCurrentUserLocationRecipientKey).not.toHaveBeenCalled();
+      expect(bootstrapCurrentUserMarketplaceRecipientKey).not.toHaveBeenCalled();
+      expect(runMarketplaceDeliverySweep).not.toHaveBeenCalled();
+      expect(consentRefreshEnsureRunningMock).not.toHaveBeenCalled();
+    } finally { target.__HUSHH_NATIVE_TEST__ = original; }
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     // Clear internal static state between tests
@@ -321,6 +445,43 @@ describe("UnlockWarmOrchestrator", () => {
 
       expect(oneLocationGetStateMock).not.toHaveBeenCalled();
       expect(result.locationStateWarmed).toBe(false);
+    });
+
+    it("keeps the canonical Chat unlock path free of unrelated workspace warmups", async () => {
+      setupDefaultMocks();
+      const result = await UnlockWarmOrchestrator.run({
+        ...BASE_PARAMS,
+        routePath: "/",
+      });
+
+      expect(profileSyncMock).not.toHaveBeenCalled();
+      expect(pkmGetMetadataMock).not.toHaveBeenCalled();
+      expect(pkmLoadDomainDataMock).not.toHaveBeenCalled();
+      expect(apiGetVaultStatusMock).not.toHaveBeenCalled();
+      expect(apiGetActiveConsentsMock).not.toHaveBeenCalled();
+      expect(apiGetPendingConsentsMock).not.toHaveBeenCalled();
+      expect(apiGetConsentHistoryMock).not.toHaveBeenCalled();
+      expect(oneLocationGetStateMock).not.toHaveBeenCalled();
+      expect(result.metadataWarmed).toBe(false);
+      expect(result.financialWarmed).toBe(false);
+      expect(result.consentsWarmed).toBe(false);
+      expect(result.locationStateWarmed).toBe(false);
+      expect(result.agentContextWarmed).toBe(true);
+      expect(agentHistoryWarmMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("uses PKM priority without unrelated profile, financial, consent, or chat warmups", async () => {
+      setupDefaultMocks();
+      const result = await UnlockWarmOrchestrator.run({
+        ...BASE_PARAMS,
+        routePath: "/one/pkm",
+      });
+
+      expect(result.metadataWarmed).toBe(true);
+      expect(profileSyncMock).not.toHaveBeenCalled();
+      expect(pkmLoadDomainDataMock).not.toHaveBeenCalled();
+      expect(apiGetActiveConsentsMock).not.toHaveBeenCalled();
+      expect(agentHistoryWarmMock).not.toHaveBeenCalled();
     });
 
     it("warms Location state only for the Location workspace", async () => {

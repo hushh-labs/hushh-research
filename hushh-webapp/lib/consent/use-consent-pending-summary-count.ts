@@ -16,6 +16,7 @@ import {
   type ConsentCenterPageSummary,
 } from "@/lib/services/consent-center-service";
 import { CACHE_KEYS } from "@/lib/services/cache-service";
+import { useRootChatDeferredReady } from "@/lib/navigation/use-root-chat-deferred-ready";
 
 /**
  * Returns `null` until the current persona's summary has resolved. Consumers
@@ -28,6 +29,7 @@ export function useConsentPendingSummaryCount(
   const { user } = useAuth();
   const pathname = usePathname();
   const { activePersona } = usePersonaState();
+  const rootChatReady = useRootChatDeferredReady();
   const actor: ConsentCenterActor | undefined =
     pathname?.startsWith("/ria") && activePersona === "ria" ? "ria" : undefined;
   const mode = "consents";
@@ -68,7 +70,7 @@ export function useConsentPendingSummaryCount(
     // paint -- because `useSessionChromeSuppression` hides the chrome with a DOM
     // attribute while every component under it stays mounted and every fetch
     // still fires. Hidden was doing no work; only stopping the fetch does.
-    enabled: Boolean(user?.uid) && (options?.enabled ?? true),
+    enabled: Boolean(user?.uid) && rootChatReady && (options?.enabled ?? true),
     load: async () => {
       const idToken = await user?.getIdToken();
       if (!user?.uid || !idToken) {

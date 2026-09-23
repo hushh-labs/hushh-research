@@ -8,6 +8,7 @@ Scopes support nested paths:
 - attr.{domain}.{subintent}.*
 """
 
+import asyncio
 import difflib
 import json
 import logging
@@ -15,10 +16,14 @@ from typing import Optional
 
 from db.db_client import get_db
 from hushh_mcp.consent.internal_path_keys import is_internal_manifest_path
-from hushh_mcp.consent.pkm_scope_policy import is_private_pkm_export_scope
+from hushh_mcp.consent.pkm_scope_policy import is_private_pkm_export_scope, is_reserved_domain_scope
 from hushh_mcp.constants import ConsentScope
 
 logger = logging.getLogger(__name__)
+
+
+class ScopeCatalogUnavailableError(RuntimeError):
+    """Discovery authority could not be read; this is not an empty catalog."""
 
 
 def _scope_domain(scope: str) -> str:
@@ -34,7 +39,7 @@ def rank_scope_matches(
     *,
     query: str = "",
     domain: str = "",
-    limit: int = 20,
+    limit: int | None = 20,
 ) -> list[dict]:
     """
     Deterministically rank pre-computed scope entries against an intent query.
@@ -54,7 +59,11 @@ def rank_scope_matches(
     normalized_query = str(query or "").strip().lower()
     domain_filter = str(domain or "").strip().lower()
     try:
-        capped_limit = max(1, min(int(limit), 50))
+        # Discovery pages remain bounded, but the previous 50-row ceiling was
+        # also used by Profile and request validation. That made valid fields
+        # disappear from a person's catalog and made an opaque reference fail
+        # validation merely because it sorted after the first page.
+        capped_limit = None if limit is None else max(1, min(int(limit), 500))
     except (TypeError, ValueError):
         capped_limit = 20
 
@@ -226,6 +235,13 @@ class DynamicScopeGenerator:
             return ""
         segments: list[str] = []
         for part in raw.split("."):
+            part = part.strip()
+            # Preserve schema markers and private-key spelling. Stripping the
+            # leading underscore changed _items/_entities into different paths
+            # and also hid the signal used to exclude genuinely private keys.
+            if part.startswith("_"):
+                segments.append(part)
+                continue
             normalized_part = "".join(
                 ch if (ch.isalnum() or ch == "_") else "_" for ch in part.strip()
             ).strip("_")
@@ -412,41 +428,54 @@ class DynamicScopeGenerator:
         Each entry describes one requestable scope string and why it exists.
         """
         try:
-            index_result = (
-                self.db.table("pkm_index")
-                .select("available_domains")
-                .eq("user_id", user_id)
-                .limit(1)
-                .execute()
-            )
-            manifest_result = (
-                self.db.table("pkm_manifests")
-                .select(
-                    "domain,top_level_scope_paths,externalizable_paths,"
-                    "manifest_version,summary_projection"
+            # The database client is synchronous.  Scope discovery is optional
+            # metadata, so never freeze the async request loop while it waits
+            # for a pool connection.
+            index_result = await asyncio.to_thread(
+                lambda: (
+                    self.db.table("pkm_index")
+                    .select("available_domains")
+                    .eq("user_id", user_id)
+                    .limit(1)
+                    .execute()
                 )
-                .eq("user_id", user_id)
-                .execute()
             )
-            path_result = (
-                self.db.table("pkm_manifest_paths")
-                .select(
-                    "domain,json_path,path_type,segment_id,exposure_eligibility,consent_label,scope_handle"
+            manifest_result = await asyncio.to_thread(
+                lambda: (
+                    self.db.table("pkm_manifests")
+                    .select(
+                        "domain,top_level_scope_paths,externalizable_paths,"
+                        "manifest_version,summary_projection"
+                    )
+                    .eq("user_id", user_id)
+                    .execute()
                 )
-                .eq("user_id", user_id)
-                .execute()
             )
-            registry_result = (
-                self.db.table("pkm_scope_registry")
-                .select(
-                    "domain,scope_handle,scope_label,exposure_enabled,visibility_posture,default_projection_ready,default_projection_updated_at,summary_projection,manifest_version"
+            path_result = await asyncio.to_thread(
+                lambda: (
+                    self.db.table("pkm_manifest_paths")
+                    .select(
+                        "domain,json_path,path_type,segment_id,exposure_eligibility,consent_label,scope_handle"
+                    )
+                    .eq("user_id", user_id)
+                    .execute()
                 )
-                .eq("user_id", user_id)
-                .execute()
             )
-        except Exception:
+            registry_result = await asyncio.to_thread(
+                lambda: (
+                    self.db.table("pkm_scope_registry")
+                    .select(
+                        "domain,scope_handle,scope_label,exposure_enabled,visibility_posture,default_projection_ready,default_projection_updated_at,summary_projection,manifest_version"
+                    )
+                    .eq("user_id", user_id)
+                    .execute()
+                )
+            )
+        except Exception as exc:
             logger.error("scope_generator.get_scope_entries_failed")
-            return []
+            raise ScopeCatalogUnavailableError(
+                "Available information could not be checked. Please try again."
+            ) from exc
 
         def _source_rank(kind: str) -> int:
             return {
@@ -467,6 +496,12 @@ class DynamicScopeGenerator:
             # Manifest/index rows are policy input, not authority. A stale or
             # forged row cannot revive a domain that is private by contract.
             if is_private_pkm_export_scope(scope):
+                return
+            path = str(entry.get("path") or "").strip()
+            reserved_scope = is_reserved_domain_scope(
+                scope
+            ) and ConsentScope.is_external_requestable_scope(scope)
+            if path and is_internal_manifest_path(path) and not reserved_scope:
                 return
             # Every entry produced by this generator is a manifest-derived
             # dynamic scope.  Keep the canonical scope and the existing
@@ -600,17 +635,19 @@ class DynamicScopeGenerator:
                         or row.get("manifest_version"),
                     }
                     materialization_by_top_level[(domain, top_level_path)] = materialization
+                # Count private/disabled sections too: a domain wildcard must
+                # not become an alternate route around a section's posture.
+                all_consumer_top_levels_by_domain.setdefault(domain, set()).add(top_level_path)
                 if (
                     visibility.get("consumer_visible") is not False
                     and visibility.get("internal_only") is not True
                     and visibility.get("visibility_posture") != "private"
+                    and row.get("exposure_enabled") is not False
                     and materialization.get("materialization_state") != "empty"
                 ):
-                    all_consumer_top_levels_by_domain.setdefault(domain, set()).add(top_level_path)
-                    if visibility.get("visibility_posture") != "private":
-                        enabled_consumer_top_levels_by_domain.setdefault(domain, set()).add(
-                            top_level_path
-                        )
+                    enabled_consumer_top_levels_by_domain.setdefault(domain, set()).add(
+                        top_level_path
+                    )
                 registry_by_top_level[(domain, top_level_path)] = {
                     "registry_handle": str(row.get("scope_handle") or "").strip() or None,
                     "label": str(row.get("scope_label") or "").strip() or None,
@@ -857,7 +894,10 @@ class DynamicScopeGenerator:
                 }
             )
 
-        if entries:
+        # An authoritative catalog that filters to empty is not legacy state.
+        # Falling back here would recreate wildcards deliberately withheld by
+        # private/disabled sections or current manifest exclusions.
+        if entries or manifest_rows or path_rows or registry_rows:
             return [entries[scope] for scope in sorted(entries)]
 
         legacy_catalog = await self._get_legacy_scope_catalog(user_id)

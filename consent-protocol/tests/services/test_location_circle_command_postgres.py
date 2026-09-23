@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy import text
 
 from hushh_mcp.services import location_command_effect_receipts as receipts
+from hushh_mcp.services import one_location_circle_service as circle_service_module
 from hushh_mcp.services.location_circle_command import circle_effect_terms
 from hushh_mcp.services.one_location_circle_service import (
     OneLocationCircleError,
@@ -217,6 +218,60 @@ async def test_real_circle_writers_commit_once_and_replay_after_authority_expire
         ]
         assert len(db.execute_raw("SELECT id FROM one_location_events").data) == 1
         assert db.execute_raw("SELECT id FROM one_location_share_grants").data == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("action", "notifier_name", "expected_type"),
+    [
+        ("rename_circle", "send_circle_renamed_push", "renamed"),
+        ("delete_circle", "send_circle_deleted_push", "deleted"),
+    ],
+)
+async def test_rename_and_delete_notify_the_exact_locked_roster_after_commit(
+    db, monkeypatch, action, notifier_name, expected_type
+):
+    monkeypatch.setattr(
+        circle_service_module,
+        "_submit_circle_lifecycle_notification",
+        lambda callback, **kwargs: callback(**kwargs),
+    )
+    service, binding = circle_fixture(db, monkeypatch, action)
+    command = await claim(db, monkeypatch, binding)
+    if action == "rename_circle":
+        # Rename does not need the roster in its reviewed effect terms, so add
+        # a member after confirmation to prove delivery uses the roster locked
+        # at commit time instead of a stale review-time snapshot.
+        db.execute_raw(
+            """INSERT INTO one_location_circle_memberships(circle_id,user_id,role,status)
+            VALUES(CAST(:circle AS UUID),'other','member','active')""",
+            {"circle": binding["circleId"]},
+        )
+    delivered: list[dict] = []
+    from hushh_mcp.services import push_notifications
+
+    monkeypatch.setattr(
+        push_notifications,
+        notifier_name,
+        lambda **kwargs: delivered.append(kwargs) or 1,
+    )
+
+    result = execute(service, binding, command)
+    replay = execute(service, binding, command)
+
+    assert result["operationReceipt"]["result"] == expected_type
+    assert replay == result
+    assert len(delivered) == 2
+    assert {delivery["user_id"] for delivery in delivered} == {"owner", "other"}
+    assert (
+        next(delivery for delivery in delivered if delivery["user_id"] == "owner")["show_alert"]
+        is False
+    )
+    assert (
+        next(delivery for delivery in delivered if delivery["user_id"] == "other")["show_alert"]
+        is True
+    )
+    assert {delivery["circle_id"] for delivery in delivered} == {binding["circleId"]}
 
 
 @pytest.mark.asyncio

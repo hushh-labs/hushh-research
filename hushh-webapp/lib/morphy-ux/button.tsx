@@ -1,5 +1,5 @@
 import * as React from "react";
-import { type IconWeight } from "@phosphor-icons/react";
+import { type IconWeight } from "@/components/icons";
 
 import {
   Button as StockButton,
@@ -11,10 +11,21 @@ import { getVariantStyles } from "@/lib/morphy-ux/utils";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { useIconWeight } from "@/lib/morphy-ux/icon-theme-context";
 
-type MorphyButtonSize = "sm" | "default" | "lg" | "xl" | "icon" | "icon-sm";
+type MorphyButtonSize =
+  | "sm"
+  | "default"
+  | "standard"
+  | "prominent"
+  | "compact"
+  | "lg"
+  | "xl"
+  | "icon"
+  | "icon-touch"
+  | "icon-sm";
 
 export interface ButtonProps
-  extends Omit<React.ComponentProps<typeof StockButton>, "variant" | "size">,
+  extends
+    Omit<React.ComponentProps<typeof StockButton>, "variant" | "size">,
     MorphyButtonBaseProps {
   asChild?: boolean;
   size?: MorphyButtonSize;
@@ -36,10 +47,18 @@ function mapToStockSize(size: MorphyButtonSize | undefined) {
   switch (size) {
     case "sm":
       return "sm" as const;
+    case "standard":
+      return "standard" as const;
+    case "prominent":
+      return "prominent" as const;
+    case "compact":
+      return "compact" as const;
     case "lg":
       return "lg" as const;
     case "icon":
       return "icon" as const;
+    case "icon-touch":
+      return "icon-touch" as const;
     case "icon-sm":
       return "icon-sm" as const;
     default:
@@ -63,7 +82,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
       disabled,
       ...props
     },
-    ref
+    ref,
   ) => {
     const iconWeight = useIconWeight();
     const IconComponent = icon?.icon;
@@ -120,7 +139,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
               className={cn(
                 "mr-2.5 flex items-center justify-center rounded-lg border",
                 getIconBoxSize(),
-                iconBoxClass
+                iconBoxClass,
               )}
             >
               <IconComponent
@@ -159,7 +178,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
           data-loading={loading || undefined}
           aria-busy={loading || undefined}
           className={cn(
-            "press-scale relative overflow-hidden transition-[border-color,box-shadow,background-color,transform] duration-200",
+            "press-scale relative overflow-hidden transition-[border-color,box-shadow,background-color,transform] duration-100 ease-out",
             variantStyles,
             effect === "fill" && variant !== "none" && variant !== "link"
               ? "border border-transparent"
@@ -167,7 +186,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
             isXl ? "h-16 px-12 text-lg" : "",
             fullWidth ? "w-full" : "",
             loading ? "cursor-wait" : "",
-            className
+            className,
           )}
           {...props}
         >
@@ -191,7 +210,7 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         data-loading={loading || undefined}
         aria-busy={loading || undefined}
         className={cn(
-          "press-scale relative overflow-hidden transition-[border-color,box-shadow,background-color,transform] duration-200",
+          "press-scale relative overflow-hidden transition-[border-color,box-shadow,background-color,transform] duration-100 ease-out",
           variantStyles,
           effect === "fill" && variant !== "none" && variant !== "link"
             ? "border border-transparent"
@@ -199,14 +218,14 @@ const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
           isXl ? "h-16 px-12 text-lg" : "",
           fullWidth ? "w-full" : "",
           loading ? "cursor-wait" : "",
-          className
+          className,
         )}
         {...props}
       >
         {content}
       </StockButton>
     );
-  }
+  },
 );
 
 Button.displayName = "Button";

@@ -20,6 +20,8 @@ type UseStaleResourceOptions<T> = {
   load: (options?: { force?: boolean }) => Promise<T>;
   resourceLabel?: string;
   refreshKey?: string;
+  /** Separate lifecycle-bound requests while retaining the canonical cache. */
+  requestScope?: string;
   /** Keep the last safe in-memory value visible while a mutation refreshes it. */
   retainOnInvalidate?: boolean;
 };
@@ -41,9 +43,11 @@ export function useStaleResource<T>({
   load,
   resourceLabel,
   refreshKey = "",
+  requestScope = "",
   retainOnInvalidate = false,
 }: UseStaleResourceOptions<T>): UseStaleResourceResult<T> {
   const cache = useMemo(() => CacheService.getInstance(), []);
+  const requestKey = JSON.stringify([cacheKey, requestScope]);
   const loadRef = useRef(load);
   const label = resourceLabel ? `${resourceLabel}:hook` : cacheKey;
   const initialSnapshot = useMemo(
@@ -201,7 +205,7 @@ export function useStaleResource<T>({
       const refreshId = ++refreshSequenceRef.current;
       activeRefreshIdRef.current = refreshId;
 
-      const existingRequest = inflightRequests.get(cacheKey) as
+      const existingRequest = inflightRequests.get(requestKey) as
         Promise<T> | undefined;
       if (existingRequest) {
         logRequestAudit(label, "inflight_dedupe_hit", {
@@ -257,7 +261,7 @@ export function useStaleResource<T>({
           force: Boolean(options?.force),
         });
         const request = Promise.resolve(loadRef.current(options));
-        inflightRequests.set(cacheKey, request);
+        inflightRequests.set(requestKey, request);
         const next = await request;
         if (!isCurrentResource()) {
           return null;
@@ -287,13 +291,13 @@ export function useStaleResource<T>({
           setLoading(false);
           setRefreshing(false);
         }
-        const existing = inflightRequests.get(cacheKey);
+        const existing = inflightRequests.get(requestKey);
         if (existing) {
-          inflightRequests.delete(cacheKey);
+          inflightRequests.delete(requestKey);
         }
       }
     },
-    [cache, cacheKey, enabled, label, resourceGeneration],
+    [cache, cacheKey, enabled, label, resourceGeneration, requestKey],
   );
 
   // Keep the latest refresh in a ref so the auto-load effect below can run it

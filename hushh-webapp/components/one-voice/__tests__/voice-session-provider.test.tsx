@@ -299,6 +299,18 @@ describe("VoiceSessionProvider ownership", () => {
     await waitFor(() => expect(received[0]?.outcome).toBe("accepted"));
   });
 
+  it("the auth frame carries a freshly fetched sign-in proof, so a spoken yes can be verified", async () => {
+    mount();
+    await act(async () => {
+      await controller!.start();
+    });
+    const client = FakeClient.instances[0]!;
+    // The real client mints the ticket (which fetches the proof) before it
+    // opens the socket and reads auth(); mirror that order here.
+    await client.options.ticket();
+    expect(client.options.auth()?.firebaseIdToken).toBe("firebase-proof");
+  });
+
   it("STOP ends the session, releases the lease, and lands idle", async () => {
     const { capture } = mount();
     await act(async () => {

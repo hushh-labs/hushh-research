@@ -7,7 +7,7 @@ import { describe, expect, it } from "vitest";
 
 describe("onboarding capability copy", () => {
   it("exposes consent-safe setup copy for Gmail and Calendar", () => {
-    expect(getCapabilitySetupCopy("gmail")?.setupTitle).toBe("Connect Gmail");
+    expect(getCapabilitySetupCopy("gmail")?.setupTitle).toBe("Connect Mail");
     expect(getCapabilitySetupCopy("calendar")).toMatchObject({
       setupTitle: "Connect your calendar",
       actionLabel: "Connect Calendar",

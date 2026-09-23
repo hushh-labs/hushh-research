@@ -27,6 +27,7 @@ from hushh_mcp.services.domain_contracts import (
     DYNAMIC_DOMAIN_CONTRACT_VERSION,
     validate_dynamic_top_level_domain,
 )
+from hushh_mcp.services.pkm_preview_continuation import PreviewContinuation, contract_fingerprint
 
 logger = logging.getLogger(__name__)
 
@@ -334,10 +335,6 @@ Choose exactly one mutation:
 - delete_entity: user asks to remove an active memory and a stable target exists
 - no_op: ephemeral, ambiguous, unsupported, unsafe, or no stable target
 
-Corrections are signaled by: actually, instead, changed my mind, no longer, works better now, now prefer, update that.
-Deletions are signaled by: forget, remove, delete, don't remember this anymore.
-Refinements are signaled by: also, still, usually, when possible, prefer, more often.
-
 Output JSON only. Follow the schema exactly. If unsure, choose confirm_first or no_op."""
 _SENSITIVE_VALUE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     (
@@ -509,8 +506,9 @@ _SEGMENTATION_SCHEMA = {
         },
         "source_agent": {"type": "STRING"},
         "contract_version": {"type": "INTEGER"},
+        "has_more_candidates": {"type": "BOOLEAN"},
     },
-    "required": ["segments", "source_agent", "contract_version"],
+    "required": ["segments", "source_agent", "contract_version", "has_more_candidates"],
 }
 
 _KYC_IDENTITY_FACT_SCHEMA = {
@@ -761,7 +759,8 @@ class PKMAgentLabService:
         status_code = PKMAgentLabService._provider_status_code(exc)
         if status_code in {429, 500, 503}:
             return True
-        message = str(exc).lower()
+        current: BaseException | None = exc
+        seen: set[int] = set()
         markers = (
             "resource_exhausted",
             "resource exhausted",
@@ -775,21 +774,42 @@ class PKMAgentLabService:
             "code 500",
             "code 503",
         )
-        return any(marker in message for marker in markers)
+        while current is not None and id(current) not in seen:
+            seen.add(id(current))
+            if any(marker in str(current).lower() for marker in markers):
+                return True
+            current = current.__cause__ or current.__context__
+        return False
+
+    @staticmethod
+    def _has_timeout_cause(exc: Exception) -> bool:
+        current: BaseException | None = exc
+        seen: set[int] = set()
+        while current is not None and id(current) not in seen:
+            seen.add(id(current))
+            if isinstance(current, (asyncio.TimeoutError, TimeoutError)):
+                return True
+            current = current.__cause__ or current.__context__
+        return False
 
     @staticmethod
     def _provider_status_code(exc: Exception) -> int | None:
-        for field in ("status_code", "code"):
-            value = getattr(exc, field, None)
-            if callable(value):
+        current: BaseException | None = exc
+        seen: set[int] = set()
+        while current is not None and id(current) not in seen:
+            seen.add(id(current))
+            for field in ("status_code", "code"):
+                value = getattr(current, field, None)
+                if callable(value):
+                    try:
+                        value = value()
+                    except TypeError:
+                        continue
                 try:
-                    value = value()
-                except TypeError:
+                    return int(value)
+                except (TypeError, ValueError):
                     continue
-            try:
-                return int(value)
-            except (TypeError, ValueError):
-                continue
+            current = current.__cause__ or current.__context__
         return None
 
     @classmethod
@@ -836,7 +856,7 @@ class PKMAgentLabService:
         material = json.dumps(
             {
                 "user_id": user_id,
-                "message": message.strip(),
+                "message": message,
                 "current_domains": sorted(current_domains),
                 "current_manifests": current_manifests or [],
                 "simulated_state": simulated_state or {},
@@ -865,9 +885,23 @@ class PKMAgentLabService:
         return deepcopy(payload)
 
     @classmethod
-    def _set_cached_structure_preview(cls, cache_key: str, payload: dict[str, Any]) -> None:
+    def _set_cached_structure_preview(
+        cls,
+        cache_key: str,
+        payload: dict[str, Any],
+        *,
+        checkpoint: dict | None = None,
+        expires_at: float | None = None,
+    ) -> None:
+        # Never cache a degraded final response. An explicitly admitted prefix
+        # retains only validated earlier stages; the failed stage must run fresh.
+        if payload.get("used_fallback") or payload.get("error"):
+            if checkpoint is None:
+                _PREVIEW_CACHE.pop(cache_key, None)
+                return
+            payload = {"__validated_preparation_prefix": checkpoint}
         _PREVIEW_CACHE[cache_key] = (
-            time.time() + _PREVIEW_CACHE_TTL_SECONDS,
+            expires_at if expires_at is not None else time.time() + _PREVIEW_CACHE_TTL_SECONDS,
             deepcopy(payload),
         )
         _PREVIEW_CACHE.move_to_end(cache_key)
@@ -983,27 +1017,24 @@ class PKMAgentLabService:
         if not isinstance(items, list):
             return []
 
-        normalized_message = cls._safe_excerpt(message, limit=50000).casefold()
         sanitized: list[dict[str, Any]] = []
         seen: set[str] = set()
         for item in items:
             if not isinstance(item, dict):
                 continue
-            source_text = cls._safe_excerpt(
-                str(item.get("source_text") or ""),
-                limit=_MAX_SEGMENT_SOURCE_CHARS,
-            )
-            if not source_text:
+            source_text = item.get("source_text")
+            if not isinstance(source_text, str) or not source_text.strip():
                 continue
-            normalized = source_text.casefold()
+            if len(source_text) > _MAX_SEGMENT_SOURCE_CHARS:
+                continue
             # Segmentation may select only a direct part of the owner's text.
             # Never let a rewritten or invented clause become a persistence
             # candidate, even if a provider returned valid JSON.
-            if normalized not in normalized_message:
+            if source_text not in message:
                 continue
-            if normalized in seen:
+            if source_text in seen:
                 continue
-            seen.add(normalized)
+            seen.add(source_text)
             sanitized.append(
                 {
                     "source_text": source_text,
@@ -1585,6 +1616,22 @@ class PKMAgentLabService:
         agent_id = str(getattr(manifest, "id", "unknown") or "unknown")
 
         def record(status: str, *, attempts: int, error_type: str = "") -> None:
+            elapsed_seconds = max(0.0, time.perf_counter() - started_at)
+            # Observe the ordinary cached path without enabling execution-trace
+            # mode (which intentionally bypasses cache/inflight reuse). Never
+            # include prompts, response values, owner IDs, or exception messages.
+            logger.info(
+                "pkm.agent_contract_completed agent=%s status=%s attempts=%s "
+                "latency_ms=%s allocated_budget_ms=%s remaining_budget_ms=%s",
+                agent_id,
+                status,
+                attempts,
+                round(elapsed_seconds * 1000, 2),
+                round(timeout_seconds * 1000, 2) if timeout_seconds is not None else None,
+                round(max(0.0, timeout_seconds - elapsed_seconds) * 1000, 2)
+                if timeout_seconds is not None
+                else None,
+            )
             if execution_trace is None:
                 return
             execution_trace.append(
@@ -1592,7 +1639,7 @@ class PKMAgentLabService:
                     "agent_id": agent_id,
                     "status": status,
                     "attempts": attempts,
-                    "latency_ms": round((time.perf_counter() - started_at) * 1000, 2),
+                    "latency_ms": round(elapsed_seconds * 1000, 2),
                     "error_type": error_type,
                 }
             )
@@ -1604,39 +1651,130 @@ class PKMAgentLabService:
         # Test doubles and legacy manifest stand-ins retain the direct-client
         # seam so deterministic tests never acquire credentials or network I/O.
         if self._should_use_adk_single_turn(manifest):
-            try:
-                from google.adk.models import Gemini
+            deadline = (
+                time.perf_counter() + timeout_seconds if timeout_seconds is not None else None
+            )
+            for attempt in range(1, _AGENT_CONTRACT_MAX_ATTEMPTS + 1):
+                remaining_seconds = (
+                    max(0.0, deadline - time.perf_counter()) if deadline is not None else None
+                )
+                if remaining_seconds is not None and remaining_seconds <= 0.25:
+                    record("budget_exhausted", attempts=attempt - 1)
+                    return None
+                effective_timeout = _AGENT_CONTRACT_TIMEOUT_SECONDS
+                if remaining_seconds is not None:
+                    effective_timeout = max(0.25, min(effective_timeout, remaining_seconds))
+                try:
+                    from google.adk.models import Gemini
 
-                adk_model = Gemini(
-                    model=model_override or _manifest_model_name(manifest) or GEMINI_MODEL,
-                    client=self.client,
-                )
-                agent = build_single_turn_agent(
-                    manifest,
-                    output_schema=response_schema,
-                    model=adk_model,
-                )
-                parsed = await run_single_turn(
-                    agent,
-                    prompt_parts=prompt,
-                    user_id="pkm-agent-lab",
-                    consent_token="managed-runtime",  # noqa: S106 - turn-local sentinel
-                    timeout_seconds=timeout_seconds,
-                )
-                value = parsed.model_dump(mode="json") if hasattr(parsed, "model_dump") else parsed
-                if isinstance(value, dict):
-                    record("success", attempts=1)
-                    return value
-                record("invalid_response", attempts=1)
-                return None
-            except Exception as error:
-                record("adk_failure", attempts=1, error_type=type(error).__name__)
-                logger.warning(
-                    "pkm.agent_contract_adk_failed agent=%s error=%s",
-                    agent_id,
-                    type(error).__name__,
-                )
-                return None
+                    adk_model = Gemini(
+                        model=model_override or _manifest_model_name(manifest) or GEMINI_MODEL,
+                        client=self.client,
+                    )
+                    agent = build_single_turn_agent(
+                        manifest,
+                        output_schema=response_schema,
+                        model=adk_model,
+                    )
+                    parsed = await run_single_turn(
+                        agent,
+                        prompt_parts=prompt,
+                        user_id="pkm-agent-lab",
+                        consent_token="managed-runtime",  # noqa: S106 - turn-local sentinel
+                        timeout_seconds=effective_timeout,
+                    )
+                    value = (
+                        parsed.model_dump(mode="json") if hasattr(parsed, "model_dump") else parsed
+                    )
+                    if isinstance(value, dict):
+                        record("success", attempts=attempt)
+                        return value
+                    record("invalid_response", attempts=attempt)
+                    return None
+                except asyncio.TimeoutError:
+                    retry_budget_seconds = (
+                        max(0.0, deadline - time.perf_counter()) if deadline is not None else None
+                    )
+                    if attempt < _AGENT_CONTRACT_MAX_ATTEMPTS and (
+                        retry_budget_seconds is None or retry_budget_seconds > 0.25
+                    ):
+                        logger.warning(
+                            "pkm.agent_contract_adk_timeout_retry agent=%s attempt=%s "
+                            "max_attempts=%s timeout_seconds=%s budget_remaining_seconds=%s",
+                            agent_id,
+                            attempt,
+                            _AGENT_CONTRACT_MAX_ATTEMPTS,
+                            round(effective_timeout, 3),
+                            round(retry_budget_seconds, 3)
+                            if retry_budget_seconds is not None
+                            else None,
+                        )
+                        continue
+                    record("timeout", attempts=attempt)
+                    logger.warning(
+                        "pkm.agent_contract_adk_timeout agent=%s attempts=%s timeout_seconds=%s",
+                        agent_id,
+                        attempt,
+                        round(effective_timeout, 3),
+                    )
+                    return None
+                except Exception as error:
+                    retry_budget_seconds = (
+                        max(0.0, deadline - time.perf_counter()) if deadline is not None else None
+                    )
+                    if self._has_timeout_cause(error):
+                        if attempt < _AGENT_CONTRACT_MAX_ATTEMPTS and (
+                            retry_budget_seconds is None or retry_budget_seconds > 0.25
+                        ):
+                            logger.warning(
+                                "pkm.agent_contract_adk_timeout_retry agent=%s attempt=%s "
+                                "max_attempts=%s timeout_seconds=%s budget_remaining_seconds=%s",
+                                agent_id,
+                                attempt,
+                                _AGENT_CONTRACT_MAX_ATTEMPTS,
+                                round(effective_timeout, 3),
+                                round(retry_budget_seconds, 3)
+                                if retry_budget_seconds is not None
+                                else None,
+                            )
+                            continue
+                        record("timeout", attempts=attempt)
+                        logger.warning(
+                            "pkm.agent_contract_adk_timeout agent=%s attempts=%s timeout_seconds=%s",
+                            agent_id,
+                            attempt,
+                            round(effective_timeout, 3),
+                        )
+                        return None
+                    can_retry = (
+                        attempt < _AGENT_CONTRACT_MAX_ATTEMPTS
+                        and self._is_retryable_provider_error(error)
+                        and (retry_budget_seconds is None or retry_budget_seconds > 0.25)
+                    )
+                    if can_retry:
+                        retry_delay_seconds = self._provider_retry_delay_seconds(attempt)
+                        if retry_budget_seconds is None or (
+                            retry_budget_seconds > retry_delay_seconds + 0.25
+                        ):
+                            logger.warning(
+                                "pkm.agent_contract_adk_provider_retry agent=%s attempt=%s "
+                                "max_attempts=%s delay_seconds=%s error_type=%s",
+                                agent_id,
+                                attempt,
+                                _AGENT_CONTRACT_MAX_ATTEMPTS,
+                                round(retry_delay_seconds, 3),
+                                type(error).__name__,
+                            )
+                            await asyncio.sleep(retry_delay_seconds)
+                            continue
+                    record("error", attempts=attempt, error_type=type(error).__name__)
+                    logger.warning(
+                        "pkm.agent_contract_adk_failed agent=%s error=%s",
+                        agent_id,
+                        type(error).__name__,
+                    )
+                    return None
+            return None
         deadline = time.perf_counter() + timeout_seconds if timeout_seconds is not None else None
         from google.genai import types as genai_types
 
@@ -1645,6 +1783,7 @@ class PKMAgentLabService:
             genai_types,
             active_model,
             temperature=0.0,
+            system_instruction=getattr(manifest, "system_instruction", None),
             # These calls are deterministic schema workers inside a bounded,
             # sequential PKM graph. Gemini's default thinking can consume the
             # shared preview deadline before the final structure contract runs,
@@ -1848,39 +1987,12 @@ class PKMAgentLabService:
         message: str,
         strict_small_model: bool,
     ) -> str:
-        header = (
-            "You are the Memory Segmentation Agent for Hussh Kai.\n"
-            "Return JSON only with segments, source_agent, contract_version.\n"
-            "Select zero to eight direct quotes that could be durable PKM memory candidates.\n"
-        )
-        if strict_small_model:
-            return (
-                f"{header}"
-                f"Message: {message}\n"
-                "Rules:\n"
-                "- Return an empty segments array when there is no explicit durable fact, preference, routine, goal, relationship, or health constraint.\n"
-                "- Keep only direct owner-stated claims that remain useful after this conversation.\n"
-                "- Exclude greetings, introductions, filler, generic self-description, one-off plans, current moods, requests, and form/chat boilerplate.\n"
-                "- Keep each segment self-contained and short.\n"
-                "- source_text must be an exact contiguous quote from the message.\n"
-                "- Split only when the prompt clearly contains multiple independent durable ideas.\n"
-                "- Numbered or Markdown headings are boundaries: never merge across two headings, and never include the heading line in source_text.\n"
-                "- contract_version must be 1.\n"
-                'Examples: {"message":"I like to swim and prefer early breakfasts.","segments":[{"source_text":"I like to swim.","confidence":0.91,"reason":"Exercise preference."},{"source_text":"I prefer early breakfasts.","confidence":0.84,"reason":"Separate food habit."}]} '
-                '{"message":"I usually book aisle seats.","segments":[{"source_text":"I usually book aisle seats.","confidence":0.97,"reason":"Single travel preference."}]}'
-            )
-        return (
-            f"{header}"
-            f"Natural language message: {message}\n"
-            "Rules:\n"
-            "- Return an empty segments array when there is no explicit durable fact, preference, routine, goal, relationship, or health constraint.\n"
-            "- Exclude greetings, introductions, filler, generic self-description, one-off plans, current moods, requests, and form/chat boilerplate.\n"
-            "- Return one segment for one eligible claim; return multiple segments only for independent eligible claims.\n"
-            "- Do not split stylistic repetition, explanations, or connective narrative.\n"
-            "- source_text must be an exact contiguous quote from the user's message.\n"
-            "- Numbered or Markdown section headings are boundaries: never merge candidates across two headings, and never include the heading line in source_text.\n"
-            "- Never emit more than 8 segments.\n"
-            "- contract_version must be 1.\n"
+        # The manifest owns semantic instructions in both managed ADK and
+        # direct-client paths. Keep user material serialized as input, without
+        # a second (previously contradictory) instruction/example set here.
+        return json.dumps(
+            {"message": message, "strict_small_model": strict_small_model},
+            ensure_ascii=False,
         )
 
     def _build_financial_guard_prompt(
@@ -2639,6 +2751,17 @@ class PKMAgentLabService:
             fallback.get("save_class") == "durable"
             and fallback.get("mutation_intent") in {"correct", "delete"}
             and frame.get("mutation_intent") != fallback.get("mutation_intent")
+            and (
+                not model_answered
+                or (
+                    "\n" not in message.strip()
+                    and message.strip()
+                    .lower()
+                    .startswith(
+                        ("actually i ", "actually, i ", "update my ", "delete my ", "forget my ")
+                    )
+                )
+            )
         ):
             # DELIBERATELY NOT gated on model_answered, unlike the three rules
             # above it. This is the one place the fallback is catching an
@@ -2661,8 +2784,14 @@ class PKMAgentLabService:
             frame["save_class"] = "durable"
             frame["intent_class"] = fallback["intent_class"]
             frame["mutation_intent"] = fallback["mutation_intent"]
-            frame["requires_confirmation"] = False
-            frame["confirmation_reason"] = ""
+            frame["requires_confirmation"] = True
+            frame["confirmation_reason"] = (
+                frame.get("confirmation_reason")
+                or "Confirm the requested change to your saved information."
+            )
+            logger.info(
+                "pkm_intent_integrity_guard_applied operation=%s", fallback["mutation_intent"]
+            )
             frame["confidence"] = max(
                 float(frame.get("confidence") or 0.0),
                 float(fallback.get("confidence") or 0.0),
@@ -2743,6 +2872,7 @@ class PKMAgentLabService:
         if (
             frame["intent_class"] in {"correction", "deletion", "financial_event"}
             and frame["confidence"] >= 0.8
+            and not model_answered
         ):
             frame["requires_confirmation"] = False
             frame["confirmation_reason"] = ""
@@ -2752,6 +2882,7 @@ class PKMAgentLabService:
             and frame.get("save_class") == "durable"
             and frame.get("requires_confirmation")
             and cls._clamp_confidence(fallback.get("confidence"), default=0.0) >= 0.7
+            and not model_answered
         ):
             frame["requires_confirmation"] = False
             frame["confirmation_reason"] = ""
@@ -4216,6 +4347,14 @@ class PKMAgentLabService:
     ) -> dict[str, Any]:
         path_map: dict[str, dict[str, Any]] = {}
         cls._walk_payload(payload, [], path_map)
+        # The walk owns structural facts, not a replacement sensitivity judgment.
+        # Adopt only labels for surviving paths before deriving scope tiers.
+        sensitivity_labels = structure_decision.get("sensitivity_labels")
+        if isinstance(sensitivity_labels, dict):
+            for json_path, path in path_map.items():
+                label = sensitivity_labels.get(json_path)
+                if isinstance(label, str) and label.strip():
+                    path["sensitivity_label"] = label.strip()
         paths = [path_map[key] for key in sorted(path_map)]
         top_level_scope_paths = sorted(
             {path["json_path"].split(".", 1)[0] for path in paths if path["json_path"]}
@@ -4933,11 +5072,7 @@ class PKMAgentLabService:
                 "- Home base, residence, and where the user lives are profile_fact, not preference.\n"
                 "- Financial goals like saving for a home or paying off loans are usually plan_or_goal, not financial_event, unless the message is explicitly about portfolio construction, investing behavior, or risk preference.\n"
                 "- If state_summary already shows an active memory in the same broad domain and the new message says still, also, again, continue, or otherwise refines the same theme, prefer mutation_intent extend instead of create.\n"
-                "- Explicit update / actually / now / changed-my-mind phrasing should prefer intent_class correction with mutation_intent correct.\n"
-                "- Delete / remove / forget phrasing about existing PKM should prefer intent_class deletion with mutation_intent delete, not ephemeral.\n"
                 "- Repeating a durable policy like reminders staying out of PKM should not become a new durable preference unless the user clearly states a lasting meta-preference.\n"
-                "- correction phrases like actually / instead / changed my mind -> correct.\n"
-                "- deletion phrases like forget that / remove that -> delete.\n"
                 "- If multiple broad domains are plausible, set requires_confirmation=true and return 2-4 broad candidate domains.\n"
                 "- If Financial Guard says sanctioned_financial_memory, use intent_class financial_event with financial recommended first.\n"
                 "- If Financial Guard says non_financial_or_ephemeral, do not force financial.\n"
@@ -5053,7 +5188,6 @@ class PKMAgentLabService:
             state_summary = self._compact_state_summary(simulated_state)
             compact_registry_choices = self._compact_registry_choices(registry_choices)
             return (
-                f"{self._kernel_prompt('PKM Structure Agent')}"
                 "You are the PKM Structure Agent for Hussh Kai.\n"
                 "Return JSON only with candidate_payload, structure_decision, write_mode, primary_json_path, target_entity_scope, validation_hints.\n"
                 "Allowed actions: match_existing_domain, create_domain, extend_domain.\n"
@@ -5086,8 +5220,6 @@ class PKMAgentLabService:
             "- Reuse one of the candidate_domain_choices unless a clearly better broad domain is obvious.\n"
         )
         return (
-            f"{self._kernel_prompt('PKM Structure Agent')}"
-            f"{self.structure_manifest.system_instruction}\n\n"
             "Return JSON only.\n"
             f"Financial Guard decision: {json.dumps(financial_guard)}\n"
             f"Intent frame: {json.dumps(intent_frame)}\n"
@@ -5121,8 +5253,8 @@ class PKMAgentLabService:
             "- Never use the domain key general.\n"
             f"{small_model_rules}"
             "Examples:\n"
-            'I gravitate toward Cantonese menus when I go out. -> {"candidate_payload":{"preferences":{"entities":{"mem_food_pref":{"entity_id":"mem_food_pref","kind":"preference","summary":"I gravitate toward Cantonese menus when I go out.","observations":["I gravitate toward Cantonese menus when I go out."],"status":"active"}}}},"structure_decision":{"action":"match_existing_domain","target_domain":"food","json_paths":["preferences","preferences.entities","preferences.entities.mem_food_pref","preferences.entities.mem_food_pref.summary"],"top_level_scope_paths":["preferences"],"externalizable_paths":["preferences.entities.mem_food_pref.summary"],"summary_projection":{"intent_class":"preference","top_level_scope":"preferences"},"sensitivity_labels":{},"confidence":0.91,"source_agent":"pkm_structure_agent","contract_version":3},"write_mode":"confirm_first","primary_json_path":"preferences","target_entity_scope":"preferences","validation_hints":[]}\n'
-            'Circle back with my aunt this weekend. -> {"candidate_payload":{"tasks":{"entities":{"mem_social_task":{"entity_id":"mem_social_task","kind":"task_or_reminder","summary":"Circle back with my aunt this weekend.","observations":["Circle back with my aunt this weekend."],"status":"active"}}}},"structure_decision":{"action":"match_existing_domain","target_domain":"social","json_paths":["tasks","tasks.entities","tasks.entities.mem_social_task","tasks.entities.mem_social_task.summary"],"top_level_scope_paths":["tasks"],"externalizable_paths":["tasks.entities.mem_social_task.summary"],"summary_projection":{"intent_class":"task_or_reminder","top_level_scope":"tasks"},"sensitivity_labels":{},"confidence":0.87,"source_agent":"pkm_structure_agent","contract_version":3},"write_mode":"do_not_save","primary_json_path":"","target_entity_scope":"tasks","validation_hints":[]}\n'
+            'I gravitate toward Cantonese menus when I go out. -> {"candidate_payload":{"preferences":{"entities":{"mem_food_pref":{"entity_id":"mem_food_pref","kind":"preference","summary":"I gravitate toward Cantonese menus when I go out.","observations":["I gravitate toward Cantonese menus when I go out."],"status":"active"}}}},"structure_decision":{"action":"match_existing_domain","target_domain":"food","json_paths":["preferences","preferences.entities","preferences.entities.mem_food_pref","preferences.entities.mem_food_pref.summary"],"top_level_scope_paths":["preferences"],"externalizable_paths":["preferences.entities.mem_food_pref.summary"],"summary_projection":{"intent_class":"preference","top_level_scope":"preferences"},"sensitivity_labels":{},"confidence":0.91,"source_agent":"pkm_structure_agent","contract_version":1},"write_mode":"confirm_first","primary_json_path":"preferences","target_entity_scope":"preferences","validation_hints":[]}\n'
+            'Circle back with my aunt this weekend. -> {"candidate_payload":{"tasks":{"entities":{"mem_social_task":{"entity_id":"mem_social_task","kind":"task_or_reminder","summary":"Circle back with my aunt this weekend.","observations":["Circle back with my aunt this weekend."],"status":"active"}}}},"structure_decision":{"action":"match_existing_domain","target_domain":"social","json_paths":["tasks","tasks.entities","tasks.entities.mem_social_task","tasks.entities.mem_social_task.summary"],"top_level_scope_paths":["tasks"],"externalizable_paths":["tasks.entities.mem_social_task.summary"],"summary_projection":{"intent_class":"task_or_reminder","top_level_scope":"tasks"},"sensitivity_labels":{},"confidence":0.87,"source_agent":"pkm_structure_agent","contract_version":1},"write_mode":"do_not_save","primary_json_path":"","target_entity_scope":"tasks","validation_hints":[]}\n'
             "Remember that I prefer index funds. -> target_domain must be financial, write_mode confirm_first, and candidate_payload must use a guarded financial subtree such as profile."
         )
 
@@ -5156,7 +5288,9 @@ class PKMAgentLabService:
         domain_registry_override: list[dict[str, Any]] | None = None,
         deadline: float | None = None,
         execution_trace: list[dict[str, Any]] | None = None,
+        contract_runner=None,
     ) -> dict[str, Any]:
+        run_contract = contract_runner or self._run_agent_contract
         normalized_domains = [
             self._normalize_segment(domain) for domain in (current_domains or []) if domain
         ]
@@ -5173,7 +5307,7 @@ class PKMAgentLabService:
             message=message,
             current_domains=normalized_domains,
         )
-        financial_guard_raw = await self._run_agent_contract(
+        financial_guard_raw = await run_contract(
             manifest=self.financial_guard_manifest,
             prompt=self._build_financial_guard_prompt(
                 message=message,
@@ -5250,7 +5384,7 @@ class PKMAgentLabService:
                 # Derived from the guard, not asked of the intent agent.
                 intent_skipped = True
             else:
-                intent_raw = await self._run_agent_contract(
+                intent_raw = await run_contract(
                     manifest=self.memory_intent_manifest,
                     prompt=self._build_memory_intent_prompt(
                         message=message,
@@ -5285,7 +5419,7 @@ class PKMAgentLabService:
                 merge_used_fallback = False
                 merge_skipped = True
             else:
-                merge_raw = await self._run_agent_contract(
+                merge_raw = await run_contract(
                     manifest=self.memory_merge_manifest,
                     prompt=self._build_memory_merge_prompt(
                         message=message,
@@ -5328,7 +5462,7 @@ class PKMAgentLabService:
                 # False here, so a skipped stage reported as a successful run.
                 structure_skipped = True
             else:
-                structure_raw = await self._run_agent_contract(
+                structure_raw = await run_contract(
                     manifest=self.structure_manifest,
                     prompt=self._build_structure_prompt(
                         message=message,
@@ -5429,6 +5563,7 @@ class PKMAgentLabService:
         domain_registry_override: list[dict[str, Any]] | None = None,
         capture_execution_trace: bool = False,
         memory_profile: str = "general",
+        continuation_scope: str | None = None,
     ) -> dict[str, Any]:
         total_started_at = time.perf_counter()
         normalized_domains = [
@@ -5445,19 +5580,77 @@ class PKMAgentLabService:
             domain_registry_override=domain_registry_override,
             memory_profile=memory_profile,
         )
+
+        def resolve_model(manifest, override):
+            return resolve_fleet_model_name(
+                override or _manifest_model_name(manifest) or GEMINI_MODEL
+            )
+
+        # Bind cache entries to the effective authored contracts and execution
+        # policy, not only the owner's submitted context. Source changes invalidate
+        # continuation rather than silently replaying a previous interpretation.
+        contracts = [
+            (self.memory_segmentation_manifest, _SEGMENTATION_SCHEMA),
+            (self.financial_guard_manifest, _FINANCIAL_GUARD_SCHEMA),
+            (self.memory_intent_manifest, _INTENT_FRAME_SCHEMA),
+            (self.memory_merge_manifest, _MERGE_DECISION_SCHEMA),
+            (self.structure_manifest, _STRUCTURE_PREVIEW_SCHEMA),
+        ]
+        runtime_fingerprint = "".join(
+            contract_fingerprint(manifest, resolve_model(manifest, model_override), schema)
+            for manifest, schema in contracts
+        )
+        for relative_path in (
+            "services/pkm_agent_lab_service.py",
+            "services/pkm_preview_continuation.py",
+            "services/domain_contracts.py",
+            "hushh_adk/single_turn.py",
+            "hushh_adk/turn.py",
+            "runtime_providers/gemini_config.py",
+        ):
+            runtime_fingerprint += hashlib.sha256(
+                (_REPO_ROOT / "hushh_mcp" / relative_path).read_bytes()
+            ).hexdigest()
+        runtime_fingerprint += json.dumps(
+            [
+                continuation_scope,
+                _PREVIEW_TOTAL_BUDGET_SECONDS,
+                _AGENT_CONTRACT_TIMEOUT_SECONDS,
+                _AGENT_CONTRACT_MAX_ATTEMPTS,
+            ]
+        )
+        preview_cache_key = hashlib.sha256(
+            (preview_cache_key + runtime_fingerprint).encode()
+        ).hexdigest()
+        prefix = None
+        checkpoint_expiry = time.time() + _PREVIEW_CACHE_TTL_SECONDS
         if not capture_execution_trace:
             cached_preview = self._get_cached_structure_preview(preview_cache_key)
             if cached_preview is not None:
-                logger.info("pkm.agent_lab.preview_cache_hit user_id=%s", user_id)
-                return cached_preview
+                if "__validated_preparation_prefix" in cached_preview:
+                    prefix = cached_preview["__validated_preparation_prefix"]
+                    checkpoint_expiry = _PREVIEW_CACHE[preview_cache_key][0]
+                else:
+                    logger.info("pkm.agent_lab.preview_cache_hit")
+                    return cached_preview
             inflight_preview = _PREVIEW_INFLIGHT.get(preview_cache_key)
             if inflight_preview is not None:
-                logger.info("pkm.agent_lab.preview_inflight_hit user_id=%s", user_id)
+                logger.info("pkm.agent_lab.preview_inflight_hit")
                 return deepcopy(await inflight_preview)
 
         async def _build_preview() -> dict[str, Any]:
             errors: list[str] = []
-            execution_trace: list[dict[str, Any]] | None = [] if capture_execution_trace else None
+            continuation = PreviewContinuation(
+                run=self._run_agent_contract,
+                resolve_model=resolve_model,
+                records={
+                    key: value for key, value in (prefix or {}).items() if key != "__segments"
+                },
+            )
+            # These records contain only stage outcomes/timings, never model
+            # values. Keep them on normal responses so failures are diagnosable
+            # without trace mode's deliberate cache/inflight bypass.
+            execution_trace: list[dict[str, Any]] = []
             if memory_profile == "kyc_identity_v1":
                 response_payload = await self._generate_kyc_identity_preview(
                     user_id=user_id,
@@ -5476,7 +5669,7 @@ class PKMAgentLabService:
             preview_deadline = time.perf_counter() + _PREVIEW_TOTAL_BUDGET_SECONDS
 
             segmentation_started_at = time.perf_counter()
-            segmentation_raw = await self._run_agent_contract(
+            segmentation_raw = await continuation.run(
                 manifest=self.memory_segmentation_manifest,
                 prompt=self._build_memory_segmentation_prompt(
                     message=message,
@@ -5490,15 +5683,44 @@ class PKMAgentLabService:
             segmentation_latency_ms = round(
                 (time.perf_counter() - segmentation_started_at) * 1000, 2
             )
-            segmentation_used_fallback = segmentation_raw is None
+            segmentation_used_fallback = not (
+                isinstance(segmentation_raw, dict)
+                and type(segmentation_raw.get("has_more_candidates")) is bool
+            )
+            if isinstance(segmentation_raw, dict):
+                raw_segments = segmentation_raw.get("segments")
+                if not isinstance(raw_segments, list) or any(
+                    not isinstance(item, dict)
+                    or not isinstance(item.get("source_text"), str)
+                    or not item["source_text"].strip()
+                    or item["source_text"] not in message
+                    for item in (raw_segments if isinstance(raw_segments, list) else [])
+                ):
+                    segmentation_used_fallback = True
             if segmentation_used_fallback:
                 errors.append("memory_segmentation_agent_fallback")
+                # Invalid coverage is a schema failure, not a successful
+                # semantic selection. Never auto-save a partially certified batch.
+                segmentation_raw = None
 
             segmented_messages = self._sanitize_segmented_messages(
                 segmentation_raw, message=message
             )
             total_segments_detected = len(segmented_messages)
-            split_recommended = total_segments_detected > _MAX_PREVIEW_CARDS
+            split_recommended = total_segments_detected > _MAX_PREVIEW_CARDS or (
+                isinstance(segmentation_raw, dict)
+                and segmentation_raw.get("has_more_candidates") is True
+            )
+            # A selected source span must not lose a trailing qualifier just
+            # to fit a limit. Ask the existing client splitter for a smaller
+            # passage; no truncated prefix becomes a memory candidate.
+            oversized_source = isinstance(segmentation_raw, dict) and any(
+                isinstance(item, dict)
+                and isinstance(item.get("source_text"), str)
+                and len(item["source_text"]) > _MAX_SEGMENT_SOURCE_CHARS
+                for item in (segmentation_raw.get("segments") or [])
+            )
+            split_recommended = split_recommended or oversized_source
             preview_results: list[dict[str, Any]] = []
             preview_cards: list[dict[str, Any]] = []
             preview_latencies_ms: list[float] = []
@@ -5506,12 +5728,26 @@ class PKMAgentLabService:
             async def _build_preview_entry(
                 index: int, segment: dict[str, Any]
             ) -> dict[str, Any] | None:
-                source_text = self._safe_excerpt(
-                    str(segment.get("source_text") or ""),
-                    limit=_MAX_SEGMENT_SOURCE_CHARS,
-                )
+                source_text = segment["source_text"]
                 if not source_text:
                     return None
+                source_key = hashlib.sha256(source_text.encode()).hexdigest()
+                multiple = total_segments_detected > 1
+                segment_trace: list[dict[str, Any]] = []
+                segment_continuation = continuation
+                if multiple:
+                    # Never share mutable agent-ID records across concurrent
+                    # candidates. Exact prompt fingerprints still gate reuse.
+                    segment_continuation = PreviewContinuation(
+                        run=self._run_agent_contract,
+                        resolve_model=resolve_model,
+                        records=(prefix or {}).get("__segments", {}).get(source_key),
+                    )
+                    segmentation_record = continuation.records.get("agent_memory_segmentation")
+                    if segmentation_record is not None:
+                        segment_continuation.records["agent_memory_segmentation"] = deepcopy(
+                            segmentation_record
+                        )
                 preview_started_at = time.perf_counter()
                 preview = await self._generate_single_structure_preview(
                     user_id=user_id,
@@ -5523,19 +5759,34 @@ class PKMAgentLabService:
                     strict_small_model=strict_small_model,
                     domain_registry_override=domain_registry_override,
                     deadline=preview_deadline,
-                    execution_trace=execution_trace,
+                    execution_trace=segment_trace if multiple else execution_trace,
+                    contract_runner=segment_continuation.run,
                 )
+                if multiple:
+                    execution_trace.extend(
+                        {**row, "candidate_index": index} for row in segment_trace
+                    )
                 preview_latency_ms = round((time.perf_counter() - preview_started_at) * 1000, 2)
                 card_id = f"card_{index:02d}"
+                card = self._build_preview_card(
+                    card_id=card_id,
+                    source_text=source_text,
+                    preview=preview,
+                    simulated_state=simulated_state,
+                )
                 return {
                     "preview": preview,
                     "latency_ms": preview_latency_ms,
-                    "card": self._build_preview_card(
-                        card_id=card_id,
-                        source_text=source_text,
-                        preview=preview,
-                        simulated_state=simulated_state,
-                    ),
+                    "card": card,
+                    "source_key": source_key,
+                    "checkpoint": segment_continuation.checkpoint(
+                        message=message,
+                        segment_source=source_text,
+                        response={**preview, "preview_cards": [card]},
+                        trace=segment_trace,
+                    )
+                    if multiple and continuation_scope and not segmentation_used_fallback
+                    else None,
                 }
 
             preview_entries = await asyncio.gather(
@@ -5594,6 +5845,23 @@ class PKMAgentLabService:
                 performance["agent_execution"] = execution_trace
 
             if primary_preview is None:
+                # An explicit, valid empty segmentation is the model's no-op
+                # decision, not a failed provider call. Malformed output and
+                # rejected nonempty source quotes still fail closed.
+                empty_selection = (
+                    isinstance(segmentation_raw, dict)
+                    and segmentation_raw.get("segments") == []
+                    and segmentation_raw.get("has_more_candidates") is False
+                    and type(segmentation_raw.get("contract_version")) is int
+                    and segmentation_raw["contract_version"] == 1
+                    and isinstance(segmentation_raw.get("source_agent"), str)
+                    and bool(segmentation_raw["source_agent"].strip())
+                )
+                retryable_split = split_recommended and not segmentation_used_fallback
+                preparation_valid = empty_selection or retryable_split
+                empty_hints = [] if preparation_valid else ["preview_generation_failed"]
+                if split_recommended:
+                    empty_hints.append("split_recommended")
                 empty_manifest = self._build_manifest_from_payload(
                     user_id=user_id,
                     domain="professional",
@@ -5617,20 +5885,17 @@ class PKMAgentLabService:
                     "model": model_override
                     or _manifest_model_name(self.memory_segmentation_manifest)
                     or GEMINI_MODEL,
-                    "used_fallback": True,
+                    "used_fallback": not preparation_valid,
                     "intent_used_fallback": False,
                     "merge_used_fallback": False,
                     "structure_used_fallback": False,
                     "drift_flags": self._drift_flags_from_preview(
-                        validation_hints=[
-                            "preview_generation_failed",
-                            *(["split_recommended"] if split_recommended else []),
-                        ],
-                        fallback_used=True,
+                        validation_hints=empty_hints,
+                        fallback_used=not preparation_valid,
                     ),
-                    "error": "; ".join(
-                        self._unique_list(errors or ["memory_segmentation_no_output"])
-                    ),
+                    "error": None
+                    if preparation_valid
+                    else "; ".join(self._unique_list(errors or ["memory_segmentation_no_output"])),
                     "routing_decision": "non_financial_or_ephemeral",
                     "intent_frame": {},
                     "merge_decision": {},
@@ -5639,10 +5904,7 @@ class PKMAgentLabService:
                     "write_mode": "do_not_save",
                     "primary_json_path": None,
                     "target_entity_scope": None,
-                    "validation_hints": [
-                        "preview_generation_failed",
-                        *(["split_recommended"] if split_recommended else []),
-                    ],
+                    "validation_hints": empty_hints,
                     "manifest_draft": empty_manifest,
                     "preview_cards": preview_cards,
                     "preview_summary": preview_summary,
@@ -5659,8 +5921,23 @@ class PKMAgentLabService:
 
             response_payload = {
                 **primary_preview,
+                # These are batch health signals, not the first card's health.
+                # Preserve each card's semantic result while ensuring a later
+                # timeout cannot be reported as fully prepared information.
+                **{
+                    field: any(bool(result.get(field)) for result in preview_results)
+                    for field in (
+                        "intent_used_fallback",
+                        "merge_used_fallback",
+                        "structure_used_fallback",
+                        "intent_skipped",
+                        "merge_skipped",
+                        "structure_skipped",
+                    )
+                },
                 "used_fallback": bool(
-                    primary_preview.get("used_fallback") or segmentation_used_fallback
+                    segmentation_used_fallback
+                    or any(result.get("used_fallback") for result in preview_results)
                 ),
                 "error": "; ".join(self._unique_list(errors)) or primary_preview.get("error"),
                 "validation_hints": self._unique_list(validation_hints),
@@ -5675,9 +5952,40 @@ class PKMAgentLabService:
                 intent_used_fallback=bool(response_payload.get("intent_used_fallback")),
                 merge_used_fallback=bool(response_payload.get("merge_used_fallback")),
                 structure_used_fallback=bool(response_payload.get("structure_used_fallback")),
+                intent_skipped=bool(response_payload.get("intent_skipped")),
+                merge_skipped=bool(response_payload.get("merge_skipped")),
+                structure_skipped=bool(response_payload.get("structure_skipped")),
             )
             if not capture_execution_trace:
-                self._set_cached_structure_preview(preview_cache_key, response_payload)
+                checkpoint = (
+                    continuation.checkpoint(
+                        message=message, response=response_payload, trace=execution_trace
+                    )
+                    if continuation_scope
+                    else None
+                )
+                if continuation_scope and total_segments_detected > 1 and not split_recommended:
+                    segment_prefixes = {
+                        entry["source_key"]: entry["checkpoint"]
+                        for entry in preview_entries
+                        if entry is not None and entry["checkpoint"] is not None
+                    }
+                    checkpoint = (
+                        {
+                            "agent_memory_segmentation": continuation.records[
+                                "agent_memory_segmentation"
+                            ],
+                            "__segments": segment_prefixes,
+                        }
+                        if segment_prefixes
+                        else None
+                    )
+                self._set_cached_structure_preview(
+                    preview_cache_key,
+                    response_payload,
+                    checkpoint=checkpoint,
+                    expires_at=checkpoint_expiry if checkpoint else None,
+                )
             return response_payload
 
         if capture_execution_trace:

@@ -25,6 +25,17 @@ const point: PlainLocationPoint = {
 // clears listeners on both instances, because dropping a ref does not stop a
 // Maps instance from running. A mock without it passes only by omission.
 const mapsEvent = () => ({ clearInstanceListeners: vi.fn() });
+// `google.maps.Size`/`Point` are real API surface too: the self marker always
+// builds an avatar-circle icon (photo or initials fallback, never the stock
+// pin), so a mock without them fails only by omission.
+const mapsSize = () =>
+  vi.fn(function (width: number, height: number) {
+    return { width, height };
+  });
+const mapsPoint = () =>
+  vi.fn(function (x: number, y: number) {
+    return { x, y };
+  });
 
 afterEach(() => {
   mockStatus.current = "loading";
@@ -65,13 +76,15 @@ describe("LiveMap", () => {
   it("creates an interactive map + marker when ready", () => {
     // vitest 4.x requires non-arrow implementations for mocks called with `new`.
     const Marker = vi.fn(function () {
-      return { getPosition: () => null, setPosition: vi.fn(), setMap: vi.fn() };
+      return { getPosition: () => null, setPosition: vi.fn(), setMap: vi.fn(), setIcon: vi.fn() };
     });
     const Map = vi.fn(function () {
       return { panTo: vi.fn() };
     });
     // @ts-expect-error test global
-    globalThis.google = { maps: { Map, Marker, event: mapsEvent() } };
+    globalThis.google = {
+      maps: { Map, Marker, Size: mapsSize(), Point: mapsPoint(), event: mapsEvent() },
+    };
     mockStatus.current = "ready";
 
     render(<LiveMap point={point} />);
@@ -79,17 +92,55 @@ describe("LiveMap", () => {
     expect(Map).toHaveBeenCalledTimes(1);
     expect(Marker).toHaveBeenCalledTimes(1);
     expect(screen.queryByTitle("Live location map preview")).toBeNull();
+    // No avatarUrl -> the initials-circle fallback, never the stock pin: the
+    // self marker is always a face on Your Map and Check-in.
+    expect(Marker).toHaveBeenCalledWith(
+      expect.objectContaining({ icon: expect.objectContaining({ url: expect.stringContaining("data:image/svg+xml") }) }),
+    );
+  });
+
+  it("replaces the stock pin with a circular photo marker when an avatar is available", () => {
+    const marker = { getPosition: () => null, setPosition: vi.fn(), setMap: vi.fn(), setIcon: vi.fn() };
+    const Marker = vi.fn(function () {
+      return marker;
+    });
+    const Map = vi.fn(function () {
+      return { panTo: vi.fn() };
+    });
+    const Size = vi.fn(function (width: number, height: number) {
+      return { width, height };
+    });
+    const Point = vi.fn(function (x: number, y: number) {
+      return { x, y };
+    });
+    // @ts-expect-error test global
+    globalThis.google = { maps: { Map, Marker, Size, Point, event: mapsEvent() } };
+    mockStatus.current = "ready";
+
+    render(<LiveMap point={point} avatarUrl="https://example.com/me.jpg" />);
+
+    expect(Marker).toHaveBeenCalledWith(
+      expect.objectContaining({
+        icon: expect.objectContaining({
+          url: expect.stringContaining(
+            encodeURIComponent("https://example.com/me.jpg"),
+          ),
+        }),
+      }),
+    );
   });
 
   it("constructs a quiet preview map with the app theme's color scheme", () => {
     const Marker = vi.fn(function () {
-      return { getPosition: () => null, setPosition: vi.fn(), setMap: vi.fn() };
+      return { getPosition: () => null, setPosition: vi.fn(), setMap: vi.fn(), setIcon: vi.fn() };
     });
     const Map = vi.fn(function () {
       return { panTo: vi.fn() };
     });
     // @ts-expect-error test global
-    globalThis.google = { maps: { Map, Marker, event: mapsEvent() } };
+    globalThis.google = {
+      maps: { Map, Marker, Size: mapsSize(), Point: mapsPoint(), event: mapsEvent() },
+    };
     mockStatus.current = "ready";
     mockTheme.current = "dark";
 
@@ -124,13 +175,16 @@ describe("LiveMap", () => {
         }),
         setPosition: markerSetPosition,
         setMap: vi.fn(),
+        setIcon: vi.fn(),
       };
     });
     const Map = vi.fn(function () {
       return { panTo: mapPanTo, setZoom: mapSetZoom };
     });
     // @ts-expect-error test global
-    globalThis.google = { maps: { Map, Marker, event: mapsEvent() } };
+    globalThis.google = {
+      maps: { Map, Marker, Size: mapsSize(), Point: mapsPoint(), event: mapsEvent() },
+    };
     mockStatus.current = "ready";
 
     const { rerender } = render(
@@ -194,6 +248,7 @@ describe("LiveMap", () => {
               : null,
           setPosition: markerSetPositionSpy,
           setMap: vi.fn(),
+          setIcon: vi.fn(),
         };
       });
 
@@ -202,7 +257,9 @@ describe("LiveMap", () => {
       });
 
       // @ts-expect-error test global
-      globalThis.google = { maps: { Map, Marker, event: mapsEvent() } };
+      globalThis.google = {
+        maps: { Map, Marker, Size: mapsSize(), Point: mapsPoint(), event: mapsEvent() },
+      };
       mockStatus.current = "ready";
 
       // Fix performance.now() so `start` is always 0 for deterministic t calculation.

@@ -32,7 +32,7 @@ describe("recursive Profile pane contracts", () => {
     for (const label of [
       "Memory",
       "Connected Systems",
-      "Gmail receipts",
+      "Mail receipts",
       "Trusted devices",
       "Invite friends",
       "Help & feedback",
@@ -55,5 +55,21 @@ describe("recursive Profile pane contracts", () => {
     expect(gesture).toContain('pathname === ROUTES.ONE_HOME');
     expect(providers).toContain("touch-pan-y");
     expect(providers).toContain("clearProfilePaneQuery");
+  });
+
+  it("never registers a non-passive touch or pointer listener on window", () => {
+    // A single non-passive touchmove on `window` makes WebKit treat the whole
+    // document as a synchronous touch region: every scroll in the app then
+    // waits for the handler before the compositor may move. Both edge
+    // gestures stay passive and never call preventDefault in their move
+    // handlers; `touch-pan-y` on the scroll root refuses the horizontal pan.
+    for (const file of [
+      "components/app-ui/app-profile-edge-gesture.tsx",
+      "components/app-ui/app-edge-back-gesture.tsx",
+    ]) {
+      const source = read(file);
+      expect(source, file).not.toContain("passive: false");
+      expect(source, file).not.toMatch(/event\.preventDefault\(\)/);
+    }
   });
 });

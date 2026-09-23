@@ -1,7 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { Laptop, Loader2, Trash2 } from "lucide-react";
+import {
+  LaptopIcon as Laptop,
+  SpinnerGapIcon as Loader2,
+  TrashIcon as Trash2,
+} from "@/components/icons";
 
 import {
   AppPageContentRegion,
@@ -107,6 +111,8 @@ export default function TrustedDevicesPage() {
       <AppPageHeaderRegion>
         <PageHeader
           title="Trusted devices"
+          // The pane's top bar already names this screen; one title per screen.
+          titleVisuallyHidden
           description="Computers connected as an extension of your private agent."
           accent="neutral"
         />

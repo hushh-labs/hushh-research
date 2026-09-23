@@ -45,7 +45,9 @@ const locationAnalytics = vi.hoisted(() => ({
 
 vi.mock("@/lib/observability/location-events", async (importOriginal) => {
   const actual =
-    await importOriginal<typeof import("@/lib/observability/location-events")>();
+    await importOriginal<
+      typeof import("@/lib/observability/location-events")
+    >();
   return {
     ...actual,
     trackOneLocationJourneyAction:
@@ -109,6 +111,14 @@ vi.mock("@/lib/one-location/saved-locations", async (importOriginal) => {
 });
 
 import { NearbyCheckInSheet } from "@/components/one-location/nearby-check-in/nearby-check-in-sheet";
+import {
+  CHECK_IN_CATEGORY_CHIP_CLASSNAME,
+  CHECK_IN_DRAWER_TITLE_CLASSNAME,
+  CHECK_IN_SECTION_TITLE_CLASSNAME,
+  CHECK_IN_SUBSECTION_TITLE_CLASSNAME,
+  CHECK_IN_VISIBILITY_CHECKBOX_CLASSNAME,
+  CHECK_IN_VISIBILITY_SWITCH_CLASSNAME,
+} from "@/components/one-location/nearby-check-in/check-in-panel-layout";
 
 const point = {
   latitude: 37.4275,
@@ -354,19 +364,46 @@ describe("NearbyCheckInSheet", () => {
     await screen.findByRole("radio", { name: /Stanford University/ });
     const panel = screen.getByTestId("nearby-presence-setup");
 
+    // The drawer is a small document: one title, three peer sections, then
+    // subordinate option labels. Semantic role classes are asserted because
+    // raw h2 rules in globals.css are intentionally display-sized and carry
+    // `!important`; a local text utility cannot protect this hierarchy.
+    const drawerTitle = screen.getByRole("heading", {
+      level: 1,
+      name: "Check in nearby",
+    });
+    expect(drawerTitle).toHaveClass(CHECK_IN_DRAWER_TITLE_CLASSNAME);
+
     // Every heading the panel is allowed to carry, and nothing else. A new
     // section added here has to be a deliberate decision, not a drift.
+    const sectionHeadings = within(panel).getAllByRole("heading", { level: 2 });
     expect(
-      within(panel)
-        .getAllByRole("heading")
-        .map((heading) => heading.textContent?.trim()),
+      sectionHeadings.map((heading) => heading.textContent?.trim()),
     ).toEqual(["Nearby places", "Visible for", "Visibility"]);
+    sectionHeadings.forEach((heading) =>
+      expect(heading).toHaveClass(CHECK_IN_SECTION_TITLE_CLASSNAME),
+    );
+
+    expect(screen.getByText("Show my name here")).toHaveClass(
+      CHECK_IN_SUBSECTION_TITLE_CLASSNAME,
+    );
+    expect(screen.getByText("Allow connection requests")).toHaveClass(
+      CHECK_IN_SUBSECTION_TITLE_CLASSNAME,
+    );
+    expect(
+      screen.getByRole("checkbox", { name: /Show my name here/ }),
+    ).toHaveClass(...CHECK_IN_VISIBILITY_CHECKBOX_CLASSNAME.split(" "));
+    expect(
+      screen.getByRole("switch", {
+        name: "Allow nearby connection requests",
+      }),
+    ).toHaveClass(...CHECK_IN_VISIBILITY_SWITCH_CLASSNAME.split(" "));
 
     // Category filters are available immediately with their concise labels.
-    expect(screen.getByRole("button", { name: "Food" })).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Shops" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Food" })).toHaveClass(
+      ...CHECK_IN_CATEGORY_CHIP_CLASSNAME.split(" "),
+    );
+    expect(screen.getByRole("button", { name: "Shops" })).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Food & drink" }),
     ).not.toBeInTheDocument();
@@ -375,18 +412,15 @@ describe("NearbyCheckInSheet", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("puts the three visible-for lengths on one row, abbreviated to match", async () => {
+  it("offers the three visible-for lengths in one dropdown", async () => {
     /**
-     * Reported: "Visible for ke jo times hain inko one row mai dikhao ...
-     * looking scattered."
+     * Reported twice: first "Visible for ke jo times hain inko one row mai
+     * dikhao ... looking scattered" (fixed with a 3-across grid), then that
+     * the row still crowds the sheet -- so the three lengths are now one
+     * dropdown. Same options, same state, no row that can wrap.
      *
-     * They were. The shared `DURATION_GRID_CLASS` is two columns because the
-     * ladders that use it carry FOUR cells and land as an even 2x2. This
-     * control has three, so the same class stranded one on a row of its own,
-     * under a heading that reads as a single choice.
-     *
-     * The labels are abbreviated for consistency rather than for width --
-     * "30 min" beside "1 hour" and "2 hours" mixes two registers in one row.
+     * The labels stay abbreviated ("30 min" / "1 hour" / "2 hours") so the
+     * existing copy still reads.
      */
     render(
       <NearbyCheckInSheet
@@ -400,29 +434,29 @@ describe("NearbyCheckInSheet", () => {
 
     await screen.findByRole("radio", { name: /Stanford University/ });
     const panel = screen.getByTestId("nearby-presence-setup");
-    const heading = within(panel).getByRole("heading", { name: "Visible for" });
-    const ladder = heading.nextElementSibling as HTMLElement;
+    within(panel).getByRole("heading", { name: "Visible for" });
 
-    expect(
-      within(ladder)
-        .getAllByRole("button")
-        .map((button) => button.textContent?.trim()),
-    ).toEqual(["30 min", "1 hour", "2 hours"]);
+    // No button ladder anymore -- one dropdown trigger carrying the choice.
+    expect(within(panel).queryByRole("button", { name: "2 hours" })).toBeNull();
+    const trigger = within(panel).getByRole("combobox", {
+      name: "Visible for",
+    });
+    // Default stay is an hour, shown on the closed trigger.
+    expect(trigger).toHaveValue("60");
 
-    // Three across on a phone, so nothing wraps to a half-empty second row.
-    // Asserted on the class because JSDOM lays nothing out -- the browser
-    // layout spec is where geometry is proved.
-    expect(ladder.className).toContain("grid-cols-3");
-    expect(ladder.className).not.toContain("grid-cols-2");
+    // A native select stays in the sheet's interaction tree, so the mobile
+    // picker cannot be dismissed as an outside portal before it opens.
+    expect(within(trigger).getAllByRole("option")).toHaveLength(3);
+    fireEvent.change(trigger, { target: { value: "120" } });
+    expect(trigger).toHaveValue("120");
 
-    // Still a working ladder, not just a tidier one.
-    fireEvent.click(within(ladder).getByRole("button", { name: "2 hours" }));
-    expect(
-      within(ladder).getByRole("button", { name: "2 hours" }),
-    ).toHaveAttribute("aria-pressed", "true");
-    expect(
-      within(ladder).getByRole("button", { name: "1 hour" }),
-    ).toHaveAttribute("aria-pressed", "false");
+    // Section headings use the semantic H2 role. The old local text utility
+    // was ignored by the foundation's important h2 rule in the real browser.
+    for (const name of ["Nearby places", "Visible for", "Visibility"]) {
+      expect(within(panel).getByRole("heading", { name })).toHaveClass(
+        CHECK_IN_SECTION_TITLE_CLASSNAME,
+      );
+    }
   });
 
   it("keeps the required consent and connection preference visible", async () => {
@@ -538,7 +572,9 @@ describe("NearbyCheckInSheet", () => {
         allowConnectionRequests: false,
       });
     });
-    expect(locationAnalytics.trackOneLocationJourneyAction).toHaveBeenCalledWith({
+    expect(
+      locationAnalytics.trackOneLocationJourneyAction,
+    ).toHaveBeenCalledWith({
       action: "nearby_check_in_result",
       result: "success",
       routeId: "one_location_check_in",
@@ -1846,8 +1882,9 @@ describe("NearbyCheckInSheet", () => {
     });
   });
 
-  it("publishes the live anchor once checked in, not the owner's position", async () => {
+  it("publishes the confirmed venue anchor even before an older server echoes it", async () => {
     const onPlaceFocusChange = vi.fn();
+    const onStateChange = vi.fn();
     service.checkInNearby.mockResolvedValue({
       presence: {
         status: "active",
@@ -1858,8 +1895,6 @@ describe("NearbyCheckInSheet", () => {
         checkedInAt: new Date().toISOString(),
         expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
         placeLabel: "Stanford University",
-        placeLat: 37.4276,
-        placeLng: -122.1697,
       },
       attendees: [],
     });
@@ -1871,6 +1906,7 @@ describe("NearbyCheckInSheet", () => {
         vaultOwnerToken="owner-token"
         captureCurrentPosition={vi.fn().mockResolvedValue(point)}
         onOpenChange={vi.fn()}
+        onStateChange={onStateChange}
         onPlaceFocusChange={onPlaceFocusChange}
       />,
     );
@@ -1886,6 +1922,16 @@ describe("NearbyCheckInSheet", () => {
     fireEvent.click(screen.getByRole("button", { name: "Check in" }));
 
     await waitFor(() => {
+      expect(onStateChange).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          presence: expect.objectContaining({
+            placeId: "stanford-main",
+            placeLabel: "Stanford University",
+            placeLat: 37.4276,
+            placeLng: -122.1697,
+          }),
+        }),
+      );
       expect(onPlaceFocusChange).toHaveBeenLastCalledWith(
         expect.objectContaining({
           label: "Stanford University",
@@ -1895,6 +1941,97 @@ describe("NearbyCheckInSheet", () => {
         }),
       );
     });
+  });
+
+  it("preserves the confirmed venue anchor when an older poll omits it", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const onPlaceFocusChange = vi.fn();
+      const onStateChange = vi.fn();
+      const checkedInAt = new Date().toISOString();
+      const expiresAt = new Date(Date.now() + 60 * 60_000).toISOString();
+      const olderApiState = {
+        presence: {
+          status: "active" as const,
+          audience: "all_opted_in" as const,
+          radiusMeters: 500,
+          allowConnectionRequests: false,
+          consentVersion: "one-location-nearby-presence-v3",
+          checkedInAt,
+          expiresAt,
+          placeLabel: "Stanford University",
+        },
+        attendees: [],
+      };
+      service.checkInNearby.mockResolvedValue(olderApiState);
+
+      render(
+        <NearbyCheckInSheet
+          open
+          ownerId="user-1"
+          vaultOwnerToken="owner-token"
+          captureCurrentPosition={vi.fn().mockResolvedValue(point)}
+          onOpenChange={vi.fn()}
+          onStateChange={onStateChange}
+          onPlaceFocusChange={onPlaceFocusChange}
+        />,
+      );
+
+      fireEvent.click(
+        await screen.findByRole("radio", { name: /Stanford University/ }),
+      );
+      fireEvent.click(
+        screen.getByRole("checkbox", {
+          name: /Show my name here/,
+        }),
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Check in" }));
+
+      await waitFor(() => {
+        expect(onStateChange).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            presence: expect.objectContaining({
+              placeId: "stanford-main",
+              placeLat: 37.4276,
+              placeLng: -122.1697,
+            }),
+          }),
+        );
+      });
+
+      const readsBeforePoll = service.getNearbyPresence.mock.calls.length;
+      service.getNearbyPresence.mockResolvedValue(olderApiState);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15_000);
+      });
+
+      await waitFor(() => {
+        expect(service.getNearbyPresence.mock.calls.length).toBeGreaterThan(
+          readsBeforePoll,
+        );
+        expect(onStateChange).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            presence: expect.objectContaining({
+              placeId: "stanford-main",
+              placeLabel: "Stanford University",
+              placeLat: 37.4276,
+              placeLng: -122.1697,
+            }),
+          }),
+        );
+        expect(onPlaceFocusChange).toHaveBeenLastCalledWith(
+          expect.objectContaining({
+            label: "Stanford University",
+            latitude: 37.4276,
+            longitude: -122.1697,
+            active: true,
+          }),
+        );
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("names the gap between the owner and the place they picked", async () => {

@@ -1,5 +1,7 @@
 "use client";
 
+import { mailDisplayLabel } from "@/lib/copy/mail-terminology";
+
 export type PkmSectionPreviewStat = {
   label: string;
   value: string;
@@ -136,10 +138,10 @@ function sanitizeConsumerValue(value: unknown): unknown {
 }
 
 function humanizeKey(value: string): string {
-  return value
+  return mailDisplayLabel(value
     .replace(/[_-]+/g, " ")
     .replace(/\b\w/g, (match) => match.toUpperCase())
-    .trim();
+    .trim());
 }
 
 function formatTimestamp(value: string): string | null {

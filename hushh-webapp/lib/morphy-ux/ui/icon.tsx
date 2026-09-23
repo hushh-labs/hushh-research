@@ -20,46 +20,37 @@ export type IconProps = Omit<React.SVGProps<SVGSVGElement>, "size" | "strokeWidt
   color?: string;
   weight?: string;
   /**
-   * Rare escape hatch. Do NOT use for normal sizing; global default is controlled via
-   * `--lucide-stroke-width` in `app/globals.css`.
-   *
-   * Implemented via CSS var override (not SVG strokeWidth prop) to avoid fighting global CSS.
+   * Accepted for compatibility with older icon call sites. Canonical Phosphor
+   * geometry owns its own stroke/weight treatment, so new surfaces should use
+   * `weight` and the registry defaults instead.
    */
-  strokeWidth?: number;
+  strokeWidth?: React.SVGProps<SVGSVGElement>["strokeWidth"];
 };
 
 /**
- * Lucide icon wrapper.
+ * Canonical icon wrapper.
  *
  * Design-system rules:
- * - Size icons via `size` (Lucide prop) instead of Tailwind `h-<n>/w-<n>` sizing.
- * - Keep global stroke width controlled by CSS var; override rarely via `strokeWidth`.
+ * - Size icons via `size` instead of Tailwind `h-<n>/w-<n>` sizing when the
+ *   wrapper owns the icon geometry.
+ * - Keep icon weight controlled by the canonical registry; do not invent
+ *   per-surface stroke treatments.
  */
 export function Icon({
   icon: IconComponent,
   size = "md",
-  strokeWidth,
+  strokeWidth: _strokeWidth,
   className,
-  style,
   ...props
 }: IconProps) {
   const px = typeof size === "number" ? size : ICON_SIZES_PX[size];
-
-  const mergedStyle =
-    strokeWidth === undefined
-      ? style
-      : ({
-          ...(style ?? {}),
-          // CSS custom prop for global Lucide stroke control
-          ["--lucide-stroke-width" as any]: strokeWidth,
-        } as React.CSSProperties);
 
   return (
     <IconComponent
       size={px}
       className={cn("shrink-0", className)}
-      style={mergedStyle}
       {...props}
+      data-canonical-icon="true"
     />
   );
 }

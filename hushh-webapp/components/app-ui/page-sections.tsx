@@ -1,7 +1,8 @@
 "use client";
 
-import type { ComponentPropsWithoutRef, ReactNode } from "react";
-import type { LucideIcon } from "lucide-react";
+import type { ComponentPropsWithoutRef, ComponentType, ReactNode, SVGProps } from "react";
+
+type SectionIcon = ComponentType<SVGProps<SVGSVGElement>>;
 
 import {
   SurfaceCard,
@@ -132,7 +133,7 @@ export function AgentHeaderIcon({
   className,
   ...props
 }: {
-  icon: LucideIcon;
+  icon: SectionIcon;
   className?: string;
 } & Omit<ComponentPropsWithoutRef<"span">, "children">) {
   return (
@@ -156,7 +157,7 @@ function HeaderLeading({
   iconSize,
   titleRole,
 }: {
-  icon?: LucideIcon;
+  icon?: SectionIcon;
   leading?: ReactNode;
   iconClassName: string;
   iconSize: "md" | "lg";
@@ -203,16 +204,24 @@ export function PageHeader({
   leading,
   accent = "default",
   titleRole = "page",
+  titleVisuallyHidden = false,
   className,
   testId = "page-header",
 }: {
   eyebrow?: string;
   title: ReactNode;
+  /**
+   * Keep the heading for assistive tech and page structure but do not draw
+   * it, for a surface whose shell already names it on screen (Finance: the
+   * bar says "Finance" and the tab says "Market"; a visible "Market" H1 under
+   * the "Market" tab slid away with every swipe).
+   */
+  titleVisuallyHidden?: boolean;
   description?: ReactNode;
   actions?: ReactNode;
   actionsInlineMobile?: boolean;
   descriptionFullWidth?: boolean;
-  icon?: LucideIcon;
+  icon?: SectionIcon;
   leading?: ReactNode;
   accent?: SectionAccent;
   titleRole?: "page" | "agent";
@@ -268,7 +277,9 @@ export function PageHeader({
                   {eyebrow}
                 </SectionLabel>
               ) : null}
-              <TitleComponent>{title}</TitleComponent>
+              <TitleComponent className={titleVisuallyHidden ? "sr-only" : undefined}>
+                {title}
+              </TitleComponent>
               {description && !descriptionFullWidth ? (
                 <PageSubtitle
                   as="div"
@@ -320,7 +331,7 @@ export function SectionHeader({
   title: ReactNode;
   description?: ReactNode;
   actions?: ReactNode;
-  icon?: LucideIcon;
+  icon?: SectionIcon;
   leading?: ReactNode;
   accent?: SectionAccent;
   className?: string;

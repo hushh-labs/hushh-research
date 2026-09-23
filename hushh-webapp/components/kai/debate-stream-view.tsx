@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Button as MorphyButton } from "@/lib/morphy-ux/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Loader2, AlertCircle, RefreshCw, X, WifiOff, ShieldAlert, Clock, CheckCircle2 } from "lucide-react";
+import { Loader2, AlertCircle, RefreshCw, X, WifiOff, ShieldAlert, Clock, CheckCircle2 } from "@/components/icons";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { setKaiVaultOwnerToken } from "@/lib/services/kai-service";
 import { type AnalysisHistoryEntry } from "@/lib/services/kai-history-service";

@@ -1554,3 +1554,73 @@ def test_external_resource_guard_preserves_pod_and_identity(monkeypatch, delete_
     assert response.json()["detail"]["code"] == account.PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE
     delete.assert_awaited_once_with("user_123", target="both")
     firebase.assert_not_awaited()
+
+
+def test_update_display_name_route_reports_pending_shadow_without_stale_identity(monkeypatch):
+    """A shadow that has not caught up is not a failure (the provider committed)
+    and is not a fresh identity either: the client re-fetches on ``identity: null``."""
+    uid = "firebase_uid_123"
+    _configure_firebase_verifier(monkeypatch, uid=uid)
+    monkeypatch.setattr(AccountDeletionLifecycleService, "is_tombstoned", lambda _uid: False)
+
+    async def pending(self, user_id, display_name):
+        assert user_id == uid
+        return {"user_id": uid, "display_name": "Ayesha S", "shadow_sync": "pending"}
+
+    monkeypatch.setattr(ActorIdentityService, "update_display_name", pending)
+
+    response = TestClient(_build_app()).patch(
+        "/api/account/identity/display-name",
+        headers={"Authorization": "Bearer token"},
+        json={"display_name": "Ayesha S"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["user_id"] == uid
+    assert body["shadow_sync"] == "pending"
+    assert body["identity"] is None
+    assert body["display_name"] == "Ayesha S"
+
+
+def test_update_display_name_route_returns_identity_when_synced(monkeypatch):
+    uid = "firebase_uid_123"
+    _configure_firebase_verifier(monkeypatch, uid=uid)
+    monkeypatch.setattr(AccountDeletionLifecycleService, "is_tombstoned", lambda _uid: False)
+
+    async def synced(self, user_id, display_name):
+        return {
+            "user_id": uid,
+            "display_name": "Ayesha S",
+            "email": "a@x.io",
+            "shadow_sync": "synced",
+        }
+
+    monkeypatch.setattr(ActorIdentityService, "update_display_name", synced)
+
+    response = TestClient(_build_app()).patch(
+        "/api/account/identity/display-name",
+        headers={"Authorization": "Bearer token"},
+        json={"display_name": "Ayesha S"},
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["shadow_sync"] == "synced"
+    assert body["identity"]["display_name"] == "Ayesha S"
+    assert body["identity"]["email"] == "a@x.io"
+    assert "shadow_sync" not in body["identity"]
+
+
+def test_account_erasure_plan_excludes_tables_dropped_by_migration_239():
+    """Post-239 erasure must not issue SQL against retired server custody."""
+    import inspect
+
+    from hushh_mcp.services.account_service import AccountService
+
+    service = AccountService()
+    full_delete = inspect.getsource(AccountService._delete_full_account_transaction)
+    retired_prefixes = ("kai_plaid_", "kai_funding_")
+    assert not any(name.startswith(retired_prefixes) for name in service._delete_by_user_queries)
+    assert not any(prefix in full_delete for prefix in retired_prefixes)
+    assert "pwm_documents" in full_delete
+    assert "_delete_personal_agent_state" in full_delete

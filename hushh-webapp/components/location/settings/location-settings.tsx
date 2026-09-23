@@ -17,7 +17,7 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2 } from "@/components/icons";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { SectionLabel, TrailingValue } from "@/components/app-ui/typography";
@@ -41,12 +41,12 @@ import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { SegmentedTabs } from "@/lib/morphy-ux/ui/segmented-tabs";
 import { TaskFlowHeader } from "@/lib/morphy-ux/ui/surface-primitives";
 import { ROUTES } from "@/lib/navigation/routes";
-import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
+import { useOneLocationMapPreferences } from "@/lib/one-location/use-one-location-map-preferences";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { OneLocationService } from "@/lib/one-location/service";
 import type {
   AutoApproveScope,
   OneLocationCircleSummary,
-  OneLocationMapPreferences,
 } from "@/lib/one-location/types";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { useVault } from "@/lib/vault/vault-context";
@@ -114,8 +114,14 @@ export function LocationSettings() {
   const controls = useSharingPostureControls();
 
   /* ---- map presence (ghost mode) ---- */
-  const [mapPreferences, setMapPreferences] =
-    useState<OneLocationMapPreferences | null>(null);
+  const {
+    preferences: mapPreferences,
+    refresh: refreshMapPreferences,
+    commit: commitMapPreferences,
+  } = useOneLocationMapPreferences({
+    userId: workspace.userId,
+    vaultOwnerToken,
+  });
   const [mapBusy, setMapBusy] = useState(false);
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -125,24 +131,10 @@ export function LocationSettings() {
     };
   }, []);
 
-  const loadMapPreferences = useCallback(async () => {
-    if (!vaultOwnerToken) return;
-    try {
-      const next = await OneLocationService.getMapPreferences(vaultOwnerToken);
-      if (mountedRef.current) setMapPreferences(next);
-    } catch {
-      // The row shows "Unknown" until a later read succeeds.
-    }
-  }, [vaultOwnerToken]);
-
-  useEffect(() => {
-    void loadMapPreferences();
-  }, [loadMapPreferences]);
-
   useLocationVoiceReconcile({
     onSettings: () => {
       void account.refresh();
-      void loadMapPreferences();
+      void refreshMapPreferences();
     },
   });
 
@@ -155,7 +147,7 @@ export function LocationSettings() {
           vaultOwnerToken,
           presenceMode: hidden ? "ghost" : "foreground_private",
         });
-        if (mountedRef.current) setMapPreferences(next);
+        commitMapPreferences(next);
         morphyToast.success(
           hidden ? "You're hidden on the map." : "You're visible on the map.",
         );
@@ -169,7 +161,7 @@ export function LocationSettings() {
         if (mountedRef.current) setMapBusy(false);
       }
     },
-    [vaultOwnerToken],
+    [commitMapPreferences, vaultOwnerToken],
   );
 
   /* ---- auto-approve ---- */
@@ -192,17 +184,21 @@ export function LocationSettings() {
             scope: enabled ? (scope ?? { kind: "all_contacts" }) : null,
           },
         );
-        const current = OneLocationStateResource.readPresentation(
-          workspace.userId,
-        );
-        if (current) {
-          OneLocationStateResource.invalidate(workspace.userId);
-          OneLocationStateResource.write(workspace.userId, {
+        let eventId: string | null = null;
+        if (workspace.state) {
+          eventId = workspace.commitState((current) => ({
             ...current,
             autoApprovePreference: preference,
-          });
+          }));
         }
-        await workspace.refresh({ invalidate: true });
+        CacheSyncService.onOneLocationStateMutated(
+          workspace.userId,
+          ["workspace"],
+          {
+            notificationType: "location_settings_changed",
+            ...(eventId ? { eventId } : null),
+          },
+        );
         morphyToast.success(
           enabled ? "Automatic approval is on." : "Automatic approval is off.",
         );
@@ -237,17 +233,21 @@ export function LocationSettings() {
               nearby?.allowConnectionRequests ??
               false,
           });
-        const current = OneLocationStateResource.readPresentation(
-          workspace.userId,
-        );
-        if (current) {
-          OneLocationStateResource.invalidate(workspace.userId);
-          OneLocationStateResource.write(workspace.userId, {
+        let eventId: string | null = null;
+        if (workspace.state) {
+          eventId = workspace.commitState((current) => ({
             ...current,
             nearbyCheckInPreferences: preferences,
-          });
+          }));
         }
-        await workspace.refresh({ invalidate: true });
+        CacheSyncService.onOneLocationStateMutated(
+          workspace.userId,
+          ["workspace"],
+          {
+            notificationType: "location_settings_changed",
+            ...(eventId ? { eventId } : null),
+          },
+        );
       } catch (error) {
         morphyToast.error(
           error instanceof Error && error.message

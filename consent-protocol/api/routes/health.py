@@ -6,7 +6,9 @@ Health check endpoints.
 import hmac
 import logging
 import os
+from pathlib import Path
 
+from dotenv import dotenv_values
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
@@ -52,6 +54,17 @@ def _first_env(*keys: str) -> str:
         value = str(os.getenv(key, "")).strip()
         if value:
             return value
+    if not _is_production_runtime():
+        try:
+            env_local = Path(__file__).resolve().parents[2] / ".env.local"
+            if env_local.is_file():
+                vals = dotenv_values(str(env_local))
+                for key in keys:
+                    val = str(vals.get(key, "")).strip()
+                    if val:
+                        return val
+        except Exception:
+            pass
     return ""
 
 
@@ -113,23 +126,32 @@ def _resolve_smoke_overlay_identity(smoke_passphrase: str | None) -> tuple[str, 
     return _match_reviewer_identity(provided_passphrase, _configured_reviewer_identities())
 
 
-def _select_review_mode_identity(smoke_passphrase: str | None) -> tuple[str, str]:
-    """Pick the identity a review-mode session mints.
+def _select_review_mode_identity(
+    smoke_passphrase: str | None,
+    requested_uid: str | None = None,
+) -> tuple[str, str]:
+    """Select a configured identity; a client UID never grants that identity.
 
-    Returns ``(uid, subject)``. The primary reviewer is minted exactly as
-    before this pair existed: for no passphrase (the App Store reviewer
-    button), for production (where the bypass is ignored, as documented), for
-    a backend holding no configured pair (the localhost overlay carries only
-    APP_REVIEW_MODE and REVIEWER_UID), and for a passphrase that matches no
-    pair. The counterpart pair only adds a second match: a passphrase equal to
-    a configured pair's mints that pair's uid. Values are never logged.
+    The no-passphrase reviewer button and unmatched-passphrase fallback retain
+    the primary identity. A counterpart needs its configured passphrase. When
+    the client supplies an expected UID, reject a mismatch instead of silently
+    signing it into a different account.
     """
     primary = (_resolve_reviewer_uid(), "reviewer")
     provided_passphrase = str(smoke_passphrase or "").strip()
-    if not provided_passphrase or _is_production_runtime():
-        return primary
-    matched = _match_reviewer_identity(provided_passphrase, _configured_reviewer_identities())
-    return matched or primary
+    matched = (
+        _match_reviewer_identity(provided_passphrase, _configured_reviewer_identities())
+        if provided_passphrase and not _is_production_runtime()
+        else None
+    )
+    selected = matched or primary
+    if requested_uid is not None and str(requested_uid).strip() != selected[0]:
+        raise HTTPException(
+            status_code=403,
+            detail="Reviewer identity mismatch",
+            headers=NO_STORE_HEADERS,
+        )
+    return selected
 
 
 def _one_runtime_dependency_evidence() -> dict[str, str | bool | None]:
@@ -239,7 +261,8 @@ async def issue_app_review_mode_session(request: Request):
 
     if _is_app_review_mode_enabled():
         reviewer_uid, session_subject = _select_review_mode_identity(
-            payload.get("smoke_passphrase")
+            payload.get("smoke_passphrase"),
+            requested_uid=payload.get("reviewer_uid"),
         )
     else:
         smoke_overlay = _resolve_smoke_overlay_identity(payload.get("smoke_passphrase"))

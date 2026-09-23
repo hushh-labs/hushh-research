@@ -151,6 +151,8 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
 
     assert result["success"] is True
     assert result["account_deleted"] is True
+    assert result["details"]["external_connectors"] is True
+    assert result["details"]["drive_private_data"] is True
     assert result["details"]["one_location_circle_member_invites"] is True
     assert result["details"]["connection_origins"] is True
     assert result["details"]["contact_sync_lookup_budgets"] is True
@@ -198,15 +200,6 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
     assert executed_sql.index("INSERT INTO account_deletion_tombstones") < first_delete_offset
     expected_fragments = [
         "DELETE FROM contact_sync_lookup_budgets",
-        "DELETE FROM kai_funding_trade_events",
-        "DELETE FROM kai_funding_trade_intents",
-        "DELETE FROM kai_funding_transfer_events",
-        "DELETE FROM kai_funding_transfers",
-        "DELETE FROM kai_funding_ach_relationships",
-        "DELETE FROM kai_funding_plaid_accounts",
-        "DELETE FROM kai_funding_plaid_items",
-        "DELETE FROM kai_funding_brokerage_accounts",
-        "DELETE FROM kai_funding_alpaca_connect_sessions",
         "DELETE FROM kai_gmail_receipts",
         "DELETE FROM kai_gmail_sync_runs",
         "DELETE FROM kai_gmail_connections",
@@ -241,7 +234,6 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
         "DELETE FROM world_model_index_v2",
         "DELETE FROM pkm_migration_state",
         "DELETE FROM kai_receipt_memory_artifacts",
-        "DELETE FROM kai_portfolio_source_preferences",
         "DELETE FROM relationship_share_events",
         "DELETE FROM relationship_share_grants",
         "DELETE FROM ria_pick_share_artifacts",
@@ -827,6 +819,8 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
     assert result["success"] is True
     assert result["account_deleted"] is False
     assert result["account_reset"] is True
+    assert result["details"]["external_connectors"] is True
+    assert result["details"]["drive_private_data"] is True
     assert result["details"]["one_location_circle_member_invites"] is True
     assert result["details"]["one_location_auto_approve_preferences"] is True
     assert result["details"]["one_location_map_preferences"] is True
@@ -845,7 +839,6 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
 
     # Personal data is cleared.
     cleared_fragments = [
-        "DELETE FROM kai_funding_trade_events",
         "DELETE FROM kai_gmail_receipts",
         "DELETE FROM pkm_events",
         "DELETE FROM pkm_blobs",

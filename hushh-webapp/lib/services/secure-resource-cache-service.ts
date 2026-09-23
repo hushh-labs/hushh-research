@@ -95,10 +95,29 @@ function readRecord<T>(
   });
 }
 
+/** Atomically remove one encrypted record before it can be read by another tab. */
+function takeRecord<T>(database: IDBDatabase, key: string): Promise<T | null> {
+  return new Promise((resolve, reject) => {
+    const transaction = database.transaction(STORE_NAME, "readwrite");
+    const store = transaction.objectStore(STORE_NAME);
+    const request = store.get(key);
+    let record: T | null = null;
+    request.onsuccess = () => {
+      record = (request.result as T | undefined) ?? null;
+      if (record) store.delete(key);
+    };
+    transaction.oncomplete = () => resolve(record);
+    transaction.onerror = () =>
+      reject(transaction.error ?? new Error("Failed to take secure cache record"));
+    transaction.onabort = () =>
+      reject(transaction.error ?? new Error("Failed to take secure cache record"));
+  });
+}
+
 function writeRecord<T>(
   database: IDBDatabase,
   value: T,
-  storeName: string = STORE_NAME
+  storeName: string = STORE_NAME,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const transaction = database.transaction(storeName, "readwrite");
@@ -142,6 +161,25 @@ function listRecordsByUser<T = SecureResourceCacheRecord>(
 }
 
 export class SecureResourceCacheService {
+  /** One-use encrypted handoff; a second tab cannot consume the same record. */
+  static async take<T>(params: {
+    userId: string;
+    resourceKey: string;
+    vaultKey: string;
+  }): Promise<T | null> {
+    const database = await openDb();
+    if (!database) return null;
+    const record = await takeRecord<SecureResourceCacheRecord>(
+      database,
+      buildStorageKey(params.userId, params.resourceKey),
+    );
+    if (!record) return null;
+    const ageMs = Date.now() - Date.parse(record.cachedAt);
+    if (!Number.isFinite(ageMs) || ageMs < 0 || ageMs > record.ttlMs) return null;
+    const decrypted = await decryptData(record.payload, params.vaultKey);
+    return JSON.parse(decrypted) as T;
+  }
+
   static async read<T>(params: {
     userId: string;
     resourceKey: string;

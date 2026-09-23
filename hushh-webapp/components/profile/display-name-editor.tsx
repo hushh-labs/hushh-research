@@ -10,8 +10,9 @@
  *
  * The name on screen comes only from what the server sent back: the identity
  * returned by PATCH /api/account/identity/display-name, or the
- * `update_display_name` voice tool result (status `updated`). It is never the
- * input's text and never a transcript.
+ * `update_display_name` voice tool result (status `updated`, or
+ * `committed_sync_pending` when the provider holds the name and the shadow is
+ * still catching up). It is never the input's text and never a transcript.
  */
 
 import {
@@ -23,7 +24,9 @@ import {
   type FormEvent,
 } from "react";
 import type { User } from "firebase/auth";
-import { Loader2 } from "lucide-react";
+import {
+  SpinnerGapIcon as Loader2,
+} from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -193,7 +196,11 @@ export function DisplayNameEditor({
   // re-read so the rest of the app agrees.
   useVoiceToolEffects({
     onToolResult: (tool, result) => {
-      if (tool !== "update_display_name" || result.status !== "updated") return;
+      if (
+        tool !== "update_display_name" ||
+        (result.status !== "updated" && result.status !== "committed_sync_pending")
+      )
+        return;
       const spoken =
         typeof result.display_name === "string"
           ? result.display_name.trim()

@@ -18,6 +18,7 @@ import React, {
   createContext,
   useContext,
   useEffect,
+  useMemo,
   useState,
   ReactNode,
   useCallback,
@@ -1814,33 +1815,17 @@ export function AuthProvider({ children }: AuthProviderProps) {
     [applyAuthUser, confirmationResult, nativeVerificationId, refreshUser],
   );
 
-  const value: AuthContextType = {
-    user,
-    loading,
-    sessionVerificationRequired,
-    phoneNumber,
-    resolveVerifiedPhoneNumber,
-    // Derived
-    // Unified Auth State: Authenticated = Identity Verified.
-    isAuthenticated: !!user,
-    userId,
-    // Methods
-    startPhoneVerification,
-    confirmPhoneVerification,
-    startPhoneReplacement,
-    confirmPhoneReplacement,
-    signOut,
-    checkAuth,
-    refreshUser,
-    retrySessionVerification: async () => {
-      if (IS_NATIVE && !userRef.current) {
-        setLoading(true);
-        await checkAuth();
-        return;
-      }
-      await validateActiveSession({ force: true });
-    },
-    beginPostAuthSettlement: (nextUser: User) => {
+  const retrySessionVerification = useCallback(async () => {
+    if (IS_NATIVE && !userRef.current) {
+      setLoading(true);
+      await checkAuth();
+      return;
+    }
+    await validateActiveSession({ force: true });
+  }, [checkAuth, validateActiveSession]);
+
+  const beginPostAuthSettlement = useCallback(
+    (nextUser: User) => {
       // This entrypoint is reached only after a new interactive credential has
       // succeeded, so it may intentionally establish even the same UID again.
       terminalInvalidationLatchRef.current = null;
@@ -1853,24 +1838,78 @@ export function AuthProvider({ children }: AuthProviderProps) {
       setLoading(true);
       return settlementId;
     },
-    completePostAuthSettlement: (settlementId: number) => {
-      if (activePostAuthSettlementRef.current !== settlementId) return;
-      activePostAuthSettlementRef.current = null;
-      setLoading(false);
-    },
-    setNativeUser: (user: User | null) => {
+    [applyAuthUser],
+  );
+
+  const completePostAuthSettlement = useCallback((settlementId: number) => {
+    if (activePostAuthSettlementRef.current !== settlementId) return;
+    activePostAuthSettlementRef.current = null;
+    setLoading(false);
+  }, []);
+
+  const setNativeUser = useCallback(
+    (nextUser: User | null) => {
       console.log("🍎 [AuthContext] Manually setting Native User");
-      if (user) {
+      if (nextUser) {
         terminalInvalidationLatchRef.current = null;
       }
       // AuthStep has a confirmed native Apple result. Invalidate any launch or
       // resume restore that started before the Apple sheet completed.
       nativeRestoreEpochRef.current.invalidate();
       nativeRestoreSettledRef.current = true;
-      applyAuthUser(user);
+      applyAuthUser(nextUser);
       setLoading(false);
     },
-  };
+    [applyAuthUser],
+  );
+
+  // Memoised so the 130+ useAuth() consumers re-render on an auth fact, not
+  // on every render of this provider. Every method above is a stable
+  // useCallback, so the dependency list is the state plus those callbacks.
+  const value = useMemo<AuthContextType>(
+    () => ({
+      user,
+      loading,
+      sessionVerificationRequired,
+      phoneNumber,
+      resolveVerifiedPhoneNumber,
+      // Derived
+      // Unified Auth State: Authenticated = Identity Verified.
+      isAuthenticated: !!user,
+      userId,
+      // Methods
+      startPhoneVerification,
+      confirmPhoneVerification,
+      startPhoneReplacement,
+      confirmPhoneReplacement,
+      signOut,
+      checkAuth,
+      refreshUser,
+      retrySessionVerification,
+      beginPostAuthSettlement,
+      completePostAuthSettlement,
+      setNativeUser,
+    }),
+    [
+      user,
+      loading,
+      sessionVerificationRequired,
+      phoneNumber,
+      resolveVerifiedPhoneNumber,
+      userId,
+      startPhoneVerification,
+      confirmPhoneVerification,
+      startPhoneReplacement,
+      confirmPhoneReplacement,
+      signOut,
+      checkAuth,
+      refreshUser,
+      retrySessionVerification,
+      beginPostAuthSettlement,
+      completePostAuthSettlement,
+      setNativeUser,
+    ],
+  );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

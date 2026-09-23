@@ -51,7 +51,13 @@ import {
   CONSENT_STATE_CHANGED_EVENT,
   dispatchConsentStateChanged,
 } from "@/lib/consent/consent-events";
+import {
+  documentShareNotificationRequestId,
+  isDocumentShareNotificationCandidate,
+} from "@/lib/consent/document-share-consent";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { subscribeToRemotePkmDomainChanges } from "@/lib/pkm/pkm-domain-change-events";
+import { subscribeToRemoteOneLocationStateChanges } from "@/lib/one-location/one-location-state-events";
 import { resolveConsentRequesterLabel } from "@/lib/consent/consent-display";
 import { parseSSEBlocks } from "@/lib/streaming/sse-parser";
 import {
@@ -83,6 +89,10 @@ import { buildOneLocationNotificationPayloads } from "@/lib/one-location/notific
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { EmergencySmsNotificationToast } from "@/components/one-location/emergency-sms-notification-toast";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
+import {
+  markPeriodicTaskRan,
+  registerPeriodicTask,
+} from "@/lib/perf/idle-scheduler";
 
 // ============================================================================
 // Helpers
@@ -461,8 +471,14 @@ function isOneLocationWorkflowNotificationType(
     value === "location_one_network_joined" ||
     value === "location_circle_member_invite" ||
     value === "location_circle_member_invite_accepted" ||
+    value === "location_circle_member_invite_declined" ||
+    value === "location_circle_member_invite_cancelled" ||
     value === "location_circle_code_joined" ||
-    value === "location_circle_member_added"
+    value === "location_circle_member_added" ||
+    value === "location_circle_member_removed" ||
+    value === "location_circle_member_left" ||
+    value === "location_circle_renamed" ||
+    value === "location_circle_deleted"
   );
 }
 
@@ -509,7 +525,17 @@ function oneLocationNetworkLabel(data: Record<string, string>): string {
 }
 
 function oneLocationNotificationId(data: Record<string, string>): string {
+  const liveTransitionId =
+    data.type === "location_circle_member_invite"
+      ? ""
+      : String(data.message_id || "").trim();
   const base =
+    // Live delivery carries one id per transition. Prefer it over the entity
+    // id so remove → re-add → remove is two real events, while the FCM and SSE
+    // copies of either transition still collapse to one presentation. A
+    // still-pending Circle invite is also reconstructed from state; retain its
+    // invite id so that catch-up path cannot create a second Feed item.
+    liveTransitionId ||
     String(data.grant_id || "").trim() ||
     String(data.approved_grant_id || "").trim() ||
     String(data.request_id || "").trim() ||
@@ -666,6 +692,24 @@ export function ConsentNotificationProvider({
   const lastOneLocationReconcileWarningRef = useRef(0);
   const consentReconcilePromiseRef = useRef<Promise<void> | null>(null);
 
+  useEffect(() => {
+    const userId = user?.uid;
+    if (!userId) return;
+    return subscribeToRemotePkmDomainChanges((detail) => {
+      if (detail.userId !== userId) return;
+      CacheSyncService.onRemotePkmDomainChanged(detail);
+    });
+  }, [user?.uid]);
+
+  useEffect(() => {
+    const userId = user?.uid;
+    if (!userId) return;
+    return subscribeToRemoteOneLocationStateChanges((detail) => {
+      if (detail.userId !== userId) return;
+      CacheSyncService.onRemoteOneLocationStateChanged(detail);
+    });
+  }, [user?.uid]);
+
   const acknowledgePendingConsent = useCallback(
     async (
       consent: Pick<PendingConsent, "id" | "bundleId">,
@@ -813,7 +857,50 @@ export function ConsentNotificationProvider({
       const msgType = data.type;
       if (!isOneLocationWorkflowNotificationType(msgType)) return;
 
+      const isCircleWorkflow = msgType.startsWith("location_circle_");
+      let stateMutationPublished = false;
+      const publishStateMutation = () => {
+        if (stateMutationPublished || options.source !== "live") return;
+        stateMutationPublished = true;
+        // A live workflow notification is also a state transition. Publish it
+        // through the shared Location channel so the current tab, sibling tabs
+        // and native shells all repair from the same authoritative state.
+        // Reconciliation payloads are intentionally excluded because their
+        // state is already in the shared resource.
+        CacheSyncService.onOneLocationStateMutated(
+          user.uid,
+          isCircleWorkflow
+            ? ["workspace", "circles", "sms_roster"]
+            : ["workspace"],
+          {
+            notificationType: msgType,
+            circleId: String(data.circle_id || "").trim() || undefined,
+            ...(String(data.member_user_id || "").trim()
+              ? { memberUserId: String(data.member_user_id).trim() }
+              : null),
+            eventId: String(data.message_id || "").trim() || undefined,
+          },
+        );
+      };
+
+      if (isCircleWorkflow) {
+        // The provider is mounted above both Connect and One Location, so it
+        // is the one inbound owner that exists regardless of which route is
+        // open. Publishing here prevents route-specific listeners from
+        // disagreeing and gives the existing BroadcastChannel the same event
+        // on web, iOS and Android.
+        // Circle events do not have a request row to patch locally, so they can
+        // publish immediately. The shared state event owns same-tab and
+        // cross-tab repair even when this is a sync-only owner notification.
+        publishStateMutation();
+        // Owner-originated rename/delete events are still delivered to keep
+        // the owner's other sessions current, but they must not create a
+        // self-notification or duplicate Feed item.
+        if (String(data.sync_only || "").toLowerCase() === "true") return;
+      }
+
       if (msgType === "location_share_created") {
+        publishStateMutation();
         showOneLocationShareNotification(data, options);
         return;
       }
@@ -834,6 +921,7 @@ export function ConsentNotificationProvider({
         msgType === "location_share_expired"
       ) {
         if (grantId && isOneLocationGrantUnwatched(user.uid, grantId)) {
+          publishStateMutation();
           return;
         }
         if (grantId) {
@@ -871,6 +959,11 @@ export function ConsentNotificationProvider({
           ...(grantId ? { approvedGrantId: grantId } : null),
         });
       }
+      // Patch a pushed request outcome before starting the authoritative read.
+      // Otherwise the patch invalidates the generation that the broadcast just
+      // started, and an approval can show its request status while omitting the
+      // newly-created grant until the next focus/reconnect event.
+      publishStateMutation();
 
       const generatedCopy = locationWorkflowNotificationCopy({
         type: msgType,
@@ -936,6 +1029,7 @@ export function ConsentNotificationProvider({
           submissionId: submissionId || null,
           connectionId: connectionId || null,
           inviteId: inviteId || null,
+          circleId: String(data.circle_id || "").trim() || null,
         },
       });
       dispatchConsentStateChanged({
@@ -961,6 +1055,43 @@ export function ConsentNotificationProvider({
     for (const notification of queued) {
       const targetUserId = String(notification.data.user_id || "").trim();
       if (targetUserId && targetUserId !== user.uid) continue;
+      if (notification.data.type === "location_pkm_changed") {
+        const domain = String(notification.data.domain || "").trim();
+        if (domain === "location") {
+          if (notification.data.operation === "cleared") {
+            CacheSyncService.onPkmDomainCleared(user.uid, domain, {
+              eventId:
+                String(notification.data.message_id || "").trim() || undefined,
+            });
+          } else {
+            const parsedVersion = Number(notification.data.data_version);
+            CacheSyncService.onPkmDomainStored(user.uid, domain, {
+              eventDataVersion: Number.isFinite(parsedVersion)
+                ? parsedVersion
+                : undefined,
+              metadataTimestamp:
+                String(notification.data.updated_at || "").trim() || undefined,
+              writeThroughMetadata: false,
+              eventId:
+                String(notification.data.message_id || "").trim() || undefined,
+            });
+          }
+        }
+        continue;
+      }
+      if (notification.data.type === "location_settings_changed") {
+        const setting = String(notification.data.setting || "").trim();
+        CacheSyncService.onOneLocationStateMutated(
+          user.uid,
+          setting === "map_preferences" ? ["map_preferences"] : ["workspace"],
+          {
+            notificationType: notification.data.type,
+            eventId:
+              String(notification.data.message_id || "").trim() || undefined,
+          },
+        );
+        continue;
+      }
       showOneLocationWorkflowNotification(notification.data, {
         present: notification.present,
         source: "live",
@@ -1160,14 +1291,22 @@ export function ConsentNotificationProvider({
               const normalizedAction = String(payload.action || "")
                 .trim()
                 .toUpperCase();
-              const type =
-                payload.type === "connection_request"
-                  ? "connection_request"
-                  : normalizedAction === "REQUESTED"
-                    ? "consent_request"
-                    : normalizedAction === "NOTIFICATION_OPENED"
-                      ? "consent_opened"
-                      : "consent_resolved";
+              const preservesConnectionType =
+                payload.type === "connection_request" ||
+                payload.type === "connection_request_cancelled" ||
+                payload.type === "connection_request_resolved" ||
+                payload.type === "connection_removed";
+              const preservesDomainType =
+                preservesConnectionType ||
+                payload.type === "information_request_updated" ||
+                String(payload.type || "").startsWith("location_");
+              const type = preservesDomainType
+                ? payload.type
+                : normalizedAction === "REQUESTED"
+                  ? "consent_request"
+                  : normalizedAction === "NOTIFICATION_OPENED"
+                    ? "consent_opened"
+                    : "consent_resolved";
               window.dispatchEvent(
                 new CustomEvent(FCM_MESSAGE_EVENT, {
                   detail: {
@@ -1496,6 +1635,18 @@ export function ConsentNotificationProvider({
         return;
       }
 
+      // Drive-sharing notifications are an intentionally closed, opaque
+      // vocabulary. A new `document_share_*` producer cannot make the client
+      // refresh consent state or select a review until it is explicitly
+      // allowlisted and carries the exact request UUID.
+      const documentShareRequestId = documentShareNotificationRequestId(data);
+      if (
+        isDocumentShareNotificationCandidate(data) &&
+        !documentShareRequestId
+      ) {
+        return;
+      }
+
       // Validate typed payloads before acknowledging them to the web service
       // worker. An ACK suppresses the OS fallback, so malformed consent data
       // must remain unaccepted instead of disappearing from every surface.
@@ -1511,10 +1662,80 @@ export function ConsentNotificationProvider({
       if (dedupKey && ingestedMessageIdsRef.current.has(dedupKey)) return;
       if (dedupKey) ingestedMessageIdsRef.current.add(dedupKey);
 
+      if (msgType === "location_pkm_changed" && user?.uid) {
+        const domain = String(data.domain || "").trim();
+        if (domain === "location") {
+          if (data.operation === "cleared") {
+            CacheSyncService.onPkmDomainCleared(user.uid, domain, {
+              eventId: String(data.message_id || "").trim() || undefined,
+            });
+          } else {
+            const parsedVersion = Number(data.data_version);
+            CacheSyncService.onPkmDomainStored(user.uid, domain, {
+              eventDataVersion: Number.isFinite(parsedVersion)
+                ? parsedVersion
+                : undefined,
+              metadataTimestamp:
+                String(data.updated_at || "").trim() || undefined,
+              writeThroughMetadata: false,
+              eventId: String(data.message_id || "").trim() || undefined,
+            });
+          }
+        }
+        return;
+      }
+
+      // Preference changes are silent sync doorbells for the owner's other
+      // sessions. They are not Feed activity and carry no preference value;
+      // mounted consumers repair from their authenticated resources.
+      if (msgType === "location_settings_changed" && user?.uid) {
+        const setting = String(data.setting || "").trim();
+        CacheSyncService.onOneLocationStateMutated(
+          user.uid,
+          setting === "map_preferences" ? ["map_preferences"] : ["workspace"],
+          {
+            notificationType: msgType,
+            eventId: String(data.message_id || "").trim() || undefined,
+          },
+        );
+        return;
+      }
+
+      if (msgType === "information_request_updated") {
+        // A requester-only doorbell, not a new Feed item or grant authority.
+        // The matching Chat card rereads current status before local decrypt.
+        if (user?.uid && data.user_id === user.uid && data.bundle_id) {
+          CacheSyncService.onConsentMutated(user.uid);
+          dispatchConsentStateChanged({
+            source: "information_request_updated",
+            bundleId: data.bundle_id,
+            requestId: data.request_id,
+            action: data.action,
+            messageId: data.message_id,
+          });
+        }
+        return;
+      }
+
       // Push is a wake-up signal; Feed remains the only routine in-app
       // presentation surface. This also covers notification families added in
       // the future even when they have no provider-specific branch yet.
       dispatchFeedStateChanged("action");
+
+      if (documentShareRequestId) {
+        // Do not render push copy or invoke a sharing action. The canonical
+        // Consent Center and its owner/Vault checks fetch the current review
+        // after a person has opened the fixed local route.
+        if (user?.uid) {
+          CacheSyncService.onConsentMutated(user.uid);
+        }
+        dispatchConsentStateChanged({
+          source: "fcm_document_share",
+          requestId: `document_share_request:${documentShareRequestId}`,
+          reconcile: true,
+        });
+        return;
+      }
 
       if (isOneLocationNotificationType(msgType)) {
         const notification = detail.notification || detail;
@@ -1690,11 +1911,27 @@ export function ConsentNotificationProvider({
         // next app open. Same shape as the sibling branch above: invalidate
         // and let Connect/Consent Center pick it up on their own refresh.
         if (user?.uid) {
-          CacheSyncService.onConsentMutated(user.uid);
+          // The resolution may have formed a real connection. Invalidate and
+          // announce the graph, not only Consent Center, so Location recipient
+          // pickers reconcile while they are already open.
+          CacheSyncService.onConnectionGraphMutated(user.uid);
         }
         dispatchConsentStateChanged({
           source: "fcm_connection_request_resolved",
           reconcile: true,
+        });
+      } else if (msgType === "connection_removed") {
+        // Disconnect changes every connection-backed projection. This branch
+        // also runs on the actor's other devices because the backend emits a
+        // silent data push to both sides after the transaction commits.
+        if (user?.uid) {
+          CacheSyncService.onConnectionGraphMutated(user.uid);
+        }
+        dispatchConsentStateChanged({
+          source: "fcm_connection_removed",
+          action: "connection_removed",
+          reconcile: true,
+          connectionId: String(data.connection_id || "").trim() || undefined,
         });
       }
     };
@@ -1786,6 +2023,7 @@ export function ConsentNotificationProvider({
         document.visibilityState !== "visible"
       )
         return;
+      markPeriodicTaskRan("consent:location-reconcile");
       void reconcileOneLocationNotifications();
     };
     const handleVisibilityChange = () => {
@@ -1806,14 +2044,22 @@ export function ConsentNotificationProvider({
         }
       });
 
+    // On the shared idle clock: one wake with every other poll, after a
+    // frame, never while hidden (lib/perf/idle-scheduler.ts).
     const intervalMs = deliveryMode === "push_active" ? 5 * 60_000 : 30_000;
-    const intervalId = window.setInterval(reconcileWhenVisible, intervalMs);
+    const unregister = registerPeriodicTask({
+      id: "consent:location-reconcile",
+      intervalMs,
+      run: () => {
+        void reconcileOneLocationNotifications();
+      },
+    });
 
     return () => {
       window.removeEventListener("focus", reconcileWhenVisible);
       window.removeEventListener("online", reconcileWhenVisible);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
-      window.clearInterval(intervalId);
+      unregister();
       removeLifecycleListener();
     };
   }, [
@@ -1988,6 +2234,7 @@ export function ConsentNotificationProvider({
       ) {
         return;
       }
+      markPeriodicTaskRan("consent:pending-reconcile");
       void reconcilePendingConsents();
     };
     const onVisibilityChange = () => {
@@ -1996,12 +2243,18 @@ export function ConsentNotificationProvider({
     window.addEventListener("focus", reconcileWhenVisible);
     window.addEventListener("online", reconcileWhenVisible);
     document.addEventListener("visibilitychange", onVisibilityChange);
-    const intervalId = window.setInterval(reconcileWhenVisible, 5 * 60_000);
+    const unregister = registerPeriodicTask({
+      id: "consent:pending-reconcile",
+      intervalMs: 5 * 60_000,
+      run: () => {
+        void reconcilePendingConsents();
+      },
+    });
     return () => {
       window.removeEventListener("focus", reconcileWhenVisible);
       window.removeEventListener("online", reconcileWhenVisible);
       document.removeEventListener("visibilitychange", onVisibilityChange);
-      window.clearInterval(intervalId);
+      unregister();
     };
   }, [deliveryMode, isVaultUnlocked, reconcilePendingConsents, user?.uid]);
 

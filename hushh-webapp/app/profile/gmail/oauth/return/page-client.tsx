@@ -49,7 +49,7 @@ const GMAIL_OAUTH_RECONCILIATION_DELAY_MS = 2_000;
 
 class GmailOAuthCompletionPendingError extends Error {
   constructor() {
-    super("Gmail connection is still being saved.");
+    super("Mail connection is still being saved.");
   }
 }
 
@@ -57,7 +57,7 @@ function resolveErrorMessage(error: unknown): string {
   if (error instanceof Error && error.message.trim()) {
     return error.message;
   }
-  return "Gmail connection could not be completed.";
+  return "Mail connection could not be completed.";
 }
 
 async function completeGmailOAuth(params: {
@@ -267,7 +267,7 @@ export default function ProfileGmailOAuthReturnPageClient({
           message: sanitizeGmailUserMessage(
             oauthErrorDescription || oauthError,
             {
-              fallback: "Gmail connection could not be completed.",
+              fallback: "Mail connection could not be completed.",
             },
           ),
         });
@@ -318,12 +318,12 @@ export default function ProfileGmailOAuthReturnPageClient({
     if (!code || !state) {
       setStage("error");
       setError(
-        "Missing OAuth code or state. Start Connect Gmail again from Gmail.",
+        "Missing OAuth code or state. Start Connect Mail again from Mail.",
       );
       void persistEarlyCallbackOutcome("failed").finally(() => {
         settlePopupOpener({
           outcome: "failed",
-          message: "Gmail connection could not be completed.",
+          message: "Mail connection could not be completed.",
         });
       });
       return;
@@ -403,7 +403,7 @@ export default function ProfileGmailOAuthReturnPageClient({
         });
         if (!status.connected) {
           throw new Error(
-            "Gmail authorization did not create an active connection.",
+            "Mail authorization did not create an active connection.",
           );
         }
         primeConnectorStatus({
@@ -481,7 +481,7 @@ export default function ProfileGmailOAuthReturnPageClient({
             user.uid,
             sanitizeGmailUserMessage(completeError, {
               fallback:
-                "Gmail connection could not be completed. Try again from Gmail.",
+                "Mail connection could not be completed. Try again from Mail.",
             }),
           );
           return;
@@ -508,7 +508,7 @@ export default function ProfileGmailOAuthReturnPageClient({
         settlePopupOpener({
           outcome: "failed",
           message: sanitizeGmailUserMessage(completeError, {
-            fallback: "Gmail connection could not be completed.",
+            fallback: "Mail connection could not be completed.",
           }),
         });
       }
@@ -572,7 +572,7 @@ export default function ProfileGmailOAuthReturnPageClient({
       <AppPageContentRegion className="flex min-h-[60vh] items-center justify-center">
         <div className="w-full max-w-md rounded-2xl border border-border/60 bg-card/80 p-5 text-center shadow-sm">
           <h1 className="text-lg font-semibold text-foreground">
-            Gmail connection needs attention
+            Mail connection needs attention
           </h1>
           <p className="mt-2 text-sm text-muted-foreground">{error}</p>
           <div className="mt-4 flex flex-col gap-2">
@@ -586,7 +586,7 @@ export default function ProfileGmailOAuthReturnPageClient({
               }
               className="w-full"
             >
-              {returnToSetup ? "Back to setup" : "Back to Gmail"}
+              {returnToSetup ? "Back to setup" : "Back to Mail"}
             </Button>
           </div>
         </div>

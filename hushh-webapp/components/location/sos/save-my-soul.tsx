@@ -28,7 +28,7 @@ import {
   ShieldAlert,
   ShieldCheck,
   UserRoundPlus,
-} from "lucide-react";
+} from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -57,6 +57,7 @@ import { OneLocationService } from "@/lib/one-location/service";
 import {
   clearSosIncident,
   loadSosIncident,
+  mergeSosGrantIds,
   reconcileSosIncident,
   saveSosIncident,
   type SosIncident,
@@ -153,13 +154,54 @@ export type VoiceSosPhase =
   /** `report_save_my_soul_delivery` came back. */
   | "reported";
 
+/**
+ * The server's verified delivery verdicts. `sos_unverified` means the check
+ * itself could not run (the stored envelopes could not be read): it is not a
+ * verdict either way, so it is never rendered as "Not sent". `null` is any
+ * report status this build does not know, which likewise gets no verdict.
+ */
+export type VoiceSosReportStatus =
+  | "sos_sent"
+  | "sos_partial"
+  | "sos_not_sent"
+  | "sos_unverified";
+
 export type VoiceSos = {
   phase: VoiceSosPhase;
   armedNames: string[];
   delivered: string[];
   notAlerted: string[];
-  reportStatus: "sos_sent" | "sos_partial" | "sos_not_sent" | null;
+  reportStatus: VoiceSosReportStatus | null;
 };
+
+function voiceSosReportStatus(status: unknown): VoiceSosReportStatus | null {
+  return status === "sos_sent" ||
+    status === "sos_partial" ||
+    status === "sos_not_sent" ||
+    status === "sos_unverified"
+    ? status
+    : null;
+}
+
+/**
+ * The headline for a delivery report. "Sent" only from a verified verdict;
+ * "Not sent" only from the verified `sos_not_sent`; an unverified or unknown
+ * report is an unknown, said as such.
+ */
+export function voiceSosReportHeadline(
+  reportStatus: VoiceSosReportStatus | null,
+  delivered: string[],
+): string {
+  switch (reportStatus) {
+    case "sos_sent":
+    case "sos_partial":
+      return `Sent to ${formatNames(delivered)}`;
+    case "sos_not_sent":
+      return "Not sent";
+    default:
+      return "Couldn't confirm delivery";
+  }
+}
 
 type TapDelivery = {
   outcomes: SosDeliveryOutcome[];
@@ -177,12 +219,18 @@ export function SaveMySoul() {
   const [state, setState] = useState<OneLocationState | null>(() =>
     userId ? OneLocationStateResource.readPresentation(userId) : null,
   );
+  /**
+   * When `state` was loaded from the server by this screen; null while it is
+   * still the cached presentation from an earlier visit, which may predate an
+   * alert armed by voice elsewhere and must not prune that record.
+   */
+  const [stateLoadedAt, setStateLoadedAt] = useState<number | null>(null);
   const [status, setStatus] = useState<LoadStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState<"send" | "stop" | null>(null);
   const [incident, setIncident] = useState<SosIncident | null>(() =>
-    loadSosIncident(),
+    loadSosIncident(userId),
   );
   const [tapDelivery, setTapDelivery] = useState<TapDelivery | null>(null);
   const [voiceSos, setVoiceSos] = useState<VoiceSos | null>(null);
@@ -195,6 +243,12 @@ export function SaveMySoul() {
       mountedRef.current = false;
     };
   }, []);
+
+  // The device record is owner-scoped: re-read it when the signed-in user
+  // becomes known (or changes) so another account's alert is never shown.
+  useEffect(() => {
+    setIncident(loadSosIncident(userId));
+  }, [userId]);
 
   const pendingTrigger = useVoiceSessionSelector((session) =>
     session.pendingAction &&
@@ -230,6 +284,7 @@ export function SaveMySoul() {
         );
         if (!mountedRef.current) return next;
         setState(next);
+        setStateLoadedAt(Date.now());
         setError(null);
         setStatus("ready");
         return next;
@@ -279,15 +334,22 @@ export function SaveMySoul() {
   }, [state?.ownerGrants]);
 
   // Reconcile the device's incident record with what the server still holds.
+  // Only a snapshot this screen loaded after the incident was recorded may
+  // prune it; the cached presentation from an earlier visit cannot list grants
+  // armed by voice since.
   useEffect(() => {
     if (!state) return;
     const activeIds = activeSosGrants.map((grant) => grant.id);
     setIncident((current) => {
-      const reconciled = reconcileSosIncident(current, activeIds);
+      const reconciled = reconcileSosIncident(
+        current,
+        activeIds,
+        stateLoadedAt,
+      );
       if (reconciled === null && current !== null) clearSosIncident();
       return reconciled;
     });
-  }, [activeSosGrants, state]);
+  }, [activeSosGrants, state, stateLoadedAt]);
 
   const reflect = useCallback(
     (tool: string | null, result: ToolResultPublic | null) => {
@@ -303,10 +365,20 @@ export function SaveMySoul() {
         if (sameArming) return;
         armedGrantIdsRef.current = grantIds;
         if (grantIds.length) {
-          const next: SosIncident = {
-            grantIds,
-            startedAt: new Date().toISOString(),
-          };
+          // The app-wide publisher bridge persists the same record on any
+          // route; the ids decide whether this is the same arming, so the
+          // first `startedAt` is kept.
+          const stored = userId ? loadSosIncident(userId) : null;
+          const next: SosIncident =
+            stored &&
+            stored.grantIds.length === grantIds.length &&
+            grantIds.every((id) => stored.grantIds.includes(id))
+              ? stored
+              : {
+                  grantIds,
+                  startedAt: new Date().toISOString(),
+                  ...(userId ? { ownerUserId: userId } : {}),
+                };
           saveSosIncident(next);
           setIncident(next);
         }
@@ -322,16 +394,9 @@ export function SaveMySoul() {
       }
       if (
         tool === "report_save_my_soul_delivery" ||
-        result.status === "sos_sent" ||
-        result.status === "sos_partial" ||
-        result.status === "sos_not_sent"
+        voiceSosReportStatus(result.status) !== null
       ) {
-        const reportStatus =
-          result.status === "sos_sent" ||
-          result.status === "sos_partial" ||
-          result.status === "sos_not_sent"
-            ? result.status
-            : null;
+        const reportStatus = voiceSosReportStatus(result.status);
         setVoiceSos((current) => ({
           phase: "reported",
           armedNames: current?.armedNames ?? [],
@@ -360,7 +425,7 @@ export function SaveMySoul() {
         void load({ invalidate: true });
       }
     },
-    [load],
+    [load, userId],
   );
 
   useVoiceToolEffects({
@@ -412,6 +477,7 @@ export function SaveMySoul() {
       }
       const result = await runSosPanic({
         vaultOwnerToken,
+        ownerUserId: userId,
         recipients: readyContacts,
         point,
         note: message,
@@ -498,11 +564,9 @@ export function SaveMySoul() {
 
   const stop = useCallback(async () => {
     if (!vaultOwnerToken || busy) return;
-    const grantIds = Array.from(
-      new Set([
-        ...(incident?.grantIds ?? []),
-        ...activeSosGrants.map((grant) => grant.id),
-      ]),
+    const grantIds = mergeSosGrantIds(
+      incident,
+      activeSosGrants.map((grant) => grant.id),
     );
     if (!grantIds.length) {
       clearSosIncident();
@@ -528,6 +592,7 @@ export function SaveMySoul() {
         const remaining: SosIncident = {
           grantIds: outcome.unresolved,
           startedAt: incident?.startedAt ?? new Date().toISOString(),
+          ...(userId ? { ownerUserId: userId } : {}),
         };
         saveSosIncident(remaining);
         setIncident(remaining);
@@ -545,7 +610,7 @@ export function SaveMySoul() {
     } finally {
       if (mountedRef.current) setBusy(null);
     }
-  }, [activeSosGrants, busy, incident, load, vaultOwnerToken]);
+  }, [activeSosGrants, busy, incident, load, userId, vaultOwnerToken]);
 
   return (
     <section className="space-y-5" data-testid="one-location-sos">
@@ -591,12 +656,15 @@ export function SaveMySoul() {
             </>
           ) : (
             <>
-              <p className="ui-text-row-label-emphasized">
-                {voiceSos.reportStatus === "sos_sent"
-                  ? `Sent to ${formatNames(voiceSos.delivered)}`
-                  : voiceSos.reportStatus === "sos_partial"
-                    ? `Sent to ${formatNames(voiceSos.delivered)}`
-                    : "Not sent"}
+              <p
+                className="ui-text-row-label-emphasized"
+                data-testid="sos-voice-report-headline"
+                data-report-status={voiceSos.reportStatus ?? "unknown"}
+              >
+                {voiceSosReportHeadline(
+                  voiceSos.reportStatus,
+                  voiceSos.delivered,
+                )}
               </p>
               {voiceSos.notAlerted.length ? (
                 <p className={MUTED_TEXT}>
@@ -608,6 +676,15 @@ export function SaveMySoul() {
                   Nobody received your position. Call emergency services now.
                 </p>
               ) : null}
+              {voiceSos.reportStatus === "sos_sent" ||
+              voiceSos.reportStatus === "sos_partial" ||
+              voiceSos.reportStatus === "sos_not_sent" ? null : (
+                <p className={MUTED_TEXT}>
+                  The delivery check could not run, so this is not a verdict
+                  either way. Ask One &ldquo;did it go through?&rdquo; or call
+                  emergency services if you are not sure.
+                </p>
+              )}
             </>
           )}
         </div>
@@ -692,9 +769,9 @@ export function SaveMySoul() {
           <p className={MUTED_TEXT}>
             {tapDelivery.emailed > 0
               ? `Emailed ${tapDelivery.emailed}.`
-              : "No email went out."}
+              : "No mail went out."}
             {tapDelivery.withoutEmail.length
-              ? ` No email on file for ${formatNames(tapDelivery.withoutEmail)}.`
+              ? ` No mail on file for ${formatNames(tapDelivery.withoutEmail)}.`
               : ""}
             {tapDelivery.skippedNotReady.length
               ? ` Skipped ${formatNames(tapDelivery.skippedNotReady)} — not ready.`

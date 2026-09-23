@@ -69,9 +69,26 @@ if has_match '^hushh-webapp/(components/(consent/|profile/)|lib/(consent/|pkm/|p
   ran=1
 fi
 
-if has_match '^hushh-webapp/(lib/voice/|lib/one-voice/|components/one-voice/|components/agent/|components/one-location/onboarding/(location-command-device-bridge|location-onboarding-interaction-surface)\.tsx|lib/services/(gemini-live-client|one-location-onboarding-device-orchestrator|one-location-onboarding-run-client)\.ts|scripts/voice/|__tests__/.*(voice|agent)|app/api/(kai|one)/.*(voice|realtime)|\.voice-action-contract\.json)'; then
+if has_match '^hushh-webapp/(components/consent/|lib/(consent/document-share-consent|services/drive-sharing-service|feed/use-feed-actionables)\.ts|e2e/(document-share-review\.layout\.spec\.ts|fixtures/document-share-)|__tests__/.*(document-share|drive-sharing|consent-center-page-deeplink))'; then
+  run_check "Drive exact-file review boundary" npm run test:drive-sharing-web
+  run_check "Drive mounted review layout" npm run test:drive-sharing-layout
+  ran=1
+fi
+
+if has_match '^hushh-webapp/(components/agent/(agent-connections-drawer|connectors-panel|agent-chat-workspace|agent-history-sidebar|connector-read-receipt|agent-structured-experience|agent-turn-stream-panel)\.tsx|components/agent/__tests__/agent-(chat-selection|turn-stream-panel)\.test\.tsx|lib/(profile/drive-oauth-popup|agent/(connector-read-receipt|agui-structured-experiences)|services/(external-connector-service|google-drive-picker-service|agent-chat-client))\.ts|app/one/(one-auth-gate\.tsx|profile/connectors/)|e2e/(connections-drawer\.layout\.spec\.ts|fixtures/connections-)|__tests__/.*(connections-panel|one-auth-gate|drive-popup|drive-oauth|google-drive-picker|connector-read-receipt|agent-chat-client))'; then
+  run_check "Connections web boundary" npm run test:connections-web
+  run_check "Connections mounted browser layout" npm run test:connections-layout
+  ran=1
+fi
+
+if has_match '^hushh-webapp/(lib/voice/|lib/one-voice/|components/one-voice/|components/agent/|components/one-location/onboarding/(location-command-device-bridge|location-onboarding-interaction-surface)\.tsx|lib/services/(gemini-live-client|one-location-onboarding-device-orchestrator|one-location-onboarding-run-client)\.ts|scripts/voice/|e2e/one-voice-panel\.layout\.spec\.ts|__tests__/.*(voice|agent)|app/api/(kai|one)/.*(voice|realtime)|\.voice-action-contract\.json)'; then
   run_check "voice gateway" npm run verify:voice-gateway
   run_check "One Voice runtime evaluations" npm run verify:one-voice
+  if has_match '^hushh-webapp/(components/one-voice/|e2e/one-voice-panel\.layout\.spec\.ts)'; then
+    # This fixture is source-coupled and file:// based: it needs neither a
+    # reviewer session nor a dev server, so keep the visual gate proportional.
+    run_check "One Voice panel layout" npm run test:one-voice-panel-layout
+  fi
   ran=1
 fi
 
@@ -174,6 +191,23 @@ fi
 # change confined to `lib/contacts/` matched no pack in the repo at all.
 if has_match '^(hushh-webapp/(app/connect/|__tests__/app/connect/|__tests__/services/api-service-fetch\.test\.ts|lib/services/(connections-service|api-service)\.ts|lib/capacitor/plugins/(contacts-web\.ts|__tests__/contacts-web\.test\.ts)|lib/contacts/|lib/marketplace/contact-matching\.ts)|consent-protocol/(hushh_mcp/services/(connections_service|one_location_agent_service)\.py|api/routes/one/connections\.py))'; then
   run_check "Connect people search" npm run verify:connect-search
+  ran=1
+fi
+
+# TrustLink delegation, which has a signed field on both sides of the wire.
+#
+# `scope_str` carries the verbatim delegated authority and is part of the
+# link's HMAC, so the backend that signs it and the clients that rebuild it
+# field by field have to agree. A client dropping that one key turns a freshly
+# signed link into an unverifiable one, and until this was added a change
+# confined to `consent-web.ts` matched no pack at all.
+#
+# This job only runs when the frontend path filter fires, so the
+# consent-protocol paths below never trigger it on their own -- they are here
+# so a change touching BOTH sides re-runs the client contract. A backend-only
+# change is covered by the trust suites in the protocol lane instead.
+if has_match '^(hushh-webapp/(lib/capacitor/(types\.ts|plugins/consent-web\.ts)|__tests__/capacitor/trust-link-scope-round-trip\.test\.ts)|consent-protocol/(hushh_mcp/(trust/link|types)\.py|api/routes/trust\.py))'; then
+  run_check "TrustLink scope round-trip" npm run verify:trust-link
   ran=1
 fi
 
@@ -281,7 +315,7 @@ fi
 # globals.css changes -- which is what those specs are pinned to. The browsers
 # are installed in the workflow step, not here, so a local run of this script
 # uses whatever is already on the machine.
-if has_match '^hushh-webapp/(e2e/.*\.layout\.spec\.ts|playwright\.config\.ts|app/globals\.css|components/app-ui/|components/one-location/|components/feed/|components/connect/)'; then
+if has_match '^hushh-webapp/(e2e/(.*\.layout\.spec\.ts|fixtures/one-location-people-rows\.html)|scripts/testing/capture-one-location-people-fixture\.mjs|playwright\.config\.ts|app/globals\.css|components/app-ui/|components/one-location/|components/feed/|components/connect/)'; then
   run_check "layout contracts" npm run test:layout-contracts
   ran=1
 fi

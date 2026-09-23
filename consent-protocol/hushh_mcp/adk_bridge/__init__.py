@@ -5,6 +5,8 @@ chat's dispatch seam can reach them.
 """
 
 from hushh_mcp.adk_bridge.dispatch import register_specialist, unregister_specialist
+from hushh_mcp.adk_bridge.documents_agent import DocumentsAgentA2A
+from hushh_mcp.adk_bridge.email_agent import get_email_a2a
 
 
 def _with_service(module_name, class_name):
@@ -24,7 +26,7 @@ async def _runtime_handle(task, service):
 
 
 def _register_builtin_specialists() -> None:
-    for optional_id in ("agent_email", "agent_connections", "agent_connected_systems"):
+    for optional_id in ("agent_connections", "agent_connected_systems"):
         unregister_specialist(optional_id)
 
     # Every specialist remains reachable through a self-guarding A2A handler.
@@ -45,11 +47,6 @@ def _register_builtin_specialists() -> None:
 
         return get_personal_information_a2a().handle(task)
 
-    def _email(task):
-        from hushh_mcp.adk_bridge.email_agent import get_email_a2a
-
-        return get_email_a2a().handle(task)
-
     def _connections(task):
         from hushh_mcp.adk_bridge.connections_agent import get_connections_a2a
 
@@ -60,6 +57,14 @@ def _register_builtin_specialists() -> None:
 
         return get_connected_systems_a2a().handle(task)
 
+    # Mail and Nav enforce independently bound, attenuated authority on every
+    # hop. Connected Systems remains unwired; a raw One invocation token must
+    # never reach an ambient user-id service method.
+    register_specialist(
+        "agent_documents",
+        lambda task: DocumentsAgentA2A().handle(task),
+        service_handler=_with_service("hushh_mcp.adk_bridge.documents_agent", "DocumentsAgentA2A"),
+    )
     register_specialist(
         "agent_location",
         _location,
@@ -67,16 +72,18 @@ def _register_builtin_specialists() -> None:
     )
     register_specialist("agent_nav", _nav, service_handler=_runtime_handle)
     register_specialist(
+        "agent_email",
+        lambda task: get_email_a2a().handle(task),
+        service_handler=_with_service("hushh_mcp.adk_bridge.email_agent", "EmailAgentA2A"),
+    )
+    register_specialist(
         "agent_personal_information",
         _personal_information,
         service_handler=_with_service(
             "hushh_mcp.adk_bridge.personal_information_agent", "PersonalInformationAgentA2A"
         ),
     )
-    # Authority-sensitive ingress remains unwired in the ambient hub process.
-    # A private pod calls ``register_pod_specialists`` after its owner-bound
-    # runtime is constructed, so importing this package cannot create a broad
-    # standing Email/CRM path.
+    # Connected Systems and Connections are wired only by the owner-bound pod.
 
 
 def register_pod_specialists() -> None:

@@ -89,14 +89,14 @@ const SETUP_COPY_BY_ID: Record<
     ],
   },
   gmail: {
-    setupTitle: "Connect Gmail",
+    setupTitle: "Connect Mail",
     setupBlurb: "One learns what you care about.",
-    actionLabel: "Connect Gmail",
-    resumeActionLabel: "Finish Gmail",
+    actionLabel: "Connect Mail",
+    resumeActionLabel: "Finish Mail",
     introPremise: "Your mail, made useful.",
     introPromise: "Connected only with your yes.",
     setupBullets: [
-      "Connect Gmail once, with your yes.",
+      "Connect Mail once, with your yes.",
       "One learns the brands you care about.",
       "What it remembers stays private to you.",
     ],

@@ -1,14 +1,19 @@
-from unittest.mock import patch
+import sys
+from types import ModuleType, SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 from hushh_mcp.branding import BRAND_NAME
 from hushh_mcp.services import push_notifications as push_module
 from hushh_mcp.services.push_notifications import (
     _GENERIC_CONNECTION_REQUEST_BODY,
     _connection_request_body,
+    send_circle_deleted_push,
     send_circle_member_invite_cancelled_push,
     send_circle_member_invite_declined_push,
     send_circle_member_left_push,
     send_circle_member_removed_push,
+    send_circle_renamed_push,
+    send_connection_removed_push,
     send_connection_request_cancelled_push,
     send_connection_request_push,
     send_connection_request_resolved_push,
@@ -18,6 +23,48 @@ from hushh_mcp.services.requester_identity import (
     looks_technical_label,
     resolve_requester_label,
 )
+
+
+def test_opaque_push_can_exclude_the_raw_recipient_id_from_firebase_payload(monkeypatch):
+    """Drive sharing sends only an opaque request reference to Firebase."""
+    captured: dict = {}
+
+    monkeypatch.setattr("api.utils.firebase_admin.ensure_firebase_admin", lambda: (True, None))
+    monkeypatch.setattr(
+        "db.db_client.get_db",
+        lambda: SimpleNamespace(
+            execute_raw=lambda *_args, **_kwargs: SimpleNamespace(
+                data=[{"token": "opaque-device-token", "platform": "ios"}]
+            )
+        ),
+    )
+    fake_messaging = SimpleNamespace(send=MagicMock())
+    fake_firebase_admin = ModuleType("firebase_admin")
+    fake_firebase_admin.messaging = fake_messaging
+    monkeypatch.setitem(sys.modules, "firebase_admin", fake_firebase_admin)
+
+    def build_message(*_args, **kwargs):
+        captured["data"] = kwargs["data"]
+        return object()
+
+    monkeypatch.setattr("api.utils.fcm_messages.build_push_message", build_message)
+
+    sent = push_module.send_user_data_push(
+        "raw-owner-uid",
+        notification_type="document_share_request",
+        title="Document request",
+        body="Open One to review.",
+        deep_link="/one/feed",
+        notification_tag="drive-share-event:11111111-1111-4111-8111-111111111111",
+        notification_category="ONE_DOCUMENT_SHARING",
+        data={"request_id": "22222222-2222-4222-8222-222222222222"},
+        include_user_id=False,
+    )
+
+    assert sent == 1
+    assert "user_id" not in captured["data"]
+    assert "raw-owner-uid" not in str(captured["data"])
+    assert captured["data"]["request_id"] == "22222222-2222-4222-8222-222222222222"
 
 
 def test_connection_request_body_names_the_requester():
@@ -368,6 +415,85 @@ def test_connection_request_resolved_push_reaches_sse_from_a_sync_handler(monkey
     assert payload["request_id"] == "req-42"
 
 
+def test_connection_removed_push_is_silent_and_scoped_to_the_connection(monkeypatch):
+    captured = _capture_push(monkeypatch)
+
+    send_connection_removed_push(
+        "user-a",
+        "user-b",
+        actor_user_id="user-a",
+        connection_id="conn-42",
+        revocation_id="2026-09-19T10:15:30+00:00",
+    )
+
+    assert captured["user_id"] == "user-a"
+    assert captured["notification_type"] == "connection_removed"
+    assert captured["notification_tag"] == (
+        "connection-removed:conn-42:2026-09-19T10:15:30+00:00:user-a"
+    )
+    assert captured["show_alert"] is False
+    assert captured["data"] == {
+        "message_id": "connection-removed:conn-42:2026-09-19T10:15:30+00:00:user-a",
+        "connection_id": "conn-42",
+        "counterpart_user_id": "user-b",
+        "actor_user_id": "user-a",
+        "revocation_id": "2026-09-19T10:15:30+00:00",
+    }
+
+
+def test_connection_removed_push_reaches_the_sse_reconcile_path(monkeypatch):
+    _capture_push(monkeypatch)
+    scheduled: list = []
+    monkeypatch.setattr(
+        "api.consent_listener.push_to_consent_queue_threadsafe",
+        lambda user_id, data: scheduled.append((user_id, data)) or True,
+    )
+
+    send_connection_removed_push(
+        "user-b",
+        "user-a",
+        actor_user_id="user-a",
+        connection_id="conn-42",
+        revocation_id="2026-09-19T10:15:30+00:00",
+    )
+
+    assert len(scheduled) == 1
+    user_id, payload = scheduled[0]
+    assert user_id == "user-b"
+    assert payload["type"] == "connection_removed"
+    assert payload["action"] == "REMOVED"
+    assert payload["connection_id"] == "conn-42"
+    assert payload["counterpart_user_id"] == "user-a"
+    assert payload["message_id"].endswith(":2026-09-19T10:15:30+00:00:user-b")
+
+
+def test_connection_removed_push_uses_a_new_delivery_id_for_each_revocation(monkeypatch):
+    tags: list[str] = []
+    monkeypatch.setattr(
+        push_module,
+        "send_user_data_push",
+        lambda _user_id, **kwargs: tags.append(kwargs["notification_tag"]) or 1,
+    )
+    monkeypatch.setattr(
+        "api.consent_listener.push_to_consent_queue_threadsafe",
+        lambda _user_id, _data: True,
+    )
+
+    for revocation_id in ("episode-1", "episode-2"):
+        send_connection_removed_push(
+            "user-b",
+            "user-a",
+            actor_user_id="user-a",
+            connection_id="conn-42",
+            revocation_id=revocation_id,
+        )
+
+    assert tags == [
+        "connection-removed:conn-42:episode-1:user-b",
+        "connection-removed:conn-42:episode-2:user-b",
+    ]
+
+
 def test_threadsafe_enqueue_delivers_to_a_waiting_sse_consumer():
     """End-to-end across the thread boundary, with no mocks in between."""
     import asyncio
@@ -376,7 +502,7 @@ def test_threadsafe_enqueue_delivers_to_a_waiting_sse_consumer():
     from api import consent_listener as cl
 
     async def scenario():
-        queue = cl.get_consent_queue("addressee-e2e")
+        queue = await cl.subscribe_consent_queue("addressee-e2e")
         outcome: dict = {}
 
         def worker():
@@ -397,7 +523,10 @@ def test_threadsafe_enqueue_delivers_to_a_waiting_sse_consumer():
         # FastAPI threadpool the production callers run on.
         assert outcome["had_loop"] is False
         assert outcome["scheduled"] is True
-        return await asyncio.wait_for(queue.get(), timeout=5)
+        try:
+            return await asyncio.wait_for(queue.get(), timeout=5)
+        finally:
+            await cl.unsubscribe_consent_queue("addressee-e2e", queue)
 
     delivered = asyncio.run(scenario())
     assert delivered["requester_label"] == "John Smith"
@@ -581,6 +710,10 @@ def test_circle_member_invite_declined_push_names_the_invitee_and_targets_the_in
     assert captured["body"] == "Ankit Sharma declined your Circle invitation."
     assert captured["data"]["invitee_user_id"] == "invitee-1"
     assert captured["data"]["network_display_label"] == "Ankit Sharma"
+    assert captured["data"]["message_id"].startswith("location_circle_member_invite_declined:")
+    assert captured["deep_link"] == (
+        "/one/location?view=people&action=circle-detail&circleId=circle-1"
+    )
 
 
 def test_circle_member_invite_declined_push_falls_back_when_name_is_missing(monkeypatch):
@@ -611,6 +744,7 @@ def test_circle_member_invite_cancelled_push_targets_the_invitee(monkeypatch):
     assert captured["user_id"] == "invitee-1"
     assert captured["body"] == 'Your invitation to "Family" was withdrawn.'
     assert captured["data"]["circle_id"] == "circle-1"
+    assert captured["deep_link"] == "/one/location?view=people"
 
 
 def test_circle_member_removed_push_targets_the_removed_member(monkeypatch):
@@ -624,6 +758,7 @@ def test_circle_member_removed_push_targets_the_removed_member(monkeypatch):
 
     assert captured["user_id"] == "member-1"
     assert captured["body"] == 'You were removed from "Family".'
+    assert captured["deep_link"] == "/one/location?view=people"
 
 
 def test_circle_member_left_push_names_the_member_and_targets_the_owner(monkeypatch):
@@ -639,6 +774,9 @@ def test_circle_member_left_push_names_the_member_and_targets_the_owner(monkeypa
 
     assert captured["user_id"] == "owner-1"
     assert captured["body"] == 'Ankit Sharma left "Family".'
+    assert captured["deep_link"] == (
+        "/one/location?view=people&action=circle-detail&circleId=circle-1"
+    )
 
 
 def test_circle_member_invite_declined_and_cancelled_pushes_use_distinct_tags(monkeypatch):
@@ -679,6 +817,62 @@ def test_circle_member_removed_and_left_pushes_use_distinct_tags_per_member(monk
     removed_tag_2 = captured["notification_tag"]
 
     assert removed_tag_1 != removed_tag_2
+
+
+def test_circle_delivery_uses_one_message_id_for_fcm_and_sse(monkeypatch):
+    captured = _capture_push(monkeypatch)
+    streamed: list[tuple[str, dict]] = []
+    monkeypatch.setattr(
+        "api.consent_listener.publish_user_state_event_threadsafe",
+        lambda user_id, data: streamed.append((user_id, data)) or True,
+    )
+
+    send_circle_member_removed_push(
+        member_user_id="member-1",
+        circle_id="circle-1",
+        circle_name="Family",
+    )
+
+    assert len(streamed) == 1
+    assert streamed[0][0] == "member-1"
+    assert streamed[0][1]["type"] == "location_circle_member_removed"
+    assert streamed[0][1]["message_id"] == captured["data"]["message_id"]
+    assert streamed[0][1]["circle_id"] == "circle-1"
+
+
+def test_circle_renamed_push_can_silently_wake_the_owners_other_devices(monkeypatch):
+    captured = _capture_push(monkeypatch)
+
+    send_circle_renamed_push(
+        user_id="owner-1",
+        circle_id="circle-1",
+        circle_name="Family trip",
+        show_alert=False,
+    )
+
+    assert captured["user_id"] == "owner-1"
+    assert captured["notification_type"] == "location_circle_renamed"
+    assert captured["show_alert"] is False
+    assert captured["data"]["circle_name"] == "Family trip"
+    assert captured["data"]["sync_only"] == "true"
+    assert captured["deep_link"] == (
+        "/one/location?view=people&action=circle-detail&circleId=circle-1"
+    )
+
+
+def test_circle_deleted_push_routes_affected_members_back_to_the_circle_list(monkeypatch):
+    captured = _capture_push(monkeypatch)
+
+    send_circle_deleted_push(
+        user_id="member-1",
+        circle_id="circle-1",
+        circle_name="Family",
+    )
+
+    assert captured["notification_type"] == "location_circle_deleted"
+    assert captured["deep_link"] == "/one/location?view=people"
+    assert captured["body"] == '"Family" was deleted by its owner.'
+    assert "sync_only" not in captured["data"]
 
 
 # ---------------------------------------------------------------------------

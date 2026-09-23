@@ -28,6 +28,7 @@ python3 scripts/ci/test_pkm_upgrade_gate_scope.py
 # instead -- with the operator credential that can genuinely see.
 python3 scripts/ci/verify-deploy-identity-provenance.py --record-only
 python3 scripts/ci/test_verify_deploy_identity_provenance.py
+python3 scripts/ci/test_private_native_artifact.py
 ./bin/hushh docs verify
 ./bin/hushh codex data-model-audit
 python3 scripts/ops/generate_runtime_topology_index.py --check

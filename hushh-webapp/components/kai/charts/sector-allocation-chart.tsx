@@ -23,7 +23,7 @@ import {
   Cell,
   LabelList,
 } from "recharts";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronUp } from "@/components/icons";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { ChartSurfaceCard, SurfaceInset } from "@/components/app-ui/surfaces";
@@ -37,6 +37,8 @@ import {
   ChartTooltip,
   ChartTooltipContent,
   type ChartConfig,
+  CHART_ANIMATION_ACTIVE,
+  CHART_TOOLTIP_TRIGGER,
 } from "@/components/ui/chart";
 
 interface Holding {
@@ -151,7 +153,7 @@ const SectorBarChart = memo(function SectorBarChart({
             width={yAxisWidth}
             tick={{ fontSize: 10, fill: "hsl(var(--foreground) / 0.72)" }}
           />
-          <ChartTooltip
+          <ChartTooltip trigger={CHART_TOOLTIP_TRIGGER}
             cursor={false}
             content={
               <ChartTooltipContent
@@ -182,7 +184,7 @@ const SectorBarChart = memo(function SectorBarChart({
               />
             }
           />
-          <Bar
+          <Bar isAnimationActive={CHART_ANIMATION_ACTIVE}
             dataKey="value"
             radius={[0, 4, 4, 0]}
             animationDuration={550}

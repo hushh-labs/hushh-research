@@ -331,6 +331,42 @@ def _semantic_change_has_deprecation(
     )
 
 
+def _action_change_is_additive(
+    previous: dict[str, Any],
+    graph: dict[str, Any],
+    semantic_id: str,
+) -> bool:
+    """An added spoken alias preserves every older client operation.
+
+    An action's contract is its version, endpoint, executor, inputs,
+    authorization, confirmation and results. Aliases are the phrasings the
+    brain matches a request against: adding one lets more sentences reach the
+    SAME contract and cannot invalidate a paused run, so it is not a breaking
+    change and must not be declared a retirement in the evolution ledger,
+    which would reject in-flight runs for a wording edit.
+
+    Deliberately narrow, on the pattern of the additive workflow rule above:
+    every other field stays byte-for-byte equal, the version does not move,
+    and the previous aliases all survive in their previous relative order --
+    so a removal, a rename or a reordering is still breaking.
+    """
+    old = deepcopy(_semantic_node(previous, semantic_id))
+    new = deepcopy(_semantic_node(graph, semantic_id))
+    if not old or not new or _node_version(old) != _node_version(new):
+        return False
+    old_aliases = old.get("aliases")
+    new_aliases = new.get("aliases")
+    if not isinstance(old_aliases, list) or not isinstance(new_aliases, list):
+        return False
+    if len(new_aliases) <= len(old_aliases):
+        return False
+    survivors = iter(new_aliases)
+    if not all(alias in survivors for alias in old_aliases):
+        return False
+    new["aliases"] = old_aliases
+    return new == old
+
+
 def _workflow_change_has_migration(
     previous: dict[str, Any],
     graph: dict[str, Any],
@@ -534,8 +570,11 @@ def _semantic_diff(
     compatible = sorted(
         item
         for item in changed
-        if item.startswith("workflows:")
-        and _workflow_change_is_additive(previous_graph, graph, item)
+        if (
+            item.startswith("workflows:")
+            and _workflow_change_is_additive(previous_graph, graph, item)
+        )
+        or (item.startswith("actions:") and _action_change_is_additive(previous_graph, graph, item))
     )
     deprecated = sorted(
         item
@@ -815,7 +854,7 @@ def main() -> int:
     if args.check and stale:
         joined = ", ".join(str(path.relative_to(REPO_ROOT)) for path in stale)
         raise SystemExit(
-            f"CapabilityGraphV1 artifacts are stale: {joined}. Run npm run build:voice-gateway."
+            f"CapabilityGraphV1 artifacts are stale: {joined}. Run npm run build:capability-graph."
         )
     print(
         "CapabilityGraphV1 is current "

@@ -7,8 +7,10 @@ import hmac
 import json
 import logging
 import os
+import re
 import secrets
 import uuid
+from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import contextmanager, nullcontext
 from datetime import datetime, timedelta, timezone
@@ -42,6 +44,10 @@ from hushh_mcp.services.people_search_sql import people_query_match_params
 from hushh_mcp.services.ria_status import RIA_VERIFIED_STATUS_SQL
 from hushh_mcp.types import AgentID, UserID
 from mcp_modules.log_redaction import redact_log_field, redact_log_value
+
+# Upper bound on a roster-scoped recipient lookup (``list_verified_recipients``
+# with ``user_ids``); the SMS roster is far smaller, this only caps the IN list.
+SOS_ROSTER_LOOKUP_MAX = 50
 
 logger = logging.getLogger(__name__)
 
@@ -644,7 +650,8 @@ _DIRECTORY_SEPARATOR_FOLD = str.maketrans(_DIRECTORY_SEPARATORS, " " * len(_DIRE
 #: The SQL half of the same fold, written out so a test can assert the
 #: statement below still contains exactly this and nothing has drifted.
 _DIRECTORY_SEPARATOR_SQL = (
-    "TRANSLATE(LOWER(BTRIM(COALESCE(a.display_name, ''))), '{}', '{}')".format(
+    "REGEXP_REPLACE(TRANSLATE(LOWER(BTRIM(COALESCE(a.display_name, ''))), '{}', '{}'), "
+    "'[[:space:]]+', ' ', 'g')".format(
         _DIRECTORY_SEPARATORS.replace("'", "''"),
         " " * len(_DIRECTORY_SEPARATORS),
     )
@@ -1435,6 +1442,29 @@ class OneLocationAgentService:
                 else:
                     self._key_writer_connection = previous_connection
 
+    @contextmanager
+    def sos_incident_guard(self, *, owner_user_id: str) -> Iterator[None]:
+        """Serialize one owner's Save My Soul arming across devices and workers.
+
+        Holds an owner-scoped advisory transaction lock while the caller
+        re-reads the live SOS lane and creates the alert's grants, so two
+        arming attempts that race (voice and voice, two tabs, two workers)
+        cannot both see "nothing active" and each create a full set. The
+        per-pair lane replacement inside ``create_grant`` still guarantees at
+        most one active SOS grant per recipient when a caller bypasses this.
+        Only PostgreSQL has advisory locks; elsewhere this is a no-op.
+        """
+        lock_key = f"one-location-sos-incident:{owner_user_id}"
+        with get_db_connection() as connection:
+            if connection.dialect.name != "postgresql":
+                yield
+                return
+            connection.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0))"),
+                {"lock_key": lock_key},
+            )
+            yield
+
     def _assert_envelope_precision_matches_preference(
         self,
         *,
@@ -1598,6 +1628,7 @@ class OneLocationAgentService:
         notification_tag: str,
         request_url: str,
         data: dict[str, str | None],
+        show_alert: bool = True,
     ) -> bool:
         """Best-effort metadata-only FCM delivery for location workflow state.
 
@@ -1665,7 +1696,7 @@ class OneLocationAgentService:
                     body=body,
                     request_url=request_url,
                     notification_tag=notification_tag,
-                    show_alert=True,
+                    show_alert=show_alert,
                 )
                 _submit_notification_send(
                     messaging=messaging,
@@ -1684,6 +1715,47 @@ class OneLocationAgentService:
                 exc,
             )
             return False
+
+    def _send_settings_sync_notification(self, *, user_id: str, setting: str) -> None:
+        """Wake the owner's other sessions without presenting a notification.
+
+        The payload is deliberately a metadata-only doorbell. Clients must
+        re-read the authenticated resource; preference values never ride the
+        push/SSE transport.
+        """
+        message_id = f"location_settings_changed:{uuid.uuid4()}"
+        data: dict[str, str | None] = {
+            "setting": setting,
+            "sync_only": "true",
+            "message_id": message_id,
+        }
+        try:
+            from api.consent_listener import publish_user_state_event_threadsafe
+
+            publish_user_state_event_threadsafe(
+                user_id,
+                {
+                    "type": "location_settings_changed",
+                    "user_id": user_id,
+                    "request_url": "/one/location?action=settings",
+                    "deep_link": "/one/location?action=settings",
+                    "notification_tag": message_id,
+                    "notification_category": "ONE_LOCATION",
+                    **data,
+                },
+            )
+        except Exception as exc:  # noqa: BLE001 - sync delivery is best-effort
+            logger.warning("one.location.settings_sse_skipped setting=%s error=%s", setting, exc)
+        self._send_metadata_notification(
+            user_id=user_id,
+            notification_type="location_settings_changed",
+            title="Location settings updated",
+            body="Your Location settings changed on another session.",
+            notification_tag=message_id,
+            request_url="/one/location?action=settings",
+            data=data,
+            show_alert=False,
+        )
 
     def _send_push_notification(
         self,
@@ -4194,8 +4266,26 @@ class OneLocationAgentService:
         return self._recipient_payload(row, allow_email_handle=True) or {}
 
     def list_verified_recipients(
-        self, *, owner_user_id: str, limit: int = 50
+        self,
+        *,
+        owner_user_id: str,
+        limit: int = 50,
+        user_ids: Sequence[str] | None = None,
     ) -> list[dict[str, Any]]:
+        # ``user_ids`` narrows the same eligibility predicate to a known set
+        # (the SMS roster, at most a handful of people) so a caller that must
+        # see every one of them never depends on where they fall in the
+        # alphabetical page. It never widens eligibility.
+        wanted = [str(uid) for uid in (user_ids or []) if str(uid or "").strip()][
+            :SOS_ROSTER_LOOKUP_MAX
+        ]
+        id_filter = ""
+        id_params: dict[str, Any] = {}
+        if user_ids is not None:
+            if not wanted:
+                return []
+            id_params = {f"wanted_{index}": uid for index, uid in enumerate(wanted)}
+            id_filter = "AND a.user_id IN (" + ", ".join(f":{key}" for key in id_params) + ")"
         # A recipient is eligible through either the canonical two-way
         # connections graph or shared active named-Circle membership. Neither
         # relationship grants location access: the explicit encrypted grant
@@ -4310,10 +4400,15 @@ class OneLocationAgentService:
                     AND mine.status = 'active'
                 )
               )
+              {id_filter}
             ORDER BY COALESCE(a.display_name, a.phone_number, a.user_id), a.user_id
             LIMIT :limit
-            """,  # nosec B608 - RIA_VERIFIED_STATUS_SQL is a static module constant.
-            {"owner_user_id": owner_user_id, "limit": max(1, min(int(limit), 100))},
+            """,  # nosec B608 - RIA_VERIFIED_STATUS_SQL and id_filter are static/param-only.
+            {
+                "owner_user_id": owner_user_id,
+                "limit": max(1, min(int(limit), 100)),
+                **id_params,
+            },
         )
 
         # Relationship-scoped: the statement above admits a person only on an
@@ -4593,7 +4688,9 @@ class OneLocationAgentService:
         # stored side has already turned it into a space, so matching it as a
         # literal could only ever return nothing. Once folded it is a space, so
         # it reaches LIKE as a space and cannot act as a wildcard either.
-        needle = (query or "").strip().lower().translate(_DIRECTORY_SEPARATOR_FOLD).strip()
+        needle = " ".join(
+            (query or "").strip().lower().translate(_DIRECTORY_SEPARATOR_FOLD).split()
+        )
         target = (candidate_user_id or "").strip() or None
         # An unrecognised audience widens to "all" rather than narrowing: a typo
         # in a caller must not silently hide people who are really there.
@@ -4630,8 +4727,21 @@ class OneLocationAgentService:
         # punctuation someone typed into a profile field.
         name_prefix_pattern = f"{escaped_needle}%"
         word_prefix_pattern = f"% {escaped_needle}%"
+        compact_needle = re.sub(r"[^a-z0-9]", "", needle)
+        escaped_compact_needle = (
+            compact_needle.replace("!", "!!").replace("%", "!%").replace("_", "!_")
+        )
+        email_prefix_pattern = f"{escaped_compact_needle}%"
+        token_prefix_patterns = [
+            f"% {token.replace('!', '!!').replace('%', '!%').replace('_', '!_')}%"
+            for token in needle.split()
+        ]
+        all_tokens_match_sql = f"""NOT EXISTS (
+            SELECT 1 FROM unnest(CAST(:token_prefixes AS TEXT[])) AS query_token(pattern)
+            WHERE (' ' || {_DIRECTORY_SEPARATOR_SQL}) NOT LIKE query_token.pattern ESCAPE '!'
+        )"""  # nosec B608 - static SQL fragments only; every value is a bound parameter.
         rows = self._execute_many(
-            """
+            f"""
             SELECT
               a.user_id, a.display_name, a.email, a.phone_number, a.phone_verified,
               profile.public_person_ref,
@@ -4690,10 +4800,15 @@ class OneLocationAgentService:
               )
               AND (
                 :query = ''
-                OR TRANSLATE(LOWER(BTRIM(COALESCE(a.display_name, ''))), '-''._/,', '      ')
-                     LIKE :name_prefix ESCAPE '!'
-                OR TRANSLATE(LOWER(BTRIM(COALESCE(a.display_name, ''))), '-''._/,', '      ')
-                     LIKE :word_prefix ESCAPE '!'
+                OR {_DIRECTORY_SEPARATOR_SQL} = :exact_name
+                OR {_DIRECTORY_SEPARATOR_SQL} LIKE :name_prefix ESCAPE '!'
+                OR {_DIRECTORY_SEPARATOR_SQL} LIKE :word_prefix ESCAPE '!'
+                OR (:query <> '' AND {all_tokens_match_sql})
+                OR (
+                  :query <> '' AND :email_query <> ''
+                  AND REGEXP_REPLACE(LOWER(BTRIM(COALESCE(a.email, ''))), '[^[:alnum:]]', '', 'g')
+                       LIKE :email_prefix ESCAPE '!'
+                )
               )
               AND (
                 :audience = 'all'
@@ -4710,20 +4825,29 @@ class OneLocationAgentService:
             ORDER BY
               CASE
                 WHEN :query = '' THEN 0
-                WHEN TRANSLATE(LOWER(BTRIM(COALESCE(a.display_name, ''))), '-''._/,', '      ')
-                       LIKE :name_prefix ESCAPE '!' THEN 0
-                ELSE 1
+                WHEN {_DIRECTORY_SEPARATOR_SQL} = :exact_name THEN 0
+                WHEN {_DIRECTORY_SEPARATOR_SQL} LIKE :name_prefix ESCAPE '!' THEN 1
+                WHEN {_DIRECTORY_SEPARATOR_SQL} LIKE :word_prefix ESCAPE '!' THEN 2
+                WHEN :query <> '' AND {all_tokens_match_sql} THEN 2
+                WHEN :query <> '' AND :email_query <> ''
+                  AND REGEXP_REPLACE(LOWER(BTRIM(COALESCE(a.email, ''))), '[^[:alnum:]]', '', 'g')
+                       LIKE :email_prefix ESCAPE '!' THEN 3
+                ELSE 4
               END,
               LOWER(COALESCE(NULLIF(BTRIM(a.display_name), ''), a.phone_number, a.user_id)),
               a.user_id
             LIMIT :fetch_limit OFFSET :offset
-            """,
+            """,  # nosec B608 - static SQL fragments only; every value is a bound parameter.
             {
                 "owner_user_id": owner_user_id,
                 "candidate_user_id": target,
                 "query": needle,
+                "exact_name": needle,
                 "name_prefix": name_prefix_pattern,
                 "word_prefix": word_prefix_pattern,
+                "token_prefixes": token_prefix_patterns,
+                "email_prefix": email_prefix_pattern,
+                "email_query": compact_needle,
                 "audience": requested_audience,
                 "fetch_limit": limit + 1,
                 "offset": offset,
@@ -5593,6 +5717,50 @@ class OneLocationAgentService:
                 status_code=403,
             )
         return cleaned_circle_id
+
+    def _lock_active_normal_grant_authority(
+        self,
+        conn: Any,
+        *,
+        grant_id: str | None,
+        owner_user_id: str,
+        recipient_user_id: str,
+    ) -> bool:
+        """Lock the live non-SOS grant that authorizes an extension ask."""
+        cleaned_grant_id = str(grant_id or "").strip()
+        if not cleaned_grant_id:
+            return False
+        row = (
+            conn.execute(
+                text(
+                    """
+                    SELECT id
+                    FROM one_location_share_grants
+                    WHERE id = CAST(:grant_id AS UUID)
+                      AND owner_user_id = :owner_user_id
+                      AND recipient_user_id = :recipient_user_id
+                      AND status = 'active'
+                      AND (expires_at IS NULL OR expires_at > NOW())
+                    """  # nosec B608 - the appended lane predicate is a
+                    # module-level constant of static SQL and every value,
+                    # including the lane flag, remains a bound parameter.
+                    + _share_lane_match_sql()
+                    + """
+                    LIMIT 1
+                    FOR SHARE
+                    """
+                ),
+                {
+                    "grant_id": cleaned_grant_id,
+                    "owner_user_id": owner_user_id,
+                    "recipient_user_id": recipient_user_id,
+                    "is_sos_lane": False,
+                },
+            )
+            .mappings()
+            .first()
+        )
+        return row is not None
 
     def _create_enforced_grant_row(
         self,
@@ -7078,7 +7246,9 @@ class OneLocationAgentService:
                     ),
                 },
             )
-        return self._auto_approve_preference_payload(stored)
+        payload = self._auto_approve_preference_payload(stored)
+        self._send_settings_sync_notification(user_id=user_id, setting="auto_approve")
+        return payload
 
     @staticmethod
     def _nearby_check_in_preferences_payload(row: dict[str, Any] | None) -> dict[str, Any]:
@@ -7142,7 +7312,9 @@ class OneLocationAgentService:
                 "Could not update Nearby Check-In defaults.",
                 status_code=500,
             )
-        return self._nearby_check_in_preferences_payload(row)
+        payload = self._nearby_check_in_preferences_payload(row)
+        self._send_settings_sync_notification(user_id=user_id, setting="nearby_check_in")
+        return payload
 
     @staticmethod
     def _sos_voice_preference_payload(row: dict[str, Any] | None) -> dict[str, Any]:
@@ -7357,12 +7529,14 @@ class OneLocationAgentService:
                 "renderer_consent_version": renderer_consent_version,
             },
         )
-        return {
+        payload = {
             "presenceMode": str((row or {}).get("presence_mode") or "ghost"),
             "rendererConsentVersion": str((row or {}).get("renderer_consent_version") or "")
             or None,
             "updatedAt": _iso((row or {}).get("updated_at")),
         }
+        self._send_settings_sync_notification(user_id=user_id, setting="map_preferences")
+        return payload
 
     def list_map_state(self, *, user_id: str) -> dict[str, Any]:
         """Read active, freshly published private Map envelopes for the viewer.
@@ -9216,8 +9390,22 @@ class OneLocationAgentService:
         # the emergency (SMS / Save My Soul) lane and every other share, and a
         # person can hold one of each at the same time -- so "a share ended"
         # without naming the lane is genuinely ambiguous to the recipient.
-        revoked_share_kind = str(row.get("share_kind") or "").strip().lower()
-        revoked_via_sms = revoked_share_kind == "sos"
+        #
+        # `share_kind` is not a column on this table: it lives in
+        # `metadata->>'share_kind'`, with the legacy `reason = 'sos_panic'`
+        # marker for rows written before it was persisted -- the same two
+        # sources `_SHARE_LANE_MATCH_SQL` honours. Reading a non-existent
+        # column here made every SOS stop look like an ordinary revoke.
+        revoked_metadata = _loads_json(row.get("metadata"))
+        if not isinstance(revoked_metadata, dict):
+            revoked_metadata = {}
+        stored_share_kind = str(revoked_metadata.get("share_kind") or "").strip().lower()
+        revoked_via_sms = _is_sos_lane(stored_share_kind) or (
+            not stored_share_kind and _classify_share_kind(revoked_metadata.get("reason")) == "sos"
+        )
+        # Only the emergency lane is named; everything else keeps the
+        # "standard" projection it always had (the split is sos vs the rest).
+        revoked_share_kind = "sos" if revoked_via_sms else ""
         self._insert_event(
             owner_user_id=str(row.get("owner_user_id") or owner_user_id),
             actor_user_id=owner_user_id,
@@ -9255,7 +9443,7 @@ class OneLocationAgentService:
         recipient_user_id = str(transition["recipient_user_id"] or "") or None
         owner_label = str(transition["owner_label"] or "")
         recipient_label = str(transition["recipient_label"] or "")
-        revoked_share_kind = str(row.get("share_kind") or transition["revoked_share_kind"] or "")
+        revoked_share_kind = str(transition["revoked_share_kind"] or "")
         revoked_via_sms = bool(transition["revoked_via_sms"])
         notification_user_id = str(
             (recipient_user_id if actor_is_owner else str(row.get("owner_user_id") or "")) or ""
@@ -9687,6 +9875,7 @@ class OneLocationAgentService:
         referred_by_user_id: str | None = None,
         notify_owner: bool = True,
         require_requester_key_material: bool = False,
+        enforce_peer_eligibility: bool = False,
         requested_duration_hours: float | None = None,
         requested_duration_mode: str | None = None,
         extends_grant_id: str | None = None,
@@ -9834,6 +10023,11 @@ class OneLocationAgentService:
                 },
             )
             if operation_id:
+                # A committed operation is a receipt, not a new authorization
+                # attempt. Return an exact replay before consulting current
+                # relationship state: the original response may have been lost
+                # and the peers may have disconnected after the write already
+                # succeeded. Changed inputs still fail closed by fingerprint.
                 prior = self._execute_one(
                     """SELECT *, metadata->'command_operations'->>:operation AS command_fingerprint
                     FROM one_location_access_requests WHERE owner_user_id=:owner AND requester_user_id=:requester
@@ -9854,6 +10048,48 @@ class OneLocationAgentService:
                     if command and not command_prior:
                         command.save(str(prior["id"]))
                     return self._request_payload(prior) or {}
+            if enforce_peer_eligibility:
+                # Direct authenticated Ask flows have the same relationship
+                # boundary as a private share. Lock that relationship inside
+                # this event-bound transaction so connection/Circle removal
+                # either wins first (and this request fails) or waits and then
+                # observes/cancels the committed workflow. Public-link and
+                # referral requests deliberately leave this flag false: their
+                # live invite/grant is the authority instead of a connection.
+                if connection is not None:
+                    try:
+                        self._lock_circle_share_eligibility(
+                            connection,
+                            owner_user_id=owner_user_id,
+                            recipient_user_id=requester_user_id,
+                            requested_circle_id=None,
+                        )
+                    except OneLocationAgentError as error:
+                        if (
+                            error.code != "LOCATION_RECIPIENT_NOT_CONNECTED"
+                            or not self._lock_active_normal_grant_authority(
+                                connection,
+                                grant_id=extends_grant_value,
+                                owner_user_id=owner_user_id,
+                                recipient_user_id=requester_user_id,
+                            )
+                        ):
+                            raise
+                elif not (
+                    self._is_location_peer_eligible(
+                        owner_user_id=owner_user_id,
+                        other_user_id=requester_user_id,
+                    )
+                    or is_extension
+                ):
+                    # In-memory test doubles do not expose the production
+                    # transaction connection; preserve the same fail-closed
+                    # contract through the canonical eligibility predicate.
+                    raise OneLocationAgentError(
+                        "LOCATION_RECIPIENT_NOT_CONNECTED",
+                        LOCATION_PEER_NOT_ELIGIBLE_MESSAGE,
+                        status_code=403,
+                    )
             if command_prior:
                 raise OneLocationAgentError(
                     "LOCATION_OPERATION_CONFLICT",

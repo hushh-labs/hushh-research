@@ -31,6 +31,11 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
 2. Investor and RIA route trees enforce actor gates.
 3. Marketplace tabs render expected public-card data.
 4. Consent request/approve/deny/revoke flows complete end-to-end.
+   For person-to-person requests, verify that only the stored bundle requester
+   receives the metadata-only resolution update, and that a matching unlocked
+   Chat card rereads authority before browser-local encrypted readback. Wrong
+   bundle, revoked grant, locked vault, and unavailable export must not reveal
+   values; notification delivery must not become approval or read authority.
 5. Schema-missing compatibility:
    `GET /api/iam/persona` returns investor-safe `200`,
    `/api/ria/*` and `/api/marketplace/*` return `503 IAM_SCHEMA_NOT_READY`.
@@ -85,6 +90,31 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
     during a pending scan still exposes the named results in the Location hub.
 
 ## Security and Privacy Checks
+
+- Google connection completion rejects a different active provider subject before
+  refresh-token reuse; disconnected accounts require fresh credentials. Cached
+  tokens and grants come from one snapshot; refresh writes compare the original
+  credential generation. A declined service permission creates no grant.
+- Atomic provider/grant publication and an attempt-bound generation fence reject
+  stale same-account callbacks after disconnect/reconnect. The opt-in disposable
+  PostgreSQL suite proves competing publication, rollback, both start/disconnect
+  orderings, in-flight cancellation, stale refresh failures and expiry after lock
+  waits. Native owner/state/permission and web PKCE are tested without provider
+  calls. Real provider/native acceptance and remote revoke ordering remain separate.
+- Drive MCP read adapters require the Drive service grant, pin Google's official
+  endpoint, and reject copy/create and unknown tools even when the cumulative
+  Google token has broader privileges. Chat/native authenticated read acceptance
+  remains separate from these source-level checks.
+- Drive connection routes require authenticated owner matching and read-only
+  permissions; native completion requires bound state. Shared browser completion
+  derives service from its consumed attempt. Wrong-service completion consumes
+  the attempt without provider exchange; unexpected diagnostics are sanitized.
+- Google callback UI admits only the server-confirmed service, checks popup
+  service identity, and never infers a timed-out completion from a prior grant.
+  Real transport tests reject unmount, owner switch and A-to-B-to-A before
+  dispatch. Native Drive SDK requests return only a code; callers still need
+  the backend attempt state and current owner authority. Compilation and source
+  contract checks do not establish provider/native acceptance.
 
 1. No private data leakage in public surfaces.
 2. Audit records include actor/scope/duration metadata.
@@ -144,6 +174,26 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
     `WhenUnlockedThisDeviceOnly`, non-synchronizable, and local-user-presence
     semantics. It is not described as Secure Enclave storage without a
     non-exportable `SecKey` implementation.
+
+## Drive Document Review Checks
+
+1. Consent Center/Feed cache only generic state and opaque request references; private
+   names, recipient identity and coverage load only through owner-protected no-store routes.
+2. Document selection IDs cannot reach generic PKM approval, scope revocation or voice actions.
+3. Approval/removal bind the exact server-reviewed revision and whole file/grant set. Opening
+   a notification or refreshing status never submits a decision.
+4. Dispatch and every chained private read recheck the vault generation. Lock/account changes
+   drop private presentation; acknowledged mutations reconcile even if the next read fails.
+5. Approval acceptance is pending, not proof of Google success. Per-file removal outcomes
+   remain distinct from unrelated permissions and are observed through bounded refreshes.
+6. Missing pre-rollout tables do not break unrelated consent surfaces; real SQL failures
+   are errors, not authoritative empty counts. Recorded access survives execution disablement.
+7. B's requester form reauthenticates the current Google-linked Firebase user, never signs
+   into a substitute account. Owner/epoch changes suppress late submission. Unchanged
+   uncertain retries reuse the request key and never claim an earlier request was unsent.
+8. Public owner references resolve server-side and the domain rechecks the relationship
+   under locks. B's Sent documents projection is separate from A's pending/Needs You count;
+   it reveals no private matches and remains available when creation is disabled.
 
 ## Ecosystem Checks
 

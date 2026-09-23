@@ -8,10 +8,10 @@ export const CONNECT_CONNECTIONS_SUMMARY_TRAILING_CLASSNAME =
   "flex shrink-0 items-center gap-2";
 
 export const CONNECT_CONNECTIONS_SUMMARY_COUNT_CLASSNAME =
-  "min-w-5 text-right text-[14px] font-medium tabular-nums text-[color:var(--app-secondary-label)]";
+  "ui-text-helper-text min-w-5 text-right tabular-nums text-[color:var(--app-secondary-label)]";
 
 export const CONNECT_CONNECTIONS_SUMMARY_CHEVRON_CLASSNAME =
-  "h-4 w-4 shrink-0 text-[color:var(--app-secondary-label)] transition-transform duration-200 ease-out motion-reduce:transition-none group-data-[state=open]/connections:rotate-180";
+  "h-4 w-4 shrink-0 text-[color:var(--app-secondary-label)] transition-transform duration-150 ease-out motion-reduce:transition-none group-data-[state=open]/connections:rotate-180";
 
 /**
  * The app scroll root is the only vertical scroll owner on Connect.

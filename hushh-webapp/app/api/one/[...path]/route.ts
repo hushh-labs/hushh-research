@@ -22,6 +22,14 @@ const ONE_TURN_TIMEOUT_MS = resolveSlowRequestTimeoutMs(165_000, {
   developmentFloorMs: 165_000,
   overrideEnvKey: "HUSHH_ONE_TURN_TIMEOUT_MS",
 });
+const ONE_EMAIL_DRAFT_TIMEOUT_MS = resolveSlowRequestTimeoutMs(75_000, {
+  developmentFloorMs: 75_000,
+  overrideEnvKey: "HUSHH_ONE_EMAIL_DRAFT_TIMEOUT_MS",
+});
+const ONE_KYC_SCAN_TIMEOUT_MS = resolveSlowRequestTimeoutMs(90_000, {
+  developmentFloorMs: 90_000,
+  overrideEnvKey: "HUSHH_ONE_KYC_SCAN_TIMEOUT_MS",
+});
 const ONE_STREAM_TIMEOUT_MS = resolveSlowRequestTimeoutMs(285_000, {
   developmentFloorMs: 285_000,
   overrideEnvKey: "HUSHH_ONE_STREAM_TIMEOUT_MS",
@@ -99,6 +107,8 @@ function resolveOneUpstreamTimeoutMs(
   if (/^u\/[^/]+\/turn$/.test(path)) {
     return ONE_TURN_TIMEOUT_MS;
   }
+  if (path === "email/draft") return ONE_EMAIL_DRAFT_TIMEOUT_MS;
+  if (path === "email/information-requests/scan") return ONE_KYC_SCAN_TIMEOUT_MS;
   // Streaming routes (agent-chat, any `/stream` endpoint, or a caller that
   // asks for text/event-stream) hold open far longer than a JSON call, so the
   // 45s API deadline would sever them mid-body. They get the stream budget.

@@ -32,6 +32,14 @@ The vault key and VAULT_OWNER token remain memory-only. A normal background/resu
 - `AuthProvider` is the only React publication authority for native identity.
   Native restoration and explicit provider settlement may publish a user; the
   Firebase JS observer must not independently mutate native React auth state.
+- Document requests use `HushhAuth.reauthenticateGoogleIdentity` for fresh proof
+  of the **current** Google-linked Firebase user, never replacement sign-in.
+  Native interactive auth admission and callbacks share the main thread;
+  owner/session/phase/deadline fences prevent late results from authorizing a
+  request. Android keeps a timed-out provider result slot quarantined until it
+  drains. Only Firebase proof returns to the guarded service; no Google token
+  persistence or new React identity publication is added. This bridge is not
+  native Drive OAuth, Picker, recovery, or authenticated-provider acceptance.
 - A completed Apple/Google provider result enters a post-auth settlement before
   setup or vault guards can render. The provider-issued Firebase ID token is
   reused for the authoritative pre-vault bootstrap, and the settlement ends
@@ -186,4 +194,5 @@ host stops.
 
 - [capacitor-parity-audit.md](./capacitor-parity-audit.md): parity contract and audit gate.
 - [capacitor-parity-audit-report.md](./capacitor-parity-audit-report.md): latest release-ready audit findings.
+- [render-performance-charter.md](./render-performance-charter.md): the frame-pacing bar in numbers, the in-app probe, the native instruments, and the ratchet that defends it.
 - [../architecture/frontend-native-surface-map.md](../architecture/frontend-native-surface-map.md): route to API/native/plugin/voice mapper scaffold.

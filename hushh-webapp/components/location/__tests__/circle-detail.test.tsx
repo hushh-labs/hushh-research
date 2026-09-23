@@ -53,8 +53,9 @@ vi.mock("@/lib/vault/vault-context", () => ({
 }));
 vi.mock("@/lib/one-location/service", () => ({ OneLocationService: service }));
 vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: toast }));
+const publishSurface = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/voice/voice-surface-metadata", () => ({
-  usePublishVoiceSurfaceMetadata: vi.fn(),
+  usePublishVoiceSurfaceMetadata: publishSurface,
 }));
 vi.mock("@/lib/voice/location-voice-actions", () => ({
   deriveLocationVoiceActions: () => [],
@@ -152,6 +153,21 @@ describe("CircleDetail", () => {
     ).toBe(`/one/location?action=invite-circle&circle=${CIRCLE_ID}`);
   });
 
+  it("publishes this circle's id to voice as a typed field, never as screen state", async () => {
+    render(<CircleDetail circleId={CIRCLE_ID} />);
+    await screen.findByTestId("circle-name");
+    const published = publishSurface.mock.calls
+      .map((call) => call[0])
+      .filter((meta): meta is Record<string, unknown> => Boolean(meta));
+    expect(published.length).toBeGreaterThan(0);
+    for (const meta of published) {
+      expect(meta.screenId).toBe("one_location_circle");
+      expect(meta.activeCircleId).toBe(CIRCLE_ID);
+      // The id rides its own field; screenState is prompt text and carries none.
+      expect(JSON.stringify(meta.screenState ?? {})).not.toContain(CIRCLE_ID);
+    }
+  });
+
   it("hides owner tools when the server's capabilities say so", async () => {
     service.getCircleOverview.mockResolvedValue(
       overview({
@@ -172,9 +188,12 @@ describe("CircleDetail", () => {
     expect(screen.queryByRole("link", { name: /Invite people/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /Delete circle/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /Rename circle/ })).toBeNull();
+    const leaveCircle = screen.getByRole("button", { name: /Leave circle/ });
+    expect(leaveCircle).toHaveClass("w-full", "max-w-[320px]");
+    expect(leaveCircle.parentElement).toHaveClass("justify-end");
     expect(
-      screen.getByRole("button", { name: /Leave circle/ }),
-    ).toBeInTheDocument();
+      screen.getByTestId("circle-leave-icon").querySelector('[opacity="0.2"]'),
+    ).toBeNull();
   });
 
   it("leaves the screen only when the server resolves delete_circle as executed", async () => {

@@ -1,13 +1,14 @@
 "use client";
 
 import { useMemo } from "react";
-import { TrendingUp, Calendar } from "lucide-react";
+import { TrendingUp, Calendar } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/lib/morphy-ux/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
+import { CHART_ANIMATION_ACTIVE, CHART_TOOLTIP_TRIGGER, CHART_RESIZE_DEBOUNCE_MS } from "@/components/ui/chart";
 
 // =============================================================================
 // TYPES
@@ -91,7 +92,7 @@ export function ProjectionsCard({ projections, className, isLoading }: Projectio
   if (!cashFlow?.length && !mrd) return null;
 
   return (
-    <Card className={cn("w-full transition-all duration-300 hover:border-primary/20", className)}>
+    <Card className={cn("w-full transition-[background-color,border-color,box-shadow,transform] duration-150 hover:border-primary/20", className)}>
       <CardHeader className="pb-2 flex flex-row items-center justify-between">
         <div className="flex items-center gap-2">
           <Icon icon={TrendingUp} size="md" className="text-primary" />
@@ -116,15 +117,15 @@ export function ProjectionsCard({ projections, className, isLoading }: Projectio
             </div>
 
             <div className="h-[140px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer debounce={CHART_RESIZE_DEBOUNCE_MS} width="100%" height="100%">
                 <BarChart data={cashFlow}>
                   <XAxis dataKey="month" hide />
-                  <Tooltip cursor={{ fill: 'transparent' }} content={({ payload }) => (
+                  <Tooltip trigger={CHART_TOOLTIP_TRIGGER} cursor={{ fill: 'transparent' }} content={({ payload }) => (
                     <div className="bg-background border p-2 text-xs rounded shadow-md">
                       {payload?.[0]?.payload.month}: {formatCurrency(payload?.[0]?.value as number)}
                     </div>
                   )} />
-                  <Bar dataKey="projected_income" radius={[4, 4, 0, 0]}>
+                  <Bar isAnimationActive={CHART_ANIMATION_ACTIVE} dataKey="projected_income" radius={[4, 4, 0, 0]}>
                     {cashFlow.map((entry, i) => (
                       <Cell key={i} fill={entry.projected_income >= stats.avg ? "hsl(var(--primary))" : "hsl(var(--muted))"} />
                     ))}

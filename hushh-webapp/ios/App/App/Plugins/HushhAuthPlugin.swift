@@ -6,6 +6,79 @@ import GoogleSignIn
 import AuthenticationServices
 import CryptoKit
 
+/// Metadata-only, single-use callback fence. No credential or draft is stored.
+final class GoogleIdentityReauthenticationFence {
+    enum Claim { case accepted, ignored, stale }
+    let expectedUserID: String
+    let deadline: TimeInterval
+    private(set) var phase = 0
+    private(set) var settled = false
+    private(set) var providerOutstanding = true
+    var canRelease: Bool { settled && !providerOutstanding }
+
+    init(expectedUserID: String, now: TimeInterval) {
+        self.expectedUserID = expectedUserID
+        deadline = now + 120
+    }
+
+    func claim(phase expectedPhase: Int, userID: String?, sameSession: Bool, now: TimeInterval) -> Claim {
+        guard !settled, phase == expectedPhase else { return .ignored }
+        guard sameSession, userID == expectedUserID, now < deadline else { return .stale }
+        phase += 1
+        return .accepted
+    }
+
+    @discardableResult func settle() -> Bool {
+        guard !settled else { return false }
+        settled = true
+        return true
+    }
+
+    @discardableResult func drainProvider() -> Bool {
+        guard providerOutstanding else { return false }
+        providerOutstanding = false
+        return true
+    }
+}
+
+/// Single-use metadata fence for the Drive system-browser return. It contains
+/// no provider credential, OAuth code, state, or persisted attempt material.
+final class NativeDriveAuthorizationFence {
+    enum Claim { case accepted, ignored, stale }
+    let expectedUserID: String
+    let expectedAttemptID: String
+    let deadline: TimeInterval
+    private(set) var settled = false
+    private(set) var providerOutstanding = true
+    var canRelease: Bool { settled && !providerOutstanding }
+
+    init(expectedUserID: String, expectedAttemptID: String, expiresAtMilliseconds: Double) {
+        self.expectedUserID = expectedUserID
+        self.expectedAttemptID = expectedAttemptID
+        deadline = expiresAtMilliseconds / 1_000
+    }
+
+    func claim(attemptID: String?, userID: String?, sameSession: Bool, now: TimeInterval) -> Claim {
+        guard !settled else { return .ignored }
+        guard sameSession, userID == expectedUserID, attemptID == expectedAttemptID, now < deadline else {
+            return .stale
+        }
+        return .accepted
+    }
+
+    @discardableResult func settle() -> Bool {
+        guard !settled else { return false }
+        settled = true
+        return true
+    }
+
+    @discardableResult func drainProvider() -> Bool {
+        guard providerOutstanding else { return false }
+        providerOutstanding = false
+        return true
+    }
+}
+
 /**
  * HushhAuthPlugin - Native iOS Authentication (Capacitor 8)
  *
@@ -44,8 +117,11 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
     public let jsName = "HushhAuth"
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "signIn", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "reauthenticateGoogleIdentity", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "connectGmail", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "connectCalendar", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "connectDrive", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "pickDriveFiles", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "signInWithApple", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "signOut", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getIdToken", returnType: CAPPluginReturnPromise),
@@ -57,6 +133,77 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
     private let TAG = "HushhAuth"
     private var currentIdToken: String?
     private var currentAccessToken: String?
+    private var googleInteractiveInFlight = false
+    private final class IdentityReauthentication {
+        let call: CAPPluginCall
+        let user: FirebaseAuth.User
+        let googleSubject: String
+        let fence: GoogleIdentityReauthenticationFence
+
+        init(call: CAPPluginCall, user: FirebaseAuth.User, googleSubject: String) {
+            self.call = call
+            self.user = user
+            self.googleSubject = googleSubject
+            fence = GoogleIdentityReauthenticationFence(
+                expectedUserID: user.uid, now: ProcessInfo.processInfo.systemUptime
+            )
+        }
+    }
+    private var identityReauthentication: IdentityReauthentication?
+    private final class DriveAuthorization: NSObject, ASWebAuthenticationPresentationContextProviding {
+        let call: CAPPluginCall
+        let user: FirebaseAuth.User
+        let fence: NativeDriveAuthorizationFence
+        weak var presenter: UIViewController?
+        var session: ASWebAuthenticationSession?
+        var timeout: DispatchWorkItem?
+
+        init(call: CAPPluginCall, user: FirebaseAuth.User, attemptID: String,
+             expiresAtMilliseconds: Double, presenter: UIViewController) {
+            self.call = call
+            self.user = user
+            self.presenter = presenter
+            fence = NativeDriveAuthorizationFence(
+                expectedUserID: user.uid,
+                expectedAttemptID: attemptID,
+                expiresAtMilliseconds: expiresAtMilliseconds
+            )
+        }
+
+        func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+            presenter?.view.window ?? UIWindow()
+        }
+    }
+    private var driveAuthorization: DriveAuthorization?
+    /// Kept distinct from connection activation: a picker callback stages
+    /// candidate metadata on the server and still needs an explicit owner
+    /// confirmation in the web UI. Neither OAuth material nor file ids return
+    /// through this bridge.
+    private final class DrivePickerAuthorization: NSObject, ASWebAuthenticationPresentationContextProviding {
+        let call: CAPPluginCall
+        let user: FirebaseAuth.User
+        let fence: NativeDriveAuthorizationFence
+        weak var presenter: UIViewController?
+        var session: ASWebAuthenticationSession?
+        var timeout: DispatchWorkItem?
+
+        init(call: CAPPluginCall, user: FirebaseAuth.User, attemptID: String,
+             expiresAtMilliseconds: Double, presenter: UIViewController) {
+            self.call = call
+            self.user = user
+            self.presenter = presenter
+            fence = NativeDriveAuthorizationFence(
+                expectedUserID: user.uid,
+                expectedAttemptID: attemptID,
+                expiresAtMilliseconds: expiresAtMilliseconds
+            )
+        }
+
+        func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+            presenter?.view.window ?? UIWindow()
+        }
+    }
+    private var drivePickerAuthorization: DrivePickerAuthorization?
 
     // Apple Sign-In properties
     private var currentNonce: String?
@@ -278,6 +425,16 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
     
     // MARK: - Sign In
     @objc func signIn(_ call: CAPPluginCall) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { self.signIn(call) }
+            return
+        }
+        guard driveAuthorization == nil, drivePickerAuthorization == nil,
+              identityReauthentication == nil,
+              !googleInteractiveInFlight, appleSignInCall == nil else {
+            call.reject("Identity verification is already in progress.", "identity_busy")
+            return
+        }
         print("🤖 [\(TAG)] signIn() CALLED - Native plugin invoked!")
 
         guard ensureFirebaseConfigured() else {
@@ -298,6 +455,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         
+        googleInteractiveInFlight = true
         let config = GIDConfiguration(clientID: clientId)
         GIDSignIn.sharedInstance.configuration = config
         
@@ -305,6 +463,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
             guard let self = self else { return }
             
             if let error = error {
+                self.googleInteractiveInFlight = false
                 print("❌ [\(self.TAG)] Google Sign-In failed")
                 call.reject("Sign-in failed: \(error.localizedDescription)")
                 return
@@ -312,6 +471,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
             
             guard let user = result?.user,
                   let idToken = user.idToken?.tokenString else {
+                self.googleInteractiveInFlight = false
                 call.reject("No ID token received from Google")
                 return
             }
@@ -324,12 +484,14 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
             
             Auth.auth().signIn(with: credential) { authResult, error in
                 if let error = error {
+                    self.googleInteractiveInFlight = false
                     print("❌ [\(self.TAG)] Firebase sign-in failed")
                     call.reject("Firebase sign-in failed: \(error.localizedDescription)")
                     return
                 }
                 
                 guard let firebaseUser = authResult?.user else {
+                    self.googleInteractiveInFlight = false
                     call.reject("No Firebase user returned")
                     return
                 }
@@ -338,6 +500,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
                 
                 // Get Firebase ID token
                 firebaseUser.getIDToken { firebaseIdToken, error in
+                    defer { self.googleInteractiveInFlight = false }
                     if let error = error {
                         call.reject("Failed to get Firebase ID token: \(error.localizedDescription)")
                         return
@@ -391,6 +554,16 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
     /// The one-time server authorization code is returned to JavaScript only so
     /// it can be exchanged immediately by the authenticated backend.
     @objc func connectGmail(_ call: CAPPluginCall) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { self.connectGmail(call) }
+            return
+        }
+        guard driveAuthorization == nil, drivePickerAuthorization == nil,
+              identityReauthentication == nil,
+              !googleInteractiveInFlight, appleSignInCall == nil else {
+            call.reject("Identity verification is already in progress.", "identity_busy")
+            return
+        }
         guard ensureFirebaseConfigured() else {
             call.reject("Missing GoogleService-Info.plist (Firebase not configured)")
             return
@@ -414,6 +587,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
 
+        googleInteractiveInFlight = true
         let configuration = GIDConfiguration(
             clientID: clientId,
             serverClientID: serverClientId
@@ -430,12 +604,13 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
             hint: nil,
             additionalScopes: gmailScopes
         ) { result, error in
+            defer { self.googleInteractiveInFlight = false }
             if let error = error {
                 // kGIDSignInErrorCodeCanceled is -5. Avoid surfacing the SDK
                 // error string so a normal cancellation remains a calm UI state.
                 let isCanceled = (error as NSError).code == -5
                 call.reject(
-                    isCanceled ? "Gmail connection was cancelled" : "Gmail sign-in failed: \(error.localizedDescription)",
+                    isCanceled ? "Mail connection was cancelled" : "Mail sign-in failed: \(error.localizedDescription)",
                     isCanceled ? "USER_CANCELLED" : nil
                 )
                 return
@@ -443,7 +618,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
 
             guard let serverAuthCode = result?.serverAuthCode,
                   !serverAuthCode.isEmpty else {
-                call.reject("Google did not return a Gmail authorization code")
+                call.reject("Google did not return a Mail authorization code")
                 return
             }
 
@@ -454,6 +629,16 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
     /// Requests Calendar consent through the native Google SDK. The only value
     /// returned to JavaScript is the single-use code exchanged by the backend.
     @objc func connectCalendar(_ call: CAPPluginCall) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { self.connectCalendar(call) }
+            return
+        }
+        guard driveAuthorization == nil, drivePickerAuthorization == nil,
+              identityReauthentication == nil,
+              !googleInteractiveInFlight, appleSignInCall == nil else {
+            call.reject("Identity verification is already in progress.", "identity_busy")
+            return
+        }
         guard ensureFirebaseConfigured() else {
             call.reject("Missing GoogleService-Info.plist (Firebase not configured)")
             return
@@ -479,6 +664,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
 
+        googleInteractiveInFlight = true
         GIDSignIn.sharedInstance.configuration = GIDConfiguration(
             clientID: clientId,
             serverClientID: serverClientId
@@ -491,6 +677,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
             hint: nil,
             additionalScopes: [eventScope, "https://www.googleapis.com/auth/calendar.freebusy"]
         ) { result, error in
+            defer { self.googleInteractiveInFlight = false }
             if let error = error {
                 let isCanceled = (error as NSError).code == -5
                 call.reject(
@@ -508,8 +695,396 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
     
+    // MARK: - Native Drive OAuth
+    @objc func connectDrive(_ call: CAPPluginCall) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { self.connectDrive(call) }
+            return
+        }
+        guard driveAuthorization == nil, drivePickerAuthorization == nil,
+              identityReauthentication == nil,
+              !googleInteractiveInFlight, appleSignInCall == nil else {
+            call.reject("Another identity action is already in progress.", "identity_busy")
+            return
+        }
+        guard let authorizeURL = call.getString("authorizeUrl").flatMap(URL.init(string:)),
+              isTrustedDriveAuthorizeURL(authorizeURL),
+              let attemptID = call.getString("attemptId"), isOpaqueDriveAttemptID(attemptID),
+              let expectedUserID = call.getString("expectedUserId"), !expectedUserID.isEmpty,
+              let expiresAt = call.getDouble("expiresAt"),
+              expiresAt > Date().timeIntervalSince1970 * 1_000,
+              expiresAt <= Date().timeIntervalSince1970 * 1_000 + 11 * 60 * 1_000,
+              let user = Auth.auth().currentUser, user.uid == expectedUserID,
+              let presenter = bridge?.viewController else {
+            call.reject("Drive connection is unavailable.", "drive_connection_unavailable")
+            return
+        }
+
+        let operation = DriveAuthorization(
+            call: call, user: user, attemptID: attemptID,
+            expiresAtMilliseconds: expiresAt, presenter: presenter
+        )
+        driveAuthorization = operation
+        let timeout = DispatchWorkItem { [weak self, weak operation] in
+            guard let self, let operation else { return }
+            self.settleDriveAuthorization(operation, outcome: "failed", drainProvider: false)
+        }
+        operation.timeout = timeout
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + max(0, expiresAt / 1_000 - Date().timeIntervalSince1970),
+            execute: timeout
+        )
+
+        let session = ASWebAuthenticationSession(
+            url: authorizeURL,
+            callbackURLScheme: "hushh"
+        ) { [weak self, weak operation] callbackURL, error in
+            DispatchQueue.main.async {
+                guard let self, let operation else { return }
+                guard operation.fence.drainProvider() else { return }
+                if operation.fence.settled {
+                    if operation.fence.canRelease, self.driveAuthorization === operation {
+                        self.driveAuthorization = nil
+                    }
+                    return
+                }
+                guard error == nil else {
+                    let outcome: String
+                    if let authError = error as? ASWebAuthenticationSessionError,
+                       authError.code == .canceledLogin {
+                        outcome = "cancelled"
+                    } else {
+                        outcome = "failed"
+                    }
+                    self.settleDriveAuthorization(operation, outcome: outcome, drainProvider: false)
+                    return
+                }
+                let result = callbackURL.flatMap(self.parseNativeDriveReturn)
+                guard let result else {
+                    self.settleDriveAuthorization(operation, outcome: "failed", drainProvider: false)
+                    return
+                }
+                guard self.claimDriveAuthorization(operation, attemptID: result.attemptId) == .accepted else {
+                    self.settleDriveAuthorization(operation, outcome: "failed", drainProvider: false)
+                    return
+                }
+                self.settleDriveAuthorization(operation, outcome: result.outcome, drainProvider: false)
+            }
+        }
+        operation.session = session
+        session.presentationContextProvider = operation
+        if !session.start() {
+            settleDriveAuthorization(operation, outcome: "failed", drainProvider: true)
+        }
+    }
+
+    private func isTrustedDriveAuthorizeURL(_ url: URL) -> Bool {
+        url.scheme == "https" && url.host == "accounts.google.com" &&
+            url.path == "/o/oauth2/v2/auth" && url.user == nil &&
+            url.password == nil && url.port == nil && url.fragment == nil
+    }
+
+    private func isOpaqueDriveAttemptID(_ value: String) -> Bool {
+        value.range(of: "^[A-Za-z0-9_-]{16,128}$", options: .regularExpression) != nil
+    }
+
+    private func parseNativeDriveReturn(_ url: URL) -> (attemptId: String, outcome: String)? {
+        guard url.scheme == "hushh", url.host == "connectors", url.path == "/return",
+              url.user == nil, url.password == nil, url.port == nil, url.fragment == nil,
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let items = components.queryItems, items.count == 2 else {
+            return nil
+        }
+        let attempts = items.filter { $0.name == "attemptId" }.compactMap(\.value)
+        let outcomes = items.filter { $0.name == "outcome" }.compactMap(\.value)
+        guard attempts.count == 1, outcomes.count == 1, isOpaqueDriveAttemptID(attempts[0]),
+              ["ready", "cancelled", "failed"].contains(outcomes[0]) else {
+            return nil
+        }
+        return (attempts[0], outcomes[0])
+    }
+
+    private func claimDriveAuthorization(
+        _ operation: DriveAuthorization, attemptID: String
+    ) -> NativeDriveAuthorizationFence.Claim {
+        guard driveAuthorization === operation else { return .ignored }
+        let user = Auth.auth().currentUser
+        return operation.fence.claim(
+            attemptID: attemptID,
+            userID: user?.uid,
+            sameSession: user === operation.user,
+            now: Date().timeIntervalSince1970
+        )
+    }
+
+    private func settleDriveAuthorization(
+        _ operation: DriveAuthorization, outcome: String, drainProvider: Bool
+    ) {
+        if drainProvider { _ = operation.fence.drainProvider() }
+        guard operation.fence.settle() else { return }
+        operation.timeout?.cancel()
+        if outcome == "failed" { operation.session?.cancel() }
+        if operation.fence.canRelease, driveAuthorization === operation {
+            driveAuthorization = nil
+        }
+        operation.call.resolve([
+            "attemptId": operation.fence.expectedAttemptID,
+            "outcome": outcome
+        ])
+    }
+
+    // MARK: - Native Drive selected-file Picker
+    //
+    // This is intentionally not folded into connectDrive. A successful Picker
+    // callback only tells the app that the backend staged safe candidate
+    // metadata. The owner must still review and explicitly add those files.
+    @objc func pickDriveFiles(_ call: CAPPluginCall) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { self.pickDriveFiles(call) }
+            return
+        }
+        guard driveAuthorization == nil, drivePickerAuthorization == nil,
+              identityReauthentication == nil, !googleInteractiveInFlight,
+              appleSignInCall == nil else {
+            call.reject("Another identity action is already in progress.", "identity_busy")
+            return
+        }
+        guard let authorizeURL = call.getString("authorizeUrl").flatMap(URL.init(string:)),
+              isTrustedDriveAuthorizeURL(authorizeURL),
+              let attemptID = call.getString("attemptId"), isOpaqueDriveAttemptID(attemptID),
+              let expectedUserID = call.getString("expectedUserId"), !expectedUserID.isEmpty,
+              let expiresAt = call.getDouble("expiresAt"),
+              expiresAt > Date().timeIntervalSince1970 * 1_000,
+              expiresAt <= Date().timeIntervalSince1970 * 1_000 + 11 * 60 * 1_000,
+              let user = Auth.auth().currentUser, user.uid == expectedUserID,
+              let presenter = bridge?.viewController else {
+            call.reject("Drive file selection is unavailable.", "drive_picker_unavailable")
+            return
+        }
+
+        let operation = DrivePickerAuthorization(
+            call: call, user: user, attemptID: attemptID,
+            expiresAtMilliseconds: expiresAt, presenter: presenter
+        )
+        drivePickerAuthorization = operation
+        let timeout = DispatchWorkItem { [weak self, weak operation] in
+            guard let self, let operation else { return }
+            self.settleDrivePickerAuthorization(operation, outcome: "failed", drainProvider: false)
+        }
+        operation.timeout = timeout
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + max(0, expiresAt / 1_000 - Date().timeIntervalSince1970),
+            execute: timeout
+        )
+
+        let session = ASWebAuthenticationSession(
+            url: authorizeURL,
+            callbackURLScheme: "hushh"
+        ) { [weak self, weak operation] callbackURL, error in
+            DispatchQueue.main.async {
+                guard let self, let operation else { return }
+                guard operation.fence.drainProvider() else { return }
+                if operation.fence.settled {
+                    if operation.fence.canRelease, self.drivePickerAuthorization === operation {
+                        self.drivePickerAuthorization = nil
+                    }
+                    return
+                }
+                guard error == nil else {
+                    let outcome: String
+                    if let authError = error as? ASWebAuthenticationSessionError,
+                       authError.code == .canceledLogin {
+                        outcome = "cancelled"
+                    } else {
+                        outcome = "failed"
+                    }
+                    self.settleDrivePickerAuthorization(operation, outcome: outcome, drainProvider: false)
+                    return
+                }
+                let result = callbackURL.flatMap(self.parseNativeDrivePickerReturn)
+                guard let result else {
+                    self.settleDrivePickerAuthorization(operation, outcome: "failed", drainProvider: false)
+                    return
+                }
+                guard self.claimDrivePickerAuthorization(operation, attemptID: result.attemptId) == .accepted else {
+                    self.settleDrivePickerAuthorization(operation, outcome: "failed", drainProvider: false)
+                    return
+                }
+                self.settleDrivePickerAuthorization(operation, outcome: result.outcome, drainProvider: false)
+            }
+        }
+        operation.session = session
+        session.presentationContextProvider = operation
+        if !session.start() {
+            settleDrivePickerAuthorization(operation, outcome: "failed", drainProvider: true)
+        }
+    }
+
+    private func parseNativeDrivePickerReturn(_ url: URL) -> (attemptId: String, outcome: String)? {
+        guard url.scheme == "hushh", url.host == "connectors", url.path == "/picker-return",
+              url.user == nil, url.password == nil, url.port == nil, url.fragment == nil,
+              let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+              let items = components.queryItems, items.count == 2 else {
+            return nil
+        }
+        let attempts = items.filter { $0.name == "attemptId" }.compactMap(\.value)
+        let outcomes = items.filter { $0.name == "outcome" }.compactMap(\.value)
+        guard attempts.count == 1, outcomes.count == 1, isOpaqueDriveAttemptID(attempts[0]),
+              ["ready", "cancelled", "failed"].contains(outcomes[0]) else {
+            return nil
+        }
+        return (attempts[0], outcomes[0])
+    }
+
+    private func claimDrivePickerAuthorization(
+        _ operation: DrivePickerAuthorization, attemptID: String
+    ) -> NativeDriveAuthorizationFence.Claim {
+        guard drivePickerAuthorization === operation else { return .ignored }
+        let user = Auth.auth().currentUser
+        return operation.fence.claim(
+            attemptID: attemptID,
+            userID: user?.uid,
+            sameSession: user === operation.user,
+            now: Date().timeIntervalSince1970
+        )
+    }
+
+    private func settleDrivePickerAuthorization(
+        _ operation: DrivePickerAuthorization, outcome: String, drainProvider: Bool
+    ) {
+        if drainProvider { _ = operation.fence.drainProvider() }
+        guard operation.fence.settle() else { return }
+        operation.timeout?.cancel()
+        if outcome == "failed" { operation.session?.cancel() }
+        if operation.fence.canRelease, drivePickerAuthorization === operation {
+            drivePickerAuthorization = nil
+        }
+        operation.call.resolve([
+            "attemptId": operation.fence.expectedAttemptID,
+            "outcome": outcome
+        ])
+    }
+
+    // MARK: - Fresh same-user Google proof
+    @objc func reauthenticateGoogleIdentity(_ call: CAPPluginCall) {
+        DispatchQueue.main.async { [weak self] in
+            self?.startIdentityReauthentication(call)
+        }
+    }
+
+    private func startIdentityReauthentication(_ call: CAPPluginCall) {
+        guard driveAuthorization == nil, drivePickerAuthorization == nil,
+              identityReauthentication == nil,
+              !googleInteractiveInFlight, appleSignInCall == nil else {
+            call.reject("Identity verification is already in progress.", "identity_busy")
+            return
+        }
+        guard ensureFirebaseConfigured(),
+              let expectedUserID = call.getString("expectedUserId"), !expectedUserID.isEmpty,
+              let user = Auth.auth().currentUser, user.uid == expectedUserID,
+              let google = user.providerData.first(where: { $0.providerID == "google.com" }) else {
+            call.reject("Verify the current Google identity.", "google_identity_required")
+            return
+        }
+        guard let presenter = bridge?.viewController,
+              let clientID = FirebaseApp.app()?.options.clientID, !clientID.isEmpty else {
+            call.reject("Identity verification is unavailable.", "identity_verification_failed")
+            return
+        }
+        let operation = IdentityReauthentication(call: call, user: user, googleSubject: google.uid)
+        identityReauthentication = operation
+        GIDSignIn.sharedInstance.configuration = GIDConfiguration(clientID: clientID)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 120) { [weak self, weak operation] in
+            guard let self, let operation else { return }
+            self.finishIdentity(operation, code: "identity_timeout")
+        }
+        GIDSignIn.sharedInstance.signIn(withPresenting: presenter, hint: user.email) { [weak self] result, error in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                guard operation.fence.drainProvider() else { return }
+                if operation.fence.settled {
+                    if self.identityReauthentication === operation { self.identityReauthentication = nil }
+                    return
+                }
+                guard self.claimIdentity(operation, phase: 0) else { return }
+                guard error == nil, let googleUser = result?.user,
+                      let idToken = googleUser.idToken?.tokenString, !idToken.isEmpty else {
+                    self.finishIdentity(operation, code: (error as NSError?)?.code == -5
+                        ? "identity_cancelled" : "identity_verification_failed")
+                    return
+                }
+                guard googleUser.userID == operation.googleSubject else {
+                    self.finishIdentity(operation, code: "identity_mismatch")
+                    return
+                }
+                let credential = GoogleAuthProvider.credential(
+                    withIDToken: idToken, accessToken: googleUser.accessToken.tokenString
+                )
+                // Reauthenticate the captured user; never sign in a replacement.
+                operation.user.reauthenticate(with: credential) { result, error in
+                    DispatchQueue.main.async {
+                        guard self.claimIdentity(operation, phase: 1) else { return }
+                        guard error == nil, result?.user.uid == operation.fence.expectedUserID else {
+                            self.finishIdentity(operation, code: "identity_verification_failed")
+                            return
+                        }
+                        operation.user.getIDTokenForcingRefresh(true) { token, error in
+                            DispatchQueue.main.async {
+                                guard self.claimIdentity(operation, phase: 2) else { return }
+                                guard error == nil, let token, !token.isEmpty else {
+                                    self.finishIdentity(operation, code: "identity_verification_failed")
+                                    return
+                                }
+                                guard operation.fence.settle() else { return }
+                                self.identityReauthentication = nil
+                                // Return only fresh Firebase proof. No Google credential,
+                                // keychain write, cached fallback, or identity publication.
+                                operation.call.resolve(["userId": operation.user.uid, "idToken": token])
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func claimIdentity(_ operation: IdentityReauthentication, phase: Int) -> Bool {
+        guard identityReauthentication === operation else { return false }
+        let current = Auth.auth().currentUser
+        switch operation.fence.claim(
+            phase: phase, userID: current?.uid, sameSession: current === operation.user,
+            now: ProcessInfo.processInfo.systemUptime
+        ) {
+        case .accepted: return true
+        case .ignored: return false
+        case .stale:
+            finishIdentity(operation, code: "session_changed")
+            return false
+        }
+    }
+
+    private func finishIdentity(_ operation: IdentityReauthentication, code: String) {
+        guard operation.fence.settle() else { return }
+        // Keep an outstanding Google presentation reserved until its callback drains.
+        if operation.fence.canRelease, identityReauthentication === operation {
+            identityReauthentication = nil
+        }
+        operation.call.reject("Google identity verification did not complete.", code)
+    }
+
     // MARK: - Sign Out
     @objc func signOut(_ call: CAPPluginCall) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { self.signOut(call) }
+            return
+        }
+        if let operation = identityReauthentication { finishIdentity(operation, code: "session_changed") }
+        if let operation = driveAuthorization {
+            settleDriveAuthorization(operation, outcome: "failed", drainProvider: false)
+        }
+        if let operation = drivePickerAuthorization {
+            settleDrivePickerAuthorization(operation, outcome: "failed", drainProvider: false)
+        }
         print("🤖 [\(TAG)] signOut() called")
         
         // Sign out from Firebase
@@ -654,6 +1229,16 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
     
     // MARK: - Apple Sign In
     @objc func signInWithApple(_ call: CAPPluginCall) {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { self.signInWithApple(call) }
+            return
+        }
+        guard driveAuthorization == nil, drivePickerAuthorization == nil,
+              identityReauthentication == nil,
+              !googleInteractiveInFlight, appleSignInCall == nil else {
+            call.reject("Identity verification is already in progress.", "identity_busy")
+            return
+        }
         print("🍎 [\(TAG)] signInWithApple() CALLED - Native plugin invoked!")
         
         appleSignInCall = call

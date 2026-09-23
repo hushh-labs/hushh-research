@@ -212,6 +212,15 @@ class ConsentScope(str, Enum):
 
         # Check dynamic scopes
         if cls.is_dynamic_scope(scope):
+            # Dynamic paths may carry the two PKM collection markers, but only
+            # at their authored manifest positions. Keep token validation in
+            # lockstep with discovery so malformed structural paths cannot be
+            # issued even when they arrive through an old pending request.
+            from hushh_mcp.consent.internal_path_keys import is_internal_manifest_path
+
+            dynamic_path = str(scope).split(".", 2)[-1].removesuffix(".*")
+            if is_internal_manifest_path(dynamic_path):
+                return False
             # Import here to avoid circular dependency
             from hushh_mcp.consent.scope_generator import get_scope_generator
 
@@ -345,8 +354,13 @@ SCOPE_POLICY_VERSION = 2
 # external request surface is deliberately narrower and accepts one semantic
 # branch wildcard only.
 _SCOPE_SLUG = r"[a-z](?:[a-z0-9_]{0,62}[a-z0-9])?"
+# PKM manifests use these two explicit collection markers in otherwise
+# requestable leaf paths. They are not general-purpose leading-underscore
+# identifiers: internal-path policy still validates their placement before a
+# scope can enter the discoverable catalog.
+_SCOPE_PATH_SEGMENT = rf"(?:{_SCOPE_SLUG}|_(?:entities|items))"
 _DYNAMIC_SCOPE_PATTERN = re.compile(
-    rf"attr\.{_SCOPE_SLUG}\.(?:\*|{_SCOPE_SLUG}(?:\.{_SCOPE_SLUG})*(?:\.\*)?)"
+    rf"attr\.{_SCOPE_SLUG}\.(?:\*|{_SCOPE_PATH_SEGMENT}(?:\.{_SCOPE_PATH_SEGMENT})*(?:\.\*)?)"
 )
 _EXTERNAL_DYNAMIC_SCOPE_PATTERN = re.compile(rf"attr\.{_SCOPE_SLUG}\.{_SCOPE_SLUG}\.\*")
 

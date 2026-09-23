@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { MapPin } from "lucide-react";
+import { MapPin } from "@/components/icons";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import {
@@ -359,7 +359,7 @@ export function PlacesNearby({
               onClick={() => setChip(entry.slug)}
               data-testid={`places-chip-${entry.slug}`}
               className={cn(
-                "type-footnote press-scale shrink-0 rounded-full border px-3 py-1.5 transition-[background-color,border-color,color,transform] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
+                "type-footnote press-scale shrink-0 rounded-full border px-3 py-1.5 transition-[background-color,border-color,color,transform] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
                 active
                   ? "border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]"
                   : "border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-[color:var(--app-secondary-label)] hover:bg-foreground/[0.035] hover:text-[color:var(--app-primary-label)]",

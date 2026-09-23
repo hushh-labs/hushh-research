@@ -22,6 +22,7 @@ from google.genai import types
 
 from hushh_mcp.hushh_adk.context import HushhContext
 from hushh_mcp.hushh_adk.events import bounded_adk_events
+from hushh_mcp.hushh_adk.telemetry import private_telemetry
 
 logger = logging.getLogger(__name__)
 _MAX_HISTORY = 12
@@ -228,7 +229,7 @@ async def run_specialist_adk_turn(
                 user_id=user_id,
                 session_id=session.id,
                 new_message=user_message,
-                run_config=RunConfig(max_llm_calls=max_llm_calls),
+                run_config=RunConfig(max_llm_calls=max_llm_calls, telemetry=private_telemetry()),
             )
             async for event in bounded_adk_events(
                 source,

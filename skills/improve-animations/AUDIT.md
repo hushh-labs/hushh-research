@@ -43,7 +43,7 @@ Across Hushh product surfaces, all interactive feedback, modal presentations, dr
 | Segmented pill crossfade / slide | 100–125ms | `var(--motion-ease-standard)` |
 | Tooltips, dropdowns, popovers | 100–140ms | `var(--motion-ease-decelerate)` |
 | Modals, sheets, history drawer | 125–150ms | `cubic-bezier(0.23, 1, 0.32, 1)` |
-| Route transition crossfade | 140–150ms | `cubic-bezier(0.16, 0.84, 0.28, 1)` |
+| Route transition crossfade | 60ms exit + 90ms enter (150ms total) | `cubic-bezier(0.16, 0.84, 0.28, 1)` |
 
 Hunt for: Any duration $> 150\text{ms}$ on UI surfaces, `ease-in` anywhere, bare `linear` transitions on entrances, and non-composited transitions.
 
@@ -55,7 +55,13 @@ Hunt for: Any duration $> 150\text{ms}$ on UI surfaces, `ease-in` anywhere, bare
   .popover { transform-origin: var(--transform-origin); } /* Base UI */
   ```
   **Modals are exempt** — they appear centered; `transform-origin: center` is correct there. Do not report it.
-- **Press feedback**: `transform: scale(0.97)` on `:active` with `transition: transform 160ms ease-out`. Keep it subtle (0.95–0.98).
+- **Press feedback**: `transform: scale(0.97)` on `:active` with `transition: transform 100ms ease-out`. Keep it subtle (0.95–0.98).
+
+Verify runtime timers as well as CSS: route exit/enter timers must match the
+60ms/90ms CSS tokens, and sheet drag settlement must respect the 150ms ceiling
+and reduced motion. Token values alone do not prove all consumers comply.
+Continuous loading indicators are not interaction latency; do not accelerate
+their loops to 150ms. Measure dropped frames separately before claiming FPS.
 
 Hunt for: `scale(0)`, pure-fade entrances with no initial transform, `transform-origin: center` (or none) on trigger-anchored elements, pressable elements with no press feedback.
 
@@ -65,7 +71,10 @@ CSS **transitions** retarget from the current state mid-animation; **keyframes**
 
 - Entry without JS: `@starting-style` (legacy fallback: a `data-mounted` attribute set in `useEffect`).
 - Gesture-driven motion should use springs — they carry velocity when interrupted.
-- Spring configs, Apple-style (recommended): `{ type: "spring", duration: 0.5, bounce: 0.2 }`. Keep bounce subtle (0.1–0.3); reserve visible bounce for drag-to-dismiss and playful moments.
+- Spring configs for finite Hushh UI interactions must settle within the same
+  150ms envelope: `{ type: "spring", duration: 0.12, bounce: 0.15 }`. Keep
+  bounce subtle and reserve it for interruptible gesture feedback; use a plain
+  transform/opacity transition when a spring would obscure the timing contract.
 - **Asymmetric timing**: deliberate phases (press, hold, destructive confirm) animate slower; the system's response snaps. Symmetric timing on press-and-release is a finding.
 
 Hunt for: `@keyframes` on toasts/toggles/rapidly-triggered UI, gesture handlers that tween with fixed-duration keyframes, drags without velocity-based dismissal (dismiss on `Math.abs(distance)/elapsedMs > ~0.11`, not distance thresholds alone), hard stops at drag boundaries instead of rising friction.
@@ -81,6 +90,34 @@ Hunt for: `@keyframes` on toasts/toggles/rapidly-triggered UI, gesture handlers 
 
 Hunt for: `transition: all`, animated layout properties, Framer Motion shorthand props on busy pages, `setProperty('--x', …)` driving child transforms, rAF loops doing what CSS could.
 
+**JavaScript engines (what a CSS scan cannot see).** On WKWebView these
+cost every frame in the app, not just the animated element. Hunt for:
+
+- `documentElement.style.setProperty("--…")` from a scroll, pointer or
+  `requestAnimationFrame` handler: a document-wide style invalidation per
+  write. The fix is to write on the element that consumes the value
+  (`lib/navigation/top-shell-tab-swipe-progress.ts` is the pattern).
+- `new MutationObserver(...).observe(document.body, { subtree: true })`: it
+  wakes on every streamed token and marker move. Check whether the engine's
+  output is even consumed before rewriting it; the ambient chrome tint wrote
+  four variables sixty times a second that nothing read.
+- `addEventListener("touchmove", …, { passive: false })` on `window` or
+  `document`: WebKit then waits for the main thread on every scroll frame.
+- `setState` from an audio-level, scroll-progress or streaming-token
+  callback: a React render per frame. Move the value to a CSS variable
+  written from the loop or to a leaf `useSyncExternalStore` store.
+- `[class*="…"] { will-change }` and any unconditional `will-change` on a
+  `fixed` overlay: held compositor layers.
+- Recharts series without `isAnimationActive`: 1500ms of SVG interpolation
+  per data change.
+- `read → write → read` of layout inside one scroll handler
+  (`getBoundingClientRect` after `style.setProperty`): a forced reflow.
+
+`cd hushh-webapp && npm run verify:render-performance` finds all of these
+statically; `?perf=1` (web) or `-CapacitorStorage.hushh_perf_probe 1` (iOS
+launch argument) measures them. Bar and instruments:
+`docs/reference/mobile/render-performance-charter.md`.
+
 ## 6. Accessibility
 
 ```css
@@ -92,7 +129,10 @@ Hunt for: `transition: all`, animated layout properties, Framer Motion shorthand
 }
 ```
 
-Reduced motion means fewer and gentler animations, **not zero** — keep transitions that aid comprehension, remove position changes. In JS: `useReducedMotion()` and branch transform values.
+Reduced motion disables nonessential presentation animation. Keep essential
+state feedback readable (for example opacity or color), remove positional
+movement and decorative sequencing, and never delay access to the next action.
+In JS: `useReducedMotion()` and branch transform values.
 
 Hunt for: movement with no `prefers-reduced-motion` handling, ungated `:hover` motion, reduced-motion implementations that nuke all feedback.
 
@@ -100,7 +140,9 @@ Hunt for: movement with no `prefers-reduced-motion` handling, ungated `:hover` m
 
 - Motion should match the product's personality — playful can be bouncier, a dashboard stays crisp. Mismatched personality across components is a finding.
 - Curves and durations should live as shared tokens. Five hand-typed cubic-beziers that almost match is a consolidation finding.
-- Everything-at-once group entrances where a **30–80ms stagger** belongs. Stagger is decorative — it must never block interaction.
+- Avoid stagger on application chrome and interaction-critical surfaces. Rare
+  first-run decoration may use a small stagger only when the complete sequence
+  still settles within 150ms and the stagger never blocks interaction.
 - A jarring crossfade that shows two overlapping states can be masked with subtle `filter: blur(2px)` during the transition.
 
 Hunt for: duplicated near-identical easings/durations, one bouncy component in a crisp app, list/grid entrances with no stagger, crossfades that visibly double-expose.

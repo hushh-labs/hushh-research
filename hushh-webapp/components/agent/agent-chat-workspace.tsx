@@ -1,5 +1,6 @@
 "use client";
 
+import { Capacitor } from "@capacitor/core";
 import {
   Fragment,
   FormEvent,
@@ -11,39 +12,47 @@ import {
   useState,
   type ReactNode,
   type ClipboardEvent as ReactClipboardEvent,
-  type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { AgentMemoryCaptureStatus } from "@/components/agent/agent-memory-capture-status";
+import { aggregateAgentPkmCaptures, createAgentPkmCaptureGuard, describeAgentPkmCapture, isAgentPkmProcessingReady, type AgentPkmCaptureStatus } from "@/lib/agent/agent-pkm-capture-runtime";
+import { AgentPersonSelectionContext } from "@/components/agent/agent-structured-experience";
 import {
   Check,
-  CaretRight as ChevronRight,
+  ChevronRight,
   Copy,
   FileText,
-  Key as KeyRound,
+  KeyRound,
   Laptop,
-  SignIn as LogIn,
-  List as Menu,
-  ArrowsOut as Maximize2,
-  Microphone as Mic,
-  ArrowsIn as Minimize2,
-  PencilSimple as Pencil,
-  ArrowCounterClockwise as RotateCcw,
-  PaperPlaneRight as Send,
+  LogIn,
+  Maximize2,
+  Mic,
+  Minimize2,
+  Pencil,
+  RotateCcw,
+  Send,
   ThumbsDown,
   ThumbsUp,
-  Trash as Trash2,
+  Trash2,
   User,
   X,
-} from "@phosphor-icons/react";
+} from "@/components/icons";
 
+import { usePuppyConversations } from "@/lib/agent/puppy-conversations";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { requestProfilePaneOpen } from "@/lib/navigation/profile-pane";
 import { Button } from "@/components/ui/button";
 import { AgentHistorySidebar } from "@/components/agent/agent-history-sidebar";
+import { ConnectorsPanel } from "@/components/agent/connectors-panel";
+import {
+  AgentConnectionsDrawer,
+  type ConnectionsDrawerMode,
+} from "@/components/agent/agent-connections-drawer";
 import { SegmentedControl } from "@/lib/morphy-ux/ui/segmented-control";
 import {
   mergeScopeItems,
   scopeItemFromPendingConsent,
+  type ConsentScopeItem,
 } from "@/lib/consent/consent-scope-items";
 import {
   Select,
@@ -59,17 +68,22 @@ import {
 } from "@/components/agent/email-delivery-history-card";
 import { bucketEmailDeliveryTimelineItems } from "@/lib/agent/agent-chat-email-delivery-timeline";
 import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
+import { AnimatedMenuCrossIcon } from "@/components/agent/animated-menu-cross-icon";
 import { loadPkmAgentLabContext } from "@/lib/profile/pkm-agent-lab-capture";
 import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
 import { SecureCardAddForm } from "@/components/wallet/secure-card-add-form";
 import { SecureCardReveal } from "@/components/wallet/secure-card-reveal";
-import { detectLikelyPan } from "@/lib/wallet/pan-paste-guard";
+import {
+  detectLikelyPan,
+  redactLikelyPans,
+} from "@/lib/wallet/pan-paste-guard";
 import {
   WalletService,
   type WalletCardSecrets,
   type WalletCardSummary,
 } from "@/lib/services/wallet-service";
 import { OneKycClientZkService } from "@/lib/services/one-kyc-client-zk-service";
+import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 import {
   CardNetworkMark,
   cardNetworkLabel,
@@ -85,12 +99,12 @@ import {
   SpecialistFreeTextPromptCard,
   SpecialistPendingConsentRequestCard,
   SpecialistPromptCard,
+  normalizePendingConsentCardStatus,
+  type PendingConsentCardStatus,
   type SpecialistConsentActionItem,
   type SpecialistPendingConsentRequestItem,
 } from "@/components/agent/specialist-directive-card";
 import { copyTextToClipboard } from "@/components/agent/chat-markdown-link";
-import { AgentConnectAccessCard } from "@/components/agent/agent-connect-access-card";
-import { AgentGmailNudgeCard } from "@/components/agent/agent-gmail-nudge-card";
 import { AgentMarkdown } from "@/components/agent/agent-markdown";
 import { SelectionChip } from "@/components/agent/selection-chip";
 import { PuppyOneSurface } from "@/components/agent/puppy-one-surface";
@@ -102,7 +116,11 @@ import {
 } from "@/components/agent/agent-turn-stream-panel";
 import { describeSelection } from "@/lib/agent/describe-selection";
 import { useEntryWelcome, type EntryWelcome } from "@/lib/agent/use-entry-welcome";
-import type { AgentStructuredExperience } from "@/lib/agent/agui-structured-experiences";
+import {
+  parseAgentActivityExperience,
+  type AgentStructuredExperience,
+  type AgentStructuredExperienceWithPresentation,
+} from "@/lib/agent/agui-structured-experiences";
 import {
   getWelcomePromptSetIndex,
   getWelcomePrompts,
@@ -120,20 +138,19 @@ import {
 import {
   addToPKM,
   clearAgentPkmContext,
-  formatAgentPkmSaveSummary,
+  getPkmConfirmationCards,
   getPkmAutoSaveCards,
-  getIgnoredPkmCards,
   loadAgentPkmContext,
   peekAgentPkmContext,
   warmAgentPkmContext,
   type AgentPkmContext,
-  type AgentPkmPreviewCard,
 } from "@/lib/agent/agent-pkm-memory";
 import { prepareNaturalLanguagePkm } from "@/lib/pkm/pkm-natural-language-ingestion";
 import {
   DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY,
   AGENT_PKM_PRODUCT_DEFAULT_EFFECTIVE_AT,
   loadAgentPkmAutoSavePolicy,
+  subscribeAgentPkmAutoSavePolicyInvalidation,
   type AgentPkmAutoSavePolicy,
 } from "@/lib/agent/agent-pkm-auto-save-policy";
 import {
@@ -153,7 +170,10 @@ import {
   requestAgentConversation,
   requestAgentConversationStop,
 } from "@/lib/agent/agent-voice-settings";
-import { onScroll as onKaiBottomChromeScroll } from "@/lib/navigation/kai-bottom-chrome-visibility";
+import {
+  onContentScroll as onKaiBottomChromeScroll,
+  snapKaiBottomChromeVisible,
+} from "@/lib/navigation/kai-bottom-chrome-visibility";
 import {
   deleteAgentChatConversation,
   renameAgentChatConversation,
@@ -194,8 +214,11 @@ import {
   ConsentCenterService,
   type PendingConsentLookupItem,
 } from "@/lib/services/consent-center-service";
+import { ApiService } from "@/lib/services/api-service";
+import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
+import { useRootChatDeferredReady } from "@/lib/navigation/use-root-chat-deferred-ready";
 import { useAgentRuntimeStateOptional } from "@/lib/agent/agent-runtime-context";
 import {
   useOneConversationSession,
@@ -216,6 +239,13 @@ import {
   shouldCaptureLargePaste,
   type PendingTextAttachment,
 } from "@/lib/agent/large-text-attachment";
+import {
+  DRIVE_CHAT_RECOVERY_RETURN_EVENT,
+  clearDriveChatRecovery,
+  saveDriveChatRecovery,
+  takeDriveChatRecovery,
+  type DriveChatRecoveryReason,
+} from "@/lib/agent/drive-oauth-chat-recovery";
 import type { AppRuntimeState } from "@/lib/voice/voice-types";
 import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
@@ -228,16 +258,21 @@ import { KycIdentityProfilePkmService } from "@/lib/services/kyc-identity-profil
 import { prepareScopedGmailInformationRequestDraft } from "@/lib/services/gmail-information-request-draft-service";
 import { GmailInformationRequestsService } from "@/lib/services/gmail-information-requests-service";
 import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
-import { useGmailNudges } from "@/lib/gmail/use-gmail-nudges";
-import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
 
 type AgentMessage = {
   id: string;
+  /**
+   * The server's id for this answer (ADK event id), set when the run's closing
+   * snapshot arrives. Ratings key on this, so a thumbs given during the live
+   * turn matches the same reply after a reload and joins to its turn.
+   */
+  serverMessageId?: string;
   role: "user" | "assistant";
   text: string;
   timestamp: string;
   status?: "streaming" | "done" | "error";
   ephemeral?: boolean;
+  memoryCapture?: AgentPkmCaptureStatus;
   kind?: "selection";
   // Calendar proposal status is already a bounded confirmation/result. Keep
   // that one message on the regular assistant surface instead of wrapping it
@@ -245,10 +280,34 @@ type AgentMessage = {
   renderAsPlainAssistantMessage?: boolean;
   specialistDirective?: SpecialistDirectiveEvent | null;
   streamEvents?: AgentVisibleStreamEvent[];
-  thought?: string;
   sources?: AgentSource[];
   structuredExperience?: AgentStructuredExperience | null;
+  structuredExperiences?: AgentStructuredExperienceEntry[];
 };
+
+export type AgentStructuredExperienceEntry = {
+  id: string;
+  experience: AgentStructuredExperienceWithPresentation;
+};
+
+/**
+ * Upsert a transport-identified AGUI card without silently dropping earlier
+ * cards from the same turn. The server may emit several distinct activities;
+ * only a repeated identity is a revision of an existing card.
+ */
+export function upsertAgentStructuredExperience(
+  current: readonly AgentStructuredExperienceEntry[],
+  id: string,
+  experience: AgentStructuredExperienceWithPresentation,
+): AgentStructuredExperienceEntry[] {
+  const existingIndex = current.findIndex((entry) => entry.id === id);
+  if (existingIndex < 0) {
+    return [...current, { id, experience }];
+  }
+  return current.map((entry, index) =>
+    index === existingIndex ? { id, experience } : entry,
+  );
+}
 
 type EmailDeliveryTimelineItem = EmailDeliveryHistoryItem & {
   anchorMessageId: string | null;
@@ -315,8 +374,10 @@ type AgentWalletWidget =
 type AgentTurnSource = "typed";
 type AgentRunTurnOptions = {
   source: AgentTurnSource;
+  personSelectionHandle?: string;
   appendUserMessage?: boolean;
   replaceAssistantMessageId?: string | null;
+  deferPkmContext?: boolean;
 };
 
 type ConsentRequiredDirectivePayload = {
@@ -394,11 +455,17 @@ function getConsentRequiredPayload(
 
 function getGmailEmailDraftPayload(
   event: AgentChatToolEvent | null,
-): { instruction: string } | null {
+): { instruction: string; driveFileId: string | null } | null {
   if (!event || event.raw.toolName !== "open_gmail_email_draft") return null;
   const instruction =
     typeof event.slots.request === "string" ? event.slots.request.trim() : "";
-  return instruction ? { instruction } : null;
+  const driveFileId =
+    typeof event.slots.drive_file_id === "string"
+      ? event.slots.drive_file_id.trim()
+      : "";
+  return instruction
+    ? { instruction, driveFileId: driveFileId && driveFileId.length <= 256 ? driveFileId : null }
+    : null;
 }
 
 /** Metadata-only context for a Gmail KYC handoff. Gmail content never enters chat. */
@@ -548,6 +615,48 @@ function getConsentActionsPayload(
   return { kind: "consent_actions", items };
 }
 
+function pendingConsentScopeItemFromUnknown(
+  value: unknown,
+): ConsentScopeItem | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const raw = value as Record<string, unknown>;
+  const id = typeof raw.id === "string" ? raw.id.trim() : "";
+  const label = typeof raw.label === "string" ? raw.label.trim() : "";
+  const domainKey =
+    typeof raw.domainKey === "string" ? raw.domainKey.trim() : "";
+  const domainLabel =
+    typeof raw.domainLabel === "string" ? raw.domainLabel.trim() : "";
+  if (!id || !label || !domainKey || !domainLabel) return null;
+  const pathSegments = Array.isArray(raw.pathSegments)
+    ? raw.pathSegments.filter(
+        (segment): segment is string =>
+          typeof segment === "string" && Boolean(segment.trim()),
+      )
+    : [];
+  const description =
+    typeof raw.description === "string" ? raw.description : null;
+  const badge = typeof raw.badge === "string" ? raw.badge : null;
+  return {
+    id,
+    label,
+    description,
+    domainKey,
+    pathSegments,
+    domainLabel,
+    badge,
+    disabled: raw.disabled === true,
+    searchText:
+      typeof raw.searchText === "string"
+        ? raw.searchText
+        : [label, description, domainKey, domainLabel]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase(),
+  };
+}
+
 /**
  * Re-reads a pending consent card item out of the directive payload it was
  * embedded in. The card item is stored as an untyped payload, so every field
@@ -555,13 +664,9 @@ function getConsentActionsPayload(
  * field dropped at this hop is dropped for good, however faithfully the
  * mappers before it copied it.
  *
- * The bundle fields (bundleId, bundleLabel, bundleScopeCount,
- * bundledRequestIds, bundledScopes) are deliberately NOT re-emitted. The fold
- * below compares `payload.item.bundleId` to decide whether a later request in
- * the same bundle merges into an existing card; leaving it null here keeps
- * that fold inert, so a bundle of N requests renders N cards, each approvable
- * on its own. Re-emitting them would fold the cards while Approve only acted
- * on the head request; folding needs handleApproveBundle wired first.
+ * Bundle metadata is presentation-only and is retained as sanitized
+ * descriptors. Live approval still re-looks up every request id, so restored
+ * card payloads cannot grant access from stale transcript data.
  */
 export function getPendingConsentRequestPayload(
   event: SpecialistDirectiveEvent | null,
@@ -576,10 +681,7 @@ export function getPendingConsentRequestPayload(
   if (!rawItem) return null;
   const id = typeof rawItem.id === "string" ? rawItem.id.trim() : "";
   if (!id) return null;
-  const status =
-    rawItem.status === "approved" || rawItem.status === "denied"
-      ? rawItem.status
-      : "pending";
+  const status = normalizePendingConsentCardStatus(rawItem.status);
   return {
     kind: "pending_consent_request",
     item: {
@@ -632,6 +734,35 @@ export function getPendingConsentRequestPayload(
         !Array.isArray(rawItem.metadata)
           ? (rawItem.metadata as Record<string, unknown>)
           : null,
+      bundleId:
+        typeof rawItem.bundleId === "string" && rawItem.bundleId.trim()
+          ? rawItem.bundleId.trim()
+          : null,
+      bundleLabel:
+        typeof rawItem.bundleLabel === "string" && rawItem.bundleLabel.trim()
+          ? rawItem.bundleLabel.trim()
+          : null,
+      bundleScopeCount:
+        typeof rawItem.bundleScopeCount === "number" &&
+        Number.isFinite(rawItem.bundleScopeCount)
+          ? rawItem.bundleScopeCount
+          : null,
+      bundledRequestIds: Array.isArray(rawItem.bundledRequestIds)
+        ? Array.from(
+            new Set(
+              rawItem.bundledRequestIds.filter(
+                (requestId): requestId is string =>
+                  typeof requestId === "string" && Boolean(requestId.trim()),
+              ),
+            ),
+          )
+        : [],
+      bundledScopes: Array.isArray(rawItem.bundledScopes)
+        ? rawItem.bundledScopes.flatMap((scope) => {
+            const parsed = pendingConsentScopeItemFromUnknown(scope);
+            return parsed ? [parsed] : [];
+          })
+        : [],
     },
   };
 }
@@ -739,8 +870,8 @@ export function pendingConsentCardRequestIds(
  * request's metadata only (the others were folded in by id and scope), and
  * Approve wraps the vault key to the key in each request's own metadata, so a
  * folded card looks every member up again and acts on whichever are still
- * pending. A single-request card needs no lookup: the card item already holds
- * everything the hook reads.
+ * pending. Single requests also revalidate current authority; retained card
+ * metadata is presentation, never a substitute for the live request.
  */
 export async function resolvePendingConsentCardTargets(input: {
   userId: string;
@@ -748,11 +879,22 @@ export async function resolvePendingConsentCardTargets(input: {
   item: SpecialistPendingConsentRequestItem;
 }): Promise<PendingConsent[]> {
   const requestIds = pendingConsentCardRequestIds(input.item);
-  if (requestIds.length < 2) {
-    return [pendingConsentCardItemToPendingConsent(input.item)];
-  }
-  if (!input.vaultOwnerToken) {
+  if (!input.userId.trim() || !input.vaultOwnerToken?.trim()) {
     throw new Error("Unlock your vault first.");
+  }
+  // Notifications can arrive one item at a time. Never decide a partially
+  // hydrated bundle and then label the whole request approved or denied.
+  if (
+    input.item.bundleId &&
+    typeof input.item.bundleScopeCount === "number" &&
+    input.item.bundleScopeCount > requestIds.length
+  ) {
+    throw new Error("This request is still loading. Review all its fields before deciding.");
+  }
+  // The owner-scoped lookup currently admits 25 IDs, while creation admits
+  // up to 50. Failing closed prevents a truncated batch from being decided.
+  if (requestIds.length > 25) {
+    throw new Error("This request has too many fields for an inline decision.");
   }
   const result = await ConsentCenterService.lookupPendingRequests({
     userId: input.userId,
@@ -781,10 +923,51 @@ function agentMessagePendingConsentRequestId(
   return payload?.item.id ?? null;
 }
 
+/**
+ * Keep consent cards that arrived while history was warming.
+ *
+ * Pending requests are owner-scoped live state, while the conversation
+ * snapshot is an eventually-consistent transcript. A snapshot must not erase
+ * a card that was just hydrated, and a newer local status (approve/deny) must
+ * win over an older transcript copy. This merges only safe card descriptors;
+ * it never merges decrypted information or replays an action.
+ */
+export function mergePendingConsentMessages(
+  restored: AgentMessage[],
+  current: readonly AgentMessage[],
+): AgentMessage[] {
+  const merged = [...restored];
+
+  for (const candidate of current) {
+    const payload = getPendingConsentRequestPayload(
+      candidate.specialistDirective ?? null,
+    );
+    if (!payload) continue;
+    const candidateIds = new Set(pendingConsentCardRequestIds(payload.item));
+    const existingIndex = merged.findIndex((message) => {
+      const existing = getPendingConsentRequestPayload(
+        message.specialistDirective ?? null,
+      );
+      if (!existing) return false;
+      return pendingConsentCardRequestIds(existing.item).some((id) =>
+        candidateIds.has(id),
+      );
+    });
+
+    if (existingIndex >= 0) {
+      merged[existingIndex] = candidate;
+    } else {
+      merged.push(candidate);
+    }
+  }
+
+  return merged;
+}
+
 function markPendingConsentRequestDirectiveStatus(
   event: SpecialistDirectiveEvent | null | undefined,
   itemId: string,
-  status: "approved" | "denied",
+  status: Exclude<PendingConsentCardStatus, "pending">,
 ): SpecialistDirectiveEvent | null | undefined {
   if (!event || event.directive.kind !== "prompt") return event;
   const payload = event.directive.payload as Record<string, unknown>;
@@ -881,8 +1064,6 @@ function markConsentDirectiveItemRevoked(
     },
   };
 }
-const FOCUSABLE_SELECTOR =
-  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 function formatNow(): string {
   return new Intl.DateTimeFormat(undefined, {
@@ -899,42 +1080,6 @@ function createGreetingMessage(): AgentMessage {
     timestamp: AGENT_GREETING_TIMESTAMP,
     status: "done",
   };
-}
-
-function getFocusableElements(container: HTMLElement | null): HTMLElement[] {
-  if (!container) return [];
-  return Array.from(
-    container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
-  ).filter(
-    (element) =>
-      !element.hasAttribute("disabled") &&
-      element.getAttribute("aria-hidden") !== "true" &&
-      element.offsetParent !== null,
-  );
-}
-
-function trapFocusWithin(
-  event: ReactKeyboardEvent,
-  container: HTMLElement | null,
-): void {
-  if (event.key !== "Tab") return;
-  const focusable = getFocusableElements(container);
-  if (focusable.length === 0) {
-    event.preventDefault();
-    return;
-  }
-  const first = focusable[0]!;
-  const last = focusable[focusable.length - 1]!;
-  const active = document.activeElement;
-  if (event.shiftKey && active === first) {
-    event.preventDefault();
-    last.focus();
-    return;
-  }
-  if (!event.shiftKey && active === last) {
-    event.preventDefault();
-    first.focus();
-  }
 }
 
 function formatAgentDisplayName(
@@ -972,20 +1117,19 @@ function AgentPromptSuggestions({
       )}
     >
       {prompts.map((prompt) => (
-        <ShellActionSurface
+        <button
           key={prompt}
           type="button"
-          variant="pill"
           disabled={disabled}
           onClick={() => onPromptSelect(prompt)}
-          className="!h-auto !min-h-11 max-w-full !justify-between gap-2.5 !rounded-2xl !px-4 !py-2.5 text-left text-sm font-medium"
+          className="group relative inline-flex !h-auto !min-h-11 max-w-full items-center !justify-between gap-2.5 !rounded-2xl border border-[color:var(--app-glass-border)] bg-[color:var(--app-glass-surface)] !px-4 !py-2.5 text-left text-sm font-medium text-foreground shadow-[var(--app-glass-shadow)] transition-colors duration-150 hover:bg-[color:var(--app-shell-surface-bg-hover)] active:opacity-90 disabled:pointer-events-none disabled:opacity-60"
         >
           <span className="min-w-0 whitespace-normal leading-5">{prompt}</span>
           <ChevronRight
             className="h-4 w-4 shrink-0 text-[color:var(--app-accent-deep)]"
             aria-hidden
           />
-        </ShellActionSurface>
+        </button>
       ))}
     </div>
   );
@@ -1209,6 +1353,7 @@ function AgentThinkingDots() {
 
 function AgentBubble({
   message,
+  onOpenConnections,
   userAvatarUrl,
   userInitials = "YO",
   onRetry,
@@ -1224,6 +1369,7 @@ function AgentBubble({
   onRate,
 }: {
   message: AgentMessage;
+  onOpenConnections?: (trigger: HTMLButtonElement) => void;
   userAvatarUrl?: string | null;
   userInitials?: string;
   onRetry?: () => void;
@@ -1251,14 +1397,26 @@ function AgentBubble({
   const isUser = message.role === "user";
   const isStreaming = message.status === "streaming";
   const isError = message.status === "error";
-  const streamEvents = message.streamEvents ?? [];
+  const streamEvents = (message.streamEvents ?? []).filter(
+    (event) => !message.memoryCapture || event.label !== "Memory",
+  );
+  const structuredExperiences =
+    message.structuredExperiences ??
+    (message.structuredExperience
+      ? [
+          {
+            id: "legacy-structured-experience",
+            experience: message.structuredExperience,
+          },
+        ]
+      : []);
   // Use the activity surface only while a turn is active or when the settled
   // turn has safe, inspectable activity. Plain completed answers stay readable.
   const hasStreamContent =
     isStreaming ||
     streamEvents.length > 0 ||
     Boolean(message.sources?.length) ||
-    Boolean(message.structuredExperience);
+    structuredExperiences.length > 0;
   const shouldRenderStreamPanel =
     !isUser && !isError && hasStreamContent && !message.renderAsPlainAssistantMessage;
   const animated = useAnimatedAssistantText(
@@ -1327,6 +1485,7 @@ function AgentBubble({
       >
         <div
           aria-live={!isUser && isStreaming ? "polite" : undefined}
+          data-agent-streaming={!isUser && isStreaming ? "true" : undefined}
           className={cn(
             "text-sm leading-6",
             isUser
@@ -1345,9 +1504,10 @@ function AgentBubble({
           ) : shouldRenderStreamPanel ? (
             <AgentTurnStreamPanel
               streamEvents={streamEvents}
-              thinkingText={message.thought}
               sources={message.sources}
               structuredExperience={message.structuredExperience}
+              structuredExperiences={structuredExperiences}
+              onOpenConnections={onOpenConnections}
               responseText={assistantText}
               isStreaming={isStreaming}
               isError={isError}
@@ -1363,6 +1523,7 @@ function AgentBubble({
             <AgentThinkingDots />
           )}
         </div>
+        {!isUser && message.memoryCapture ? <AgentMemoryCaptureStatus status={message.memoryCapture} /> : null}
         <div
           className={cn(
             "mt-1 flex items-center gap-2 text-[11px] text-[rgba(0,0,0,0.46)] dark:text-zinc-500",
@@ -1491,6 +1652,7 @@ const LEGACY_SELECTION_SEED = /^I selected:.*do not guess/s;
 
 export function storedMessageToAgentMessage(
   message: StoredAgentChatMessage,
+  seenExperienceIds: Set<string> = new Set(),
 ): AgentMessage | null {
   if (message.role !== "user" && message.role !== "assistant") return null;
   const createdAt = message.created_at ? new Date(message.created_at) : null;
@@ -1511,10 +1673,57 @@ export function storedMessageToAgentMessage(
       : isLegacySelectionSeed
         ? "Your selection"
         : message.content;
+  const descriptor = message.metadata?.structuredExperience;
+  const restoredExperience =
+    descriptor && typeof descriptor.activityType === "string"
+      ? parseAgentActivityExperience(descriptor.activityType, descriptor.content)
+      : null;
+  const orderedExperiences = message.metadata?.structuredExperiences?.flatMap((entry, index) => {
+    if (!entry || typeof entry.activityType !== "string") return [];
+    const experience = parseAgentActivityExperience(entry.activityType, entry.content);
+    return experience ? [{
+      id: (typeof entry.id === "string" ? entry.id.trim() : "") ||
+        `${message.id}:structured-experience:${index}`,
+      experience,
+    }] : [];
+  });
+  const candidates = orderedExperiences?.length ? orderedExperiences : restoredExperience
+    ? [
+        {
+          id:
+            (typeof message.metadata?.structuredExperienceId === "string"
+              ? message.metadata.structuredExperienceId.trim()
+              : "") ||
+            `${message.id}:structured-experience`,
+          experience: restoredExperience,
+        },
+      ]
+    : [];
+  const connectorRead =
+    message.role === "assistant" ? message.metadata?.connectorRead : null;
+  const structuredExperiences = [
+    ...candidates,
+    ...(connectorRead
+      ? [
+          {
+            id: `${message.id}:connector-read`,
+            experience: connectorRead,
+          },
+        ]
+      : []),
+  ].filter(entry => {
+    if (seenExperienceIds.has(entry.id)) return false;
+    seenExperienceIds.add(entry.id);
+    return true;
+  });
+  // Do not resurrect a duplicate through the legacy descriptor, or leave an
+  // empty thinking bubble. Prose and all distinct cards retain source order.
+  if (candidates.length && !structuredExperiences.length && !displayText.trim()) return null;
   return {
     id: message.id,
     role: message.role,
     text: displayText,
+    structuredExperience: connectorRead,
     timestamp:
       createdAt && !Number.isNaN(createdAt.getTime())
         ? new Intl.DateTimeFormat(undefined, {
@@ -1526,7 +1735,15 @@ export function storedMessageToAgentMessage(
     ...(isSelection || isLegacySelectionSeed
       ? { kind: "selection" as const }
       : {}),
+    ...(structuredExperiences.length ? { structuredExperiences } : {}),
   };
+}
+
+export function storedMessagesToAgentMessages(messages: StoredAgentChatMessage[]): AgentMessage[] {
+  const seenExperienceIds = new Set<string>();
+  return messages
+    .map(message => storedMessageToAgentMessage(message, seenExperienceIds))
+    .filter((message): message is AgentMessage => Boolean(message));
 }
 
 export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
@@ -1534,12 +1751,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const pathname = usePathname();
   const isCanonicalChatRoute = pathname === ROUTES.HOME;
   const searchParams = useSearchParams();
-  // The workspace is now the canonical full-page chat surface. Keep this
-  // compatibility guard for the proactive-card contract while there is no
-  // popover mount in the current route topology.
-  const isPopover = false;
   const localCrmEnabled = isLocalCrmBuildEnabled();
-  const { user, loading: authLoading, phoneNumber } = useAuth();
+  const { user, loading: authLoading, phoneNumber, sessionVerificationRequired } = useAuth();
   const {
     isVaultUnlocked,
     vaultKey,
@@ -1585,6 +1798,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // otherwise animate a long crawl down from the top).
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const oneScrollTopRef = useRef(0);
+  const [recoveryScrollTop, setRecoveryScrollTop] = useState<number | null>(null);
   // Programmatic history/anchor restoration must not be interpreted as a
   // person's scroll gesture. Chat's transcript is nested inside the app
   // shell, so this distinction is what keeps the shared bottom chrome visible
@@ -1658,6 +1872,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [conversations, setConversations] = useState<AgentChatConversation[]>(
     [],
   );
+  const puppyHistory = usePuppyConversations(user?.uid ?? null);
+  const { conversations: puppyConversations, activeId: puppyConversationId } = puppyHistory;
   const [messages, setMessages] = useState<AgentMessage[]>(() => [
     createGreetingMessage(),
   ]);
@@ -1678,7 +1894,49 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isHistoryDrawerOpen, setIsHistoryDrawerOpen] = useState(false);
-  const [isHistoryCollapsed, setIsHistoryCollapsed] = useState(false);
+  const [drawerMode, setDrawerMode] = useState<ConnectionsDrawerMode>("chats");
+  const [recoveryCheckedForUid, setRecoveryCheckedForUid] = useState<string | null>(null);
+  const pendingDriveRecoveryRef = useRef<{
+    ownerUid: string;
+    state: Awaited<ReturnType<typeof takeDriveChatRecovery>>;
+  } | null>(null);
+  const currentDraftRef = useRef({ input, attachment: longPromptAttachment });
+  currentDraftRef.current = { input, attachment: longPromptAttachment };
+  const recoveryUiRef = useRef({
+    conversationId, composerExpanded, drawerOpen: isHistoryDrawerOpen, drawerMode,
+  });
+  recoveryUiRef.current = {
+    conversationId, composerExpanded, drawerOpen: isHistoryDrawerOpen, drawerMode,
+  };
+  useEffect(() => {
+    if (!user?.uid || !vaultKey) {
+      pendingDriveRecoveryRef.current = null;
+      setRecoveryCheckedForUid(null);
+    }
+  }, [user?.uid, vaultKey]);
+  useEffect(() => {
+    const onReturn = () => setRecoveryCheckedForUid(null);
+    window.addEventListener(DRIVE_CHAT_RECOVERY_RETURN_EVENT, onReturn);
+    return () => window.removeEventListener(DRIVE_CHAT_RECOVERY_RETURN_EVENT, onReturn);
+  }, []);
+  const [connectionsAvailable, setConnectionsAvailable] = useState(false);
+  const [connectorExternalModalOpen, setConnectorExternalModalOpen] =
+    useState(false);
+  useEffect(() => {
+    // `?panel=connectors` is the connector OAuth-return flow's landing signal
+    // -- connectors live in this sidebar panel now, not a dedicated route, so
+    // completing a connect has to reopen it here instead of navigating to one.
+    if (searchParams?.get("panel") !== "connectors") return;
+    setDrawerMode("connections");
+    setIsHistoryDrawerOpen(true);
+    const next = new URLSearchParams(searchParams.toString());
+    next.delete("panel");
+    const query = next.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, {
+      scroll: false,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams]);
   const [historyActionPendingId, setHistoryActionPendingId] = useState<
     string | null
   >(null);
@@ -1717,6 +1975,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [walletWidgets, setWalletWidgets] = useState<AgentWalletWidget[]>([]);
   const [pkmAutoSavePolicy, setPkmAutoSavePolicy] =
     useState<AgentPkmAutoSavePolicy>(DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY);
+  const [pkmPolicyReady, setPkmPolicyReady] = useState(false);
+  const [pkmPolicyRevision, setPkmPolicyRevision] = useState(0);
+  const [pkmPolicyOwnerId, setPkmPolicyOwnerId] = useState<string | null>(null);
+  const pkmCapturePolicyRef = useRef(pkmAutoSavePolicy);
+  pkmCapturePolicyRef.current = pkmAutoSavePolicy;
+  const pkmCaptureEnabledRef = useRef(false);
+  pkmCaptureEnabledRef.current = pkmPolicyReady && pkmPolicyOwnerId === user?.uid && pkmAutoSavePolicy.enabled && isVaultUnlocked;
+  const pkmCaptureReadinessRef = useRef({ authLoading, sessionVerificationRequired, isVaultUnlocked, vaultOwnerToken, tokenExpiresAt });
+  pkmCaptureReadinessRef.current = { authLoading, sessionVerificationRequired, isVaultUnlocked, vaultOwnerToken, tokenExpiresAt };
   // A specialist (e.g. agent_location) can return a directive that must be
   // explicitly confirmed by the user before it runs. Stored here and rendered
   // as an inline card; never auto-fired for kind:"action".
@@ -1741,8 +2008,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const activeActionRun = useActiveActionRun();
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const historyDrawerRef = useRef<HTMLDivElement | null>(null);
-  const historyDrawerReturnFocusRef = useRef<HTMLElement | null>(null);
+  const historyDrawerTriggerRef = useRef<HTMLButtonElement | null>(null);
   const historyLoadKeyRef = useRef<string | null>(null);
   const welcomePromptSetInitializedRef = useRef(false);
   const historyRestoreEpochRef = useRef(0);
@@ -1757,6 +2023,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     ((prompt: string) => Promise<void>) | null
   >(null);
   const pkmAbortControllersRef = useRef<Set<AbortController>>(new Set());
+  const pkmCaptureJobsRef = useRef(new Map<string, Promise<AgentPkmCaptureStatus>>());
+  const pkmCaptureReceiptsRef = useRef(new Map<string, Map<string, AgentPkmCaptureStatus>>());
   const latestVisibleTurnIdRef = useRef<string | null>(null);
   const inlineConsentRequestIdsRef = useRef<Set<string>>(new Set());
   // Set by the FCM effect below; lets a server tool result (pending requests
@@ -1798,6 +2066,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const voiceLevel = useAgentVoiceState((state) => state.level);
   const isToolWorking = activeFrontendToolCount > 0;
   const isPkmMemoryWorking = activePkmToolCount > 0;
+  const rootChatReady = useRootChatDeferredReady();
   const tokenIsFresh = !tokenExpiresAt || Date.now() < tokenExpiresAt;
   const agentVoiceEnabled = isAgentCommandEnabled();
   const abortAgentTurnWork = useCallback(() => {
@@ -1807,7 +2076,25 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       controller.abort();
     }
     pkmAbortControllersRef.current.clear();
+    pkmCaptureJobsRef.current.clear();
+    pkmCaptureReceiptsRef.current.clear();
+    setActivePkmToolCount(0);
   }, []);
+
+  useEffect(() => {
+    // Token renewal invalidates the captured vault generation, but must not
+    // cancel the answer stream or replay the underlying route transition.
+    for (const controller of pkmAbortControllersRef.current) controller.abort();
+    pkmAbortControllersRef.current.clear();
+    pkmCaptureJobsRef.current.clear();
+    pkmCaptureReceiptsRef.current.clear();
+    setActivePkmToolCount(0);
+    setMessages((current) => current.map((message) =>
+      message.memoryCapture?.phase === "preparing" || message.memoryCapture?.phase === "saving"
+        ? { ...message, memoryCapture: { phase: message.memoryCapture.saved ? "partial" : "canceled", saved: message.memoryCapture.saved } }
+        : message,
+    ));
+  }, [vaultOwnerToken, pkmAutoSavePolicy, isVaultUnlocked, pkmPolicyReady, authLoading, sessionVerificationRequired]);
 
   useEffect(() => {
     if (user?.uid && isVaultUnlocked && vaultKey) {
@@ -1821,7 +2108,18 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   }, [isVaultUnlocked, user?.uid, vaultKey]);
 
   useEffect(() => {
+    if (!user?.uid) return;
+    return subscribeAgentPkmAutoSavePolicyInvalidation(user.uid, () => {
+      pkmCaptureEnabledRef.current = false;
+      setPkmPolicyReady(false);
+      setPkmPolicyRevision((revision) => revision + 1);
+    });
+  }, [user?.uid]);
+
+  useEffect(() => {
     let cancelled = false;
+    setPkmPolicyReady(false);
+    setPkmPolicyOwnerId(null);
     if (!user?.uid || !isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
       setPkmAutoSavePolicy(DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY);
       return undefined;
@@ -1832,7 +2130,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       vaultOwnerToken,
     })
       .then((policy) => {
-        if (!cancelled) setPkmAutoSavePolicy(policy);
+        if (!cancelled) {
+          setPkmAutoSavePolicy(policy);
+          setPkmPolicyOwnerId(user.uid);
+          setPkmPolicyReady(true);
+        }
       })
       .catch(() => {
         if (!cancelled)
@@ -1841,7 +2143,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     return () => {
       cancelled = true;
     };
-  }, [isVaultUnlocked, user?.uid, vaultKey, vaultOwnerToken]);
+  }, [isVaultUnlocked, user?.uid, vaultKey, vaultOwnerToken, pkmPolicyRevision]);
 
   useEffect(() => {
     if (!user?.uid || !isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
@@ -1910,43 +2212,24 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     vaultOwnerToken &&
     tokenIsFresh,
   );
-  // Proactive Gmail connect/nudge cards: page-variant only (the popover
-  // shouldn't repeat a full "connect Gmail" pitch every time it's opened
-  // elsewhere in the app), and gated the same way the rest of the chat's
-  // vault-backed features are.
-  const gmailIdTokenProvider = useCallback(
-    () => (user?.getIdToken ? user.getIdToken() : Promise.resolve("")),
-    [user],
-  );
-  const gmailConnectorStatus = useGmailConnectorStatus({
-    userId: user?.uid || null,
-    enabled: !isPopover && hasChatAccess,
-    idTokenProvider: user?.getIdToken ? gmailIdTokenProvider : null,
-    routeHref: ROUTES.HOME,
-  });
-  const gmailNudges = useGmailNudges({
-    userId: user?.uid || null,
-    vaultOwnerToken: vaultOwnerToken || null,
-    isConnected: gmailConnectorStatus.status?.connected === true,
-    idTokenProvider: user?.getIdToken ? gmailIdTokenProvider : null,
-  });
-  const [gmailConnectCardDismissed, setGmailConnectCardDismissed] = useState(false);
-  const [gmailNudgeCardDismissed, setGmailNudgeCardDismissed] = useState(false);
-  const [gmailConnectBusy, setGmailConnectBusy] = useState(false);
-  const handleConnectGmail = useCallback(async () => {
+  const handleEnableGmailSend = useCallback(async () => {
     if (!user?.uid || !user?.getIdToken) return;
-    setGmailConnectBusy(true);
     try {
       const idToken = await user.getIdToken();
+      const loginHint = user.providerData?.some(
+        (provider) => provider.providerId === "google.com",
+      )
+        ? user.email ?? null
+        : null;
       const start = await GmailReceiptsService.startConnect({
         idToken,
         userId: user.uid,
-        includeGrantedScopes: false,
+        loginHint,
+        includeGrantedScopes: true,
+        purpose: "send",
       });
       window.location.assign(start.authorize_url);
-    } catch {
-      setGmailConnectBusy(false);
-    }
+    } catch {}
   }, [user]);
   const availablePersonas = useMemo(() => {
     const personas = new Set<typeof activePersona>([activePersona]);
@@ -2056,7 +2339,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // The single agent bar can always send text: with vault access it runs the
   // full agent, otherwise it runs the pre-vault informational tier. Voice and
   // vault-backed tools stay gated separately by hasChatAccess.
+  const recoveryInspectionPending = Boolean(
+    user?.uid && vaultKey && vaultOwnerToken && recoveryCheckedForUid !== user.uid,
+  );
   const canSend =
+    !recoveryInspectionPending &&
     !isVoiceConnecting &&
     !voiceActive &&
     !emailDraftOpen &&
@@ -2065,8 +2352,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     // keystroke. The submit path performs the authoritative empty check.
     (input.length > 0 || longPromptAttachment !== null);
   const canToggleVoice =
-    agentVoiceEnabled && !isVoiceConnecting && !emailDraftOpen;
+    agentVoiceEnabled && !recoveryInspectionPending && !isVoiceConnecting && !emailDraftOpen;
   const historyInteractionDisabled =
+    recoveryInspectionPending ||
     isChatLoading ||
     isToolWorking ||
     isVoiceConnecting ||
@@ -2127,7 +2415,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     if (voiceState === "error") return "Voice error";
     if (isVoiceConnecting) return "Voice connecting";
     if (isToolWorking) return "Working";
-    if (isPkmMemoryWorking) return "Saving memory";
+    if (isPkmMemoryWorking) return "Updating Memory";
     if (queuedPrompts.length > 0) return `${queuedPrompts.length} queued`;
     if (isChatLoading) return "Thinking";
     if (isStreaming) return "Streaming";
@@ -2153,6 +2441,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   ]);
 
   useEffect(() => {
+    if (isCanonicalChatRoute) {
+      snapKaiBottomChromeVisible();
+    }
+  }, [isCanonicalChatRoute]);
+
+  useEffect(() => {
     const transcript = transcriptRef.current;
     const messagesEnd = messagesEndRef.current;
     if (!transcript || !messagesEnd || isPuppySurface) return;
@@ -2172,7 +2466,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       Math.max(0, transcript.scrollHeight - transcript.clientHeight),
     );
     messagesEnd.scrollIntoView({
-      behavior: "smooth",
+      behavior: "auto",
       block: "end",
     });
   }, [
@@ -2205,6 +2499,19 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     });
   }, [beginTranscriptProgrammaticScroll, isPuppySurface]);
 
+  useLayoutEffect(() => {
+    if (recoveryScrollTop === null || isPuppySurface) return;
+    const element = transcriptRef.current;
+    if (!element) return;
+    const max = Math.max(0, element.scrollHeight - element.clientHeight);
+    const target = Math.min(recoveryScrollTop, max);
+    oneScrollTopRef.current = target;
+    transcriptUserScrollRef.current = max - target > 48;
+    beginTranscriptProgrammaticScroll(target);
+    element.scrollTo({ top: target, behavior: "instant" as ScrollBehavior });
+    setRecoveryScrollTop(null);
+  }, [beginTranscriptProgrammaticScroll, isPuppySurface, messages, recoveryScrollTop]);
+
   useEffect(() => {
     const token = getVaultOwnerToken();
     if (!conversationId || !token) {
@@ -2233,7 +2540,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // is idempotent: it reuses the stored keypair and re-registers the public half.
   useEffect(() => {
     const token = getVaultOwnerToken();
-    if (!user?.uid || !vaultKey || !token) return;
+    if (
+      !user?.uid ||
+      !vaultKey ||
+      !token ||
+      shouldSkipReviewerBackgroundWritesForAutomation()
+    ) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -2278,46 +2590,38 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     if (!textarea || voiceActive) return;
     textarea.style.height = "0px";
     const nextHeight = textarea.scrollHeight;
-    // `scrollHeight` includes soft-wrapped text, which is the visual behavior
-    // people notice. Reveal the larger editor after roughly four rendered rows.
-    const long = input.trim().length > 0 && nextHeight > 96;
-    if (!long) setComposerExpanded(false);
-    // The expanded writing surface owns its fixed, spacious height. The compact
-    // pill grows only to its CSS ceiling and then scrolls internally.
+    if (!input.trim()) setComposerExpanded(false);
+    // The compact pill grows to its CSS ceiling; text that outgrows it moves
+    // into the expanded writing surface (the same place the expand button
+    // opens) instead of scrolling inside the pill, which drew a scrollbar
+    // beside the expand icon (founder report, 2026-09-22).
+    const compactCeiling = Number.parseFloat(
+      window.getComputedStyle(textarea).maxHeight,
+    );
+    if (
+      !composerExpanded &&
+      Number.isFinite(compactCeiling) &&
+      nextHeight > compactCeiling + 1
+    ) {
+      setComposerExpanded(true);
+      return;
+    }
+    // The expanded writing surface owns its fixed, spacious height.
     textarea.style.height = composerExpanded ? "" : `${nextHeight}px`;
   }, [composerExpanded, input, voiceActive]);
 
   useEffect(() => {
     if (!composerExpanded) return;
-    const frame = window.requestAnimationFrame(() =>
-      composerTextareaRef.current?.focus(),
-    );
+    const frame = window.requestAnimationFrame(() => {
+      const textarea = composerTextareaRef.current;
+      if (!textarea) return;
+      textarea.focus();
+      // Keep typing where the person was: at the end of what they wrote.
+      const end = textarea.value.length;
+      textarea.setSelectionRange(end, end);
+    });
     return () => window.cancelAnimationFrame(frame);
   }, [composerExpanded]);
-
-  useEffect(() => {
-    if (!isHistoryDrawerOpen) return;
-    historyDrawerReturnFocusRef.current =
-      document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setIsHistoryDrawerOpen(false);
-      }
-    };
-    window.requestAnimationFrame(() => {
-      getFocusableElements(historyDrawerRef.current)[0]?.focus();
-    });
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isHistoryDrawerOpen]);
-
-  useEffect(() => {
-    if (isHistoryDrawerOpen) return;
-    historyDrawerReturnFocusRef.current?.focus();
-    historyDrawerReturnFocusRef.current = null;
-  }, [isHistoryDrawerOpen]);
 
   useEffect(() => {
     return () => {
@@ -2533,7 +2837,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           );
           updateMessage(assistantMessageId, (message) => ({
             ...message,
-            text: `I couldn’t find ${(unavailableLabels.length > 0 ? unavailableLabels : request.requested_field_labels).join(", ")} in your private memory. Reply here with only the details you want to share, and I’ll save them privately before preparing the Gmail reply.`,
+            text: `I couldn’t find ${(unavailableLabels.length > 0 ? unavailableLabels : request.requested_field_labels).join(", ")} in your private memory. Reply here with only the details you want to share, and I’ll save them privately before preparing the Mail reply.`,
             status: "done",
           }));
           return;
@@ -2542,7 +2846,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         setGmailKycMissingLabels([]);
         const requestSummary = gmailKycRequestSummary(workflow);
         setEmailDraftInstruction(
-          `Replying to the selected Gmail request. Requested: ${requestSummary}.`,
+          `Replying to the selected Mail request. Requested: ${requestSummary}.`,
         );
         setEmailDraftInitialValue({
           to: "",
@@ -2557,7 +2861,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         setEmailDraftOpen(true);
         updateMessage(assistantMessageId, (message) => ({
           ...message,
-          text: "I found the matching private details. Your editable reply to the selected Gmail request is ready below.",
+          text: "I found the matching private details. Your editable reply to the selected Mail request is ready below.",
           status: "done",
         }));
       } catch {
@@ -2565,7 +2869,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         setGmailKycEmailDraftWorkflowId(null);
         updateMessage(assistantMessageId, (message) => ({
           ...message,
-          text: "I couldn’t prepare the Gmail reply right now. Please try again.",
+          text: "I couldn’t prepare the Mail reply right now. Please try again.",
           status: "error",
         }));
       } finally {
@@ -2598,7 +2902,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     appendMessage({
       id: assistantMessageId,
       role: "assistant",
-      text: `Saving those details privately and preparing a reply to the selected Gmail request for ${gmailKycRequestSummary(request)}…`,
+      text: `Saving those details privately and preparing a reply to the selected Mail request for ${gmailKycRequestSummary(request)}…`,
       timestamp,
       status: "streaming",
       ephemeral: true,
@@ -2617,7 +2921,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       }
       updateMessage(assistantMessageId, (message) => ({
         ...message,
-        text: "Finding the matching private details and preparing the reply in the original Gmail thread…",
+        text: "Finding the matching private details and preparing the reply in the original Mail thread…",
         status: "streaming",
       }));
       await prepareGmailKycReply(request, assistantMessageId, {
@@ -2723,7 +3027,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         return true;
       }
       setEmailDraftInstruction(payload.instruction);
-      setEmailDraftInitialValue(null);
+      setEmailDraftInitialValue(payload.driveFileId
+        ? { to: "", cc: "", bcc: "", subject: "", body: "", driveFileId: payload.driveFileId }
+        : null);
       setEmailDraftAutoDraft(true);
       setEmailDraftAnchorMessageId(assistantMessageId);
       setEmailDraftOpen(true);
@@ -2790,7 +3096,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         {
           id: handoffMessageId,
           role: "assistant",
-          text: `I’m replying in the selected Gmail thread. This request asks for: ${requestedFields}. I’ll use only matching private details, and you can review the response before it sends.`,
+          text: `I’m replying in the selected Mail thread. This request asks for: ${requestedFields}. I’ll use only matching private details, and you can review the response before it sends.`,
           timestamp,
           status: "done",
           ephemeral: true,
@@ -2880,7 +3186,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   ]);
 
   useEffect(() => {
-    if (!user?.uid || !isVaultUnlocked) return;
+    if (!user?.uid || !isVaultUnlocked || !rootChatReady) return;
 
     let cancelled = false;
 
@@ -3040,14 +3346,53 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       }
     };
 
+    const reconcilePendingConsentRequests = async () => {
+      const token = getVaultOwnerToken();
+      if (!token) return;
+      try {
+        const response = await ApiService.getPendingConsents(user.uid, token);
+        const payload = (await response.json().catch(() => ({}))) as {
+          pending?: Array<{ id?: string; request_id?: string }>;
+        };
+        if (!response.ok || cancelled) return;
+        for (const item of Array.isArray(payload.pending) ? payload.pending : []) {
+          const requestId = String(item.id || item.request_id || "").trim();
+          if (requestId) void appendPendingConsentRequest(requestId);
+        }
+      } catch {
+        // FCM and the next explicit consent refresh remain authoritative. A
+        // failed reconciliation must not block Chat or create a fake card.
+      }
+    };
+
+    const handleConsentStateChanged = (event: Event) => {
+      const detail = (event as CustomEvent<Record<string, unknown>>).detail;
+      const requestId = String(detail?.requestId || "").trim();
+      const action = String(detail?.action || "").trim().toLowerCase();
+      if (!requestId || (action !== "approve" && action !== "deny")) return;
+      setMessages((current) =>
+        current.map((message) => ({
+          ...message,
+          specialistDirective: markPendingConsentRequestDirectiveStatus(
+            message.specialistDirective,
+            requestId,
+            action === "approve" ? "approved" : "denied",
+          ),
+        })),
+      );
+    };
+
     appendPendingConsentRequestRef.current = appendPendingConsentRequest;
     window.addEventListener(FCM_MESSAGE_EVENT, handleConsentMessage);
+    window.addEventListener(CONSENT_STATE_CHANGED_EVENT, handleConsentStateChanged);
+    void reconcilePendingConsentRequests();
     return () => {
       cancelled = true;
       appendPendingConsentRequestRef.current = null;
       window.removeEventListener(FCM_MESSAGE_EVENT, handleConsentMessage);
+      window.removeEventListener(CONSENT_STATE_CHANGED_EVENT, handleConsentStateChanged);
     };
-  }, [getVaultOwnerToken, isVaultUnlocked, user?.uid]);
+  }, [getVaultOwnerToken, isVaultUnlocked, rootChatReady, user?.uid]);
 
   const appendDebugEvent = useCallback(
     (
@@ -3071,7 +3416,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   };
 
   useEffect(() => {
-    if (!hasChatAccess || !user?.uid || !vaultOwnerToken) return;
+    if (
+      !hasChatAccess ||
+      !user?.uid ||
+      !vaultOwnerToken ||
+      recoveryCheckedForUid !== user.uid
+    ) return;
     const loadKey = `${user.uid}:${vaultOwnerToken.slice(0, 12)}`;
     if (skipInitialHistoryLoadRef.current) {
       skipInitialHistoryLoadRef.current = false;
@@ -3088,14 +3438,19 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       setConversations(snapshot.conversations);
       if (!snapshot.latestConversationId) {
         updateConversationId(null);
-        setMessages([createGreetingMessage()]);
+        setMessages((current) =>
+          mergePendingConsentMessages([createGreetingMessage()], current),
+        );
         return;
       }
-      const restored = snapshot.latestMessages
-        .map(storedMessageToAgentMessage)
-        .filter((message): message is AgentMessage => Boolean(message));
+      const restored = storedMessagesToAgentMessages(snapshot.latestMessages);
       updateConversationId(snapshot.latestConversationId);
-      setMessages(restored.length > 0 ? restored : [createGreetingMessage()]);
+      setMessages((current) =>
+        mergePendingConsentMessages(
+          restored.length > 0 ? restored : [createGreetingMessage()],
+          current,
+        ),
+      );
     };
 
     if (cached) applySnapshot(cached);
@@ -3139,10 +3494,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       cancelled = true;
       window.clearTimeout(timeoutId);
     };
-  }, [hasChatAccess, updateConversationId, user?.uid, vaultOwnerToken]);
+  }, [hasChatAccess, recoveryCheckedForUid, updateConversationId, user?.uid, vaultOwnerToken]);
 
   const restoreConversationMessages = useCallback(
-    async (nextConversationId: string, token: string) => {
+    async (
+      nextConversationId: string,
+      token: string,
+      isCurrent: () => boolean = () => true,
+    ) => {
       if (!user?.uid) return;
       clearTranscriptProgrammaticScroll();
       transcriptUserScrollRef.current = false;
@@ -3152,9 +3511,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         conversationId: nextConversationId,
         vaultOwnerToken: token,
       });
-      const restored = history
-        .map(storedMessageToAgentMessage)
-        .filter((message): message is AgentMessage => Boolean(message));
+      if (!isCurrent()) return;
+      const restored = storedMessagesToAgentMessages(history);
       latestVisibleTurnIdRef.current = null;
       updateConversationId(nextConversationId);
       setMessages(restored.length > 0 ? restored : [createGreetingMessage()]);
@@ -3175,6 +3533,156 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       user?.uid,
     ],
   );
+
+  useEffect(() => {
+    if (
+      !rootChatReady ||
+      !user?.uid ||
+      !vaultKey ||
+      !vaultOwnerToken ||
+      recoveryCheckedForUid === user.uid
+    ) return;
+    let cancelled = false;
+    const ownerUid = user.uid;
+    void (async () => {
+      const existing = pendingDriveRecoveryRef.current;
+      const state = existing?.ownerUid === ownerUid
+        ? existing.state
+        : await takeDriveChatRecovery({ ownerUserId: ownerUid, vaultKey });
+      if (state) pendingDriveRecoveryRef.current = { ownerUid, state };
+      if (cancelled) return;
+      if (state) {
+        const mayRestore = () => !cancelled &&
+          currentDraftRef.current.input === "" &&
+          currentDraftRef.current.attachment === null;
+        if (!mayRestore()) {
+          pendingDriveRecoveryRef.current = null;
+          setRecoveryCheckedForUid(ownerUid);
+          return;
+        }
+        historyRestoreEpochRef.current += 1;
+        skipInitialHistoryLoadRef.current = true;
+        if (state.conversationId) {
+          try {
+            await restoreConversationMessages(
+              state.conversationId,
+              getVaultOwnerToken() || vaultOwnerToken,
+              mayRestore,
+            );
+          } catch {
+            // Preserve the draft even if the selected history is temporarily
+            // unavailable. No fabricated transcript is shown.
+            if (mayRestore()) {
+              updateConversationId(null);
+              setMessages([createGreetingMessage()]);
+            }
+          }
+        } else {
+          if (mayRestore()) {
+            updateConversationId(null);
+            setMessages([createGreetingMessage()]);
+          }
+        }
+        if (cancelled) return;
+        if (!mayRestore()) {
+          pendingDriveRecoveryRef.current = null;
+          setRecoveryCheckedForUid(ownerUid);
+          return;
+        }
+        setInput(state.input);
+        setLongPromptAttachment(state.attachment);
+        setComposerExpanded(state.composerExpanded);
+        setDrawerMode(state.drawerMode);
+        setIsHistoryDrawerOpen(state.drawerOpen);
+        setRecoveryScrollTop(state.scrollTop);
+        pendingDriveRecoveryRef.current = null;
+      }
+      if (!cancelled) setRecoveryCheckedForUid(ownerUid);
+    })().catch(() => {
+      if (!cancelled && pendingDriveRecoveryRef.current?.ownerUid !== ownerUid)
+        setRecoveryCheckedForUid(ownerUid);
+    });
+    return () => { cancelled = true; };
+  }, [
+    recoveryCheckedForUid,
+    getVaultOwnerToken,
+    restoreConversationMessages,
+    rootChatReady,
+    updateConversationId,
+    user?.uid,
+    vaultKey,
+    vaultOwnerToken,
+  ]);
+
+  const prepareDriveChatRecovery = useCallback(async (request: {
+    attemptId: string;
+    reason: DriveChatRecoveryReason;
+  }): Promise<"ready" | "busy" | "unavailable"> => {
+    if (
+      !user?.uid ||
+      !vaultKey ||
+      !hasChatAccess ||
+      isPuppySurface ||
+      historyInteractionDisabled ||
+      isPkmMemoryWorking ||
+      isLoadingHistory ||
+      activeActionRun ||
+      pendingAppAction ||
+      pendingSpecialistDirective ||
+      emailDraftOpen ||
+      isGmailKycSaving ||
+      gmailKycReplyRequest ||
+      queuedHandoffPrompt ||
+      connectorExternalModalOpen
+    ) return "busy";
+    try {
+      const state = {
+        conversationId,
+        input,
+        attachment: longPromptAttachment,
+        composerExpanded,
+        scrollTop: Math.min(10_000_000, Math.max(0, transcriptRef.current?.scrollTop ?? oneScrollTopRef.current)),
+        drawerOpen: isHistoryDrawerOpen,
+        drawerMode,
+      };
+      await saveDriveChatRecovery({
+        ownerUserId: user.uid,
+        vaultKey,
+        attemptId: request.attemptId,
+        reason: request.reason,
+        state,
+      });
+      const live = recoveryUiRef.current;
+      const draft = currentDraftRef.current;
+      if (
+        draft.input !== state.input ||
+        draft.attachment?.text !== state.attachment?.text ||
+        draft.attachment?.isExpanded !== state.attachment?.isExpanded ||
+        live.conversationId !== state.conversationId ||
+        live.composerExpanded !== state.composerExpanded ||
+        live.drawerOpen !== state.drawerOpen ||
+        live.drawerMode !== state.drawerMode ||
+        (transcriptRef.current?.scrollTop ?? oneScrollTopRef.current) !== state.scrollTop
+      ) {
+        await clearDriveChatRecovery(user.uid);
+        return "unavailable";
+      }
+      return "ready";
+    } catch {
+      return "unavailable";
+    }
+  }, [
+    activeActionRun, composerExpanded, connectorExternalModalOpen,
+    conversationId, drawerMode, emailDraftOpen, gmailKycReplyRequest,
+    hasChatAccess, historyInteractionDisabled, input,
+    isGmailKycSaving, isHistoryDrawerOpen, isLoadingHistory, isPkmMemoryWorking,
+    isPuppySurface, longPromptAttachment, pendingAppAction,
+    pendingSpecialistDirective, queuedHandoffPrompt, user?.uid, vaultKey,
+  ]);
+
+  const clearPreparedDriveChatRecovery = useCallback(async () => {
+    if (user?.uid) await clearDriveChatRecovery(user.uid);
+  }, [user?.uid]);
 
   const loadConversationList = useCallback(
     async (force = false) => {
@@ -3225,23 +3733,36 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     ],
   );
 
-  // The sidebar lists One's conversations only; Puppy One keeps its transcript
-  // on the owner's machine and contributes no rows to it. Acting on one of
-  // those rows therefore means "show me One", and returning to that transcript
-  // is what makes the click do something visible.
+  const handleCreateNewPuppyChat = puppyHistory.create;
+  const handleSelectPuppyConversation = puppyHistory.select;
+  const handleRenamePuppyConversation = (id: string, title: string) => {
+    puppyHistory.rename(id, title);
+  };
+  const handleDeletePuppyConversation = (id: string) => {
+    puppyHistory.remove(id);
+  };
+
   const handleSidebarCreateNewChat = useCallback(() => {
     setIsHistoryDrawerOpen(false);
+    if (isPuppySurface) {
+      handleCreateNewPuppyChat();
+      return;
+    }
     setAgentSurface("one");
     handleCreateNewChat();
-  }, [handleCreateNewChat]);
+  }, [handleCreateNewChat, handleCreateNewPuppyChat, isPuppySurface]);
 
   const handleSidebarSelectConversation = useCallback(
     (nextConversationId: string) => {
       setIsHistoryDrawerOpen(false);
+      if (isPuppySurface) {
+        handleSelectPuppyConversation(nextConversationId);
+        return;
+      }
       setAgentSurface("one");
       void handleSelectConversation(nextConversationId);
     },
-    [handleSelectConversation],
+    [handleSelectConversation, handleSelectPuppyConversation, isPuppySurface],
   );
 
   const handleRenameConversation = useCallback(
@@ -3393,153 +3914,105 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     [conversationId, getVaultOwnerToken, messageRatings],
   );
 
-  /**
-   * Automatic writes are deliberately detached from the response stream. The
-   * chat remains responsive, while the receipt or a failure notification
-   * records the eventual outcome.
-   */
-  const saveEligiblePkmCardsInBackground = useCallback(
+  // One memory-only job belongs to its originating turn. Later turns may
+  // continue; a conversation/owner/vault change cancels pending effects.
+  const captureEligiblePkmFactsInBackground = useCallback(
     (params: {
       turnId: string;
+      assistantMessageId: string;
       sourceMessage: string;
-      cards: AgentPkmPreviewCard[];
-      policy: AgentPkmAutoSavePolicy;
-    }) => {
+      currentDomains: string[];
+    }): Promise<AgentPkmCaptureStatus> => {
+      // Private source text is used only in this transient deduplication key.
+      const jobKey = JSON.stringify([params.assistantMessageId, params.sourceMessage]);
+      const existing = pkmCaptureJobsRef.current.get(jobKey);
+      if (existing) return existing;
       const token = getVaultOwnerToken();
-      if (
-        !user?.uid ||
-        !vaultKey ||
-        !token ||
-        !params.policy.enabled ||
-        params.cards.length === 0
-      ) {
-        return;
+      if (!user?.uid || !vaultKey || !token || !pkmCaptureEnabledRef.current) {
+        return Promise.resolve({ phase: "review", saved: 0 });
       }
-      setActivePkmToolCount((count) => count + 1);
-      appendDebugEvent(params.turnId, "pkm_auto_save_start", {
-        candidate_count: params.cards.length,
-        policy_version: params.policy.version,
+      const userId = user.uid;
+      const policy = pkmCapturePolicyRef.current;
+      const controller = new AbortController();
+      const guard = createAgentPkmCaptureGuard({
+        userId, signal: controller.signal,
+        isEnabled: () => pkmCaptureEnabledRef.current && pkmCapturePolicyRef.current === policy &&
+          isAgentPkmProcessingReady(pkmCaptureReadinessRef.current, token),
       });
-
-      window.setTimeout(() => {
-        void (async () => {
-          try {
-            const result = await addToPKM({
-              userId: user.uid,
-              cards: params.cards,
-              sourceMessage: params.sourceMessage,
-              vaultKey,
-              vaultOwnerToken: token,
-              source: "agent_chat_auto_save",
-              confirmation:
-                params.policy.source === "owner_choice" && params.policy.enabledAt
-                  ? {
-                      authorizationMode: "owner_auto_save_policy",
-                      surface: "chat",
-                      source: "agent_chat_auto_save_policy",
-                      autoSavePolicyVersion: params.policy.version,
-                      autoSavePolicyEnabledAt: params.policy.enabledAt,
-                    }
-                  : {
-                      authorizationMode: "product_default_auto_save_policy",
-                      surface: "chat",
-                      source: "agent_chat_product_default_auto_save",
-                      autoSavePolicyVersion: params.policy.version,
-                      productDefaultEffectiveAt: AGENT_PKM_PRODUCT_DEFAULT_EFFECTIVE_AT,
-                    },
-            });
-            appendDebugEvent(params.turnId, "pkm_auto_save_result", result);
-            trackEvent("agent_pkm_save_confirmation_completed", {
-              route_id: "agent",
-              result: result.saved > 0 ? "success" : "expected_error",
-              saved_count_bucket: toPkmFactCountBucket(result.saved),
-              failed_count_bucket: toPkmFactCountBucket(result.failed),
-              has_active_recipients: false,
-            });
-            if (result.saved > 0) {
-              setMessages((current) => [
-                ...current,
-                {
-                  id: `pkm-auto-save-receipt-${Date.now()}`,
-                  role: "assistant",
-                  text: formatAgentPkmSaveSummary(result),
-                  timestamp: formatNow(),
-                  status: "done",
-                },
-              ]);
-              // addToPKM invalidates the local PKM context. A later targeted
-              // KYC lookup refreshes just the changed identity segments.
-            }
-            if (result.failed > 0) {
-              toast.error("Some eligible details could not be saved. Nothing else was added.");
-            }
-          } catch (error) {
-            const message =
-              error instanceof Error
-                ? error.message
-                : "Automatic memory saving failed.";
-            appendDebugEvent(params.turnId, "pkm_auto_save_failed", {
-              message,
-            });
-          } finally {
+      pkmAbortControllersRef.current.add(controller);
+      setActivePkmToolCount((count) => count + 1);
+      const settle = (status: AgentPkmCaptureStatus) => {
+        if (guard.isCurrent()) {
+          const receipts = pkmCaptureReceiptsRef.current.get(params.assistantMessageId) || new Map<string, AgentPkmCaptureStatus>();
+          receipts.set(jobKey, status);
+          pkmCaptureReceiptsRef.current.set(params.assistantMessageId, receipts);
+          const aggregate = aggregateAgentPkmCaptures([...receipts.values()]);
+          setMessages((current) => current.map((message) =>
+            message.id === params.assistantMessageId ? { ...message, memoryCapture: aggregate } : message,
+          ));
+        }
+        return status;
+      };
+      const job = (async (): Promise<AgentPkmCaptureStatus> => {
+        try {
+          // Yield presentation without creating an untracked detached timer.
+          await guard.assertCurrent();
+          settle({ phase: "preparing", saved: 0 });
+          const labContext = await loadPkmAgentLabContext({ userId, vaultOwnerToken: token });
+          await guard.assertCurrent();
+          const prepared = await prepareNaturalLanguagePkm({
+            userId, message: params.sourceMessage, currentDomains: params.currentDomains,
+            currentManifests: Object.values(labContext.manifests || {}).filter(Boolean),
+            findDuplicate: (candidate) => AgentPkmContextStore.findLocalDuplicate({ userId, candidate }),
+            vaultOwnerToken: token, source: "agent_chat_auto_capture", allowEmpty: true,
+            beforeEffect: guard.assertCurrent,
+            isEffectCurrent: guard.isCurrent,
+          });
+          await guard.assertCurrent();
+          const needsAttention = prepared.sourceCoverage.some((block) =>
+            block.disposition === "failed" || block.disposition === "review_required",
+          );
+          // A malformed/degraded proposal cannot authorize automatic effects.
+          const degraded = prepared.previews.some((preview) => preview.error || preview.used_fallback);
+          const reviewRequired =
+            needsAttention ||
+            degraded ||
+            getPkmConfirmationCards(prepared.cards).length > 0;
+          const cards = degraded ? [] : getPkmAutoSaveCards(prepared.cards);
+          if (!cards.length) return settle({ phase: reviewRequired ? "review" : "skipped", saved: 0 });
+          settle({ phase: "saving", saved: 0 });
+          const result = await addToPKM({
+            userId, cards, sourceMessage: params.sourceMessage, vaultKey, vaultOwnerToken: token,
+            source: "agent_chat_auto_save", beforeEffect: guard.assertCurrent,
+            mayPublish: guard.isCurrent,
+            confirmation: policy.source === "owner_choice" && policy.enabledAt
+              ? { authorizationMode: "owner_auto_save_policy", surface: "chat", source: "agent_chat_auto_save_policy",
+                  autoSavePolicyVersion: policy.version, autoSavePolicyEnabledAt: policy.enabledAt }
+              : { authorizationMode: "product_default_auto_save_policy", surface: "chat", source: "agent_chat_product_default_auto_save",
+                  autoSavePolicyVersion: policy.version, productDefaultEffectiveAt: AGENT_PKM_PRODUCT_DEFAULT_EFFECTIVE_AT },
+          });
+          // Preserve confirmed receipts even if publication is no longer allowed.
+          // Never log the result's decrypted fullBlob or item-level summaries.
+          appendDebugEvent(params.turnId, "pkm_auto_save_result", { saved: result.saved, failed: result.failed });
+          trackEvent("agent_pkm_save_confirmation_completed", {
+            route_id: "agent", result: result.saved > 0 ? "success" : "expected_error",
+            saved_count_bucket: toPkmFactCountBucket(result.saved), failed_count_bucket: toPkmFactCountBucket(result.failed),
+            has_active_recipients: false,
+          });
+          return settle({ phase: result.saved > 0 ? (result.failed || reviewRequired ? "partial" : "saved") : "failed", saved: result.saved });
+        } catch {
+          return settle({ phase: "failed", saved: 0 });
+        } finally {
+          // A canceled old job must not decrement a new conversation's count.
+          if (pkmAbortControllersRef.current.delete(controller)) {
             setActivePkmToolCount((count) => Math.max(0, count - 1));
           }
-        })();
-      }, 0);
+        }
+      })();
+      pkmCaptureJobsRef.current.set(jobKey, job);
+      return job;
     },
     [appendDebugEvent, getVaultOwnerToken, user?.uid, vaultKey],
-  );
-
-  const captureEligiblePkmFactsInBackground = useCallback(
-    (params: { turnId: string; sourceMessage: string; currentDomains: string[] }) => {
-      if (!pkmAutoSavePolicy.enabled || !user?.uid || !vaultKey) return;
-      const token = getVaultOwnerToken();
-      if (!token) return;
-      window.setTimeout(() => {
-        void (async () => {
-          try {
-            const labContext = await loadPkmAgentLabContext({
-              userId: user.uid,
-              vaultOwnerToken: token,
-            }).catch(() => null);
-            const prepared = await prepareNaturalLanguagePkm({
-              userId: user.uid,
-              message: params.sourceMessage,
-              currentDomains: params.currentDomains,
-              currentManifests: Object.values(labContext?.manifests || {}).filter(Boolean),
-              findDuplicate: (candidate) =>
-                AgentPkmContextStore.findLocalDuplicate({ userId: user.uid, candidate }),
-              vaultOwnerToken: token,
-              source: "agent_chat_auto_capture",
-              allowEmpty: true,
-            });
-            const autoSaveCards = getPkmAutoSaveCards(prepared.cards);
-            // Chat's automatic lane saves only the semantic gate's eligible
-            // cards. Ambiguous, sensitive, shared, and financial candidates
-            // are intentionally skipped instead of interrupting the chat with
-            // a second review workflow.
-            saveEligiblePkmCardsInBackground({
-              turnId: params.turnId,
-              sourceMessage: params.sourceMessage,
-              cards: autoSaveCards,
-              policy: pkmAutoSavePolicy,
-            });
-          } catch (error) {
-            const message = error instanceof Error ? error.message : "Automatic memory saving failed.";
-            appendDebugEvent(params.turnId, "pkm_auto_capture_failed", { message });
-            toast.error("We couldn't save eligible details to Memory. Nothing new was added.");
-          }
-        })();
-      }, 0);
-    },
-    [
-      appendDebugEvent,
-      getVaultOwnerToken,
-      pkmAutoSavePolicy,
-      saveEligiblePkmCardsInBackground,
-      user?.uid,
-      vaultKey,
-    ],
   );
 
   const runAgentTurn = async (
@@ -3695,17 +4168,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
 
     const executePkmAddTool = async (toolEvent: AgentChatToolEvent) => {
       if (!vaultKey || !token) {
-        appendDebugEvent(debugTurnId, "pkm_tool_skipped", {
-          reason: !vaultKey
-            ? "vault_key_unavailable"
-            : "vault_owner_token_unavailable",
-          tool: toolEvent,
-        });
         upsertPkmStatusMessage(
           "Unlock your vault before saving to Memory.",
           "error",
         );
-        return;
+        return { phase: "failed", saved: 0 } as AgentPkmCaptureStatus;
       }
 
       const sourceText =
@@ -3713,82 +4180,16 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         toolEvent.slots.source_text.trim()
           ? toolEvent.slots.source_text.trim()
           : text;
-      pkmToolHandledFullTurn = sourceText === text;
+      // One already chose capture passages. Do not run a second full-turn
+      // extraction over those passages after its explicit capture invocations.
+      pkmToolHandledFullTurn = true;
 
-      setActivePkmToolCount((count) => count + 1);
-      appendDebugEvent(debugTurnId, "pkm_tool_preview_start", {
-        tool: "pkm.add",
-        current_domains: turnPkmContext.domains,
-        source_text: sourceText,
+      return captureEligiblePkmFactsInBackground({
+        turnId: `${debugTurnId}:${toolEvent.callId || "pkm.add"}`,
+        assistantMessageId,
+        sourceMessage: sourceText,
+        currentDomains: turnPkmContext.domains,
       });
-      upsertPkmStatusMessage("Checking what belongs in Memory...", "streaming");
-
-      try {
-        const labContext = await loadPkmAgentLabContext({
-          userId,
-          vaultOwnerToken: token,
-        }).catch(() => null);
-        const preview = await prepareNaturalLanguagePkm({
-          userId,
-          message: sourceText,
-          currentDomains: turnPkmContext.domains,
-          currentManifests: Object.values(labContext?.manifests || {}).filter(Boolean),
-          findDuplicate: (candidate) =>
-            AgentPkmContextStore.findLocalDuplicate({ userId, candidate }),
-          vaultOwnerToken: token,
-          source: "agent_chat_explicit_memory",
-          onProgress: ({ chunkIndex, chunkCount, cardCount, phase }) => {
-            upsertPkmStatusMessage(
-              phase === "prepared"
-                ? `Found ${cardCount} ${cardCount === 1 ? "detail" : "details"} that can be saved.`
-                : `Organizing memory ${Math.min(chunkIndex + 1, chunkCount)} of ${chunkCount}…`,
-              phase === "prepared" ? "done" : "streaming",
-            );
-          },
-        });
-        const autoSaveCards = getPkmAutoSaveCards(preview.cards);
-        const ignoredCards = getIgnoredPkmCards(preview.cards);
-
-        appendDebugEvent(debugTurnId, "pkm_tool_preview_result", {
-          model: preview.preview.model,
-          used_fallback: preview.preview.used_fallback,
-          total_cards: preview.cards.length,
-          eligible_count: autoSaveCards.length,
-          ignored_count: ignoredCards.length,
-          preview_summary: preview.preview.preview_summary || null,
-          cards: preview.cards,
-        });
-
-        if (autoSaveCards.length > 0) {
-          saveEligiblePkmCardsInBackground({
-            turnId: debugTurnId,
-            sourceMessage: sourceText,
-            cards: autoSaveCards,
-            policy: pkmAutoSavePolicy,
-          });
-          upsertPkmStatusMessage(
-            "Saving eligible details privately…",
-            "done",
-          );
-        } else {
-          upsertPkmStatusMessage(
-            "No new details were eligible to save.",
-            "done",
-          );
-        }
-      } catch (error) {
-        const message =
-          error instanceof Error && error.message
-            ? error.message
-            : "One could not save that memory.";
-        appendDebugEvent(debugTurnId, "pkm_tool_failed", {
-          message,
-          tool: toolEvent,
-        });
-        upsertPkmStatusMessage("One could not save that memory.", "error");
-      } finally {
-        setActivePkmToolCount((count) => Math.max(0, count - 1));
-      }
     };
 
     const executeFrontendTool = async (
@@ -3800,13 +4201,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       appendDebugEvent(debugTurnId, "frontend_execute_start", toolEvent);
 
       if (toolEvent.actionId === "pkm.add") {
-        await executePkmAddTool(toolEvent);
+        const capture = await executePkmAddTool(toolEvent);
         return {
-          status: "succeeded",
+          status: capture.phase === "saved" || capture.phase === "skipped" ? "succeeded" : "blocked",
           actionId: toolEvent.actionId,
           label: toolEvent.label,
           routeBefore: pathname,
-          resultSummary: "Eligible details are being saved privately.",
+          resultSummary: describeAgentPkmCapture(capture),
         };
       }
 
@@ -4043,6 +4444,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               status: result.status,
               summary: result.resultSummary,
               actionId: result.actionId,
+              ...(result.actionId === "consent.request" && result.data
+                ? { data: result.data }
+                : {}),
             });
             return result;
           },
@@ -4126,6 +4530,24 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         return cachedContext;
       }
 
+      // Large pasted context is already in the user turn and is handled by the
+      // guarded background capture lane after the answer starts. Do not make a
+      // foreground paste wait for a full decrypted inventory to hydrate. A
+      // warm session cache is still useful, but it is not required for this
+      // explicitly deferred lane.
+      if (options.deferPkmContext) {
+        if (cachedContext?.text) {
+          void loadAgentPkmContext({
+            userId,
+            vaultOwnerToken: token,
+            vaultKey,
+            message: text,
+          }).catch(() => undefined);
+          return cachedContext;
+        }
+        return EMPTY_PKM_CONTEXT;
+      }
+
       // A warm cache returns immediately. A cold unlocked turn waits for the
       // local decrypted inventory instead of substituting metadata or sending
       // an empty prompt to One.
@@ -4134,6 +4556,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         vaultOwnerToken: token,
         vaultKey,
         message: text,
+        requireDecrypted: true,
       });
       if (!context.text) {
         throw new Error(
@@ -4157,8 +4580,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           trackEvent("agent_pkm_context_resolved", {
             route_id: "agent",
             result: "success",
-            context_mode:
-              agentPkmContext.mode === "broad" ? "broad" : "relevant",
+            context_mode: "full",
             total_fact_count_bucket: toPkmFactCountBucket(
               coverage?.totalFactCount || 0,
             ),
@@ -4211,6 +4633,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         conversationId: conversationIdRef.current,
         vaultOwnerToken: token,
         pkmContext: agentPkmContext.text || undefined,
+        personSelectionHandle: options.personSelectionHandle,
         screenContext: buildOneVoiceStructuredScreenContext({
           appRuntimeState: appRuntimeStateRef.current,
           state: useAgentVoiceState.getState().oneVoiceState,
@@ -4280,13 +4703,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             if (streamAbortController.signal.aborted) return;
             queueAssistantDelta(delta);
           },
-          onThought: (delta) => {
-            if (streamAbortController.signal.aborted) return;
-            updateMessage(assistantMessageId, (message) => ({
-              ...message,
-              thought: (message.thought ?? "") + delta,
-            }));
-          },
           onSources: (sources) => {
             if (streamAbortController.signal.aborted) return;
             updateMessage(assistantMessageId, (message) => ({
@@ -4294,16 +4710,51 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               sources,
             }));
           },
-          onStructuredExperience: (structuredExperience) => {
+          onStructuredExperience: (structuredExperience, eventId) => {
             if (streamAbortController.signal.aborted) return;
-            updateMessage(assistantMessageId, (message) => ({
-              ...message,
-              structuredExperience,
-            }));
+            const stableId =
+              eventId || `${assistantMessageId}:${structuredExperience.type}`;
+            updateMessage(assistantMessageId, (message) => {
+              const current = message.structuredExperiences ?? [];
+              return {
+                ...message,
+                structuredExperiences: upsertAgentStructuredExperience(
+                  current,
+                  stableId,
+                  structuredExperience,
+                ),
+              };
+            });
           },
           onSpecialistDirective: (directive) => {
             if (streamAbortController.signal.aborted) return;
             setPendingSpecialistDirective(directive);
+          },
+          onInterrupt: ({ conversationId: nextConversationId }) => {
+            if (streamAbortController.signal.aborted) return;
+            // AG-UI interrupts are the normal boundary for a visible action
+            // card. The card remains actionable, but the assistant turn has
+            // finished thinking until the owner confirms or cancels it.
+            flushAssistantDelta();
+            if (nextConversationId) {
+              updateConversationId(nextConversationId);
+            }
+            updateMessage(assistantMessageId, (message) => ({
+              ...message,
+              status: "done",
+              streamEvents: settleVisibleStreamEvents(
+                message.streamEvents,
+                "done",
+              ),
+            }));
+            setIsChatLoading(false);
+            setIsStreaming(false);
+          },
+          onServerMessageId: (serverMessageId) => {
+            updateMessage(assistantMessageId, (message) => ({
+              ...message,
+              serverMessageId,
+            }));
           },
           onComplete: ({ conversationId: nextConversationId }) => {
             if (streamAbortController.signal.aborted) return;
@@ -4343,6 +4794,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         finishCanceledTurn();
         return;
       }
+      if (streamResult.interrupted) {
+        // The confirmation card is now the active surface. Do not append a
+        // fabricated fallback sentence or start background capture while the
+        // resumable action is waiting for the owner's tap.
+        return;
+      }
       flushAssistantDelta();
       if (streamResult.conversationId) {
         updateConversationId(streamResult.conversationId);
@@ -4360,8 +4817,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       // for automatic capture. Assistant output, tool events, and Gmail
       // content never enter this client-side proposal path.
       if (options.source === "typed" && !pkmToolHandledFullTurn) {
-        captureEligiblePkmFactsInBackground({
+        void captureEligiblePkmFactsInBackground({
           turnId: debugTurnId,
+          assistantMessageId,
           sourceMessage: text,
           currentDomains: turnPkmContext.domains,
         });
@@ -4491,18 +4949,17 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             if (streamAbortController.signal.aborted) return;
             queueAssistantDelta(delta);
           },
-          onThought: (delta) => {
-            if (streamAbortController.signal.aborted) return;
-            updateMessage(assistantMessageId, (message) => ({
-              ...message,
-              thought: (message.thought ?? "") + delta,
-            }));
-          },
           onSources: (sources) => {
             if (streamAbortController.signal.aborted) return;
             updateMessage(assistantMessageId, (message) => ({
               ...message,
               sources,
+            }));
+          },
+          onServerMessageId: (serverMessageId) => {
+            updateMessage(assistantMessageId, (message) => ({
+              ...message,
+              serverMessageId,
             }));
           },
           onComplete: ({ conversationId: nextConversationId }) => {
@@ -4801,20 +5258,29 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     void drainOperationQueue();
   };
 
-  const enqueuePrompt = (textInput: string) => {
+  const enqueuePrompt = (
+    textInput: string,
+    personSelectionHandle?: string,
+    options: Pick<AgentRunTurnOptions, "deferPkmContext"> = {},
+  ) => {
     const text = textInput.trim();
     if (!text) return;
     const prompt: QueuedAgentPrompt = {
       id: crypto.randomUUID(),
       text,
       createdAtMs: Date.now(),
+      deferPkmContext: options.deferPkmContext,
     };
     const operation: QueuedWorkspaceOperation = {
       id: prompt.id,
       prompt,
       run: async () => {
         if (hasChatAccess) {
-          await runAgentTurn(operation.prompt?.text ?? "", { source: "typed" });
+          await runAgentTurn(operation.prompt?.text ?? "", {
+            source: "typed",
+            personSelectionHandle,
+            deferPkmContext: operation.prompt?.deferPkmContext,
+          });
           return;
         }
         await runIntroTurn(operation.prompt?.text ?? "");
@@ -4938,7 +5404,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setInput("");
     setLongPromptAttachment(null);
     setComposerExpanded(false);
-    if (detectLikelyPan(text)) {
+    // A large paste is a dedicated browser-memory import lane. Redact payment
+    // card numbers before the text can enter Chat, history, telemetry, or the
+    // guarded background PKM proposal flow; ordinary typed PAN input remains a
+    // hard block and is routed to the secure card form.
+    const submittedText =
+      attachment && detectLikelyPan(text) ? redactLikelyPans(text) : text;
+    if (detectLikelyPan(submittedText)) {
       appendMessage({
         id: `msg-${Date.now()}-pan-blocked`,
         role: "assistant",
@@ -4959,7 +5431,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       await submitGmailKycDetails(text);
       return;
     }
-    enqueuePrompt(text);
+    enqueuePrompt(submittedText, undefined, {
+      deferPkmContext: attachment !== null,
+    });
   };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -5119,6 +5593,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     return (
       <div className="border-t border-border/70 pt-3">
         <EmailDraftCard
+          key={`email-draft-${emailDraftAnchorMessageId ?? "standalone"}`}
           initialInstruction={emailDraftInstruction}
           initialDraft={emailDraftInitialValue}
           autoDraft={emailDraftAutoDraft}
@@ -5219,25 +5694,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setInput(prompt);
     window.setTimeout(() => composerTextareaRef.current?.focus(), 0);
   }, []);
-  const openHistoryDrawer = useCallback(() => {
-    historyDrawerReturnFocusRef.current =
-      document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null;
-    setIsHistoryDrawerOpen(true);
-    void loadConversationList().catch(() => undefined);
-  }, [loadConversationList]);
-  const handleHistoryDrawerKeyDown = useCallback(
-    (event: ReactKeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.stopPropagation();
-        setIsHistoryDrawerOpen(false);
-        return;
+  const toggleHistoryDrawer = useCallback(() => {
+    setIsHistoryDrawerOpen((prev) => {
+      if (!prev) {
+        if (!isPuppySurface) void loadConversationList().catch(() => undefined);
       }
-      trapFocusWithin(event, historyDrawerRef.current);
-    },
-    [],
-  );
+      return !prev;
+    });
+  }, [isPuppySurface, loadConversationList]);
   const renderHistorySidebar = (
     sidebarClassName?: string,
     onClose?: () => void,
@@ -5245,21 +5709,27 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     mode: "desktop" | "mobile" = "desktop",
   ) => (
     <AgentHistorySidebar
-      conversations={conversations}
-      activeConversationId={conversationId}
-      loading={isLoadingHistory && conversations.length === 0}
-      disabled={!hasChatAccess || historyInteractionDisabled}
+      conversations={isPuppySurface ? puppyConversations : conversations}
+      activeConversationId={isPuppySurface ? puppyConversationId : conversationId}
+      loading={isPuppySurface ? false : (isLoadingHistory && conversations.length === 0)}
+      disabled={isPuppySurface ? false : (!hasChatAccess || historyInteractionDisabled)}
       actionPendingId={historyActionPendingId}
       className={sidebarClassName}
       collapsed={collapsed}
       mode={mode}
+      hideCloseButton={true}
       surface={agentSurface}
       onClose={onClose}
-      onToggleCollapsed={() => setIsHistoryCollapsed((current) => !current)}
+      onToggleCollapsed={toggleHistoryDrawer}
+      onOpenConnectors={
+        !isPuppySurface && connectionsAvailable
+          ? () => setDrawerMode("connections")
+          : undefined
+      }
       onCreateNew={handleSidebarCreateNewChat}
       onSelectConversation={handleSidebarSelectConversation}
-      onRenameConversation={handleRenameConversation}
-      onDeleteConversation={handleDeleteConversation}
+      onRenameConversation={isPuppySurface ? handleRenamePuppyConversation : handleRenameConversation}
+      onDeleteConversation={isPuppySurface ? handleDeletePuppyConversation : handleDeleteConversation}
     />
   );
   const getEmailDeliveryAuth = async () => {
@@ -5294,6 +5764,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         disabled={!canSend}
         aria-label="Send message"
         title="Send message"
+        onClick={(event) => {
+          // Keep the form path for keyboard/assistive submission, but do not
+          // rely on the wrapped shell/ripple button's native submit default.
+          // A real pointer click can otherwise release without dispatching
+          // submit while the control is visibly enabled.
+          event.preventDefault();
+          void submitComposerText();
+        }}
       >
         <Send className="h-4 w-4" />
       </ShellActionSurface>
@@ -5308,13 +5786,32 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         // height and manages its internal scroll streams and composer clearance.
         "min-h-[420px] overflow-hidden bg-background",
         isCanonicalChatRoute
-          ? "agent-chat-workspace--root h-full min-h-0 flex-1"
+          ? // The persistent bottom nav is `position: fixed`, so a flex-1/h-full
+            // ancestor has no way to know it needs to leave room above it. Without
+            // this subtraction the composer's own small `--agent-chat-composer-bottom`
+            // padding (by design just a safe-area gap, not full nav clearance --
+            // see the `[data-agent-chat-route="root"]` rule in globals.css) put the
+            // composer's text field directly underneath the fixed nav instead of
+            // above it.
+            //
+            // `flex-1` sets `flex-basis: 0%`, which becomes this item's main-axis
+            // (height, in a flex-col ancestor) size and makes the browser ignore
+            // an explicit `height` utility on the same element entirely -- the
+            // element still grows to fill 100% of the flex column regardless of
+            // what `h-[calc(...)]` says. Dropping `flex-1` lets `flex-basis: auto`
+            // fall back to the `height` property instead, so the calc() actually
+            // governs the rendered size.
+            "agent-chat-workspace--root flex-1 h-full min-h-0"
           : "h-[calc(100dvh-var(--app-top-content-offset,0px)-var(--app-bottom-shell-height,calc(var(--app-bottom-fixed-ui,0px)+var(--app-safe-area-bottom-effective,0px))))]",
         className,
       )}
       data-agent-chat-workspace="page"
       data-agent-chat-route={isCanonicalChatRoute ? "root" : "embedded"}
+      data-agent-history-drawer-open={isHistoryDrawerOpen ? "true" : undefined}
     >
+      <AgentPersonSelectionContext.Provider value={hasChatAccess && !isStreaming
+        ? (handle, name) => enqueuePrompt(`Check what I can ask ${name} for.`, handle)
+        : null}>
       <div
         className={cn(
           "relative flex min-h-0 flex-1",
@@ -5323,61 +5820,55 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           "overflow-hidden",
         )}
       >
-        <div className="hidden h-full lg:flex">
-          {renderHistorySidebar("h-full", undefined, isHistoryCollapsed)}
-        </div>
-        <div
-          className={cn(
-            "fixed inset-0 z-[520] bg-black/35 backdrop-blur-sm transition-opacity duration-200 dark:bg-black/55 lg:hidden",
-            isHistoryDrawerOpen
-              ? "opacity-100"
-              : "pointer-events-none opacity-0",
-          )}
-          aria-hidden="true"
-          onClick={() => setIsHistoryDrawerOpen(false)}
-        />
-        <div
-          ref={historyDrawerRef}
-          className={cn(
-            "fixed bottom-0 left-0 top-[var(--top-shell-reserved-height,var(--app-safe-area-top-effective,0px))] z-[530] w-[min(88vw,320px)] transform transition-transform duration-200 ease-out lg:hidden",
-            isHistoryDrawerOpen ? "translate-x-0" : "-translate-x-full",
-          )}
-          role="dialog"
-          aria-modal="true"
-          aria-hidden={!isHistoryDrawerOpen}
-          aria-label="Agent chat history"
-          inert={!isHistoryDrawerOpen}
-          onKeyDown={handleHistoryDrawerKeyDown}
-        >
-          {renderHistorySidebar(
+        <AgentConnectionsDrawer
+          triggerRef={historyDrawerTriggerRef}
+          open={isHistoryDrawerOpen}
+          onOpenChange={setIsHistoryDrawerOpen}
+          mode={drawerMode}
+          externalModalOpen={connectorExternalModalOpen}
+          chats={renderHistorySidebar(
             "h-full w-full",
             () => setIsHistoryDrawerOpen(false),
             false,
             "mobile",
           )}
-        </div>
+          connections={
+            <ConnectorsPanel
+              open={isHistoryDrawerOpen && drawerMode === "connections"}
+              onBack={() => setDrawerMode("chats")}
+              onClose={() => {
+                setIsHistoryDrawerOpen(false);
+                setDrawerMode("chats");
+              }}
+              onAvailableChange={setConnectionsAvailable}
+              onExternalModalChange={setConnectorExternalModalOpen}
+              onPrepareRecovery={prepareDriveChatRecovery}
+              onClearRecovery={clearPreparedDriveChatRecovery}
+            />
+          }
+        />
 
         <section
           className={cn(
             "relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[radial-gradient(circle_at_78%_8%,color-mix(in_srgb,var(--app-accent-soft)_42%,transparent),transparent_34%),var(--background)]",
           )}
-          inert={isHistoryDrawerOpen}
         >
           <div
             className={cn(
-              "agent-chat-header flex shrink-0 touch-pan-y items-center justify-between gap-3 bg-background/90 px-4 pt-[var(--agent-chat-header-safe-top)] backdrop-blur-2xl sm:px-5",
-              "min-h-[calc(3.75rem+var(--agent-chat-header-safe-top))] sm:min-h-[calc(4rem+var(--app-safe-area-top-effective,0px))] sm:pt-[var(--app-safe-area-top-effective,0px)] lg:px-6",
+              "agent-chat-header relative z-[540] flex shrink-0 touch-pan-y items-center justify-between gap-3 bg-background/90 px-4 pt-[var(--agent-chat-header-safe-top)] backdrop-blur-2xl sm:px-5",
+              "h-[var(--agent-chat-header-height)] lg:px-6",
             )}
           >
             <div className="flex min-w-0 items-center gap-3">
               <ShellActionSurface
                 variant="icon"
-                className="lg:hidden"
-                onClick={openHistoryDrawer}
-                aria-label="Open chat history"
-                title="Open chat history"
+                ref={historyDrawerTriggerRef}
+                onClick={(event) => { historyDrawerTriggerRef.current = event.currentTarget; toggleHistoryDrawer(); }}
+                aria-label={isHistoryDrawerOpen ? "Close chat history" : "Open chat history"}
+                title={isHistoryDrawerOpen ? "Close chat history" : "Open chat history"}
+                className="relative z-[540]"
               >
-                <Menu className="h-4 w-4" />
+                <AnimatedMenuCrossIcon isOpen={isHistoryDrawerOpen} />
               </ShellActionSurface>
               <div className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-[13px] bg-[color:var(--app-accent-soft)] shadow-[0_10px_28px_-20px_var(--app-accent-deep)]">
                 {isPuppySurface ? (
@@ -5522,7 +6013,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       ).replace(/^Gemini\s+/i, "")}
                     </span>
                   </SelectTrigger>
-                  <SelectContent align="end">
+                  <SelectContent
+                    position="popper"
+                    align="end"
+                    sideOffset={6}
+                    className="z-[560] min-w-[12rem]"
+                  >
                     {modelPreference.choices.map((choice) => (
                       <SelectItem key={choice.model_id} value={choice.model_id}>
                         {choice.label}
@@ -5587,57 +6083,88 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               the two: no message, no history row. */}
           {puppyEverOpened ? (
             <PuppyOneSurface
+              key={user?.uid ?? "signed-out"}
               active={isPuppySurface}
+              conversations={puppyConversations}
+              activeConversationId={puppyConversationId}
+              onCreateConversation={handleCreateNewPuppyChat}
               className={cn(!isPuppySurface && "hidden", "lg:px-8")}
             />
           ) : null}
 
           <div
-            ref={transcriptRef}
-            onScroll={(event) => {
-              // A display:none element fires no scroll events, so this only
-              // ever records One's own position; the guard is belt and braces.
-              if (!isPuppySurface) {
-                const transcript = event.currentTarget;
-                const scrollTop = transcript.scrollTop;
-                oneScrollTopRef.current = scrollTop;
-                if (transcriptProgrammaticScrollRef.current) {
-                  const target = transcriptProgrammaticTargetRef.current;
+            className="relative min-h-0 flex-1 overflow-hidden"
+            inert={isHistoryDrawerOpen}
+          >
+            <div
+              ref={transcriptRef}
+              onScroll={(event) => {
+                // A display:none element fires no scroll events, so this only
+                // ever records One's own position; the guard is belt and braces.
+                if (!isPuppySurface) {
+                  const transcript = event.currentTarget;
+                  const scrollTop = transcript.scrollTop;
+                  const previousScrollTop = oneScrollTopRef.current;
+                  oneScrollTopRef.current = scrollTop;
+
                   const maxScrollTop = Math.max(
                     0,
                     transcript.scrollHeight - transcript.clientHeight,
                   );
-                  if (
-                    target === null ||
-                    Math.abs(scrollTop - Math.min(target, maxScrollTop)) <= 3
-                  ) {
+                  const distanceFromBottom = maxScrollTop - scrollTop;
+
+                  // When the reader scrolls up or moves noticeably away from the bottom,
+                  // immediately clear any programmatic lock and mark active reader control.
+                  if (scrollTop < previousScrollTop - 2 || distanceFromBottom > 64) {
                     clearTranscriptProgrammaticScroll();
+                    transcriptUserScrollRef.current = true;
+                  } else if (distanceFromBottom <= 16) {
+                    // Re-enable following when the reader returns to the latest message
+                    transcriptUserScrollRef.current = false;
                   }
-                  return;
+
+                  if (transcriptProgrammaticScrollRef.current) {
+                    const target = transcriptProgrammaticTargetRef.current;
+                    if (
+                      target === null ||
+                      Math.abs(scrollTop - Math.min(target, maxScrollTop)) <= 3
+                    ) {
+                      clearTranscriptProgrammaticScroll();
+                    }
+                    return;
+                  }
+                  // Any unclassified scroll event after the programmatic guard
+                  // is a real reader movement (wheel, keyboard, or touch). Once
+                  // that happens, message updates must respect the reader's
+                  // position instead of repeatedly snapping to the end.
+                  transcriptUserScrollRef.current = true;
+                  // Chat owns an inner transcript scroller inside the shared
+                  // route shell. Feed its committed movement into the same
+                  // bottom-chrome visibility state used by every other route so
+                  // scrolling Chat up/down hides or reveals nav consistently,
+                  // without a React render on each frame.
+                  if (isCanonicalChatRoute) {
+                    onKaiBottomChromeScroll(scrollTop);
+                  }
                 }
-                // Any unclassified scroll event after the programmatic guard
-                // is a real reader movement (wheel, keyboard, or touch). Once
-                // that happens, message updates must respect the reader's
-                // position instead of repeatedly snapping to the end.
+              }}
+              onWheelCapture={() => {
+                clearTranscriptProgrammaticScroll();
                 transcriptUserScrollRef.current = true;
-                // Chat owns an inner transcript scroller inside the shared
-                // route shell. Feed its committed movement into the same
-                // bottom-chrome visibility state used by every other route so
-                // scrolling Chat up/down hides or reveals nav consistently,
-                // without a React render on each frame.
-                if (isCanonicalChatRoute) {
-                  onKaiBottomChromeScroll(scrollTop);
-                }
-              }
-            }}
-            onWheelCapture={clearTranscriptProgrammaticScroll}
-            onTouchStartCapture={clearTranscriptProgrammaticScroll}
-            className={cn(
-              "min-h-0 flex-1 overflow-y-auto scroll-smooth px-4 pt-5 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent sm:px-6",
-              "pb-6 lg:px-8",
-              isPuppySurface && "hidden",
-            )}
-          >
+              }}
+              onTouchStartCapture={() => {
+                clearTranscriptProgrammaticScroll();
+                transcriptUserScrollRef.current = true;
+              }}
+              className={cn(
+                "h-full w-full overflow-y-auto px-4 pt-5 scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent sm:px-6",
+                "pb-[calc(var(--agent-chat-composer-bottom,5rem)+5.5rem)] lg:px-8",
+                isPuppySurface && "hidden",
+              )}
+              tabIndex={0}
+              role="region"
+              aria-label="Agent conversation history"
+            >
             <div className="mx-auto flex min-h-full w-full max-w-4xl flex-col gap-6">
               {accessMessage ? (
                 <div className="flex flex-col gap-3 rounded-[20px] bg-foreground/[0.045] px-4 py-4 text-sm text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
@@ -5657,38 +6184,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     </Button>
                   ) : null}
                 </div>
-              ) : null}
-
-              {!isPopover &&
-              hasChatAccess &&
-              !hasStartedConversation &&
-              !gmailConnectCardDismissed &&
-              gmailConnectorStatus.status?.connected === false ? (
-                <AgentConnectAccessCard
-                  title="Read your inbox"
-                  bullets={[
-                    "Reads your email for what needs a reply",
-                    "Surfaces meetings from your invites",
-                    "Never shares or sells your data",
-                    "Never acts without your yes",
-                  ]}
-                  ctaLabel="Connect Gmail & continue"
-                  busy={gmailConnectBusy}
-                  onConnect={() => void handleConnectGmail()}
-                  onDismiss={() => setGmailConnectCardDismissed(true)}
-                />
-              ) : null}
-
-              {!isPopover &&
-              hasChatAccess &&
-              !hasStartedConversation &&
-              !gmailNudgeCardDismissed &&
-              gmailConnectorStatus.status?.connected === true &&
-              gmailNudges.nudges.length > 0 ? (
-                <AgentGmailNudgeCard
-                  nudges={gmailNudges.nudges}
-                  onDismiss={() => setGmailNudgeCardDismissed(true)}
-                />
               ) : null}
 
               {postSetupWelcomeContext ? (
@@ -5714,11 +6209,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   ) : (
                     <AgentBubble
                       message={message}
+                      onOpenConnections={(trigger) => { historyDrawerTriggerRef.current = trigger; setDrawerMode("connections"); setIsHistoryDrawerOpen(true); }}
                       userAvatarUrl={userAvatarUrl}
                       userInitials={userInitials}
                       retryDisabled={isChatLoading || isStreaming}
-                      rating={messageRatings[message.id] ?? null}
-                      onRate={(next) => handleRateMessage(message.id, next)}
+                      rating={messageRatings[message.serverMessageId ?? message.id] ?? null}
+                      onRate={(next) =>
+                        handleRateMessage(message.serverMessageId ?? message.id, next)
+                      }
                       onRetry={
                         message.id === latestRetryableAssistantId
                           ? () => handleRetryAssistantResponse(message.id)
@@ -5798,9 +6296,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                               ),
                           }));
                         } catch (error) {
-                          console.error("Chat consent approve failed:", error);
                           addErrorMessage(
-                            "Could not approve that request. Try again.",
+                            error instanceof Error && error.message.startsWith("This request")
+                              ? error.message
+                              : "Could not approve that request. Try again.",
                           );
                         } finally {
                           setSpecialistBusyItemId(null);
@@ -5845,9 +6344,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                               ),
                           }));
                         } catch (error) {
-                          console.error("Chat consent deny failed:", error);
                           addErrorMessage(
-                            "Could not decline that request. Try again.",
+                            error instanceof Error && error.message.startsWith("This request")
+                              ? error.message
+                              : "Could not decline that request. Try again.",
                           );
                         } finally {
                           setSpecialistBusyItemId(null);
@@ -5868,6 +6368,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     <EmailDeliveryHistoryCard
                       key={item.id}
                       item={item}
+                      onEnableGmailSend={handleEnableGmailSend}
                       onRetry={retryEmailDelivery}
                     />
                   ))}
@@ -6526,6 +7027,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 <AgentBubble
                   key={message.id}
                   message={message}
+                  onOpenConnections={(trigger) => { historyDrawerTriggerRef.current = trigger; setDrawerMode("connections"); setIsHistoryDrawerOpen(true); }}
                   retryDisabled={isChatLoading || isStreaming}
                 />
               ))}
@@ -6534,6 +7036,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 <EmailDeliveryHistoryCard
                   key={item.id}
                   item={item}
+                  onEnableGmailSend={handleEnableGmailSend}
                   onRetry={retryEmailDelivery}
                 />
               ))}
@@ -6543,6 +7046,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
 
           <form
             onSubmit={handleSubmit}
+            inert={isHistoryDrawerOpen}
             data-agent-chat-composer-form={
               isCanonicalChatRoute ? "root" : "embedded"
             }
@@ -6550,10 +7054,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               // CSS-only focus-within drives the padding shift in lockstep with
               // the native keyboard resize (no React state/rerender round-trip
               // in the path, which was the source of the visible lag on iOS).
-              "shrink-0 px-3 pt-3 transition-[padding-bottom,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] motion-reduce:transition-none sm:px-5",
-              !isCanonicalChatRoute &&
-                "bg-gradient-to-t from-background via-background/96 to-transparent backdrop-blur",
-              "pb-[var(--agent-chat-composer-bottom)] focus-within:pb-[var(--agent-chat-composer-focused-bottom)]",
+              "pointer-events-none absolute inset-x-0 bottom-0 z-10 px-3 pt-3 sm:px-5",
+              "bg-transparent pb-[var(--agent-chat-composer-bottom)] focus-within:pb-[var(--agent-chat-composer-focused-bottom)]",
               // Puppy One has its own composer. Leaving One's on screen would
               // let a message meant for the on-device agent be sent to the
               // cloud one, which is exactly the confusion this mode prevents.
@@ -6562,7 +7064,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           >
             <div
               className={cn(
-                "mx-auto w-full",
+                "pointer-events-auto mx-auto w-full",
                 isCanonicalChatRoute
                   ? "max-w-[var(--app-bottom-shell-max-width)]"
                   : "max-w-4xl",
@@ -6719,22 +7221,50 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       </Button>
                     </div>
                   ) : null}
-                  {composerExpanded ? (
-                    <div
-                      data-testid="agent-chat-composer-expanded"
-                      className={cn(
-                        "relative mb-2 overflow-hidden rounded-[24px]",
-                        isCanonicalChatRoute
+                  {/* One composer, two sizes. The compact pill and the expanded
+                   * editor used to be separate text boxes in separate trees, so
+                   * React swapped one for the other when a long draft auto-
+                   * expanded, and keystrokes landing in that frame were lost
+                   * ("number 3 fopand" on a Galaxy S24 Ultra, 2026-09-22). The
+                   * text box now stays the same element; only its size, the
+                   * corner control and the labels change. */}
+                  <div
+                    data-testid={composerExpanded ? "agent-chat-composer-expanded" : "agent-chat-composer"}
+                    className={cn(
+                      composerExpanded
+                        ? "relative mb-2 overflow-hidden rounded-[24px]"
+                        : "flex min-h-14 items-center gap-2 overflow-hidden rounded-[var(--app-input-radius)] border-[1.5px] border-black/10 px-4 transition-[border-color,box-shadow,background-color] dark:border-white/15 focus-within:border-[color:var(--app-accent)] focus-within:ring-4 focus-within:ring-[color:var(--app-accent-ring)]",
+                      composerExpanded
+                        ? isCanonicalChatRoute
                           ? "bottom-chrome-surface"
-                          : "bg-foreground/[0.045] shadow-[0_18px_55px_-42px_rgba(0,0,0,0.55)] ring-1 ring-inset ring-foreground/[0.045]",
-                      )}
+                          : "bg-foreground/[0.045] shadow-[0_18px_55px_-42px_rgba(0,0,0,0.55)] ring-1 ring-inset ring-foreground/[0.045]"
+                        : isCanonicalChatRoute
+                          ? "bottom-chrome-surface min-h-14 rounded-[var(--app-input-radius)]"
+                          : "bg-foreground/[0.045] shadow-[0_18px_55px_-42px_rgba(0,0,0,0.55)]",
+                    )}
+                  >
+                    <div
+                      className={
+                        composerExpanded
+                          ? "relative"
+                          : "relative flex min-h-0 min-w-0 flex-1 items-center"
+                      }
                     >
                       <textarea
                         ref={composerTextareaRef}
-                        data-testid="agent-chat-composer-expanded-textarea"
-                        aria-label="Expanded message One"
+                        data-testid={
+                          composerExpanded
+                            ? "agent-chat-composer-expanded-textarea"
+                            : "agent-chat-composer-textarea"
+                        }
+                        aria-label={composerExpanded ? "Expanded message One" : "Message One"}
                         value={input}
                         onChange={(event) => setInput(event.target.value)}
+                        onFocus={() => {
+                          if (isCanonicalChatRoute) {
+                            snapKaiBottomChromeVisible();
+                          }
+                        }}
                         onPaste={handleComposerPaste}
                         onKeyDown={(event) => {
                           if (
@@ -6746,111 +7276,81 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           }
                           event.preventDefault();
                           if (canSend) {
-                            event.currentTarget.form?.requestSubmit();
+                            const composer = event.currentTarget;
+                            composer.form?.requestSubmit();
+                            // On a phone, sending puts the keyboard away so
+                            // the reply has the screen (founder report,
+                            // 2026-09-22: Enter left it up). The desktop
+                            // keeps focus for the next message.
+                            if (Capacitor.isNativePlatform()) composer.blur();
                           }
                         }}
                         disabled={
+                          recoveryInspectionPending ||
                           isVoiceConnecting ||
                           emailDraftOpen ||
                           isGmailKycSaving
                         }
                         placeholder={
                           isGmailKycSaving && gmailKycReplyRequest
-                            ? "Preparing your reply to the selected Gmail request…"
+                            ? "Preparing your reply to the selected Mail request…"
                             : gmailKycMissingLabels.length > 0
                             ? `Reply with: ${gmailKycMissingLabels.join(", ")}`
-                            : "Write a longer message..."
+                            : composerExpanded
+                            ? "Write a longer message..."
+                            : "Message One..."
                         }
-                        className="block h-[min(38dvh,18rem)] w-full resize-none overscroll-contain overflow-y-auto bg-transparent px-4 pb-14 pr-32 pt-4 text-[16px] leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60 sm:h-[min(48dvh,30rem)] sm:px-5 sm:pb-16 sm:pr-36 sm:pt-5 sm:text-sm"
+                        rows={1}
+                        className={
+                          composerExpanded
+                            ? "block h-[min(38dvh,18rem)] w-full resize-none overscroll-contain overflow-y-auto bg-transparent px-4 pb-14 pr-32 pt-4 text-[16px] leading-6 text-foreground caret-[color:var(--app-accent)] outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60 sm:h-[min(48dvh,30rem)] sm:px-5 sm:pb-16 sm:pr-36 sm:pt-5 sm:text-sm break-words [overflow-wrap:anywhere] [word-break:break-word]"
+                            : "h-auto max-h-28 min-h-0 min-w-0 flex-1 resize-none overscroll-contain overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden border-0 bg-transparent px-0 py-2.5 text-[15px] leading-snug text-foreground caret-[color:var(--app-accent)] outline-none shadow-none focus-visible:border-transparent focus-visible:ring-0 placeholder:text-muted-foreground/60 disabled:cursor-not-allowed disabled:opacity-60 sm:max-h-36 sm:text-sm break-words [overflow-wrap:anywhere] [word-break:break-word]"
+                        }
                       />
                       <Button
                         type="button"
                         variant="ghost"
                         size="icon"
-                        className="absolute right-2 top-2 h-8 w-8 rounded-lg text-muted-foreground"
-                        aria-label="Collapse message editor"
-                        title="Collapse"
-                        onClick={collapseComposer}
+                        data-testid={composerExpanded ? undefined : "agent-chat-composer-expand"}
+                        className={
+                          composerExpanded
+                            ? "absolute right-2 top-2 h-8 w-8 rounded-lg text-muted-foreground"
+                            : "h-8 w-8 shrink-0 rounded-lg text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+                        }
+                        aria-label={composerExpanded ? "Collapse message editor" : "Expand message editor"}
+                        title={composerExpanded ? "Collapse" : "Expand"}
+                        disabled={
+                          composerExpanded
+                            ? false
+                            : !input.trim() ||
+                              isVoiceConnecting ||
+                              emailDraftOpen ||
+                              isGmailKycSaving
+                        }
+                        onClick={composerExpanded ? collapseComposer : () => setComposerExpanded(true)}
                       >
-                        <Minimize2 className="h-4 w-4" />
-                      </Button>
-                      <div className="absolute bottom-3 right-3 flex items-center gap-2 sm:bottom-4 sm:right-4">
-                        {composerActionRail}
-                      </div>
-                    </div>
-                  ) : null}
-                  {!composerExpanded ? (
-                    <div
-                      data-testid="agent-chat-composer"
-                      className={cn(
-                        "flex min-h-16 items-center gap-2 px-3 py-2 transition-[background-color,box-shadow] focus-within:bg-background/96 focus-within:shadow-[0_20px_60px_-38px_var(--app-accent-deep)] focus-within:ring-[color:var(--app-accent-ring)]",
-                        isCanonicalChatRoute
-                          ? "bottom-chrome-surface min-h-[68px] rounded-[28px]"
-                          : "rounded-[24px] bg-foreground/[0.045] shadow-[0_18px_55px_-42px_rgba(0,0,0,0.55)] ring-1 ring-inset ring-foreground/[0.045]",
-                      )}
-                    >
-                      <div className="relative min-w-0 flex-1">
-                        <textarea
-                          ref={composerTextareaRef}
-                          data-testid="agent-chat-composer-textarea"
-                          aria-label="Message One"
-                          value={input}
-                          onChange={(event) => setInput(event.target.value)}
-                          onPaste={handleComposerPaste}
-                          onKeyDown={(event) => {
-                            if (
-                              event.key !== "Enter" ||
-                              event.shiftKey ||
-                              event.nativeEvent.isComposing
-                            ) {
-                              return;
-                            }
-                            event.preventDefault();
-                            if (canSend) {
-                              event.currentTarget.form?.requestSubmit();
-                            }
-                          }}
-                          disabled={
-                            isVoiceConnecting ||
-                            emailDraftOpen ||
-                            isGmailKycSaving
-                          }
-                          placeholder={
-                            isGmailKycSaving && gmailKycReplyRequest
-                              ? "Preparing your reply to the selected Gmail request…"
-                              : gmailKycMissingLabels.length > 0
-                              ? `Reply with: ${gmailKycMissingLabels.join(", ")}`
-                              : "Message One..."
-                          }
-                          rows={1}
-                          className="block min-h-10 max-h-28 w-full resize-none overscroll-contain overflow-y-auto bg-transparent px-7 py-3 pr-14 text-[16px] leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60 sm:max-h-36 sm:px-8 sm:pr-14 sm:text-sm"
-                        />
-                        {/* Always top-right. It used to appear only once the
-                            message grew past a threshold, so the control the
-                            owner reaches for arrived late and moved the moment
-                            it did. */}
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          data-testid="agent-chat-composer-expand"
-                          className="absolute right-1 top-1.5 h-9 w-9 rounded-xl text-muted-foreground"
-                          aria-label="Expand message editor"
-                          title="Expand"
-                          onClick={() => setComposerExpanded(true)}
-                        >
+                        {composerExpanded ? (
+                          <Minimize2 className="h-4 w-4" />
+                        ) : (
                           <Maximize2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-2">
-                        {composerActionRail}
-                      </div>
+                        )}
+                      </Button>
                     </div>
-                  ) : null}
+                    <div
+                      className={
+                        composerExpanded
+                          ? "absolute bottom-3 right-3 flex items-center gap-2 sm:bottom-4 sm:right-4"
+                          : "flex shrink-0 items-center gap-1.5"
+                      }
+                    >
+                      {composerActionRail}
+                    </div>
+                  </div>
                 </>
               )}
             </div>
           </form>
+        </div>
         </section>
       </div>
       {user ? (
@@ -6863,6 +7363,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           onSuccess={() => setVaultDialogOpen(false)}
         />
       ) : null}
+      </AgentPersonSelectionContext.Provider>
     </div>
   );
 }

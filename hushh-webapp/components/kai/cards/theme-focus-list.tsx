@@ -1,6 +1,6 @@
 "use client";
 
-import { Cpu, Percent, Zap, type LucideIcon } from "lucide-react";
+import { Cpu, Percent, Zap, type LucideIcon } from "@/components/icons";
 
 import { Icon } from "@/lib/morphy-ux/ui";
 import { SurfaceCard, SurfaceCardContent } from "@/components/app-ui/surfaces";

@@ -1,5 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const mocks = vi.hoisted(() => ({
+  native: false,
+}));
+
+vi.mock("@capacitor/core", () => ({
+  Capacitor: {
+    isNativePlatform: () => mocks.native,
+  },
+}));
+
 import {
   resolveAnalyticsMeasurementId,
   resolveGtmContainerId,
@@ -17,9 +27,29 @@ declare global {
 describe("web observability transport", () => {
   beforeEach(() => {
     vi.unstubAllEnvs();
+    mocks.native = false;
     delete window.__HUSHH_NATIVE_TEST__;
     window.dataLayer = [];
     window.gtag = vi.fn();
+  });
+
+  it("does not duplicate native events through the web transport", async () => {
+    mocks.native = true;
+    vi.stubEnv("NEXT_PUBLIC_APP_ENV", "uat");
+    vi.stubEnv("NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID", "G-H1KGXGZTCF");
+
+    expect(webGtmAdapter.isAvailable()).toBe(false);
+    await webGtmAdapter.track("growth_funnel_step_completed", {
+      env: "uat",
+      platform: "ios",
+      event_category: "funnel",
+      journey: "investor",
+      step: "entered",
+      app_version: "2.1.0",
+    });
+
+    expect(window.dataLayer).toEqual([]);
+    expect(window.gtag).not.toHaveBeenCalled();
   });
 
   it("ignores placeholder GTM and measurement IDs", () => {
@@ -39,6 +69,14 @@ describe("web observability transport", () => {
 
     vi.stubEnv("NEXT_PUBLIC_OBSERVABILITY_LOAD_IN_DEV", "1");
     expect(shouldLoadWebAnalyticsScripts()).toBe(true);
+  });
+
+  it("does not embed gtag or GTM scripts in Capacitor builds", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("CAPACITOR_BUILD", "true");
+    vi.stubEnv("NEXT_PUBLIC_OBSERVABILITY_ENABLED", "true");
+
+    expect(shouldLoadWebAnalyticsScripts()).toBe(false);
   });
 
   it("uses direct gtag delivery when GTM is not configured", async () => {

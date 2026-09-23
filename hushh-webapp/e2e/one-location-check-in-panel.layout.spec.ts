@@ -11,7 +11,9 @@ import {
 
 // Relative, not "@/": the e2e tsconfig deliberately carries no path aliases.
 import {
+  CHECK_IN_CATEGORY_CHIP_CLASSNAME,
   CHECK_IN_CATEGORY_ROW_CLASSNAME,
+  CHECK_IN_DRAWER_TITLE_CLASSNAME,
   CHECK_IN_NOTE_TEXTAREA_CLASSNAME,
   CHECK_IN_PANEL_DESKTOP_WIDTH_REM,
   CHECK_IN_PLACE_DISTANCE_CLASSNAME,
@@ -21,13 +23,15 @@ import {
   CHECK_IN_PLACE_ROW_OFF_CLASSNAME,
   CHECK_IN_PLACE_ROW_ON_CLASSNAME,
   CHECK_IN_RATING_COMPOSER_CLASSNAME,
+  CHECK_IN_SECTION_TITLE_CLASSNAME,
   CHECK_IN_STAR_GLYPH_OFF_CLASSNAME,
   CHECK_IN_STAR_GLYPH_ON_CLASSNAME,
   CHECK_IN_STAR_ROW_CLASSNAME,
   CHECK_IN_STAR_TARGET_CLASSNAME,
+  CHECK_IN_SUBSECTION_TITLE_CLASSNAME,
   CHECK_OUT_BUTTON_VARIANT,
 } from "../components/one-location/nearby-check-in/check-in-panel-layout";
-import { buttonVariants } from "../components/ui/button";
+import { buttonVariants } from "../lib/ui/button-variants";
 import { cn } from "../lib/utils";
 
 /**
@@ -194,6 +198,7 @@ async function buildFixture(name: string, body: string, candidates: string[]) {
   fs.writeFileSync(
     path.join(dir, "fixture.html"),
     `<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <style>${productFontStyle()}</style>
 <link rel="stylesheet" href="fixture.css"></head>
 <body style="margin:0">${body}</body></html>`,
@@ -281,7 +286,7 @@ const setupBody = `
         `<button data-chip class="${buttonClass(
           index === 0 ? "default" : "secondary",
           "sm",
-          "shrink-0 rounded-full",
+          CHECK_IN_CATEGORY_CHIP_CLASSNAME,
         )}">${label}</button>`,
     ).join("")}
   </div>
@@ -316,6 +321,10 @@ const activeBody = `
 const CANDIDATES = [
   HARNESS_CLASSES,
   CHECK_IN_CATEGORY_ROW_CLASSNAME,
+  CHECK_IN_CATEGORY_CHIP_CLASSNAME,
+  CHECK_IN_DRAWER_TITLE_CLASSNAME,
+  CHECK_IN_SECTION_TITLE_CLASSNAME,
+  CHECK_IN_SUBSECTION_TITLE_CLASSNAME,
   CHECK_IN_PLACE_ROW_CLASSNAME,
   CHECK_IN_PLACE_ROW_OFF_CLASSNAME,
   CHECK_IN_PLACE_ROW_ON_CLASSNAME,
@@ -331,8 +340,8 @@ const CANDIDATES = [
   CHECK_IN_STAR_GLYPH_OFF_CLASSNAME,
   CHECK_IN_RATING_COMPOSER_CLASSNAME,
   CHECK_IN_NOTE_TEXTAREA_CLASSNAME,
-  buttonClass("default", "sm", "shrink-0 rounded-full"),
-  buttonClass("secondary", "sm", "shrink-0 rounded-full"),
+  buttonClass("default", "sm", CHECK_IN_CATEGORY_CHIP_CLASSNAME),
+  buttonClass("secondary", "sm", CHECK_IN_CATEGORY_CHIP_CLASSNAME),
   buttonClass("default", "default", "h-12 min-h-12 w-full"),
   buttonClass("secondary", "default", "w-full"),
   buttonClass("destructive", "default", "w-full"),
@@ -357,8 +366,82 @@ async function openSetup(page: Page, width: number) {
   await fontsReady(page);
 }
 
+const hierarchyBody = `
+<aside data-type-panel class="app-page-shell flex flex-col gap-4 p-5">
+  <h1 data-drawer-title data-slot="sheet-title" class="${CHECK_IN_DRAWER_TITLE_CLASSNAME}">Check in nearby</h1>
+  <section>
+    <h2 data-section-title class="${CHECK_IN_SECTION_TITLE_CLASSNAME}">Nearby places</h2>
+    <h3 data-subsection-title class="${CHECK_IN_SUBSECTION_TITLE_CLASSNAME}">Still finding you</h3>
+    <button data-type-chip class="${buttonClass(
+      "secondary",
+      "sm",
+      CHECK_IN_CATEGORY_CHIP_CLASSNAME,
+    )}">Health</button>
+  </section>
+</aside>`;
+
+async function openHierarchy(page: Page, width: number) {
+  await page.setViewportSize({ width, height: 844 });
+  await page.goto(
+    await buildFixture(
+      "check-in-panel-type-hierarchy",
+      hierarchyBody,
+      CANDIDATES,
+    ),
+  );
+  await awaitProductFont(page);
+  await fontsReady(page);
+}
+
 // ---------------------------------------------------------------------------
-// 1. Check out is a normal action, not a destructive one
+// 1. The drawer keeps one stable, readable type ladder
+// ---------------------------------------------------------------------------
+
+test.describe("Check-in drawer typography has one semantic ladder", () => {
+  for (const width of [320, 768, 1440] as const) {
+    test(`keeps H1, H2, H3 and filter controls distinct at ${width}px`, async ({
+      page,
+    }) => {
+      await openHierarchy(page, width);
+
+      const type = await page.evaluate(() => {
+        const read = (selector: string) => {
+          const node = document.querySelector(selector) as HTMLElement | null;
+          if (!node) throw new Error(`missing ${selector}`);
+          const style = getComputedStyle(node);
+          return {
+            size: parseFloat(style.fontSize),
+            line: parseFloat(style.lineHeight),
+            weight: Number(style.fontWeight),
+            height: node.getBoundingClientRect().height,
+            whiteSpace: style.whiteSpace,
+          };
+        };
+        return {
+          h1: read("[data-drawer-title]"),
+          h2: read("[data-section-title]"),
+          h3: read("[data-subsection-title]"),
+          chip: read("[data-type-chip]"),
+        };
+      });
+
+      expect(type.h1).toMatchObject({ size: 28, line: 34, weight: 700 });
+      expect(type.h2).toMatchObject({ size: 20, line: 25, weight: 600 });
+      expect(type.h3).toMatchObject({ size: 17, line: 22, weight: 600 });
+      expect(type.h1.size).toBeGreaterThan(type.h2.size);
+      expect(type.h2.size).toBeGreaterThan(type.h3.size);
+
+      expect(type.chip.size).toBe(width < 640 ? 14 : 15);
+      expect(type.chip.line).toBe(width < 640 ? 18 : 20);
+      expect(type.chip.size).toBeLessThan(type.h3.size);
+      expect(type.chip.height).toBeGreaterThanOrEqual(MIN_CHIP_HEIGHT_PX);
+      expect(type.chip.whiteSpace).toBe("nowrap");
+    });
+  }
+});
+
+// ---------------------------------------------------------------------------
+// 2. Check out is a normal action, not a destructive one
 // ---------------------------------------------------------------------------
 
 test.describe("Check out is not painted as destruction", () => {
@@ -413,7 +496,7 @@ test.describe("Check out is not painted as destruction", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 2. Eight category chips, one scrollable row, no clipping
+// 3. Eleven category chips, one scrollable row, no clipping
 // ---------------------------------------------------------------------------
 
 test.describe("Category chips stay on one usable row", () => {
@@ -495,7 +578,7 @@ test.describe("Category chips stay on one usable row", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 3. A long place name never costs the distance its column
+// 4. A long place name never costs the distance its column
 // ---------------------------------------------------------------------------
 
 test.describe("Place rows survive the longest venue name", () => {
@@ -600,7 +683,7 @@ test.describe("Place rows survive the longest venue name", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 4. The desktop rail leaves the map dominant
+// 5. The desktop rail leaves the map dominant
 // ---------------------------------------------------------------------------
 
 test.describe("The desktop rail does not outgrow the map", () => {

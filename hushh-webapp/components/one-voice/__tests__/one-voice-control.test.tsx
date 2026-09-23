@@ -66,6 +66,7 @@ function makeSession(): VoiceSessionController {
     confirmPending: vi.fn(async () => undefined),
     cancelPending: vi.fn(),
     chooseCandidate: vi.fn(),
+    clearView: vi.fn(),
     reportClientStep: vi.fn(),
   };
 }
@@ -170,7 +171,7 @@ describe("OneVoiceControl", () => {
     expect(useAgentVoiceState.getState().active).toBe(true);
   });
 
-  it("docks the conversation panel above the pill and collapses to a one-line status", () => {
+  it("minimizes the conversation without stopping it, retains its status, and restores it", () => {
     render(<OneVoiceControl layout="slot" />);
     connect();
     expect(screen.queryByTestId("one-voice-panel")).toBeNull();
@@ -195,12 +196,30 @@ describe("OneVoiceControl", () => {
     expect(dock).toHaveAttribute("data-voice-panel", "open");
     expect(screen.queryByTestId("one-voice-status-line")).toBeNull();
 
-    fireEvent.click(screen.getByTestId("one-voice-toggle-panel"));
+    const toggle = screen.getByTestId("one-voice-toggle-panel");
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(toggle).toHaveAccessibleName("Minimize voice panel");
+    expect(toggle).toHaveTextContent("Minimize");
+    fireEvent.click(toggle);
     expect(screen.queryByTestId("one-voice-panel")).toBeNull();
     expect(dock).toHaveAttribute("data-voice-panel", "collapsed");
     expect(screen.getByTestId("one-voice-status-line")).toHaveTextContent(
       "You said: Share with Priya",
     );
+    expect(harness.session!.stop).not.toHaveBeenCalled();
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(toggle).toHaveAccessibleName("Expand voice panel");
+    expect(toggle).toHaveTextContent("Expand");
+
+    fireEvent.click(toggle);
+    expect(screen.getByTestId("one-voice-panel")).toBeInTheDocument();
+    expect(screen.getByTestId("one-voice-transcript-line")).toHaveTextContent(
+      "Share with Priya",
+    );
+    expect(harness.session!.stop).not.toHaveBeenCalled();
+
+    fireEvent.click(toggle);
+    expect(screen.queryByTestId("one-voice-panel")).toBeNull();
 
     // A pending action reopens the panel and focuses the card.
     act(() => {
@@ -226,6 +245,52 @@ describe("OneVoiceControl", () => {
     expect(screen.getByTestId("one-voice-state-label")).toHaveTextContent(
       "Confirm to continue",
     );
+  });
+
+  it("reopens a collapsed panel on Home while a Save My Soul position is being sent", () => {
+    harness.pathname = "/one";
+    try {
+      render(<OneVoiceControl layout="fixed" />);
+      connect();
+      act(() => {
+        dispatchServerFrame({
+          type: "transcript.input",
+          text: "Send my SOS",
+          final: true,
+          turn_id: "t1",
+        });
+      });
+      fireEvent.click(screen.getByTestId("one-voice-toggle-panel"));
+      expect(screen.queryByTestId("one-voice-panel")).toBeNull();
+
+      act(() => {
+        dispatchServerFrame({
+          type: "client_step.request",
+          step_id: "step_SECRET",
+          kind: "publish_location_envelopes",
+          payload: { purpose: "sos", sos: true, grant_ids: ["g1"] },
+          timeout_s: 25,
+        });
+      });
+      expect(screen.getByTestId("one-voice-agent-bar")).toHaveAttribute(
+        "data-voice-panel",
+        "open",
+      );
+      expect(screen.getByTestId("one-voice-sos-publishing")).toHaveTextContent(
+        "Sending your position…",
+      );
+      expect(document.body.textContent).not.toContain("Done");
+      expect(document.body.textContent).not.toContain("step_SECRET");
+
+      act(() => {
+        useVoiceSessionStore
+          .getState()
+          .dispatch({ type: "client_step_done", stepId: "step_SECRET" });
+      });
+      expect(screen.queryByTestId("one-voice-sos-publishing")).toBeNull();
+    } finally {
+      harness.pathname = "/one/location";
+    }
   });
 
   it("offers a hidden Type instead affordance that sends through session.sendText", () => {

@@ -17,6 +17,8 @@ const mocks = vi.hoisted(() => {
     getState: vi.fn(),
     getVaultOwnerToken: vi.fn(),
     onConsentMutated: vi.fn(),
+    onConnectionGraphMutated: vi.fn(),
+    onOneLocationStateMutated: vi.fn(),
     dispatchConsentStateChanged: vi.fn(),
     dispatchFeedStateChanged: vi.fn(),
     markPendingConsentOpened: vi.fn(),
@@ -85,6 +87,8 @@ vi.mock("@/lib/services/app-background-task-service", () => ({
 vi.mock("@/lib/cache/cache-sync-service", () => ({
   CacheSyncService: {
     onConsentMutated: mocks.onConsentMutated,
+    onConnectionGraphMutated: mocks.onConnectionGraphMutated,
+    onOneLocationStateMutated: mocks.onOneLocationStateMutated,
     onConsentReviewed: vi.fn(),
   },
 }));
@@ -233,5 +237,91 @@ describe("consent SSE stops retrying a permanent refusal", () => {
       await vi.advanceTimersByTimeAsync(300_000);
     });
     expect(mocks.apiFetchStream).toHaveBeenCalledTimes(6);
+  });
+
+  it("preserves a connection removal delivered by the SSE fallback", async () => {
+    const frame = [
+      "event: consent_update",
+      "id: connection-removed:conn-1:episode-2:recipient-user",
+      `data: ${JSON.stringify({
+        type: "connection_removed",
+        message_id: "connection-removed:conn-1:episode-2:recipient-user",
+        connection_id: "conn-1",
+        action: "REMOVED",
+      })}`,
+      "",
+      "",
+    ].join("\n");
+    mocks.apiFetchStream.mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(frame));
+        },
+      }),
+    });
+
+    render(
+      <ConsentNotificationProvider>
+        <div>Setup</div>
+      </ConsentNotificationProvider>,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50);
+    });
+
+    expect(mocks.onConnectionGraphMutated).toHaveBeenCalledWith(
+      "recipient-user",
+    );
+    expect(mocks.dispatchConsentStateChanged).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "connection_removed" }),
+    );
+  });
+
+  it("preserves a Circle lifecycle type delivered by the SSE fallback", async () => {
+    const frame = [
+      "event: consent_update",
+      "id: location_circle_deleted:event-1",
+      `data: ${JSON.stringify({
+        type: "location_circle_deleted",
+        user_id: "recipient-user",
+        message_id: "location_circle_deleted:event-1",
+        circle_id: "circle-1",
+        circle_name: "Family",
+        notification_title: "Circle deleted",
+        notification_body: '"Family" was deleted by its owner.',
+      })}`,
+      "",
+      "",
+    ].join("\n");
+    mocks.apiFetchStream.mockResolvedValue({
+      ok: true,
+      status: 200,
+      body: new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(frame));
+        },
+      }),
+    });
+
+    render(
+      <ConsentNotificationProvider>
+        <div>Setup</div>
+      </ConsentNotificationProvider>,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50);
+    });
+
+    expect(mocks.onOneLocationStateMutated).toHaveBeenCalledWith(
+      "recipient-user",
+      ["workspace", "circles", "sms_roster"],
+      {
+        notificationType: "location_circle_deleted",
+        circleId: "circle-1",
+        eventId: "location_circle_deleted:event-1",
+      },
+    );
   });
 });

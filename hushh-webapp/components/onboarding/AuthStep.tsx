@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { ArrowLeft, Shield } from "lucide-react";
+import { ArrowLeft, Shield } from "@/components/icons";
 import lightStyles from "./AuthStepLight.module.css";
 import { AuthService } from "@/lib/services/auth-service";
 import { ApiService } from "@/lib/services/api-service";
@@ -102,7 +102,7 @@ function authErrorMessage(error: unknown): string {
   if (error && typeof error === "object" && "code" in error) {
     const code = String((error as { code?: unknown }).code ?? "");
     if (code === "auth/account-exists-with-different-credential") {
-      return "An account already exists with this email using a different sign-in method.";
+      return "An account already exists with this mail using a different sign-in method.";
     }
     if (code === "auth/network-request-failed") {
       return "Network error. Check your connection and try again.";
@@ -494,6 +494,9 @@ export function AuthStep({
             const { token } = await ApiService.createAppReviewModeSession(
               "reviewer",
               {
+                reviewerUid: nativeTestConfig.autoReviewerLogin
+                  ? nativeTestConfig.expectedUserId
+                  : null,
                 smokePassphrase: nativeTestConfig.autoReviewerLogin
                   ? nativeTestConfig.vaultPassphrase
                   : null,
@@ -559,6 +562,7 @@ export function AuthStep({
     growthEntrySurface,
     growthJourney,
     nativeTestConfig.autoReviewerLogin,
+    nativeTestConfig.expectedUserId,
     nativeTestConfig.vaultPassphrase,
     resolveAndNavigate,
     reviewModeConfig.enabled,
@@ -990,7 +994,7 @@ export function AuthStep({
 
   return (
     <main
-      className={cn("relative w-full overflow-hidden bg-white dark:bg-[#000000]", lightStyles.shell)}
+      className={cn("relative w-full overflow-hidden bg-white dark:bg-background", lightStyles.shell)}
       style={{
         height: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
         minHeight: "calc(100svh - var(--app-scroll-bottom-pad, 0px))",
@@ -1049,7 +1053,10 @@ export function AuthStep({
           data-auth-signin-clusters
         >
           <div className={cn("flex w-full flex-col items-center gap-3", lightStyles.hero)}>
-            <span className={lightStyles.brandMark} aria-hidden="true">🤫</span>
+            <span className={lightStyles.brandMark} aria-hidden="true">
+              <span className={lightStyles.brandGlow} />
+              <span className={lightStyles.brandEmoji}>🤫</span>
+            </span>
 
             <h1
               role="heading"

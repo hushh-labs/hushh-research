@@ -108,6 +108,16 @@ textarea {
   touch-action: manipulation;
 }
 
+/* The shared --app-input-radius capsule clamps to half the control's own
+   height. Single-line fields stay a clean pill at that height; a multi-line
+   Textarea (min-h-36+, resizable) clamps to a much larger radius whose
+   corner curve reaches past the text padding and overlaps the first
+   character of each wrapped line. Bound it to the compact card radius so
+   Textarea keeps a legible, non-clipping corner at any height. */
+[data-slot="textarea"] {
+  --app-input-radius: var(--app-radius-lg);
+}
+
 [data-app-scroll-root="true"][data-app-scroll-mode="hidden-shell"] {
   overflow-y: auto;
   overflow-x: hidden;
@@ -120,7 +130,9 @@ textarea {
 @theme inline {
   --radius: 1.5rem;
   --spacing: 0.25rem;
-  --transition-duration-normal: 600ms;
+  --transition-duration-fast: 75ms;
+  --transition-duration-normal: 120ms;
+  --transition-duration-slow: 150ms;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-app-body);
@@ -188,6 +200,32 @@ textarea {
 }
 
 :root {
+  /* Layer ladder. Every floating primitive in components/ui takes its z-index
+     from here, so the order below is the only place the ladder is decided:
+
+       chrome (persistent bars, 100..160)
+         < sheet / drawer (711, 712)
+         < dialog / alert dialog (800, 801)
+         < takeover (Location onboarding, 9000..9101)
+         < system (network banner, 9999)
+         < transient (menus, popovers, selects, comboboxes, tooltips)
+
+     Transient surfaces portal to <body> and must float above whichever
+     container opened them. When dialogs were lifted above sheets, the
+     transient tier was left at its shadcn defaults (50..520): every menu
+     opened inside the profile pane rendered behind the pane, which is how
+     the theme menu and the Molten Gold picker became unreachable. The
+     contract test in __tests__/ui/layer-order.contract.test.ts pins both
+     the token values and which primitive consumes which token. */
+  --z-chrome: 118;
+  --z-sheet-overlay: 711;
+  --z-sheet: 712;
+  --z-dialog-overlay: 800;
+  --z-dialog: 801;
+  --z-takeover: 9000;
+  --z-system: 9999;
+  --z-transient-scrim: 10099;
+  --z-transient: 10100;
   /* Centralized app typography variables. Product UI uses Inter only. */
   --font-family-product: "InterVariable", "Inter", system-ui, sans-serif;
   /* Emoji tier, appended to the text stack rather than folded into
@@ -336,6 +374,13 @@ textarea {
   --type-button-label-size: 17px;
   --type-button-label-line: 22px;
   --type-button-label-weight: 600;
+  --type-compact-button-label-size: 15px;
+  --type-compact-button-label-line: 20px;
+  --type-compact-button-label-weight: 600;
+  --type-eyebrow-size: 12px;
+  --type-eyebrow-line: 16px;
+  --type-eyebrow-weight: 600;
+  --type-eyebrow-tracking: 0.04em;
   --type-tab-label-size: 11px;
   --type-tab-label-line: 13px;
   --type-tab-label-weight: 500;
@@ -619,12 +664,10 @@ textarea {
   --blur-light: 4px;
   --blur-standard: 8px;
   --blur-heavy: 16px;
-  --app-shared-chrome-mask-blur: 12px;
+  --app-shared-chrome-mask-blur: 20px;
   /* Frosted chrome baseline (sub-nav / sticky-bar grade backdrop filter). */
   --app-blur-frosted: saturate(180%) blur(20px);
 
-  /* Lucide defaults (see docs/reference/quality/design-system.md): change once to update all icons. */
-  --lucide-stroke-width: 1.6;
   /* Safe area and fixed-bottom UI spacing tokens (single source of truth). */
   --app-safe-area-bottom: env(safe-area-inset-bottom, 0px);
   /* On-screen keyboard height, published by KeyboardInsetManager (native +
@@ -632,6 +675,12 @@ textarea {
    * no-op there. Fixed/bottom-anchored surfaces subtract/pad by this so inputs
    * sit above the keyboard. See mobile-bug-log B21. */
   --kb-height: 0px;
+  /* How the on-screen keyboard moves on iOS: 0.25 s on the curve UIKit
+   * reports for it (its reverse-engineered control points). A surface that
+   * rides the keyboard's edge transitions on these, so it neither leads nor
+   * trails the keyboard. */
+  --kb-motion-duration: 250ms;
+  --kb-motion-curve: cubic-bezier(0.38, 0.7, 0.125, 1);
   /* Effective safe-area used by bottom-fixed UI primitives.
    * Overridden on native iOS because WKWebView contentInset already applies bottom insets. */
   --app-safe-area-bottom-effective: var(--app-safe-area-bottom);
@@ -720,7 +769,7 @@ textarea {
   --top-tabs-total: 0px;
   --top-subnav-h: 30px;
   --top-subnav-gap: 12px;
-  --top-fade-active: 8px;
+  --top-fade-active: 22px;
   --top-content-safe-gap: 14px;
   --page-top-body-gap: 18px;
   /* Single visual clearance between the fixed top shell and the first page block.
@@ -888,12 +937,12 @@ textarea {
    * Retune this only after the passkey coupling is understood. Shipping a
    * duplicate passkey prompt to make screens feel quicker is not a trade worth
    * making. */
-  --motion-duration-xs: 120ms;
-  --motion-duration-sm: 180ms;
-  --motion-duration-md: 240ms;
-  --motion-duration-lg: 320ms;
-  --motion-duration-xl: 450ms;
-  --motion-duration-xxl: 600ms;
+  --motion-duration-xs: 75ms;
+  --motion-duration-sm: 100ms;
+  --motion-duration-md: 125ms;
+  --motion-duration-lg: 140ms;
+  --motion-duration-xl: 150ms;
+  --motion-duration-xxl: 150ms;
 
   --motion-ease-standard: cubic-bezier(0.2, 0, 0, 1);
   --motion-ease-accelerate: cubic-bezier(0.3, 0, 1, 1);
@@ -903,27 +952,42 @@ textarea {
   /* Press physics: the system-wide active/pressed state is a uniform scale
      shrink layered over the md-ripple. One value everywhere so every control
      carries the same tactile weight; consumed by the .press-scale utility. */
-  --motion-press-scale: 0.95;
-  --motion-press-duration: var(--motion-duration-xs);
+  --motion-press-scale: 0.97;
+  --motion-press-duration: 80ms;
 
   --motion-page-enter-duration: var(--motion-duration-xl);
   --motion-deck-duration: var(--motion-duration-xl);
 
-  /* Overlay (dialog/popover/sheet/menu/tooltip) motion. Open uses a slightly
-   * longer, decelerating curve so surfaces settle in; close is a touch quicker
-   * with a gentle accelerate so dismissal feels responsive yet never snaps.
-   * Tuned for a uniform 60fps frame across every Radix overlay. */
-  --motion-overlay-enter-duration: var(--motion-duration-md); /* 240ms */
-  --motion-overlay-exit-duration: 200ms;
+  /* Overlay (dialog/popover/sheet/menu/tooltip) motion: hard-capped at <=150ms.
+   * Open uses a snappy decelerating curve; close accelerates cleanly out.
+   * Tuned for a uniform 60-120fps frame rate without layout thrashing. */
+  --motion-overlay-enter-duration: 150ms;
+  --motion-overlay-exit-duration: 100ms;
   --motion-overlay-enter-ease: var(--motion-ease-decelerate);
   --motion-overlay-exit-ease: var(--motion-ease-accelerate);
 
-  /* Route transition (full-page crossfade) motion. Deliberately longer and
-   * gentler than overlays so navigation feels graceful, not abrupt. The exit
-   * eases out softly and the enter glides in with a long decelerate. Keep the
-   * JS beats in use-route-transition.ts in sync with these values. */
-  --motion-route-exit-duration: 120ms;
-  --motion-route-enter-duration: 160ms;
+  /* Sheets travel most of the screen, so they get their own shared tier: the
+   * 150ms cap above suits a popover that moves a few pixels, but a bottom
+   * sheet crossing ~2000 device px in 150ms is a snap, and on the Galaxy S24
+   * Ultra it painted only 4 frames (+56/+106/+148/+156 ms, 300-500px jumps per
+   * frame; 2026-09-22). One value app-wide, never per surface. The curve is
+   * the iOS / vaul sheet curve: fast start, long gentle settle. */
+  --motion-sheet-enter-duration: 300ms;
+  --motion-sheet-exit-duration: 200ms;
+  --motion-sheet-enter-ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --motion-sheet-exit-ease: var(--motion-ease-accelerate);
+
+  /* The modal scrim. Desktop keeps the frosted blur; touch screens get a plain
+   * dim instead (see the pointer: coarse block below), because a full-screen
+   * backdrop blur fading in re-blurs the whole page on every frame, and on a
+   * phone that frame cost is what starved the sheet's slide. */
+  --app-scrim-color: rgb(0 0 0 / 0.24);
+  --app-scrim-filter: blur(12px);
+
+  /* Route transition (full-page crossfade) motion: hard-capped at <=150ms. */
+  /* The complete route envelope is 150ms: 60ms exit + 90ms enter, with no delay. */
+  --motion-route-exit-duration: 60ms;
+  --motion-route-enter-duration: 90ms;
   --motion-route-exit-ease: cubic-bezier(0.4, 0, 0.2, 1);
   --motion-route-enter-ease: cubic-bezier(0.16, 0.84, 0.28, 1);
 
@@ -1111,6 +1175,26 @@ textarea {
   --app-shell-surface-blur: 20px;
 }
 
+/* The scroll-collapsed app bar writes --top-chrome-progress and
+   --top-chrome-collapse-px per frame on the elements that read them (the top
+   shell, the top mask, registered sticky headers), not on <html>; the derived
+   heights re-resolve here so those elements follow the live value while the
+   root only receives the settled one. */
+[data-testid="app-top-shell-layout"],
+.ambient-chrome-mask--top,
+[data-top-chrome-collapse-consumer] {
+  --top-shell-live-height: calc(
+    var(--top-shell-visual-height) - var(--top-chrome-collapse-px, 0px)
+  );
+  --top-shell-mask-solid-height: calc(
+    var(--top-shell-reserved-height) - var(--top-shell-mask-tabs-gap) -
+      var(--top-chrome-collapse-px, 0px)
+  );
+  --top-shell-mask-visible-height: calc(
+    var(--top-shell-mask-solid-height) + var(--top-fade-active)
+  );
+}
+
 /* Mobile: reduce card shadow spread — device edge is the frame */
 @media (max-width: 639px) {
   :root {
@@ -1125,13 +1209,17 @@ textarea {
   }
 }
 
+/* Matte dark (founder direction, 2026-09-22): the canvas sits just off pure
+ * black and every surface steps up from it, so cards separate by tone rather
+ * than by a hairline on an OLED void. Canvas #0e0e10, cards #17171a,
+ * secondary #1e1e22, elevated/muted #222226. */
 .dark {
-  --app-screen-background: #000000;
-  --app-grouped-background: #000000;
+  --app-screen-background: #0e0e10;
+  --app-grouped-background: #0e0e10;
   --one-launcher-background: var(--background);
-  --app-primary-surface: #0a0a0c;
-  --app-secondary-surface: #121215;
-  --app-elevated-surface: #141418;
+  --app-primary-surface: #17171a;
+  --app-secondary-surface: #1e1e22;
+  --app-elevated-surface: #222226;
   --app-label: #f5f5f7;
   --app-secondary-label: rgba(235, 235, 245, 0.72);
   --app-section-label: rgba(235, 235, 245, 0.72);
@@ -1140,7 +1228,7 @@ textarea {
   --app-separator: rgba(84, 84, 88, 0.65);
   --app-opaque-separator: #38383a;
   --app-neutral-fill: rgba(255, 255, 255, 0.06);
-  --app-neutral-fill-strong: rgba(255, 255, 255, 0.10);
+  --app-neutral-fill-strong: rgba(255, 255, 255, 0.1);
   --app-icon-tile-background: #636366;
   --app-icon-tile-foreground: #ffffff;
   --app-destructive: #ff453a;
@@ -1197,12 +1285,12 @@ textarea {
   --app-people-fg: #ffffff;
 
   --app-focus-ring: rgba(10, 132, 255, 0.3);
-  --app-glass-surface: rgba(10, 10, 13, 0.88);
+  --app-glass-surface: rgba(24, 24, 28, 0.9);
   --app-glass-border: rgba(84, 84, 88, 0.65);
   --app-glass-shadow: 0 12px 32px -24px rgba(0, 0, 0, 0.85);
   /* Dark Profile aliases — same rule as the light block above. */
-  --ios-account-screen-background: var(--background, #000000);
-  --ios-account-card-background: var(--app-card-surface-default-solid, #0a0a0c);
+  --ios-account-screen-background: var(--background, #0e0e10);
+  --ios-account-card-background: var(--app-card-surface-default-solid, #17171a);
   --ios-account-label: var(--foreground, #ffffff);
   --ios-account-secondary-label: var(--muted-foreground, #98989d);
   --ios-account-tertiary-label: #636366;
@@ -1221,7 +1309,7 @@ textarea {
   --ios-account-accent: var(--app-accent, #0a84ff);
   --ios-account-destructive: var(--app-destructive, #ff453a);
   --ios-account-on-accent: #ffffff;
-  --ios-account-nav-material-background: rgba(10, 10, 13, 0.90);
+  --ios-account-nav-material-background: rgba(24, 24, 28, 0.9);
   --ios-account-nav-material-border: rgba(84, 84, 88, 0.65);
 }
 
@@ -2108,6 +2196,7 @@ body:has(.profile-account-content)
 
 .agent-chat-workspace {
   --agent-chat-header-safe-top: var(--app-safe-area-top-effective);
+  --agent-chat-header-height: calc(3.75rem + var(--agent-chat-header-safe-top));
   /* Mobile browsers already shrink this full-screen workspace through `dvh`.
    * Capacitor keeps its WebView frame stable, so it opts into the additional
    * keyboard inset below. */
@@ -2122,6 +2211,22 @@ body:has(.profile-account-content)
   );
 }
 
+@media (min-width: 640px) {
+  .agent-chat-workspace {
+    --agent-chat-header-height: calc(4rem + var(--agent-chat-header-safe-top));
+  }
+}
+
+/* A compact 36px control keeps an uncluttered silhouette and a 44px hit area. */
+.agent-chat-workspace [data-chat-new-button] {
+  position: relative;
+}
+.agent-chat-workspace [data-chat-new-button]::after {
+  content: "";
+  position: absolute;
+  inset: -4px 0;
+}
+
 /* The canonical root Chat surface owns the text composer, so it does not
  * need the larger separation used by embedded agent surfaces above a voice
  * launcher. Keep a small, safe-area-aware breathing space before the shared
@@ -2129,47 +2234,132 @@ body:has(.profile-account-content)
 .agent-chat-workspace[data-agent-chat-route="root"] {
   /* The workspace owns its single, symmetrical top header below the fixed ambient mask.
    * Safe top respects device notch/island without adding artificial offset on desktop. */
-  --agent-chat-header-safe-top: var(
-    --app-safe-area-top-effective,
-    0px
-  );
+  --agent-chat-header-safe-top: var(--app-safe-area-top-effective, 0px);
   --agent-chat-composer-bottom: max(
-    calc(0.5rem + var(--app-safe-area-bottom-effective)),
+    calc(var(--app-bottom-shell-height, 4.5rem) + 0.5rem),
     calc(var(--agent-chat-keyboard-inset) + 0.5rem)
   );
   --agent-chat-composer-focused-bottom: max(
-    calc(0.75rem + var(--app-safe-area-bottom-effective)),
+    calc(var(--app-bottom-shell-height, 4.5rem) + 0.75rem),
     calc(var(--agent-chat-keyboard-inset) + 0.5rem)
   );
 }
 
-/* Chat's text composer remains always visible in the viewport. It adapts
- * position smoothly relative to the bottom chrome without ever translating
- * out of the viewport (var(--bottom-nav-travel, 0px) travel is bounded). */
+/* Chat's text composer rides down with the bottom navigation. The
+ * navigation stack follows the scroll progress directly, frame by frame,
+ * with no easing (kai-bottom-chrome-visibility writes the value on both
+ * elements in one pass); the composer used to reach the same value through a
+ * 140 ms eased transition that restarted on every frame, so it trailed the
+ * navigation by up to that much and the two bars read as two motions. No
+ * transition here: one value, one clock, both bars in lockstep. The keyboard
+ * lift keeps its own timing on the separate `translate` property. */
 .agent-chat-workspace[data-agent-chat-route="root"]
   [data-agent-chat-composer-form="root"] {
-  transform: none;
+  transform: translate3d(
+    0,
+    calc(var(--bottom-chrome-progress, 0) * var(--bottom-nav-travel, 0px)),
+    0
+  );
+  will-change: transform;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .agent-chat-workspace[data-agent-chat-route="root"]
     [data-agent-chat-composer-form="root"] {
     transform: none;
+    transition: none;
   }
 }
 
+/* When the chat history drawer is open, elevate the chat workspace above the bottom navigation bar */
+body:has([data-agent-history-drawer-open="true"]) [data-app-scroll-root] {
+  z-index: 550 !important;
+}
+
+html.kb-open .agent-chat-workspace,
 html.native-keyboard-inset .agent-chat-workspace {
   --agent-chat-keyboard-inset: var(--kb-height, 0px);
+}
+
+/* A native shell keeps its WebView frame under the keyboard (Keyboard.resize
+ * "none"), so the root composer lifts itself. `--kb-height` lands once, at
+ * keyboardWillShow, already holding the keyboard's final height, while the
+ * keyboard itself is still sliding up. Padding the form by that height moved
+ * the bar to its final spot in a single layout and left the keyboard to catch
+ * up (iPhone 16e: the bar led the keyboard by its whole travel). The lift now
+ * rides the `translate` property, composited and independent of the nav-ride
+ * `transform`, on the keyboard's own duration and curve, and the padding stays
+ * at its resting value so no layout runs during the rise. The transcript keeps
+ * its keyboard clearance through --agent-chat-composer-bottom as before. */
+html.native-keyboard-inset .agent-chat-workspace[data-agent-chat-route="root"] {
+  --agent-chat-composer-lift: max(
+    0px,
+    calc(var(--kb-height, 0px) - var(--app-bottom-shell-height, 4.5rem))
+  );
+}
+
+html.native-keyboard-inset
+  .agent-chat-workspace[data-agent-chat-route="root"]
+  [data-agent-chat-composer-form="root"] {
+  padding-bottom: calc(var(--app-bottom-shell-height, 4.5rem) + 0.5rem);
+  translate: 0 calc(var(--agent-chat-composer-lift, 0px) * -1);
+  transition: translate var(--kb-motion-duration) var(--kb-motion-curve);
+}
+
+/* The web composer lifts 4 px more while focused. On native that 4 px landed
+ * as a step at the first frame of every keyboard rise and fall, on top of the
+ * lift; the keyboard trace read it. One resting value here. */
+html.native-keyboard-inset
+  .agent-chat-workspace[data-agent-chat-route="root"]
+  [data-agent-chat-composer-form="root"]:focus-within {
+  padding-bottom: calc(var(--app-bottom-shell-height, 4.5rem) + 0.5rem);
+}
+
+/* The transcript reserves the keyboard's height under its last row through
+ * --agent-chat-composer-bottom. That reservation changed in one layout at
+ * keyboardWillShow and keyboardWillHide, so the messages snapped while the
+ * composer glided (the first dismiss after a reply read as a 78 px step in
+ * the keyboard trace). It now moves on the keyboard's own clock, so the rows
+ * travel with the bar. The element is the workspace's transcript region;
+ * its accessible name is the stable hook until it carries a data attribute. */
+html.native-keyboard-inset
+  .agent-chat-workspace[data-agent-chat-route="root"]
+  [role="region"][aria-label="Agent conversation history"] {
+  transition: padding-bottom var(--kb-motion-duration) var(--kb-motion-curve);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html.native-keyboard-inset
+    .agent-chat-workspace[data-agent-chat-route="root"]
+    [role="region"][aria-label="Agent conversation history"] {
+    transition: none;
+  }
+}
+
+/* While the keyboard is up the bottom navigation is hidden, so the composer
+ * must not ride its scroll travel down over the keyboard. */
+html.native-keyboard-inset.kb-open
+  .agent-chat-workspace[data-agent-chat-route="root"]
+  [data-agent-chat-composer-form="root"] {
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html.native-keyboard-inset
+    .agent-chat-workspace[data-agent-chat-route="root"]
+    [data-agent-chat-composer-form="root"] {
+    transition: none;
+  }
 }
 
 html.native-ios .agent-chat-workspace[data-agent-chat-workspace="page"] {
   --agent-chat-header-safe-top: max(64px, var(--app-safe-area-top-effective));
   --agent-chat-composer-bottom: max(
-    calc(1rem + var(--app-safe-area-bottom-effective)),
+    calc(var(--app-bottom-shell-height, 4.5rem) + 0.5rem),
     calc(var(--agent-chat-keyboard-inset) + 0.5rem)
   );
   --agent-chat-composer-focused-bottom: max(
-    calc(1.75rem + var(--app-safe-area-bottom-effective)),
+    calc(var(--app-bottom-shell-height, 4.5rem) + 0.75rem),
     calc(var(--agent-chat-keyboard-inset) + 0.5rem)
   );
 }
@@ -2213,12 +2403,76 @@ html.kb-open [data-agent-bar-shell][data-agent-bar-layout="fixed"] {
  * a focused bottom input (e.g. Connect's people search, Share location). Hide
  * the whole bottom chrome while a real keyboard is open so the input is never
  * occluded; it returns on blur. Only active under html.kb-open (native +
- * mobile web) → byte-for-byte inert on desktop. See mobile-bug-log B21. */
-html.kb-open [data-app-bottom-shell],
-html.kb-open .ambient-chrome-mask--bottom {
+ * mobile web) → byte-for-byte inert on desktop. See mobile-bug-log B21.
+ *
+ * Hidden means out of hit-testing too. The shell's stack still rides up by
+ * --kb-height while faded, which put the navigation pill (its own
+ * `pointer-events: auto`, which the shell's `none` never reached) exactly
+ * over the lifted chat composer: an invisible nav took the taps meant for
+ * Send and the mic (the probe classed them as bottom-nav taps, bug log B45).
+ * `visibility: hidden` cannot be overridden by a child's pointer-events; it
+ * flips once the fade has run and returns at once. */
+/* Plaid Link mounts its own iframe on the page, `position: fixed; inset: 0`
+ * inline, so on the native shell (whose WebView runs under the status bar)
+ * the Link card and its close control sat under the clock and the battery
+ * (a real Chase connection on the iPhone, bug log B49). On native the frame
+ * starts below the safe area; on the web the inset is 0 and nothing moves.
+ * The selector is Plaid's own id prefix for the Link frame. */
+html.native-keyboard-inset iframe[id^="plaid-link-iframe"] {
+  top: var(--app-safe-area-top-effective, 0px) !important;
+  height: calc(100% - var(--app-safe-area-top-effective, 0px)) !important;
+}
+
+/* Mobile web only. In the native shell the stack no longer lifts with the
+ * keyboard (bug log B47), so the keyboard simply covers the navigation and
+ * there is nothing to hide; hiding it anyway cost the return: visibility
+ * flipping and two backdrop-blur layers taking their first paint in the
+ * middle of the composer's descent, which the keyboard trace showed as a
+ * 4 px step followed by a 74 px step (bug log B48). */
+html.kb-open:not(.native-keyboard-inset) [data-app-bottom-shell],
+html.kb-open:not(.native-keyboard-inset) .ambient-chrome-mask--bottom {
   opacity: 0;
+  visibility: hidden;
   pointer-events: none;
-  transition: opacity 150ms ease;
+  transition:
+    opacity 150ms ease,
+    visibility 0s linear 150ms;
+}
+
+/* The search palette sits above the bottom chrome so the tab bar stays
+ * reachable. With a keyboard up the tab bar is not on screen (the keyboard
+ * covers it on iOS, it steps aside on Android), yet its height was still
+ * reserved: the palette floated ~160 dp above the keyboard and its top ran
+ * under the status bar (Galaxy S24 Ultra, 2026-09-22). */
+html.kb-open [data-keyboard-anchor="bottom"][data-search-surface] {
+  --palette-chrome-clearance: 0px;
+}
+
+/* Android shrinks the viewport for the keyboard (html.kb-resizes), so the
+ * bottom stack rode up above it: composer, then the tab bar, then the
+ * keyboard, leaving the conversation about 40% of the screen (Galaxy S24
+ * Ultra, 2026-09-22). iOS keeps its frame and the keyboard covers the tab
+ * bar; here the tab bar steps aside for the same result, and the root
+ * composer gives back the room it reserved for the bar. */
+html.kb-open.kb-resizes [data-app-bottom-shell],
+html.kb-open.kb-resizes .ambient-chrome-mask--bottom {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+html.kb-open.kb-resizes
+  .agent-chat-workspace[data-agent-chat-route="root"]
+  [data-agent-chat-composer-form="root"],
+html.kb-open.kb-resizes
+  .agent-chat-workspace[data-agent-chat-route="root"]
+  [data-agent-chat-composer-form="root"]:focus-within {
+  padding-bottom: 0.5rem;
+  /* With the tab bar and its fade out of the way nothing backed the
+   * composer, and the conversation showed in the strip under it and past its
+   * rounded corners. The band fades in over its top edge, so the transcript
+   * ends above the composer instead of against a hard line. */
+  background: linear-gradient(to bottom, transparent 0, var(--background) 0.75rem);
 }
 
 .app-page-shell {
@@ -2480,7 +2734,7 @@ body:has([data-location-hub]) [data-app-shell-top-spacer="true"] {
   :root {
     --top-bar-h: 64px;
     --top-systembar-row-gap: 0px;
-    --top-fade-active: 12px;
+    --top-fade-active: 22px;
     --app-bottom-shell-max-width: 40rem;
   }
 }
@@ -2788,11 +3042,39 @@ body:has([data-testid="one-location-onboarding"])
    around the perimeter. Each pool is a blurred radial blob hugging one edge;
    staggered slow drift/scale animations make the whole rim shimmer like Siri's
    glow. A mask keeps the light on the edges only, feathering into the center. */
+/* The live audio level arrives as one custom property on the glow container,
+   written from a requestAnimationFrame follower that runs only while the glow
+   is active or still settling. Layer opacity, mask depth and pool blur are all
+   derived here, so a level change costs one style recalculation on this
+   subtree and no React render. */
+.one-siri-edge-glow {
+  --one-siri-level: 0;
+  /* How far the rim reaches in from each edge, as a share of the screen. */
+  --one-siri-depth: calc(5% + var(--one-siri-level) * 3%);
+}
+
+/* Edge mask: reveal the pools only in a NARROW band at the perimeter and
+   feather quickly to transparent. Two linear masks (top/bottom + left/right)
+   unioned so all four edges show; anchored to the true edges (0%). */
+.one-siri-edge-pools {
+  opacity: calc(0.6 + var(--one-siri-level) * 0.3);
+  -webkit-mask-image:
+    linear-gradient(to bottom, #000 0%, transparent var(--one-siri-depth), transparent calc(100% - var(--one-siri-depth)), #000 100%),
+    linear-gradient(to right, #000 0%, transparent var(--one-siri-depth), transparent calc(100% - var(--one-siri-depth)), #000 100%);
+  mask-image:
+    linear-gradient(to bottom, #000 0%, transparent var(--one-siri-depth), transparent calc(100% - var(--one-siri-depth)), #000 100%),
+    linear-gradient(to right, #000 0%, transparent var(--one-siri-depth), transparent calc(100% - var(--one-siri-depth)), #000 100%);
+  -webkit-mask-composite: source-over;
+  mask-composite: add;
+}
+
 .one-siri-edge-pool {
   position: absolute;
   border-radius: 50%;
-  will-change: transform, opacity;
-  filter: blur(var(--one-siri-pool-blur, 44px));
+  /* Saturation keeps the colours vivid so even a thin rim reads as a
+     spectrum; the blur tightens slightly with energy. */
+  filter: blur(calc(30px - var(--one-siri-level) * 8px)) saturate(1.55)
+    brightness(1.15);
   mix-blend-mode: screen;
 }
 
@@ -3211,32 +3493,6 @@ body:has([data-testid="one-location-onboarding"])
    springy assembled reveals, a magnetic CTA, and a gold foil brand word.
    ══════════════════════════════════════════════════════════════ */
 
-/* ── Google Stitch Gold-Mesh Pulsar ──
-   A slow, organic fluid sweep that morphs behind the glass panel.
-   Keeps the background alive with molten fluid aesthetics. */
-@keyframes gold-mesh-pulse {
-  0% {
-    transform: scale(1) translate(0px, 0px) rotate(0deg);
-    filter: blur(80px) opacity(0.5);
-  }
-  33% {
-    transform: scale(1.18) translate(25px, -35px) rotate(120deg);
-    filter: blur(95px) opacity(0.65);
-  }
-  66% {
-    transform: scale(0.85) translate(-35px, 25px) rotate(240deg);
-    filter: blur(75px) opacity(0.45);
-  }
-  100% {
-    transform: scale(1) translate(0px, 0px) rotate(360deg);
-    filter: blur(80px) opacity(0.5);
-  }
-}
-
-.glow-mesh-active {
-  animation: gold-mesh-pulse 20s cubic-bezier(0.4, 0, 0.2, 1) infinite alternate;
-}
-
 /* ── Interactive Web-Tap Ripple ──
    On-click ripple that fans outwards as an organic halo. */
 @keyframes canvas-ripple-burst {
@@ -3549,9 +3805,9 @@ body:has([data-testid="one-location-onboarding"])
     0 1px 0 rgba(255, 255, 255, 0.6) inset,
     0 14px 30px -18px rgba(58, 38, 12, 0.32);
   transition:
-    transform var(--motion-duration-m, 240ms) var(--motion-ease-decelerate),
-    box-shadow var(--motion-duration-m, 240ms) var(--motion-ease-decelerate),
-    border-color var(--motion-duration-m, 240ms) var(--motion-ease-decelerate);
+    transform var(--motion-duration-md, 125ms) var(--motion-ease-decelerate),
+    box-shadow var(--motion-duration-md, 125ms) var(--motion-ease-decelerate),
+    border-color var(--motion-duration-md, 125ms) var(--motion-ease-decelerate);
 }
 .one-glyph-tile::before {
   content: "";
@@ -3741,17 +3997,17 @@ body:has([data-testid="one-location-onboarding"])
   --app-accent-hero-mid: #007aff;
   --app-accent-hero-to: #4a9eff;
 
-  --background: #000000;
+  --background: #0e0e10;
   --foreground: #f5f5f7;
-  --card: #0a0a0c;
+  --card: #17171a;
   --card-foreground: #f5f5f7;
-  --popover: #0a0a0c;
+  --popover: #17171a;
   --popover-foreground: #f5f5f7;
   --primary: #f5f5f7;
   --primary-foreground: #000000;
-  --secondary: #141418;
+  --secondary: #222226;
   --secondary-foreground: #f5f5f7;
-  --muted: #141418;
+  --muted: #222226;
   --muted-foreground: rgba(235, 235, 245, 0.72);
   --accent: var(--app-accent);
   --accent-foreground: var(--app-accent-fg);
@@ -4211,16 +4467,6 @@ body:has([data-testid="one-location-onboarding"])
     font-weight: 700 !important;
   }
 
-  /* Global Lucide icon stroke thickness (lucide-react adds `.lucide` on the SVG). */
-  .lucide {
-    stroke-width: var(--lucide-stroke-width);
-  }
-
-  /* Keep strokes consistent when icons are scaled via `size`/CSS. */
-  .lucide * {
-    vector-effect: non-scaling-stroke;
-  }
-
   /* Global cursor-pointer for all interactive elements. Disabled controls
      opt back out (not-allowed) so unclickable never masquerades as clickable. */
   button,
@@ -4343,11 +4589,13 @@ body:has([data-testid="one-location-onboarding"])
   backdrop-filter: blur(6px);
 }
 
-/* Apply GPU promotion to all glass elements automatically */
-[class*="backdrop-blur"] {
-  transform: translate3d(0, 0, 0);
-  will-change: transform;
-}
+/* No blanket layer promotion for glass. A previous rule matched every
+   `[class*="backdrop-blur"]` and pinned it with translate3d + will-change,
+   which held 170 compositor layers (all 27 glass button variants included)
+   for the life of the page on WKWebView. backdrop-filter already creates a
+   stacking context and a containing block, so nothing below needs the
+   transform; a surface that measurably flickers on iOS gets `translateZ(0)`
+   on its own rule, never here. */
 
 /* iOS WKWebView: mirror backdrop-blur-xl for WebKit */
 [class*="backdrop-blur-xl"] {
@@ -4393,6 +4641,14 @@ md-ripple.morphy-md-ripple {
   --ambient-chrome-bottom-fg: #f5f5f7;
 }
 
+/* Attribution experiment only (never certifies): drop the backdrop blur so
+   the ambient mask's compositing cost can be measured against the same run's
+   baseline. The gradient and geometry stay, so layout is unchanged. */
+html[data-perf-experiment*="ambient-mask-off"] .ambient-chrome-mask {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
 .ambient-chrome-mask {
   /* Persistent chrome uses one neutral, theme-derived feather. Surface
      sampling still drives native system-bar contrast, but it must not cast a
@@ -4405,7 +4661,7 @@ md-ripple.morphy-md-ripple {
   --ambient-chrome-wash: 58%;
   /* One feather profile drives both chrome edges. Edge classes may choose
      geometry, never their own opacity curve. */
-  --ambient-chrome-fade-solid: 94%;
+  --ambient-chrome-fade-solid: 100%;
   --ambient-chrome-fade-dense: 91%;
   --ambient-chrome-fade-mid: 72%;
   --ambient-chrome-fade-soft: 38%;
@@ -4419,18 +4675,17 @@ md-ripple.morphy-md-ripple {
   --ambient-chrome-fade-mask-trace: 0.12;
   -webkit-backdrop-filter: var(--ambient-chrome-backdrop-filter);
   backdrop-filter: var(--ambient-chrome-backdrop-filter);
-  will-change: background-color, backdrop-filter;
 }
 
 html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
-  --ambient-chrome-wash: 0%;
+  --ambient-chrome-wash: 100%;
 }
 
 .ambient-chrome-mask--top {
   --ambient-chrome-bg: var(--ambient-chrome-material-bg);
-  /* Keep the shell legible without turning the top edge into an opaque slab.
-     The final 12–14px tail is deliberately short, but its eased curve mirrors
-     the bottom dock instead of falling from full opacity inside one hard step. */
+  /* The top edge stays fully opaque across the reserved bar height so scrolled
+     page headings dissolve behind solid chrome instead of slicing through a
+     translucent strip. The eased fade tail below only softens the edge. */
   --ambient-chrome-wash: var(--ambient-chrome-fade-solid);
   --ambient-chrome-top-solid-height: var(--top-shell-mask-solid-height);
   --ambient-chrome-top-visible-height: var(--top-shell-mask-visible-height);
@@ -4907,7 +5162,9 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   color: var(--foreground);
   border: 0.5px solid rgba(0, 0, 0, 0.08) !important;
   background: rgba(255, 255, 255, 0.96) !important;
-  box-shadow: 0 10px 30px -8px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04) !important;
+  box-shadow:
+    0 10px 30px -8px rgba(0, 0, 0, 0.08),
+    0 1px 3px rgba(0, 0, 0, 0.04) !important;
   -webkit-backdrop-filter: blur(24px) saturate(160%);
   backdrop-filter: blur(24px) saturate(160%);
 }
@@ -4915,8 +5172,12 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 .dark .bottom-chrome-surface,
 .dark .kai-bottom-nav-pill {
   border-color: rgba(255, 255, 255, 0.12) !important;
-  background: rgba(10, 10, 13, 0.94) !important;
-  box-shadow: 0 12px 36px -4px rgba(0, 0, 0, 0.85), 0 2px 6px rgba(0, 0, 0, 0.5) !important;
+  /* The matte raised tone (--app-glass-surface's colour): the old #0a0a0d
+     sat darker than the matte canvas, so the bars read as holes. */
+  background: rgba(24, 24, 28, 0.94) !important;
+  box-shadow:
+    0 12px 36px -4px rgba(0, 0, 0, 0.85),
+    0 2px 6px rgba(0, 0, 0, 0.5) !important;
 }
 
 /* Reduced motion keeps the shell present and keyboard-safe, but removes the
@@ -4924,7 +5185,7 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
    surface. */
 @media (prefers-reduced-motion: reduce) {
   [data-bottom-shell-motion-stack] {
-    transform: translate3d(0, calc(var(--kb-height, 0px) * -1), 0) !important;
+    transform: none !important;
   }
 
   [data-bottom-shell-motion-stack],
@@ -5094,16 +5355,16 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 
 /* 
  * MORPHY TRANSITION SYSTEM
- * Standardized 200ms duration for all interactive transitions
+ * Standardized 150ms duration for all finite interactive transitions
  * Theme transitions handled separately to avoid jitter
  */
 
 /* Theme transition class - apply to containers for smooth theme switching */
 .theme-transition {
   transition:
-    background-color 200ms ease-in-out,
-    border-color 200ms ease-in-out,
-    color 200ms ease-in-out;
+    background-color 125ms ease-in-out,
+    border-color 125ms ease-in-out,
+    color 125ms ease-in-out;
 }
 
 /* Theme toggle motion stays local to the control instead of forcing
@@ -5114,13 +5375,13 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 .theme-switching [data-theme-control] *::after {
   transition-property:
     color, background-color, border-color, transform, opacity !important;
-  transition-duration: 180ms !important;
+  transition-duration: 125ms !important;
   transition-timing-function: var(--motion-ease-standard) !important;
 }
 
 .theme-switching [data-theme-control] [data-segment-indicator] {
   transition-property: transform, background-color, border-color !important;
-  transition-duration: 200ms !important;
+  transition-duration: 140ms !important;
   transition-timing-function: var(--motion-ease-emphasized) !important;
 }
 
@@ -5143,31 +5404,46 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
      transform; each consumer keeps `transform` in its own transition list so
      color/opacity fades are never clobbered. GPU-composited; stands down
      under prefers-reduced-motion. */
+  .press-scale {
+    transition-property: transform;
+    transition-duration: var(--motion-press-duration, 80ms);
+    transition-timing-function: var(
+      --motion-ease-emphasized,
+      cubic-bezier(0.2, 0, 0, 1)
+    );
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
   .press-scale:active:not(:disabled) {
-    transform: scale(var(--motion-press-scale));
+    transform: scale(var(--motion-press-scale, 0.97));
+    transition-duration: 50ms;
   }
   @media (prefers-reduced-motion: reduce) {
+    .press-scale,
     .press-scale:active:not(:disabled) {
       transform: none;
+      transition: none;
     }
   }
 
   .morphy-transition {
-    transition: all 200ms ease-in-out;
+    transition:
+      transform 120ms cubic-bezier(0.2, 0, 0, 1),
+      opacity 120ms cubic-bezier(0.2, 0, 0, 1);
   }
   .morphy-transition-colors {
     transition:
-      background-color 200ms ease-in-out,
-      border-color 200ms ease-in-out,
-      color 200ms ease-in-out,
-      fill 200ms ease-in-out,
-      stroke 200ms ease-in-out;
+      background-color 100ms cubic-bezier(0.2, 0, 0, 1),
+      border-color 100ms cubic-bezier(0.2, 0, 0, 1),
+      color 100ms cubic-bezier(0.2, 0, 0, 1),
+      fill 100ms cubic-bezier(0.2, 0, 0, 1),
+      stroke 100ms cubic-bezier(0.2, 0, 0, 1);
   }
   .morphy-transition-shadow {
-    transition: box-shadow 200ms ease-in-out;
+    transition: box-shadow 120ms cubic-bezier(0.2, 0, 0, 1);
   }
   .morphy-transition-transform {
-    transition: transform 200ms ease-in-out;
+    transition: transform 100ms cubic-bezier(0.2, 0, 0, 1);
   }
 
   /* Fade carousel edges so adjacent slides "tease" into view without hard clipping. */
@@ -5208,7 +5484,7 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 }
 
 .animate-ripple {
-  animation: ripple 600ms cubic-bezier(0.2, 0, 0.1, 1) forwards;
+  animation: ripple 150ms cubic-bezier(0.2, 0, 0.1, 1) forwards;
   will-change: transform, opacity;
   backface-visibility: hidden;
   pointer-events: none;
@@ -5294,8 +5570,8 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   opacity: 1;
   visibility: visible;
   transition:
-    opacity 0.3s ease-in-out,
-    visibility 0.3s ease-in-out;
+    opacity 150ms ease-in-out,
+    visibility 150ms ease-in-out;
 }
 
 .fade-exit {
@@ -5307,8 +5583,8 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   opacity: 0;
   visibility: hidden;
   transition:
-    opacity 0.3s ease-in-out,
-    visibility 0.3s ease-in-out;
+    opacity 150ms ease-in-out,
+    visibility 150ms ease-in-out;
 }
 
 /* Ripple Animation for Morphy UI */
@@ -5324,7 +5600,17 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 }
 
 .animate-ripple {
-  animation: ripple 0.6s linear;
+  animation: ripple 150ms ease-out;
+}
+
+/* Canonical registry icons are glyphs, never their own surfaces. This keeps
+ * Phosphor duotone artwork from painting a faint secondary fill behind utility
+ * controls such as loading, refresh, search, close, and navigation icons. Any
+ * intentional icon well remains owned by its surrounding button/tile. */
+svg[data-canonical-icon="true"] {
+  background-color: transparent !important;
+  background-image: none !important;
+  box-shadow: none !important;
 }
 
 /* iOS-like radius utilities */
@@ -5389,7 +5675,7 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
 }
 
 .animate-token-in {
-  animation: token-fade-in 200ms cubic-bezier(0.2, 0, 0, 1) forwards;
+  animation: token-fade-in 125ms cubic-bezier(0.2, 0, 0, 1) forwards;
 }
 
 /* Smooth scroll behavior for streaming containers */
@@ -5897,6 +6183,69 @@ html[data-accent="gold"].dark {
   }
 }
 
+/* Sheet tier (after the uniform block so it wins at equal specificity). The
+ * sheet's scrim rides the same timing so dim and surface arrive together. */
+[data-slot="sheet-content"][data-state="open"],
+[data-slot="sheet-overlay"][data-state="open"] {
+  animation-duration: var(--motion-sheet-enter-duration);
+  animation-timing-function: var(--motion-sheet-enter-ease);
+}
+
+[data-slot="sheet-content"][data-state="closed"],
+[data-slot="sheet-overlay"][data-state="closed"] {
+  animation-duration: var(--motion-sheet-exit-duration);
+  animation-timing-function: var(--motion-sheet-exit-ease);
+}
+
+@media (pointer: coarse) {
+  :root {
+    --app-scrim-color: rgb(0 0 0 / 0.4);
+    --app-scrim-filter: none;
+  }
+}
+
+/* Android draws the WebView through its own Vulkan pass, and every backdrop
+ * blur on screen is recomputed on every frame of any motion. Measured on the
+ * Galaxy S24 Ultra (2026-09-22, DevTools trace of one sheet open): with the
+ * six always-on chrome blurs the draw pass averaged 14.9 ms (worst 98 ms) and
+ * the slide painted 7 frames with a 100 ms freeze; with them off, 5.3 ms
+ * (worst 33 ms) and 23 evenly spaced frames at 120 Hz. So on Android nothing
+ * blurs, and the glass fills turn nearly opaque to keep text legible. iOS
+ * keeps the material (measured at no cost there). */
+html.native-android *,
+html.native-android *::before,
+html.native-android *::after {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+html.native-android {
+  --app-glass-surface: rgba(255, 255, 255, 0.97);
+  --ios-account-nav-material-background: rgba(255, 255, 255, 0.97);
+}
+
+html.native-android.dark {
+  --app-glass-surface: rgba(24, 24, 28, 0.97);
+  --ios-account-nav-material-background: rgba(24, 24, 28, 0.97);
+}
+
+/* Without the blur, any translucency shows the text underneath crisply
+   (chat lines read clearly through the nav pill on the S24), so Android's
+   persistent chrome is solid. Selectors outrank the shared rules above. */
+html.native-android .bottom-chrome-surface,
+html.native-android .kai-bottom-nav-pill {
+  background: #ffffff !important;
+}
+
+html.native-android.dark .bottom-chrome-surface,
+html.native-android.dark .kai-bottom-nav-pill {
+  background: #18181c !important;
+}
+
+html.native-android .chrome-glass-surface {
+  background-color: var(--background);
+}
+
 @media (prefers-reduced-motion: reduce) {
   [data-slot$="-content"][data-state],
   [data-slot$="-overlay"][data-state],
@@ -5925,7 +6274,8 @@ html[data-accent="gold"].dark {
  * ========================================================================== */
 :root[data-route-transition="pending"] [data-app-shell-content="true"] {
   opacity: 0;
-  transition: opacity var(--motion-route-exit-duration) var(--motion-route-exit-ease) 0ms;
+  transition: opacity var(--motion-route-exit-duration)
+    var(--motion-route-exit-ease) 0ms;
   will-change: opacity;
 }
 
@@ -6270,6 +6620,37 @@ body[data-persona-surface="ria"] {
   text-transform: none !important;
 }
 
+/* Check-in is a sheet-sized document with an explicit H1 → H2 → H3 ladder.
+   The foundation heading rules also live in `@layer base` and are important,
+   so an unlayered semantic class cannot beat them (important cascade-layer
+   precedence is intentionally reversed). Keep this override narrow to the
+   drawer instead of changing heading scale across unrelated product screens. */
+@layer base {
+  .check-in-drawer-title.check-in-drawer-title {
+    font-family: var(--font-app-display) !important;
+    font-size: var(--type-page-title-size) !important;
+    font-weight: var(--type-page-title-weight) !important;
+    letter-spacing: var(--type-page-title-tracking) !important;
+    line-height: var(--type-page-title-line) !important;
+  }
+
+  .check-in-section-title.check-in-section-title {
+    font-family: var(--font-app-display) !important;
+    font-size: var(--type-major-section-title-size) !important;
+    font-weight: var(--type-major-section-title-weight) !important;
+    letter-spacing: var(--type-major-section-title-tracking) !important;
+    line-height: var(--type-major-section-title-line) !important;
+  }
+
+  .check-in-subsection-title.check-in-subsection-title {
+    font-family: var(--font-app-body) !important;
+    font-size: var(--type-row-label-size) !important;
+    font-weight: var(--type-row-label-emphasis-weight) !important;
+    letter-spacing: var(--type-row-label-tracking) !important;
+    line-height: var(--type-row-label-line) !important;
+  }
+}
+
 :is(.ui-text-section-label, .ui-text-group-label) {
   color: var(--app-section-label) !important;
   font-family: var(--font-app-body) !important;
@@ -6303,6 +6684,12 @@ body[data-persona-surface="ria"] {
 /* Important declarations in the base layer outrank unlayered important rules.
    Keep density overrides in that same layer so the compact contract can win. */
 @layer base {
+  .app-page-shell[data-app-density="compact"] .ui-text-section-label-compact {
+    font-size: var(--type-section-label-compact-size) !important;
+    font-weight: var(--type-section-label-compact-weight) !important;
+    line-height: var(--type-section-label-compact-line) !important;
+  }
+
   .app-page-shell[data-app-density="compact"]
     [data-settings-density="compact"]
     .ui-text-row-label-compact,
@@ -6311,6 +6698,18 @@ body[data-persona-surface="ria"] {
     font-size: var(--type-row-label-compact-size) !important;
     font-weight: var(--type-row-label-compact-weight) !important;
     line-height: var(--type-row-label-compact-line) !important;
+  }
+
+  /* Opt-in form-label voice for settings-row titles (15px/600/20px -- the
+     same treatment as the Join screen's "Invite code" label). Scoped to
+     `[data-settings-titles="form-label"]` so the global 17px row-label token
+     used across the app is untouched; only surfaces that explicitly ask get
+     the tighter label voice. Same fixed size on mobile and desktop, exactly
+     like the reference label. */
+  [data-settings-titles="form-label"] [data-slot="settings-row-title"] {
+    font-size: 15px !important;
+    font-weight: 600 !important;
+    line-height: 20px !important;
   }
 }
 
@@ -6399,7 +6798,37 @@ body[data-persona-surface="ria"] {
   font-weight: var(--type-button-label-weight) !important;
   letter-spacing: normal !important;
   line-height: var(--type-button-label-line) !important;
+  white-space: nowrap !important;
+}
+
+:is(.ui-text-compact-button-label) {
+  font-family: var(--font-app-body) !important;
+  font-size: var(--type-compact-button-label-size) !important;
+  font-weight: var(--type-compact-button-label-weight) !important;
+  letter-spacing: normal !important;
+  line-height: var(--type-compact-button-label-line) !important;
+  white-space: nowrap !important;
+}
+
+/* Connect's directory headings and contact-sync action are peers even though
+   they use different primitives. Keep one control voice on every viewport. */
+.connect-section-control-label {
+  font-family: var(--font-app-body) !important;
+  font-size: var(--type-row-label-compact-size) !important;
+  font-weight: 600 !important;
+  letter-spacing: normal !important;
+  line-height: var(--type-row-label-compact-line) !important;
+}
+
+:is(.ui-text-eyebrow) {
+  color: var(--app-section-label) !important;
+  font-family: var(--font-app-body) !important;
+  font-size: var(--type-eyebrow-size) !important;
+  font-weight: var(--type-eyebrow-weight) !important;
+  letter-spacing: var(--type-eyebrow-tracking) !important;
+  line-height: var(--type-eyebrow-line) !important;
   opacity: 1 !important;
+  text-transform: none !important;
 }
 
 :is(.ui-text-tab-label) {
@@ -6656,12 +7085,12 @@ body[data-persona-surface="ria"] {
 }
 
 .one-voice-panel-enter {
-  animation: one-voice-panel-enter var(--motion-duration-md, 240ms)
+  animation: one-voice-panel-enter var(--motion-duration-md, 125ms)
     var(--motion-ease-decelerate, cubic-bezier(0, 0, 0.2, 1)) both;
 }
 
 .one-voice-level-fill {
-  transition: width var(--motion-duration-xs, 120ms)
+  transition: transform var(--motion-duration-xs, 120ms)
     var(--motion-ease-standard, cubic-bezier(0.2, 0, 0, 1));
 }
 

@@ -1,6 +1,6 @@
 # One Agent Hierarchy
 
-Location commands use the restricted semantic Location package and the shared action authority described in [One Voice Runtime Architecture](./one-voice-runtime-architecture.md). Gemini Live is retired. The diagram below describes the retained text-agent hierarchy.
+Location commands use the restricted semantic Location package and the shared action authority described in [One Voice Runtime Architecture](./one-voice-runtime-architecture.md). The old `/api/one/adk/*` Live path is retired; `/api/one/voice/*` remains a flag-gated Live adapter. The diagram below describes the retained text-agent hierarchy.
 
 ## Visual Map
 
@@ -12,19 +12,18 @@ flowchart TD
   one["One root LlmAgent<br/>agent_one"]
   search["google_search"]
   nav_tool["open_screen<br/>governed navigation"]
-  agenttools["AgentTool specialist<br/>Finance (Kai runtime)<br/>subagents: RIA, Investor"]
-  a2a["A2A dispatch + specialist scope map"]
+  agenttools["In-process ADK AgentTool children<br/>Kai Finance -> RIA + Investor<br/>Wallet"]
+  dispatch["In-process adk_bridge registry<br/>Documents, Location, Email, Nav,<br/>Personal Information"]
+  remoteCaller["Remote process / deployment caller"]
+  a2a["External A2A entrypoints<br/>five-ID scope validation map"]
   kai["Kai<br/>agent_kai"]
   nav["Nav<br/>agent_nav"]
   kyc["KYC<br/>agent_kyc"]
-  support["Location, Email, Connections,<br/>Connected Systems, Personal Info"]
-  memory["World Model agents<br/>PKM structure + memory reducers"]
-  source["Hermes-local Source Library Steward<br/>bounded product leaf"]
-  sourceplane["Mounted provider files<br/>private PKM + local SQLite"]
+  support["Connections, Connected Systems,<br/>Calendar + supporting tools"]
+  personalInfo["Personal Information<br/>agent_personal_information"]
   operons["Tools + operons"]
   services["Services + encrypted PKM/vault"]
   consent["Consent tokens, encrypted exports,<br/>TrustLinks, device capability tokens"]
-  codex["Codex evidence subagents<br/>read-only engineering lanes"]
 
   user --> voice
   voice --> runner
@@ -32,29 +31,36 @@ flowchart TD
   one --> search
   one --> nav_tool
   one --> agenttools
-  one --> a2a
-  one -.local host delegation.-> source
+  one --> dispatch
+  remoteCaller --> a2a
   a2a --> kai
   a2a --> nav
   a2a --> kyc
-  a2a --> support
-  support --> memory
+  a2a --> one
+  a2a --> personalInfo
+  dispatch --> personalInfo
+  agenttools --> operons
   kai --> operons
   nav --> operons
   kyc --> operons
-  support --> operons
-  memory --> operons
-  source --> sourceplane
+  personalInfo --> operons
   operons --> services
   consent --> one
-  consent --> a2a
+  consent --> dispatch
   consent --> services
-  codex -.separate engineering workflow.-> one
+
+  subgraph hermes["Separate Hermes runtime (pre-existing)"]
+    hermesOne["Local One parent"]
+    source["Source Library Steward<br/>bounded product leaf"]
+    sourceplane["Mounted provider files<br/>private PKM + local SQLite"]
+    hermesOne -.bounded local delegation.-> source
+    source --> sourceplane
+  end
 ```
 
 ## Purpose
 
-One is the only direct private-agent head. It owns the relationship layer, the user-facing voice/chat handoff, and the authority to route intent. Specialists sit below One and execute bounded work through A2A, generated action contracts, tools, operons, services, consent tokens, and encrypted information boundaries.
+One is the only direct private-agent head. It owns the relationship layer, the user-facing voice/chat handoff, and the authority to route intent. Specialists sit below One and execute bounded work through local `AgentTool`, process-local dispatch, or scoped A2A as appropriate to each boundary, along with generated action contracts, tools, operons, services, consent tokens, and encrypted information boundaries.
 
 This page is current-state implementation truth. It does not rename runtime identifiers, remove Kai compatibility paths, or claim external-agent zero-knowledge parity where checked-in code still uses first-party compatibility tokens.
 
@@ -72,11 +78,21 @@ This page is current-state implementation truth. It does not rename runtime iden
 | Location specialist | `agent_location` | Trusted-people Location workflow | Exact location capability and data authority per flow |
 | Connections subagent | `agent_connections` | Nav's trusted-connection graph specialist; the Connections UI owns private runtime configuration | Exact specialist and `attr.*` authority per hop; never receives provider credentials |
 | Connected systems | `agent_connected_systems` | CRM and connected-system workflow planning | Exact specialist and `attr.*` authority per hop |
-| Email specialist | `agent_email` | Inbox, approval-draft, and client-request planning behind One | Exact specialist and `attr.*` authority per hop |
+| Email specialist | `agent_email` | Owner metadata-only inbox reads behind One's default-off typed-chat lane; existing receipts and reviewed sending remain separate | Exact `cap.email.metadata.read` invocation bound to owner, task, call and expiry; no inherited Mail write authority |
+| Documents specialist | `agent_documents` | Default-off typed-chat answers from the owner's selected, encrypted Drive index; no sharing tool | Exact `cap.documents.selected.read` invocation plus current owner token, connection generation, selected index version and live Google eligibility |
 | Memory Agent | `agent_personal_information` | Owner memory summaries plus consented information-slice workflows, reachable from One through `ask_memory_agent` | `cap.pkm.marketplace.view` plus exact per-hop information authority; PKM summaries retain the internal `pkm.read` gate |
 | Information Marketplace | standalone product surface | Separate consent-first Marketplace routes and APIs remain available; its conversational specialist is the Memory Agent | Admitted to One's typed specialist roster; route-specific marketplace pages remain separate |
 | World Model agents | `agent_memory_intent`, `agent_memory_segmentation`, `agent_memory_merge`, `agent_pkm_structure` | Semantic memory shaping | Must stay under vault/PKM consent and redaction boundaries |
 | Hermes-local product leaf | Source Library Steward | Query, virtual organization, revision-pinned file management, synchronization, and mounted-target sharing | Exact local `hussh_one_sources` tools only; no terminal, generic filesystem, credentials, vault keys, provider APIs, shared memory, or delegation |
+
+The PKM Structure manifest owns its instructions in both managed and direct-client
+execution. New domain/path names may organize user-supplied facts under the
+upstream intent/merge contract; they do not authorize fabrication, persistence,
+or sharing. Structure response examples use the authored response contract version
+1. The existing normalization step separately upgrades the persisted domain
+contract to `DYNAMIC_DOMAIN_CONTRACT_VERSION`; these are not competing versions
+of the same boundary. Prompt alignment alone does not prove extraction quality or
+resolve a provider timeout.
 
 `agent_one` and `agent_orchestrator` are not two product heads. The orchestrator path is a compatibility implementation namespace for One.
 
@@ -103,34 +119,70 @@ and search instructions are authored in One's manifest subagent entries.
 
 ## Wiring Modes
 
-The hierarchy has four current wiring modes. Do not collapse them into one claim.
+The current tree uses distinct mechanisms for local ADK children, process-local
+specialist dispatch, and remote A2A entrypoints. These contracts do not form one
+universal dispatch path.
 
 Official A2A v1 Tasks remain a release gate. The contained One invocation preview
 and the legacy Kai compatibility server are not advertised as official v1.
 
-### Scope-gated A2A specialists
+### In-process ADK AgentTool children
 
-`SPECIALIST_A2A_SCOPE_MAP` defines the least-privilege scope gate for:
+`one_adk/agent_tree.py` exposes local ADK children through `AgentTool`. One's
+finance child is Kai, which composes RIA and Investor; Wallet is another
+roster-gated child. Nav composes its Consent child through AgentTool. These
+children execute inside the ADK runtime and are not entries in the external
+A2A scope map or `adk_bridge.dispatch` registry.
 
-| Agent id | Scope |
+### Scope-gated A2A specialists (external entrypoints)
+
+`SPECIALIST_A2A_SCOPE_MAP` validates caller scopes at external A2A boundaries.
+It contains five identifiers; it is not a registration table for One's
+in-process specialists.
+
+| Agent id | Required scope |
 | --- | --- |
 | `agent_one` | `cap.one.invoke` |
-| `agent_connected_systems` | Exact per-hop authority; no One-wide standing scope |
 | `agent_kai` | `agent.kai.analyze` |
 | `agent_nav` | `agent.nav.review` |
 | `agent_kyc` | `agent.kyc.process` |
-| `agent_connections` | Exact per-hop authority; no One-wide standing scope |
-| `agent_location` | Exact location capability and grant references |
-| `agent_email` | Exact per-hop authority; no One-wide standing scope |
-| `agent_personal_information` | `cap.pkm.marketplace.view` plus exact per-hop information authority; PKM summary reads use `pkm.read` |
+| `agent_personal_information` | `cap.pkm.marketplace.view` |
+
+`agent_personal_information` also applies its exact per-hop information authority;
+PKM summary reads retain the internal `pkm.read` gate. The scope map establishes
+only invocation admission. It does not register a network service or grant
+information access by itself.
 
 ### In-process dispatch registry
 
-The in-process `dispatch` table wires `agent_location`, `agent_nav`, and `agent_personal_information` through One's `ask_memory_agent` path. Marketplace pages remain standalone product surfaces, while Memory is admitted to One's typed specialist roster. Email and Connected Systems adapters remain authority-ingress-only. Connections is reached through Nav; its separate legacy mutation adapter retains its full information/action authority gate. Gmail receipt and inbox tools are folded into Email; there is no separate Gmail specialist roster entry.
+`agent_documents` is also registered through `ask_documents_agent` for typed chat.
+It preserves One's conversation and uses the shared external-read tool barrier and
+redacted durable receipts. The manifest-owned `agent_documents_interpreter` has no
+tools and returns `DocumentAnswer` (answer plus exact source refs). Validators reject
+invented citations, oversized data, changed selection/generation, and provider denial;
+they do not infer statement coverage. Live two-account selected-file acceptance is
+required before promotion. This is implemented source, not deployed UAT evidence.
+
+The default shared-runtime `adk_bridge/__init__.py` registration includes `agent_documents`,
+`agent_location`, `agent_email`, `agent_nav`, and `agent_personal_information`. An owner-bound pod may additionally register Connections and Connected Systems for its own turn; those are not ambient shared-runtime handlers.
+Memory is reached through `ask_memory_agent`; Marketplace pages remain standalone
+product surfaces. Email's `ask_email_agent` path admits only owner-authorized
+typed-chat metadata reads when the Mail read flag and UAT rollout admission both allow
+them. It preserves One's conversation, permits only `list_needs_reply` /
+`search_inbox`, and closes further tool execution for that invocation before
+exposing external content. Its interpreter has no tools; durable tool history
+contains a redacted receipt, not mailbox metadata. Reviewed sending and receipt/sync
+tools are not admitted through this lane. Connected Systems remains
+authority-ingress-only. Connections is reached through Nav; its separate legacy
+mutation adapter retains its full information/action authority gate. There is no
+separate Gmail specialist roster entry.
 
 Kai has a dedicated A2A server in `adk_bridge/kai_agent.py`. KYC is manifest/service-backed through One Email KYC and approved disclosure formatting; it is scope-gated but not an in-process dispatch handler today.
 
-Therefore, not every scope-gated specialist is registered in the in-process dispatch table.
+The external scope map and in-process dispatch registry intentionally contain
+different agents. A listed A2A scope does not prove that the agent is registered
+for local dispatch, and a local dispatch handler does not imply an external A2A
+endpoint; not every scope-gated specialist is registered in the in-process dispatch table.
 
 ### Hermes-local bounded product leaf
 
@@ -150,9 +202,9 @@ PKM capability boundary or claims provider ACL administration.
 
 ## Execution Stack
 
-1. Talk to One submits a bounded transcription to `/api/one/agent-chat/proposals`; typed Agent Chat retains its existing text path. Both use current scoped app state.
-2. Voice: One's root `LlmAgent` in `hushh_mcp/one_adk/agent_tree.py` decides conversation vs tool call inside ADK's flow. Its tools are `google_search`, the allowlist-governed `open_screen`, the Finance `AgentTool` (whose subagents are RIA and Investor), and dispatch-backed specialist turn functions. Gmail is intentionally absent. Chat: the delegation gate in `agent_chat.py` routes wired specialists through the same dispatch.
-3. Specialist turn tools build an `A2ATask` from governed session state (user id + consent token from the `app_context` frame) and fail closed without it.
+1. Talk to One submits a bounded transcription to `/api/one/agent-chat/proposals`, where the restricted Location brain assesses commands. Typed Agent Chat uses the text ADK root in `hushh_mcp/one_adk/agent_tree.py`; both receive bounded current app state.
+2. The text root selects its declared tools and specialists within the ADK turn. The maintained `/api/one/voice/*` Live adapter has a separate flag and transport contract; the retired `/api/one/adk/*` path does not execute. See [One Voice Runtime Architecture](./one-voice-runtime-architecture.md) for those entrypoints.
+3. Delegated specialist turns build an `A2ATask` from governed session state (user id + consent token from the `app_context` frame) and fail closed without it.
 4. A2A entry points validate the caller token against `SPECIALIST_A2A_SCOPE_MAP`.
 5. Tools expose callable surfaces and re-check their own scope.
 6. Operons hold business logic. Pure operons avoid side effects; impure operons validate consent before network, LLM, or storage work.

@@ -213,7 +213,9 @@ class CacheService {
         key.startsWith(`ria_workspace_${userId}_`) ||
         key.startsWith(`marketplace_rias_`) ||
         key.startsWith(`marketplace_investors_`) ||
-        key.startsWith(`connected_systems_${userId}_`)
+        key.startsWith(`connected_systems_${userId}_`) ||
+        key.startsWith(`connections_first_page_${userId}_`) ||
+        key.startsWith(`google_connection_${userId}_`)
       ) {
         keysToDelete.add(key);
       }
@@ -274,6 +276,8 @@ class CacheService {
 
 // Cache key constants for consistency
 export const CACHE_KEYS = {
+  GOOGLE_CONNECTION: (userId: string, service: "drive" | "calendar", generation: number, vaultEpoch: number, revision: number) =>
+    `google_connection_${userId}_${service}_${generation}_${vaultEpoch}_${revision}`,
   PKM_METADATA: (userId: string) => `pkm_metadata_${userId}`,
   PKM_BLOB: (userId: string) => `pkm_blob_${userId}`,
   PKM_DECRYPTED_BLOB: (userId: string) => `pkm_decrypted_blob_${userId}`,
@@ -324,6 +328,11 @@ export const CACHE_KEYS = {
   // Incoming connection requests, read by the Feed's actionable ("Needs you")
   // zone so a revisit renders the pending Confirm/Decline rows instantly.
   CONNECTIONS_INCOMING: (userId: string) => `connections_incoming_${userId}`,
+  // Connect's "My connections" first page, so a revisit paints the list at
+  // once and refreshes behind it. Without it Connect opened on "My
+  // connections (0) · No connections yet" and jumped when the list landed.
+  CONNECTIONS_FIRST_PAGE: (userId: string, audience: string) =>
+    `connections_first_page_${userId}_${audience}`,
   PERSONA_STATE: (userId: string) => `persona_state_${userId}`,
   RIA_ONBOARDING_STATUS: (userId: string) => `ria_onboarding_status_${userId}`,
   // Cached licence-verify result, keyed by normalized regulator:license so a

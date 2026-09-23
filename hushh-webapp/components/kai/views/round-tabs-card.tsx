@@ -17,7 +17,7 @@ import {
   Search,
   Heart,
   Calculator,
-} from "lucide-react";
+} from "@/components/icons";
 import { AgentAnalysisCard } from "../agent-analysis-card";
 import { cn } from "@/lib/morphy-ux";
 import { Badge } from "@/components/ui/badge";
@@ -132,7 +132,7 @@ export function RoundTabsCard({
     <MorphyCard
       showRipple={false}
       className={cn(
-        "w-full rounded-[var(--app-card-radius-feature)] border-0 bg-[color:var(--app-card-surface-compact)] shadow-[var(--app-card-shadow-standard)] transition-all duration-200",
+        "w-full rounded-[var(--app-card-radius-feature)] border-0 bg-[color:var(--app-card-surface-compact)] shadow-[var(--app-card-shadow-standard)] transition-[background-color,border-color,box-shadow,transform] duration-150",
         className
       )}
     >
@@ -141,7 +141,7 @@ export function RoundTabsCard({
           <div className="flex items-center gap-3">
             <div
               className={cn(
-                "flex items-center justify-center w-8 h-8 rounded-full text-xs font-bold transition-colors duration-200",
+                "flex items-center justify-center w-8 h-8 rounded-full text-xs font-bold transition-colors duration-150",
                 isRoundComplete
                   ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
                   : hasAnyActivity

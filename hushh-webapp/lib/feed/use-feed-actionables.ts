@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { LucideIcon } from "lucide-react";
+import type { LucideIcon } from "@/components/icons";
 import {
   MapPin,
   Download,
@@ -11,7 +11,7 @@ import {
   TrendingUp,
   UserRound,
   Users,
-} from "lucide-react";
+} from "@/components/icons";
 
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
@@ -50,6 +50,7 @@ import {
 } from "@/lib/consent/consent-events";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
+import { documentShareSelectionId, isDocumentShareEntry } from "@/lib/consent/document-share-consent";
 import { resolveConsentRequesterLabel } from "@/lib/consent/consent-display";
 import {
   isLocationConsent,
@@ -317,7 +318,16 @@ export function useFeedActionables(): UseFeedActionablesResult {
   // ── Consent pending (canonical one:consents lane, refetch on mutation) ──
   const [consentTick, setConsentTick] = useState(0);
   useEffect(() => {
-    const bump = () => setConsentTick((value) => value + 1);
+    const bump = (event: Event) => {
+      // The notification provider re-announces what it already holds in
+      // cache on every route change; that is not a mutation and must not
+      // force the consent summary and connections to refetch on each tab
+      // switch (same filter as useConsentPendingSummaryCount).
+      const detail = (event as CustomEvent<Record<string, unknown>>).detail || {};
+      const source = String(detail.source || "").trim();
+      if (source === "cached_pending" || source === "queued_pending") return;
+      setConsentTick((value) => value + 1);
+    };
     window.addEventListener(CONSENT_ACTION_COMPLETE_EVENT, bump);
     window.addEventListener(CONSENT_STATE_CHANGED_EVENT, bump);
     return () => {
@@ -598,6 +608,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
         // the real one). The connections lane owns them: it carries the inline
         // Confirm/Decline and the scoped Review route.
         if (entry.kind === "connection_request") continue;
+        if (entry.kind === "outgoing_request" || (isDocumentShareEntry(entry) && entry.metadata?.direction !== "incoming")) continue;
         items.push({
           id: `consent:${entry.id}`,
           icon: ShieldCheck,
@@ -610,7 +621,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
           }),
           description: consentSummary(entry),
           href: buildConsentCenterHref("pending", {
-            requestId: entry.request_id || entry.id,
+            requestId: documentShareSelectionId(entry),
             from: "/one/feed",
           }),
           chevron: true,
@@ -916,7 +927,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
                     idToken,
                     requestId: request.id,
                   });
-                  CacheSyncService.onConnectionCapabilityMutated(userId);
+                  CacheSyncService.onConnectionGraphMutated(userId);
                   notifyFeedActionResolved();
                   await connectionsRefresh({ force: true });
                 },

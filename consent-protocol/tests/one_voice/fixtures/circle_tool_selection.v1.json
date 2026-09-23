@@ -1,0 +1,5415 @@
+{
+  "schema_version": "one.voice.circle_tool_selection.v1",
+  "note": "Held-out sentences for the Live head's circle tool selection. Never copy any of these into a tool description, instruction.py, or agent.yaml: the well-formedness test fails when one appears there.",
+  "cases": [
+    {
+      "id": "create-001",
+      "family": "create",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "make me a new circle called Cousins",
+      "expected_tools": [
+        "create_circle"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "create only: no invitations, no sharing"
+    },
+    {
+      "id": "create-002",
+      "family": "create",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "start a group named Weekend Crew",
+      "expected_tools": [
+        "create_circle"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "create only: no invitations, no sharing"
+    },
+    {
+      "id": "create-003",
+      "family": "create",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "set up a friends circle called Trip Gang",
+      "expected_tools": [
+        "create_circle"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "create only: no invitations, no sharing"
+    },
+    {
+      "id": "create-004",
+      "family": "create",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "I want a family circle for my in-laws, call it In-Laws",
+      "expected_tools": [
+        "create_circle"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "create only: no invitations, no sharing"
+    },
+    {
+      "id": "create-005",
+      "family": "create",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "could you create a circle named Book Club?",
+      "expected_tools": [
+        "create_circle"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "create only: no invitations, no sharing"
+    },
+    {
+      "id": "create-006",
+      "family": "create",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "new circle please, name it Gym Buddies",
+      "expected_tools": [
+        "create_circle"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "create only: no invitations, no sharing"
+    },
+    {
+      "id": "create-007",
+      "family": "create",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "can I get a circle called Neighbours set up?",
+      "expected_tools": [
+        "create_circle"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "create only: no invitations, no sharing"
+    },
+    {
+      "id": "create-008",
+      "family": "create",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "ek naya circle banao, naam Cousins rakho",
+      "expected_tools": [
+        "create_circle"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "create only: no invitations, no sharing"
+    },
+    {
+      "id": "create-009",
+      "family": "create",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "Trip Gang naam ka circle bana do",
+      "expected_tools": [
+        "create_circle"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "create only: no invitations, no sharing"
+    },
+    {
+      "id": "create-010",
+      "family": "create",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "let's make a circle for the hiking group, Hikers",
+      "expected_tools": [
+        "create_circle"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "create only: no invitations, no sharing"
+    },
+    {
+      "id": "create-011",
+      "family": "create",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "please open a new circle called Hostel Friends",
+      "expected_tools": [
+        "create_circle"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "create only: no invitations, no sharing"
+    },
+    {
+      "id": "create-012",
+      "family": "create",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "I'd like a circle just for my parents, name it Parents",
+      "expected_tools": [
+        "create_circle"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "create only: no invitations, no sharing"
+    },
+    {
+      "id": "create-013",
+      "family": "create",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "spin up a circle called Flatmates",
+      "expected_tools": [
+        "create_circle"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "create only: no invitations, no sharing"
+    },
+    {
+      "id": "create-014",
+      "family": "create",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "add a circle called Office Lunch",
+      "expected_tools": [
+        "create_circle"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "create only: no invitations, no sharing"
+    },
+    {
+      "id": "create-015",
+      "family": "create",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "create one more circle, Roommates",
+      "expected_tools": [
+        "create_circle"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "create only: no invitations, no sharing"
+    },
+    {
+      "id": "create-016",
+      "family": "create",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "make a friends group called Sunday Football",
+      "expected_tools": [
+        "create_circle"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "create only: no invitations, no sharing"
+    },
+    {
+      "id": "create-017",
+      "family": "create",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "I need a circle named Wedding Party",
+      "expected_tools": [
+        "create_circle"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "create only: no invitations, no sharing"
+    },
+    {
+      "id": "create-018",
+      "family": "create",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "build me a circle called Study Group",
+      "expected_tools": [
+        "create_circle"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "create only: no invitations, no sharing"
+    },
+    {
+      "id": "read_members-001",
+      "family": "read_members",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "who's in my Family circle?",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles",
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "needs the circle first; read only"
+    },
+    {
+      "id": "read_members-002",
+      "family": "read_members",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "which people are in Weekend Crew?",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles",
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "needs the circle first; read only"
+    },
+    {
+      "id": "read_members-003",
+      "family": "read_members",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "list the members of Work Friends",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles",
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "needs the circle first; read only"
+    },
+    {
+      "id": "read_members-004",
+      "family": "read_members",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "tell me who belongs to Family",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles",
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "needs the circle first; read only"
+    },
+    {
+      "id": "read_members-005",
+      "family": "read_members",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "Family circle mein kaun kaun hai?",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles",
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "needs the circle first; read only"
+    },
+    {
+      "id": "read_members-006",
+      "family": "read_members",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "is Priya part of Weekend Crew?",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles",
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "needs the circle first; read only"
+    },
+    {
+      "id": "read_members-007",
+      "family": "read_members",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "how many people are in Family right now?",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles",
+        "resolve_person",
+        "get_circle_details"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "needs the circle first; read only"
+    },
+    {
+      "id": "read_members-008",
+      "family": "read_members",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "read me the Weekend Crew roster",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles",
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "needs the circle first; read only"
+    },
+    {
+      "id": "read_members-009",
+      "family": "read_members",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "does Rohan belong to my Work Friends circle?",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles",
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "needs the circle first; read only"
+    },
+    {
+      "id": "read_members-010",
+      "family": "read_members",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "who's in this group?",
+      "expected_tools": [
+        "list_circle_members"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "on the circle screen: the roster of this circle"
+    },
+    {
+      "id": "read_members-011",
+      "family": "read_members",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "read out everyone here",
+      "expected_tools": [
+        "list_circle_members"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "on the circle screen: the roster of this circle"
+    },
+    {
+      "id": "read_members-012",
+      "family": "read_members",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "who else is in this circle with me?",
+      "expected_tools": [
+        "list_circle_members"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "on the circle screen: the roster of this circle"
+    },
+    {
+      "id": "read_members-013",
+      "family": "read_members",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "is Rohan in here?",
+      "expected_tools": [
+        "list_circle_members"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "on the circle screen: the roster of this circle"
+    },
+    {
+      "id": "read_members-014",
+      "family": "read_members",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "how many members does this one have?",
+      "expected_tools": [
+        "list_circle_members",
+        "get_circle_details"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "on the circle screen: the roster of this circle"
+    },
+    {
+      "id": "read_members-015",
+      "family": "read_members",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "list everyone in this circle",
+      "expected_tools": [
+        "list_circle_members"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "on the circle screen: the roster of this circle"
+    },
+    {
+      "id": "read_members-016",
+      "family": "read_members",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "yeh circle mein kaun hai?",
+      "expected_tools": [
+        "list_circle_members"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "on the circle screen: the roster of this circle"
+    },
+    {
+      "id": "read_members-017",
+      "family": "read_members",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "show me the people in this circle",
+      "expected_tools": [
+        "list_circle_members"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "on the circle screen: the roster of this circle"
+    },
+    {
+      "id": "read_members-018",
+      "family": "read_members",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "who did I put in this one?",
+      "expected_tools": [
+        "list_circle_members"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "on the circle screen: the roster of this circle"
+    },
+    {
+      "id": "read_details-001",
+      "family": "read_details",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "how many circles do I have?",
+      "expected_tools": [
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "read only"
+    },
+    {
+      "id": "read_details-002",
+      "family": "read_details",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "what circles am I part of?",
+      "expected_tools": [
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "read only"
+    },
+    {
+      "id": "read_details-003",
+      "family": "read_details",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "do I own any circles?",
+      "expected_tools": [
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "read only"
+    },
+    {
+      "id": "read_details-004",
+      "family": "read_details",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "mere kitne circles hain?",
+      "expected_tools": [
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "read only"
+    },
+    {
+      "id": "read_details-005",
+      "family": "read_details",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "what type of circle is Weekend Crew?",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "needs the circle first; read only"
+    },
+    {
+      "id": "read_details-006",
+      "family": "read_details",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "who is the owner of Work Friends?",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "needs the circle first; read only"
+    },
+    {
+      "id": "read_details-007",
+      "family": "read_details",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "is Family a family circle or a friends circle?",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "needs the circle first; read only"
+    },
+    {
+      "id": "read_details-008",
+      "family": "read_details",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "can I add people to Work Friends or only the owner?",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "needs the circle first; read only"
+    },
+    {
+      "id": "read_details-009",
+      "family": "read_details",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "what's the member limit on Family?",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "needs the circle first; read only"
+    },
+    {
+      "id": "read_details-010",
+      "family": "read_details",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "what kind of circle is this?",
+      "expected_tools": [
+        "get_circle_details",
+        "list_circle_members"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "on the circle screen"
+    },
+    {
+      "id": "read_details-011",
+      "family": "read_details",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "who runs this one?",
+      "expected_tools": [
+        "get_circle_details",
+        "list_circle_members"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "on the circle screen"
+    },
+    {
+      "id": "read_details-012",
+      "family": "read_details",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "am I the owner here?",
+      "expected_tools": [
+        "get_circle_details",
+        "list_circle_members"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "on the circle screen"
+    },
+    {
+      "id": "read_details-013",
+      "family": "read_details",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "can I delete this circle or is it a system one?",
+      "expected_tools": [
+        "get_circle_details",
+        "list_circle_members"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "on the circle screen"
+    },
+    {
+      "id": "read_details-014",
+      "family": "read_details",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "what's this circle called?",
+      "expected_tools": [
+        "get_circle_details",
+        "list_circle_members"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "on the circle screen"
+    },
+    {
+      "id": "read_details-015",
+      "family": "read_details",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "is this one managed by the app?",
+      "expected_tools": [
+        "get_circle_details",
+        "list_circle_members"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "on the circle screen"
+    },
+    {
+      "id": "rename-001",
+      "family": "rename",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "rename Weekend Crew to Trip Gang",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection"
+      ],
+      "note": "needs the circle first; name only"
+    },
+    {
+      "id": "rename-002",
+      "family": "rename",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "change the name of Family to Home Base",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection"
+      ],
+      "note": "needs the circle first; name only"
+    },
+    {
+      "id": "rename-003",
+      "family": "rename",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "can you call Work Friends Office Crew instead?",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection"
+      ],
+      "note": "needs the circle first; name only"
+    },
+    {
+      "id": "rename-004",
+      "family": "rename",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "Weekend Crew ka naam badal ke Trip Gang kar do",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection"
+      ],
+      "note": "needs the circle first; name only"
+    },
+    {
+      "id": "rename-005",
+      "family": "rename",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "I want Family to be called Nair Family",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection"
+      ],
+      "note": "needs the circle first; name only"
+    },
+    {
+      "id": "rename-006",
+      "family": "rename",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "update the Weekend Crew name to Beach Crew",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection"
+      ],
+      "note": "needs the circle first; name only"
+    },
+    {
+      "id": "rename-007",
+      "family": "rename",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "give Work Friends a new name, Colleagues",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection"
+      ],
+      "note": "needs the circle first; name only"
+    },
+    {
+      "id": "rename-008",
+      "family": "rename",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "switch the Family circle's name to Home",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection"
+      ],
+      "note": "needs the circle first; name only"
+    },
+    {
+      "id": "rename-009",
+      "family": "rename",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "Family circle ko Home Base naam do",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection"
+      ],
+      "note": "needs the circle first; name only"
+    },
+    {
+      "id": "rename-010",
+      "family": "rename",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "let's rename the Weekend Crew group to Roadtrip",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection"
+      ],
+      "note": "needs the circle first; name only"
+    },
+    {
+      "id": "rename-011",
+      "family": "rename",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "rename this to Trip Gang",
+      "expected_tools": [
+        "get_circle_details",
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection"
+      ],
+      "note": "on the circle screen: read the circle on screen first"
+    },
+    {
+      "id": "rename-012",
+      "family": "rename",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "call this circle Home Base from now on",
+      "expected_tools": [
+        "get_circle_details",
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection"
+      ],
+      "note": "on the circle screen: read the circle on screen first"
+    },
+    {
+      "id": "rename-013",
+      "family": "rename",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "change this one's name to Office Crew",
+      "expected_tools": [
+        "get_circle_details",
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection"
+      ],
+      "note": "on the circle screen: read the circle on screen first"
+    },
+    {
+      "id": "rename-014",
+      "family": "rename",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "iska naam Roadtrip rakh do",
+      "expected_tools": [
+        "get_circle_details",
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection"
+      ],
+      "note": "on the circle screen: read the circle on screen first"
+    },
+    {
+      "id": "rename-015",
+      "family": "rename",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "can this be renamed to Beach Crew?",
+      "expected_tools": [
+        "get_circle_details",
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection"
+      ],
+      "note": "on the circle screen: read the circle on screen first"
+    },
+    {
+      "id": "set_kind-001",
+      "family": "set_kind",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "make Weekend Crew a friends circle",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "kind only; not a rename"
+    },
+    {
+      "id": "set_kind-002",
+      "family": "set_kind",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "change Family's type to friends",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "kind only; not a rename"
+    },
+    {
+      "id": "set_kind-003",
+      "family": "set_kind",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "turn Work Friends into a family circle",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "kind only; not a rename"
+    },
+    {
+      "id": "set_kind-004",
+      "family": "set_kind",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "Weekend Crew ko family circle bana do",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "kind only; not a rename"
+    },
+    {
+      "id": "set_kind-005",
+      "family": "set_kind",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "set Family to just a plain circle, not family",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "kind only; not a rename"
+    },
+    {
+      "id": "set_kind-006",
+      "family": "set_kind",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "mark Weekend Crew as a family group",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "kind only; not a rename"
+    },
+    {
+      "id": "set_kind-007",
+      "family": "set_kind",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "Family should be a friends circle instead",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "kind only; not a rename"
+    },
+    {
+      "id": "set_kind-008",
+      "family": "set_kind",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "switch the type of Weekend Crew to family",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "kind only; not a rename"
+    },
+    {
+      "id": "set_kind-009",
+      "family": "set_kind",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "make this a family circle",
+      "expected_tools": [
+        "get_circle_details",
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "on the circle screen"
+    },
+    {
+      "id": "set_kind-010",
+      "family": "set_kind",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "change this one's type to friends",
+      "expected_tools": [
+        "get_circle_details",
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "on the circle screen"
+    },
+    {
+      "id": "set_kind-011",
+      "family": "set_kind",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "is circle ko friends circle bana do",
+      "expected_tools": [
+        "get_circle_details",
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "on the circle screen"
+    },
+    {
+      "id": "set_kind-012",
+      "family": "set_kind",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "set this circle's type to other",
+      "expected_tools": [
+        "get_circle_details",
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "on the circle screen"
+    },
+    {
+      "id": "add_member-001",
+      "family": "add_member",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "add Priya to Weekend Crew",
+      "expected_tools": [
+        "resolve_circle",
+        "resolve_person",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "create_circle",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "resolve circle and person; add is its own confirmation; never sends a connection request"
+    },
+    {
+      "id": "add_member-002",
+      "family": "add_member",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "put Rohan in my Weekend Crew circle",
+      "expected_tools": [
+        "resolve_circle",
+        "resolve_person",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "create_circle",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "resolve circle and person; add is its own confirmation; never sends a connection request"
+    },
+    {
+      "id": "add_member-003",
+      "family": "add_member",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "can Ayesha be included in Family?",
+      "expected_tools": [
+        "resolve_circle",
+        "resolve_person",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "create_circle",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "resolve circle and person; add is its own confirmation; never sends a connection request"
+    },
+    {
+      "id": "add_member-004",
+      "family": "add_member",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "Priya ko Weekend Crew mein daal do",
+      "expected_tools": [
+        "resolve_circle",
+        "resolve_person",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "create_circle",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "resolve circle and person; add is its own confirmation; never sends a connection request"
+    },
+    {
+      "id": "add_member-005",
+      "family": "add_member",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "I want Rohan added to the Weekend Crew group",
+      "expected_tools": [
+        "resolve_circle",
+        "resolve_person",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "create_circle",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "resolve circle and person; add is its own confirmation; never sends a connection request"
+    },
+    {
+      "id": "add_member-006",
+      "family": "add_member",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "include Ayesha in my Family circle please",
+      "expected_tools": [
+        "resolve_circle",
+        "resolve_person",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "create_circle",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "resolve circle and person; add is its own confirmation; never sends a connection request"
+    },
+    {
+      "id": "add_member-007",
+      "family": "add_member",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "bring Priya into Weekend Crew",
+      "expected_tools": [
+        "resolve_circle",
+        "resolve_person",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "create_circle",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "resolve circle and person; add is its own confirmation; never sends a connection request"
+    },
+    {
+      "id": "add_member-008",
+      "family": "add_member",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "Ayesha ko Family mein add karo",
+      "expected_tools": [
+        "resolve_circle",
+        "resolve_person",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "create_circle",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "resolve circle and person; add is its own confirmation; never sends a connection request"
+    },
+    {
+      "id": "add_member-009",
+      "family": "add_member",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "get Rohan onto Weekend Crew",
+      "expected_tools": [
+        "resolve_circle",
+        "resolve_person",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "create_circle",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "resolve circle and person; add is its own confirmation; never sends a connection request"
+    },
+    {
+      "id": "add_member-010",
+      "family": "add_member",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "make Priya a member of Weekend Crew",
+      "expected_tools": [
+        "resolve_circle",
+        "resolve_person",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "create_circle",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "resolve circle and person; add is its own confirmation; never sends a connection request"
+    },
+    {
+      "id": "add_member-011",
+      "family": "add_member",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "Kushal should be in Weekend Crew too",
+      "expected_tools": [
+        "resolve_circle",
+        "resolve_person",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "create_circle",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "resolve circle and person; add is its own confirmation; never sends a connection request"
+    },
+    {
+      "id": "add_member-012",
+      "family": "add_member",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "add Dev to Work Friends",
+      "expected_tools": [
+        "resolve_circle",
+        "resolve_person",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "create_circle",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "resolve circle and person; add is its own confirmation; never sends a connection request"
+    },
+    {
+      "id": "add_member-013",
+      "family": "add_member",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "add Ayesha to this one",
+      "expected_tools": [
+        "resolve_person",
+        "get_circle_details",
+        "list_circle_members",
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "create_circle",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "on the circle screen"
+    },
+    {
+      "id": "add_member-014",
+      "family": "add_member",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "put Rohan in here",
+      "expected_tools": [
+        "resolve_person",
+        "get_circle_details",
+        "list_circle_members",
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "create_circle",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "on the circle screen"
+    },
+    {
+      "id": "add_member-015",
+      "family": "add_member",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "can you include Priya in this circle?",
+      "expected_tools": [
+        "resolve_person",
+        "get_circle_details",
+        "list_circle_members",
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "create_circle",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "on the circle screen"
+    },
+    {
+      "id": "add_member-016",
+      "family": "add_member",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "Ayesha ko isme add karo",
+      "expected_tools": [
+        "resolve_person",
+        "get_circle_details",
+        "list_circle_members",
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "create_circle",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "on the circle screen"
+    },
+    {
+      "id": "add_member-017",
+      "family": "add_member",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "add Kushal here as well",
+      "expected_tools": [
+        "resolve_person",
+        "get_circle_details",
+        "list_circle_members",
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "create_circle",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "on the circle screen"
+    },
+    {
+      "id": "add_member-018",
+      "family": "add_member",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "get Dev into this group",
+      "expected_tools": [
+        "resolve_person",
+        "get_circle_details",
+        "list_circle_members",
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "create_circle",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "on the circle screen"
+    },
+    {
+      "id": "remove_member-001",
+      "family": "remove_member",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "take Priya out of Family",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles",
+        "list_circle_members",
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "cancel_connection_request",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "membership ends, connection stays; the member comes from the roster"
+    },
+    {
+      "id": "remove_member-002",
+      "family": "remove_member",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "remove Rohan from the Family circle",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles",
+        "list_circle_members",
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "cancel_connection_request",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "membership ends, connection stays; the member comes from the roster"
+    },
+    {
+      "id": "remove_member-003",
+      "family": "remove_member",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "kick Dev out of Work Friends",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles",
+        "list_circle_members",
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "cancel_connection_request",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "membership ends, connection stays; the member comes from the roster"
+    },
+    {
+      "id": "remove_member-004",
+      "family": "remove_member",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "Rohan ko Family se nikaal do",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles",
+        "list_circle_members",
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "cancel_connection_request",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "membership ends, connection stays; the member comes from the roster"
+    },
+    {
+      "id": "remove_member-005",
+      "family": "remove_member",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "I don't want Priya in Family anymore",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles",
+        "list_circle_members",
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "cancel_connection_request",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "membership ends, connection stays; the member comes from the roster"
+    },
+    {
+      "id": "remove_member-006",
+      "family": "remove_member",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "drop Ayesha from Weekend Crew",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles",
+        "list_circle_members",
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "cancel_connection_request",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "membership ends, connection stays; the member comes from the roster"
+    },
+    {
+      "id": "remove_member-007",
+      "family": "remove_member",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "can you get Rohan off the Family list?",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles",
+        "list_circle_members",
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "cancel_connection_request",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "membership ends, connection stays; the member comes from the roster"
+    },
+    {
+      "id": "remove_member-008",
+      "family": "remove_member",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "Priya ko Family circle se hata do",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles",
+        "list_circle_members",
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "cancel_connection_request",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "membership ends, connection stays; the member comes from the roster"
+    },
+    {
+      "id": "remove_member-009",
+      "family": "remove_member",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "remove Ayesha from my Weekend Crew group",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles",
+        "list_circle_members",
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "cancel_connection_request",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "membership ends, connection stays; the member comes from the roster"
+    },
+    {
+      "id": "remove_member-010",
+      "family": "remove_member",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "Rohan shouldn't be in Family any more, take him out",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles",
+        "list_circle_members",
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "cancel_connection_request",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "membership ends, connection stays; the member comes from the roster"
+    },
+    {
+      "id": "remove_member-011",
+      "family": "remove_member",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "take Rohan out of this circle",
+      "expected_tools": [
+        "list_circle_members",
+        "get_circle_details",
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "cancel_connection_request",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "on the circle screen: roster first, tap to remove"
+    },
+    {
+      "id": "remove_member-012",
+      "family": "remove_member",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "remove Priya from here",
+      "expected_tools": [
+        "list_circle_members",
+        "get_circle_details",
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "cancel_connection_request",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "on the circle screen: roster first, tap to remove"
+    },
+    {
+      "id": "remove_member-013",
+      "family": "remove_member",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "Rohan ko is circle se hata do",
+      "expected_tools": [
+        "list_circle_members",
+        "get_circle_details",
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "cancel_connection_request",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "on the circle screen: roster first, tap to remove"
+    },
+    {
+      "id": "remove_member-014",
+      "family": "remove_member",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "get Priya off this one",
+      "expected_tools": [
+        "list_circle_members",
+        "get_circle_details",
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "cancel_connection_request",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "on the circle screen: roster first, tap to remove"
+    },
+    {
+      "id": "remove_member-015",
+      "family": "remove_member",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "drop Rohan from this group",
+      "expected_tools": [
+        "list_circle_members",
+        "get_circle_details",
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "cancel_connection_request",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "on the circle screen: roster first, tap to remove"
+    },
+    {
+      "id": "remove_member-016",
+      "family": "remove_member",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "can you remove Priya from this circle?",
+      "expected_tools": [
+        "list_circle_members",
+        "get_circle_details",
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "cancel_connection_request",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "on the circle screen: roster first, tap to remove"
+    },
+    {
+      "id": "remove_member-017",
+      "family": "remove_member",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "Priya doesn't need to be in here, remove her",
+      "expected_tools": [
+        "list_circle_members",
+        "get_circle_details",
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "cancel_connection_request",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "on the circle screen: roster first, tap to remove"
+    },
+    {
+      "id": "remove_member-018",
+      "family": "remove_member",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "kick Rohan out of here",
+      "expected_tools": [
+        "list_circle_members",
+        "get_circle_details",
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "cancel_connection_request",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "on the circle screen: roster first, tap to remove"
+    },
+    {
+      "id": "leave-001",
+      "family": "leave",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "take me out of Work Friends",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "leave is not delete; tap tier"
+    },
+    {
+      "id": "leave-002",
+      "family": "leave",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "I want to leave the Work Friends circle",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "leave is not delete; tap tier"
+    },
+    {
+      "id": "leave-003",
+      "family": "leave",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "remove me from Work Friends",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "leave is not delete; tap tier"
+    },
+    {
+      "id": "leave-004",
+      "family": "leave",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "mujhe Work Friends se nikaal do",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "leave is not delete; tap tier"
+    },
+    {
+      "id": "leave-005",
+      "family": "leave",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "can I exit Work Friends?",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "leave is not delete; tap tier"
+    },
+    {
+      "id": "leave-006",
+      "family": "leave",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "get me out of the Work Friends group",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "leave is not delete; tap tier"
+    },
+    {
+      "id": "leave-007",
+      "family": "leave",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "I'm done with Work Friends, take me off it",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "leave is not delete; tap tier"
+    },
+    {
+      "id": "leave-008",
+      "family": "leave",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "quit Work Friends for me",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "leave is not delete; tap tier"
+    },
+    {
+      "id": "leave-009",
+      "family": "leave",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "I'd rather not be in Work Friends any more",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "leave is not delete; tap tier"
+    },
+    {
+      "id": "leave-010",
+      "family": "leave",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "Work Friends circle chhod do",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "leave is not delete; tap tier"
+    },
+    {
+      "id": "leave-011",
+      "family": "leave",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "take me out of this one",
+      "expected_tools": [
+        "get_circle_details",
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "on the circle screen"
+    },
+    {
+      "id": "leave-012",
+      "family": "leave",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "I want to leave this circle",
+      "expected_tools": [
+        "get_circle_details",
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "on the circle screen"
+    },
+    {
+      "id": "leave-013",
+      "family": "leave",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "remove me from here",
+      "expected_tools": [
+        "get_circle_details",
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "on the circle screen"
+    },
+    {
+      "id": "leave-014",
+      "family": "leave",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "mujhe isse nikaal do",
+      "expected_tools": [
+        "get_circle_details",
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "on the circle screen"
+    },
+    {
+      "id": "leave-015",
+      "family": "leave",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "let me exit this group",
+      "expected_tools": [
+        "get_circle_details",
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "delete_circle",
+        "invite_person",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "on the circle screen"
+    },
+    {
+      "id": "delete-001",
+      "family": "delete",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "delete Weekend Crew",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "delete is not leave; tap tier"
+    },
+    {
+      "id": "delete-002",
+      "family": "delete",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "get rid of the Weekend Crew circle entirely",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "delete is not leave; tap tier"
+    },
+    {
+      "id": "delete-003",
+      "family": "delete",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "remove the whole Family circle",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "delete is not leave; tap tier"
+    },
+    {
+      "id": "delete-004",
+      "family": "delete",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "Weekend Crew delete kar do",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "delete is not leave; tap tier"
+    },
+    {
+      "id": "delete-005",
+      "family": "delete",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "I want Weekend Crew gone for everyone",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "delete is not leave; tap tier"
+    },
+    {
+      "id": "delete-006",
+      "family": "delete",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "can you erase Weekend Crew completely?",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "delete is not leave; tap tier"
+    },
+    {
+      "id": "delete-007",
+      "family": "delete",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "tear down the Family circle",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "delete is not leave; tap tier"
+    },
+    {
+      "id": "delete-008",
+      "family": "delete",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "Family circle ko poora hata do",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "delete is not leave; tap tier"
+    },
+    {
+      "id": "delete-009",
+      "family": "delete",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "scrap Weekend Crew, I don't need it",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "delete is not leave; tap tier"
+    },
+    {
+      "id": "delete-010",
+      "family": "delete",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "wipe out the Weekend Crew group",
+      "expected_tools": [
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "delete is not leave; tap tier"
+    },
+    {
+      "id": "delete-011",
+      "family": "delete",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "delete this circle",
+      "expected_tools": [
+        "get_circle_details",
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "on the circle screen"
+    },
+    {
+      "id": "delete-012",
+      "family": "delete",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "get rid of this one completely",
+      "expected_tools": [
+        "get_circle_details",
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "on the circle screen"
+    },
+    {
+      "id": "delete-013",
+      "family": "delete",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "is circle ko delete kar do",
+      "expected_tools": [
+        "get_circle_details",
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "on the circle screen"
+    },
+    {
+      "id": "delete-014",
+      "family": "delete",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "erase this whole group",
+      "expected_tools": [
+        "get_circle_details",
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "on the circle screen"
+    },
+    {
+      "id": "delete-015",
+      "family": "delete",
+      "screen": "one_location_circle",
+      "history": [],
+      "utterance": "remove this circle for everybody",
+      "expected_tools": [
+        "get_circle_details",
+        "resolve_circle",
+        "list_circles"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection",
+        "rename_circle"
+      ],
+      "note": "on the circle screen"
+    },
+    {
+      "id": "connection_prereq-001",
+      "family": "connection_prereq",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "send Kushal a connection request",
+      "expected_tools": [
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "add_circle_member",
+        "cancel_connection_request",
+        "create_circle",
+        "create_circle_invite_link",
+        "decline_connection_request",
+        "delete_circle",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection"
+      ],
+      "note": "a request is its own action; not an add"
+    },
+    {
+      "id": "connection_prereq-002",
+      "family": "connection_prereq",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "connect me with Dev Patel",
+      "expected_tools": [
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "add_circle_member",
+        "cancel_connection_request",
+        "create_circle",
+        "create_circle_invite_link",
+        "decline_connection_request",
+        "delete_circle",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection"
+      ],
+      "note": "a request is its own action; not an add"
+    },
+    {
+      "id": "connection_prereq-003",
+      "family": "connection_prereq",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "ask Dev to connect",
+      "expected_tools": [
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "add_circle_member",
+        "cancel_connection_request",
+        "create_circle",
+        "create_circle_invite_link",
+        "decline_connection_request",
+        "delete_circle",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection"
+      ],
+      "note": "a request is its own action; not an add"
+    },
+    {
+      "id": "connection_prereq-004",
+      "family": "connection_prereq",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "Kushal ko connection request bhejo",
+      "expected_tools": [
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "add_circle_member",
+        "cancel_connection_request",
+        "create_circle",
+        "create_circle_invite_link",
+        "decline_connection_request",
+        "delete_circle",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection"
+      ],
+      "note": "a request is its own action; not an add"
+    },
+    {
+      "id": "connection_prereq-005",
+      "family": "connection_prereq",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "invite Dev to connect with me",
+      "expected_tools": [
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "add_circle_member",
+        "cancel_connection_request",
+        "create_circle",
+        "create_circle_invite_link",
+        "decline_connection_request",
+        "delete_circle",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection"
+      ],
+      "note": "a request is its own action; not an add"
+    },
+    {
+      "id": "connection_prereq-006",
+      "family": "connection_prereq",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "accept Meera's connection request",
+      "expected_tools": [
+        "list_people",
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "cancel_connection_request",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection"
+      ],
+      "note": "respond to a real request id from list_people"
+    },
+    {
+      "id": "connection_prereq-007",
+      "family": "connection_prereq",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "say yes to the request from Meera",
+      "expected_tools": [
+        "list_people",
+        "resolve_person",
+        "list_requests"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "cancel_connection_request",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection"
+      ],
+      "note": "respond to a real request id from list_people"
+    },
+    {
+      "id": "connection_prereq-008",
+      "family": "connection_prereq",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "Meera ki request accept karo",
+      "expected_tools": [
+        "list_people",
+        "resolve_person",
+        "list_requests"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "cancel_connection_request",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection"
+      ],
+      "note": "respond to a real request id from list_people"
+    },
+    {
+      "id": "connection_prereq-009",
+      "family": "connection_prereq",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "decline the request Meera sent me",
+      "expected_tools": [
+        "list_people",
+        "resolve_person",
+        "list_requests"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "cancel_connection_request",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection"
+      ],
+      "note": "respond to a real request id from list_people"
+    },
+    {
+      "id": "connection_prereq-010",
+      "family": "connection_prereq",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "turn down Meera's connection request",
+      "expected_tools": [
+        "list_people",
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "cancel_connection_request",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection"
+      ],
+      "note": "respond to a real request id from list_people"
+    },
+    {
+      "id": "connection_prereq-011",
+      "family": "connection_prereq",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "cancel my request to Kushal",
+      "expected_tools": [
+        "list_people",
+        "resolve_person",
+        "list_requests"
+      ],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "add_circle_member",
+        "create_circle_invite_link",
+        "decline_connection_request",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection"
+      ],
+      "note": "cancel or check an outgoing request"
+    },
+    {
+      "id": "connection_prereq-012",
+      "family": "connection_prereq",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "withdraw the connection request I sent Kushal",
+      "expected_tools": [
+        "list_people",
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "add_circle_member",
+        "create_circle_invite_link",
+        "decline_connection_request",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection"
+      ],
+      "note": "cancel or check an outgoing request"
+    },
+    {
+      "id": "connection_prereq-013",
+      "family": "connection_prereq",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "Kushal wali request cancel kar do",
+      "expected_tools": [
+        "list_people",
+        "resolve_person",
+        "list_requests"
+      ],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "add_circle_member",
+        "create_circle_invite_link",
+        "decline_connection_request",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection"
+      ],
+      "note": "cancel or check an outgoing request"
+    },
+    {
+      "id": "connection_prereq-014",
+      "family": "connection_prereq",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "take back my request to Kushal",
+      "expected_tools": [
+        "list_people",
+        "resolve_person",
+        "list_requests"
+      ],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "add_circle_member",
+        "create_circle_invite_link",
+        "decline_connection_request",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection"
+      ],
+      "note": "cancel or check an outgoing request"
+    },
+    {
+      "id": "connection_prereq-015",
+      "family": "connection_prereq",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "is my request to Kushal still pending?",
+      "expected_tools": [
+        "list_people",
+        "resolve_person",
+        "list_requests"
+      ],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "add_circle_member",
+        "create_circle_invite_link",
+        "decline_connection_request",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection"
+      ],
+      "note": "cancel or check an outgoing request"
+    },
+    {
+      "id": "follow_up-001",
+      "family": "follow_up",
+      "screen": "one_home",
+      "history": [
+        "list my circles"
+      ],
+      "utterance": "rename the first one to Home Base",
+      "expected_tools": [
+        "confirm_circle",
+        "rename_circle",
+        "resolve_circle"
+      ],
+      "forbidden_tools": [
+        "create_circle",
+        "delete_circle",
+        "leave_circle",
+        "remove_circle_member"
+      ],
+      "note": "ids came from the list"
+    },
+    {
+      "id": "follow_up-002",
+      "family": "follow_up",
+      "screen": "one_home",
+      "history": [
+        "show me my circles"
+      ],
+      "utterance": "who's in the second one?",
+      "expected_tools": [
+        "list_circle_members",
+        "confirm_circle"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "delete_circle",
+        "leave_circle",
+        "remove_circle_member"
+      ],
+      "note": "roster of an offered id"
+    },
+    {
+      "id": "follow_up-003",
+      "family": "follow_up",
+      "screen": "one_home",
+      "history": [
+        "what circles am I in?"
+      ],
+      "utterance": "now delete Weekend Crew",
+      "expected_tools": [
+        "confirm_circle",
+        "resolve_circle",
+        "delete_circle"
+      ],
+      "forbidden_tools": [
+        "leave_circle",
+        "remove_circle_member",
+        "remove_connection"
+      ],
+      "note": "delete, not leave"
+    },
+    {
+      "id": "follow_up-004",
+      "family": "follow_up",
+      "screen": "one_home",
+      "history": [
+        "what kind of circle is Weekend Crew?",
+        "yes that one"
+      ],
+      "utterance": "ok now rename it to Trip Gang",
+      "expected_tools": [
+        "confirm_circle",
+        "rename_circle",
+        "resolve_circle",
+        "get_circle_details"
+      ],
+      "forbidden_tools": [
+        "create_circle",
+        "delete_circle",
+        "leave_circle"
+      ],
+      "note": "it = the circle just discussed"
+    },
+    {
+      "id": "follow_up-005",
+      "family": "follow_up",
+      "screen": "one_home",
+      "history": [
+        "who's in Family?",
+        "yes"
+      ],
+      "utterance": "take Rohan out",
+      "expected_tools": [
+        "confirm_person",
+        "list_circle_members",
+        "remove_circle_member"
+      ],
+      "forbidden_tools": [
+        "delete_circle",
+        "leave_circle",
+        "remove_connection"
+      ],
+      "note": "member from the roster just read"
+    },
+    {
+      "id": "follow_up-006",
+      "family": "follow_up",
+      "screen": "one_home",
+      "history": [
+        "who's in Family?",
+        "yes"
+      ],
+      "utterance": "and add Ayesha to it too",
+      "expected_tools": [
+        "resolve_person",
+        "confirm_person",
+        "add_circle_member"
+      ],
+      "forbidden_tools": [
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "remove_circle_member"
+      ],
+      "note": "it = Family just read"
+    },
+    {
+      "id": "follow_up-007",
+      "family": "follow_up",
+      "screen": "one_home",
+      "history": [
+        "who owns Work Friends?",
+        "yes"
+      ],
+      "utterance": "actually just leave it, I don't want to be in it",
+      "expected_tools": [
+        "confirm_circle",
+        "leave_circle",
+        "resolve_circle",
+        "get_circle_details"
+      ],
+      "forbidden_tools": [
+        "delete_circle",
+        "remove_circle_member",
+        "remove_connection"
+      ],
+      "note": "leave, not delete"
+    },
+    {
+      "id": "follow_up-008",
+      "family": "follow_up",
+      "screen": "one_home",
+      "history": [
+        "create a circle called Hikers"
+      ],
+      "utterance": "yes go ahead",
+      "expected_tools": [
+        "confirm_pending_action"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "cancel_pending_action",
+        "delete_circle",
+        "leave_circle",
+        "remove_circle_member"
+      ],
+      "note": "voice-tier approval of the create card"
+    },
+    {
+      "id": "follow_up-009",
+      "family": "follow_up",
+      "screen": "one_home",
+      "history": [
+        "create a circle called Hikers"
+      ],
+      "utterance": "no wait, don't",
+      "expected_tools": [
+        "cancel_pending_action"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "confirm_pending_action",
+        "create_circle",
+        "delete_circle",
+        "leave_circle",
+        "remove_circle_member"
+      ],
+      "note": "cancel the pending create"
+    },
+    {
+      "id": "follow_up-010",
+      "family": "follow_up",
+      "screen": "one_home",
+      "history": [
+        "what kind of circle is Family?",
+        "yes"
+      ],
+      "utterance": "how many are in it now?",
+      "expected_tools": [
+        "list_circle_members",
+        "get_circle_details",
+        "confirm_circle"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "delete_circle",
+        "leave_circle",
+        "remove_circle_member"
+      ],
+      "note": "count after the read"
+    },
+    {
+      "id": "follow_up-011",
+      "family": "follow_up",
+      "screen": "one_home",
+      "history": [
+        "what kind of circle is Weekend Crew?",
+        "yes"
+      ],
+      "utterance": "add Priya to that one",
+      "expected_tools": [
+        "confirm_circle",
+        "resolve_person",
+        "confirm_person",
+        "add_circle_member"
+      ],
+      "forbidden_tools": [
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member"
+      ],
+      "note": "that one = the circle just named"
+    },
+    {
+      "id": "follow_up-012",
+      "family": "follow_up",
+      "screen": "one_home",
+      "history": [
+        "put Kushal in Weekend Crew",
+        "yes",
+        "yes"
+      ],
+      "utterance": "did that add him?",
+      "expected_tools": [
+        "get_circle_details",
+        "list_circle_members",
+        "confirm_circle",
+        "list_people"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member"
+      ],
+      "note": "a pending request is not membership; answer from a read, not by re-adding or requesting"
+    },
+    {
+      "id": "follow_up-013",
+      "family": "follow_up",
+      "screen": "one_home",
+      "history": [
+        "add Dev to Weekend Crew",
+        "yes",
+        "yes"
+      ],
+      "utterance": "fine, send him the request then",
+      "expected_tools": [
+        "invite_person",
+        "confirm_person",
+        "resolve_person"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "create_circle_invite_link",
+        "delete_circle",
+        "leave_circle",
+        "remove_connection"
+      ],
+      "note": "explicit ask for a connection request"
+    },
+    {
+      "id": "follow_up-014",
+      "family": "follow_up",
+      "screen": "one_home",
+      "history": [
+        "what kind of circle is Weekend Crew?",
+        "yes"
+      ],
+      "utterance": "make it a friends circle and call it Trip Gang",
+      "expected_tools": [
+        "confirm_circle",
+        "set_circle_kind",
+        "rename_circle",
+        "resolve_circle",
+        "get_circle_details"
+      ],
+      "forbidden_tools": [
+        "create_circle",
+        "delete_circle",
+        "leave_circle",
+        "remove_circle_member"
+      ],
+      "note": "two separate changes on the circle just read, each with its own card; never delete/recreate"
+    },
+    {
+      "id": "follow_up-015",
+      "family": "follow_up",
+      "screen": "one_home",
+      "history": [
+        "who's in Family?",
+        "yes"
+      ],
+      "utterance": "next page",
+      "expected_tools": [
+        "list_circle_members"
+      ],
+      "forbidden_tools": [
+        "add_circle_member",
+        "delete_circle",
+        "leave_circle",
+        "remove_circle_member"
+      ],
+      "note": "paging is a read"
+    },
+    {
+      "id": "follow_up-016",
+      "family": "follow_up",
+      "screen": "one_location_circle",
+      "history": [
+        "add Ayesha to this one",
+        "yes",
+        "yes"
+      ],
+      "utterance": "and Priya too",
+      "expected_tools": [
+        "resolve_person",
+        "confirm_person",
+        "add_circle_member",
+        "get_circle_details"
+      ],
+      "forbidden_tools": [
+        "create_circle_invite_link",
+        "delete_circle",
+        "invite_person",
+        "leave_circle",
+        "remove_circle_member"
+      ],
+      "note": "same intent, next person, one at a time"
+    },
+    {
+      "id": "no_mutation-001",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "how would I delete a circle?",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_circle_member",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "explain or decline; a read is fine; no change"
+    },
+    {
+      "id": "no_mutation-002",
+      "family": "no_mutation",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "what happens if I leave Work Friends?",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_circle_member",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "explain or decline; a read is fine; no change"
+    },
+    {
+      "id": "no_mutation-003",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "don't delete Family",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_circle_member",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "explain or decline; a read is fine; no change"
+    },
+    {
+      "id": "no_mutation-004",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "my sister said 'delete the circle', but I won't",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_circle_member",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "explain or decline; a read is fine; no change"
+    },
+    {
+      "id": "no_mutation-005",
+      "family": "no_mutation",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "I already renamed Family yesterday",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_circle_member",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "explain or decline; a read is fine; no change"
+    },
+    {
+      "id": "no_mutation-006",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "can a circle have more than a hundred people?",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_circle_member",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "explain or decline; a read is fine; no change"
+    },
+    {
+      "id": "no_mutation-007",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "if I remove Rohan from Family, will we still be connected?",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_circle_member",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "explain or decline; a read is fine; no change"
+    },
+    {
+      "id": "no_mutation-008",
+      "family": "no_mutation",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "is deleting a circle reversible?",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_circle_member",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "explain or decline; a read is fine; no change"
+    },
+    {
+      "id": "no_mutation-009",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "whatever you do, don't leave Work Friends",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_circle_member",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "explain or decline; a read is fine; no change"
+    },
+    {
+      "id": "no_mutation-010",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "what's the difference between leaving and deleting?",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_circle_member",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "explain or decline; a read is fine; no change"
+    },
+    {
+      "id": "no_mutation-011",
+      "family": "no_mutation",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "Priya told me to remove her from Family, weird right?",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_circle_member",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "explain or decline; a read is fine; no change"
+    },
+    {
+      "id": "no_mutation-012",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "does creating a circle share my location?",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_circle_member",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "explain or decline; a read is fine; no change"
+    },
+    {
+      "id": "no_mutation-013",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "I was thinking about deleting Weekend Crew but not now",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_circle_member",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "explain or decline; a read is fine; no change"
+    },
+    {
+      "id": "no_mutation-014",
+      "family": "no_mutation",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "circle delete karne se kya hota hai?",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_circle_member",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "explain or decline; a read is fine; no change"
+    },
+    {
+      "id": "no_mutation-015",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "never remove Priya from Family, okay?",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_circle_member",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "explain or decline; a read is fine; no change"
+    },
+    {
+      "id": "no_mutation-016",
+      "family": "no_mutation",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "what does adding someone to a circle actually do?",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_circle_member",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "explain or decline; a read is fine; no change"
+    },
+    {
+      "id": "clarify-001",
+      "family": "clarify",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "remove Priya",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_circle_member",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "no referent or scope: ask, never propose a change"
+    },
+    {
+      "id": "clarify-002",
+      "family": "clarify",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "get rid of it",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_circle_member",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "no referent or scope: ask, never propose a change"
+    },
+    {
+      "id": "clarify-003",
+      "family": "clarify",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "add her",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_circle_member",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "no referent or scope: ask, never propose a change"
+    },
+    {
+      "id": "clarify-004",
+      "family": "clarify",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "take him out",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_circle_member",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "no referent or scope: ask, never propose a change"
+    },
+    {
+      "id": "clarify-005",
+      "family": "clarify",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "delete that",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_circle_member",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "no referent or scope: ask, never propose a change"
+    },
+    {
+      "id": "clarify-006",
+      "family": "clarify",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "rename it",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_circle_member",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "no referent or scope: ask, never propose a change"
+    },
+    {
+      "id": "clarify-007",
+      "family": "clarify",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "kick them out",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_circle_member",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "no referent or scope: ask, never propose a change"
+    },
+    {
+      "id": "clarify-008",
+      "family": "clarify",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "put Rohan in",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_circle_member",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "no referent or scope: ask, never propose a change"
+    },
+    {
+      "id": "clarify-009",
+      "family": "clarify",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "Priya ko hata do",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_circle_member",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "no referent or scope: ask, never propose a change"
+    },
+    {
+      "id": "clarify-010",
+      "family": "clarify",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "leave it",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_circle_member",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "no referent or scope: ask, never propose a change"
+    },
+    {
+      "id": "clarify-011",
+      "family": "clarify",
+      "screen": "one_home",
+      "history": [],
+      "utterance": "remove Dev",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_circle_member",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "no referent or scope: ask, never propose a change"
+    },
+    {
+      "id": "clarify-012",
+      "family": "clarify",
+      "screen": "one_location",
+      "history": [],
+      "utterance": "add Priya",
+      "expected_tools": [],
+      "forbidden_tools": [
+        "accept_connection_request",
+        "accept_location_setup_consent",
+        "add_circle_member",
+        "add_emergency_contact",
+        "advance_location_setup",
+        "cancel_circle_invite",
+        "cancel_connection_request",
+        "change_share_duration",
+        "confirm_pending_action",
+        "create_check_in",
+        "create_circle",
+        "create_circle_invite_link",
+        "create_public_link",
+        "decline_connection_request",
+        "delete_account",
+        "delete_circle",
+        "hide_on_map",
+        "invite_person",
+        "leave_circle",
+        "pause_device_location_updates",
+        "remove_circle_member",
+        "remove_connection",
+        "remove_emergency_contact",
+        "rename_circle",
+        "request_location",
+        "reset_account",
+        "respond_circle_invite",
+        "respond_request",
+        "resume_device_location_updates",
+        "revoke_public_link",
+        "set_auto_approve",
+        "set_circle_kind",
+        "set_contact_discoverable",
+        "set_precision",
+        "share_with",
+        "show_on_map",
+        "start_location_setup",
+        "stop_save_my_soul",
+        "stop_share",
+        "trigger_save_my_soul",
+        "turn_sharing_off",
+        "turn_sharing_on",
+        "update_display_name",
+        "withdraw_request"
+      ],
+      "note": "no referent or scope: ask, never propose a change"
+    }
+  ]
+}

@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { XIcon } from "lucide-react"
+import { XIcon } from "@/components/icons"
 import { Drawer as DrawerPrimitive } from "vaul"
 
 import { cn } from "@/lib/utils"
@@ -39,7 +39,7 @@ function DrawerOverlay({
       data-slot="drawer-overlay"
       className={cn(
         // Blur/scrim rides the overlay lifecycle so it fades OUT on close.
-        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-[711] touch-none bg-black/22 backdrop-blur-[3px] [-webkit-backdrop-filter:blur(3px)]",
+        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-(--z-sheet-overlay) touch-none bg-[color:var(--app-scrim-color)] [backdrop-filter:var(--app-scrim-filter)] [-webkit-backdrop-filter:var(--app-scrim-filter)]",
         className
       )}
       {...props}
@@ -75,7 +75,7 @@ function DrawerContent({
       <DrawerPrimitive.Content
         data-slot="drawer-content"
         className={cn(
-          "group/drawer-content bg-background fixed z-[712] flex h-auto flex-col",
+          "group/drawer-content bg-background fixed z-(--z-sheet) flex h-auto flex-col",
           "data-[vaul-drawer-direction=top]:inset-x-0 data-[vaul-drawer-direction=top]:top-0 data-[vaul-drawer-direction=top]:mb-24 data-[vaul-drawer-direction=top]:max-h-[80vh] data-[vaul-drawer-direction=top]:rounded-b-lg data-[vaul-drawer-direction=top]:border-b",
           // bottom-anchored drawers lift above the on-screen keyboard by
           // --kb-height (KeyboardInsetManager; 0 on desktop → inert). Lifting the

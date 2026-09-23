@@ -22,7 +22,7 @@
  */
 
 import { useMemo, useState } from "react";
-import { ChevronLeft, Search } from "lucide-react";
+import { ChevronLeft, Search } from "@/components/icons";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { Input } from "@/components/ui/input";
@@ -106,6 +106,11 @@ export function ConsentScopeNestedList({
 
   const renderLeafRow = (item: ConsentScopeItem, key: string) => {
     const selected = Boolean(selection?.selectedIds.has(item.id));
+    // A wildcard is one authority-bearing choice, but selecting it also marks
+    // the visible children so narrowing one child can drop the broad choice.
+    const toggleIds = item.wildcard
+      ? consentScopeItemsUnder(items, [item.domainKey, ...item.pathSegments]).map((child) => child.id)
+      : [item.id];
     return (
       <SettingsRow
         key={key}
@@ -118,7 +123,7 @@ export function ConsentScopeNestedList({
           onOpenItem
             ? () => onOpenItem(item)
             : selection
-              ? () => selection.onToggleMany([item.id], !selected)
+              ? () => selection.onToggleMany(toggleIds, !selected)
               : undefined
         }
         ariaLabel={item.label}
@@ -129,7 +134,7 @@ export function ConsentScopeNestedList({
             <input
               type="checkbox"
               checked={selected}
-              onChange={() => selection.onToggleMany([item.id], !selected)}
+              onChange={() => selection.onToggleMany(toggleIds, !selected)}
               disabled={item.disabled}
               aria-label={item.label}
               className="h-5 w-5 rounded border-[color:var(--app-separator)] accent-[color:var(--app-accent)]"

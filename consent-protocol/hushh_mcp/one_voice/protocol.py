@@ -25,9 +25,28 @@ MAX_CONTEXT_JSON_CHARS = 48_000
 # Interim status of a device-executed Location updates step (resume/pause
 # tools); defined with the tool contract, re-exported here for the wire.
 LOCATION_UPDATES_PENDING = _LOCATION_UPDATES_PENDING
+# Interim status of an armed Save My Soul alert: grants exist, the device has
+# not published a position yet, and nobody has been reached.
+SOS_GRANTS_CREATED = "sos_grants_created"
+# Interim status of an account reset / deletion the person tapped: the device
+# is running the lifecycle flow and the server has verified nothing yet.
+RESET_STEP_ISSUED = "reset_step_issued"
+DELETE_STEP_ISSUED = "delete_step_issued"
+ACCOUNT_LIFECYCLE_STEP_KIND = "account_lifecycle"
+ACCOUNT_LIFECYCLE_REPORT_TOOL = "report_account_lifecycle"
 # Statuses whose ``tool.result`` frame carries ``ok: false``.
 NOT_OK_STATUSES = frozenset(
-    {"rejected", "unsupported", "confirmation_required", LOCATION_UPDATES_PENDING}
+    {
+        "rejected",
+        "unsupported",
+        "confirmation_required",
+        "firebase_proof_required",
+        "scope_review_required",
+        LOCATION_UPDATES_PENDING,
+        SOS_GRANTS_CREATED,
+        RESET_STEP_ISSUED,
+        DELETE_STEP_ISSUED,
+    }
 )
 
 
@@ -66,6 +85,10 @@ class AppContextFrame(_Frame):
     available_action_ids: list[str] = Field(default_factory=list, max_length=200)
     screen_state: dict[str, Any] = Field(default_factory=dict)
     os_location_permission: Literal["unknown", "prompt", "granted", "denied"] = "unknown"
+    # Canonical id of the circle whose detail screen is open. Typed and
+    # separate from ``screen_state`` (which is rendered into the prompt and
+    # carries no identifiers); the host reads it through the circle service.
+    active_circle_id: str | None = Field(default=None, min_length=36, max_length=36)
 
 
 class PendingShownFrame(_Frame):
@@ -218,11 +241,12 @@ def tool_started(*, call_id: str, tool: str, args_public: dict[str, Any]) -> dic
 def tool_result(
     *,
     call_id: str | None,
+    pending_action_id: str | None = None,
     tool: str,
     result_public: dict[str, Any],
     ok: bool | None = None,
 ) -> dict[str, Any]:
-    return {
+    payload: dict[str, Any] = {
         "type": "tool.result",
         "call_id": call_id,
         "tool": tool,
@@ -230,6 +254,9 @@ def tool_result(
         "ok": ok if ok is not None else result_public.get("status") not in NOT_OK_STATUSES,
         "result_public": result_public,
     }
+    if pending_action_id:
+        payload["pending_action_id"] = pending_action_id
+    return payload
 
 
 def pending_action(

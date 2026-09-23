@@ -89,7 +89,15 @@ def test_oauth_redirect_uses_environment_owned_callback(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_receipt_connect_requests_only_read_scope(monkeypatch):
+async def test_default_connect_requests_both_read_and_send_scope(monkeypatch):
+    # No call site anywhere in this codebase (web popup, native, or the
+    # connectors panel) ever passes purpose="send" -- every real connect
+    # defaults to "read". Gating gmail.send behind purpose="read" therefore
+    # made send capability unreachable through any live path, with no
+    # working recovery flow (the app's own "Reconnect Mail" link re-runs the
+    # same read-only connect). Both scopes must be requested regardless of
+    # purpose until a real incremental-consent UI actually calls this with
+    # "send".
     _configure_gmail_oauth(monkeypatch)
     service = GmailReceiptsService()
     monkeypatch.setattr(service, "_build_state_token", lambda **kwargs: "state")
@@ -103,7 +111,7 @@ async def test_receipt_connect_requests_only_read_scope(monkeypatch):
 
     scope = parse_qs(urlparse(result["authorize_url"]).query)["scope"][0].split()
     assert "https://www.googleapis.com/auth/gmail.readonly" in scope
-    assert "https://www.googleapis.com/auth/gmail.send" not in scope
+    assert "https://www.googleapis.com/auth/gmail.send" in scope
 
 
 @pytest.mark.asyncio
@@ -579,6 +587,107 @@ async def test_complete_connect_persists_bootstrap_queue_before_deferring_remote
     allow_profile_refresh_to_finish.set()
     await asyncio.wait_for(reconciliation_started.wait(), timeout=1)
     allow_reconciliation_to_finish.set()
+
+
+@pytest.mark.asyncio
+async def test_complete_connect_reports_success_when_only_bootstrap_queueing_fails(monkeypatch):
+    # The Gmail account is already durably connected once the
+    # kai_gmail_connections row is committed. queue_sync() schedules the
+    # *first sync* afterward -- a separate, recoverable concern. A transient
+    # failure there (DB pool contention, a brief Cloud SQL blip) must not be
+    # reported to the caller as a failed OAuth connection: the account really
+    # is connected, and the old behavior (raise 503, abort the response)
+    # left the person told "connection could not be completed" for an
+    # account that had, in fact, connected.
+    service = GmailReceiptsService()
+    redirect_uri = _configure_gmail_oauth(monkeypatch, origin="https://example.com")
+    monkeypatch.setattr(service, "_watch_enabled", lambda: False)
+    monkeypatch.setattr(
+        service,
+        "_verify_state_token",
+        lambda **kwargs: {"uid": "user_123", "iat": int(datetime.now(timezone.utc).timestamp())},
+    )
+    monkeypatch.setattr(
+        service,
+        "_exchange_code",
+        lambda **kwargs: asyncio.sleep(
+            0,
+            result={
+                "access_token": "access-token",
+                "refresh_token": "refresh-token",
+                "scope": (
+                    "https://www.googleapis.com/auth/gmail.readonly "
+                    "https://www.googleapis.com/auth/gmail.send"
+                ),
+                "expires_in": 3600,
+                "id_token": "id-token",
+            },
+        ),
+    )
+    monkeypatch.setattr(
+        service,
+        "_decode_id_token_claims",
+        lambda id_token: {"sub": "google-sub", "email": "user@example.com"},
+    )
+    monkeypatch.setattr(
+        service,
+        "_encrypt_token",
+        lambda token: {
+            "ciphertext": f"{token}-ciphertext",
+            "iv": f"{token}-iv",
+            "tag": f"{token}-tag",
+        },
+    )
+
+    def _fetch_connection_row(user_id: str):
+        return None
+
+    monkeypatch.setattr(service, "_fetch_connection_row", _fetch_connection_row)
+
+    async def _refresh_connection_profile(**_kwargs):
+        pass
+
+    async def _reconcile_connection(**_kwargs):
+        return {"connected": True}
+
+    async def _queue_sync(**_kwargs):
+        raise RuntimeError("db pool exhausted")
+
+    monkeypatch.setattr(service, "_refresh_connection_profile", _refresh_connection_profile)
+    monkeypatch.setattr(service, "reconcile_connection", _reconcile_connection)
+    monkeypatch.setattr(service, "queue_sync", _queue_sync)
+
+    failure_recorded = asyncio.Event()
+
+    async def _record_connect_queue_failure(*, user_id: str, error: Exception):
+        assert user_id == "user_123"
+        failure_recorded.set()
+
+    monkeypatch.setattr(service, "_record_connect_queue_failure", _record_connect_queue_failure)
+
+    async def _get_status(*, user_id: str):
+        assert user_id == "user_123"
+        return {"connected": True, "bootstrap_state": "failed"}
+
+    monkeypatch.setattr(service, "get_status", _get_status)
+
+    class _CaptureDb:
+        def execute_raw(self, sql, params=None):
+            if "INSERT INTO kai_gmail_connections" in sql:
+                return SimpleNamespace(data=[{"user_id": "user_123"}])
+            return SimpleNamespace(data=[])
+
+    service._db = _CaptureDb()
+
+    result = await service.complete_connect(
+        user_id="user_123",
+        code="oauth-code",
+        state="state-token",
+        redirect_uri=redirect_uri,
+    )
+
+    assert result == {"connected": True, "bootstrap_state": "failed"}
+    assert failure_recorded.is_set()
 
 
 @pytest.mark.asyncio

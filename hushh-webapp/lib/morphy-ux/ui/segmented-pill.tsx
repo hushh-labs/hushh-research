@@ -34,6 +34,13 @@ type SegmentedPillProps = {
   layout?: SegmentedPillLayout;
   slotCount?: number;
   hitArea?: "segment" | "content";
+  /**
+   * Material ripple on press (default on). Tab bars pass false: the ripple
+   * waits out a ~150 ms touch delay before it shows, then holds for 225 ms,
+   * so on the bottom bar the grey bubble arrived after the icon had already
+   * switched and lingered (measured on a Galaxy S24 Ultra, 2026-09-22).
+   */
+  ripple?: boolean;
   className?: string;
   ariaLabel?: string;
 };
@@ -100,6 +107,7 @@ export const SegmentedPill = React.forwardRef<
       layout = "inline",
       slotCount,
       hitArea = "segment",
+      ripple = true,
       className,
       ariaLabel = "Segmented selector",
     },
@@ -145,7 +153,7 @@ export const SegmentedPill = React.forwardRef<
         <div
           aria-hidden
           data-segment-indicator
-          className="pointer-events-none absolute left-2 top-2 bottom-2 overflow-hidden rounded-full bg-transparent shadow-none transition-transform duration-[300ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]"
+          className="pointer-events-none absolute left-2 top-2 bottom-2 overflow-hidden rounded-full bg-transparent shadow-none transition-transform duration-[140ms] ease-[cubic-bezier(0.16,1,0.3,1)]"
           style={{
             width: `calc((100% - 1rem) / ${resolvedSlotCount})`,
             transform: `translateX(calc(${activeIndex * 100}% + var(--segment-drag-x, 0px)))`,
@@ -184,7 +192,7 @@ export const SegmentedPill = React.forwardRef<
                 onValueChange(option.value);
               }}
               className={cn(
-                "press-scale relative z-10 flex min-w-0 items-center justify-center overflow-hidden rounded-full text-center transition-[color,opacity,transform] duration-200 ease-[cubic-bezier(0.2,0,0,1)] disabled:cursor-not-allowed",
+                "press-scale relative z-10 flex min-w-0 items-center justify-center overflow-hidden rounded-full text-center transition-[color,opacity,transform] duration-100 ease-[cubic-bezier(0.2,0,0,1)] disabled:cursor-not-allowed",
                 "pointer-events-auto",
                 hitArea === "content"
                   ? "w-fit flex-none self-center"
@@ -239,12 +247,14 @@ export const SegmentedPill = React.forwardRef<
               >
                 {option.label}
               </span>
-              <MaterialRipple
-                variant={isAccent ? "link" : "none"}
-                effect={isAccent ? "glass" : "fade"}
-                disabled={isDisabled}
-                className="z-0"
-              />
+              {ripple ? (
+                <MaterialRipple
+                  variant={isAccent ? "link" : "none"}
+                  effect={isAccent ? "glass" : "fade"}
+                  disabled={isDisabled}
+                  className="z-0"
+                />
+              ) : null}
             </button>
           );
 

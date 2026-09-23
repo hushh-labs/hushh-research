@@ -42,6 +42,7 @@ class CalendarNativeConnectStart(BaseModel):
 class CalendarNativeConnectComplete(_UserRequest):
     access_level: Literal["read", "manage"] = "read"
     server_auth_code: str = Field(min_length=1, max_length=2048)
+    state: str = Field(min_length=1, max_length=1024)
 
 
 class CalendarDisconnect(_UserRequest):
@@ -115,6 +116,9 @@ async def complete_connect(
             code=payload.code,
             state=payload.state,
             redirect_uri=payload.redirect_uri,
+            # Reject and consume a retired Drive attempt before any provider
+            # exchange. Calendar starts are the only attempts this route owns.
+            expected_service="calendar",
         )
     except Exception as exc:
         raise _http(exc) from exc
@@ -127,6 +131,7 @@ async def start_native_connect(
 ):
     try:
         return await get_google_connection_service().start_native(
+            user_id=firebase_uid,
             service="calendar",
             access_level=payload.access_level if payload else "read",
         )
@@ -146,6 +151,7 @@ async def complete_native_connect(
             service="calendar",
             access_level=payload.access_level,
             server_auth_code=payload.server_auth_code,
+            state=payload.state,
         )
     except Exception as exc:
         raise _http(exc) from exc

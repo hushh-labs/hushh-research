@@ -14,7 +14,7 @@
 "use client";
 
 import { useState } from "react";
-import { FileText, ChevronDown, ChevronUp, Shield, Scale } from "lucide-react";
+import { FileText, ChevronDown, ChevronUp, Shield, Scale } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/lib/morphy-ux/card";
 import { Badge } from "@/components/ui/badge";

@@ -10,7 +10,7 @@
  */
 
 import { useId } from "react";
-import { Check, MapPin, Users } from "lucide-react";
+import { Check, MapPin, Users } from "@/components/icons";
 
 import { AvatarBubble } from "@/lib/morphy-ux/ui/surface-primitives";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";

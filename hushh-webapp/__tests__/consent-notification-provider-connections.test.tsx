@@ -17,6 +17,8 @@ const mocks = vi.hoisted(() => {
     getState: vi.fn(),
     getVaultOwnerToken: vi.fn(),
     onConsentMutated: vi.fn(),
+    onConnectionGraphMutated: vi.fn(),
+    onOneLocationStateMutated: vi.fn(),
     dispatchConsentStateChanged: vi.fn(),
     dispatchFeedStateChanged: vi.fn(),
     markPendingConsentOpened: vi.fn(),
@@ -83,6 +85,8 @@ vi.mock("@/lib/services/app-background-task-service", () => ({
 vi.mock("@/lib/cache/cache-sync-service", () => ({
   CacheSyncService: {
     onConsentMutated: mocks.onConsentMutated,
+    onConnectionGraphMutated: mocks.onConnectionGraphMutated,
+    onOneLocationStateMutated: mocks.onOneLocationStateMutated,
     onConsentReviewed: vi.fn(),
   },
 }));
@@ -123,6 +127,7 @@ async function renderProvider() {
   await waitFor(() => expect(mocks.initializeFCM).toHaveBeenCalledOnce());
   mocks.toast.mockClear();
   mocks.onConsentMutated.mockClear();
+  mocks.onConnectionGraphMutated.mockClear();
   mocks.dispatchConsentStateChanged.mockClear();
   mocks.dispatchFeedStateChanged.mockClear();
 }
@@ -172,6 +177,28 @@ function dispatchConnectionRequestResolved(data: Record<string, string>) {
         detail,
       }),
     );
+  });
+  return detail;
+}
+
+function dispatchConnectionRemoved(data: Record<string, string>) {
+  const detail: {
+    data: Record<string, string>;
+    accepted?: boolean;
+  } = { data: { type: "connection_removed", ...data } };
+  act(() => {
+    window.dispatchEvent(new CustomEvent("fcm-message", { detail }));
+  });
+  return detail;
+}
+
+function dispatchDocumentShare(data: Record<string, string>) {
+  const detail: {
+    data: Record<string, string>;
+    accepted?: boolean;
+  } = { data };
+  act(() => {
+    window.dispatchEvent(new CustomEvent("fcm-message", { detail }));
   });
   return detail;
 }
@@ -337,6 +364,44 @@ describe("connection-request Feed-first foreground policy", () => {
     );
   });
 
+  it("reconciles an allowlisted opaque document-share notification without rendering its details", async () => {
+    await renderProvider();
+    const detail = dispatchDocumentShare({
+      type: "document_share_review_ready",
+      user_id: "recipient-user",
+      request_id: "11111111-1111-4111-8111-111111111111",
+      request_url: "https://example.com/ignored",
+      file_name: "bank-statement.pdf",
+      recipient_email: "private@example.com",
+    });
+
+    expect(mocks.toast).not.toHaveBeenCalled();
+    expect(mocks.dispatchFeedStateChanged).toHaveBeenCalledOnce();
+    expect(mocks.onConsentMutated).toHaveBeenCalledWith("recipient-user");
+    expect(mocks.dispatchConsentStateChanged).toHaveBeenCalledWith({
+      source: "fcm_document_share",
+      requestId: "document_share_request:11111111-1111-4111-8111-111111111111",
+      reconcile: true,
+    });
+    expect(detail.accepted).toBe(true);
+  });
+
+  it("leaves an unreviewed or malformed document-share payload unaccepted", async () => {
+    await renderProvider();
+    const detail = dispatchDocumentShare({
+      type: "document_share_unreviewed_future_event",
+      user_id: "recipient-user",
+      request_id: "not-a-uuid",
+      request_url: "https://example.com/ignored",
+    });
+
+    expect(detail.accepted).not.toBe(true);
+    expect(mocks.toast).not.toHaveBeenCalled();
+    expect(mocks.dispatchFeedStateChanged).not.toHaveBeenCalled();
+    expect(mocks.onConsentMutated).not.toHaveBeenCalled();
+    expect(mocks.dispatchConsentStateChanged).not.toHaveBeenCalled();
+  });
+
   it("leaves a malformed consent payload unacknowledged for system fallback", async () => {
     await renderProvider();
     const detail: {
@@ -482,7 +547,9 @@ describe("connection-request Feed-first foreground policy", () => {
 
         expect(mocks.toast).not.toHaveBeenCalled();
         expect(mocks.dispatchFeedStateChanged).toHaveBeenCalledOnce();
-        expect(mocks.onConsentMutated).toHaveBeenCalledWith("recipient-user");
+        expect(mocks.onConnectionGraphMutated).toHaveBeenCalledWith(
+          "recipient-user",
+        );
         expect(mocks.dispatchConsentStateChanged).toHaveBeenCalledWith({
           source: "fcm_connection_request_resolved",
           reconcile: true,
@@ -504,5 +571,83 @@ describe("connection-request Feed-first foreground policy", () => {
       expect(mocks.onConsentMutated).not.toHaveBeenCalled();
       expect(detail.accepted).not.toBe(true);
     });
+  });
+
+  it("reconciles every connection projection after a silent disconnect push", async () => {
+    await renderProvider();
+
+    const detail = dispatchConnectionRemoved({
+      user_id: "recipient-user",
+      connection_id: "conn-42",
+      counterpart_user_id: "other-user",
+      message_id: "connection-removed:conn-42:recipient-user",
+    });
+
+    expect(mocks.toast).not.toHaveBeenCalled();
+    expect(mocks.dispatchFeedStateChanged).toHaveBeenCalledOnce();
+    expect(mocks.onConnectionGraphMutated).toHaveBeenCalledWith(
+      "recipient-user",
+    );
+    expect(mocks.dispatchConsentStateChanged).toHaveBeenCalledWith({
+      source: "fcm_connection_removed",
+      action: "connection_removed",
+      reconcile: true,
+      connectionId: "conn-42",
+    });
+    expect(detail.accepted).toBe(true);
+  });
+
+  it("accepts Circle-removal pushes so mounted Location surfaces can reconcile", async () => {
+    await renderProvider();
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("fcm-message", {
+          detail: {
+            data: {
+              type: "location_circle_member_removed",
+              user_id: "recipient-user",
+              circle_id: "circle-1",
+              circle_name: "Family",
+              notification_tag:
+                "location-circle-member-removed:circle-1:recipient-user",
+            },
+          },
+        }),
+      );
+    });
+
+    expect(mocks.dispatchConsentStateChanged).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: "one_location_notification",
+        notificationType: "location_circle_member_removed",
+      }),
+    );
+  });
+
+  it("treats a person-request grant push as a requester-only refresh doorbell", async () => {
+    await renderProvider();
+    const wrongAccount = {
+      data: { type: "information_request_updated", user_id: "another-user", bundle_id: "bundle-1", action: "CONSENT_GRANTED" },
+      accepted: false,
+    };
+    act(() => window.dispatchEvent(new CustomEvent("fcm-message", { detail: wrongAccount })));
+    expect(wrongAccount.accepted).toBe(false);
+    expect(mocks.onConsentMutated).not.toHaveBeenCalled();
+
+    const currentAccount = {
+      notification: { data: { type: "information_request_updated", user_id: "recipient-user", bundle_id: "bundle-1", request_id: "request-1", action: "CONSENT_GRANTED", message_id: "event-1" } },
+      accepted: false,
+    };
+    act(() => window.dispatchEvent(new CustomEvent("fcm-message", { detail: currentAccount })));
+    expect(currentAccount.accepted).toBe(true);
+    expect(mocks.onConsentMutated).toHaveBeenCalledWith("recipient-user");
+    expect(mocks.dispatchConsentStateChanged).toHaveBeenCalledWith({
+      source: "information_request_updated", bundleId: "bundle-1", requestId: "request-1", action: "CONSENT_GRANTED", messageId: "event-1",
+    });
+    act(() => window.dispatchEvent(new CustomEvent("fcm-message", { detail: currentAccount })));
+    expect(mocks.dispatchConsentStateChanged).toHaveBeenCalledTimes(1);
+    expect(mocks.dispatchFeedStateChanged).not.toHaveBeenCalled();
+    expect(screen.getByTestId("pending-count")).toHaveTextContent("0");
   });
 });

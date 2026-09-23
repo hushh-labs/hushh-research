@@ -15,6 +15,10 @@ import {
 const gtmContainerId = resolveGtmContainerId();
 const analyticsMeasurementId = resolveAnalyticsMeasurementId();
 const loadWebAnalyticsScripts = shouldLoadWebAnalyticsScripts();
+const nativeRuntimeAttestation = (() => {
+  const value = String(process.env.NEXT_PUBLIC_HUSHH_NATIVE_RUNTIME_ATTESTATION || "").trim();
+  return /^[a-f0-9]{64}$/.test(value) ? value : "";
+})();
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://hushh.ai"),
@@ -80,7 +84,7 @@ export const viewport: Viewport = {
   interactiveWidget: "resizes-visual",
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#ffffff" },
-    { media: "(prefers-color-scheme: dark)", color: "#1c1c1e" },
+    { media: "(prefers-color-scheme: dark)", color: "#0e0e10" },
   ],
 };
 
@@ -113,9 +117,21 @@ export default function RootLayout({
           id="native-ios-class"
           strategy="beforeInteractive"
           dangerouslySetInnerHTML={{
-            __html: `try{var c=window.Capacitor;if(c&&typeof c.getPlatform==="function"&&c.getPlatform()==="ios"){document.documentElement.classList.add("native-ios");}}catch(e){}`,
+            __html: `try{var c=window.Capacitor;if(c&&typeof c.getPlatform==="function"&&c.getPlatform()==="ios"){document.documentElement.classList.add("native-ios");}else if(c&&typeof c.getPlatform==="function"&&c.getPlatform()==="android"){document.documentElement.classList.add("native-android");}}catch(e){}`,
           }}
         />
+        {nativeRuntimeAttestation ? (
+          <Script
+            id="hushh-native-runtime-attestation"
+            strategy="beforeInteractive"
+            dangerouslySetInnerHTML={{
+              // This is a non-secret build fingerprint. The local Plaid proof
+              // verifies the copied WebView output contains the fingerprint
+              // derived from its exact backend/environment configuration.
+              __html: `window.__HUSHH_NATIVE_RUNTIME_ATTESTATION__=${JSON.stringify(nativeRuntimeAttestation)};`,
+            }}
+          />
+        ) : null}
         {loadWebAnalyticsScripts && analyticsMeasurementId ? (
           <>
             <Script

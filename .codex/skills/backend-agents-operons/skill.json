@@ -9,7 +9,8 @@
     "consent-protocol/hushh_mcp/operons",
     "consent-protocol/hushh_mcp/tools",
     "consent-protocol/hushh_mcp/hushh_adk",
-    "consent-protocol/hushh_mcp/adk_bridge"
+    "consent-protocol/hushh_mcp/adk_bridge",
+    "consent-protocol/hushh_mcp/one_adk"
   ],
   "non_owned_paths": [
     "backend",
@@ -28,22 +29,22 @@
     "docs/reference/ai/README.md"
   ],
   "required_commands": [
-    "cd consent-protocol && python3 -m pytest tests/agents -q",
-    "cd consent-protocol && python3 -m pytest tests/test_hushh_adk_foundation.py -q",
-    "cd consent-protocol && python3 scripts/verify_agent_hierarchy_contract.py"
+    "cd consent-protocol && uv run pytest tests/agents -q",
+    "cd consent-protocol && uv run pytest tests/test_hushh_adk_foundation.py -q",
+    "cd consent-protocol && uv run python scripts/verify_agent_hierarchy_contract.py"
   ],
   "verification_bundles": [
     {
       "id": "backend-agents-operons",
       "commands": [
-        "cd consent-protocol && python3 -m pytest tests/agents -q",
-        "cd consent-protocol && python3 -m pytest tests/test_hushh_adk_foundation.py -q",
-        "cd consent-protocol && python3 scripts/verify_agent_hierarchy_contract.py"
+        "cd consent-protocol && uv run pytest tests/agents -q",
+        "cd consent-protocol && uv run pytest tests/test_hushh_adk_foundation.py -q",
+        "cd consent-protocol && uv run python scripts/verify_agent_hierarchy_contract.py"
       ],
       "tests": [
-        "cd consent-protocol && python3 -m pytest tests/agents -q",
-        "cd consent-protocol && python3 -m pytest tests/test_hushh_adk_foundation.py -q",
-        "cd consent-protocol && python3 scripts/verify_agent_hierarchy_contract.py"
+        "cd consent-protocol && uv run pytest tests/agents -q",
+        "cd consent-protocol && uv run pytest tests/test_hushh_adk_foundation.py -q",
+        "cd consent-protocol && uv run python scripts/verify_agent_hierarchy_contract.py"
       ]
     }
   ],

@@ -1,13 +1,7 @@
 import { ApiService } from "@/lib/services/api-service";
+import type { GoogleConnectionStatus } from "@/lib/services/google-connection-service";
 
-export type GoogleCalendarStatus = {
-  configured: boolean;
-  connected: boolean;
-  google_email?: string | null;
-  status: "connected" | "needs_reauth" | "disconnected";
-  access_level?: "read" | "manage" | null;
-  scope_csv: string;
-};
+export type GoogleCalendarStatus = GoogleConnectionStatus;
 
 type OAuthStart = {
   authorize_url: string;
@@ -19,6 +13,7 @@ type NativeOAuthStart = {
   server_client_id: string;
   service: "calendar";
   access_level: "read" | "manage";
+  state: string;
 };
 
 export type CalendarExecution = {
@@ -30,6 +25,34 @@ export type CalendarExecution = {
     end?: { dateTime?: string; date?: string } | null;
     status?: string | null;
   };
+};
+
+export type CalendarEventTime = { dateTime?: string; date?: string } | null;
+
+/**
+ * The RAW backend event shape (matches _event_summary() in
+ * hushh_mcp/services/google_calendar_service.py exactly, including
+ * description/location/attendees). listEvents() below returns this
+ * unredacted on purpose -- redaction is lib/calendar/use-calendar-upcoming-events.ts's
+ * job, never this service's. Do not render this type directly.
+ */
+export type CalendarEventSummary = {
+  id?: string | null;
+  etag?: string | null;
+  title: string;
+  description?: string | null;
+  location?: string | null;
+  start: CalendarEventTime;
+  end: CalendarEventTime;
+  status?: string | null;
+  attendees?: { email?: string | null; response_status?: string | null }[];
+  html_link?: string | null;
+  updated?: string | null;
+};
+
+export type CalendarEventsResponse = {
+  events: CalendarEventSummary[];
+  time_zone?: string | null;
 };
 
 async function errorMessage(
@@ -135,7 +158,13 @@ export class GoogleCalendarService {
       throw new Error(
         await errorMessage(response, "Unable to start Calendar connection."),
       );
-    return response.json() as Promise<NativeOAuthStart>;
+    const start = (await response.json()) as NativeOAuthStart;
+    if (typeof start.state !== "string" || !start.state.trim()) {
+      throw new Error(
+        "Google connection could not be prepared. Please try again.",
+      );
+    }
+    return start;
   }
 
   static async completeNativeConnect(params: {
@@ -143,7 +172,11 @@ export class GoogleCalendarService {
     userId: string;
     accessLevel: "read" | "manage";
     serverAuthCode: string;
+    state: string;
   }): Promise<GoogleCalendarStatus> {
+    if (!params.state.trim()) {
+      throw new Error("Restart the Google connection to continue.");
+    }
     const response = await ApiService.apiFetch(
       "/api/one/calendar/connect/native/complete",
       {
@@ -156,6 +189,7 @@ export class GoogleCalendarService {
           user_id: params.userId,
           access_level: params.accessLevel,
           server_auth_code: params.serverAuthCode,
+          state: params.state,
         }),
       },
     );
@@ -210,5 +244,42 @@ export class GoogleCalendarService {
         await errorMessage(response, "Unable to apply Calendar change."),
       );
     return response.json() as Promise<CalendarExecution>;
+  }
+
+  /**
+   * List the caller's own upcoming events in a time range. Mirrors
+   * executeProposal's vaultOwnerToken-auth shape, not status's idToken
+   * shape -- POST /api/one/calendar/events is
+   * Depends(require_vault_owner_token) (api/routes/one/calendar.py),
+   * unlike status/connect/disconnect. user_id is derived from the
+   * validated token server-side, so it is not sent here.
+   *
+   * The REST route ignores calendar filtering and result-count caps for
+   * this endpoint -- list_events() always queries the primary calendar
+   * with an internal default/cap server-side -- so no calendarIds or
+   * maxResults param is exposed here; it would promise a capability the
+   * backend doesn't honor.
+   */
+  static async listEvents(params: {
+    vaultOwnerToken: string;
+    startAt: string;
+    endAt: string;
+  }): Promise<CalendarEventsResponse> {
+    const response = await ApiService.apiFetch("/api/one/calendar/events", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${params.vaultOwnerToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        start_at: params.startAt,
+        end_at: params.endAt,
+      }),
+    });
+    if (!response.ok)
+      throw new Error(
+        await errorMessage(response, "Unable to load Calendar events."),
+      );
+    return response.json() as Promise<CalendarEventsResponse>;
   }
 }

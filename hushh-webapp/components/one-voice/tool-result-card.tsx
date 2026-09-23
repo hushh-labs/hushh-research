@@ -14,15 +14,21 @@
  * AND the device permission is granted.
  */
 
-import { AlertCircle, Check, Info } from "lucide-react";
+import type { ReactNode } from "react";
+import { AlertCircle, Check, Info, Loader2 } from "@/components/icons";
 
 import { AvatarBubble } from "@/lib/morphy-ux/ui/surface-primitives";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 import {
   NOT_SUCCESS_STATUSES,
+  SOS_GRANTS_CREATED,
+  SOS_REPORT_TOOL,
+  SOS_STOP_TOOL,
+  SOS_TRIGGER_TOOL,
   type ToolResultPublic,
 } from "@/lib/one-voice/protocol";
 import {
+  isPendingStatus,
   toolResultTone,
   type ToolResultTone,
 } from "@/lib/one-voice/session-reducer";
@@ -39,13 +45,20 @@ export type ToolResultCardProps = {
 };
 
 export type ToolResultFamily =
-  "people" | "circles" | "shares" | "links" | "status" | "generic";
+  | "people"
+  | "circles"
+  | "shares"
+  | "links"
+  | "status"
+  | "sos"
+  | "generic";
 
 const PEOPLE_TOOLS = new Set([
   "list_people",
   "get_person",
   "invite_person",
-  "respond_connection_request",
+  "accept_connection_request",
+  "decline_connection_request",
   "cancel_connection_request",
   "remove_connection",
   "add_emergency_contact",
@@ -53,9 +66,12 @@ const PEOPLE_TOOLS = new Set([
 ]);
 const CIRCLE_TOOLS = new Set([
   "list_circles",
+  "get_circle_details",
+  "list_circle_members",
   "list_circle_invites",
   "create_circle",
   "rename_circle",
+  "set_circle_kind",
   "delete_circle",
   "add_circle_member",
   "remove_circle_member",
@@ -88,10 +104,34 @@ const STATUS_TOOLS = new Set([
   "set_precision",
   "get_location_setup_state",
 ]);
+const SOS_TOOLS = new Set<string>([
+  SOS_TRIGGER_TOOL,
+  SOS_REPORT_TOOL,
+  SOS_STOP_TOOL,
+]);
+/**
+ * Save My Soul statuses, so a report that replaced the trigger's timeline
+ * entry (same card, no call id) still renders as the SOS family whichever
+ * tool name the entry kept.
+ */
+const SOS_STATUSES = new Set<string>([
+  SOS_GRANTS_CREATED,
+  "sos_sent",
+  "sos_partial",
+  "sos_not_sent",
+  "sos_unverified",
+  "sos_stopped",
+  "sos_partially_stopped",
+]);
 
 /** Which typed detail block a tool's result gets. */
-export function toolResultFamily(tool: string): ToolResultFamily {
+export function toolResultFamily(
+  tool: string,
+  status?: string | null,
+): ToolResultFamily {
   const name = String(tool || "").trim();
+  if (SOS_TOOLS.has(name) || SOS_STATUSES.has(String(status || "").trim()))
+    return "sos";
   if (PEOPLE_TOOLS.has(name)) return "people";
   if (CIRCLE_TOOLS.has(name)) return "circles";
   if (SHARE_TOOLS.has(name)) return "shares";
@@ -106,6 +146,7 @@ export function toneForResult(
   ok: boolean | undefined,
 ): ToolResultTone {
   const status = String(result.status || "").trim();
+  if (isPendingStatus(status)) return "pending";
   if (ok === undefined) {
     return NOT_SUCCESS_STATUSES.has(status) ||
       status === "rejected" ||
@@ -114,6 +155,51 @@ export function toneForResult(
       : "neutral";
   }
   return toolResultTone(status, ok);
+}
+
+/**
+ * The Save My Soul headline, in product words. "Sent" is written only for the
+ * server-verified `sos_sent`; an armed alert says what is still happening.
+ * Null falls back to the generic headline for the tone.
+ */
+export function sosHeadline(
+  status: string | null | undefined,
+  tone: ToolResultTone,
+): string | null {
+  switch (String(status || "").trim()) {
+    case SOS_GRANTS_CREATED:
+      return "Armed · sending your position";
+    case "sos_sent":
+      return tone === "success" ? "Sent" : null;
+    case "sos_partial":
+      return "Partly sent";
+    case "sos_not_sent":
+      return "Not sent";
+    case "sos_unverified":
+      return "Couldn't confirm delivery";
+    case "sos_stopped":
+      return tone === "success" ? "Stopped" : null;
+    case "sos_partially_stopped":
+      return "Partly stopped";
+    case "not_active":
+      return "Nothing to stop";
+    default:
+      return null;
+  }
+}
+
+/** A plain line for an SOS refusal the facts may not spell out. */
+export function sosReasonLine(reasonCode: string | null | undefined): string | null {
+  switch (String(reasonCode || "").trim()) {
+    case "sos_audience_changed":
+      return "Your emergency contacts changed after this card was shown. Nothing was sent; ask again to see the current list.";
+    case "roster_full":
+      return "Your emergency contact list is full. Remove someone before adding another.";
+    case "sos_already_active":
+      return "Save My Soul is already on. Stop it before sending a new alert.";
+    default:
+      return null;
+  }
 }
 
 // --- typed detail ---------------------------------------------------------------
@@ -513,6 +599,166 @@ function StatusDetail({ result }: { result: ToolResultPublic }) {
   );
 }
 
+function names(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  for (const item of value) {
+    const name =
+      typeof item === "string"
+        ? text(item)
+        : item && typeof item === "object"
+          ? text((item as Row).display_name)
+          : null;
+    if (name) out.push(name);
+  }
+  return out;
+}
+
+function NameGroup({
+  label,
+  people,
+  detail,
+  tone = "neutral",
+}: {
+  label: string;
+  people: string[];
+  detail?: string | null;
+  tone?: "neutral" | "success" | "warning";
+}) {
+  if (people.length === 0) return null;
+  return (
+    <div>
+      <p
+        className={cn(
+          "text-[12px] font-semibold",
+          tone === "success"
+            ? roleClasses("success").glyph
+            : tone === "warning"
+              ? roleClasses("warning").glyph
+              : "text-[color:var(--app-section-label)]",
+        )}
+      >
+        {label}
+      </p>
+      <ul className="mt-1 flex flex-col gap-0.5" aria-label={label}>
+        {people.slice(0, 8).map((name, index) => (
+          <PersonRow
+            key={`${label}:${index}`}
+            name={name}
+            photoUrl={null}
+            detail={detail}
+          />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * Save My Soul, by name and never by id. Armed contacts while the position is
+ * still on its way; who was reached and who was not once the server has
+ * verified the stored envelopes; who was stopped and who may still be live.
+ */
+function SosDetail({ result }: { result: ToolResultPublic }) {
+  const status = String(result.status || "").trim();
+  const reason = sosReasonLine(text(result.reason_code));
+  const blocks: ReactNode[] = [];
+  if (status === SOS_GRANTS_CREATED) {
+    const leftOut = [
+      ...names(result.skipped_no_key),
+      ...names(result.skipped_not_phone_verified),
+      ...names(result.failed),
+    ];
+    blocks.push(
+      <NameGroup
+        key="armed"
+        label="Alerting"
+        people={names(result.armed)}
+        detail="position on its way"
+      />,
+      <NameGroup
+        key="left-out"
+        label="Couldn't include"
+        people={leftOut}
+        tone="warning"
+      />,
+    );
+  } else if (
+    status === "sos_sent" ||
+    status === "sos_partial" ||
+    status === "sos_not_sent" ||
+    status === "sos_unverified"
+  ) {
+    // Ended shares arrive as grant ids only; the count is shown, never an id.
+    const ended = Array.isArray(result.ended_grant_ids)
+      ? result.ended_grant_ids.length
+      : 0;
+    blocks.push(
+      <NameGroup
+        key="reached"
+        label="Reached"
+        people={names(result.delivered)}
+        tone="success"
+      />,
+      <NameGroup
+        key="not-reached"
+        label="Not reached"
+        people={names(result.not_alerted)}
+        detail="share armed, nothing sent"
+        tone="warning"
+      />,
+    );
+    if (ended > 0)
+      blocks.push(
+        <ul key="ended" className="flex flex-col" aria-label="Ended shares">
+          <FactRow
+            label="Ended before a position was sent"
+            value={`${ended} ${ended === 1 ? "share" : "shares"}`}
+          />
+        </ul>,
+      );
+    if (status !== "sos_sent" && result.alert_active === true)
+      blocks.push(
+        <p
+          key="active"
+          className="text-[13px] text-[color:var(--app-secondary-label)]"
+        >
+          The alert is still armed. You can try sending again or stop Save My
+          Soul.
+        </p>,
+      );
+  } else if (status === "sos_stopped" || status === "sos_partially_stopped") {
+    blocks.push(
+      <NameGroup
+        key="stopped"
+        label="Stopped"
+        people={names(result.stopped)}
+        tone="success"
+      />,
+      <NameGroup
+        key="unresolved"
+        label="May still be live"
+        people={names(result.unresolved)}
+        detail="check Save My Soul"
+        tone="warning"
+      />,
+    );
+  }
+  if (reason)
+    blocks.push(
+      <p key="reason" className="text-[13px] text-[color:var(--app-secondary-label)]">
+        {reason}
+      </p>,
+    );
+  const rendered = blocks.filter(Boolean);
+  if (rendered.length === 0) return null;
+  return (
+    <div className="mt-2 flex flex-col gap-2" data-testid="one-voice-sos-detail">
+      {rendered}
+    </div>
+  );
+}
+
 function Detail({
   family,
   result,
@@ -521,6 +767,8 @@ function Detail({
   result: ToolResultPublic;
 }) {
   switch (family) {
+    case "sos":
+      return <SosDetail result={result} />;
     case "people":
       return <PeopleDetail result={result} />;
     case "circles":
@@ -545,7 +793,7 @@ export function ToolResultCard({
   className,
 }: ToolResultCardProps) {
   const tone = toneForResult(result, ok);
-  const family = toolResultFamily(tool);
+  const family = toolResultFamily(tool, result.status);
   const facts = Array.isArray(result.spoken_facts)
     ? result.spoken_facts.filter(
         (fact): fact is string =>
@@ -553,19 +801,33 @@ export function ToolResultCard({
       )
     : [];
   const Icon =
-    tone === "success" ? Check : tone === "failure" ? AlertCircle : Info;
+    tone === "success"
+      ? Check
+      : tone === "failure"
+        ? AlertCircle
+        : tone === "pending"
+          ? Loader2
+          : Info;
   const palette =
     tone === "success"
       ? roleClasses("success")
       : tone === "failure"
         ? roleClasses("danger")
-        : roleClasses("neutral");
-  const headline =
+        : tone === "pending"
+          ? roleClasses("action")
+          : roleClasses("neutral");
+  const genericHeadline =
     tone === "success"
       ? "Done"
       : tone === "failure"
         ? "That didn't go through"
-        : null;
+        : tone === "pending"
+          ? "In progress"
+          : null;
+  const headline =
+    family === "sos"
+      ? (sosHeadline(result.status, tone) ?? genericHeadline)
+      : genericHeadline;
 
   return (
     <div
@@ -587,7 +849,13 @@ export function ToolResultCard({
           )}
           aria-hidden
         >
-          <Icon className="h-4 w-4" aria-hidden />
+          <Icon
+            className={cn(
+              "h-4 w-4",
+              tone === "pending" && "animate-spin motion-reduce:animate-none",
+            )}
+            aria-hidden
+          />
         </span>
         <div className="min-w-0 flex-1">
           {headline ? (

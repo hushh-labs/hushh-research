@@ -201,3 +201,45 @@ class TestTheAdoptionIsActuallyWiredIn:
         )
         labels = preview["structure_decision"]["sensitivity_labels"]
         assert labels.get("preferences.tone") == "confidential"
+
+
+class TestManifestPreservesAdoptedSensitivity:
+    def test_manifest_keeps_valid_labels_and_scope_tier_without_new_paths(self):
+        payload = {"preferences": {"tone": "synthetic concise preference"}}
+        decision = {
+            "sensitivity_labels": {
+                "preferences.tone": "restricted",
+                "removed.field": "restricted",
+            }
+        }
+        manifest = PKMAgentLabService._build_manifest_from_payload(
+            user_id="synthetic-owner",
+            domain="preferences",
+            payload=payload,
+            structure_decision=decision,
+        )
+        baseline = PKMAgentLabService._build_manifest_from_payload(
+            user_id="synthetic-owner",
+            domain="preferences",
+            payload=payload,
+            structure_decision={},
+        )
+        paths = {path["json_path"]: path for path in manifest["paths"]}
+        assert paths["preferences.tone"]["sensitivity_label"] == "restricted"
+        assert "removed.field" not in paths
+        assert manifest["scope_registry"][0]["sensitivity_tier"] == "restricted"
+        assert manifest["externalizable_paths"] == baseline["externalizable_paths"]
+        assert manifest["segment_ids"] == baseline["segment_ids"]
+
+    def test_invalid_labels_leave_existing_metadata_intact(self):
+        kwargs = dict(
+            user_id="synthetic-owner",
+            domain="preferences",
+            payload={"preferences": {"tone": "synthetic"}},
+        )
+        baseline = PKMAgentLabService._build_manifest_from_payload(**kwargs, structure_decision={})
+        for invalid in (None, [], {"preferences.tone": " "}, {"preferences.tone": 5}):
+            manifest = PKMAgentLabService._build_manifest_from_payload(
+                **kwargs, structure_decision={"sensitivity_labels": invalid}
+            )
+            assert manifest["paths"] == baseline["paths"]

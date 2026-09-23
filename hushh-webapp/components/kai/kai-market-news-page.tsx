@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ExternalLink, Loader2, Newspaper, RefreshCcw } from "lucide-react";
+import { ExternalLink, Loader2, Newspaper, RefreshCcw } from "@/components/icons";
 
 import {
   AppPageContentRegion,

@@ -56,6 +56,10 @@ vi.mock("@/hooks/use-auth", () => ({
   }),
 }));
 
+vi.mock("@/components/consent/document-share-review", () => ({
+  DocumentShareReview: ({ requestId }: { requestId: string }) => <div data-testid="private-document-review">{requestId}</div>,
+}));
+
 // CapabilityExploreCard reads useAuth from the firebase context directly, not
 // via the @/hooks/use-auth re-export, so it needs its own stub here.
 vi.mock("@/lib/firebase/auth-context", () => ({
@@ -364,6 +368,104 @@ describe("ConsentCenterPage requestId deep links", () => {
     installDesktopMediaQuery();
   });
 
+  it("reviews a twelve-item person bundle in one expandable row with mixed states", async () => {
+    mocks.search = "tab=pending&bundleId=bundle-professional";
+    const pendingItems = Array.from({ length: 12 }, (_, index) => ({
+      request_id: `request-${index + 1}`,
+      label: `Professional detail ${index + 1}`,
+      status: index === 0 ? "granted" : index === 1 ? "denied" : "pending",
+      entry:
+        index < 2
+          ? null
+          : {
+              id: `request-${index + 1}`,
+              request_id: `request-${index + 1}`,
+              kind: "incoming_request",
+              status: "pending",
+              action: "REQUESTED",
+              allowed_next_action: "review_request",
+              scope: `attr.professional.detail_${index}`,
+              scope_description: `Professional detail ${index + 1}`,
+              counterpart_type: "person",
+              counterpart_label: "A member",
+              metadata: { bundle_id: "bundle-professional", expiry_hours: 24 },
+            },
+    }));
+    mocks.listEntries.mockResolvedValue(
+      pendingListResponse({
+        id: "bundle:bundle-professional",
+        bundle_id: "bundle-professional",
+        bundle_complete: true,
+        bundle_items: pendingItems,
+        kind: "incoming_request",
+        status: "pending",
+        action: "REQUESTED",
+        counterpart_type: "person",
+        counterpart_label: "A member",
+        scope_description: "12 information items",
+        metadata: { bundle_id: "bundle-professional" },
+      }),
+    );
+
+    const { rerender } = render(<ConsentCenterPage />);
+
+    expect(await screen.findByTestId("consent-bundle-row")).toBeTruthy();
+    expect(screen.getAllByTestId("consent-bundle-item")).toHaveLength(12);
+    expect(screen.queryAllByTestId("consent-entry-row")).toHaveLength(0);
+    expect(screen.getByText("granted")).toBeTruthy();
+    expect(screen.getByText("denied")).toBeTruthy();
+    expect(screen.queryByRole("dialog", { name: "A member" })).toBeNull();
+    fireEvent.click(screen.getByText("Professional detail 3"));
+    expect(mocks.replace).toHaveBeenCalledWith(
+      expect.stringContaining("requestId=request-3"),
+      { scroll: false },
+    );
+    mocks.search =
+      "tab=pending&bundleId=bundle-professional&requestId=request-3";
+    rerender(<ConsentCenterPage />);
+    expect(
+      await screen.findByRole("dialog", { name: "A member" }),
+    ).toBeTruthy();
+    expect(
+      screen.getByText("Professional detail 3", { selector: "dd" }),
+    ).toBeTruthy();
+  });
+
+  it("routes a cold document link only to its private review, never generic consent or voice decisions", async () => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    mocks.search = `tab=pending&requestId=document_share_request%3A${id}&notificationAction=approve`;
+    render(<ConsentCenterPage />);
+    expect(await screen.findByTestId("private-document-review")).toHaveTextContent(id);
+    expect(mocks.lookupPendingRequests).not.toHaveBeenCalled();
+    expect(mocks.handleApprove).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Allow" })).toBeNull();
+    const metadata = vi.mocked(usePublishVoiceSurfaceMetadata).mock.lastCall?.[0];
+    expect(JSON.stringify(metadata)).not.toContain("consent_approve");
+  });
+
+  it("does not send malformed document links through generic pending lookup", async () => {
+    mocks.search = "tab=pending&requestId=document_share_request%3Ainvalid";
+    render(<ConsentCenterPage />);
+    expect(await screen.findByText("Invalid document request")).toBeVisible();
+    expect(mocks.lookupPendingRequests).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("private-document-review")).toBeNull();
+  });
+
+  it("rediscovers sent requests in their own projection and preserves that view when closing detail", async () => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    mocks.search = `tab=pending&requestView=sent&requestId=document_share_request%3A${id}`;
+    render(<ConsentCenterPage />);
+    await waitFor(() => expect(mocks.listEntries).toHaveBeenCalledWith(expect.objectContaining({ surface: "pending", requestView: "sent" })));
+    expect(mocks.lookupPendingRequests).not.toHaveBeenCalled();
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    await waitFor(() => expect(mocks.replace).toHaveBeenCalled());
+    expect(await screen.findByRole("button", { name: "Sent documents" })).toHaveAttribute("aria-pressed", "true");
+    expect(mocks.replace.mock.lastCall?.[0]).toContain("requestView=sent");
+    expect(mocks.replace.mock.lastCall?.[0]).not.toContain("requestId=");
+    fireEvent.click(screen.getByRole("button", { name: "Received" }));
+    expect(mocks.replace.mock.lastCall?.[0]).not.toContain("requestView=sent");
+  });
+
   it("keeps Northstar's material decision terms once without duplicate controls", async () => {
     mocks.search = "tab=requests&requestId=northstar-scope-upgrade";
     mocks.listEntries.mockResolvedValue(
@@ -462,7 +564,7 @@ describe("ConsentCenterPage requestId deep links", () => {
     expect(
       screen.queryByRole("combobox", { name: "Access duration" }),
     ).toBeNull();
-    expect(screen.getAllByRole("link", { name: "Open Email" })).toHaveLength(1);
+    expect(screen.getAllByRole("link", { name: "Open Mail" })).toHaveLength(1);
     expect(screen.queryByText("Original request")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Allow" }));
@@ -637,54 +739,57 @@ describe("ConsentCenterPage requestId deep links", () => {
       errorMessage: "Could not decline the connection request. Try again.",
       mutate: mocks.connectionReject,
     },
-  ])("surfaces a failed $action connection decision", async ({
-    action,
-    errorMessage,
-    mutate,
-  }) => {
-    mocks.search = "tab=pending&requestId=connection-1";
-    mocks.listEntries.mockResolvedValue({
-      ...emptyListResponse(),
-      total: 1,
-      items: [
-        {
-          id: "connection-1",
-          request_id: "connection-1",
-          kind: "connection_request",
-          status: "pending",
-          action: "connection_request",
-          scope: "cap.connections.trusted",
-          scope_description: "Trusted connection",
-          counterpart_type: "investor",
-          counterpart_id: "user-rohan",
-          counterpart_label: "Rohan",
-          issued_at: "2026-07-24T09:00:00.000Z",
-          reason: "Rohan wants to connect with you.",
-          metadata: { request_source: "connection_request" },
-        },
-      ],
-    });
-    mutate.mockRejectedValueOnce(new Error("network unavailable"));
-    installMobileMediaQuery();
+  ])(
+    "surfaces a failed $action connection decision",
+    async ({ action, errorMessage, mutate }) => {
+      mocks.search = "tab=pending&requestId=connection-1";
+      mocks.listEntries.mockResolvedValue({
+        ...emptyListResponse(),
+        total: 1,
+        items: [
+          {
+            id: "connection-1",
+            request_id: "connection-1",
+            kind: "connection_request",
+            status: "pending",
+            action: "connection_request",
+            scope: "cap.connections.trusted",
+            scope_description: "Trusted connection",
+            counterpart_type: "investor",
+            counterpart_id: "user-rohan",
+            counterpart_label: "Rohan",
+            issued_at: "2026-07-24T09:00:00.000Z",
+            reason: "Rohan wants to connect with you.",
+            metadata: { request_source: "connection_request" },
+          },
+        ],
+      });
+      mutate.mockRejectedValueOnce(new Error("network unavailable"));
+      installMobileMediaQuery();
 
-    render(<ConsentCenterPage />);
+      render(<ConsentCenterPage />);
 
-    const decisionButton = await screen.findByRole("button", { name: action });
-    fireEvent.click(decisionButton);
-    if (action === "Decline") {
-      // Decline is irreversible: the first tap only arms it.
-      expect(mutate).not.toHaveBeenCalled();
-      expect(decisionButton).toHaveTextContent("Sure?");
-      fireEvent.click(screen.getByRole("button", { name: "Confirm Decline" }));
-    }
+      const decisionButton = await screen.findByRole("button", {
+        name: action,
+      });
+      fireEvent.click(decisionButton);
+      if (action === "Decline") {
+        // Decline is irreversible: the first tap only arms it.
+        expect(mutate).not.toHaveBeenCalled();
+        expect(decisionButton).toHaveTextContent("Sure?");
+        fireEvent.click(
+          screen.getByRole("button", { name: "Confirm Decline" }),
+        );
+      }
 
-    await waitFor(() =>
-      expect(mocks.toastError).toHaveBeenCalledWith(errorMessage),
-    );
-    expect(mutate).toHaveBeenCalledWith(
-      expect.objectContaining({ requestId: "connection-1" }),
-    );
-  });
+      await waitFor(() =>
+        expect(mocks.toastError).toHaveBeenCalledWith(errorMessage),
+      );
+      expect(mutate).toHaveBeenCalledWith(
+        expect.objectContaining({ requestId: "connection-1" }),
+      );
+    },
+  );
 
   it("shows marketplace requested duration as read-only request context", async () => {
     mocks.search = "tab=pending&requestId=marketplace-1";
@@ -1049,7 +1154,11 @@ describe("ConsentCenterPage requestId deep links", () => {
       await screen.findByRole("dialog", { name: "Kushal Trivedi" }),
     ).toBeTruthy();
     expect(screen.getAllByText("Active access").length).toBeGreaterThan(0);
-    expect(screen.getByText("Manage access")).toBeTruthy();
+    // The revoke action appears once, with no heading or blurb restating it.
+    expect(
+      screen.getAllByRole("button", { name: "Stop sharing" }),
+    ).toHaveLength(1);
+    expect(screen.queryByText("Manage access")).toBeNull();
     expect(screen.queryByText("Your decision")).toBeNull();
     expect(screen.queryByText("Technical details")).toBeNull();
     expect(screen.queryByText("Consent timeline")).toBeNull();

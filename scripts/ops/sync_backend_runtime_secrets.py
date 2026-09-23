@@ -15,6 +15,15 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 UPSERT_SECRET_SCRIPT = REPO_ROOT / "scripts" / "ops" / "upsert_gcp_secret.py"
 GMAIL_OAUTH_RETURN_PATH = "/one/profile/gmail/oauth/return"
 LOCAL_PASSKEY_RP_IDS = ("localhost", "127.0.0.1")
+CONNECTOR_ROLLOUT_FLAGS = (
+    "connections_panel_v2",
+    "google_drive_connection",
+    "google_drive_picker",
+    "drive_document_indexing",
+    "drive_document_sharing",
+    "gmail_chat_reads",
+    "google_drive_chat_reads",
+)
 
 LEGACY_SECRET_FALLBACKS: dict[str, tuple[str, ...]] = {
     "APP_SIGNING_KEY": ("APP_SIGNING_KEY", "SECRET_KEY"),
@@ -170,6 +179,43 @@ def _normalize_passkey_rp_ids(value: str) -> tuple[str, ...]:
     return tuple(sorted({item.strip().lower() for item in value.split(",") if item.strip()}))
 
 
+def _validate_connector_rollout(args: argparse.Namespace) -> None:
+    """Fail before touching Secret Manager on an unsafe hosted rollout."""
+    enabled = any(
+        getattr(args, name, "false") == "true" for name in CONNECTOR_ROLLOUT_FLAGS
+    )
+    cohort = str(getattr(args, "connector_internal_owner_cohort", "") or "")
+    all_users_value = str(getattr(args, "connector_uat_all_users", "false")).strip().lower()
+    if all_users_value not in {"true", "false"}:
+        raise ValueError("UAT connector all-users mode must be true or false")
+    all_uat_users = all_users_value == "true"
+    if (enabled or cohort or all_uat_users) and args.environment != "uat":
+        raise ValueError("Mail/Drive connector rollout is limited to UAT")
+    if all_uat_users and cohort:
+        raise ValueError("UAT connector all-users mode cannot be combined with a cohort")
+    if enabled and not (cohort or all_uat_users):
+        raise ValueError(
+            "Enabled Mail/Drive flags require a UAT cohort or all-users mode"
+        )
+    if not cohort:
+        return
+    members = cohort.split(",")
+    if (
+        len(members) > 25
+        or len(set(members)) != len(members)
+        or any(
+            not member
+            or len(member) > 128
+            or member.lower() in {"*", "all"}
+            or any(char.isspace() for char in member)
+            for member in members
+        )
+    ):
+        raise ValueError(
+            "UAT connector cohort must contain at most 25 distinct exact Firebase UIDs"
+        )
+
+
 def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
     config: dict[str, Any] = {
         "environment": args.environment,
@@ -197,6 +243,15 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         "plaid_redirect_uri": args.plaid_redirect_uri,
         "plaid_tx_history_days": args.plaid_tx_history_days,
         "one_location_read_only_state_enabled": args.one_location_read_only_state_enabled,
+        "connections_panel_v2": getattr(args, "connections_panel_v2", "false"),
+        "google_drive_connection": getattr(args, "google_drive_connection", "false"),
+        "google_drive_picker": getattr(args, "google_drive_picker", "false"),
+        "drive_document_indexing": getattr(args, "drive_document_indexing", "false"),
+        "drive_document_sharing": getattr(args, "drive_document_sharing", "false"),
+        "gmail_chat_reads": getattr(args, "gmail_chat_reads", "false"),
+        "google_drive_chat_reads": getattr(args, "google_drive_chat_reads", "false"),
+        "connector_internal_owner_cohort": getattr(args, "connector_internal_owner_cohort", ""),
+        "connector_uat_all_users": getattr(args, "connector_uat_all_users", "false"),
         "one_location_nearby_presence_mode": args.one_location_nearby_presence_mode,
         "one_location_nearby_presence_cohort": args.one_location_nearby_presence_cohort,
         "consent_center_summary_v2_enabled": args.consent_center_summary_v2_enabled,
@@ -343,6 +398,15 @@ def main() -> int:
     # rollout default, not a change to application behavior when the env is
     # absent.
     parser.add_argument("--one-location-read-only-state-enabled", default="false")
+    parser.add_argument("--connections-panel-v2", default="false", choices=["true", "false"])
+    parser.add_argument("--google-drive-connection", default="false", choices=["true", "false"])
+    parser.add_argument("--google-drive-picker", default="false", choices=["true", "false"])
+    parser.add_argument("--drive-document-indexing", default="false", choices=["true", "false"])
+    parser.add_argument("--drive-document-sharing", default="false", choices=["true", "false"])
+    parser.add_argument("--gmail-chat-reads", default="false", choices=["true", "false"])
+    parser.add_argument("--google-drive-chat-reads", default="false", choices=["true", "false"])
+    parser.add_argument("--connector-internal-owner-cohort", default="")
+    parser.add_argument("--connector-uat-all-users", default="false", choices=["true", "false"])
     # Nearby check-in admission. Blank leaves the flow closed in production and
     # unchanged everywhere else; `_drop_empty` keeps an unset flag out of the
     # config entirely rather than writing an empty string the gate would have to
@@ -422,6 +486,10 @@ def main() -> int:
     # credential, and the upstream would refuse it as a project mismatch.
     parser.add_argument("--nws-nearby-v4-api-key-source-secret", default="")
     args = parser.parse_args()
+    try:
+        _validate_connector_rollout(args)
+    except ValueError as exc:
+        parser.error(str(exc))
 
     canonical_passkey_rp_ids = _canonical_passkey_allowed_rp_ids(
         args.app_frontend_origin

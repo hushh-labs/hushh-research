@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Laptop, Loader2, ShieldCheck } from "lucide-react";
+import { Laptop, Loader2, ShieldCheck } from "@/components/icons";
 
 import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
 import { Button } from "@/components/ui/button";

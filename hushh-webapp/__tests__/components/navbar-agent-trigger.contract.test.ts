@@ -65,9 +65,10 @@ describe("Navbar bottom chrome contract", () => {
     // The AgentBar is mounted above the route shell, so it cannot inherit
     // route-shell variables. The provider must mirror the nav's geometry to
     // :root alongside the scroll progress that the bar already consumes.
-    const mirroredVars = providers.match(
-      /const mirroredVars = \[(?<vars>[\s\S]*?)\];/,
+    const mirroredVars = read("lib/navigation/root-shell-mirror.ts").match(
+      /export const ROOT_MIRRORED_SHELL_VARS = \[(?<vars>[\s\S]*?)\]/,
     )?.groups?.vars;
+    expect(providers).toContain("createRootShellMirror(");
     expect(mirroredVars).toContain('"--bottom-chrome-hide-distance"');
     expect(mirroredVars).toContain('"--bottom-chrome-full-height"');
 
@@ -80,7 +81,7 @@ describe("Navbar bottom chrome contract", () => {
     );
     expect(providers).not.toContain("SharedBottomChromeGlass");
     expect(providers).not.toContain("<AgentBar />");
-    expect(bottomShell).toContain("export function AppBottomShell");
+    expect(bottomShell).toContain("export const AppBottomShell = memo(function AppBottomShell");
     expect(bottomShell).not.toContain("AmbientChromeController");
     expect(bottomShell).toContain(
       '<AmbientChromeMask\n          edge="bottom"',
@@ -119,9 +120,14 @@ describe("Navbar bottom chrome contract", () => {
     expect(agentBar).toContain("data-ambient-chrome-ignore");
     const globalStyles = read("app/globals.css");
     expect(globalStyles).toContain("[data-bottom-shell-motion-stack]");
-    expect(globalStyles).toContain(
+    // Reduced motion pins the stack in place; the shell is hidden while the
+    // keyboard is up on every route, so it carries no keyboard lift anywhere.
+    expect(globalStyles).toContain("transform: none !important");
+    expect(globalStyles).not.toContain(
       "transform: translate3d(0, calc(var(--kb-height, 0px) * -1), 0) !important",
     );
+    const bottomShellSource = read("components/app-ui/app-bottom-shell.tsx");
+    expect(bottomShellSource).not.toContain("var(--kb-height, 0px) * -1");
     expect(globalStyles).toContain(
       ".bottom-chrome-surface,\n.kai-bottom-nav-pill {",
     );

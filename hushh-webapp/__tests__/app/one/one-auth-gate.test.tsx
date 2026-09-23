@@ -43,6 +43,20 @@ describe("OneAuthGate", () => {
     mocks.pathname = "/one/location";
   });
 
+  it("lets only the exact connector callback own Firebase completion without a popup vault", () => {
+    mocks.pathname = "/one/profile/connectors/oauth/return";
+    render(<OneAuthGate><div>connector callback</div></OneAuthGate>);
+    expect(screen.getByText("connector callback")).toBeTruthy();
+    expect(screen.queryByTestId("vault-lock-guard")).toBeNull();
+    expect(screen.queryByTestId("phone-mandate-guard")).toBeNull();
+  });
+
+  it.each(["/one/profile/connectors", "/one/profile/connectors/oauth/return/extra"])("retains hard authority for %s", pathname => {
+    mocks.pathname=pathname;
+    render(<OneAuthGate><div>protected connection management</div></OneAuthGate>);
+    expect(screen.getByTestId("vault-lock-guard")).toBeTruthy();
+  });
+
   it("renders public temporary location links without the login guards", () => {
     mocks.pathname = "/one/location/view/public-token";
 

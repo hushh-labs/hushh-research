@@ -29,6 +29,9 @@ from typing import Any, Final, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 ENTITY_CONTEXT_TTL_SECONDS = 2 * 60 * 60
+# How long a resolve_* candidate list stays selectable. Minutes, not the
+# entity TTL: "the second one" must refer to a list the person can still see.
+OFFER_TTL_SECONDS = 10 * 60
 # Interim status of a device-executed Location updates step. Never success:
 # the settled result arrives later as its own tool.result once the device
 # reports back.
@@ -157,6 +160,18 @@ class ConfirmedCircle(BaseModel):
     confirmed_at: str
 
 
+class OfferedRequest(BaseModel):
+    """A connection request the server listed in this conversation. Only these
+    ids may be accepted, declined or cancelled, and the card names the real
+    counterpart even when the model omits ``person``."""
+
+    model_config = ConfigDict(extra="forbid")
+    request_id: str
+    user_id: str
+    display_name: str
+    direction: Literal["incoming", "outgoing"]
+
+
 class EntityContext(BaseModel):
     """Per-conversation confirmed entities, keyed by canonical id.
 
@@ -174,10 +189,32 @@ class EntityContext(BaseModel):
     # accepts one of these, so the model cannot invent an id.
     offered_person_ids: list[str] = Field(default_factory=list)
     offered_circle_ids: list[str] = Field(default_factory=list)
+    # When ``offered_person_ids`` came from a circle roster read, the circle
+    # the server read them from. ``confirm_person`` revalidates a roster
+    # candidate against that circle's membership, so a member who is not one
+    # of the person's direct connections can still be confirmed -- and only
+    # as a member of that circle, never as an id the model supplied.
+    offered_person_circle_id: str | None = None
+    # Which offer the candidates belong to, and when it was made. A selection
+    # against an older revision, or after the TTL, is stale: the list the
+    # person saw is not the list on record.
+    offer_revision: int = 0
+    offered_at: str | None = None
+    # Connection requests the server listed, by request id. Replaced on every
+    # list_people; a request id the model did not receive here is refused.
+    offered_requests: dict[str, OfferedRequest] = Field(default_factory=dict)
 
     @staticmethod
     def _now() -> datetime:
         return datetime.now(timezone.utc)
+
+    def offer_is_fresh(self) -> bool:
+        if not self.offered_person_ids:
+            return False
+        if not self.offered_at:
+            return True  # a pre-revision record: nothing to compare against
+        age = self._now().timestamp() - datetime.fromisoformat(self.offered_at).timestamp()
+        return age <= OFFER_TTL_SECONDS
 
     def prune(self) -> None:
         cutoff = self._now().timestamp() - ENTITY_CONTEXT_TTL_SECONDS
@@ -191,10 +228,28 @@ class EntityContext(BaseModel):
             self.last_person_user_id = None
         if self.last_circle_id not in self.circles:
             self.last_circle_id = None
+        if self.offered_person_ids and not self.offer_is_fresh():
+            self.offered_person_ids = []
+            self.offered_person_circle_id = None
 
     def remember_person(self, person: ConfirmedPerson) -> None:
         self.people[person.user_id] = person
         self.last_person_user_id = person.user_id
+
+    def offer_requests(self, requests: list[OfferedRequest]) -> None:
+        self.offered_requests = {item.request_id: item for item in requests}
+
+    def offered_request(self, request_id: str) -> OfferedRequest | None:
+        return self.offered_requests.get(request_id)
+
+    def offer_people(self, user_ids: list[str], *, circle_id: str | None = None) -> int:
+        """Replace the offered person candidates and record where and when they
+        came from. Returns the new offer revision."""
+        self.offered_person_ids = list(user_ids)
+        self.offered_person_circle_id = circle_id
+        self.offer_revision += 1
+        self.offered_at = self._now().isoformat()
+        return self.offer_revision
 
     def remember_circle(self, circle: ConfirmedCircle) -> None:
         self.circles[circle.circle_id] = circle
@@ -218,6 +273,10 @@ class ScreenContext(BaseModel):
     available_action_ids: list[str] = Field(default_factory=list)
     screen_state: dict[str, Any] = Field(default_factory=dict)
     os_location_permission: Literal["unknown", "prompt", "granted", "denied"] = "unknown"
+    # The circle whose detail screen is open, if any. A hint for "this
+    # circle", never authority: every read of it goes through the authorized
+    # circle service, and every mutation still needs the id confirmed.
+    active_circle_id: str | None = None
 
 
 @dataclass
@@ -233,6 +292,14 @@ class ToolContext:
     firebase_id_token: str | None = None
     # Services may be injected for tests; handlers fall back to real ones.
     services: dict[str, Any] = field(default_factory=dict)
+    # The prepared-effect snapshot a ``ToolSpec.prepare`` hook computed when
+    # the card was shown; set by the executor only while that card's handler
+    # runs, so the handler can refuse to act on a materially changed effect.
+    prepared: dict[str, Any] | None = None
+    # The Save My Soul alert this session armed: the exact grant set the
+    # delivery report is bound to. Server state stays the authority; this is
+    # the correlation, never a "sent" flag.
+    sos_incident: dict[str, Any] | None = None
 
     def service(self, name: str, factory: Callable[[], Any]) -> Any:
         if name not in self.services:
@@ -241,6 +308,20 @@ class ToolContext:
 
 
 ToolHandler = Callable[[ToolContext, Any], Awaitable[ToolResult]]
+
+
+@dataclass(frozen=True)
+class Prepared:
+    """What a confirm_* tool will do, computed from authorized state when the
+    card is shown. ``summary`` is the card sentence; ``snapshot`` is stored
+    with the pending row and handed back to the handler as ``ctx.prepared``
+    so execution can detect drift instead of silently doing something else."""
+
+    summary: str
+    snapshot: dict[str, Any] = field(default_factory=dict)
+
+
+PrepareHook = Callable[[ToolContext, Any], Awaitable["Prepared | ToolResult"]]
 
 
 @dataclass(frozen=True)
@@ -261,6 +342,15 @@ class ToolSpec:
     firebase_plane: bool = False
     # For confirm_* tools: how the pending card summarizes the action.
     summarize: Callable[[ToolContext, Any], str] | None = None
+    # For confirm_* tools whose effect depends on live state: computes the
+    # exact prepared effect before the card is shown. Returning a ToolResult
+    # instead of a Prepared answers the call without a card (nothing to do,
+    # state unreadable, already active).
+    prepare: PrepareHook | None = None
+    # The result hands the client a device step that only a live session can
+    # run and settle; confirming it over plain HTTP would arm an effect with
+    # no publisher, so that route refuses it.
+    device_step: bool = False
 
     def declaration(self) -> dict[str, Any]:
         """Gemini function declaration (JSON-schema parameters, refs inlined)."""
@@ -309,8 +399,10 @@ __all__ = [
     "ConfirmedPerson",
     "ENTITY_CONTEXT_TTL_SECONDS",
     "LOCATION_UPDATES_PENDING",
+    "OFFER_TTL_SECONDS",
     "EntityContext",
     "Needs",
+    "OfferedRequest",
     "PersonRef",
     "Rejected",
     "ScreenContext",

@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 from types import SimpleNamespace
 
 import pytest
 from flask import Flask
+from starlette.applications import Starlette
+from starlette.responses import JSONResponse
+from starlette.routing import Route
 from starlette.testclient import TestClient
 
 from hushh_mcp.adk_bridge import official_a2a
@@ -88,6 +92,109 @@ def test_official_transport_returns_clean_auth_error_before_adk_execution():
 
     assert response.status_code == 401
     assert response.json()["error"]["message"].startswith("CONSENT_REQUIRED")
+
+
+@requires_official_a2a
+@pytest.mark.parametrize("token", ["invalid-arbitrary-string", "other-owner-valid-token"])
+def test_official_transport_does_not_expose_stored_tasks(monkeypatch, token):
+    from a2a.server.tasks.inmemory_task_store import InMemoryTaskStore
+    from a2a.types import Artifact, Part, Task, TaskState, TaskStatus, TextPart
+    from google.adk.agents import LlmAgent
+
+    store = InMemoryTaskStore()
+    asyncio.run(
+        store.save(
+            Task(
+                id="owner-a-task",
+                context_id="owner-a-context",
+                status=TaskStatus(state=TaskState.completed),
+                artifacts=[
+                    Artifact(
+                        artifact_id="result",
+                        parts=[Part(root=TextPart(text="SYNTHETIC_PRIVATE_RESULT"))],
+                    )
+                ],
+            )
+        )
+    )
+    official_parts = official_a2a._require_official_a2a()
+
+    def with_seeded_store(*args, **kwargs):
+        return official_parts[-1](*args, **kwargs, task_store=store)
+
+    monkeypatch.setattr(
+        official_a2a, "_require_official_a2a", lambda: (*official_parts[:-1], with_seeded_store)
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.agents.kai.agent.get_kai_agent",
+        lambda: LlmAgent(name="kai", model="fixture"),
+    )
+    app = official_a2a.create_kai_official_a2a_app()
+    with TestClient(app) as client:
+        response = client.post(
+            "/",
+            headers={"X-Consent-Token": token},
+            json={
+                "jsonrpc": "2.0",
+                "id": "probe",
+                "method": "tasks/get",
+                "params": {"id": "owner-a-task"},
+            },
+        )
+
+    assert response.status_code == 403
+    assert "SYNTHETIC_PRIVATE_RESULT" not in response.text
+
+
+@requires_official_a2a
+def test_official_transport_refuses_task_continuation():
+    app = official_a2a.create_kai_official_a2a_app()
+    with TestClient(app) as client:
+        response = client.post(
+            "/",
+            headers={"X-Consent-Token": "synthetic-token"},
+            json={
+                "jsonrpc": "2.0",
+                "id": "probe",
+                "method": "message/send",
+                "params": {
+                    "message": {
+                        "messageId": "m1",
+                        "role": "user",
+                        "taskId": "owner-a-task",
+                        "parts": [{"kind": "text", "text": "Continue"}],
+                    }
+                },
+            },
+        )
+
+    assert response.status_code == 403
+
+
+@pytest.mark.parametrize("method", ["message/send", "message/stream"])
+def test_official_transport_forwards_fresh_message_body(method):
+    async def echo(request):
+        return JSONResponse(await request.json())
+
+    app = Starlette(routes=[Route("/", echo, methods=["POST"])])
+    app.add_middleware(official_a2a._ConsentHeaderMiddleware)
+    payload = {
+        "jsonrpc": "2.0",
+        "id": "fresh",
+        "method": method,
+        "params": {
+            "message": {
+                "messageId": "m1",
+                "role": "user",
+                "parts": [{"kind": "text", "text": "Hello"}],
+            }
+        },
+    }
+    with TestClient(app) as client:
+        response = client.post("/", headers={"X-Consent-Token": "fixture"}, json=payload)
+
+    assert response.status_code == 200
+    assert response.json() == payload
 
 
 def test_legacy_transport_remains_the_default(monkeypatch):

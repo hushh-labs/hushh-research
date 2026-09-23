@@ -55,8 +55,8 @@ export const VOICE_ENGINE_DOMAINS: readonly VoiceEngineDomain[] = [
   },
   {
     key: "email",
-    label: "Email",
-    description: "Gmail connection and actions.",
+    label: "Mail",
+    description: "Mail connection and actions.",
     // Routes through the choke points, but is not tested or maintained
     // right now, so it is shown as Coming soon rather than offered as a
     // control someone might rely on.

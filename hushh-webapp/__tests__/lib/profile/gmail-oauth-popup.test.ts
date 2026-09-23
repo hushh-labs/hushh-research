@@ -86,7 +86,7 @@ describe("gmail-oauth-popup", () => {
 
     openGmailOAuthPopup(attempt);
 
-    expect(popup.document.title).toBe("Connecting Gmail");
+    expect(popup.document.title).toBe("Connecting Mail");
     expect(popup.document.body?.textContent).toBe("Opening secure Google sign-in…");
   });
 

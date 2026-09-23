@@ -4,28 +4,28 @@
 "use client";
 
 import React, { useEffect, useMemo, type CSSProperties } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   Compass as PhosphorCompass,
-  MagnifyingGlass,
-  ChatCircle,
-  SquaresFour,
+  Search as MagnifyingGlass,
+  MessageCircle as ChatCircle,
+  Grid2x2 as SquaresFour,
   Briefcase,
-  ChartBar,
-  ChartLineUp,
+  BarChart3 as ChartBar,
+  ChartColumnIncreasing as ChartLineUp,
   Database,
-  EnvelopeSimple,
-  FolderSimple,
+  Mail as EnvelopeSimple,
+  FolderSearch as FolderSimple,
   MapPin,
   Newspaper,
   ShieldCheck,
-  Storefront,
+  Store as Storefront,
   Table,
-  UserCircle,
-  UsersThree,
+  UserRound as UserCircle,
+  UsersRound as UsersThree,
   Wallet,
-  type IconProps as PhosphorIconProps,
-} from "@phosphor-icons/react";
+  type CanonicalIconProps as PhosphorIconProps,
+} from "@/components/icons";
 
 import { useAuth } from "@/hooks/use-auth";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
@@ -115,7 +115,7 @@ const BOTTOM_NAV_OPTION_META: Record<
   },
   "ria-home": {
     value: "ria-home",
-    label: "RIA",
+    label: "Advisor",
     icon: Briefcase,
     dataTourId: "nav-ria-home",
   },
@@ -133,7 +133,7 @@ const BOTTOM_NAV_OPTION_META: Record<
   },
   gmail: {
     value: "gmail",
-    label: "Gmail",
+    label: "Mail",
     icon: EnvelopeSimple,
     dataTourId: "nav-one-gmail",
   },
@@ -194,6 +194,9 @@ const BOTTOM_NAV_OPTION_META: Record<
   },
 };
 
+// Tab routes already warmed this session (see the prefetch effect).
+const prefetchedTabHrefs = new Set<string>();
+
 function navOptionForKey(
   key: AppBottomNavKey,
   pendingConsents: number | null,
@@ -223,6 +226,7 @@ export const Navbar = ({
   layout?: "fixed" | "slot";
 }) => {
   const pathname = usePathname();
+  const router = useRouter();
   const interactionIntents = useInteractionIntents();
   const { isAuthenticated } = useAuth();
   const { isVaultUnlocked } = useVault();
@@ -297,6 +301,38 @@ export const Navbar = ({
       navOptionForKey(key, pendingConsents, feedUnreadCount),
     );
   }, [normalizedPathname, bottomNavScope, pendingConsents, feedUnreadCount]);
+
+  // Warm every tab's route once the shell is up, so a tap resolves in about a
+  // frame instead of showing the loading boundary while the segment loads.
+  // Idle time only, once per destination.
+  const tabHrefs = useMemo(
+    () =>
+      resolveBottomNavOptionKeys(normalizedPathname, bottomNavScope)
+        .map((key) => resolveBottomNavAction(key, bottomNavScope))
+        .flatMap((action) => (action.type === "route" ? [action.href] : [])),
+    [normalizedPathname, bottomNavScope],
+  );
+  useEffect(() => {
+    if (!isVaultUnlocked || typeof window === "undefined") return;
+    const pending = tabHrefs.filter((href) => !prefetchedTabHrefs.has(href));
+    if (pending.length === 0) return;
+    const run = () => {
+      for (const href of pending) {
+        prefetchedTabHrefs.add(href);
+        router.prefetch(href);
+      }
+    };
+    const idle = (window as Window & {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    });
+    if (idle.requestIdleCallback) {
+      const id = idle.requestIdleCallback(run, { timeout: 1500 });
+      return () => idle.cancelIdleCallback?.(id);
+    }
+    const id = window.setTimeout(run, 300);
+    return () => window.clearTimeout(id);
+  }, [isVaultUnlocked, router, tabHrefs]);
 
   React.useLayoutEffect(() => {
     const root = document.documentElement;
@@ -457,10 +493,17 @@ export const Navbar = ({
       if (nextAgentContext) {
         setAgentNavigationContext(nextAgentContext);
       }
+      // Tab switches swap in place, the way Threads and Muse do: no fade out,
+      // no fade in. The full envelope faded the old screen out at once and
+      // left an empty page (the null loading boundary) until the new route
+      // resolved: 180 to 621 ms before the next tab was readable on a Galaxy
+      // S24 Ultra, 2026-09-22. The routes are prefetched below, so the new
+      // screen is ready by the time the tap lands.
       requestInternalAppNavigation({
         href: action.href,
         scroll: false,
         source: "tap",
+        transitionMode: "contextual",
       });
     }
   };
@@ -516,6 +559,7 @@ export const Navbar = ({
               size="default"
               layout="stacked"
               hitArea="segment"
+              ripple={false}
               value={activeNav}
               options={navOptions}
               onValueChange={navigateTo}

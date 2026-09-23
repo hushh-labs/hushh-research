@@ -9,11 +9,24 @@ import {
   type AgentPkmSaveResult,
 } from "@/lib/agent/agent-pkm-memory";
 import type { PkmWriteAuthorization } from "@/lib/personal-knowledge-model/mutation-plan";
+import {
+  PKM_PROPOSAL_CHARS, planPkmSourceChunks, sourceChunkRange, sourceChunkText, splitPkmSourceChunk,
+  type PkmSourceChunk, type PkmSourceSpan,
+} from "@/lib/pkm/pkm-source-chunks";
 
-const MAX_PROPOSAL_MESSAGE_CHARS = 6_000;
-const MAX_STRUCTURED_SECTIONS_PER_CHUNK = 6;
-const MIN_RETRY_CHUNK_CHARS = 96;
 const MAX_PROPOSAL_CHUNKS = 32;
+// A preview is an owner-review step, not an unbounded background job. The
+// backend has its own per-proposal budget, but a large note can create several
+// sequential proposal waves. Bound the whole client preparation so a provider
+// outage or quota backoff cannot leave the review surface in "preparing"
+// indefinitely. Incomplete coverage is returned as review-required and is
+// never eligible for encrypted save.
+const DEFAULT_PREPARATION_BUDGET_MS = 120_000;
+// Preview calls are independent and read-only, but each server-side preview
+// already fans out to bounded semantic workers. Keep this small so a long
+// import does not create a provider burst while still avoiding a serial wait
+// for every source block. Encrypted saves remain explicitly sequential.
+const MAX_CONCURRENT_PROPOSALS = 2;
 
 export type PkmNaturalLanguageIngestionResult = {
   preview: AgentPkmPreviewResponse;
@@ -37,6 +50,12 @@ export type PkmNaturalLanguagePreparationResult = {
 
 export type PkmNaturalLanguageSourceCoverage = {
   sourceBlockId: string;
+  sourceRange?: PkmSourceSpan;
+  preparationIssue?:
+    | "context_span_too_large"
+    | "cannot_split_context"
+    | "chunk_limit"
+    | "preparation_timeout";
   disposition: "proposed" | "intentionally_ignored" | "review_required" | "failed";
   detectedFactCount: number;
   accountedFactCount: number;
@@ -78,90 +97,6 @@ function logIngestion(event: string, fields: PkmIngestionLogFields): void {
   console.info(`[PKM_INGEST] ${event}`, fields);
 }
 
-function splitText(text: string, maximumLength: number): string[] {
-  const chunks: string[] = [];
-  let remaining = text.trim();
-  while (remaining.length > maximumLength) {
-    const minimumBoundary = Math.floor(maximumLength * 0.45);
-    const candidates = [
-      remaining.lastIndexOf("\n\n", maximumLength),
-      remaining.lastIndexOf("\n", maximumLength),
-      remaining.lastIndexOf(". ", maximumLength) + 1,
-      remaining.lastIndexOf("! ", maximumLength) + 1,
-      remaining.lastIndexOf("? ", maximumLength) + 1,
-      remaining.lastIndexOf(", ", maximumLength) + 1,
-      remaining.lastIndexOf(" ", maximumLength),
-    ];
-    const boundary = Math.max(...candidates);
-    const end = boundary >= minimumBoundary ? boundary : maximumLength;
-    chunks.push(remaining.slice(0, end).trim());
-    remaining = remaining.slice(end).trim();
-  }
-  if (remaining) chunks.push(remaining);
-  return chunks.filter(Boolean);
-}
-
-function splitStructuredText(text: string): string[] {
-  const lines = text.trim().split(/\r?\n/);
-  const sections: string[] = [];
-  let current: string[] = [];
-  let hasExplicitFieldSections = false;
-  const isExplicitFieldSection = (line: string) =>
-    /^\s*(?:[-+]\s+)?(?:\*\*[^*]{1,160}:?\*\*|__[^_]{1,160}:?__|[A-Za-z][A-Za-z /&()-]{1,80}:)\s*\S/.test(
-      line,
-    );
-  const beginsSection = (line: string) =>
-    /^\s*(?:#{1,6}\s+|\d{1,3}[.)]\s+\S)/.test(line) ||
-    isExplicitFieldSection(line);
-  for (const line of lines) {
-    hasExplicitFieldSections ||= isExplicitFieldSection(line);
-    if (beginsSection(line) && current.some((item) => item.trim())) {
-      sections.push(current.join("\n").trim());
-      current = [];
-    }
-    current.push(line);
-  }
-  if (current.some((item) => item.trim())) sections.push(current.join("\n").trim());
-  if (sections.length <= 1) return splitText(text, MAX_PROPOSAL_MESSAGE_CHARS);
-
-  // A pasted KYC summary commonly uses bold or label-style fields. Give the
-  // segmentation model one declared field at a time rather than asking it to
-  // compress an entire profile into its bounded preview-card response.
-  if (hasExplicitFieldSections) {
-    return sections.flatMap((section) =>
-      splitText(section, MAX_PROPOSAL_MESSAGE_CHARS),
-    );
-  }
-
-  const chunks: string[] = [];
-  let pending: string[] = [];
-  let pendingLength = 0;
-  const flush = () => {
-    if (!pending.length) return;
-    chunks.push(pending.join("\n\n").trim());
-    pending = [];
-    pendingLength = 0;
-  };
-  for (const section of sections) {
-    if (section.length > MAX_PROPOSAL_MESSAGE_CHARS) {
-      flush();
-      chunks.push(...splitText(section, MAX_PROPOSAL_MESSAGE_CHARS));
-      continue;
-    }
-    const nextLength = pendingLength + (pending.length ? 2 : 0) + section.length;
-    if (
-      pending.length >= MAX_STRUCTURED_SECTIONS_PER_CHUNK ||
-      nextLength > MAX_PROPOSAL_MESSAGE_CHARS
-    ) {
-      flush();
-    }
-    pending.push(section);
-    pendingLength += (pending.length > 1 ? 2 : 0) + section.length;
-  }
-  flush();
-  return chunks;
-}
-
 function splitRecommendedPreview(preview: AgentPkmPreviewResponse): boolean {
   return preview.preview_summary?.split_recommended === true;
 }
@@ -179,6 +114,15 @@ function hasUnaccountedFacts(
     readNonNegativeInteger(preview.preview_summary?.total_segments_detected) ??
     preview.cards.length;
   return detectedFactCount !== preview.cards.length || preview.cards.length === 0;
+}
+
+function isSuccessfulEmptyPreview(
+  preview: AgentPkmPreviewResponse & { cards: AgentPkmPreviewCard[] },
+): boolean {
+  return preview.cards.length === 0 && !preview.error &&
+    preview.used_fallback !== true &&
+    (readNonNegativeInteger(preview.preview_summary?.total_segments_detected) ?? 0) === 0 &&
+    !splitRecommendedPreview(preview);
 }
 
 function classifySourceBlock(
@@ -299,6 +243,10 @@ export async function prepareNaturalLanguagePkm(params: {
    */
   findDuplicate?: (candidate: string) => PkmNaturalLanguageDuplicateMatch;
   allowEmpty?: boolean;
+  /** Test/diagnostic override; production callers use the bounded default. */
+  preparationBudgetMs?: number;
+  beforeEffect?: () => Promise<void>;
+  isEffectCurrent?: () => boolean;
   onProgress?: (progress: PkmNaturalLanguagePreparationProgress) => void;
 }): Promise<PkmNaturalLanguagePreparationResult> {
   const message = params.message.trim();
@@ -313,13 +261,33 @@ export async function prepareNaturalLanguagePkm(params: {
   // cannot silently swallow the tail of a large profile import.
   // KYC imports are intentionally one constrained extraction call. Splitting
   // an export first loses cross-field context and reintroduces model fan-out.
-  const queue = params.memoryProfile === "kyc_identity_v1"
-    ? [message]
-    : splitStructuredText(message);
+  let queue: PkmSourceChunk[] = params.memoryProfile === "kyc_identity_v1"
+    ? [{ blocks: [{ start: 0, end: message.length, protectedContext: true }] }]
+    : planPkmSourceChunks(message);
   const previews: AgentPkmPreviewResponse[] = [];
   const cards: AgentPkmPreviewCard[] = [];
   const sourceCoverage: PkmNaturalLanguageSourceCoverage[] = [];
   let failedBlocks = 0;
+  if (queue.length > MAX_PROPOSAL_CHUNKS) {
+    throw new Error("This import is too large to prepare safely. Please split it into smaller sections.");
+  }
+  const preparationController = new AbortController();
+  const preparationBudgetMs = Math.max(
+    50,
+    Math.floor(params.preparationBudgetMs ?? DEFAULT_PREPARATION_BUDGET_MS),
+  );
+  let preparationTimedOut = false;
+  const preparationTimer = globalThis.setTimeout(() => {
+    preparationTimedOut = true;
+    preparationController.abort();
+  }, preparationBudgetMs);
+  const unresolved = (chunk: PkmSourceChunk, preparationIssue: NonNullable<PkmNaturalLanguageSourceCoverage["preparationIssue"]>) => {
+    sourceCoverage.push({
+      sourceBlockId: `source_block_${String(sourceCoverage.length + 1).padStart(3, "0")}`,
+      sourceRange: sourceChunkRange(chunk), preparationIssue,
+      disposition: "review_required", detectedFactCount: 0, accountedFactCount: 0,
+    });
+  };
   logIngestion("started", {
     ingestion_id: ingestionId,
     source: params.source,
@@ -333,14 +301,42 @@ export async function prepareNaturalLanguagePkm(params: {
     cardCount: 0,
   });
 
-  for (let index = 0; index < queue.length; index += 1) {
-    if (queue.length > MAX_PROPOSAL_CHUNKS) {
-      throw new Error("This import is too large to prepare safely. Please split it into smaller sections.");
+  type ChunkPreviewResult = {
+    sourceChunk: PkmSourceChunk;
+    chunk: string;
+    index: number;
+    preview?: Awaited<ReturnType<typeof previewAgentPkmMemory>>;
+    failed?: boolean;
+    timedOut?: boolean;
+    oversized?: boolean;
+  };
+  const readyResults = new WeakMap<object, ChunkPreviewResult>();
+  const requestChunkPreview = async (
+    sourceChunk: PkmSourceChunk,
+    index: number,
+  ): Promise<ChunkPreviewResult> => {
+    const ready = readyResults.get(sourceChunk);
+    if (ready) {
+      readyResults.delete(sourceChunk);
+      // The request already completed in an earlier wave, but its queue index
+      // may have shifted after a preceding source block was split.
+      return { ...ready, index };
     }
-    const chunk = queue[index]!;
-    let preview: Awaited<ReturnType<typeof previewAgentPkmMemory>>;
+    if (preparationTimedOut || preparationController.signal.aborted) {
+      return {
+        sourceChunk,
+        chunk: sourceChunkText(message, sourceChunk),
+        index,
+        timedOut: true,
+      };
+    }
+    await params.beforeEffect?.();
+    const chunk = sourceChunkText(message, sourceChunk);
+    if (params.memoryProfile !== "kyc_identity_v1" && chunk.length > PKM_PROPOSAL_CHARS) {
+      return { sourceChunk, chunk, index, oversized: true };
+    }
     try {
-      preview = await previewAgentPkmMemory({
+      const preview = await previewAgentPkmMemory({
         userId: params.userId,
         message: chunk,
         currentDomains: params.currentDomains,
@@ -349,120 +345,162 @@ export async function prepareNaturalLanguagePkm(params: {
         ingestionId,
         chunkIndex: index + 1,
         memoryProfile: params.memoryProfile,
+        signal: preparationController.signal,
+        isEffectCurrent: params.isEffectCurrent,
       });
-    } catch (error) {
-      // One block failing must not discard every block already prepared. The
-      // block is reported as failed so nothing is silently lost; the person
-      // can re-paste just that section.
-      failedBlocks += 1;
-      sourceCoverage.push({
-        sourceBlockId: `source_block_${String(sourceCoverage.length + 1).padStart(3, "0")}`,
-        disposition: "failed",
-        detectedFactCount: 0,
-        accountedFactCount: 0,
-      });
-      logIngestion("chunk_failed", {
-        ingestion_id: ingestionId,
-        source: params.source,
-        chunk_index: index + 1,
-        message_chars: chunk.length,
-        error_code: error instanceof Error ? error.message.slice(0, 80) : "unknown",
-      });
-      continue;
+      await params.beforeEffect?.();
+      return { sourceChunk, chunk, index, preview };
+    } catch {
+      // A canceled session is not a failed source block and must not retry.
+      await params.beforeEffect?.();
+      return {
+        sourceChunk,
+        chunk,
+        index,
+        failed: !preparationTimedOut,
+        timedOut: preparationTimedOut,
+      };
     }
-    if (params.memoryProfile !== "kyc_identity_v1" && splitRecommendedPreview(preview)) {
-      if (chunk.length <= MIN_RETRY_CHUNK_CHARS) {
-        throw new Error("This import contains too many details in one short passage. Add line breaks or split it into smaller sections.");
+  };
+
+  // The queue always contains only work that has not been processed. When a
+  // result recommends splitting, later results from the same wave are held in
+  // readyResults so split children are processed before later source blocks.
+  // This keeps coverage, card ordering, and retry semantics identical to the
+  // former serial implementation.
+  try {
+    while (queue.length > 0) {
+      if (queue.length > MAX_PROPOSAL_CHUNKS) {
+        throw new Error("This import is too large to prepare safely. Please split it into smaller sections.");
       }
-      const retryChunks = splitText(chunk, Math.ceil(chunk.length / 2));
-      if (retryChunks.length < 2) {
-        throw new Error("This import could not be separated safely. Please split it into smaller sections.");
+      // Drain completed work even after the deadline. requestChunkPreview
+      // returns retained results first and never starts fresh work when aborted.
+      const wave = queue.slice(0, MAX_CONCURRENT_PROPOSALS);
+      const results = await Promise.all(
+        wave.map((sourceChunk, offset) => requestChunkPreview(sourceChunk, offset)),
+      );
+      const replacement: PkmSourceChunk[] = [];
+      let splitEncountered = false;
+
+      for (let offset = 0; offset < results.length; offset += 1) {
+        const result = results[offset]!;
+        const { sourceChunk, chunk, index } = result;
+        if (result.timedOut) {
+          unresolved(sourceChunk, "preparation_timeout");
+          continue;
+        }
+        if (splitEncountered) {
+          readyResults.set(sourceChunk, result);
+          replacement.push(sourceChunk);
+          continue;
+        }
+        if (result.oversized) {
+          unresolved(sourceChunk, "context_span_too_large");
+          continue;
+        }
+        if (result.failed) {
+          failedBlocks += 1;
+          sourceCoverage.push({
+            sourceBlockId: `source_block_${String(sourceCoverage.length + 1).padStart(3, "0")}`,
+            sourceRange: sourceChunkRange(sourceChunk),
+            disposition: "failed",
+            detectedFactCount: 0,
+            accountedFactCount: 0,
+          });
+          logIngestion("chunk_failed", {
+            ingestion_id: ingestionId,
+            source: params.source,
+            chunk_index: index + 1,
+            message_chars: chunk.length,
+            // Provider messages can echo submitted text. Diagnostics retain only
+            // a fixed status, never arbitrary error names/messages or source text.
+            error_code: "proposal_failed",
+          });
+          continue;
+        }
+        const preview = result.preview!;
+        const incomplete = splitRecommendedPreview(preview) || (
+          hasUnaccountedFacts(preview) &&
+          !(params.allowEmpty && isSuccessfulEmptyPreview(preview)) &&
+          chunk.length > 96
+        );
+        if (params.memoryProfile !== "kyc_identity_v1" && incomplete) {
+          if (preparationTimedOut || preparationController.signal.aborted) {
+            unresolved(sourceChunk, "preparation_timeout");
+            continue;
+          }
+          const retryChunks = splitPkmSourceChunk(message, sourceChunk);
+          const deferredWaveItems = results.length - offset - 1;
+          if (!retryChunks || queue.length - wave.length + replacement.length + retryChunks.length + deferredWaveItems > MAX_PROPOSAL_CHUNKS) {
+            unresolved(sourceChunk, retryChunks ? "chunk_limit" : "cannot_split_context");
+            continue;
+          }
+          replacement.push(...retryChunks);
+          splitEncountered = true;
+          logIngestion("chunk_split", {
+            ingestion_id: ingestionId,
+            source: params.source,
+            chunk_count: queue.length - wave.length + replacement.length,
+            chunk_index: index + 1,
+            message_chars: chunk.length,
+          });
+          params.onProgress?.({
+            phase: "splitting",
+            chunkIndex: index,
+            chunkCount: queue.length - wave.length + replacement.length,
+            cardCount: cards.length,
+          });
+          continue;
+        }
+        previews.push(preview);
+        if (params.allowEmpty && isSuccessfulEmptyPreview(preview)) {
+        // An auto-save-only caller (KYC) accepts a block with nothing durable
+        // in it; that is a valid outcome, not an unaccounted block.
+        sourceCoverage.push({
+          sourceBlockId: `source_block_${String(sourceCoverage.length + 1).padStart(3, "0")}`,
+          sourceRange: sourceChunkRange(sourceChunk),
+          disposition: "intentionally_ignored",
+          detectedFactCount: 0,
+          accountedFactCount: 0,
+        });
+          continue;
+        }
+        const coverage = classifySourceBlock(preview, sourceCoverage.length);
+        coverage.sourceRange = sourceChunkRange(sourceChunk);
+        const deduped = applyLocalDuplicates(preview.cards, params.findDuplicate);
+        if (deduped.dropped > 0) coverage.duplicateCount = deduped.dropped;
+        const excludedSecretCount = preview.cards.filter(isSecretRejectedCard).length;
+        if (excludedSecretCount > 0) coverage.excludedSecretCount = excludedSecretCount;
+        if (deduped.cards.length === 0 && preview.cards.length > 0 &&
+          coverage.detectedFactCount === coverage.accountedFactCount &&
+          !preview.error && preview.used_fallback !== true) {
+          coverage.disposition = "intentionally_ignored";
+        }
+        sourceCoverage.push(coverage);
+        cards.push(
+          ...deduped.cards.map((card, cardIndex) => ({
+            ...card,
+            card_id: `${ingestionId}_${index + 1}_${card.card_id || cardIndex + 1}`,
+          }))
+        );
+        logIngestion("chunk_prepared", {
+          ingestion_id: ingestionId,
+          source: params.source,
+          chunk_index: index + 1,
+          message_chars: chunk.length,
+          card_count: preview.cards.length,
+        });
+        params.onProgress?.({
+          phase: "preparing",
+          chunkIndex: index + 1,
+          chunkCount: queue.length,
+          cardCount: cards.length,
+        });
       }
-      queue.splice(index, 1, ...retryChunks);
-      index -= 1;
-      logIngestion("chunk_split", {
-        ingestion_id: ingestionId,
-        source: params.source,
-        chunk_count: queue.length,
-        chunk_index: index + 2,
-        message_chars: chunk.length,
-      });
-      params.onProgress?.({
-        phase: "splitting",
-        chunkIndex: Math.max(0, index),
-        chunkCount: queue.length,
-        cardCount: cards.length,
-      });
-      continue;
+      queue.splice(0, wave.length, ...replacement);
     }
-    if (
-      params.memoryProfile !== "kyc_identity_v1" &&
-      hasUnaccountedFacts(preview) &&
-      !(params.allowEmpty && preview.cards.length === 0) &&
-      chunk.length > MIN_RETRY_CHUNK_CHARS
-    ) {
-      const retryChunks = splitText(chunk, Math.ceil(chunk.length / 2));
-      if (retryChunks.length < 2) {
-        throw new Error("This import could not be separated safely. Please split it into smaller sections.");
-      }
-      queue.splice(index, 1, ...retryChunks);
-      index -= 1;
-      logIngestion("chunk_split", {
-        ingestion_id: ingestionId,
-        source: params.source,
-        chunk_count: queue.length,
-        chunk_index: index + 2,
-        message_chars: chunk.length,
-        error_code: "unaccounted_facts",
-      });
-      params.onProgress?.({
-        phase: "splitting",
-        chunkIndex: Math.max(0, index),
-        chunkCount: queue.length,
-        cardCount: cards.length,
-      });
-      continue;
-    }
-    previews.push(preview);
-    if (params.allowEmpty && preview.cards.length === 0) {
-      // An auto-save-only caller (KYC) accepts a block with nothing durable
-      // in it; that is a valid outcome, not an unaccounted block.
-      sourceCoverage.push({
-        sourceBlockId: `source_block_${String(sourceCoverage.length + 1).padStart(3, "0")}`,
-        disposition: "intentionally_ignored",
-        detectedFactCount: 0,
-        accountedFactCount: 0,
-      });
-      continue;
-    }
-    const coverage = classifySourceBlock(preview, sourceCoverage.length);
-    const deduped = applyLocalDuplicates(preview.cards, params.findDuplicate);
-    if (deduped.dropped > 0) coverage.duplicateCount = deduped.dropped;
-    const excludedSecretCount = preview.cards.filter(isSecretRejectedCard).length;
-    if (excludedSecretCount > 0) coverage.excludedSecretCount = excludedSecretCount;
-    if (deduped.cards.length === 0 && preview.cards.length > 0) {
-      coverage.disposition = "intentionally_ignored";
-    }
-    sourceCoverage.push(coverage);
-    cards.push(
-      ...deduped.cards.map((card, cardIndex) => ({
-        ...card,
-        card_id: `${ingestionId}_${index + 1}_${card.card_id || cardIndex + 1}`,
-      }))
-    );
-    logIngestion("chunk_prepared", {
-      ingestion_id: ingestionId,
-      source: params.source,
-      chunk_index: index + 1,
-      message_chars: chunk.length,
-      card_count: preview.cards.length,
-    });
-    params.onProgress?.({
-      phase: "preparing",
-      chunkIndex: index + 1,
-      chunkCount: queue.length,
-      cardCount: cards.length,
-    });
+  } finally {
+    globalThis.clearTimeout(preparationTimer);
   }
 
   if (previews.length === 0 && failedBlocks > 0) {
@@ -478,6 +516,13 @@ export async function prepareNaturalLanguagePkm(params: {
     chunkCount: previews.length,
     cardCount: cards.length,
   });
+  // Partial preparation cannot authorize automatic effects. Keep the model's
+  // semantic fields intact and retain cards for explicit owner review/save.
+  // A model-requested confirmation alone does not taint independent cards.
+  const incompletePreparation = sourceCoverage.some((block) =>
+    Boolean(block.preparationIssue) || block.disposition === "failed" ||
+    block.detectedFactCount !== block.accountedFactCount,
+  ) || previews.some((preview) => preview.used_fallback === true || Boolean(preview.error));
   return {
     preview: previews[0] ?? {
       agent_id: "agent_memory_segmentation",
@@ -488,7 +533,9 @@ export async function prepareNaturalLanguagePkm(params: {
       preview_cards: [],
     },
     previews,
-    cards,
+    cards: incompletePreparation
+      ? cards.map((card) => ({ ...card, preparation_requires_review: true }))
+      : cards,
     chunkCount: previews.length,
     ingestionId,
     sourceCoverage,

@@ -84,6 +84,14 @@ export type VoiceSessionState = {
   halfDuplex: boolean;
   level: number;
   transcript: TranscriptItem[];
+  /**
+   * Turns that were still streaming when the view was cleared. Their later
+   * chunks and their finalization stay out of the displayed history; a turn
+   * drops off this list once it ends, so it cannot grow without bound.
+   */
+  clearedTurnIds: string[];
+  /** The displayed history is empty because the person cleared it. */
+  historyCleared: boolean;
   entities: EntityCardPayload[];
   candidatePicker: CandidatePickerView | null;
   pendingAction: PendingActionView | null;
@@ -110,6 +118,9 @@ export type VoiceSessionEvent =
   | { type: "local_error"; error: VoiceError }
   | { type: "dismiss_candidates" }
   | { type: "client_step_done"; stepId: string }
+  // Presentation only: drops the displayed history. It ends nothing, deletes
+  // nothing on the server, and One keeps its own conversation context.
+  | { type: "clear_view" }
   | { type: "reset" };
 
 export const INITIAL_VOICE_SESSION_STATE: VoiceSessionState = {
@@ -125,6 +136,8 @@ export const INITIAL_VOICE_SESSION_STATE: VoiceSessionState = {
   halfDuplex: false,
   level: 0,
   transcript: [],
+  clearedTurnIds: [],
+  historyCleared: false,
   entities: [],
   candidatePicker: null,
   pendingAction: null,
@@ -154,6 +167,11 @@ export type VoiceSessionController = {
   confirmPending: (options?: { consentVersion?: string | null }) => Promise<void>;
   cancelPending: () => void;
   chooseCandidate: (id: string | null) => void;
+  /**
+   * Drop the displayed history. Presentation only: it sends nothing, ends
+   * nothing, and deletes nothing on the server or in One's context.
+   */
+  clearView: () => void;
   /** Report a client step outcome (publish, permission, share sheet). */
   reportClientStep: (stepId: string, status: "ok" | "failed", payload?: Record<string, unknown>) => void;
 };

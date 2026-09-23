@@ -333,6 +333,99 @@ describe("VoiceSessionProvider with a scripted relay", () => {
     ]);
   });
 
+  it("a second Confirm for the same card while the first is in flight sends nothing; the resolution unlocks the next card", async () => {
+    const mounted = await startSession(mount());
+    const { server } = mounted;
+    const card = pendingActionFrame({
+      tool: "trigger_save_my_soul",
+      gateway_action_id: "location.trigger_sos",
+      tier: "tap",
+      requires_tap: true,
+      receipt_token: "receipt-sos",
+      entities: [],
+    });
+    await act(async () => {
+      server.push({ type: "state", state: "confirming" });
+      server.push(card);
+    });
+    // A double tap: both calls start before the relay has answered.
+    await act(async () => {
+      await Promise.all([
+        controller!.confirmPending(),
+        controller!.confirmPending(),
+      ]);
+    });
+    expect(server.frames("confirm_action")).toHaveLength(1);
+    expect(server.frames("confirm_action")[0]).toMatchObject({
+      pending_action_id: card.pending_action_id,
+      receipt_token: "receipt-sos",
+    });
+    // Still in flight: a later tap is dropped too.
+    await act(async () => {
+      await controller!.confirmPending();
+    });
+    expect(server.frames("confirm_action")).toHaveLength(1);
+
+    // A refusal that keeps the card pending (a stale sign-in proof) is an
+    // answer: the retry tap goes through with the same receipt.
+    await act(async () => {
+      server.push({
+        type: "error",
+        code: "firebase_proof_invalid",
+        message: "Sign-in proof is invalid or names another account.",
+      });
+    });
+    expect(controller!.state.pendingAction?.resolvedStatus).toBeNull();
+    await act(async () => {
+      await controller!.confirmPending();
+    });
+    expect(server.frames("confirm_action")).toHaveLength(2);
+    await act(async () => {
+      await controller!.confirmPending();
+    });
+    expect(server.frames("confirm_action")).toHaveLength(2);
+
+    // The relay resolves the card armed (not sent); the same id resolving
+    // again later must not be confused with a new card.
+    await act(async () => {
+      server.push({ type: "state", state: "executing" });
+      server.push({
+        type: "pending_action.resolved",
+        pending_action_id: card.pending_action_id,
+        status: "executed",
+        result_public: { status: "sos_grants_created", grant_ids: ["g1"] },
+      });
+      server.push({ type: "state", state: "listening" });
+    });
+    expect(controller!.state.pendingAction?.resolvedStatus).toBe("executed");
+    await act(async () => {
+      await controller!.confirmPending();
+    });
+    expect(server.frames("confirm_action")).toHaveLength(2);
+
+    // A new card confirms normally.
+    const next = pendingActionFrame({
+      pending_action_id: "11111111-0000-4000-8000-00000000abcd",
+      tool: "stop_save_my_soul",
+      gateway_action_id: "location.stop_sos",
+      tier: "tap",
+      requires_tap: true,
+      receipt_token: "receipt-stop",
+      entities: [],
+    });
+    await act(async () => {
+      server.push(next);
+    });
+    await act(async () => {
+      await controller!.confirmPending();
+    });
+    expect(server.frames("confirm_action")).toHaveLength(3);
+    expect(server.frames("confirm_action")[2]).toMatchObject({
+      pending_action_id: next.pending_action_id,
+      receipt_token: "receipt-stop",
+    });
+  });
+
   it("a Firebase-plane tool's tap confirm includes the sign-in proof", async () => {
     const mounted = await startSession(mount());
     const { server } = mounted;
@@ -849,6 +942,18 @@ describe("VoiceSessionProvider with a scripted relay", () => {
         },
       ]);
       expect(controller!.state.clientStep).toBeNull();
+    });
+
+    it("honours a server timeout_s of exactly 60 (the Save My Soul publish budget) in full", async () => {
+      const { server } = await requestStepWithoutHandler(60);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(59_999);
+      });
+      expect(reportedAfter(server)).toHaveLength(0);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1);
+      });
+      expect(reportedAfter(server)).toHaveLength(1);
     });
 
     it("caps a server timeout_s of 90 at 60 s", async () => {

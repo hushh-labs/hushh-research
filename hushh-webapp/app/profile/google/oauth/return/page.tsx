@@ -1,178 +1,240 @@
 "use client";
 
-import { Suspense, useEffect, useRef } from "react";
+import { Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 
-import { CalendarAgentPage } from "@/components/calendar/calendar-agent-page";
+import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { useAuth } from "@/hooks/use-auth";
+import {
+  snapshotValidatedAuthSessionOwner,
+  isValidatedAuthSessionOwnerCurrent,
+} from "@/lib/auth/session-owner";
 import { consumeCalendarSetupOAuthReturn } from "@/lib/calendar/calendar-oauth-journey";
 import {
   readGoogleOAuthPopupAttempt,
   settleGoogleOAuthPopup,
+  type GoogleOAuthPopupAttempt,
 } from "@/lib/google/google-oauth-popup";
 import { ROUTES } from "@/lib/navigation/routes";
 import { ApiService } from "@/lib/services/api-service";
-import { GoogleCalendarService } from "@/lib/services/google-calendar-service";
+import {
+  GoogleConnectionService,
+  type GoogleConnectionCompletion,
+} from "@/lib/services/google-connection-service";
 
-const CALENDAR_OAUTH_COMPLETION_TIMEOUT_MS = 35_000;
-const CALENDAR_OAUTH_RECONCILIATION_ATTEMPTS = 5;
-const CALENDAR_OAUTH_RECONCILIATION_DELAY_MS = 2_000;
+const COMPLETION_TIMEOUT_MS = 35_000;
+class CompletionUnknownError extends Error {}
 
-class CalendarOAuthCompletionPendingError extends Error {
-  constructor() {
-    super("Calendar connection is still being saved.");
-  }
-}
-
-async function completeCalendarOAuth(params: {
-  idToken: string;
-  userId: string;
-  code: string;
-  state: string;
-}) {
-  let timeout: ReturnType<typeof setTimeout> | null = null;
+async function completeGoogleOAuth(
+  params: Parameters<typeof GoogleConnectionService.completeConnect>[0],
+) {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
-      GoogleCalendarService.completeConnect(params),
+      GoogleConnectionService.completeConnect(params),
       new Promise<never>((_, reject) => {
-        timeout = globalThis.setTimeout(() => {
-          reject(new CalendarOAuthCompletionPendingError());
-        }, CALENDAR_OAUTH_COMPLETION_TIMEOUT_MS);
+        timeout = globalThis.setTimeout(
+          () => reject(new CompletionUnknownError()),
+          COMPLETION_TIMEOUT_MS,
+        );
       }),
     ]);
   } finally {
-    if (timeout !== null) globalThis.clearTimeout(timeout);
+    if (timeout !== undefined) globalThis.clearTimeout(timeout);
   }
 }
 
-async function reconcileCalendarConnection(idToken: string, userId: string) {
-  for (
-    let attempt = 0;
-    attempt < CALENDAR_OAUTH_RECONCILIATION_ATTEMPTS;
-    attempt += 1
-  ) {
-    const status = await GoogleCalendarService.status(idToken, userId).catch(
-      () => null,
-    );
-    if (status?.connected) return true;
-    if (attempt + 1 < CALENDAR_OAUTH_RECONCILIATION_ATTEMPTS) {
-      await new Promise<void>((resolve) => {
-        globalThis.setTimeout(resolve, CALENDAR_OAUTH_RECONCILIATION_DELAY_MS);
-      });
-    }
-  }
-  return false;
-}
+type CompletionFlow = {
+  ownerId: string;
+  generation: number;
+  attempt: GoogleOAuthPopupAttempt | null;
+  returnToSetup: boolean;
+  result: Promise<GoogleConnectionCompletion>;
+};
 
 function GoogleOAuthReturnContent() {
   const { user, loading } = useAuth();
   const router = useRouter();
   const search = useSearchParams();
-  const started = useRef(false);
+  const flow = useRef<CompletionFlow | null>(null);
+  const cloudFlow = useRef<{ ownerId: string; generation: number; result: Promise<void> } | null>(null);
+  const authority = useRef({
+    ownerId: loading ? null : user?.uid,
+    generation: 0,
+    mounted: false,
+  });
+  const ownerId = loading ? null : user?.uid;
+  useLayoutEffect(() => {
+    if (authority.current.ownerId !== ownerId) {
+      authority.current = {
+        ownerId,
+        generation: authority.current.generation + 1,
+        mounted: authority.current.mounted,
+      };
+    }
+  }, [ownerId]);
+  const [message, setMessage] = useState<string | null>(null);
 
   useEffect(() => {
-    if (loading || started.current) return;
-    started.current = true;
+    if (loading) return;
+    authority.current.mounted = true;
+    let current = true;
+    const effectGeneration = authority.current.generation;
+    const cleanup = () => {
+      current = false;
+      authority.current.mounted = false;
+    };
     const code = search.get("code");
     const state = search.get("state");
-    const oauthError = search.get("error") || search.get("error_description");
-    // The one-click cloud setup rides the same registered Google return route;
-    // its state is prefixed so the two flows can never be confused.
-    if (state && state.startsWith("byoc.")) {
-      if (!user || !code) { router.replace(ROUTES.ONE_SETUP_CLOUD); return; }
-      void ApiService.completeByocAuthorize({ code, state })
-        .then(() => router.replace(ROUTES.ONE_SETUP))
+    // Cloud authorization uses the registered Google return URL, but its state
+    // is namespaced and never enters the Calendar completion or popup flow.
+    if (state?.startsWith("byoc.")) {
+      if (!user || !code || authority.current.ownerId !== user.uid) {
+        router.replace(ROUTES.ONE_SETUP_CLOUD);
+        return cleanup;
+      }
+      if (cloudFlow.current && (cloudFlow.current.ownerId !== user.uid || cloudFlow.current.generation !== effectGeneration)) {
+        router.replace(ROUTES.ONE_SETUP_CLOUD);
+        return cleanup;
+      }
+      if (!cloudFlow.current) {
+        cloudFlow.current = {
+          ownerId: user.uid,
+          generation: effectGeneration,
+          result: ApiService.completeByocAuthorize({ code, state }).then(() => undefined),
+        };
+      }
+      const active = cloudFlow.current;
+      void active.result
+        .then(() => {
+          if (current && authority.current.generation === active.generation && authority.current.ownerId === active.ownerId) {
+            router.replace(ROUTES.ONE_SETUP);
+          }
+        })
         .catch((error: unknown) => {
+          if (!current || authority.current.generation !== active.generation || authority.current.ownerId !== active.ownerId) return;
           const reason =
             error instanceof Error && error.message && error.message !== "BYOC_AUTHORIZE_FAILED"
               ? error.message
               : "We could not finish setting up your cloud. Try again.";
-          router.replace(
-            `${ROUTES.ONE_SETUP_CLOUD}?authorize_error=${encodeURIComponent(reason)}`,
-          );
+          router.replace(`${ROUTES.ONE_SETUP_CLOUD}?authorize_error=${encodeURIComponent(reason)}`);
         });
-      return;
+      return cleanup;
     }
-    const returnToSetup = consumeCalendarSetupOAuthReturn();
-    const destination = returnToSetup
-      ? ROUTES.ONE_SETUP_CALENDAR
-      : ROUTES.CALENDAR;
-    const attempt = readGoogleOAuthPopupAttempt();
-
-    const settle = (
-      outcome: "succeeded" | "cancelled" | "failed",
-      message?: string,
-    ) => {
-      if (attempt) {
-        settleGoogleOAuthPopup(attempt, outcome, message);
-      } else {
-        const query = outcome === "succeeded" ? "" : "?calendar=error";
-        router.replace(`${destination}${query}`);
-      }
+    const attempt = flow.current?.attempt ?? readGoogleOAuthPopupAttempt();
+    const fail = (text: string, outcome: "cancelled" | "failed" = "failed") => {
+      if (!current || authority.current.generation !== effectGeneration) return;
+      setMessage(text);
+      if (attempt) settleGoogleOAuthPopup(attempt, outcome, text);
     };
-
-    if (oauthError) {
-      const isDenied = String(oauthError)
-        .toLowerCase()
-        .includes("access_denied");
-      settle(
-        isDenied ? "cancelled" : "failed",
-        oauthError || "Google authorization was denied.",
+    const providerError = search.get("error");
+    if (providerError) {
+      fail(
+        providerError === "access_denied"
+          ? "Google connection was cancelled. You can try again from connections."
+          : "Google connection could not be completed. Please try again from connections.",
+        providerError === "access_denied" ? "cancelled" : "failed",
       );
-      return;
+      return cleanup;
     }
-
-    if (!user || !code || !state) {
-      settle("failed", "Missing authorization parameters. Please try again.");
-      return;
+    if (
+      !user ||
+      !code ||
+      !state ||
+      (flow.current &&
+        (flow.current.ownerId !== user.uid ||
+          flow.current.generation !== authority.current.generation))
+    ) {
+      fail(
+        "Please return to connections and start again with the same account.",
+      );
+      return cleanup;
     }
-
-    void user
-      .getIdToken()
-      .then((idToken) =>
-        completeCalendarOAuth({
-          idToken,
-          userId: user.uid,
-          code,
-          state,
-        }),
-      )
-      .then((completed) => {
-        settle(
-          completed.connected ? "succeeded" : "failed",
-          completed.connected
-            ? undefined
-            : "Calendar authorization did not create an active connection.",
+    // Retain only the in-memory promise so Strict Mode cannot consume a code
+    // twice. Each effect subscribes independently; obsolete owners never settle UI.
+    if (!flow.current) {
+      const generation = authority.current.generation;
+      const sessionOwner = snapshotValidatedAuthSessionOwner();
+      const isEffectCurrent = () =>
+        Boolean(
+          sessionOwner &&
+          sessionOwner.userId === user.uid &&
+          isValidatedAuthSessionOwnerCurrent(sessionOwner) &&
+          authority.current.mounted &&
+          authority.current.generation === generation &&
+          authority.current.ownerId === user.uid,
         );
-      })
-      .catch(async (err) => {
-        if (err instanceof CalendarOAuthCompletionPendingError) {
-          const connected = await reconcileCalendarConnection(
-            await user.getIdToken(),
-            user.uid,
-          );
-          settle(
-            connected ? "succeeded" : "failed",
-            connected
-              ? undefined
-              : "Calendar is still saving the connection. Please check Calendar and try again if needed.",
+      flow.current = {
+        ownerId: user.uid,
+        generation,
+        attempt,
+        returnToSetup: consumeCalendarSetupOAuthReturn(),
+        result: user.getIdToken().then((idToken) => {
+          if (!isEffectCurrent()) {
+            throw new Error("Restart the Google connection.");
+          }
+          return completeGoogleOAuth({
+            idToken,
+            userId: user.uid,
+            code,
+            state,
+            isEffectCurrent,
+          });
+        }),
+      };
+    }
+    const active = flow.current;
+    void active.result
+      .then((completed) => {
+        if (!current || authority.current.generation !== active.generation)
+          return;
+        if (
+          completed.service !== "calendar" ||
+          (attempt && completed.service !== attempt.service) ||
+          !completed.connected ||
+          completed.status !== "connected"
+        ) {
+          fail(
+            "Google connection could not be verified. Please check connections before trying again.",
           );
           return;
         }
-        const msg =
-          err instanceof Error && err.message
-            ? err.message
-            : "Google Calendar connection could not be completed.";
-        settle("failed", msg);
+        if (attempt) {
+          settleGoogleOAuthPopup(attempt, "succeeded");
+        } else {
+          router.replace(
+            active.returnToSetup ? ROUTES.ONE_SETUP_CALENDAR : ROUTES.CALENDAR,
+          );
+        }
+      })
+      .catch((error: unknown) => {
+        fail(
+          error instanceof CompletionUnknownError
+            ? "Google may still be saving this connection. Check connections before starting again."
+            : "Google connection could not be completed. Please try again from connections.",
+        );
       });
+    return cleanup;
   }, [loading, router, search, user]);
 
-  return <CalendarAgentPage connectionPending />;
+  if (!message) return <HushhLoader label="Finishing Google connection…" />;
+  return (
+    <div className="mx-auto flex max-w-md flex-col gap-4 p-6">
+      <p role="status">{message}</p>
+      <Link
+        className="inline-flex min-h-11 items-center text-primary underline"
+        href={ROUTES.PROFILE_CONNECTORS}
+      >
+        Back to connections
+      </Link>
+    </div>
+  );
 }
 
 export default function GoogleOAuthReturnPage() {
   return (
-    <Suspense fallback={<CalendarAgentPage connectionPending />}>
+    <Suspense fallback={<HushhLoader label="Finishing Google connection…" />}>
       <GoogleOAuthReturnContent />
     </Suspense>
   );

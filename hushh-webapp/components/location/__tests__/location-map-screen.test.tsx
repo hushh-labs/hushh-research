@@ -9,7 +9,13 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const service = vi.hoisted(() => ({
@@ -34,6 +40,7 @@ const device = vi.hoisted(() => ({
 }));
 const liveMap = vi.hoisted(() => ({
   renders: [] as Array<{ lat: number; lng: number }>,
+  avatarUrls: [] as Array<string | null | undefined>,
 }));
 const router = vi.hoisted(() => ({ push: vi.fn(), replace: vi.fn() }));
 const toast = vi.hoisted(() => ({
@@ -65,8 +72,15 @@ vi.mock("@/lib/one-location/use-current-location", () => ({
   useCurrentLocation: () => device,
 }));
 vi.mock("@/components/one-location/live-map", () => ({
-  LiveMap: ({ point }: { point: { latitude: number; longitude: number } }) => {
+  LiveMap: ({
+    point,
+    avatarUrl,
+  }: {
+    point: { latitude: number; longitude: number };
+    avatarUrl?: string | null;
+  }) => {
     liveMap.renders.push({ lat: point.latitude, lng: point.longitude });
+    liveMap.avatarUrls.push(avatarUrl);
     return (
       <div
         data-testid="live-map"
@@ -75,6 +89,9 @@ vi.mock("@/components/one-location/live-map", () => ({
       />
     );
   },
+}));
+vi.mock("@/hooks/use-effective-avatar-url", () => ({
+  useEffectiveAvatarUrl: () => "https://example.com/avatar.jpg",
 }));
 vi.mock("@/lib/morphy-ux/morphy", () => ({ morphyToast: toast }));
 vi.mock("@/lib/voice/voice-surface-metadata", () => ({
@@ -89,6 +106,7 @@ import {
   rendererConsentCurrent,
 } from "@/components/location/map/location-map-screen";
 import { GOOGLE_MAPS_RENDERER_CONSENT_VERSION } from "@/lib/one-location/map-renderer-consent";
+import { dispatchOneLocationStateChanged } from "@/lib/one-location/one-location-state-events";
 import { readLocationWorkspaceMemory } from "@/lib/one-location/location-workspace-memory";
 
 const SOURCE = fs.readFileSync(
@@ -142,6 +160,7 @@ describe("LocationMapScreen", () => {
     vi.clearAllMocks();
     window.localStorage.clear();
     liveMap.renders.length = 0;
+    liveMap.avatarUrls.length = 0;
     device.snapshot = null;
     device.snapshotOrigin = null;
     device.request.mockImplementation(async () => {
@@ -224,12 +243,19 @@ describe("LocationMapScreen", () => {
   });
 
   it("keeps coordinates away from the renderer until the server records renderer consent", async () => {
-    service.getMapState.mockResolvedValue({
+    const beforeConsent = {
       preferences: { presenceMode: "ghost", rendererConsentVersion: null },
       freshnessSeconds: 120,
       markers: [
         { grant: grant("grant-1", "Priya Nair"), envelope: envelope("env-1") },
       ],
+    };
+    service.getMapState.mockResolvedValueOnce(beforeConsent).mockResolvedValue({
+      ...beforeConsent,
+      preferences: {
+        presenceMode: "ghost",
+        rendererConsentVersion: GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
+      },
     });
     service.updateMapPreferences.mockResolvedValue({
       presenceMode: "ghost",
@@ -255,6 +281,42 @@ describe("LocationMapScreen", () => {
     );
     expect(await screen.findByTestId("live-map")).toBeInTheDocument();
     expect(encryption.decryptLocationEnvelope).toHaveBeenCalled();
+  });
+
+  it("passes the viewer's own avatar to LiveMap so the pin is a face, not a pin", async () => {
+    render(<LocationMapScreen />);
+    await screen.findByTestId("live-map");
+    expect(liveMap.avatarUrls).toContain("https://example.com/avatar.jpg");
+  });
+
+  it("ignores an older load failure after a newer refresh succeeds", async () => {
+    let rejectOlderLoad: (reason: Error) => void = () => undefined;
+    const olderLoad = new Promise<never>((_resolve, reject) => {
+      rejectOlderLoad = reject;
+    });
+    service.getMapState.mockImplementationOnce(() => olderLoad);
+
+    render(<LocationMapScreen />);
+    await waitFor(() => expect(service.getMapState).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      dispatchOneLocationStateChanged("user-1", ["map_preferences"]);
+    });
+    expect(await screen.findByTestId("live-map")).toHaveAttribute(
+      "data-lat",
+      "13.0827",
+    );
+
+    await act(async () => {
+      rejectOlderLoad(new Error("Superseded request failed"));
+      await olderLoad.catch(() => undefined);
+    });
+
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByTestId("live-map")).toHaveAttribute(
+      "data-lat",
+      "13.0827",
+    );
   });
 
   it("draws its own way back to Location because the route hides the chrome", async () => {

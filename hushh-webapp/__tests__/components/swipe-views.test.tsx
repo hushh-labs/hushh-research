@@ -6,7 +6,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { EmblaCarouselType } from "embla-carousel";
 
-import { SwipeViews, clampSwipePosition } from "@/lib/morphy-ux/ui/swipe-views";
+import {
+  SwipeViews,
+  clampSwipePosition,
+  measureFillViewportMinHeight,
+} from "@/lib/morphy-ux/ui/swipe-views";
 import { requestTopShellTabSelection } from "@/lib/navigation/top-shell-tab-swipe-progress";
 
 const embla = vi.hoisted(() => ({
@@ -18,6 +22,7 @@ const embla = vi.hoisted(() => ({
   ref: vi.fn(),
   rootNode: null as HTMLElement | null,
   options: null as Record<string, unknown> | null,
+  engine: undefined as ReturnType<EmblaCarouselType["internalEngine"]> | undefined,
 }));
 
 vi.mock("embla-carousel-react", () => ({
@@ -31,6 +36,7 @@ vi.mock("embla-carousel-react", () => ({
         scrollTo: embla.scrollTo,
         reInit: embla.reInit,
         rootNode: () => embla.rootNode ?? document.body,
+        ...(embla.engine ? { internalEngine: () => embla.engine } : {}),
         on: (event: string, listener: () => void) => {
           embla.listeners.set(event, listener);
         },
@@ -62,6 +68,32 @@ describe("SwipeViews", () => {
     embla.listeners.clear();
     embla.rootNode = document.createElement("div");
     embla.options = null;
+    embla.engine = undefined;
+  });
+
+  it("does not restore stale scroll bounds after repairing snap points", () => {
+    const toggleActive = vi.fn();
+    const target = { get: () => 0, set: vi.fn() };
+    embla.engine = {
+      slideRects: [{ width: 400 }, { width: 400 }, { width: 400 }],
+      scrollSnaps: [0, -168],
+      limit: { min: -168, max: 0 },
+      target,
+      offsetLocation: { get: () => 0 },
+      scrollBounds: { toggleActive },
+      animation: { start: vi.fn() },
+    } as unknown as ReturnType<EmblaCarouselType["internalEngine"]>;
+    const options = [...OPTIONS, { value: "third", label: "Third" }];
+    const panels = [<div key="1">Saved</div>, <div key="2">Add</div>, <div key="3">Sharing</div>];
+    const view = render(<SwipeViews options={options} tabSetId="memory-test" activeValue="second">{panels}</SwipeViews>);
+    expect(embla.engine.scrollSnaps).toEqual([-0, -400, -800]);
+    expect(toggleActive).toHaveBeenLastCalledWith(false);
+    view.rerender(<SwipeViews options={options} tabSetId="memory-test" activeValue="third">{panels}</SwipeViews>);
+    expect(target.set).toHaveBeenLastCalledWith(-800);
+    expect(toggleActive).toHaveBeenLastCalledWith(false);
+    embla.engine.limit.min = -800;
+    view.rerender(<SwipeViews options={options} tabSetId="memory-test" activeValue="second">{panels}</SwipeViews>);
+    expect(toggleActive).toHaveBeenLastCalledWith(true);
   });
 
   it("keeps pane identity mounted while route selection changes", () => {
@@ -529,6 +561,131 @@ describe("SwipeViews", () => {
         "#top-shell-height-nohold-panel-first",
       );
       expect(outgoingPanel).toHaveStyle({ overflow: "hidden" });
+    });
+  });
+  describe("viewportMinHeight fill", () => {
+    // A hub's pager sits below the hub's own header, so the 100dvh default
+    // adds a scroll tail and 0px leaves everything under a short list dead to
+    // the swipe (the Consent centre report). Fill measures the remaining body
+    // once per resize: root visible height, minus the pager's layout offset,
+    // minus what the root and every ancestor reserve below the pager.
+    const originalRaf = globalThis.requestAnimationFrame;
+    const originalResizeObserver = globalThis.ResizeObserver;
+    let observed: Element[] = [];
+
+    function layout(element: HTMLElement, values: Record<string, unknown>) {
+      for (const [key, value] of Object.entries(values)) {
+        Object.defineProperty(element, key, { configurable: true, value });
+      }
+    }
+
+    beforeEach(() => {
+      observed = [];
+      globalThis.ResizeObserver = class {
+        constructor(_callback: ResizeObserverCallback) {}
+        observe(element: Element) {
+          observed.push(element);
+        }
+        disconnect() {}
+        unobserve() {}
+      } as unknown as typeof ResizeObserver;
+      globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+        cb(0);
+        return 1;
+      }) as typeof globalThis.requestAnimationFrame;
+    });
+
+    afterEach(() => {
+      globalThis.requestAnimationFrame = originalRaf;
+      globalThis.ResizeObserver = originalResizeObserver;
+      document.body.innerHTML = "";
+    });
+
+    function mountScrollRoot() {
+      const root = document.createElement("div");
+      root.setAttribute("data-app-scroll-root", "true");
+      root.style.paddingBottom = "140px";
+      root.style.position = "relative";
+      const main = document.createElement("main");
+      main.style.paddingBottom = "24px";
+      const wrapper = document.createElement("div");
+      root.appendChild(main);
+      main.appendChild(wrapper);
+      document.body.appendChild(root);
+      layout(root, { clientHeight: 664 });
+      return { root, main, wrapper };
+    }
+
+    it("measures the remaining body below the pager, minus reserved bottom space", () => {
+      const { root, wrapper } = mountScrollRoot();
+      const viewport = document.createElement("div");
+      wrapper.appendChild(viewport);
+      layout(viewport, { offsetTop: 239, offsetParent: root });
+      // 664 visible - 239 above the pager - 140 root clearance - 24 page shell
+      expect(measureFillViewportMinHeight(viewport)).toBe(261);
+    });
+
+    it("sums layout offsets through positioned ancestors and never goes negative", () => {
+      const { root, main, wrapper } = mountScrollRoot();
+      const viewport = document.createElement("div");
+      wrapper.appendChild(viewport);
+      layout(main, { offsetTop: 178, offsetParent: root });
+      layout(viewport, { offsetTop: 61, offsetParent: main });
+      expect(measureFillViewportMinHeight(viewport)).toBe(261);
+      layout(root, { clientHeight: 200 });
+      expect(measureFillViewportMinHeight(viewport)).toBe(0);
+    });
+
+    it("returns null outside an app scroll root", () => {
+      const viewport = document.createElement("div");
+      document.body.appendChild(viewport);
+      expect(measureFillViewportMinHeight(viewport)).toBeNull();
+    });
+
+    it("applies the measured height as the pager's min-height and watches the root", () => {
+      const { root, main, wrapper } = mountScrollRoot();
+      embla.ref.mockImplementation((node: HTMLElement | null) => {
+        if (node) {
+          embla.rootNode = node;
+          layout(node, { offsetTop: 239, offsetParent: root });
+        }
+      });
+      const view = render(
+        <SwipeViews
+          tabSetId="fill"
+          activeValue="first"
+          options={OPTIONS}
+          viewportMinHeight="fill"
+        >
+          <div>first panel content</div>
+          <div>second panel content</div>
+        </SwipeViews>,
+        { container: wrapper },
+      );
+      const pager = view.container.querySelector<HTMLElement>(
+        '[data-swipe-views-root="true"]',
+      );
+      expect(pager?.style.minHeight).toBe("261px");
+      expect(observed).toEqual(expect.arrayContaining([root, main, wrapper]));
+      embla.ref.mockReset();
+    });
+
+    it("leaves an explicit min-height alone", () => {
+      const view = render(
+        <SwipeViews
+          tabSetId="explicit"
+          activeValue="first"
+          options={OPTIONS}
+          viewportMinHeight="0px"
+        >
+          <div>first panel content</div>
+          <div>second panel content</div>
+        </SwipeViews>,
+      );
+      const pager = view.container.querySelector<HTMLElement>(
+        '[data-swipe-views-root="true"]',
+      );
+      expect(pager?.style.minHeight).toBe("0px");
     });
   });
 });

@@ -7,13 +7,18 @@ import {
   type ToolResultFrame,
 } from "@/lib/one-voice/protocol";
 import {
+  SOS_CLOSED_UNVERIFIED_FACT,
+  SOS_CLOSED_UNVERIFIED_REASON,
   VOICE_UNAVAILABLE_MESSAGE,
   canAutoReconnect,
   hasOpenPendingAction,
+  isNeutralStatus,
+  isPendingStatus,
   isSuccessStatus,
   localCloseReason,
   reduceVoiceSession,
   selectSuccessReceipt,
+  settleArmedSosOnClose,
   toolResultTone,
   voiceErrorForClose,
 } from "@/lib/one-voice/session-reducer";
@@ -632,6 +637,38 @@ describe("reduceVoiceSession: tools and success", () => {
     expect(selectSuccessReceipt(done)?.status).toBe("share_created");
   });
 
+  it("keeps a newer confirmation open when a terminal result names an older action", () => {
+    const first = pendingActionFrame({
+      pending_action_id: "11111111-0000-4000-8000-000000000003",
+      summary: "first",
+    });
+    const second = pendingActionFrame({
+      pending_action_id: "11111111-0000-4000-8000-000000000004",
+      summary: "second",
+    });
+    const state = run(
+      [
+        server(first),
+        server(second),
+        server(
+          toolResult({
+            tool: "share_with",
+            pending_action_id: first.pending_action_id,
+            status: "share_created",
+            ok: true,
+            result_public: { status: "share_created" },
+          }),
+        ),
+      ],
+      connected(),
+    );
+
+    expect(state.pendingAction?.pending_action_id).toBe(second.pending_action_id);
+    expect(state.pendingAction?.resolvedStatus).toBeNull();
+    expect(state.pendingAction?.receiptToken).toBe("receipt-1");
+    expect(state.phase).toBe("confirming");
+  });
+
   it("(7) cancel clears the receipt and returns to listening without success", () => {
     const card = pendingActionFrame();
     const cancelled = run(
@@ -808,5 +845,463 @@ describe("reduceVoiceSession: tools and success", () => {
     );
     expect(fatal.phase).toBe("error");
     expect(fatal.error?.message).toBe(VOICE_UNAVAILABLE_MESSAGE);
+  });
+});
+
+describe("reduceVoiceSession: Save My Soul", () => {
+  const ARMED = {
+    status: "sos_grants_created",
+    spoken_facts: ["Alert armed for Priya; sending your position now."],
+    grant_ids: ["grant_SECRET_a"],
+    armed: [
+      {
+        grant_id: "grant_SECRET_a",
+        user_id: "usr_SECRET_priya",
+        display_name: "Priya",
+      },
+    ],
+    client_step: {
+      kind: "publish_location_envelopes",
+      purpose: "sos",
+      sos: true,
+      grant_ids: ["grant_SECRET_a"],
+    },
+  };
+
+  function armed(): VoiceSessionState {
+    const card = pendingActionFrame({
+      tool: "trigger_save_my_soul",
+      gateway_action_id: "location.trigger_sos",
+      tier: "tap",
+      requires_tap: true,
+      receipt_token: "receipt-sos",
+      entities: [],
+    });
+    return run(
+      [
+        server(card),
+        server({ type: "state", state: "executing" }),
+        server({
+          type: "pending_action.resolved",
+          pending_action_id: card.pending_action_id,
+          status: "executed",
+          result_public: ARMED,
+        }),
+        server(
+          toolResult({
+            call_id: null,
+            tool: "trigger_save_my_soul",
+            status: "sos_grants_created",
+            ok: false,
+            result_public: { ...ARMED },
+          }),
+        ),
+        server({ type: "state", state: "listening" }),
+      ],
+      connected(),
+    );
+  }
+
+  it("sos_grants_created is armed: a pending tone whatever ok says, never success, never failure", () => {
+    expect(isPendingStatus("sos_grants_created")).toBe(true);
+    expect(toolResultTone("sos_grants_created", false)).toBe("pending");
+    expect(toolResultTone("sos_grants_created", true)).toBe("pending");
+    expect(isSuccessStatus("sos_grants_created")).toBe(false);
+    expect(NOT_SUCCESS_STATUSES.has("sos_grants_created")).toBe(true);
+    // The pending tone is scoped to the armed alert; the other interim
+    // statuses keep their pinned failure tone.
+    expect(isPendingStatus("grant_created")).toBe(false);
+    expect(isPendingStatus("check_in_created")).toBe(false);
+    expect(isPendingStatus("position_publish_pending")).toBe(false);
+    expect(isPendingStatus("location_updates_pending")).toBe(false);
+    expect(toolResultTone("grant_created", true)).toBe("failure");
+    expect(toolResultTone("location_updates_pending", true)).toBe("failure");
+  });
+
+  it("classifies the delivery, stop and roster statuses: only sos_sent and sos_stopped may succeed", () => {
+    expect(toolResultTone("sos_sent", true)).toBe("success");
+    expect(toolResultTone("sos_stopped", true)).toBe("success");
+    for (const status of [
+      "sos_partial",
+      "sos_not_sent",
+      "sos_unverified",
+      "sos_partially_stopped",
+      "roster_full",
+      "already_active",
+      "not_active",
+    ]) {
+      expect(isNeutralStatus(status), status).toBe(true);
+      expect(isSuccessStatus(status), status).toBe(false);
+      expect(toolResultTone(status, true), status).toBe("neutral");
+    }
+    // A refusal keyed on reason_code is still a refusal.
+    expect(toolResultTone("rejected", false)).toBe("failure");
+  });
+
+  it("an executed resolution that is only armed never sets the success-looking complete phase", () => {
+    const card = pendingActionFrame({
+      tool: "trigger_save_my_soul",
+      gateway_action_id: "location.trigger_sos",
+      tier: "tap",
+      requires_tap: true,
+      receipt_token: "receipt-sos",
+      entities: [],
+    });
+    const base = run(
+      [server(card), server({ type: "state", state: "executing" })],
+      connected(),
+    );
+    // No state frame after the resolution: the phase is what the reducer chose.
+    const armedOnly = run(
+      [
+        server({
+          type: "pending_action.resolved",
+          pending_action_id: card.pending_action_id,
+          status: "executed",
+          result_public: ARMED,
+        }),
+      ],
+      base,
+    );
+    expect(armedOnly.pendingAction?.resolvedStatus).toBe("executed");
+    expect(armedOnly.phase).toBe("listening");
+    expect(SUCCESS_LOOKING.has(armedOnly.phase)).toBe(false);
+    expect(selectSuccessReceipt(armedOnly)).toBeNull();
+
+    // A paused device stays paused; an ordinary executed card still completes.
+    const paused = run([{ type: "paused" }], base);
+    expect(
+      run(
+        [
+          server({
+            type: "pending_action.resolved",
+            pending_action_id: card.pending_action_id,
+            status: "executed",
+            result_public: ARMED,
+          }),
+        ],
+        paused,
+      ).phase,
+    ).toBe("paused");
+    expect(
+      run(
+        [
+          server({
+            type: "pending_action.resolved",
+            pending_action_id: card.pending_action_id,
+            status: "executed",
+            result_public: { status: "sos_sent", delivered: ["Priya"] },
+          }),
+        ],
+        base,
+      ).phase,
+    ).toBe("complete");
+  });
+
+  it("a socket close while the alert is still armed settles it as unconfirmed, never sent", () => {
+    const state = armed();
+    const id = state.pendingAction!.pending_action_id;
+    const withStep = run(
+      [
+        server({
+          type: "client_step.request",
+          step_id: "step-sos",
+          kind: "publish_location_envelopes",
+          payload: { purpose: "sos", sos: true, grant_ids: ["grant_SECRET_a"] },
+          timeout_s: 60,
+        }),
+      ],
+      state,
+    );
+    expect(withStep.clientStep?.stepId).toBe("step-sos");
+
+    for (const close of [
+      { code: CLOSE_CODES.ended, reason: localCloseReason("stop") },
+      { code: CLOSE_CODES.idle, reason: "idle" },
+      { code: CLOSE_CODES.providerUnavailable, reason: "" },
+    ]) {
+      const closed = run([{ type: "closed", ...close, now: NOW }], withStep);
+      const card = closed.pendingAction!;
+      expect(card.pending_action_id, close.reason).toBe(id);
+      expect(card.resolvedStatus).toBe("executed");
+      expect(card.resolvedResult).toMatchObject({
+        status: "sos_unverified",
+        reason_code: SOS_CLOSED_UNVERIFIED_REASON,
+        spoken_facts: [SOS_CLOSED_UNVERIFIED_FACT],
+        expected_grant_ids: ["grant_SECRET_a"],
+        alert_active: true,
+      });
+      expect(card.result).toBe(card.resolvedResult);
+      expect(isPendingStatus(card.resolvedResult?.status)).toBe(false);
+      // The timeline entry says the same thing, and it is not a receipt.
+      expect(closed.toolTimeline).toHaveLength(1);
+      expect(closed.toolTimeline[0]).toMatchObject({
+        ok: false,
+        result: { status: "sos_unverified", reason_code: SOS_CLOSED_UNVERIFIED_REASON },
+      });
+      expect(closed.lastResult?.status).toBe("sos_unverified");
+      expect(selectSuccessReceipt(closed)).toBeNull();
+      expect(closed.clientStep).toBeNull();
+      expect(JSON.stringify(closed.pendingAction)).not.toContain("sos_sent");
+      expect(JSON.stringify(closed.pendingAction)).not.toContain("sos_not_sent");
+    }
+  });
+
+  it("a go_away close settles the armed card too, and the reconnected session keeps it", () => {
+    const state = run(
+      [server({ type: "session.reconnect_required", reason: "go_away" })],
+      armed(),
+    );
+    expect(canAutoReconnect(state)).toBe(true);
+    const closed = run(
+      [{ type: "closed", code: 1001, reason: "go_away", now: NOW }],
+      state,
+    );
+    expect(closed.phase).toBe("connecting");
+    expect(closed.pendingAction?.resolvedResult?.status).toBe("sos_unverified");
+    const resumed = run(
+      [
+        { type: "connecting", conversationId: closed.conversationId! },
+        server(readyFrame({ conversation_id: closed.conversationId! })),
+      ],
+      closed,
+    );
+    // The card was not re-listed (it resolved server-side): the local
+    // unconfirmed receipt stays, and nothing says sending any more.
+    expect(resumed.pendingAction?.resolvedResult?.status).toBe("sos_unverified");
+    expect(resumed.clientStep).toBeNull();
+  });
+
+  it("close leaves everything else alone: settled SOS cards, other cards, no card", () => {
+    const sent = run(
+      [
+        server({
+          type: "pending_action.resolved",
+          pending_action_id: armed().pendingAction!.pending_action_id,
+          status: "executed",
+          result_public: { status: "sos_sent", delivered: ["Priya"] },
+        }),
+        server(
+          toolResult({
+            call_id: null,
+            tool: "report_save_my_soul_delivery",
+            status: "sos_sent",
+            ok: true,
+            result_public: { status: "sos_sent", delivered: ["Priya"] },
+          }),
+        ),
+      ],
+      armed(),
+    );
+    expect(settleArmedSosOnClose(sent)).toBe(sent);
+    const closedSent = run(
+      [{ type: "closed", code: CLOSE_CODES.ended, reason: "ended", now: NOW }],
+      sent,
+    );
+    expect(closedSent.pendingAction?.resolvedResult?.status).toBe("sos_sent");
+    expect(closedSent.toolTimeline[0]?.result?.status).toBe("sos_sent");
+
+    const share = run(
+      [
+        server(pendingActionFrame()),
+        server({
+          type: "pending_action.resolved",
+          pending_action_id: pendingActionFrame().pending_action_id,
+          status: "executed",
+          result_public: { status: "share_created" },
+        }),
+      ],
+      connected(),
+    );
+    expect(settleArmedSosOnClose(share)).toBe(share);
+    const bare = connected();
+    expect(settleArmedSosOnClose(bare)).toBe(bare);
+  });
+
+  it("an armed alert yields no success receipt and one timeline entry", () => {
+    const state = armed();
+    expect(state.pendingAction?.resolvedStatus).toBe("executed");
+    expect(state.pendingAction?.resolvedResult?.status).toBe(
+      "sos_grants_created",
+    );
+    expect(state.pendingAction?.receiptToken).toBeNull();
+    expect(selectSuccessReceipt(state)).toBeNull();
+    expect(state.toolTimeline).toHaveLength(1);
+    expect(state.toolTimeline[0]).toMatchObject({
+      callId: null,
+      tool: "trigger_save_my_soul",
+      ok: false,
+      result: { status: "sos_grants_created" },
+    });
+    expect(state.phase).toBe("listening");
+  });
+
+  it("a second pending_action.resolved for the same card replaces the armed result with the verified report", () => {
+    const state = armed();
+    const id = state.pendingAction!.pending_action_id;
+    const report = {
+      status: "sos_partial",
+      spoken_facts: ["Your position reached Priya."],
+      delivered: ["Priya"],
+      not_alerted: ["Rahul"],
+      delivered_grant_ids: ["grant_SECRET_a"],
+      not_alerted_grant_ids: ["grant_SECRET_b"],
+      alert_active: true,
+      device_step: { status: "ok", late: false },
+    };
+    const settled = run(
+      [
+        server({
+          type: "pending_action.resolved",
+          pending_action_id: id,
+          status: "executed",
+          result_public: report,
+        }),
+      ],
+      state,
+    );
+    expect(settled.pendingAction?.pending_action_id).toBe(id);
+    expect(settled.pendingAction?.resolvedStatus).toBe("executed");
+    expect(settled.pendingAction?.resolvedResult).toBe(report);
+    expect(settled.pendingAction?.result).toBe(report);
+    // Partly sent is truthful but not an achievement.
+    expect(selectSuccessReceipt(settled)).toBeNull();
+
+    const failed = run(
+      [
+        server({
+          type: "pending_action.resolved",
+          pending_action_id: id,
+          status: "failed",
+          result_public: { status: "sos_not_sent", not_alerted: ["Priya"] },
+        }),
+      ],
+      state,
+    );
+    expect(failed.pendingAction?.resolvedStatus).toBe("failed");
+    expect(failed.pendingAction?.resolvedResult?.status).toBe("sos_not_sent");
+    expect(failed.pendingAction?.status).toBe("failed");
+    expect(selectSuccessReceipt(failed)).toBeNull();
+    expect(failed.phase).toBe("listening");
+
+    const unverified = run(
+      [
+        server({
+          type: "pending_action.resolved",
+          pending_action_id: id,
+          status: "failed",
+          result_public: { status: "sos_unverified" },
+        }),
+      ],
+      state,
+    );
+    expect(selectSuccessReceipt(unverified)).toBeNull();
+  });
+
+  it("the delivery report (no call id) replaces the armed timeline item so the panel shows one SOS card", () => {
+    const state = armed();
+    const id = state.pendingAction!.pending_action_id;
+    const report = {
+      status: "sos_sent",
+      spoken_facts: ["Your position reached Priya."],
+      delivered: ["Priya"],
+      not_alerted: [],
+      delivered_grant_ids: ["grant_SECRET_a"],
+      alert_active: true,
+    };
+    const settled = run(
+      [
+        server({
+          type: "pending_action.resolved",
+          pending_action_id: id,
+          status: "executed",
+          result_public: report,
+        }),
+        server(
+          toolResult({
+            call_id: null,
+            tool: "report_save_my_soul_delivery",
+            status: "sos_sent",
+            ok: true,
+            result_public: { ...report },
+          }),
+        ),
+        server({ type: "state", state: "complete" }),
+      ],
+      state,
+    );
+    expect(settled.toolTimeline).toHaveLength(1);
+    expect(settled.toolTimeline[0]).toMatchObject({
+      callId: null,
+      tool: "report_save_my_soul_delivery",
+      ok: true,
+      result: { status: "sos_sent" },
+    });
+    expect(settled.lastResult?.status).toBe("sos_sent");
+    // Only the server's verified "sent" is a receipt, and it comes from the
+    // card's resolution.
+    expect(selectSuccessReceipt(settled)).toMatchObject({
+      source: "pending_action.resolved",
+      tool: "trigger_save_my_soul",
+      status: "sos_sent",
+    });
+
+    // A settled entry is final: a later unrelated result is a new row.
+    const later = run(
+      [
+        server(
+          toolResult({
+            call_id: "c-later",
+            tool: "list_people",
+            status: "no_connections",
+            ok: true,
+            result_public: { status: "no_connections" },
+          }),
+        ),
+      ],
+      settled,
+    );
+    expect(later.toolTimeline).toHaveLength(2);
+  });
+
+  it("a not-sent or unverified report never becomes a receipt even with ok mis-flagged", () => {
+    for (const status of ["sos_not_sent", "sos_unverified", "sos_partial"]) {
+      const settled = run(
+        [
+          server(
+            toolResult({
+              call_id: null,
+              tool: "report_save_my_soul_delivery",
+              status,
+              ok: true,
+              result_public: { status },
+            }),
+          ),
+        ],
+        armed(),
+      );
+      expect(settled.toolTimeline, status).toHaveLength(1);
+      expect(settled.toolTimeline[0]?.result?.status, status).toBe(status);
+      expect(selectSuccessReceipt(settled), status).toBeNull();
+    }
+  });
+
+  it("the report only replaces an armed entry; without one it is its own row", () => {
+    const state = run(
+      [
+        server(
+          toolResult({
+            call_id: null,
+            tool: "report_save_my_soul_delivery",
+            status: "sos_not_sent",
+            ok: false,
+            result_public: { status: "sos_not_sent" },
+          }),
+        ),
+      ],
+      connected(),
+    );
+    expect(state.toolTimeline).toHaveLength(1);
+    expect(state.toolTimeline[0]?.tool).toBe("report_save_my_soul_delivery");
   });
 });

@@ -62,6 +62,17 @@ describe("PKM cache behavior", () => {
     expect(apiFetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it.each([401, 403, 429, 503])("does not substitute cached metadata for current write authority on HTTP %s", async (status) => {
+    const userId = "current-write-owner";
+    const stale = { ...PersonalKnowledgeModelService.emptyMetadata(userId), totalAttributes: 1, lastUpdated: "2026-01-01T00:00:00Z" };
+    CacheService.getInstance().set(CACHE_KEYS.PKM_METADATA(userId), stale, 60000);
+    apiFetchMock.mockResolvedValue(new Response("unavailable", { status }));
+    await expect(PersonalKnowledgeModelService.getMetadata(userId, false, "owner-token", { allowStaleFallback: false }))
+      .rejects.toThrow(`HTTP ${status}`);
+    expect(apiFetchMock).toHaveBeenCalledTimes(1);
+    expect(CacheService.getInstance().peek(CACHE_KEYS.PKM_METADATA(userId))?.data).toEqual(stale);
+  });
+
   it("falls back to stale metadata instead of caching an empty state on unauthorized responses", async () => {
     const userId = "user-1";
     const cache = CacheService.getInstance();
@@ -101,6 +112,16 @@ describe("PKM cache behavior", () => {
     expect(CacheService.getInstance().peek(CACHE_KEYS.PKM_METADATA(userId))?.data).toEqual(staleMetadata);
   });
 
+  it("does not turn a cold temporary metadata failure into an empty PKM", async () => {
+    apiFetchMock.mockResolvedValue(new Response("unavailable", { status: 503 }));
+
+    await expect(
+      PersonalKnowledgeModelService.getMetadata("user-1", false, "vault-owner-token"),
+    ).rejects.toThrow("temporarily unavailable");
+
+    expect(CacheService.getInstance().peek(CACHE_KEYS.PKM_METADATA("user-1"))).toBeNull();
+  });
+
   it("does not trust a fresh empty metadata cache entry when a network fetch can return real domains", async () => {
     const userId = "user-1";
     const cache = CacheService.getInstance();
@@ -138,6 +159,12 @@ describe("PKM cache behavior", () => {
     const result = await PersonalKnowledgeModelService.getMetadata(userId, false, "vault-owner-token");
 
     expect(apiFetchMock).toHaveBeenCalledTimes(1);
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      `/api/pkm/metadata/${userId}`,
+      expect.objectContaining({
+        headers: expect.objectContaining({ "Cache-Control": "no-cache" }),
+      }),
+    );
     expect(result.domains).toHaveLength(1);
     expect(result.domains[0]?.key).toBe("financial");
     expect(result.totalAttributes).toBe(19);

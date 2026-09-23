@@ -55,3 +55,21 @@ def normalize_setup_capability_ids(values: Any) -> list[str]:
         if isinstance(value, str) and (setup_id := value.strip()) in SETUP_STATE_IDS
     }
     return [setup_id for setup_id in SETUP_STATE_ORDER if setup_id in admitted]
+
+
+def normalize_setup_capability_declined_ids(values: Any) -> list[str]:
+    """Return capabilities the person explicitly declined, in catalog order.
+
+    Only the 7 optional capabilities are declinable -- the "connections"
+    prerequisite is mandatory and can never appear here, so this admits
+    against ``SETUP_CAPABILITY_IDS`` rather than the broader
+    ``SETUP_STATE_IDS`` that ``normalize_setup_capability_ids`` uses.
+    """
+    if not isinstance(values, list):
+        return []
+    admitted = {
+        setup_id
+        for value in values
+        if isinstance(value, str) and (setup_id := value.strip()) in SETUP_CAPABILITY_IDS
+    }
+    return [setup_id for setup_id in SETUP_CAPABILITY_ORDER if setup_id in admitted]

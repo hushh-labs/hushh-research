@@ -14,6 +14,22 @@ const GMAIL_PROXY_TIMEOUT_MS = resolveSlowRequestTimeoutMs(15_000, {
   developmentFloorMs: 15_000,
   overrideEnvKey: "HUSHH_KAI_GMAIL_TIMEOUT_MS",
 });
+// Receipt sync only queues a durable backend job, but Cloud SQL pool pressure
+// can make that admission take longer than an ordinary Gmail read. Keep this
+// distinct from the generic Gmail budget so a queued sync is never presented
+// to the owner as a failed request after the backend has accepted it.
+const GMAIL_SYNC_TIMEOUT_MS = resolveSlowRequestTimeoutMs(30_000, {
+  developmentFloorMs: 30_000,
+  overrideEnvKey: "HUSHH_KAI_GMAIL_SYNC_TIMEOUT_MS",
+});
+const GMAIL_STATUS_TIMEOUT_MS = resolveSlowRequestTimeoutMs(30_000, {
+  developmentFloorMs: 30_000,
+  overrideEnvKey: "HUSHH_KAI_GMAIL_STATUS_TIMEOUT_MS",
+});
+const GMAIL_RECEIPTS_TIMEOUT_MS = resolveSlowRequestTimeoutMs(45_000, {
+  developmentFloorMs: 45_000,
+  overrideEnvKey: "HUSHH_KAI_GMAIL_RECEIPTS_TIMEOUT_MS",
+});
 // Nudges do a bounded live inbox read after the Gmail shell has rendered. Give
 // that non-blocking panel enough time for Google to answer instead of turning a
 // healthy, merely slow mailbox into a false load failure.
@@ -162,6 +178,15 @@ function buildUpstreamFailurePayload(path: string, error: unknown) {
 }
 
 function resolveKaiUpstreamTimeoutMs(path: string): number | null {
+  if (path === "gmail/sync") {
+    return GMAIL_SYNC_TIMEOUT_MS;
+  }
+  if (path.startsWith("gmail/status/")) {
+    return GMAIL_STATUS_TIMEOUT_MS;
+  }
+  if (path.startsWith("gmail/receipts/")) {
+    return GMAIL_RECEIPTS_TIMEOUT_MS;
+  }
   if (path === "gmail/receipts-memory/preview") {
     return GMAIL_RECEIPTS_MEMORY_PREVIEW_TIMEOUT_MS;
   }

@@ -21,7 +21,7 @@ describe("route transition intent ownership", () => {
     vi.advanceTimersByTime(40);
     beginRouteTransition("/one/profile", third, "tap");
 
-    vi.advanceTimersByTime(119);
+    vi.advanceTimersByTime(59);
     expect(first).not.toHaveBeenCalled();
     expect(second).not.toHaveBeenCalled();
     expect(third).not.toHaveBeenCalled();
@@ -38,7 +38,7 @@ describe("route transition intent ownership", () => {
 
     beginRouteTransition("/one/kai", navigate, "tap");
     beginRouteTransition("/one/kai", navigate, "tap");
-    vi.advanceTimersByTime(120);
+    vi.advanceTimersByTime(90);
 
     expect(navigate).toHaveBeenCalledTimes(1);
   });
@@ -48,7 +48,7 @@ describe("route transition intent ownership", () => {
     const navigate = vi.fn();
 
     beginRouteTransition("/one/kai", navigate, "tap");
-    vi.advanceTimersByTime(120);
+    vi.advanceTimersByTime(90);
     expect(navigate).toHaveBeenCalledTimes(1);
 
     // A route may take longer than the exit beat to resolve. The old surface
@@ -70,6 +70,40 @@ describe("route transition intent ownership", () => {
     );
 
     expect(navigate).toHaveBeenCalledTimes(1);
+    expect(document.documentElement.dataset.routeTransition).not.toBe("pending");
+  });
+
+  it("does not fade out for a target on the current pathname", () => {
+    // Tapping the active bottom-nav tab again used to set `pending`, and
+    // because the pathname never changed nothing fired the enter beat: the
+    // shell sat at opacity 0 until the 9s safety net. Same pathname means
+    // no route switch, so the commit is instantaneous and nothing fades.
+    vi.useFakeTimers();
+    window.history.replaceState(null, "", "/one");
+    const navigate = vi.fn();
+
+    beginRouteTransition("/one", navigate, "tap", "full");
+
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(document.documentElement.dataset.routeTransition).not.toBe("pending");
+    vi.advanceTimersByTime(200);
+    expect(document.documentElement.dataset.routeTransition).not.toBe("pending");
+  });
+
+  it("treats the native export's trailing slash as the same pathname", () => {
+    // The native export is built with `trailingSlash: true`: on the phone the
+    // page sits at `/one/connect/` while the nav's href is `/one/connect`.
+    // Compared byte for byte, the active tab tapped again went `pending`
+    // with nowhere to go and the screen stayed blank (bug log B51).
+    vi.useFakeTimers();
+    window.history.replaceState(null, "", "/one/connect/");
+    const navigate = vi.fn();
+
+    beginRouteTransition("/one/connect", navigate, "tap", "full");
+
+    expect(navigate).toHaveBeenCalledTimes(1);
+    expect(document.documentElement.dataset.routeTransition).not.toBe("pending");
+    vi.advanceTimersByTime(200);
     expect(document.documentElement.dataset.routeTransition).not.toBe("pending");
   });
 });

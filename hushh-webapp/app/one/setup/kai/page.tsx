@@ -58,7 +58,7 @@ import {
 import { trackEvent } from "@/lib/observability/client";
 import { Card } from "@/lib/morphy-ux/card";
 import { Button } from "@/lib/morphy-ux/button";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle } from "@/components/icons";
 import { useNativeTestConfig } from "@/lib/testing/native-test";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 

@@ -104,12 +104,7 @@ for (const dark of [false, true]) {
         for (const heading of await page
           .locator('[data-slot="settings-group-heading"]')
           .all()) {
-          // Shared level-two headings use the responsive title3 scale (20–22px).
-          const headingSize = await heading.evaluate((element) =>
-            parseFloat(getComputedStyle(element).fontSize),
-          );
-          expect(headingSize).toBeGreaterThanOrEqual(20);
-          expect(headingSize).toBeLessThanOrEqual(22);
+          await expect(heading).toHaveCSS("font-size", "14px");
         }
         const measurements = await rows.evaluateAll((elements) =>
           elements.map((row) => {
@@ -154,6 +149,9 @@ for (const dark of [false, true]) {
               actions: actions.map((button) => ({
                 height: button.getBoundingClientRect().height,
                 left: button.getBoundingClientRect().left - box.left,
+                width: button.getBoundingClientRect().width,
+                top: button.getBoundingClientRect().top,
+                bottom: button.getBoundingClientRect().bottom,
               })),
             };
           }),
@@ -173,6 +171,10 @@ for (const dark of [false, true]) {
             expect(action.height).toBeGreaterThanOrEqual(44);
           if (width < 640 && row.actions.length)
             expect.soft(row.actions[0].left).toBeCloseTo(68, 0);
+          if (width < 640 && row.actions.length === 2) {
+            expect.soft(row.actions[0].width).toBeCloseTo(row.actions[1].width, 0);
+            expect(row.actions[1].top).toBeGreaterThanOrEqual(row.actions[0].bottom);
+          }
         }
         await expect(
           page.locator("button button, button a, a button"),

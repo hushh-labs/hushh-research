@@ -20,6 +20,7 @@ import {
   AgentPkmContextStore,
   type AgentPkmContextCoverage,
 } from "@/lib/agent/agent-pkm-context-store";
+import { isDegradedPreviewCard } from "@/lib/profile/pkm-agent-lab-preview";
 
 export type AgentPkmDomainChoice = {
   domain_key: string;
@@ -53,6 +54,13 @@ export type AgentPkmPreviewCard = {
   confirmation_reason?: string;
   candidate_domain_choices?: AgentPkmDomainChoice[];
   validation_hints?: string[];
+  /** A degraded preview is diagnostic output, never write authority. */
+  preview_degraded?: boolean;
+  drift_flags?: {
+    fallback_used?: boolean;
+  } | null;
+  /** Local preparation coverage, not a model semantic decision or persisted field. */
+  preparation_requires_review?: boolean;
   intent_frame?: AgentPkmIntentFrame;
   merge_decision?: Record<string, unknown>;
   candidate_payload?: Record<string, unknown>;
@@ -105,7 +113,7 @@ export type AgentPkmContext = {
   updatedAt: string | null;
   detailCount?: number;
   source?: "metadata" | "decrypted_session_pkm";
-  mode?: "summary" | "relevant" | "broad";
+  mode?: "summary" | "full";
   coverage?: AgentPkmContextCoverage;
 };
 
@@ -165,7 +173,13 @@ function titleize(value: string | null | undefined): string {
 
 function normalizePreviewCards(response: AgentPkmPreviewResponse): AgentPkmPreviewCard[] {
   if (Array.isArray(response.preview_cards)) {
-    return response.preview_cards;
+    return response.preview_cards.map((card) => ({
+      ...card,
+      preview_degraded:
+        card.preview_degraded === true ||
+        response.used_fallback === true ||
+        Boolean(response.error),
+    }));
   }
   if (!response.candidate_payload || !response.structure_decision) {
     return [];
@@ -185,6 +199,7 @@ function normalizePreviewCards(response: AgentPkmPreviewResponse): AgentPkmPrevi
       confirmation_reason: response.intent_frame?.confirmation_reason,
       candidate_domain_choices: response.intent_frame?.candidate_domain_choices,
       validation_hints: response.validation_hints,
+      preview_degraded: response.used_fallback === true || Boolean(response.error),
       intent_frame: response.intent_frame,
       merge_decision: response.merge_decision,
       candidate_payload: response.candidate_payload,
@@ -212,7 +227,11 @@ export function getPkmAutoSaveCards(
   return cards.filter(
     (card) =>
       !isReservedPkmCard(card) &&
+      !isDegradedPreviewCard(card) &&
+      card.preparation_requires_review !== true &&
       card.write_mode === "can_save" &&
+      card.requires_confirmation !== true &&
+      card.intent_frame?.requires_confirmation !== true &&
       (card.sharing_impact?.active_recipient_count || 0) === 0
   );
 }
@@ -262,9 +281,13 @@ export async function previewAgentPkmMemory(params: {
   ingestionId?: string;
   chunkIndex?: number;
   memoryProfile?: "general" | "kyc_identity_v1";
+  signal?: AbortSignal;
+  isEffectCurrent?: () => boolean;
 }): Promise<AgentPkmPreviewResponse & { cards: AgentPkmPreviewCard[] }> {
   const response = await ApiService.apiFetch("/api/pkm/memory/proposals", {
     method: "POST",
+    signal: params.signal,
+    isEffectCurrent: params.isEffectCurrent,
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${params.vaultOwnerToken}`,
@@ -360,6 +383,8 @@ export async function addToPKM(params: {
   vaultOwnerToken: string;
   source?: string;
   confirmation: PkmWriteAuthorization;
+  beforeEffect?: () => Promise<void>;
+  mayPublish?: () => boolean;
   /**
    * Opt-in for constrained imports whose cards are simple, independent field
    * extensions. A single encrypted write per domain avoids serially loading
@@ -393,6 +418,17 @@ export async function addToPKM(params: {
   }
 
   const saveCard = async (card: AgentPkmPreviewCard, index: number): Promise<void> => {
+    if (isDegradedPreviewCard(card)) {
+      results[index] = {
+        cardId: card.card_id || "agent_pkm_card",
+        domain: resolveCardTargetDomain(card) || "unknown",
+        scope: resolveCardScope(card),
+        sharingPosture: resolveCardSharingPosture(card),
+        success: false,
+        message: "This memory preview needs to be prepared again before it can be saved.",
+      };
+      return;
+    }
     if (isReservedPkmCard(card)) {
       results[index] = {
         cardId: card.card_id || "agent_pkm_card",
@@ -417,7 +453,10 @@ export async function addToPKM(params: {
     }
     if (
       automatic &&
-      (card.write_mode !== "can_save" || (card.sharing_impact?.active_recipient_count || 0) > 0)
+      (card.preparation_requires_review === true ||
+        card.write_mode !== "can_save" || card.requires_confirmation === true ||
+        card.intent_frame?.requires_confirmation === true ||
+        (card.sharing_impact?.active_recipient_count || 0) > 0)
     ) {
       results[index] = {
         cardId: card.card_id || "agent_pkm_card",
@@ -497,6 +536,8 @@ export async function addToPKM(params: {
         domain: targetDomain,
         vaultKey: params.vaultKey,
         vaultOwnerToken: params.vaultOwnerToken,
+        beforeEffect: params.beforeEffect,
+        mayPublish: params.mayPublish,
         confirmation: automatic
           ? params.confirmation
           : {
@@ -525,6 +566,7 @@ export async function addToPKM(params: {
           mergeDecision: card.merge_decision,
           structureDecision: nextStructureDecision,
           manifest: nextManifest || undefined,
+          scopePath: resolveCardScope(card) || undefined,
         }),
       });
       results[index] = {
@@ -549,13 +591,14 @@ export async function addToPKM(params: {
   };
 
   const isSimpleDomainExtension = (card: AgentPkmPreviewCard): boolean => {
+    if (isDegradedPreviewCard(card)) return false;
     if (isReservedPkmCard(card)) return false;
     if (card.write_mode !== "can_save" && card.write_mode !== "confirm_first") {
       return false;
     }
     if (
       automatic &&
-      (card.write_mode !== "can_save" ||
+      (card.preparation_requires_review === true || card.write_mode !== "can_save" ||
         (card.sharing_impact?.active_recipient_count || 0) > 0)
     ) {
       return false;
@@ -618,6 +661,7 @@ export async function addToPKM(params: {
       domain,
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
+      beforeEffect: params.beforeEffect,
       // Batching is restricted below to an explicit owner confirmation. The
       // merged-domain coordinator intentionally does not accept auto-save
       // authority because one commit can contain multiple reviewed facts.
@@ -705,11 +749,8 @@ export async function addToPKM(params: {
   );
 
   const savedResults = completedResults.filter((result) => result.success);
-  if (savedResults.length > 0) {
-    AgentPkmContextStore.invalidateUser(
-      params.userId,
-      savedResults.map((result) => result.domain),
-    );
+  if (savedResults.length > 0 && (params.mayPublish?.() ?? true)) {
+    AgentPkmContextStore.invalidateUser(params.userId);
   }
   return {
     attempted: completedResults.length,
@@ -886,14 +927,13 @@ export function warmAgentPkmContext(params: {
   const existing = agentPkmWarmups.get(params.userId);
   if (existing) return existing;
 
-  // Do not hydrate every encrypted PKM segment merely because the vault was
-  // unlocked. Targeted KYC/chat reads select manifest-backed segments on the
-  // first request; broad conversations still load their inventory on demand.
-  const warmup = PersonalKnowledgeModelService.getMetadata(
-    params.userId,
-    false,
-    params.vaultOwnerToken,
-  )
+  // The agent-safe packet is deliberately built once at unlock and stays only
+  // in browser RAM. Every subsequent One turn reads this same working set.
+  const warmup = AgentPkmContextStore.load({
+    userId: params.userId,
+    vaultKey: params.vaultKey,
+    vaultOwnerToken: params.vaultOwnerToken,
+  })
     .then(() => undefined)
     .finally(() => {
       if (agentPkmWarmups.get(params.userId) === warmup) {

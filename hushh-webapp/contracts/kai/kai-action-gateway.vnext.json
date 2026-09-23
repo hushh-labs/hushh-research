@@ -8632,8 +8632,7 @@
         "stop sos",
         "cancel sos",
         "end the emergency",
-        "stop the emergency",
-        "i am safe now"
+        "stop the emergency"
       ],
       "search_keywords": [
         "stop",
@@ -8642,7 +8641,7 @@
         "emergency",
         "end"
       ],
-      "meaning": "Ends an SOS that is currently running and revokes every location share it created. It does not tell anyone you are safe.",
+      "meaning": "Ends the Save My Soul alert that is currently running and revokes the live SOS location shares it created. It does not tell anyone you are safe and does not change ordinary location sharing. In One Voice it shows a tap-confirmation card naming the shares it will end; shares that cannot be verified as ended are reported as still possibly live.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -9803,6 +9802,115 @@
               "route": "/one/location",
               "screen": "one_location"
             }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location?view=circles"
+      },
+      "action_id": "location.set_circle_kind",
+      "surface_id": "one_location",
+      "label": "Change a circle's type",
+      "aliases": [
+        "make it a family circle",
+        "change the circle type",
+        "set the circle to friends"
+      ],
+      "search_keywords": [
+        "circle",
+        "type",
+        "kind",
+        "family",
+        "friends"
+      ],
+      "meaning": "Changes a circle's type: family, friends, or other. It only changes the type; the circle's name, members, invitations, shares through it, and owner are untouched.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "location.set_circle_kind"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "circle kind"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.set_circle_kind",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.set_circle_kind",
+            "label": "Change a circle's type",
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -11183,7 +11291,7 @@
         "help",
         "send"
       ],
-      "meaning": "Requests an SOS using the authored Save My Soul review screen. The person must use its genuine send confirmation; this command currently opens that review and cannot report an alert as sent. The owning service reports complete or partial delivery after execution. It does not call emergency services.",
+      "meaning": "Sends a Save My Soul alert to the emergency contacts: one 8-hour precise-location share per contact who can receive it. From a typed command this opens the authored review screen and cannot report an alert as sent. In One Voice it shows a tap-confirmation card naming exactly who will be alerted; the tap arms the shares, the device publishes the encrypted position, and the server verifies delivery before anything is reported as sent. It does not call emergency services.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -11264,6 +11372,115 @@
               "route": "/one/location",
               "screen": "one_location"
             }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "command": {
+        "domain": "location",
+        "review_route": "/one/location"
+      },
+      "action_id": "location.verify_sos_delivery",
+      "surface_id": "one_location",
+      "label": "Check whether the SOS alert reached your contacts",
+      "aliases": [
+        "did my alert go through",
+        "did the sos reach them",
+        "check sos delivery"
+      ],
+      "search_keywords": [
+        "sos",
+        "alert",
+        "delivery",
+        "reached",
+        "verify"
+      ],
+      "meaning": "Reads whether the Save My Soul alert's encrypted position was stored for each emergency contact. It checks the whole armed alert on the server and reports who was reached, who was not, and when the check itself could not run. It never sends or resends an alert.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/location"
+        ],
+        "screens": [
+          "one_location"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "location.verify_sos_delivery"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "active sos incident"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/location"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.location.verify_sos_delivery",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "location.verify_sos_delivery",
+            "label": "Check whether the SOS alert reached your contacts",
+            "failure_behavior": "stop"
           }
         ],
         "progress_contract": {
@@ -14503,6 +14720,109 @@
             "type": "action",
             "action_id": "profile.delete_account",
             "label": "Delete Account",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "profile.reset_account",
+      "surface_id": "profile_account",
+      "label": "Reset account",
+      "aliases": [
+        "reset my account",
+        "reset my hussh account"
+      ],
+      "search_keywords": [
+        "reset account",
+        "start account over"
+      ],
+      "meaning": "Resets the person's own Hussh account after a tap confirmation: keeps sign-in and vault, clears personal setup and data, and restarts onboarding. Not a deletion.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile"
+        ],
+        "screens": [
+          "profile_account"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "vault unlock may be required before reset confirmation"
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "explicit_user_confirmation"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "voice_tool",
+        "target": "profile.reset_account"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/profile/profile-workspace-page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.profile.reset_account",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "profile.reset_account",
+            "label": "Reset account",
             "failure_behavior": "stop"
           }
         ],
@@ -23628,6 +23948,7 @@
       "aliases": [
         "cancel my information request",
         "withdraw that request",
+        "cancel that request I just sent",
         "take back my information request"
       ],
       "search_keywords": [

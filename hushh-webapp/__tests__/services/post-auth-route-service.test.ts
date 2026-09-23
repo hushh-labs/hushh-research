@@ -74,7 +74,7 @@ describe("PostAuthRouteService", () => {
     expect(normalizeInternalRouteHref(redirect)).toBe(redirect);
   });
 
-  it("routes vault users with unresolved onboarding to the setup hub", async () => {
+  it("routes vault users with unresolved onboarding straight to the AI-choice step", async () => {
     bootstrapStateMock.mockResolvedValue({
       hasVault: true,
       setupCompleted: false,
@@ -83,7 +83,7 @@ describe("PostAuthRouteService", () => {
 
     await expect(
       PostAuthRouteService.resolveAfterLogin({ userId: "user_123" }),
-    ).resolves.toBe(ROUTES.ONE_SETUP);
+    ).resolves.toBe(ROUTES.ONE_SETUP_CONNECTIONS);
   });
 
   it("keeps the provider token attached to the authoritative setup bootstrap", async () => {
@@ -248,7 +248,7 @@ describe("PostAuthRouteService", () => {
     expect(updatePreVaultStateMock).toHaveBeenCalledTimes(1);
   });
 
-  it("keeps interrupted pre-vault onboarding on the setup hub after restart", async () => {
+  it("keeps interrupted pre-vault onboarding on the AI-choice step after restart", async () => {
     bootstrapStateMock.mockResolvedValue({
       hasVault: false,
       setupCompleted: null,
@@ -271,7 +271,7 @@ describe("PostAuthRouteService", () => {
         userId: "user_123",
         phoneNumber: "+16505550101",
       }),
-    ).resolves.toBe(ROUTES.ONE_SETUP);
+    ).resolves.toBe(ROUTES.ONE_SETUP_CONNECTIONS);
     expect(updatePreVaultStateMock).not.toHaveBeenCalled();
   });
 
@@ -298,7 +298,7 @@ describe("PostAuthRouteService", () => {
         userId: "user_123",
         phoneNumber: "+16505550101",
       }),
-    ).resolves.toBe(ROUTES.ONE_SETUP);
+    ).resolves.toBe(ROUTES.ONE_SETUP_CONNECTIONS);
     expect(updatePreVaultStateMock).not.toHaveBeenCalled();
   });
 
@@ -344,7 +344,7 @@ describe("PostAuthRouteService", () => {
         userId: "user_123",
         phoneNumber: null,
       }),
-    ).resolves.toBe(buildPhoneMandateRoute(ROUTES.ONE_SETUP));
+    ).resolves.toBe(buildPhoneMandateRoute(ROUTES.ONE_SETUP_CONNECTIONS));
   });
 
   it("routes no-vault users without a verified phone to the phone mandate before home", async () => {
@@ -656,7 +656,7 @@ describe("PostAuthRouteService", () => {
       ).resolves.toBe(ROUTES.KAI_PORTFOLIO);
     });
 
-    it("routes a user with unresolved onboarding straight to the setup hub", async () => {
+    it("routes a user with unresolved onboarding straight to the AI-choice step", async () => {
       bootstrapStateMock.mockResolvedValue({
         hasVault: true,
         setupCompleted: false,
@@ -669,7 +669,7 @@ describe("PostAuthRouteService", () => {
           phoneVerified: true,
           enableFirstRunSetupGate: true,
         }),
-      ).resolves.toBe(ROUTES.ONE_SETUP);
+      ).resolves.toBe(ROUTES.ONE_SETUP_CONNECTIONS);
     });
   });
 });

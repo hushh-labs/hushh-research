@@ -4,12 +4,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import {
   AlertTriangle,
-  CheckCircle2,
+  LocateFixed,
   MapPin,
-  RefreshCw,
   Route,
   ShieldCheck,
-} from "lucide-react";
+} from "@/components/icons";
 
 
 import { driveEtaText } from "@/app/one/location/drive-eta";
@@ -26,7 +25,6 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   roleClasses,
-  roleSolid,
   type SemanticRole,
 } from "@/lib/morphy-ux/tokens/semantic-roles";
 import { usePublicLocationInvite } from "@/lib/one-location/use-public-location-invite";
@@ -54,8 +52,6 @@ const NO_SNAPSHOT_TONE = roleClasses("neutral");
  * Solid rather than the tint wash: it sits on map tiles it cannot predict, and
  * a 10%-alpha fill leaves its label unreadable over dark satellite imagery.
  */
-const LIVE_CHIP = roleSolid("success");
-
 /**
  * How close to expiry the window starts reading as urgent rather than routine.
  * Fifteen minutes is the shortest span in which a recipient can still act on a
@@ -253,10 +249,8 @@ function googleMapsDirectionsUrl(point: PlainLocationPoint): string {
 
 function PublicLocationMap({
   point,
-  ownerName,
 }: {
   point: PlainLocationPoint;
-  ownerName: string;
 }) {
   const [viewportResetKey, setViewportResetKey] = useState(0);
   // The point the iframe is currently aimed at, which lags the reported point
@@ -275,8 +269,8 @@ function PublicLocationMap({
       ? `Accuracy +/- ${Math.round(point.accuracyM)} m`
       : null;
   return (
-    <div className="overflow-hidden rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)]">
-      <div className="relative h-[clamp(208px,34vw,252px)] overflow-hidden bg-[color:var(--app-card-surface-compact)] sm:h-[clamp(224px,28vw,252px)]">
+    <div className="overflow-hidden rounded-[20px] border border-[color:var(--app-separator)] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)]">
+      <div className="relative h-[clamp(232px,48vw,320px)] overflow-hidden bg-[color:var(--app-card-surface-compact)]">
         <iframe
           key={`live-location-map:${viewportResetKey}`}
           title="Live location map"
@@ -290,14 +284,14 @@ function PublicLocationMap({
           // No backdrop blur: the fill is opaque, so there is nothing behind it
           // to blur, and a solid pill is what stays legible over map imagery
           // this page cannot predict.
-          className={`pointer-events-none absolute left-3 top-3 inline-flex items-center gap-2 rounded-full px-3 py-1.5 ${LIVE_CHIP.fill} ${LIVE_CHIP.fg}`}
+          className="pointer-events-none absolute left-3 top-3 inline-flex items-center gap-2 rounded-full border border-white/70 bg-white/90 px-3 py-1.5 text-[color:var(--app-success)] shadow-[0_4px_16px_rgba(15,23,42,0.14)] backdrop-blur-md dark:border-white/15 dark:bg-black/70"
         >
           {/* Same foreground as the label beside it: the live dot reads as
               part of the chip, not as a second location colour. */}
           <span className="h-2 w-2 rounded-full bg-current motion-safe:animate-pulse" />
           <Footnote
             as="span"
-            className="font-semibold !text-[color:var(--app-success-fg)]"
+            className="font-semibold !text-[color:var(--app-success)]"
           >
             {/* "Public location" described who could open the link. The person
                 reading it has already opened it, and what they need to know is
@@ -310,18 +304,16 @@ function PublicLocationMap({
           variant="secondary"
           size="icon"
           aria-label="Recenter live location map"
-          title="Recenter map"
+          title="Reset map view"
           onClick={() => setViewportResetKey((current) => current + 1)}
-          className="absolute right-3 top-3 z-10 h-11 w-11 rounded-full border border-border/70 bg-background/90 shadow-none backdrop-blur-xl hover:bg-background sm:h-9 sm:w-9"
+          className="absolute right-3 top-3 z-10 h-11 w-11 rounded-full border border-white/70 bg-white/90 text-[color:var(--app-accent)] shadow-[0_4px_16px_rgba(15,23,42,0.14)] backdrop-blur-md hover:bg-white dark:border-white/15 dark:bg-black/70 dark:hover:bg-black/80"
         >
-          <RefreshCw className="h-4 w-4" aria-hidden="true" />
+          <LocateFixed className="h-[18px] w-[18px]" aria-hidden="true" />
         </Button>
       </div>
-      <div className="space-y-4 p-4">
+      <div className="space-y-3 p-3.5 sm:p-4">
         <div className="min-w-0">
-          <CardTitle as="p">
-            {ownerName ? `${ownerName}'s location` : "Shared location"}
-          </CardTitle>
+          <CardTitle as="p">Latest update</CardTitle>
           <RowDescription className="mt-0.5">
             Updated {capturedAt}
             {accuracy ? ` - ${accuracy}` : ""}
@@ -341,8 +333,13 @@ function PublicLocationMap({
             </BodyText>
           </div>
         ) : null}
-        <div className="grid gap-2">
-          <Button asChild variant="default" size="sm" className="h-11 w-full">
+        <div className="flex justify-center pt-1">
+          <Button
+            asChild
+            variant="default"
+            size="sm"
+            className="h-11 w-fit min-w-36 rounded-full px-5"
+          >
             <a
               href={googleMapsDirectionsUrl(point)}
               target="_blank"
@@ -353,7 +350,6 @@ function PublicLocationMap({
             </a>
           </Button>
         </div>
-
       </div>
     </div>
   );
@@ -446,38 +442,36 @@ export default function PublicLocationViewPageClient() {
     : error
       ? error
       : expiredWhileOpen
-        ? `${ownerName || "The sender"} stopped sharing. Ask them for a fresh link.`
+        ? "Sharing has ended. Ask the sender for a fresh link."
         : showLocation
-          ? `${ownerName || "A trusted person"} is sharing live location with you.`
-          : `${ownerName || "The sender"} shared this link, but no location is attached to it yet.`;
+          ? "Live updates appear here automatically while this link is active."
+          : "This link is active, but no location has been attached to it yet.";
 
   return (
     <main className="w-full text-foreground">
-      <div className="mx-auto flex w-full max-w-[720px] flex-col px-4 pb-4 pt-[max(24px,calc(env(safe-area-inset-top)+16px))] sm:px-6 sm:pt-[max(40px,calc(env(safe-area-inset-top)+24px))]">
-        <div className="rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] p-4 shadow-[var(--app-card-shadow-standard)] sm:p-6">
+      <div className="mx-auto flex w-full max-w-[760px] flex-col px-3 pb-5 pt-[max(16px,calc(env(safe-area-inset-top)+12px))] sm:px-6 sm:pt-[max(32px,calc(env(safe-area-inset-top)+20px))]">
+        <div className="rounded-[24px] border border-[color:var(--app-separator)] bg-[color:var(--app-card-surface-default-solid)] p-4 shadow-[var(--app-card-shadow-standard)] sm:p-6">
           <div className="space-y-4">
             <div>
               <SectionLabel>Live location</SectionLabel>
-              <div className="mt-2 flex items-center gap-3">
+              <div className="mt-2 flex items-start gap-3">
                 <div
                   className={`flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] ${headerTone.tile} ${headerTone.glyph}`}
                 >
                   {error || expiredWhileOpen ? (
                     <AlertTriangle className="h-[17px] w-[17px]" aria-hidden="true" />
-                  ) : showLocation ? (
-                    <CheckCircle2 className="h-[17px] w-[17px]" aria-hidden="true" />
                   ) : (
                     <MapPin className="h-[17px] w-[17px]" aria-hidden="true" />
                   )}
                 </div>
-                <AgentTitle>
-                  {ownerName ? `${ownerName}'s live location` : "Shared location"}
-                </AgentTitle>
-              </div>
-              <div className="min-w-0">
-                <BodyText className="mt-3 text-muted-foreground">
-                  {headline}
-                </BodyText>
+                <div className="min-w-0 flex-1">
+                  <AgentTitle>
+                    {ownerName ? `${ownerName}'s live location` : "Shared location"}
+                  </AgentTitle>
+                  <BodyText className="mt-1 text-muted-foreground">
+                    {headline}
+                  </BodyText>
+                </div>
               </div>
             </div>
 
@@ -499,7 +493,6 @@ export default function PublicLocationViewPageClient() {
                 {showLocation && publicLocation ? (
                   <PublicLocationMap
                     point={publicLocation}
-                    ownerName={ownerName}
                   />
                 ) : (
                   <div

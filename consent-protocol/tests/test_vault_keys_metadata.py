@@ -1131,6 +1131,42 @@ def test_pre_vault_serialization_drops_retired_setup_capabilities():
     assert state["onboardingActiveCapability"] is None
 
 
+def test_pre_vault_serialization_normalizes_declined_capability_ids():
+    state = VaultKeysService._serialize_user_entry(
+        {
+            "user_id": "user-declined",
+            "setup_capability_declined_ids": '["gmail", "connections", "marketplace", "calendar"]',
+        }
+    )
+
+    # "connections" is mandatory and can never be declined, even if a corrupt
+    # row somehow carries it -- unlike setup_capability_ids, which legitimately
+    # carries it as the AI-access-choice marker.
+    assert state["setupCapabilityDeclinedIds"] == ["gmail", "calendar"]
+
+
+@pytest.mark.asyncio
+async def test_pre_vault_update_persists_and_preserves_declined_capability_ids():
+    fake = _FakeDb()
+    service = VaultKeysService()
+    service._db = fake
+
+    first = await service.update_pre_vault_state(
+        user_id="user-declined-capability",
+        setup_capability_declined_ids=["gmail", "calendar"],
+    )
+    assert first["setupCapabilityDeclinedIds"] == ["gmail", "calendar"]
+
+    # Omitting the field on a later, unrelated write must leave it untouched --
+    # same write-only-if-supplied contract as setup_capability_ids.
+    second = await service.update_pre_vault_state(
+        user_id="user-declined-capability",
+        onboarding_phase="capability_setup",
+        onboarding_active_capability="ria",
+    )
+    assert second["setupCapabilityDeclinedIds"] == ["gmail", "calendar"]
+
+
 def test_pre_vault_serialization_preserves_integer_timestamps():
     state = VaultKeysService._serialize_user_entry(
         {

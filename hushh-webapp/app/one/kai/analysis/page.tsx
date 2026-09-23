@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { ArrowLeft, Search, X } from "lucide-react";
+import { ArrowLeft, Search, X } from "@/components/icons";
 import { ClientRedirect } from "@/components/navigation/client-redirect";
 import { Badge } from "@/components/ui/badge";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
@@ -1236,7 +1236,7 @@ export function KaiAnalysisPageContent() {
                 activeValue={workspaceTab}
                 options={workspaceTabOptions}
                 heightMode="active"
-                viewportMinHeight="0px"
+                viewportMinHeight="fill"
                 onSelectionChange={(value) => setWorkspaceTab(value as WorkspaceTab)}
                 onSelectionCommit={(value) => setWorkspaceView(value as WorkspaceTab)}
               >

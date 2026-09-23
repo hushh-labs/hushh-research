@@ -132,7 +132,11 @@ describe("market route overlays", () => {
     );
     expect(source).not.toContain("eyebrow={marketStatus");
     expect(source).toContain('data-testid="market-header-status"');
-    expect(source).toContain("actionsInlineMobile");
+    // The title is not drawn (the bar and the tab already name the screen),
+    // so the status sits on its own line: inline, it took the right half and
+    // wrapped the description after three words.
+    expect(workspaceHeader).toContain("titleVisuallyHidden");
+    expect(source).not.toContain("actionsInlineMobile");
   });
 
   it("uses the shared header and content rhythm in every Finance tab state", () => {

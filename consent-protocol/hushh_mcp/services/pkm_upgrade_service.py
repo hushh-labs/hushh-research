@@ -182,7 +182,7 @@ class PkmUpgradeService:
         capabilities: list[str] = ["encrypted_payload_structure"]
         summary = manifest.get("summary_projection") if isinstance(manifest, dict) else {}
         summary = summary if isinstance(summary, dict) else {}
-        if manifest.get("paths") or manifest.get("top_level_scope_paths"):
+        if PkmUpgradeService._manifest_has_paths(manifest):
             capabilities.append("manifest_normalization")
         if manifest.get("scope_registry"):
             capabilities.append("scope_registry")
@@ -200,9 +200,20 @@ class PkmUpgradeService:
     def _domain_blockers(manifest: dict[str, Any]) -> list[str]:
         if not manifest:
             return ["missing_manifest"]
-        if not manifest.get("paths") and not manifest.get("top_level_scope_paths"):
+        if not PkmUpgradeService._manifest_has_paths(manifest):
             return ["manifest_has_no_paths"]
         return []
+
+    @staticmethod
+    def _manifest_has_paths(manifest: dict[str, Any]) -> bool:
+        if not isinstance(manifest, dict):
+            return False
+        if manifest.get("paths") or manifest.get("top_level_scope_paths"):
+            return True
+        try:
+            return int(manifest.get("path_count") or 0) > 0
+        except (TypeError, ValueError):
+            return False
 
     def _normalize_run(self, row: dict[str, Any] | None) -> dict[str, Any] | None:
         if not isinstance(row, dict):
@@ -364,22 +375,44 @@ class PkmUpgradeService:
             latest["steps"] = await self._list_steps(latest["run_id"])
         return latest
 
-    async def build_status(self, user_id: str) -> dict[str, Any]:
-        index = await self.pkm_service.get_index_v2(user_id)
+    async def build_status(
+        self,
+        user_id: str,
+        *,
+        resolved_index: PersonalKnowledgeModelIndex | None = None,
+        domain_manifests: dict[str, dict] | None = None,
+        index: PersonalKnowledgeModelIndex | None = None,
+        manifest_headers: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        index = resolved_index or index or await self.pkm_service.get_index_v2(user_id)
+        manifests_by_domain = {
+            self._clean_text(row.get("domain")): dict(row)
+            for row in (manifest_headers or [])
+            if isinstance(row, dict) and self._clean_text(row.get("domain"))
+        }
+        if domain_manifests is not None:
+            manifests_by_domain = {
+                self._clean_text(domain): dict(manifest)
+                for domain, manifest in domain_manifests.items()
+                if self._clean_text(domain) and isinstance(manifest, dict)
+            }
         available_domains = list(index.available_domains) if index else []
         if not available_domains:
-            try:
-                query = self.db.table("pkm_manifests").select("domain").eq("user_id", user_id)
-                rows = (await asyncio.to_thread(query.execute)).data or []
-                available_domains = sorted(
-                    {
-                        self._clean_text(row.get("domain")) or ""
-                        for row in rows
-                        if self._clean_text(row.get("domain"))
-                    }
-                )
-            except Exception:
-                available_domains = []
+            if domain_manifests is not None or manifest_headers is not None:
+                available_domains = sorted(manifests_by_domain)
+            else:
+                try:
+                    query = self.db.table("pkm_manifests").select("domain").eq("user_id", user_id)
+                    rows = (await asyncio.to_thread(query.execute)).data or []
+                    available_domains = sorted(
+                        {
+                            self._clean_text(row.get("domain")) or ""
+                            for row in rows
+                            if self._clean_text(row.get("domain"))
+                        }
+                    )
+                except Exception:
+                    available_domains = []
 
         # A user with no pkm_index row yet has nothing to be "behind" on: treat
         # them as already current instead of manufacturing a permanent
@@ -397,7 +430,9 @@ class PkmUpgradeService:
                 if isinstance(domain_summaries.get(domain), dict)
                 else {}
             )
-            manifest = await self.pkm_service.get_domain_manifest(user_id, domain) or {}
+            manifest = manifests_by_domain.get(domain)
+            if manifest is None:
+                manifest = await self.pkm_service.get_domain_manifest(user_id, domain) or {}
             summary_projection = (
                 manifest.get("summary_projection") if isinstance(manifest, dict) else {}
             )

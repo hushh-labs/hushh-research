@@ -43,6 +43,31 @@ installed before the first navigation.
 
 Domain rehearsals import the harness and add only their domain assertions. They must not duplicate secret-resolution or navigation logic.
 
+### Additive Memory preservation proof
+
+The Memory panel can install `window.__HUSHH_NATIVE_TEST__.pkmProof` only for
+an explicitly enabled, owner-matching, unlocked `bounded_mutation` reviewer
+session with `pkmProofEnabled: true`. This is test admission, not authentication.
+The existing auth-owner/vault-epoch guard and current token readiness still apply.
+
+Set `pkmProofExpectation` from the exact reviewed synthetic fixture, then invoke
+parameterless `begin()`. It binds one immutable addition in Financial or
+Professional before saving; one bridge cannot reset that allowance by remounting
+the panel. It reads a coherent existing domain snapshot through
+the application's forced browser-side loader. `verify` requires the successful
+save's exact, newer content revision and checks both occurrence preservation and
+exact resulting content, excluding unapproved additions. Both return only fixed
+status codes. Missing domains, replacement writes and empty-container expansion
+are not silently reinterpreted as successful additive proofs.
+
+Use the exact reviewed card and admitted save receipt, not guessed expectations
+or a historical request. The proof is one-shot and dies on panel unmount or
+session change. Complete preservation before navigating; same-session revisit
+and cold re-unlock require separate exact readback. This seam is not itself a
+completed browser rehearsal, and a save acknowledgment proves neither readback
+nor preservation. Never retain snapshots, expected private values, keys or tokens
+in diagnostic artifacts.
+
 ## Failure classification
 
 Fail closed and classify the first broken boundary:

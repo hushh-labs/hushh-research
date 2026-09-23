@@ -347,6 +347,7 @@ struct NativeTestConfiguration {
                 ? bridge.bootstrapUserId === bridge.expectedUserId
                 : null,
               bootstrapErrorClass: bridge.bootstrapErrorClass || "",
+              bootstrapDetail: bridge.bootstrapDetail || "",
               title: document.title || "",
               routeId: beacon ? (beacon.routeId || "") : "",
               authState: beacon ? (beacon.authState || "") : "",
@@ -581,6 +582,7 @@ struct NativeTestConfiguration {
               ? bridge.bootstrapUserId === bridge.expectedUserId
               : null,
             bootstrapErrorClass: bridge.bootstrapErrorClass || "",
+              bootstrapDetail: bridge.bootstrapDetail || "",
             jsErrorClass: bridge.lastJsErrorClass || "",
             jsRejectionClass: bridge.lastUnhandledRejectionClass || "",
             longImportWait: bridge.uiFlowLongWait === true,

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Loader2, UsersRound } from "lucide-react";
+import { Loader2, UsersRound } from "@/components/icons";
 
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import {
@@ -101,7 +101,7 @@ export function SelectedContactsSheet({
   );
 
   return (
-    <Drawer open={open} onOpenChange={onOpenChange}>
+    <Drawer modal open={open} onOpenChange={onOpenChange}>
       <DrawerContent
         className="max-h-[80vh]"
         data-testid="sms-selected-sheet"

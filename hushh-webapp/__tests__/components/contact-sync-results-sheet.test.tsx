@@ -52,7 +52,7 @@ function result(
 }
 
 describe("ContactSyncResultsSheet", () => {
-  it("survives launcher focus restoration and still dismisses with Escape", async () => {
+  it("keeps the launcher inert, traps focus, and still dismisses with Escape", async () => {
     const onOpenChange = vi.fn();
     render(
       <>
@@ -69,15 +69,26 @@ describe("ContactSyncResultsSheet", () => {
       </>,
     );
     const sheet = screen.getByRole("dialog", { name: "Contact sync results" });
-    await act(async () => { screen.getByRole("button", { name: "Launch contacts" }).focus(); });
+    expect(
+      screen.queryByRole("button", { name: "Launch contacts" }),
+    ).toBeNull();
+    const launcher = screen.getByRole("button", {
+      name: "Launch contacts",
+      hidden: true,
+    });
+    await act(async () => {
+      launcher.focus();
+    });
     expect(onOpenChange).not.toHaveBeenCalled();
     expect(sheet).toBeInTheDocument();
+    expect(sheet).toContainElement(document.activeElement as HTMLElement);
+    expect(document.body).toHaveStyle({ pointerEvents: "none" });
     fireEvent.keyDown(sheet, { key: "Escape" });
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
   it.each([false, true])(
-    "uses the onboarding overlay only for takeover=%s",
+    "uses a blocking blurred overlay with takeover=%s",
     (takeover) => {
       render(
         <ContactSyncResultsSheet
@@ -94,14 +105,17 @@ describe("ContactSyncResultsSheet", () => {
 
       const sheet = screen.getByRole("dialog", { name: "Contact sync results" });
       const overlay = document.querySelector('[data-slot="sheet-overlay"]');
+      expect(overlay).toHaveClass("[backdrop-filter:var(--app-scrim-filter)]");
       if (takeover) {
         expect(sheet).toHaveClass("z-[9101]");
         expect(overlay).toHaveClass("z-[9100]");
       } else {
-        // The app's Sheet primitive has always defaulted to non-modal. Keep
-        // normal Connect/Location interactions unchanged by the nested layer.
-        expect(sheet).toHaveClass("z-[712]");
-        expect(overlay).toBeNull();
+        // The normal surface uses the shared stack (the --z-* ladder), but it
+        // is still modal: while results are open the Connect/Location page
+        // behind them is blurred, inaccessible and cannot receive pointer input.
+        expect(sheet).toHaveClass("z-(--z-sheet)");
+        expect(overlay).toHaveClass("z-(--z-sheet-overlay)");
+        expect(document.body).toHaveStyle({ pointerEvents: "none" });
       }
     },
   );

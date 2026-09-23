@@ -86,7 +86,11 @@ vi.mock("@/lib/voice/location-voice-actions", () => ({
 }));
 
 import { SaveMySoul } from "@/components/location/sos/save-my-soul";
-import { clearSosIncident } from "@/lib/one-location/sos-incident";
+import {
+  clearSosIncident,
+  loadSosIncident,
+  saveSosIncident,
+} from "@/lib/one-location/sos-incident";
 import {
   dispatchServerFrame,
   useVoiceSessionStore,
@@ -145,7 +149,13 @@ describe("SaveMySoul", () => {
     vi.clearAllMocks();
     clearSosIncident();
     useVoiceSessionStore.getState().reset();
-    service.getState.mockResolvedValue(stateWith());
+    // The server lists every grant this screen created: a state read after a
+    // send carries the SOS shares, as it does in production. A read that did
+    // not would tell the screen the alert is over.
+    const createdGrants: Array<Record<string, unknown>> = [];
+    service.getState.mockImplementation(async () =>
+      stateWith({ ownerGrants: [...createdGrants] }),
+    );
     service.captureCurrentPosition.mockResolvedValue({
       latitude: 12.97194,
       longitude: 77.59456,
@@ -155,17 +165,21 @@ describe("SaveMySoul", () => {
     });
     let grantCount = 0;
     service.createGrant.mockImplementation(
-      async ({ recipientUserId }: { recipientUserId: string }) => ({
-        id: `grant-${++grantCount}`,
-        ownerUserId: "user-1",
-        recipientUserId,
-        recipientKeyId: "key",
-        status: "active",
-        consentScope: "location",
-        capabilityScopes: [],
-        durationHours: 8,
-        shareKind: "sos",
-      }),
+      async ({ recipientUserId }: { recipientUserId: string }) => {
+        const grant = {
+          id: `grant-${++grantCount}`,
+          ownerUserId: "user-1",
+          recipientUserId,
+          recipientKeyId: "key",
+          status: "active",
+          consentScope: "location",
+          capabilityScopes: [],
+          durationHours: 8,
+          shareKind: "sos",
+        };
+        createdGrants.push(grant);
+        return grant;
+      },
     );
     service.sendSosEmails.mockResolvedValue({
       emailed: 1,
@@ -256,7 +270,7 @@ describe("SaveMySoul", () => {
       "Rahul Mehta: not alerted (notifications off)",
     );
     expect(delivery).toHaveTextContent("Emailed 1.");
-    expect(delivery).toHaveTextContent("No email on file for Rahul Mehta.");
+    expect(delivery).toHaveTextContent("No mail on file for Rahul Mehta.");
     expect(delivery).toHaveTextContent("Skipped Sam Lee — not ready.");
     expect(service.sendSosEmails).toHaveBeenCalledWith(
       expect.objectContaining({ grantIds: ["grant-1", "grant-2"] }),
@@ -356,6 +370,104 @@ describe("SaveMySoul", () => {
     expect(reported).toHaveAttribute("data-phase", "reported");
     expect(reported).toHaveTextContent("Sent to Priya Nair");
     expect(reported).toHaveTextContent("Not alerted: Rahul Mehta.");
+  });
+
+  it("renders sos_unverified (and any unknown report) as unconfirmed, never as Not sent or Sent", async () => {
+    render(<SaveMySoul />);
+    await screen.findAllByTestId("sos-contact");
+    act(() => {
+      useVoiceSessionStore
+        .getState()
+        .emitPendingResolved("pa-sos", "executed", {
+          status: "sos_grants_created",
+          grant_ids: ["grant-a"],
+          armed: [
+            { grant_id: "grant-a", user_id: "user-2", display_name: "Priya Nair" },
+          ],
+        });
+    });
+    act(() => {
+      useVoiceSessionStore
+        .getState()
+        .emitToolResult("report_save_my_soul_delivery", {
+          status: "sos_unverified",
+          reason_code: "verification_unavailable",
+          delivered: [],
+          not_alerted: [],
+          expected_grant_ids: ["grant-a"],
+          alert_active: true,
+        });
+    });
+    const reported = screen.getByTestId("sos-voice-state");
+    expect(reported).toHaveAttribute("data-phase", "reported");
+    const headline = screen.getByTestId("sos-voice-report-headline");
+    expect(headline).toHaveTextContent("Couldn't confirm delivery");
+    expect(headline).toHaveAttribute("data-report-status", "sos_unverified");
+    expect(reported).not.toHaveTextContent("Not sent");
+    expect(reported).not.toHaveTextContent(/\bSent\b/);
+    expect(reported).not.toHaveTextContent("Nobody received");
+    expect(reported).toHaveTextContent("not a verdict");
+
+    // A report status this build does not know is not a verdict either.
+    act(() => {
+      useVoiceSessionStore
+        .getState()
+        .emitToolResult("report_save_my_soul_delivery", {
+          status: "sos_report_v2_unknown",
+        });
+    });
+    const unknown = screen.getByTestId("sos-voice-report-headline");
+    expect(unknown).toHaveTextContent("Couldn't confirm delivery");
+    expect(unknown).toHaveAttribute("data-report-status", "unknown");
+    expect(screen.getByTestId("sos-voice-state")).not.toHaveTextContent(
+      "Not sent",
+    );
+
+    // The verified verdict still reads as one.
+    act(() => {
+      useVoiceSessionStore
+        .getState()
+        .emitToolResult("report_save_my_soul_delivery", {
+          status: "sos_not_sent",
+          delivered: [],
+          not_alerted: ["Priya Nair"],
+        });
+    });
+    expect(screen.getByTestId("sos-voice-report-headline")).toHaveTextContent(
+      "Not sent",
+    );
+    expect(screen.getByTestId("sos-voice-state")).not.toHaveTextContent(
+      "not a verdict",
+    );
+  });
+
+  it("persists a voice-armed alert owner-scoped and shows only this owner's record", async () => {
+    // Another account's record on a shared device is never this person's alert.
+    saveSosIncident({
+      grantIds: ["grant-other"],
+      startedAt: "2026-09-15T09:00:00.000Z",
+      ownerUserId: "user-9",
+    });
+    render(<SaveMySoul />);
+    await screen.findAllByTestId("sos-contact");
+    expect(screen.queryByTestId("sos-active")).toBeNull();
+
+    act(() => {
+      useVoiceSessionStore
+        .getState()
+        .emitPendingResolved("pa-sos", "executed", {
+          status: "sos_grants_created",
+          grant_ids: ["grant-a"],
+          armed: [
+            { grant_id: "grant-a", user_id: "user-2", display_name: "Priya Nair" },
+          ],
+        });
+    });
+    expect(screen.getByTestId("sos-active")).toBeInTheDocument();
+    const stored = loadSosIncident("user-1");
+    expect(stored?.grantIds).toEqual(["grant-a"]);
+    expect(stored?.ownerUserId).toBe("user-1");
+    expect(loadSosIncident("user-9")).toBeNull();
   });
 
   it("clears the active state when the server says sos_stopped", async () => {

@@ -110,6 +110,22 @@ export function getCapabilityStatusDisplay(
   }
 }
 
+/**
+ * Whether a capability's icon should render at full color (vs. greyscale)
+ * wherever it appears. Deliberately separate from {@link CapabilityStatusTone}:
+ * that tone drives label/action emphasis and already has other states (e.g.
+ * `"needs-attention"`) mapped away from `"muted"` for reasons unrelated to
+ * whether the capability is actually set up. This is a narrower, purely
+ * visual question -- only a genuinely `"completed"` capability is "onboarded".
+ * A capability with no resolvable status (not tracked by setup state at all)
+ * is treated as onboarded so untracked roster tiles keep rendering as they
+ * always have.
+ */
+export function isCapabilityOnboarded(status: CapabilityStatus | undefined): boolean {
+  if (!status) return true;
+  return status.state === "completed";
+}
+
 function blockedLabel(status: CapabilityStatus, actionLabel?: string): string {
   switch (status.prerequisite) {
     case "vault":

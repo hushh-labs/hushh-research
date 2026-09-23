@@ -17,7 +17,7 @@
  * looks identical to every other radio in the app.
  */
 
-import { Star } from "lucide-react";
+import { Star } from "@/components/icons";
 import { RadioGroup as RadioGroupPrimitive } from "radix-ui";
 
 import {

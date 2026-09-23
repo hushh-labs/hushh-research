@@ -212,3 +212,7 @@ outputs/
 # GitHub Actions authentication files are never source or image inputs.
 gha-creds-*.json
 **/gha-creds-*.json
+
+# Opt-in local diagnostics (for example KYC_DEBUG_LOGGING=true).
+/logs/
+*.log

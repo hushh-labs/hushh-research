@@ -74,4 +74,6 @@ regexes = [
   # files still trips the rule with a different secret. A path allowlist would
   # blind the scanner to that; this does not.
   '''^max_length=[0-9]+$''',
+  # Public financial subdomain identifiers, not credentials; exact values only.
+  '''^financial\.(holdings|securities|derived)_v1$''',
 ]

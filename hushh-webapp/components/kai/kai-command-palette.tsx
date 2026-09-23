@@ -1,5 +1,7 @@
 "use client";
 
+import { mailDisplayLabel } from "@/lib/copy/mail-terminology";
+
 import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import {
   Activity,
@@ -11,7 +13,7 @@ import {
   TrendingUp,
   UserRound,
   X,
-} from "lucide-react";
+} from "@/components/icons";
 
 import {
   CommandDialog,
@@ -907,7 +909,7 @@ export function KaiCommandPalette({
     const normalized = query.trim().toLowerCase();
     if (!normalized) return null;
     return actionMatches.find(({ action }) =>
-      [action.action_id, action.label, ...action.aliases].some(
+      [action.action_id, action.label, mailDisplayLabel(action.label), ...action.aliases].some(
         (value) => value.trim().toLowerCase() === normalized,
       ),
     );
@@ -976,7 +978,7 @@ export function KaiCommandPalette({
   }
 
   const commandItemClass =
-    "rounded-lg border border-transparent transition-colors duration-300 hover:bg-primary/10 hover:text-foreground data-[selected=true]:border-primary/25 data-[selected=true]:bg-primary/15 data-[selected=true]:text-foreground data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-45";
+    "rounded-lg border border-transparent transition-[background-color,border-color,color,transform] duration-100 ease-out active:scale-[0.98] hover:bg-primary/10 hover:text-foreground data-[selected=true]:border-primary/25 data-[selected=true]:bg-primary/15 data-[selected=true]:text-foreground data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-45";
 
   // On small phones search is an input surface, not a command palette. Keep
   // the same gateway-ranked actions, but render them as ordinary buttons so
@@ -1061,7 +1063,7 @@ export function KaiCommandPalette({
             disabled={actionDisabled}
           >
             <Icon icon={Activity} size="sm" className="text-muted-foreground" />
-            <span className="min-w-0 truncate font-medium">{action.label}</span>
+            <span className="min-w-0 truncate font-medium">{mailDisplayLabel(action.label)}</span>
           </button>
         );
       })}
@@ -1104,7 +1106,7 @@ export function KaiCommandPalette({
           srDescription="Search or ask One"
           data-keyboard-anchor="bottom"
           data-search-surface="ios-mobile"
-          className="!top-auto !bottom-[calc(var(--kb-height,0px)+var(--bottom-chrome-stack-height,0px)+0.5rem)] !left-2 !w-[calc(100%-1rem)] !max-w-none !translate-x-0 !translate-y-0 !overflow-hidden !rounded-[26px] !border-black/[0.08] !bg-background/96 !p-2 !shadow-[0_18px_52px_-28px_rgba(0,0,0,.52)]"
+          className="!top-auto !bottom-[calc(var(--kb-height,0px)+var(--palette-chrome-clearance,var(--bottom-chrome-stack-height,0px))+0.5rem)] !left-2 !w-[calc(100%-1rem)] !max-w-none !translate-x-0 !translate-y-0 !overflow-hidden !rounded-[26px] !border-black/[0.08] !bg-background/96 !p-2 !shadow-[0_18px_52px_-28px_rgba(0,0,0,.52)]"
         >
           <DialogHeader className="sr-only">
             <DialogTitle>Search or ask One</DialogTitle>
@@ -1169,7 +1171,7 @@ export function KaiCommandPalette({
       title="Search or ask One"
       data-keyboard-anchor="bottom"
       data-search-surface="command"
-      className="top-auto bottom-[calc(var(--kb-height,0px)+var(--bottom-chrome-stack-height,0px)+0.5rem)] max-h-[min(calc(100dvh-var(--kb-height,0px)-var(--bottom-chrome-stack-height,0px)-1rem),34rem)] w-[calc(100%-1rem)] max-sm:!left-2 max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:rounded-[26px] max-sm:border-black/[0.08] max-sm:bg-background/96 max-sm:p-1.5 max-sm:shadow-[0_18px_52px_-28px_rgba(0,0,0,.52)] sm:top-1/2 sm:bottom-auto sm:w-full sm:max-h-none sm:-translate-y-1/2"
+      className="top-auto bottom-[calc(var(--kb-height,0px)+var(--palette-chrome-clearance,var(--bottom-chrome-stack-height,0px))+0.5rem)] max-h-[min(calc(100dvh-var(--kb-height,0px)-var(--palette-chrome-clearance,var(--bottom-chrome-stack-height,0px))-1rem),34rem)] w-[calc(100%-1rem)] max-sm:!left-2 max-sm:!translate-x-0 max-sm:!translate-y-0 max-sm:rounded-[26px] max-sm:border-black/[0.08] max-sm:bg-background/96 max-sm:p-1.5 max-sm:shadow-[0_18px_52px_-28px_rgba(0,0,0,.52)] sm:top-1/2 sm:bottom-auto sm:w-full sm:max-h-none sm:-translate-y-1/2"
     >
       <CommandList className="max-h-[min(56dvh,24rem)] sm:max-h-[300px]">
         <CommandEmpty className={isFiltering ? undefined : "hidden"}>
@@ -1199,7 +1201,7 @@ export function KaiCommandPalette({
                   className="mr-2 text-muted-foreground"
                 />
                 <span className="min-w-0 truncate font-medium">
-                  {action.label}
+                  {mailDisplayLabel(action.label)}
                 </span>
               </CommandItem>
             ))}
@@ -1222,7 +1224,7 @@ export function KaiCommandPalette({
                   className="mr-2 text-muted-foreground"
                 />
                 <span className="min-w-0 truncate font-medium">
-                  {action.label}
+                  {mailDisplayLabel(action.label)}
                 </span>
               </CommandItem>
             ))}
@@ -1249,7 +1251,7 @@ export function KaiCommandPalette({
                 />
                 <span className="flex min-w-0 flex-col">
                   <span className="min-w-0 truncate font-medium">
-                    {action.label}
+                    {mailDisplayLabel(action.label)}
                   </span>
                   {/* The reason a surface published a dead end, said back to
                       the person. Without it the remedy is a bare link and they
@@ -1323,6 +1325,7 @@ export function KaiCommandPalette({
                   disabled={actionDisabled}
                   value={[
                     action.label,
+                    mailDisplayLabel(action.label),
                     action.action_id,
                     action.aliases.join(" "),
                     action.search_keywords.join(" "),
@@ -1334,7 +1337,7 @@ export function KaiCommandPalette({
                     size="sm"
                     className="mr-2 text-muted-foreground"
                   />
-                  <span className="font-medium">{action.label}</span>
+                  <span className="font-medium">{mailDisplayLabel(action.label)}</span>
                 </CommandItem>
               );
             })}

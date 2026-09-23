@@ -8,7 +8,13 @@ import { DeviceResourceCacheService } from "@/lib/services/device-resource-cache
 import { RiaOnboardingStatusLocalService } from "@/lib/services/ria-onboarding-status-local-service";
 import { bumpRiaInvalidationEpoch } from "@/lib/cache/ria-invalidation-epoch";
 import { bumpPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
+import {
+  dispatchLocalPkmDomainChanged,
+  dispatchPkmDomainChanged,
+  type PkmDomainChangeDetail,
+} from "@/lib/pkm/pkm-domain-change-events";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
+import { OneLocationMapPreferencesResource } from "@/lib/one-location/one-location-map-preferences-resource";
 import {
   clearAllLocationWorkspaceMemory,
   clearLocationWorkspaceMemory,
@@ -20,6 +26,14 @@ import {
 } from "@/lib/one-location/location-control-state";
 import type { PersonalKnowledgeModelMetadata } from "@/lib/services/personal-knowledge-model-service";
 import type { FeedListResponse } from "@/lib/services/feed-service";
+import { dispatchConnectionGraphChanged } from "@/lib/connections/connection-graph-events";
+import {
+  dispatchOneLocationStateChanged,
+  type OneLocationStateChangedDetail,
+  type OneLocationStateDomain,
+} from "@/lib/one-location/one-location-state-events";
+import { dispatchAgentChatHistoryInvalidated } from "@/lib/agent/agent-chat-history-events";
+import { advanceGoogleConnectionEpoch } from "@/lib/cache/google-connection-epoch";
 
 type DomainSummaryPatch = Record<string, unknown>;
 
@@ -339,25 +353,31 @@ export class CacheSyncService {
       domainSummary?: DomainSummaryPatch;
       metadataTimestamp?: string;
       writeThroughMetadata?: boolean;
+      eventDataVersion?: number;
+      emitEvent?: boolean;
+      eventId?: string;
     },
   ): void {
     const emitDomainStoredEvent = () => {
-      if (typeof window === "undefined") return;
+      if (typeof window === "undefined" || options?.emitEvent === false) return;
       const detail = {
         userId,
         domain,
-        dataVersion: options?.encryptedBlob?.dataVersion ?? null,
+        dataVersion:
+          options?.encryptedBlob?.dataVersion ??
+          options?.eventDataVersion ??
+          null,
         updatedAt:
           options?.encryptedBlob?.updatedAt ??
           options?.metadataTimestamp ??
           null,
       };
       window.dispatchEvent(new CustomEvent("pkm-domain-stored", { detail }));
-      window.dispatchEvent(
-        new CustomEvent("pkm-domain-changed", {
-          detail: { ...detail, operation: "stored" },
-        }),
-      );
+      dispatchPkmDomainChanged({
+        ...detail,
+        operation: "stored",
+        ...(options?.eventId ? { eventId: options.eventId } : null),
+      });
     };
     bumpPkmInvalidationEpoch(userId);
     const cache = CacheService.getInstance();
@@ -439,7 +459,11 @@ export class CacheSyncService {
     emitDomainStoredEvent();
   }
 
-  static onPkmDomainCleared(userId: string, domain: string): void {
+  static onPkmDomainCleared(
+    userId: string,
+    domain: string,
+    options?: { emitEvent?: boolean; eventId?: string },
+  ): void {
     const cache = CacheService.getInstance();
     cache.invalidate(CACHE_KEYS.DOMAIN_MANIFEST(userId, domain));
     cache.invalidate(CACHE_KEYS.DOMAIN_DATA(userId, domain));
@@ -459,22 +483,46 @@ export class CacheSyncService {
       this.invalidateKaiFinancialResource(userId);
     }
     bumpPkmInvalidationEpoch(userId);
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(
-        new CustomEvent("pkm-domain-changed", {
-          detail: {
-            userId,
-            domain,
-            dataVersion: null,
-            updatedAt: null,
-            operation: "cleared",
-          },
-        }),
-      );
+    if (options?.emitEvent !== false) {
+      dispatchPkmDomainChanged({
+        userId,
+        domain,
+        dataVersion: null,
+        updatedAt: null,
+        operation: "cleared",
+        ...(options?.eventId ? { eventId: options.eventId } : null),
+      });
     }
   }
 
-  static onPkmDomainRestored(userId: string, domain: string): void {
+  /** Apply a peer-tab doorbell without rebroadcasting it back to the channel. */
+  static onRemotePkmDomainChanged(detail: PkmDomainChangeDetail): void {
+    if (detail.operation === "cleared") {
+      this.onPkmDomainCleared(detail.userId, detail.domain, {
+        emitEvent: false,
+      });
+    } else if (detail.operation === "restored") {
+      this.onPkmDomainRestored(detail.userId, detail.domain, {
+        emitEvent: false,
+      });
+    } else {
+      this.onPkmDomainStored(detail.userId, detail.domain, {
+        eventDataVersion: detail.dataVersion ?? undefined,
+        metadataTimestamp: detail.updatedAt ?? undefined,
+        writeThroughMetadata: false,
+        emitEvent: false,
+      });
+    }
+    // Window-only consumers in this tab still need the peer transition. Do not
+    // rebroadcast it, otherwise tabs can echo the same doorbell indefinitely.
+    dispatchLocalPkmDomainChanged(detail);
+  }
+
+  static onPkmDomainRestored(
+    userId: string,
+    domain: string,
+    options?: { emitEvent?: boolean },
+  ): void {
     const cache = CacheService.getInstance();
     cache.invalidateMany([
       CACHE_KEYS.DOMAIN_MANIFEST(userId, domain),
@@ -501,18 +549,14 @@ export class CacheSyncService {
       this.onKaiMarketContextChanged(userId);
     }
     bumpPkmInvalidationEpoch(userId);
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(
-        new CustomEvent("pkm-domain-changed", {
-          detail: {
-            userId,
-            domain,
-            dataVersion: null,
-            updatedAt: null,
-            operation: "restored",
-          },
-        }),
-      );
+    if (options?.emitEvent !== false) {
+      dispatchPkmDomainChanged({
+        userId,
+        domain,
+        dataVersion: null,
+        updatedAt: null,
+        operation: "restored",
+      });
     }
   }
 
@@ -547,8 +591,14 @@ export class CacheSyncService {
   }
 
   static onPlaidSourceProjected(userId: string): void {
-    this.invalidateKaiFinancialResource(userId);
+    // The device copy holds the same projection and would reopen stale.
+    this.invalidateKaiFinancialResource(userId, { includeDevice: true });
     this.onKaiMarketContextChanged(userId);
+  }
+
+  static onGoogleConnectionMutated(userId: string): void {
+    advanceGoogleConnectionEpoch(userId);
+    CacheService.getInstance().invalidatePattern(`google_connection_${userId}_`);
   }
 
   static onVaultStateChanged(
@@ -558,9 +608,11 @@ export class CacheSyncService {
     },
   ): void {
     const cache = CacheService.getInstance();
+    this.onGoogleConnectionMutated(userId);
     // This invalidates any in-flight Location load before it can republish a
     // server snapshot after the vault security boundary changes.
     OneLocationStateResource.discard(userId);
+    OneLocationMapPreferencesResource.discard(userId);
     clearLocationWorkspaceMemory(userId);
     clearOneLocationControlRuntime(userId);
     if (typeof options?.hasVault === "boolean") {
@@ -607,6 +659,10 @@ export class CacheSyncService {
 
   static onConsentMutated(userId: string): void {
     const cache = CacheService.getInstance();
+    // Consent changes alter which lifecycle cards and safe descriptors are
+    // authoritative. The Chat-history owner clears its own snapshot without
+    // making this cache owner import native-capacitor modules.
+    dispatchAgentChatHistoryInvalidated(userId);
     cache.invalidate(CACHE_KEYS.ACTIVE_CONSENTS(userId));
     cache.invalidate(CACHE_KEYS.PENDING_CONSENTS(userId));
     cache.invalidate(CACHE_KEYS.CONSENT_AUDIT_LOG(userId));
@@ -706,6 +762,58 @@ export class CacheSyncService {
     this.onConnectionCapabilityMutated(userId);
     OneLocationStateResource.invalidate(userId);
     clearLocationWorkspaceMemory(userId);
+    dispatchConnectionGraphChanged(userId);
+  }
+
+  /**
+   * Invalidate One Location once, then fan the mutation out to every tab.
+   * Consumers decide which bounded projections (for example the SMS roster)
+   * need an additional authoritative read from the supplied domains.
+   */
+  static onOneLocationStateMutated(
+    userId: string,
+    domains: OneLocationStateDomain[] = ["workspace"],
+    context: {
+      notificationType?: string;
+      circleId?: string;
+      memberUserId?: string;
+      eventId?: string;
+    } = {},
+  ): void {
+    if (!userId) return;
+    if (domains.some((domain) => domain !== "map_preferences")) {
+      OneLocationStateResource.invalidate(userId);
+    }
+    if (domains.includes("map_preferences")) {
+      if (context.eventId) {
+        OneLocationMapPreferencesResource.invalidateFromEvent(
+          userId,
+          context.eventId,
+        );
+      } else {
+        OneLocationMapPreferencesResource.invalidate(userId);
+      }
+    }
+    dispatchOneLocationStateChanged(userId, domains, context);
+  }
+
+  /** Apply a peer-tab state doorbell without rebroadcasting it. */
+  static onRemoteOneLocationStateChanged(
+    detail: OneLocationStateChangedDetail,
+  ): void {
+    if (detail.domains.some((domain) => domain !== "map_preferences")) {
+      OneLocationStateResource.invalidate(detail.userId);
+    }
+    if (detail.domains.includes("map_preferences")) {
+      if (detail.eventId) {
+        OneLocationMapPreferencesResource.invalidateFromEvent(
+          detail.userId,
+          detail.eventId,
+        );
+      } else {
+        OneLocationMapPreferencesResource.invalidate(detail.userId);
+      }
+    }
   }
 
   /**
@@ -824,6 +932,7 @@ export class CacheSyncService {
     const cache = CacheService.getInstance();
     if (userId) {
       OneLocationStateResource.discard(userId);
+      OneLocationMapPreferencesResource.discard(userId);
       clearLocationWorkspaceMemory(userId);
       clearOneLocationControlRuntime(userId);
       cache.invalidateUser(userId);
@@ -835,6 +944,7 @@ export class CacheSyncService {
       return;
     }
     OneLocationStateResource.discardAll();
+    OneLocationMapPreferencesResource.discardAll();
     clearAllLocationWorkspaceMemory();
     clearAllOneLocationControlRuntime();
     cache.clear();

@@ -46,6 +46,8 @@ describe("OneHomePage", () => {
     await waitFor(() => {
       expect(getByText("One dashboard")).toBeTruthy();
     });
-    expect(mocks.useCapabilitySetupStates).toHaveBeenCalledWith();
+    expect(mocks.useCapabilitySetupStates).toHaveBeenCalledWith({
+      enrichRia: true,
+    });
   });
 });

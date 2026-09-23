@@ -54,6 +54,7 @@ describe("observability route map", () => {
     ).toBe("connected_systems");
     expect(resolveRouteId("/research")).toBe("research");
     expect(resolveRouteId("/research/protocol")).toBe("research_protocol");
+    expect(resolveRouteId("/manishhussh")).toBe("founder_profile");
     expect(resolveRouteId("/products/hushh-tech/launch")).toBe("hushh_tech_launch");
     expect(resolveRouteId("/blog")).toBe("blog");
     expect(resolveRouteId("/blog/sample")).toBe("blog_post");
@@ -140,9 +141,6 @@ describe("observability route map", () => {
     expect(resolveRouteId("/one/kai/plaid/oauth/return")).toBe(
       "kai_plaid_oauth_return",
     );
-    expect(resolveRouteId("/one/kai/alpaca/oauth/return")).toBe(
-      "kai_alpaca_oauth_return",
-    );
     expect(resolveRouteId("/one/kai/funding-trade")).toBe(
       "kai_dashboard_legacy_redirect",
     );
@@ -196,14 +194,6 @@ describe("observability route map", () => {
     expect(normalizeApiPathToTemplate("/api/ria/workspace/user_123")).toBe(
       "/api/ria/workspace/{investor_user_id}",
     );
-    expect(
-      normalizeApiPathToTemplate("/api/kai/plaid/trades/funded/create"),
-    ).toBe("/api/kai/plaid/trades/funded/create");
-    expect(
-      normalizeApiPathToTemplate(
-        "/api/kai/plaid/trades/funded/intent_123/refresh",
-      ),
-    ).toBe("/api/kai/plaid/trades/funded/{intent_id}/refresh");
     expect(
       normalizeApiPathToTemplate("/api/consent/center?actor=ria&view=outgoing"),
     ).toBe("/api/consent/center");

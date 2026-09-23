@@ -57,6 +57,12 @@ export type PreVaultUserState = {
   // the durable, cross-device echo. Always an array (never null) so callers can
   // treat absent as "nothing set up".
   setupCapabilityIds: string[];
+  // Capabilities the person explicitly declined (e.g. dismissed a connect
+  // prompt), so a proactive prompt knows not to re-ask. Never includes
+  // "connections" -- that prerequisite is mandatory. Distinct from
+  // setupCapabilityIds, which only ever records completions. Always an
+  // array (never null), same convention as setupCapabilityIds.
+  setupCapabilityDeclinedIds: string[];
   setupCapabilitiesUpdatedAt: number | null;
   setupStateUpdatedAt: number | null;
   oneRuntimeSetupChoice: OneRuntimeSetupChoice | null;
@@ -91,6 +97,7 @@ type PreVaultStateUpdatePayload = {
   navSetupCompletedAt?: number | null;
   navSetupSkippedAt?: number | null;
   setupCapabilityIds?: string[];
+  setupCapabilityDeclinedIds?: string[];
   oneRuntimeSetupChoice?: OneRuntimeSetupChoice | null;
   onboardingJourneyVersion?: 1;
   onboardingPhase?: PreVaultUserState["onboardingPhase"];
@@ -189,6 +196,7 @@ function normalizeResponse(
     navSetupCompletedAt: toMillis(payload.navSetupCompletedAt),
     navSetupSkippedAt: toMillis(payload.navSetupSkippedAt),
     setupCapabilityIds: toStringArray(payload.setupCapabilityIds),
+    setupCapabilityDeclinedIds: toStringArray(payload.setupCapabilityDeclinedIds),
     setupCapabilitiesUpdatedAt: toMillis(payload.setupCapabilitiesUpdatedAt),
     setupStateUpdatedAt: toMillis(payload.setupStateUpdatedAt),
     oneRuntimeSetupChoice: normalizeOneRuntimeSetupChoice(
@@ -449,6 +457,32 @@ export class PreVaultUserStateService {
   ): Promise<PreVaultUserState> {
     return this.updatePreVaultState(userId, {
       setupCapabilityIds: toStringArray([...setupCapabilityIds]),
+    });
+  }
+
+  /**
+   * Whether the person has explicitly declined this capability (e.g.
+   * dismissed a connect prompt) -- as opposed to simply never having
+   * reached for it. A JIT connect prompt checks this before it interrupts.
+   */
+  static hasDeclinedCapability(
+    state: PreVaultUserState | null | undefined,
+    capabilityId: string,
+  ): boolean {
+    return Boolean(state?.setupCapabilityDeclinedIds.includes(capabilityId));
+  }
+
+  /**
+   * Mirror the per-capability declined set to the durable backend store,
+   * same replace-the-full-set contract as `syncSetupCapabilities`: the
+   * caller passes the full desired set already merged with the local copy.
+   */
+  static async syncDeclinedCapabilities(
+    userId: string,
+    setupCapabilityDeclinedIds: readonly string[],
+  ): Promise<PreVaultUserState> {
+    return this.updatePreVaultState(userId, {
+      setupCapabilityDeclinedIds: toStringArray([...setupCapabilityDeclinedIds]),
     });
   }
 

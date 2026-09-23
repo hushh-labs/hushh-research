@@ -124,12 +124,6 @@ export function deriveVoiceRouteScreen(
   ) {
     return { screen: "kai_plaid_oauth_return", subview: null };
   }
-  if (
-    normalizedPath === ROUTES.KAI_ALPACA_OAUTH_RETURN ||
-    normalizedPath === ROUTES.LEGACY_KAI_ALPACA_OAUTH_RETURN
-  ) {
-    return { screen: "kai_alpaca_oauth_return", subview: null };
-  }
   if (normalizedPath === ROUTES.KAI_NEWS) {
     return { screen: "kai_market_news", subview: null };
   }
@@ -218,7 +212,8 @@ export function deriveVoiceRouteScreen(
     return { screen: "kai_portfolio_dashboard", subview: "overview" };
   }
   if (normalizedPath === ROUTES.RIA_HOME) {
-    return { screen: "ria_home", subview: query.get("tab") || null };
+    // /ria forwards to /ria/profile; do not advertise retired home controls.
+    return { screen: "compatibility_redirect", subview: null };
   }
   if (normalizedPath === ROUTES.RIA_ONBOARDING) {
     return { screen: "ria_onboarding", subview: query.get("step") || null };
@@ -353,6 +348,14 @@ export function deriveVoiceRouteScreen(
   // Legacy direct links settle immediately on the canonical RIA profile.
   if (normalizedPath === ROUTES.PROFILE_REGULATORY) {
     return { screen: "profile_regulatory", subview: null };
+  }
+  if (
+    normalizedPath === ROUTES.PROFILE_CONNECTORS ||
+    normalizedPath === `${ROUTES.PROFILE_CONNECTORS}/oauth/return`
+  ) {
+    // Compatibility entries retain their authored screen until the redirect
+    // settles on Chat's connector panel.
+    return { screen: "profile_connectors", subview: null };
   }
   if (normalizedPath === ROUTES.PROFILE) {
     const { panel } = resolveProfileRouteState(normalizedPath, query);

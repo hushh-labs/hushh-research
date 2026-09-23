@@ -244,9 +244,9 @@ describe("LiveShareStatusCard", () => {
 
   it("offers Change end time on a single share after the primary share action", () => {
     // The reported bug: a 30-minute share could be stopped and nothing else.
-    // The control has to be there, but the compact Now card keeps it below the
-    // primary "Share with more" CTA instead of exposing the duration editor on
-    // the page.
+    // The control has to be there, and the compact Now card keeps it in the
+    // same action row, after the primary "Share with more" CTA, instead of
+    // exposing the duration editor on the page.
     const onChangeDuration = vi.fn();
     render(
       <LiveShareStatusCard

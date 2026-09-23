@@ -10,8 +10,8 @@ const source = readFileSync(
 
 describe("Gmail workspace background loading contract", () => {
   it("keeps the Gmail shell actionable while connection status uses an accessible skeleton", () => {
-    expect(source).toContain('aria-label="Checking your Gmail status"');
-    expect(source).toContain("Checking your Gmail status");
+    expect(source).toContain('aria-label="Checking your Mail status"');
+    expect(source).toContain("Checking your Mail status");
     expect(source).toContain("<Skeleton className=");
     expect(source).toContain("onClick={() => void handleConnectGmail()}");
     expect(source).not.toContain("if (loadingStatus) return");

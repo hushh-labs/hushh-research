@@ -23,7 +23,7 @@ import path from "node:path";
 const TEST_SOURCE = `
 import { renderToStaticMarkup } from "react-dom/server";
 import { writeFileSync } from "node:fs";
-import { MapPin } from "lucide-react";
+import { MapPin } from "@/components/icons";
 import path from "node:path";
 import { afterEach, it, vi } from "vitest";
 

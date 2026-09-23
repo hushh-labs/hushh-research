@@ -12,7 +12,7 @@
  * so the breadcrumb and the screen agree again.
  */
 
-import { MapPin } from "lucide-react";
+import { MapPin } from "@/components/icons";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   useCallback,

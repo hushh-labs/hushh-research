@@ -16,7 +16,7 @@
  */
 
 import { type MouseEvent, useEffect, useRef } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2 } from "@/components/icons";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -37,8 +37,10 @@ import {
   LIVE_SHARE_FOOTER_CLASSNAME,
   LIVE_SHARE_FOOTER_ROW_CLASSNAME,
   LIVE_SHARE_HEADER_CLASSNAME,
+  LIVE_SHARE_PRIMARY_ACTION_CLASSNAME,
   LIVE_SHARE_PROGRESS_FILL_CLASSNAME,
   LIVE_SHARE_PROGRESS_TRACK_CLASSNAME,
+  LIVE_SHARE_SECONDARY_ACTION_CLASSNAME,
   LIVE_SHARE_TITLE_CLASSNAME,
 } from "./live-share-card-layout";
 import { CARD_SURFACE } from "./tokens";
@@ -129,8 +131,10 @@ function LiveShareIdentity({ status }: { status: LiveShareStatus }) {
           .map((displayName) => ({ displayName, photoUrl: null }));
   const names = people.map((person) => person.displayName).filter(Boolean);
   if (status.count > 1 || people.length > 1) {
-    const visiblePeople = people.slice(0, 3);
-    const fallbackCount = Math.min(status.count, 3);
+    // Keep the compact identity cluster legible. Two faces are enough to
+    // identify the relationship; the remaining count carries the rest.
+    const visiblePeople = people.slice(0, 2);
+    const fallbackCount = Math.min(status.count, 2);
     const slots = visiblePeople.length
       ? visiblePeople
       : Array.from({ length: fallbackCount }, (_, index) => ({
@@ -139,10 +143,15 @@ function LiveShareIdentity({ status }: { status: LiveShareStatus }) {
         }));
     const remaining = Math.max(status.count - slots.length, 0);
     return (
-      <span aria-hidden="true" className="flex h-7 w-14 shrink-0 items-center">
+      <span
+        aria-hidden="true"
+        className="flex h-7 w-14 shrink-0 items-center"
+        data-testid="one-location-live-share-identities"
+      >
         {slots.map((person, index) => (
           <span
             key={`${person.displayName}-${index}`}
+            data-live-share-avatar
             className="-ml-2 first:ml-0 inline-flex h-7 w-7 items-center justify-center rounded-full bg-[color:var(--app-secondary-surface)] text-[12px] font-semibold text-[color:var(--app-secondary-label)] ring-2 ring-[color:var(--app-primary-surface)]"
           >
             {person.photoUrl ? (
@@ -158,7 +167,10 @@ function LiveShareIdentity({ status }: { status: LiveShareStatus }) {
           </span>
         ))}
         {remaining > 0 ? (
-          <span className="-ml-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-[color:var(--app-secondary-surface)] text-[11px] font-semibold text-[color:var(--app-secondary-label)] ring-2 ring-[color:var(--app-primary-surface)]">
+          <span
+            className="-ml-2 inline-flex h-7 w-7 items-center justify-center rounded-full bg-[color:var(--app-secondary-surface)] text-[11px] font-semibold text-[color:var(--app-secondary-label)] ring-2 ring-[color:var(--app-primary-surface)]"
+            data-testid="one-location-live-share-remaining"
+          >
             +{remaining}
           </span>
         ) : null}
@@ -170,6 +182,7 @@ function LiveShareIdentity({ status }: { status: LiveShareStatus }) {
     <span
       aria-hidden="true"
       className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-secondary-surface)] text-[13px] font-semibold text-[color:var(--app-secondary-label)] ring-1 ring-inset ring-[color:var(--app-separator)]"
+      data-testid="one-location-live-share-identities"
     >
       {people[0]?.photoUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
@@ -427,43 +440,51 @@ export function LiveShareStatusCard({
         <div aria-hidden="true" className={LIVE_SHARE_PROGRESS_TRACK_CLASSNAME}>
           <div
             data-testid="one-location-live-share-progress"
-            className={LIVE_SHARE_PROGRESS_FILL_CLASSNAME}
-            style={{ width: `${Math.round(progress * 100)}%` }}
+            className={cn(LIVE_SHARE_PROGRESS_FILL_CLASSNAME, "w-full")}
+            style={{ transform: `translateX(-${100 - Math.round(progress * 100)}%)` }}
           />
         </div>
       ) : null}
 
-      {onShareMore ? (
-        <Button
-          type="button"
-          onClick={runChildAction(onShareMore)}
-          className="mt-3 h-11 min-h-11 w-full rounded-[14px] bg-[color:var(--app-accent)] px-5 font-[family-name:var(--font-app-body)] !text-[15px] !font-semibold !leading-5 tracking-normal text-white transition-[background-color,transform] hover:bg-[color:var(--app-accent)]/90 active:scale-[0.99]"
-          data-ui-contract="occlusion-sensitive"
-          data-ui-role="control"
-          data-ui-id="location-live-share-more"
-          data-testid="one-location-live-share-more"
-        >
-          Share with more
-        </Button>
-      ) : null}
-
-      {canChangeDuration ? (
+      {onShareMore || canChangeDuration ? (
+        // One left-aligned action row: the primary CTA first, the quieter
+        // duration control beside it. Below 360px they stack full-width so
+        // neither label wraps and both keep a full touch target.
         <div className={LIVE_SHARE_FOOTER_ROW_CLASSNAME}>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={runDurationAction(onChangeDuration)}
-            className={cn(
-              LIVE_SHARE_ACTION_CLASSNAME,
-              "mx-auto text-[color:var(--app-accent)]",
-            )}
-            data-ui-contract="occlusion-sensitive"
-            data-ui-role="control"
-            data-ui-id="location-live-share-duration"
-            data-testid="one-location-live-share-change-time"
-          >
-            {openEnded ? "Set an end time" : "Change end time"}
-          </Button>
+          {onShareMore ? (
+            <Button
+              type="button"
+              onClick={runChildAction(onShareMore)}
+              className={cn(
+                LIVE_SHARE_PRIMARY_ACTION_CLASSNAME,
+                "inline-flex items-center justify-center font-[family-name:var(--font-app-body)] tracking-normal transition-[background-color,transform] active:scale-[0.99]",
+              )}
+              data-ui-contract="occlusion-sensitive"
+              data-ui-role="control"
+              data-ui-id="location-live-share-more"
+              data-testid="one-location-live-share-more"
+            >
+              Share with more
+            </Button>
+          ) : null}
+          {canChangeDuration ? (
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={runDurationAction(onChangeDuration)}
+              className={cn(
+                LIVE_SHARE_ACTION_CLASSNAME,
+                LIVE_SHARE_SECONDARY_ACTION_CLASSNAME,
+                "inline-flex items-center text-[color:var(--app-accent)]",
+              )}
+              data-ui-contract="occlusion-sensitive"
+              data-ui-role="control"
+              data-ui-id="location-live-share-duration"
+              data-testid="one-location-live-share-change-time"
+            >
+              {openEnded ? "Set an end time" : "Change end time"}
+            </Button>
+          ) : null}
         </div>
       ) : null}
     </section>

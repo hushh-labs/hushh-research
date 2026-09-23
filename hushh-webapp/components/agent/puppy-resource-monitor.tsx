@@ -9,7 +9,7 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import { AlertTriangle, Cloud, Cpu, Loader2 } from "lucide-react";
+import { AlertTriangle, Cloud, Cpu, Loader2 } from "@/components/icons";
 
 import {
   Dialog,

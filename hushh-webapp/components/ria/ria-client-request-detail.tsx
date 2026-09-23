@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo } from "react";
-import { ClipboardList, Loader2 } from "lucide-react";
+import { ClipboardList, Loader2 } from "@/components/icons";
 
 import { SectionHeader } from "@/components/app-ui/page-sections";
 import { RIA_TONE_BADGE } from "@/lib/ria/ria-tone";
@@ -103,7 +103,7 @@ export function RiaClientRequestDetail({
   if (riaCapability === "setup") {
     return (
       <RiaCompatibilityState
-        title="Complete RIA onboarding"
+        title="Complete Advisor onboarding"
         description="Finish onboarding before opening request detail routes."
         nativeTest={{
           routeId: "/ria/clients/[userId]/requests/[requestId]",

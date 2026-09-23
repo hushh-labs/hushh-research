@@ -38,6 +38,42 @@ export const CHECK_OUT_BUTTON_VARIANT: ButtonProps["variant"] = "secondary";
 export const CHECK_IN_PANEL_DESKTOP_WIDTH_REM = 26;
 
 /**
+ * The drawer's type ladder.
+ *
+ * These semantic roles deliberately beat the foundation's raw h1/h2/h3
+ * rules, which are `!important`. A local `text-[15px]` on an h2 therefore
+ * never controlled the rendered size and the three setup sections expanded
+ * to display headings. Keeping the roles here also lets the browser contract
+ * measure the exact classes the React surface ships.
+ */
+export const CHECK_IN_DRAWER_TITLE_CLASSNAME =
+  "check-in-drawer-title ui-text-page-title";
+
+export const CHECK_IN_SECTION_TITLE_CLASSNAME =
+  "check-in-section-title ui-text-major-section-title";
+
+export const CHECK_IN_SUBSECTION_TITLE_CLASSNAME =
+  "check-in-subsection-title ui-text-headline";
+
+/**
+ * Place categories are filters, not headings or primary CTAs.
+ *
+ * Phone labels stay at 14/18 inside a 36px chip so the visible choices do not
+ * crowd out the place list; `sm` and wider use the design-system compact label
+ * size of 15/20. The row itself remains a one-line horizontal scroller.
+ */
+export const CHECK_IN_CATEGORY_CHIP_CLASSNAME =
+  "shrink-0 rounded-full text-[14px] font-semibold leading-[18px] sm:text-[15px] sm:leading-5";
+
+/** Visibility controls use Location blue, not the global neutral checkbox or
+ * success-green switch. These are preferences, not success confirmations. */
+export const CHECK_IN_VISIBILITY_CHECKBOX_CLASSNAME =
+  "mt-0.5 data-[state=checked]:!border-[color:var(--app-accent)] data-[state=checked]:!bg-[color:var(--app-accent)] data-[state=checked]:!text-[color:var(--app-accent-fg)]";
+
+export const CHECK_IN_VISIBILITY_SWITCH_CLASSNAME =
+  "data-[state=checked]:!bg-[color:var(--app-accent)]";
+
+/**
  * The category chip scroller.
  *
  * Horizontal scroll, never wrap: eight chips wrapping to three rows at 320px
@@ -145,9 +181,16 @@ export const CHECK_IN_RATING_COMPOSER_CLASSNAME = "flex h-[76px] flex-col";
  * the box as you type -- which grows the sheet, which moves the map, every few
  * characters. `text-base` stays: 16px is what stops iOS Safari zooming the
  * viewport on focus.
+ *
+ * `rounded-xl` is load-bearing too: the shared textarea base resolves
+ * `rounded-[var(--app-input-radius)]` to a pill, which on a 76px-tall note
+ * field reads as a semi-circle capsule. A 12px rect keeps the "square with a
+ * slight radius" shape the drawer uses everywhere else (place rows and the
+ * Save button are rects, not pills). tailwind-merge in `ui/textarea.tsx`
+ * keeps this override and drops the pill base.
  */
 export const CHECK_IN_NOTE_TEXTAREA_CLASSNAME =
-  "h-full min-h-0 w-full resize-none field-sizing-fixed text-base md:text-base";
+  "h-full min-h-0 w-full resize-none rounded-xl border-border/60 bg-muted/40 px-3.5 py-2.5 shadow-none field-sizing-fixed text-base leading-6 md:text-base";
 
 export const CHECK_IN_NOTE_MAX_LENGTH = 280;
 

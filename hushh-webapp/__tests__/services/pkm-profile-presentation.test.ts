@@ -338,7 +338,7 @@ describe("pkm profile presentation", () => {
       activeGrants: [],
     });
 
-    expect(fromGmail.sourceLabels).toEqual(["From Gmail"]);
+    expect(fromGmail.sourceLabels).toEqual(["From Mail"]);
     expect(withoutSource.sourceLabels).toEqual([]);
   });
 

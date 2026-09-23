@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronDown, CircleAlert, Loader2, MailCheck } from "lucide-react";
+import { ChevronDown, CircleAlert, Loader2, MailCheck } from "@/components/icons";
 import Link from "next/link";
 
 import { Button } from "@/components/ui/button";
@@ -20,6 +20,8 @@ export type EmailDeliveryHistoryItem = {
 
 type EmailDeliveryHistoryCardProps = {
   item: EmailDeliveryHistoryItem;
+  /** Starts an explicit, incremental Gmail send-consent request. */
+  onEnableGmailSend?: () => void;
   onRetry?: (item: EmailDeliveryHistoryItem) => void;
 };
 
@@ -28,11 +30,11 @@ function statusCopy(item: EmailDeliveryHistoryItem): string {
     case "sending":
       return "Sending in the background…";
     case "sent":
-      return "Email sent";
+      return "Mail sent";
     case "outcome_unknown":
       return "Delivery status needs checking";
     default:
-      return item.errorMessage || "Email could not be sent.";
+      return item.errorMessage || "Mail could not be sent.";
   }
 }
 
@@ -43,6 +45,7 @@ function statusCopy(item: EmailDeliveryHistoryItem): string {
  */
 export function EmailDeliveryHistoryCard({
   item,
+  onEnableGmailSend,
   onRetry,
 }: EmailDeliveryHistoryCardProps) {
   const canRetry = item.status === "failed";
@@ -73,13 +76,13 @@ export function EmailDeliveryHistoryCard({
         </span>
         <span className="min-w-0 flex-1">
           <span className="block text-sm font-semibold text-foreground">
-            {item.status === "sending" ? "Email sending" : "Email activity"}
+            {item.status === "sending" ? "Mail sending" : "Mail activity"}
           </span>
           <span className="block truncate text-sm text-muted-foreground">
             {statusCopy(item)}
           </span>
         </span>
-        <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 group-open:rotate-180" aria-hidden />
+        <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-150 group-open:rotate-180" aria-hidden />
       </summary>
 
       <div className="space-y-3 border-t border-border/60 px-4 py-4 text-sm">
@@ -95,7 +98,7 @@ export function EmailDeliveryHistoryCard({
           {item.sourceBoundWorkflowId ? (
             <div className="sm:col-span-2">
               <dt className="text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground">Delivery</dt>
-              <dd className="mt-1 break-words text-foreground">Original Gmail thread</dd>
+              <dd className="mt-1 break-words text-foreground">Original Mail thread</dd>
             </div>
           ) : (
             <>
@@ -138,9 +141,15 @@ export function EmailDeliveryHistoryCard({
         {canRetry ? (
           <div className="flex flex-wrap gap-2">
             {needsGmailReconnect ? (
-              <Button asChild type="button" variant="outline" size="sm">
-                <Link href="/one/gmail">Reconnect Gmail</Link>
-              </Button>
+              onEnableGmailSend ? (
+                <Button type="button" variant="outline" size="sm" onClick={onEnableGmailSend}>
+                  Enable sending
+                </Button>
+              ) : (
+                <Button asChild type="button" variant="outline" size="sm">
+                  <Link href="/one/gmail">Reconnect Mail</Link>
+                </Button>
+              )
             ) : null}
             {onRetry ? (
               <Button type="button" variant="outline" size="sm" onClick={() => onRetry(item)}>

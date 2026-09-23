@@ -97,6 +97,31 @@ for _pair in "${_model_pairs[@]}"; do
   esac
 done
 export _PUPPY_INFERENCE_RELAY_URL _PUPPY_INFERENCE_MODEL _PUPPY_INFERENCE_TIMEOUT_SECONDS _HUSSH_GEMINI_TEXT_MODEL
+# Secret names for the Drive connector share one Cloud Build env entry. Require
+# the complete shape even when the optional names are empty, so a typo cannot
+# silently omit a configured binding.
+IFS=',' read -r -a _drive_secret_pairs <<< "${_DRIVE_SECRET_SETTINGS:?missing Drive secret settings}"
+for _pair in "${_drive_secret_pairs[@]}"; do
+  [[ "${_pair}" == *=* ]] || { echo "Invalid Drive secret settings." >&2; exit 1; }
+  _key="${_pair%%=*}"; _value="${_pair#*=}"
+  case "${_key}" in
+    oauth_id) _GOOGLE_DRIVE_OAUTH_CLIENT_ID_SECRET="${_value}" ;;
+    oauth_secret) _GOOGLE_DRIVE_OAUTH_CLIENT_SECRET_SECRET="${_value}" ;;
+    picker_key) _GOOGLE_DRIVE_PICKER_API_KEY_SECRET="${_value}" ;;
+    connector_key) _EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET="${_value}" ;;
+    document_key) _DRIVE_DOCUMENT_KEY_V1_SECRET="${_value}" ;;
+    sharing_key) _DRIVE_SHARING_KEY_V1_SECRET="${_value}" ;;
+    *) echo "Drive secret settings carry an unknown key." >&2; exit 1 ;;
+  esac
+done
+if [[ "${#_drive_secret_pairs[@]}" -ne 6 ]]; then
+  echo "Drive secret settings must contain six keys." >&2; exit 1
+fi
+for _required in _GOOGLE_DRIVE_OAUTH_CLIENT_ID_SECRET _GOOGLE_DRIVE_OAUTH_CLIENT_SECRET_SECRET _GOOGLE_DRIVE_PICKER_API_KEY_SECRET _EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET _DRIVE_DOCUMENT_KEY_V1_SECRET _DRIVE_SHARING_KEY_V1_SECRET; do
+  if ! declare -p "${_required}" >/dev/null 2>&1; then
+    echo "Drive secret settings are missing ${_required}." >&2; exit 1
+  fi
+done
 # The runtime-IAM preflight -- runtime service-account validity, the cross-project
 # managed Vertex allowlist, and the aiplatform.user / serviceUsageConsumer role
 # checks -- runs in the dedicated `verify-runtime-iam` build step BEFORE this one,
@@ -144,6 +169,12 @@ append_optional_secret "${_GOOGLE_OAUTH_CLIENT_ID_SECRET}" "GOOGLE_OAUTH_CLIENT_
 append_optional_secret "${_GOOGLE_OAUTH_CLIENT_SECRET_SECRET}" "GOOGLE_OAUTH_CLIENT_SECRET"
 append_optional_secret "${_GOOGLE_OAUTH_REDIRECT_URI_SECRET}" "GOOGLE_OAUTH_REDIRECT_URI"
 append_optional_secret "${_GOOGLE_OAUTH_TOKEN_KEY_SECRET}" "GOOGLE_OAUTH_TOKEN_KEY"
+append_optional_secret "${_GOOGLE_DRIVE_OAUTH_CLIENT_ID_SECRET}" "GOOGLE_DRIVE_OAUTH_CLIENT_ID"
+append_optional_secret "${_GOOGLE_DRIVE_OAUTH_CLIENT_SECRET_SECRET}" "GOOGLE_DRIVE_OAUTH_CLIENT_SECRET"
+append_optional_secret "${_GOOGLE_DRIVE_PICKER_API_KEY_SECRET}" "GOOGLE_DRIVE_PICKER_API_KEY"
+append_optional_secret "${_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET}" "EXTERNAL_CONNECTOR_CREDENTIAL_KEY"
+append_optional_secret "${_DRIVE_DOCUMENT_KEY_V1_SECRET}" "DRIVE_DOCUMENT_KEY_V1"
+append_optional_secret "${_DRIVE_SHARING_KEY_V1_SECRET}" "DRIVE_SHARING_KEY_V1"
 append_optional_secret "${_OPENAI_API_KEY_SECRET}" "OPENAI_API_KEY"
 append_optional_secret "${_GOOGLE_MAPS_API_KEY_SECRET}" "GOOGLE_MAPS_API_KEY"
 # Literal secret names, not substitutions -- these two are named identically in

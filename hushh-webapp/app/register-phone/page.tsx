@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronLeft, LogOut, MoreHorizontal } from "lucide-react";
+import { ChevronLeft, LogOut, MoreHorizontal } from "@/components/icons";
 import { toast } from "sonner";
 
 import { Dialog, DialogContent, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -278,7 +278,7 @@ export function PhoneMandatePageContent() {
 
   const shell = (
     <main
-      className={cn("relative w-full overflow-hidden bg-white dark:bg-[#000000]", verificationStep === "phone" && styles.refinedScreen, verificationStep === "code" && styles.codeScreen)}
+      className={cn("relative w-full overflow-hidden bg-white dark:bg-background", verificationStep === "phone" && styles.refinedScreen, verificationStep === "code" && styles.codeScreen)}
       style={{
         height: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
         minHeight: "calc(100svh - var(--app-scroll-bottom-pad, 0px))",

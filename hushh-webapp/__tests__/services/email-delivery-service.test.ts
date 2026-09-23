@@ -72,6 +72,38 @@ describe("EmailDeliveryService", () => {
     });
   });
 
+  it("sends only a Drive file reference for review and a bound token after confirmation", async () => {
+    vi.mocked(ApiService.apiFetch)
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        action_id: "drive-action",
+        attachment_token: "sealed-review-token",
+        drive_attachment: {
+          filename: "Brief.pdf",
+          mime_type: "application/pdf",
+          size: 2048,
+          source_account_label: "Connected Drive account",
+        },
+      }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ message_id: "sent-1" }), { status: 200 }));
+    const auth = { firebaseIdToken: "firebase-token", vaultOwnerToken: "vault-owner-token" };
+    const draft = {
+      to: "pat@example.com", cc: "", bcc: "", subject: "Brief", body: "See attachment",
+      driveFileId: "drive-file-1",
+    };
+
+    const prepared = await EmailDeliveryService.prepare({ ...auth, draft, idempotencyKey: "review-key-123456" });
+    expect(prepared.driveAttachment).toMatchObject({ filename: "Brief.pdf", size: 2048 });
+    expect(JSON.parse(String(vi.mocked(ApiService.apiFetch).mock.calls[0][1]?.body))).toMatchObject({
+      drive_attachment: { file_id: "drive-file-1" },
+    });
+
+    await EmailDeliveryService.send({ ...auth, draft, actionId: prepared.actionId, attachmentToken: prepared.attachmentToken });
+    const sendBody = JSON.parse(String(vi.mocked(ApiService.apiFetch).mock.calls[1][1]?.body));
+    expect(sendBody.attachment_token).toBe("sealed-review-token");
+    expect(sendBody).not.toHaveProperty("drive_attachment");
+    expect(sendBody).not.toHaveProperty("driveFileId");
+  });
+
   it("maps a missing Gmail send scope to a safe reconnect error without echoing server detail", async () => {
     vi.mocked(ApiService.apiFetch).mockResolvedValue(
       new Response(JSON.stringify({ detail: { code: "GMAIL_SEND_PERMISSION_REQUIRED", message: "do not expose" } }), {
@@ -87,7 +119,7 @@ describe("EmailDeliveryService", () => {
       }),
     ).rejects.toMatchObject<Partial<EmailDeliveryError>>({
       code: "GMAIL_SEND_PERMISSION_REQUIRED",
-      message: "Reconnect Gmail to grant email sending permission.",
+      message: "Reconnect Mail to grant mail sending permission.",
     });
   });
 
@@ -107,7 +139,7 @@ describe("EmailDeliveryService", () => {
       }),
     ).rejects.toMatchObject<Partial<EmailDeliveryError>>({
       code: "GMAIL_SEND_DISABLED",
-      message: "Reconnect Gmail to finish enabling email sending.",
+      message: "Reconnect Mail to finish enabling mail sending.",
       needsGmailReconnect: true,
     });
   });

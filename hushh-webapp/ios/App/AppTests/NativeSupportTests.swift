@@ -24,6 +24,182 @@ final class NativeSupportTests: XCTestCase {
         )
         XCTAssertEqual(audit.vaultPassphrase, "synthetic-passphrase")
         XCTAssertEqual(audit.expectedUserId, "synthetic-reviewer")
+    func testGoogleReauthenticationAcceptsEachStageExactlyOnce() {
+        let fence = GoogleIdentityReauthenticationFence(expectedUserID: "a", now: 100)
+        XCTAssertEqual(fence.claim(phase: 1, userID: "a", sameSession: true, now: 101), .ignored)
+        XCTAssertTrue(fence.drainProvider())
+        XCTAssertFalse(fence.drainProvider())
+        for phase in 0...2 {
+            XCTAssertEqual(fence.claim(phase: phase, userID: "a", sameSession: true, now: 101), .accepted)
+            XCTAssertEqual(fence.claim(phase: phase, userID: "a", sameSession: true, now: 101), .ignored)
+        }
+        XCTAssertTrue(fence.settle())
+        XCTAssertFalse(fence.settle())
+        XCTAssertTrue(fence.canRelease)
+        XCTAssertEqual(fence.claim(phase: 3, userID: "a", sameSession: true, now: 101), .ignored)
+    }
+
+    func testGoogleReauthenticationRejectsWrongOwnerReplacementAndExpiry() {
+        for phase in 0...2 {
+            for scenario in 0...3 {
+                let fence = GoogleIdentityReauthenticationFence(expectedUserID: "a", now: 100)
+                for previous in 0..<phase {
+                    XCTAssertEqual(fence.claim(phase: previous, userID: "a", sameSession: true, now: 101), .accepted)
+                }
+                XCTAssertEqual(fence.claim(
+                    phase: phase, userID: scenario == 0 ? "b" : (scenario == 3 ? nil : "a"),
+                    sameSession: scenario != 1, now: scenario == 2 ? 220 : 101
+                ), .stale)
+                XCTAssertTrue(fence.settle())
+                XCTAssertEqual(fence.claim(phase: phase, userID: "a", sameSession: true, now: 101), .ignored)
+            }
+        }
+    }
+
+    func testGoogleReauthenticationQuarantinesTimedOutOrCancelledProvider() {
+        let old = GoogleIdentityReauthenticationFence(expectedUserID: "a", now: 100)
+        XCTAssertTrue(old.settle())
+        XCTAssertFalse(old.canRelease) // A timeout cannot free the uncorrelated native slot.
+        XCTAssertTrue(old.drainProvider())
+        XCTAssertTrue(old.canRelease)
+        let next = GoogleIdentityReauthenticationFence(expectedUserID: "a", now: 221)
+        XCTAssertEqual(old.claim(phase: 0, userID: "a", sameSession: true, now: 222), .ignored)
+        XCTAssertFalse(next.settled)
+        XCTAssertEqual(next.phase, 0)
+    }
+
+    func testNativeDriveReturnFenceAcceptsOnlyItsCurrentOwnerAndAttempt() {
+        let fence = NativeDriveAuthorizationFence(
+            expectedUserID: "owner", expectedAttemptID: "attempt_123456789012", expiresAtMilliseconds: 120_000
+        )
+        XCTAssertEqual(
+            fence.claim(attemptID: "other_123456789012", userID: "owner", sameSession: true, now: 101),
+            .stale
+        )
+        XCTAssertFalse(fence.settled)
+        XCTAssertEqual(
+            fence.claim(attemptID: "attempt_123456789012", userID: "owner", sameSession: true, now: 101),
+            .accepted
+        )
+        XCTAssertTrue(fence.settle())
+        XCTAssertEqual(
+            fence.claim(attemptID: "attempt_123456789012", userID: "owner", sameSession: true, now: 101),
+            .ignored
+        )
+    }
+
+    func testNativeDriveReturnFenceQuarantinesTimedOutProviderUntilItDrains() {
+        let fence = NativeDriveAuthorizationFence(
+            expectedUserID: "owner", expectedAttemptID: "attempt_123456789012", expiresAtMilliseconds: 120_000
+        )
+        XCTAssertTrue(fence.settle())
+        XCTAssertFalse(fence.canRelease)
+        XCTAssertTrue(fence.drainProvider())
+        XCTAssertTrue(fence.canRelease)
+    }
+
+    func testNativeDrivePickerFenceDoesNotAcceptAnotherOwnersOrConnectionsReturn() {
+        let picker = NativeDriveAuthorizationFence(
+            expectedUserID: "owner-a", expectedAttemptID: "picker_1234567890123", expiresAtMilliseconds: 120_000
+        )
+        XCTAssertEqual(
+            picker.claim(attemptID: "attempt_123456789012", userID: "owner-a", sameSession: true, now: 101),
+            .stale
+        )
+        XCTAssertEqual(
+            picker.claim(attemptID: "picker_1234567890123", userID: "owner-b", sameSession: false, now: 101),
+            .stale
+        )
+        XCTAssertEqual(
+            picker.claim(attemptID: "picker_1234567890123", userID: "owner-a", sameSession: true, now: 101),
+            .accepted
+        )
+        XCTAssertTrue(picker.settle())
+        XCTAssertTrue(picker.drainProvider())
+        XCTAssertTrue(picker.canRelease)
+    }
+
+    func testNativeDriveReturnRejectsExpirySignOutAndReplacedSession() {
+        let scenarios: [(String?, Bool, TimeInterval)] = [
+            (nil, false, 101), // Signed out while the browser was open.
+            ("other-owner", false, 101),
+            ("owner", false, 101), // Same UID in a replacement Firebase session.
+            ("owner", true, 120), // Callback at the exact deadline is expired.
+        ]
+        for (userID, sameSession, now) in scenarios {
+            let fence = NativeDriveAuthorizationFence(
+                expectedUserID: "owner", expectedAttemptID: "attempt_123456789012",
+                expiresAtMilliseconds: 120_000
+            )
+            XCTAssertEqual(
+                fence.claim(
+                    attemptID: "attempt_123456789012", userID: userID,
+                    sameSession: sameSession, now: now
+                ),
+                .stale
+            )
+            XCTAssertFalse(fence.settled)
+            XCTAssertFalse(fence.canRelease)
+        }
+    }
+
+    func testNativeDriveConnectionAndPickerReturnsCannotCrossSettle() {
+        let connection = NativeDriveAuthorizationFence(
+            expectedUserID: "owner", expectedAttemptID: "connect_123456789012",
+            expiresAtMilliseconds: 120_000
+        )
+        let picker = NativeDriveAuthorizationFence(
+            expectedUserID: "owner", expectedAttemptID: "picker_1234567890123",
+            expiresAtMilliseconds: 120_000
+        )
+        XCTAssertEqual(
+            connection.claim(attemptID: picker.expectedAttemptID, userID: "owner", sameSession: true, now: 101),
+            .stale
+        )
+        XCTAssertEqual(
+            picker.claim(attemptID: connection.expectedAttemptID, userID: "owner", sameSession: true, now: 101),
+            .stale
+        )
+        XCTAssertEqual(
+            connection.claim(attemptID: connection.expectedAttemptID, userID: "owner", sameSession: true, now: 101),
+            .accepted
+        )
+        XCTAssertTrue(connection.drainProvider())
+        XCTAssertFalse(connection.canRelease) // A provider return is not yet terminal settlement.
+        XCTAssertTrue(connection.settle())
+        XCTAssertFalse(connection.settle()) // Duplicate callback cannot complete twice.
+        XCTAssertFalse(connection.drainProvider())
+        XCTAssertTrue(connection.canRelease)
+        XCTAssertFalse(picker.settled)
+    }
+
+    func testNativeDriveCancelledAttemptCannotAuthorizeAfterRestart() {
+        let old = NativeDriveAuthorizationFence(
+            expectedUserID: "owner", expectedAttemptID: "old_attempt_123456789012",
+            expiresAtMilliseconds: 120_000
+        )
+        XCTAssertTrue(old.settle()) // Native cancellation or activity teardown.
+        XCTAssertFalse(old.canRelease) // Keep the old presentation quarantined until it drains.
+
+        let restarted = NativeDriveAuthorizationFence(
+            expectedUserID: "owner", expectedAttemptID: "new_attempt_123456789012",
+            expiresAtMilliseconds: 240_000
+        )
+        XCTAssertEqual(
+            restarted.claim(attemptID: old.expectedAttemptID, userID: "owner", sameSession: true, now: 121),
+            .stale
+        )
+        XCTAssertEqual(
+            old.claim(attemptID: old.expectedAttemptID, userID: "owner", sameSession: true, now: 121),
+            .ignored
+        )
+        XCTAssertTrue(old.drainProvider())
+        XCTAssertTrue(old.canRelease)
+        XCTAssertEqual(
+            restarted.claim(attemptID: restarted.expectedAttemptID, userID: "owner", sameSession: true, now: 121),
+            .accepted
+        )
+        XCTAssertFalse(restarted.settled)
     }
 
     func testNativeTestConfigurationParsesArguments() {

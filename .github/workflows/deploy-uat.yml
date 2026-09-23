@@ -415,6 +415,19 @@ jobs:
 
       - name: Sync canonical hosted runtime secrets
         shell: bash
+        # These repository variables are UAT-only rollout controls. Passing them
+        # through the environment (not inline expressions in shell) keeps an
+        # opaque Firebase UID cohort from becoming executable shell text.
+        env:
+          UAT_CONNECTIONS_PANEL_V2: ${{ vars.CONNECTIONS_PANEL_V2_UAT || 'false' }}
+          UAT_GOOGLE_DRIVE_CONNECTION: ${{ vars.GOOGLE_DRIVE_CONNECTION_UAT || 'false' }}
+          UAT_GOOGLE_DRIVE_PICKER: ${{ vars.GOOGLE_DRIVE_PICKER_UAT || 'false' }}
+          UAT_DRIVE_DOCUMENT_INDEXING: ${{ vars.DRIVE_DOCUMENT_INDEXING_UAT || 'false' }}
+          UAT_DRIVE_DOCUMENT_SHARING: ${{ vars.DRIVE_DOCUMENT_SHARING_UAT || 'false' }}
+          UAT_GMAIL_CHAT_READS: ${{ vars.GMAIL_CHAT_READS_UAT || 'false' }}
+          UAT_GOOGLE_DRIVE_CHAT_READS: ${{ vars.GOOGLE_DRIVE_CHAT_READS_UAT || 'false' }}
+          UAT_CONNECTOR_INTERNAL_OWNER_COHORT: ${{ vars.CONNECTOR_INTERNAL_OWNER_COHORT_UAT || '' }}
+          UAT_CONNECTOR_ALL_USERS: ${{ vars.CONNECTOR_UAT_ALL_USERS_UAT || 'false' }}
         run: |
           set -euo pipefail
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/sync_backend_runtime_secrets.py \
@@ -439,6 +452,15 @@ jobs:
             --plaid-webhook-url "${{ env.APP_FRONTEND_ORIGIN }}/api/kai/plaid/webhook" \
             --plaid-redirect-path "/kai/plaid/oauth/return" \
             --plaid-tx-history-days "730" \
+            --connections-panel-v2 "$UAT_CONNECTIONS_PANEL_V2" \
+            --google-drive-connection "$UAT_GOOGLE_DRIVE_CONNECTION" \
+            --google-drive-picker "$UAT_GOOGLE_DRIVE_PICKER" \
+            --drive-document-indexing "$UAT_DRIVE_DOCUMENT_INDEXING" \
+            --drive-document-sharing "$UAT_DRIVE_DOCUMENT_SHARING" \
+            --gmail-chat-reads "$UAT_GMAIL_CHAT_READS" \
+            --google-drive-chat-reads "$UAT_GOOGLE_DRIVE_CHAT_READS" \
+            --connector-internal-owner-cohort "$UAT_CONNECTOR_INTERNAL_OWNER_COHORT" \
+            --connector-uat-all-users "$UAT_CONNECTOR_ALL_USERS" \
             --one-location-read-only-state-enabled "${{ steps.one_location_read_only_rollout.outputs.enabled }}" \
             --consent-center-summary-v2-enabled "${{ vars.CONSENT_CENTER_SUMMARY_V2_ENABLED || 'true' }}" \
             --db-bulk-batching-enabled "${{ vars.DB_BULK_BATCHING_ENABLED || 'false' }}" \
@@ -673,8 +695,13 @@ jobs:
           SUBSTITUTIONS="_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }}##_REGION=${{ env.GCP_REGION }}##_CLOUDSQL_INSTANCES=${{ env.UAT_CLOUDSQL_INSTANCE }}##_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID##_PLAID_SECRET_SECRET=PLAID_SECRET##_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY##_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY##_PMP_API_KEY_SECRET=PMP_API_KEY##_NEWSAPI_KEY_SECRET=NEWSAPI_KEY##_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID##_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET##_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI##_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY##_GOOGLE_OAUTH_CLIENT_ID_SECRET=GOOGLE_OAUTH_CLIENT_ID##_GOOGLE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_OAUTH_CLIENT_SECRET##_GOOGLE_OAUTH_REDIRECT_URI_SECRET=GOOGLE_OAUTH_REDIRECT_URI##_GOOGLE_OAUTH_TOKEN_KEY_SECRET=GOOGLE_OAUTH_TOKEN_KEY##_OPENAI_API_KEY_SECRET=OPENAI_API_KEY##_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY##_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN##_HUSHH_TECH_LAUNCH_PEPPER_SECRET=HUSSH_TECH_LAUNCH_PEPPER##_RATE_LIMIT_STORAGE_URI_SECRET=RATE_LIMIT_STORAGE_URI##_HUSHH_UAT_PHONE_TEST_NUMBERS_SECRET=HUSHH_UAT_PHONE_TEST_NUMBERS##_HUSHH_UAT_PHONE_TEST_CODE_SECRET=HUSHH_UAT_PHONE_TEST_CODE##_REVIEWER_UID_SECRET=REVIEWER_UID##_REVIEWER_VAULT_PASSPHRASE_SECRET=REVIEWER_VAULT_PASSPHRASE##_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL##_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET=ONE_EMAIL_WATCH_RENEW_TOKEN##_ONE_EMAIL_ADDRESS=one@hushh.ai##_ONE_EMAIL_DELEGATED_USER=one@hushh.ai##_ONE_EMAIL_PUBSUB_TOPIC=projects/hushh-pda/topics/one-email-kyc-uat##_ONE_EMAIL_WEBHOOK_AUDIENCE=https://consent-protocol-f2gsa4kfsq-uc.a.run.app/api/one/email/webhook##_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL=one-email-pubsub-push@hushh-pda.iam.gserviceaccount.com##_ONE_EMAIL_WEBHOOK_AUTH_ENABLED=true##_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED=true##_ONE_EMAIL_KYC_DEFAULT_SCOPE=attr.identity.*##_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED=true##_ONE_WALLET_CARD_ENABLED=true##_HUSSH_GEMINI_TEXT_MODEL=gemini-3.8-flash##_ONE_VOICE_LIVE_ENABLED=true##_VERTEX_LIVE_MODEL_ID=gemini-live-2.5-flash-native-audio##_VERTEX_LIVE_LOCATION=us-central1##_WALLET_PASS_PROVIDER=service##_WALLET_API_KEY_SECRET=WALLET_API_KEY##_APP_REVIEW_MODE=true##_CONSENT_WEB_FALLBACK_ENABLED=false##_CONSENT_SSE_ENABLED=false##_DB_POOL_MIN_SIZE=1##_DB_POOL_MAX_SIZE=4##_DB_SQLALCHEMY_POOL_SIZE=3##_DB_SQLALCHEMY_MAX_OVERFLOW=0##_CLOUD_RUN_MIN_INSTANCES=2##_CLOUD_RUN_MAX_INSTANCES=5##_CLOUD_RUN_CPU=2##_CLOUD_RUN_CONCURRENCY=20##_CLOUD_RUN_NO_TRAFFIC=true##_IMAGE_TAG=uat-${{ steps.resolve-sha.outputs.sha }}##_DEPLOY_ENV=uat##_DEPLOY_SOURCE=deploy-uat##_DEPLOY_SHA=${{ steps.resolve-sha.outputs.sha }}##_GITHUB_RUN_ID=${{ github.run_id }}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_RUNTIME_SERVICE_ACCOUNT=${{ env.RUNTIME_SERVICE_ACCOUNT }}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_CONSENT_API_PUBLIC_ORIGIN=${{ env.CONSENT_API_PUBLIC_ORIGIN }}"
+          SUBSTITUTIONS="${SUBSTITUTIONS}##_GOOGLE_DRIVE_OAUTH_CLIENT_ID_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_ID##_GOOGLE_DRIVE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_DRIVE_OAUTH_CLIENT_SECRET##_GOOGLE_DRIVE_PICKER_API_KEY_SECRET=GOOGLE_DRIVE_PICKER_API_KEY##_EXTERNAL_CONNECTOR_CREDENTIAL_KEY_SECRET=EXTERNAL_CONNECTOR_CREDENTIAL_KEY##_DRIVE_DOCUMENT_KEY_V1_SECRET=DRIVE_DOCUMENT_KEY_V1##_DRIVE_SHARING_KEY_V1_SECRET=DRIVE_SHARING_KEY_V1"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_ACCOUNT_DELETION_CLEANUP_AUDIENCE=${{ env.CONSENT_API_PUBLIC_ORIGIN }}##_ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL=${{ env.ACCOUNT_DELETION_SCHEDULER_SERVICE_ACCOUNT_ID }}@${{ env.GCP_PROJECT_ID }}.iam.gserviceaccount.com"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED=true##_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE=${{ env.CONSENT_API_PUBLIC_ORIGIN }}##_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL=${{ env.GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SCHEDULER_SERVICE_ACCOUNT_ID }}@${{ env.GCP_PROJECT_ID }}.iam.gserviceaccount.com"
+          SUBSTITUTIONS="${SUBSTITUTIONS}##_DRIVE_WORK_DRAIN_ENABLED=true##_DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID=${{ env.GCP_PROJECT_ID }}##_DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL=drive-work-drain-sched@${{ env.GCP_PROJECT_ID }}.iam.gserviceaccount.com##_DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE=${{ env.CONSENT_API_PUBLIC_ORIGIN }}"
+          # E5's measured isolated query leaf peaks near 0.93 GiB RSS; the API
+          # also has two gunicorn workers. UAT must not retain the 1Gi default.
+          SUBSTITUTIONS="${SUBSTITUTIONS}##_CLOUD_RUN_MEMORY=4Gi"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_SKIP_IMAGE_BUILD=true##_IMAGE_REFERENCE=${{ steps.build-backend-image.outputs.image_reference }}##_CLOUD_RUN_TAG=account-deletion-${{ github.run_id }}"
           SUBSTITUTIONS="${SUBSTITUTIONS}##_VPC_CONNECTOR=${{ vars.UAT_VPC_CONNECTOR || '' }}"
           # Route only managed Vertex/Gemini to the dedicated personal Vertex
@@ -903,6 +930,7 @@ jobs:
           echo "frontend_revision=${frontend_revision}" >> "$GITHUB_OUTPUT"
 
       - name: Promote deployed revisions to UAT traffic
+        id: promote-uat-traffic
         shell: bash
         run: |
           set -euo pipefail
@@ -1828,6 +1856,94 @@ jobs:
           bash deploy/gmail/setup_personal_information_request_monitor_scheduler.sh \
             | tee /tmp/uat-personal-gmail-monitor-scheduler-setup.log
 
+      - name: Capture Drive scheduler before worker rollout
+        id: capture-drive-worker-scheduler
+        if: steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud scheduler jobs list \
+            --project="${{ env.GCP_PROJECT_ID }}" --location="${{ env.GCP_REGION }}" \
+            --format=json > /tmp/uat-drive-worker-pre-scheduler.json
+          WORKER_ORIGIN="$(gcloud run services describe consent-protocol-drive-worker \
+            --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" \
+            --format='value(status.url)' 2>/dev/null || true)"
+          python3 deploy/drive/verify_scheduler_state.py capture-set \
+            --snapshot /tmp/uat-drive-worker-pre-scheduler.json \
+            --canonical /tmp/uat-drive-worker-pre-scheduler-canonical.json \
+            --worker-origin "$WORKER_ORIGIN" \
+            --github-output "$GITHUB_OUTPUT"
+
+      - name: Deploy and attest private Drive worker
+        id: deploy-drive-worker
+        if: always() && !cancelled() && steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        env:
+          IMAGE_REFERENCE: ${{ steps.build-backend-image.outputs.image_reference }}
+          DEPLOY_SHA: ${{ steps.resolve-sha.outputs.sha }}
+          RUNTIME_SERVICE_ACCOUNT: ${{ env.RUNTIME_SERVICE_ACCOUNT }}
+          CLOUDSQL_INSTANCE: ${{ env.UAT_CLOUDSQL_INSTANCE }}
+          RELEASE_RUN_ID: ${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.capture-drive-worker-scheduler.outcome }}" != "success" ]; then
+            echo "Drive scheduler pre-worker snapshot failed; triggering runtime rollback" >&2
+            exit 1
+          fi
+          exec > >(tee /tmp/uat-drive-worker-release.log) 2>&1
+          exec bash deploy/drive/deploy_worker_service.sh
+
+      - name: Restore backend after Drive worker failure
+        id: rollback-backend-after-drive-worker
+        if: always() && steps.promote-uat-traffic.outcome != 'skipped' && steps.classify-uat-release.outputs.release_failed != 'true' && steps.deploy-drive-worker.outcome != 'success' && steps.scope.outputs.deploy_backend == 'true' && steps.rollback-targets.outputs.backend_revision != ''
+        shell: bash
+        env:
+          PREDEPLOY_DB_GATE_OUTCOME: ${{ steps.predeploy-db-gate.outcome }}
+        run: |
+          set -euo pipefail
+          bash deploy/drive/rollback_after_worker_failure.sh \
+            "${{ env.BACKEND_SERVICE }}" "${{ steps.rollback-targets.outputs.backend_revision }}"
+
+      - name: Restore frontend after Drive worker failure
+        id: rollback-frontend-after-drive-worker
+        if: always() && steps.promote-uat-traffic.outcome != 'skipped' && steps.classify-uat-release.outputs.release_failed != 'true' && steps.deploy-drive-worker.outcome != 'success' && steps.scope.outputs.deploy_backend == 'true' && steps.scope.outputs.deploy_frontend == 'true' && steps.rollback-targets.outputs.frontend_revision != ''
+        shell: bash
+        env:
+          PREDEPLOY_DB_GATE_OUTCOME: ${{ steps.predeploy-db-gate.outcome }}
+        run: |
+          set -euo pipefail
+          bash deploy/drive/rollback_after_worker_failure.sh \
+            "${{ env.FRONTEND_SERVICE }}" "${{ steps.rollback-targets.outputs.frontend_revision }}"
+
+      - name: Verify Drive scheduler after worker failure
+        id: verify-drive-worker-scheduler-rollback
+        if: always() && steps.promote-uat-traffic.outcome != 'skipped' && steps.classify-uat-release.outputs.release_failed != 'true' && steps.deploy-drive-worker.outcome != 'success' && steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.capture-drive-worker-scheduler.outcome }}" != "success" ]; then
+            echo "No validated scheduler baseline; worker rollout did not begin" >&2
+            exit 1
+          fi
+          if ! gcloud scheduler jobs list \
+              --project="${{ env.GCP_PROJECT_ID }}" --location="${{ env.GCP_REGION }}" \
+              --format=json > /tmp/uat-drive-worker-post-scheduler.json; then
+            python3 deploy/drive/work_drain_scheduler_snapshot.py quarantine
+            exit 1
+          fi
+          WORKER_ORIGIN="$(gcloud run services describe consent-protocol-drive-worker \
+            --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" \
+            --format='value(status.url)' 2>/dev/null || true)"
+          if ! python3 deploy/drive/verify_scheduler_state.py verify-set \
+              --snapshot /tmp/uat-drive-worker-post-scheduler.json \
+              --canonical /tmp/uat-drive-worker-pre-scheduler-canonical.json \
+              --worker-origin "$WORKER_ORIGIN" \
+              --github-output "$GITHUB_OUTPUT"; then
+            python3 deploy/drive/work_drain_scheduler_snapshot.py quarantine
+            echo "Drive scheduler set was not restored; exact jobs quarantined" >&2
+            exit 1
+          fi
+
       - name: Resolve final Cloud Run state
         if: always()
         id: final-state
@@ -1856,6 +1972,23 @@ jobs:
             --allow-missing \
             --github-output "$GITHUB_OUTPUT" \
             --output-prefix frontend
+          for component in backend frontend; do
+            if [ "${component}" = backend ]; then
+              service_json=/tmp/uat-backend-final-service.json
+            else
+              service_json=/tmp/uat-frontend-final-service.json
+            fi
+            revision="$(python3 scripts/ci/resolve-cloud-run-serving-state.py \
+              --service-json "${service_json}" --allow-missing \
+              | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')"
+            serving_sha=""
+            if [ -n "${revision}" ]; then
+              serving_sha="$(gcloud run revisions describe "${revision}" \
+                --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" \
+                --format='value(metadata.labels.deploy-sha)' 2>/dev/null || true)"
+            fi
+            echo "${component}_sha=${serving_sha}" >> "$GITHUB_OUTPUT"
+          done
 
       - name: Write UAT release status artifact
         if: always()
@@ -1868,11 +2001,32 @@ jobs:
           FRONTEND_ROLLBACK_REQUIRED=false
           BACKEND_ROLLBACK_DONE=true
           FRONTEND_ROLLBACK_DONE=true
+          DRIVE_WORKER_ROLLBACK_COMPLETE=true
+
+          if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \
+             && [ "${{ steps.deploy-drive-worker.outcome }}" != "success" ]; then
+            # A skipped/cancelled worker is not a completed rollback. Only
+            # independent scheduler and serving-revision evidence can prove it.
+            DRIVE_WORKER_ROLLBACK_COMPLETE=false
+            if [ "${{ steps.verify-drive-worker-scheduler-rollback.outcome }}" = "success" ] \
+               && [ "${{ steps.verify-drive-worker-scheduler-rollback.outputs.restored }}" = "true" ] \
+               && [ "${{ steps.rollback-targets.outputs.backend_revision }}" != "" ] \
+               && [ "${{ steps.rollback-backend-after-drive-worker.outcome }}" = "success" ] \
+               && [ "${{ steps.final-state.outputs.backend_revision }}" = "${{ steps.rollback-targets.outputs.backend_revision }}" ]; then
+              if [ "${{ steps.scope.outputs.deploy_frontend }}" != "true" ] \
+                 || { [ "${{ steps.rollback-targets.outputs.frontend_revision }}" != "" ] \
+                   && [ "${{ steps.rollback-frontend-after-drive-worker.outcome }}" = "success" ] \
+                   && [ "${{ steps.final-state.outputs.frontend_revision }}" = "${{ steps.rollback-targets.outputs.frontend_revision }}" ]; }; then
+                DRIVE_WORKER_ROLLBACK_COMPLETE=true
+              fi
+            fi
+          fi
 
           if [ "${{ steps.classify-uat-release.outputs.release_failed }}" != "true" ]; then
             if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \
                && { [ "${{ steps.activate-account-deletion.outcome }}" != "success" ] \
-                 || [ "${{ steps.activate-personal-gmail-monitor.outcome }}" != "success" ]; }; then
+                 || [ "${{ steps.activate-personal-gmail-monitor.outcome }}" != "success" ] \
+                 || [ "${{ steps.deploy-drive-worker.outcome }}" != "success" ]; }; then
               STATUS="blocked"
             else
               STATUS="healthy"
@@ -1898,7 +2052,7 @@ jobs:
             fi
           fi
 
-          export STATUS
+          export STATUS DRIVE_WORKER_ROLLBACK_COMPLETE
           python3 - <<'PY'
           import json
           import os
@@ -1914,6 +2068,8 @@ jobs:
                   "backend_url": "${{ steps.predeploy-state.outputs.backend_url }}",
                   "frontend_revision": "${{ steps.predeploy-state.outputs.frontend_revision }}",
                   "frontend_url": "${{ steps.predeploy-state.outputs.frontend_url }}",
+                  "drive_scheduler_uri": "${{ steps.capture-drive-worker-scheduler.outputs.uri }}",
+                  "drive_scheduler_audience": "${{ steps.capture-drive-worker-scheduler.outputs.audience }}",
               },
               "current": {
                   "backend_candidate_revision": "${{ steps.candidate-state.outputs.backend_revision }}",
@@ -1925,8 +2081,10 @@ jobs:
               },
               "final": {
                   "backend_revision": "${{ steps.final-state.outputs.backend_revision }}",
+                  "backend_sha": "${{ steps.final-state.outputs.backend_sha }}",
                   "backend_url": "${{ steps.final-state.outputs.backend_url }}",
                   "frontend_revision": "${{ steps.final-state.outputs.frontend_revision }}",
+                  "frontend_sha": "${{ steps.final-state.outputs.frontend_sha }}",
                   "frontend_url": "${{ steps.final-state.outputs.frontend_url }}",
               },
               "verification": {
@@ -1948,11 +2106,16 @@ jobs:
                   "reviewer_byok": "${{ steps.verify-reviewer-byok.outcome }}",
                   "account_deletion_activation": "${{ steps.activate-account-deletion.outcome }}",
                   "account_deletion_activated": "${{ steps.activate-account-deletion.outputs.activated }}",
+                  "drive_worker": "${{ steps.deploy-drive-worker.outcome }}",
+                  "drive_worker_backend_rollback": "${{ steps.rollback-backend-after-drive-worker.outcome }}",
+                  "drive_worker_frontend_rollback": "${{ steps.rollback-frontend-after-drive-worker.outcome }}",
+                  "drive_worker_scheduler_rollback": "${{ steps.verify-drive-worker-scheduler-rollback.outcome }}",
                   "blocking_classifications": "${{ steps.classify-uat-release.outputs.blocking_classifications }}",
               },
               "rollback_targets": {
                   "backend_revision": "${{ steps.rollback-targets.outputs.backend_revision }}",
                   "frontend_revision": "${{ steps.rollback-targets.outputs.frontend_revision }}",
+                  "drive_worker_failure_rollback_complete": os.environ["DRIVE_WORKER_ROLLBACK_COMPLETE"] == "true",
               },
               "timing_seconds": {
                   "backend_cloud_build": "${{ steps.deploy-backend.outputs.duration_seconds || '0' }}",
@@ -1994,6 +2157,7 @@ jobs:
             /tmp/uat-account-deletion-cleanup-health.json
             /tmp/uat-account-deletion-revision-retirement.json
             /tmp/uat-account-deletion-fence-removal.log
+            /tmp/uat-drive-worker-release.log
             /tmp/cloud-sql-proxy-uat.log
             /tmp/cloud-sql-proxy-uat-migrate.log
             /tmp/cloud-sql-proxy-uat-activation.log
@@ -2069,6 +2233,8 @@ jobs:
             echo "- Verify attempt 2: \`${{ steps.verify-uat-2.outcome }}\`"
             echo "- Backend rollback: \`${{ steps.rollback-backend.outcome }}\`"
             echo "- Frontend rollback: \`${{ steps.rollback-frontend.outcome }}\`"
+            echo "- Drive worker failure backend rollback: \`${{ steps.rollback-backend-after-drive-worker.outcome }}\`"
+            echo "- Drive worker failure frontend rollback: \`${{ steps.rollback-frontend-after-drive-worker.outcome }}\`"
             echo ""
             echo "### Deploy Timing"
             echo ""

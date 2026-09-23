@@ -3,24 +3,11 @@
 import { useEffect, useRef, useState } from "react";
 
 import { OneLocationAgentPage } from "@/app/one/location/page";
-import dynamic from "next/dynamic";
-import { useOneVoiceLiveEnabled } from "@/lib/one-voice/readiness";
 import {
   SetupCapabilityLoading,
   useSetupCapabilityCoordinator,
 } from "@/components/onboarding/setup/setup-capability-coordinator";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
-
-const LocationSetupFlow = dynamic(
-  () =>
-    import("@/components/location/setup/location-setup-flow").then(
-      (module) => module.LocationSetupFlow,
-    ),
-  {
-    ssr: false,
-    loading: () => <SetupCapabilityLoading label="Preparing location setup…" />,
-  },
-);
 
 function LocationSetupReturn({ onReturn }: { onReturn: () => void }) {
   const returnedRef = useRef(false);
@@ -35,7 +22,6 @@ function LocationSetupReturn({ onReturn }: { onReturn: () => void }) {
 
 export function LocationOnboardingSetupClient() {
   const [ready, setReady] = useState(false);
-  const live = useOneVoiceLiveEnabled();
   const coordinator = useSetupCapabilityCoordinator({
     capabilityId: "location",
     isOperationallyReady: ready,
@@ -89,8 +75,13 @@ export function LocationOnboardingSetupClient() {
         .unwrap();
     },
   };
-  // One route, two trees: the voice-first setup when Live is on, the legacy
-  // flow otherwise. Both take the same coordinator-bound callbacks.
-  if (live) return <LocationSetupFlow mode="setup" {...flowProps} />;
+  // Keep setup paired with the established /one/location workspace. That
+  // workspace was restored as the unconditional customer-facing route and its
+  // setup completion is persisted by the coordinator above. The migration-223
+  // progress UI belongs to the separate LocationArea experiment; mounting it
+  // here would create a split-brain journey and would also gate root setup on a
+  // vault token that deliberately does not exist yet. One Voice readiness may
+  // select runtime owners in AgentOwnerGate, but it must not select this route's
+  // presentation.
   return <OneLocationAgentPage mode="setup" {...flowProps} />;
 }

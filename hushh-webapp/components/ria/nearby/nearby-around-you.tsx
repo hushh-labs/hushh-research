@@ -16,7 +16,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
-import { MapPin, Star, Trash2, UserRound } from "lucide-react";
+import { Loader2, MapPin, Star, Trash2, UserRound } from "@/components/icons";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { NearbyFilterBar } from "@/components/ria/nearby/nearby-filters";
@@ -25,7 +25,6 @@ import { NearbyRecordSheet } from "@/components/ria/nearby/nearby-record-sheet";
 import { useAuth } from "@/hooks/use-auth";
 import { useCurrentLocation } from "@/lib/one-location/use-current-location";
 import { Button } from "@/lib/morphy-ux/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import { MUTED_TEXT, SUBCARD_SURFACE } from "@/lib/morphy-ux/tokens/surfaces";
 import {
   DEFAULT_NEARBY_FILTERS,
@@ -125,6 +124,8 @@ function recordFromShortlistEntry(entry: NearbyShortlistEntry): NearbyRecord {
 
 export function NearbyAroundYou() {
   const { user } = useAuth();
+  const userRef = useRef(user);
+  userRef.current = user;
   const location = useCurrentLocation();
 
   const [anchor, setAnchor] = useState<NearbyAnchor | null>(null);
@@ -149,15 +150,17 @@ export function NearbyAroundYou() {
   // advisor typed — a late GPS fix would otherwise move them somewhere else.
   useEffect(() => {
     if (!location.snapshot) return;
-    setAnchor((current) =>
-      current?.kind === "postal"
-        ? current
-        : {
-            kind: "coords",
-            latitude: location.snapshot!.latitude,
-            longitude: location.snapshot!.longitude,
-          },
-    );
+    const latitude = Number(location.snapshot.latitude.toFixed(2));
+    const longitude = Number(location.snapshot.longitude.toFixed(2));
+    setAnchor((current) => {
+      if (current?.kind === "postal") return current;
+      // Match discovery's existing coarse-coordinate contract. GPS jitter
+      // within the same search area must not reload a usable result list.
+      if (current?.latitude === latitude && current.longitude === longitude) {
+        return current;
+      }
+      return { kind: "coords", latitude, longitude };
+    });
   }, [location.snapshot]);
 
   // Lane is deliberately NOT sent upstream. Every record carries its lane, so
@@ -166,13 +169,13 @@ export function NearbyAroundYou() {
   // server-side, where its subset semantics live.
   const runSearch = useCallback(
     async (nextAnchor: NearbyAnchor, nextFilters: NearbyFilters) => {
-      const idToken = await user?.getIdToken();
-      if (!idToken) return;
-
       const seq = ++requestSeq.current;
       setLoading(true);
       setError(null);
       try {
+        const idToken = await userRef.current?.getIdToken();
+        if (seq !== requestSeq.current) return;
+        if (!idToken) throw new Error("Sign in to find nearby records.");
         const response = await NwsNearbyService.discover({
           idToken,
           anchor: nextAnchor,
@@ -188,7 +191,7 @@ export function NearbyAroundYou() {
         if (seq === requestSeq.current) setLoading(false);
       }
     },
-    [user],
+    [],
   );
 
   // Held in a ref so a re-render cannot retrigger the fetch. runSearch closes
@@ -205,13 +208,15 @@ export function NearbyAroundYou() {
     // Lane changes never refetch — they filter what is already on screen.
   }, [anchor, filters.tag, filters.radiusKm, filters.minimumConfidenceGrade]);
 
+  useEffect(() => () => { requestSeq.current += 1; }, []);
+
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      const idToken = await user?.getIdToken();
-      if (!idToken) return;
       setShortlistLoading(true);
       try {
+        const idToken = await userRef.current?.getIdToken();
+        if (!idToken || cancelled) return;
         const entries = await NwsNearbyService.listShortlist({ idToken });
         if (cancelled) return;
         const activeEntries = entries.filter((e) => e.status === "shortlisted");
@@ -226,7 +231,7 @@ export function NearbyAroundYou() {
     return () => {
       cancelled = true;
     };
-  }, [user]);
+  }, [user?.uid]);
 
   const all = useMemo(() => result?.results ?? [], [result?.results]);
   const laneCounts = useMemo(() => computeLaneCounts(all), [all]);
@@ -422,11 +427,7 @@ export function NearbyAroundYou() {
 
       {loading ? (
         <SettingsGroup>
-          <div className="flex flex-col gap-2 p-4" aria-busy role="status">
-            {[0, 1, 2, 3].map((row) => (
-              <Skeleton key={row} className="h-14 w-full rounded-xl" />
-            ))}
-          </div>
+          <NearbyLoadingStatus label="Finding nearby records…" />
         </SettingsGroup>
       ) : error ? (
         <Quiet title={error} actionLabel="Try again" onAction={() => void runSearch(anchor, filters)} />
@@ -523,6 +524,15 @@ function SettingsGroupStack({ children }: { children: ReactNode }) {
   return <div className="flex flex-col gap-4">{children}</div>;
 }
 
+function NearbyLoadingStatus({ label }: { label: string }) {
+  return (
+    <div className="flex items-center gap-2 px-4 py-5 text-sm text-muted-foreground" aria-busy="true" role="status">
+      <Loader2 aria-hidden="true" className="h-4 w-4 shrink-0 motion-safe:animate-spin" />
+      <span>{label}</span>
+    </div>
+  );
+}
+
 function ShortlistedProspects({
   entries,
   loading,
@@ -543,11 +553,7 @@ function ShortlistedProspects({
       }
     >
       {loading ? (
-        <div className="flex flex-col gap-2 p-4" aria-busy role="status">
-          {[0, 1].map((row) => (
-            <Skeleton key={row} className="h-14 w-full rounded-xl" />
-          ))}
-        </div>
+        <NearbyLoadingStatus label="Loading saved prospects…" />
       ) : entries.length === 0 ? (
         <div className="px-4 py-5">
           <p className="text-sm text-muted-foreground">No shortlisted prospects yet.</p>

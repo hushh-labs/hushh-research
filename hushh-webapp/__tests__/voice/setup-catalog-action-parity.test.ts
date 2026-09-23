@@ -1,4 +1,5 @@
 import gateway from "@/contracts/kai/kai-action-gateway.vnext.json";
+import { mailDisplayLabel } from "@/lib/copy/mail-terminology";
 import gmailSetupContract from "@/app/one/setup/gmail/page.voice-action-contract.json";
 import calendarSetupContract from "@/app/one/setup/calendar/page.voice-action-contract.json";
 import hubContract from "@/components/onboarding/setup/one-setup-hub.voice-action-contract.json";
@@ -34,7 +35,7 @@ describe("setup catalog voice parity", () => {
     expect(
       CAPABILITY_SETUP_COPY.map((capability) => capability.setupTitle),
     ).toEqual([
-      "Connect Gmail",
+      "Connect Mail",
       "Connect your calendar",
       "Set up location",
       "Identity checks",
@@ -49,7 +50,7 @@ describe("setup catalog voice parity", () => {
     expect(
       hubContract.actions
         .filter((action) => visibleSetupActionIds.has(action.action_id))
-        .map((action) => action.label),
+        .map((action) => mailDisplayLabel(action.label)),
     ).toEqual([
       "Set up your cloud",
       "Choose your AI",

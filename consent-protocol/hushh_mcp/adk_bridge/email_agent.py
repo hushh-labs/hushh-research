@@ -1,23 +1,23 @@
-"""In-process A2A handler for the unified Email specialist.
+"""Typed-chat-only Email hop with exact invocation and live owner authority.
 
-Wraps EmailChatService.handle_turn and adapts its dict output into the generic
-SpecialistTurnResult. The specialist owns read-only inbox triage and synced
-receipt review; it emits no client directive.
-
-Consent: EmailChatService reads Gmail via the user's connected gmail.readonly
-OAuth connection; the delegation boundary in the One route additionally validates
-the A2A consent token against AGENT_ONE_ORCHESTRATE before dispatch.
+Uses the nonpersisting metadata lane; legacy direct Mail/receipts and reviewed
+sending remain separate. Invocation grants no mailbox access by itself.
 """
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 from hushh_mcp.adk_bridge.contract import (
     A2ATask,
+    SpecialistReadResult,
     SpecialistTurnResult,
     require_attenuated_authority,
 )
+from hushh_mcp.adk_bridge.delegation import validate_first_party_owner_token
+from hushh_mcp.hushh_adk.manifest import ManifestLoader
+from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 
 # The label surfaced to the client for delegated turns (SSE start/complete "model").
 DELEGATED_MODEL = "one+email"
@@ -39,24 +39,50 @@ class EmailAgentA2A:
             self._service = EmailChatService()
 
     async def handle(self, task: A2ATask) -> SpecialistTurnResult:
-        require_attenuated_authority(task, information=self._require_read is None)
-        if self._require_read is not None:
-            await self._require_read(task)
-        out: dict = await self._service.handle_turn(
-            user_id=task.user_id,
-            message=task.message,
-            consent_token=task.consent_token,
-            conversation_id=task.conversation_id,
+        manifest = ManifestLoader.load(
+            str(Path(__file__).resolve().parents[1] / "agents" / "email" / "agent.yaml")
         )
-        if self._require_read is not None:
-            await self._require_read(task)
+
+        async def require_access() -> None:
+            if (
+                task.execution_surface != "typed_chat"
+                or task.delegate_result is not None
+                or task.planned_action is not None
+                or not task.conversation_id
+                or not manifest.authorities.invocation
+            ):
+                raise PermissionError("Mail read authority is unavailable")
+            for capability in manifest.authorities.invocation:
+                require_attenuated_authority(
+                    task,
+                    required_invocation=capability,
+                    expected_tenant_id=task.expected_tenant_id,
+                    expected_task_id=task.expected_task_id,
+                )
+            if not connector_feature_enabled("gmail_chat_reads", task.user_id):
+                raise PermissionError("Mail reads are unavailable")
+            if await validate_first_party_owner_token(task.user_id, task.consent_token) is None:
+                raise PermissionError("Mail owner authority is unavailable")
+            if self._require_read is not None:
+                await self._require_read(task)
+
+        await require_access()
+        out: dict = await self._service.handle_delegated_turn(
+            user_id=task.user_id,
+            message=task.message or "",
+            consent_token=task.consent_token,
+            conversation_id=task.conversation_id or "",
+            require_access=require_access,
+        )
+        await require_access()
         return SpecialistTurnResult(
-            conversation_id=str(out.get("conversationId") or task.conversation_id or ""),
+            conversation_id=task.conversation_id or "",
             text=str(out.get("response") or ""),
             directive=None,
             is_complete=bool(out.get("isComplete", True)),
-            state_changed=bool(out.get("stateChanged", False)),
+            state_changed=False,
             model=DELEGATED_MODEL,
+            structured=SpecialistReadResult.model_validate(out["structured"]),
         )
 
 

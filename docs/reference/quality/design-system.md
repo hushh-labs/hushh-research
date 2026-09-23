@@ -1,6 +1,5 @@
 # Hussh Frontend Design System
 
-
 ## Visual Context
 
 Canonical visual owner: [Quality and Design System Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
@@ -10,17 +9,20 @@ The cross-layer visual, shell, material, and AX rules are maintained in
 layering and primitive placement beneath that contract.
 
 ## Purpose
+
 This contract keeps shadcn as the vendor primitive layer, makes Morphy UX the standalone design-system root, and makes app-ui the semantic composition layer above it.
 
 ## Component Layering Contract
-| Layer | Location | Ownership | Rules |
-|---|---|---|---|
-| Stock primitives | `hushh-webapp/components/ui/*` | shadcn registry | Registry-backed only. Treat as vendor code. |
-| Morphy UX | `hushh-webapp/lib/morphy-ux/*` and `hushh-webapp/lib/morphy-ux/ui/*` | Hussh | Own reusable design-system primitives, motion, tokens, and surface shells. Must compose stock primitives; do not fork primitive internals. |
-| App reusable components | `hushh-webapp/components/app-ui/*` | Hussh | App-specific semantic composition belongs here, never in `components/ui`. |
-| Feature composition | `hushh-webapp/components/<feature>/*`, `hushh-webapp/app/**` | Hussh | Compose Morphy and app-ui layers; do not create parallel primitives. |
+
+| Layer                   | Location                                                             | Ownership       | Rules                                                                                                                                      |
+| ----------------------- | -------------------------------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Stock primitives        | `hushh-webapp/components/ui/*`                                       | shadcn registry | Registry-backed only. Treat as vendor code.                                                                                                |
+| Morphy UX               | `hushh-webapp/lib/morphy-ux/*` and `hushh-webapp/lib/morphy-ux/ui/*` | Hussh           | Own reusable design-system primitives, motion, tokens, and surface shells. Must compose stock primitives; do not fork primitive internals. |
+| App reusable components | `hushh-webapp/components/app-ui/*`                                   | Hussh           | App-specific semantic composition belongs here, never in `components/ui`.                                                                  |
+| Feature composition     | `hushh-webapp/components/<feature>/*`, `hushh-webapp/app/**`         | Hussh           | Compose Morphy and app-ui layers; do not create parallel primitives.                                                                       |
 
 ## Canonical Policies
+
 1. Default to stock shadcn imports for baseline controls.
 2. Use Morphy when the change belongs to the reusable design-system layer.
 3. Keep `components/ui` overwrite-safe with `npx shadcn@latest add ... --overwrite`.
@@ -34,12 +36,14 @@ This contract keeps shadcn as the vendor primitive layer, makes Morphy UX the st
    - `standard`
    - `expanded`
 10. The canonical header accent model is semantic, not raw color-family naming:
-   - `neutral`
-   - `kai`
-   - `ria`
-   - `consent`
-   - `marketplace`
-   - `developers`
+
+- `neutral`
+- `kai`
+- `ria`
+- `consent`
+- `marketplace`
+- `developers`
+
 11. Email draft HTML is not route UI. Email Helper drafts must use the shared `agent_kyc.approved_disclosure_formatter.v1` strict-ZK renderer so plaintext and Gmail-safe HTML stay synchronized, responsive, and free of consumer-facing implementation noise. Dense email tables need horizontal scroll wrappers with fixed minimum widths instead of squeezed mobile columns.
 12. Agent-aware dialogs, popovers, sheets, menus, and confirmations publish authored
     interaction-layer metadata from app-level composition. Stock primitives remain
@@ -50,6 +54,7 @@ This contract keeps shadcn as the vendor primitive layer, makes Morphy UX the st
     behavior and cannot be activated.
 
 ## Morphy Extension Allowlist
+
 1. CTA-level behavior on top of stock button semantics.
 2. Shared card and surface treatment on top of stock card structure.
 3. Ripple, motion hooks, icon wrappers, and toast helpers.
@@ -58,6 +63,7 @@ This contract keeps shadcn as the vendor primitive layer, makes Morphy UX the st
    continuity; it never owns visual styling or primitive behavior.
 
 ## Import Rules
+
 Use stock shadcn by default for baseline primitives:
 
 ```tsx
@@ -79,6 +85,7 @@ import { SegmentedTabs } from "@/lib/morphy-ux/ui";
 ```
 
 Forbidden:
+
 1. Importing moved custom components from `@/components/ui/*` paths that no longer belong to registry ownership.
 2. Editing `components/ui/*` for app-specific behavior.
 3. Creating primitive forks in Morphy that bypass stock components.
@@ -103,12 +110,14 @@ Forbidden:
    authentication settlement, not app z-index or dialog composition.
 
 ## Charts Contract
+
 1. `hushh-webapp/components/ui/chart.tsx` is the canonical chart primitive layer.
 2. Build chart screens with `ChartContainer`, `ChartTooltip`, `ChartTooltipContent`, `ChartLegend`, and `ChartLegendContent` from stock chart.
 3. Keep feature chart files focused on data mapping and presentation, not primitive duplication.
 4. Use semantic chart config keys and CSS chart tokens first; avoid ad-hoc per-chart hardcoded palettes.
 
 ## Visual Tokens
+
 1. Keep color, typography, radius, and motion centralized through existing tokens and CSS variables.
 2. Avoid legacy references and hardcoded old theme narratives in feature code.
 3. Keep backgrounds and surfaces aligned with the current neutral app direction.
@@ -141,7 +150,44 @@ Forbidden:
    - Tile system: full-bleed marketing/onboarding tiles alternate light and near-black (`--app-tile-dark-1/2/3`); the color change is the divider (no borders, no rounding, no shadows between tiles). In-copy links on dark tiles use `--app-accent-link-on-dark`.
    - Legal note: SF Pro resolves via the system font stack only (`--font-app-*`); never bundle Apple font files. The measured scales and principles above are facts, not copied assets.
 
+## Typography and CTA contract
+
+This contract is mandatory for One Location, Connect, their sheets, dialogs,
+drawers, empty states, and responsive variants. It standardizes hierarchy and
+action composition without changing the Foundation color system.
+
+1. Use semantic typography roles from `components/app-ui/typography.tsx`.
+   Screen titles, section labels, row labels, helper copy, button labels, compact
+   button labels, and eyebrows must not be recreated with route-local arbitrary
+   font sizes or weights.
+2. Text buttons use exactly three interaction sizes:
+   - `compact`: a 44px target with the compact 15/20/600 label. Use for dense
+     row and toolbar actions.
+   - `standard`: a 44px target with the standard button label. Use for ordinary
+     actions, retry controls, secondary actions, and pagination.
+   - `prominent`: a 50px target. Reserve it for the final commitment in a flow,
+     such as Start sharing, Send request, Save, Create, Join, or Check in.
+3. Icon-only actions use `icon-touch` (44px). A visually smaller icon control is
+   allowed only when its invisible hit area remains at least 44 by 44 pixels.
+4. Button labels never wrap. If a label cannot fit, widen the action, stack the
+   group, shorten the copy, or move a third action into a menu.
+5. Use `FlowActionGroup` for two-action and three-action decisions:
+   - phone: full-width stack, secondary first and primary last;
+   - tablet/desktop: content-width row, secondary left and primary right;
+   - narrow sheets and cards may opt into an always-stacked group;
+   - a third low-priority action is tertiary, not a third competing filled CTA.
+6. Selection-driven flows show a `FlowSelectionSummary` immediately above the
+   final action. It states what will be acted on (people, duration, destination,
+   or other committed value) before the prominent CTA becomes the decision.
+7. Disabled primary actions retain their position and label. Put one concise
+   explanation next to the action instead of hiding it or silently changing the
+   hierarchy.
+8. Responsive action groups are authored once. Do not render separate mobile,
+   tablet, and desktop button trees; CSS layout changes the composition while
+   DOM order and semantics remain stable.
+
 ## Guardrails
+
 Use these commands from `hushh-webapp`:
 
 ```bash
@@ -151,12 +197,14 @@ npm run verify:docs
 ```
 
 What they enforce:
+
 1. `components/ui` folder purity and stale-import protection.
 2. Strict registry parity for registry-backed UI files.
 3. Cache mutation coherence hooks.
 4. Documentation/runtime contract parity.
 
 ## Regeneration Workflow
+
 When updating registry-backed components:
 
 ```bash
@@ -164,6 +212,7 @@ npx shadcn@latest add accordion alert-dialog avatar badge breadcrumb button card
 ```
 
 After regeneration:
+
 1. Re-run all verification commands.
 2. Keep Morphy wrappers compositional and API-stable.
 3. Update docs only when rules actually change.
@@ -184,6 +233,7 @@ These skills must stay aligned with this document, `frontend-ui-architecture-map
 Morphy UX owns reusable visual primitives. The narrower `morphy-ax` spoke owns pure redacted agent-state derivation and compatibility; see [Morphy Agent Experience](./morphy-agent-experience.md).
 
 ## Settings Surfaces
+
 The Profile page is the canonical settings implementation for the app.
 
 Reference:
@@ -220,9 +270,10 @@ present.
 
 Persistent chrome text and icons inherit the neutral theme foreground through
 `currentColor`; do not pin descendant `text-foreground` or
-`text-muted-foreground` classes. Lucide icons use the shared
-`--lucide-stroke-width: 1.6` baseline, with a deliberate component-level
-override only when a compact control needs it.
+`text-muted-foreground` classes. Generic icons come from the canonical
+`@/components/icons` Phosphor registry and preserve their native viewBox and
+weight. Use the registry's regular weight for Plus/X controls and duotone for
+capabilities and utility icons; do not add per-surface stroke overrides.
 
 The top shell’s Finance, Location, Consent Center, and public Explore tab sets
 use equal fixed tracks from the central registry. They remain visible and
@@ -268,6 +319,22 @@ fallback into a separate motion language. High-churn rails and tables opt out
 of automatic enters and may animate a stable inner layout root only.
 
 `SettingsGroup` and `SettingsRow` are the standard responsive list system for Profile, agents, and Connected Systems. Groups use the compact utility radius, inset separators, text truncation, and mobile-stacked trailing controls. Do not make a desktop `DataTable` the only way to operate a narrow route.
+
+## Layer Ladder
+
+Every floating primitive in `components/ui` takes its z-index from the
+`--z-*` tokens declared at the top of `app/globals.css`, never from a literal.
+The order is: persistent chrome, then sheets and drawers, then dialogs, then
+the Location onboarding takeover, then the system banner, then the transient
+tier (menus, popovers, selects, comboboxes, tooltips). Transient surfaces
+portal to `<body>`, so the ladder is the only thing that decides whether a
+menu opened inside a sheet is visible; when the dialog tier was lifted above
+sheets and the transient tier was left at its shadcn defaults, every dropdown
+inside the profile pane rendered behind the pane. `__tests__/ui/layer-order.contract.test.ts`
+pins the token order and which primitive consumes which token, and
+`e2e/profile-pane-layer-order.spec.ts` proves the browser stacks them that way
+by opening the Accent picker inside the pane. A surface that must sit above a
+sheet passes a higher token, never a fresh number.
 
 ## Bounded Managers And Decision Sheets
 

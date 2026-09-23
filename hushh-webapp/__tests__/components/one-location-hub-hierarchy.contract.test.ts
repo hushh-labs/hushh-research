@@ -25,14 +25,15 @@ describe("Location hub hierarchy", () => {
   it("keeps exactly one Location title before the local tab strip and content", () => {
     const body = functionBody("LocationRedesignHub");
     const headerIndex = body.indexOf("<PageHeader");
-    const titleMatches =
-      body.match(/<PageTitle\s+as="span"[^>]*>\s*Location\s*<\/PageTitle>/g) ?? [];
+    const headerMatches = body.match(/<PageHeader\b[\s\S]*?\/>/g) ?? [];
     const tabsIndex = body.indexOf("<TopShellTabs");
     const swipeIndex = body.indexOf("<SwipeViews");
     const linksIndex = body.indexOf("<LinksHub");
 
     expect(countOccurrences(body, "<PageHeader")).toBe(1);
-    expect(titleMatches).toHaveLength(1);
+    expect(headerMatches).toHaveLength(1);
+    expect(headerMatches[0]).toContain('title="Location"');
+    expect(headerMatches[0]).toContain('titleRole="agent"');
     expect(countOccurrences(body, "<TopShellTabs")).toBe(1);
     expect(countOccurrences(body, "<SwipeViews")).toBe(1);
     expect(headerIndex).toBeGreaterThan(-1);

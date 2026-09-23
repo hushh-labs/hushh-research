@@ -30,6 +30,13 @@ export type AppContextFrame = {
   available_action_ids?: string[];
   screen_state?: Record<string, unknown>;
   os_location_permission?: OsPermission;
+  /**
+   * Canonical id of the circle whose detail screen is open, so "this circle"
+   * resolves server-side. Typed and separate from `screen_state` (which is
+   * rendered into the prompt and carries no identifiers); a hint the relay
+   * reads through the authorized circle service, never authority.
+   */
+  active_circle_id?: string | null;
 };
 export type PendingShownFrame = { type: "pending_action.shown"; pending_action_id: string };
 export type ConfirmActionFrame = {
@@ -168,6 +175,8 @@ export type ToolStartedFrame = { type: "tool.started"; call_id: string; tool: st
 export type ToolResultFrame = {
   type: "tool.result";
   call_id: string | null;
+  /** Exact pending confirmation this terminal result settles, when there is one. */
+  pending_action_id?: string | null;
   tool: string;
   status: string;
   ok: boolean;
@@ -284,6 +293,41 @@ export const CLOSE_CODES = {
   ended: 1000,
 } as const;
 
+/**
+ * Save My Soul on the wire. `trigger_save_my_soul` can only ARM the alert
+ * (`SOS_GRANTS_CREATED`): the position is encrypted on the device, so what
+ * reached whom is a fact only `report_save_my_soul_delivery` may state, from
+ * the stored envelopes. Nothing in this file, and nothing rendered from these
+ * statuses, may call an armed alert "sent" or "done".
+ */
+export const SOS_TRIGGER_TOOL = "trigger_save_my_soul" as const;
+export const SOS_REPORT_TOOL = "report_save_my_soul_delivery" as const;
+export const SOS_STOP_TOOL = "stop_save_my_soul" as const;
+export const SOS_GRANTS_CREATED = "sos_grants_created" as const;
+export const SOS_PUBLISH_STEP_KIND = "publish_location_envelopes" as const;
+export const SOS_PUBLISH_PURPOSE = "sos" as const;
+/** Account reset / deletion: the tap issues a device step; the server verifies. */
+export const ACCOUNT_LIFECYCLE_STEP_KIND = "account_lifecycle" as const;
+export const ACCOUNT_LIFECYCLE_REPORT_TOOL = "report_account_lifecycle" as const;
+export const RESET_STEP_ISSUED = "reset_step_issued" as const;
+export const DELETE_STEP_ISSUED = "delete_step_issued" as const;
+/** The verified lifecycle outcomes; only account_reset / account_deleted are changes. */
+export const ACCOUNT_LIFECYCLE_REPORT_STATUSES = new Set<string>([
+  "account_reset",
+  "account_deleted",
+  "needs_unlock",
+  "blocked_external",
+  "not_changed",
+  "unverified",
+]);
+/** The verified delivery outcomes, and only these, may say who was reached. */
+export const SOS_REPORT_STATUSES = new Set<string>([
+  "sos_sent",
+  "sos_partial",
+  "sos_not_sent",
+  "sos_unverified",
+]);
+
 /** Statuses that must never render as success. */
 export const NOT_SUCCESS_STATUSES = new Set<string>([
   "rejected",
@@ -291,10 +335,16 @@ export const NOT_SUCCESS_STATUSES = new Set<string>([
   "confirmation_required",
   "tap_required",
   "card_not_shown",
+  // A firebase-plane card that needs a tap with a fresh sign-in proof.
+  "firebase_proof_required",
+  // The scope-review screen is open; nothing has been accepted yet.
+  "scope_review_required",
   "navigation_dispatched",
   "grant_created",
   "check_in_created",
   "sos_grants_created",
+  "reset_step_issued",
+  "delete_step_issued",
   "position_publish_pending",
   "location_updates_pending",
   "pending",

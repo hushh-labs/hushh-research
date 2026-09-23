@@ -37,11 +37,14 @@ from __future__ import annotations
 import json
 import re
 from functools import lru_cache
-from pathlib import Path
 
-_CONTRACT_PATH = (
-    Path(__file__).resolve().parents[3] / "contracts" / "pkm" / "internal-path-keys.v1.json"
-)
+from hushh_mcp.services.generated_contracts import generated_contract_path
+
+# `Path(__file__).resolve().parents[3]` resolved to the repo root in a checkout
+# but to `/` inside the deployed image (build context is `consent-protocol/`,
+# so `/app` *is* that directory and nothing above it exists) -- see
+# `generated_contracts.py` for the identical bug this same fix already covers.
+_CONTRACT_PATH = generated_contract_path("pkm", "internal-path-keys.v1.json")
 
 # Mirrors SECRET_KEY_PATTERN in pkm-memory-cards.ts. Kept in code rather than the
 # contract because a regex in JSON is a regex nobody can read.
@@ -111,4 +114,19 @@ def is_internal_manifest_path(path: str) -> bool:
     replaces looked only at the first segment, so nesting a structural key one
     level down was enough to publish it.
     """
-    return any(is_internal_path_segment(segment) for segment in str(path or "").split("."))
+    segments = [_normalize(segment) for segment in str(path or "").split(".")]
+    collection_segments = set(_contract()["schema_collection_segments"])
+    for index, segment in enumerate(segments):
+        if segment in collection_segments:
+            # These are manifest grammar, not arbitrary underscore-prefixed
+            # keys. Preserve the grammar while still checking every child.
+            if index == 0:
+                return True
+            if segment == "_entities" and (
+                index == len(segments) - 1 or segments[index - 1] != "entities"
+            ):
+                return True
+            continue
+        if is_internal_path_segment(segment):
+            return True
+    return False

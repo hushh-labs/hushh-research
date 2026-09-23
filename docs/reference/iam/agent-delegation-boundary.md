@@ -31,7 +31,7 @@ Define the current boundary between consent tokens, encrypted scoped exports, Tr
 
 This is an implementation contract, not a roadmap. It exists because Hussh has more than one delegated-agent path and those paths must not be treated as interchangeable.
 
-Durable principles behind this contract live in the Project-Wide Agent Architecture Doctrine in `AGENTS.md` (statefulness decided by runtime topology — the shared hub dumb by default, a per-user pod an intelligent private agent with its own encrypted memory — delegation as a wrapped function of current behavior, per-hop scoped encrypted exports, one routing authority per surface).
+Durable principles behind this contract live in the Project-Wide Agent Architecture Doctrine in `AGENTS.md`: shared-runtime owner isolation, a private pod's owner-scoped encrypted recovery state and explicit recall, delegation as a wrapped function of current behavior, per-hop scoped encrypted exports, and one routing authority per surface. A private-pod requirement is not proof that every current deployment implements it.
 
 ## Runtime Authority Types
 
@@ -88,6 +88,11 @@ Current implementation facts:
 2. Specialist A2A scopes are centralized in `SPECIALIST_A2A_SCOPE_MAP`.
 3. `VAULT_OWNER` remains a token hierarchy superset and can satisfy specialist scopes in first-party owner routes.
 4. In-app compatibility routes may still pass the vault-owner token into internal specialist work.
+5. Kai's opt-in official ADK A2A adapter currently accepts only fresh message
+   send/stream calls. Task reads, cancellation, resubscription, push
+   configuration and continuation fail closed because the SDK's default task
+   store has no owner binding. Full Task lifecycle exposure requires an
+   owner-bound store and independent consent tests before promotion.
 
 The target rule is stricter: before a specialist crosses an external, vendor, process, or network boundary, the caller should pass either an attenuated specialist token or a strict encrypted scoped export, not raw `VAULT_OWNER`.
 

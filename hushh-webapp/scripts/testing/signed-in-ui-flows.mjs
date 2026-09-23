@@ -1,5 +1,3 @@
-import fs from "node:fs";
-
 /**
  * Signed-in UI interaction flows shared by Playwright route verification
  * and native iOS UI interaction audit.
@@ -15,6 +13,7 @@ import fs from "node:fs";
  * - click_testid: { testId: string }
  * - open_command_palette: { timeoutMs?: number }
  * - navigate_route: { route: string }
+ * - assert_route: { route: string }
  * - clear_import_background: {}
  * - upload_test_asset: { assetPath: string, fileName: string, mimeType: string }
  * - wait_button: { name: string, regex?: boolean, timeoutMs?: number }
@@ -49,43 +48,21 @@ export const TERMINAL_DATA_STATES = [
 const KAI_MARKET_ROUTE = "/one/kai";
 const KAI_PORTFOLIO_ROUTE = `${KAI_MARKET_ROUTE}?tab=portfolio`;
 const KAI_ANALYSIS_ROUTE = `${KAI_MARKET_ROUTE}?tab=analysis`;
-const locationOnboardingContract = JSON.parse(
-  fs.readFileSync(
-    new URL("../../lib/onboarding/one-location-onboarding.contract.json", import.meta.url),
-    "utf8",
-  ),
-);
-const LOCATION_ONBOARDING_CHECKPOINTS = locationOnboardingContract.screens.map(
-  (screen) => screen.testId,
-);
-
 export const UI_FLOWS = [
   {
-    id: "native-reviewer-location-intro-fresh-session",
+    id: "native-reviewer-location-setup-handoff",
     route: "/one/setup/location",
     description:
-      "Location setup traverses all four authored screens without saving a place or finishing setup",
-    watchdog: {
-      checkpoints: LOCATION_ONBOARDING_CHECKPOINTS,
-      maxCheckpointRegressions: 0,
-      maxNoProgressMs: 20_000,
-    },
+      "A completed reviewer admits the Location capability route without replaying unrelated setup; completed Location resolves to its workspace",
     steps: [
       { type: "ensure_persona", persona: "investor" },
       { type: "navigate_route", route: "/one/setup/location" },
-      { type: "assert_visible_testid", testId: LOCATION_ONBOARDING_CHECKPOINTS[0] },
-      { type: "click_button", name: "Get started" },
-      { type: "assert_visible_testid", testId: LOCATION_ONBOARDING_CHECKPOINTS[1] },
-      { type: "click_button", name: "Set up my location" },
-      { type: "assert_visible_testid", testId: LOCATION_ONBOARDING_CHECKPOINTS[2] },
-      // Skip persistence while still exercising the unified map + place screen.
-      // Contacts are a disclosure on the final screen, so leaving it closed also
-      // guarantees this reviewer flow never triggers an OS contacts prompt.
-      { type: "click_button", name: "Skip saving this place" },
-      { type: "assert_visible_testid", testId: LOCATION_ONBOARDING_CHECKPOINTS[3] },
-      // Stop at the final CTA so the reviewer can repeat this authored journey
-      // without marking Location setup complete.
-      { type: "wait_button", name: "Finish" },
+      {
+        type: "wait_beacon",
+        routeIds: ["/one/location", "/one/setup/location"],
+        dataStates: TERMINAL_DATA_STATES,
+        timeoutMs: 60000,
+      },
     ],
   },
   {

@@ -10,7 +10,7 @@ import {
   Store,
   UserRound,
   Command,
-} from "lucide-react";
+} from "@/components/icons";
 import { usePathname } from "next/navigation";
 
 import { Card, CardContent } from "@/lib/morphy-ux/card";

@@ -14,7 +14,7 @@ import {
   Search as SearchIcon,
   Share2,
   X,
-} from "lucide-react";
+} from "@/components/icons";
 
 import {
   AppPageContentRegion,
@@ -38,7 +38,10 @@ import {
   ShareUnavailableError,
   shareLink,
 } from "@/lib/share/share-link";
-import { useLocalOnboardingActionHandler, type LocalActionPreparer } from "@/lib/agent/local-onboarding-actions";
+import {
+  useLocalOnboardingActionHandler,
+  type LocalActionPreparer,
+} from "@/lib/agent/local-onboarding-actions";
 import {
   getAppScrollRoot,
   useScrollReset,
@@ -81,7 +84,12 @@ import {
 } from "@/lib/navigation/connect-routes";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { CACHE_KEYS, CACHE_TTL, CacheService } from "@/lib/services/cache-service";
+import { Skeleton } from "@/components/ui/skeleton";
+import { subscribeToConnectionGraphChanges } from "@/lib/connections/connection-graph-events";
+import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { Button } from "@/lib/morphy-ux/button";
+import { FlowActionGroup } from "@/components/app-ui/flow-actions";
 import {
   ConnectionsService,
   type ConnectionAudience,
@@ -94,6 +102,7 @@ import {
 } from "@/lib/services/connections-service";
 import { relationshipCta } from "@/lib/connections/relationship-label";
 import { TOP_SHELL_TAB_REGISTRY } from "@/lib/navigation/top-shell-tabs";
+import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 import {
   VOICE_CONFIRM_DATA_KEY,
   VOICE_DISAMBIGUATION_DATA_KEY,
@@ -286,11 +295,13 @@ async function mapWithConcurrency<T, R>(
 /** Fetch one small batch at a time as browsing or search reaches the list end. */
 const DEFAULT_PAGE_SIZE = 20;
 const CONNECT_ROW_ACTION_CLASSNAME =
-  "h-8 min-h-8 rounded-2xl px-2.5 text-[14px] font-semibold leading-[18px]";
+  "ui-text-compact-button-label h-11 min-h-11 rounded-2xl px-2.5";
 const CONNECT_INLINE_BUTTON_CLASSNAME =
-  "h-8 min-h-8 rounded-2xl px-3 text-[14px] font-semibold leading-[18px]";
+  "ui-text-compact-button-label h-11 min-h-11 rounded-2xl px-3";
+const CONNECT_SECTION_CONTROL_LABEL_CLASSNAME =
+  "connect-section-control-label";
 const CONNECT_REFRESH_BUTTON_CLASSNAME =
-  "h-8 min-h-8 w-8 min-w-8 rounded-full p-0 text-muted-foreground hover:text-foreground disabled:opacity-70";
+  "h-11 min-h-11 w-11 min-w-11 rounded-full p-0 text-muted-foreground hover:text-foreground disabled:opacity-70";
 
 /** Maximum number of connection requests the People bulk action can send. */
 const MAX_BULK_CONNECTION_REQUESTS = 10;
@@ -453,11 +464,16 @@ async function resolveConnectionForVoice({
     rows.push(...result.items);
     if (connectionId) {
       const exact = rows.find((row) => row.connectionId === connectionId);
-      if (exact) return {
-        matches: !spokenName || matchByName([exact], spokenName, (entry) => entry.displayName).length === 1
-          ? [exact] : [],
-        complete: true,
-      };
+      if (exact)
+        return {
+          matches:
+            !spokenName ||
+            matchByName([exact], spokenName, (entry) => entry.displayName)
+              .length === 1
+              ? [exact]
+              : [],
+          complete: true,
+        };
     }
     if (!result.hasMore) {
       return {
@@ -491,6 +507,16 @@ export default function ConnectPageClient() {
    */
   const surface: ConnectSurface = readConnectSurface(
     searchParams.get(CONNECT_SURFACE_PARAM),
+  );
+  // A settled swipe between Connections and Circles commits the same route
+  // the tab pill pushes, so swiping and tapping stay one navigation.
+  const commitSurface = useCallback(
+    (value: string) => {
+      if (value === surface) return;
+      const target = CONNECT_SURFACE_TAB_DEFINITION.tabs.find((tab) => tab.value === value);
+      if (target) router.push(target.href, { scroll: false });
+    },
+    [router, surface],
   );
   /** Which Circle flow, if any, the URL is asking for. Part of the scroll key
    *  below, because opening one is a new screen even though the path is not. */
@@ -562,16 +588,49 @@ export default function ConnectPageClient() {
   const debouncedQuery = useDebouncedValue(query, 300);
 
   const [people, setPeople] = useState<DirectoryPerson[]>([]);
-  const [connections, setConnections] = useState<ConnectionSummaryEntry[]>([]);
-  const [connectionsPage, setConnectionsPage] = useState(1);
-  const [connectionsHasMore, setConnectionsHasMore] = useState(false);
-  const [connectionsTotalCount, setConnectionsTotalCount] = useState(0);
-  const [connectionsExpanded, setConnectionsExpanded] = useState(false);
+  // The last first page this session saw, painted on the first render and
+  // replaced by the refresh below. Until either exists the list is unknown,
+  // not empty: it opened on "My connections (0) · No connections yet" and
+  // then jumped when nine connections landed (Galaxy S24 Ultra, 2026-09-22).
+  const [initialFirstPage] = useState<ConnectionPage | null>(() =>
+    user?.uid
+      ? CacheService.getInstance().get<ConnectionPage>(
+          CACHE_KEYS.CONNECTIONS_FIRST_PAGE(user.uid, "all"),
+        )
+      : null,
+  );
+  const [connections, setConnections] = useState<ConnectionSummaryEntry[]>(
+    () => initialFirstPage?.items ?? [],
+  );
+  const [connectionsPage, setConnectionsPage] = useState(
+    () => initialFirstPage?.page ?? 1,
+  );
+  const [connectionsHasMore, setConnectionsHasMore] = useState(
+    () => initialFirstPage?.hasMore ?? false,
+  );
+  const [connectionsTotalCount, setConnectionsTotalCount] = useState(
+    () => initialFirstPage?.totalCount ?? 0,
+  );
+  const [connectionsLoaded, setConnectionsLoaded] = useState(
+    () => initialFirstPage !== null,
+  );
+  // Whose rows are on screen, as "uid:audience"; null when there are none.
+  const connectionsListOwnerRef = useRef<string | null>(
+    initialFirstPage && user?.uid ? `${user.uid}:all` : null,
+  );
+  // Open by default: My connections is the first thing a person opens
+  // Connect to see, and a collapsed panel hid the list (and its only retry
+  // affordance on refresh failure) behind one more tap.
+  const [connectionsExpanded, setConnectionsExpanded] = useState(true);
   const [connectionsLoadingMore, setConnectionsLoadingMore] = useState(false);
   const [connectionsRefreshingFirstPage, setConnectionsRefreshingFirstPage] =
     useState(false);
   const connectionsRequestRef = useRef(0);
   const connectionsFirstPageRequestRef = useRef<number | null>(null);
+  const connectionReconcileInFlightRef = useRef<Promise<void> | null>(null);
+  const connectionReconcileQueuedRef = useRef(false);
+  const lastForegroundReconcileAtRef = useRef(0);
+  const suppressNextLocalGraphEventRef = useRef(false);
   const [outgoingRequestIds, setOutgoingRequestIds] = useState<
     Record<string, string>
   >({});
@@ -665,7 +724,9 @@ export default function ConnectPageClient() {
     setIsConnectingMultiple(false);
     batchSendingRef.current = false;
     openedCommandReview.current = null;
-    return () => { batchDraftGenerationRef.current += 1; };
+    return () => {
+      batchDraftGenerationRef.current += 1;
+    };
   }, [user?.uid]);
 
   useEffect(() => {
@@ -697,6 +758,8 @@ export default function ConnectPageClient() {
 
   const connectionAudience: ConnectionAudience =
     tab === "advisors" ? "ria" : "all";
+  const connectionAudienceRef = useRef(connectionAudience);
+  connectionAudienceRef.current = connectionAudience;
 
   const loadConnectionsPage = useCallback(
     async (
@@ -764,7 +827,11 @@ export default function ConnectPageClient() {
         setConnectionsTotalCount(0);
         setConnectionsPage(1);
         setConnectionsHasMore(false);
+        setConnectionsLoaded(false);
       }
+      const cacheKey = user?.uid
+        ? CACHE_KEYS.CONNECTIONS_FIRST_PAGE(user.uid, audience)
+        : null;
 
       try {
         const result = await loadConnectionsPage(1, audience);
@@ -776,7 +843,12 @@ export default function ConnectPageClient() {
           setConnectionsPage(result.page);
           setConnectionsHasMore(result.hasMore);
           setConnectionsTotalCount(result.totalCount);
+          if (cacheKey) {
+            CacheService.getInstance().set(cacheKey, result, CACHE_TTL.MEDIUM);
+          }
         } else if (removedConnection) {
+          // The cached page still holds the removed row.
+          if (cacheKey) CacheService.getInstance().invalidate(cacheKey);
           // Do not keep a page-2 cursor over a shifted server list: the next
           // offset would skip the row that moved across the boundary. This
           // fallback is generation-guarded above, so a superseded removal read
@@ -796,11 +868,44 @@ export default function ConnectPageClient() {
         if (connectionsFirstPageRequestRef.current === requestId) {
           connectionsFirstPageRequestRef.current = null;
           setConnectionsRefreshingFirstPage(false);
+          // Answered, even if the answer was an error: the retry row shows.
+          setConnectionsLoaded(true);
         }
       }
     },
-    [loadConnectionsPage],
+    [loadConnectionsPage, user?.uid],
   );
+
+  const reconcileConnectionSurfaces = useCallback(
+    ({ ensureAfterCurrent = false }: { ensureAfterCurrent?: boolean } = {}) => {
+      if (!user) return Promise.resolve();
+      const active = connectionReconcileInFlightRef.current;
+      if (active) {
+        if (ensureAfterCurrent) connectionReconcileQueuedRef.current = true;
+        return active;
+      }
+
+      const run = async () => {
+        do {
+          connectionReconcileQueuedRef.current = false;
+          await Promise.allSettled([
+            refreshConnectionsFirstPage({
+              audience: connectionAudienceRef.current,
+            }),
+            loadOutgoingRequestIds(),
+          ]);
+          setDirectoryRefreshNonce((nonce) => nonce + 1);
+          setCircleRefreshToken((token) => token + 1);
+        } while (connectionReconcileQueuedRef.current);
+      };
+      const task = run().finally(() => {
+        if (connectionReconcileInFlightRef.current === task) {
+          connectionReconcileInFlightRef.current = null;
+        }
+      });
+      connectionReconcileInFlightRef.current = task;
+      return task;
+    }, [loadOutgoingRequestIds, refreshConnectionsFirstPage, user]);
 
   // The same contact sync the One Location agent offers, on the screen whose
   // whole job is finding people. It is one implementation, not a second one:
@@ -812,9 +917,6 @@ export default function ConnectPageClient() {
   // the acquisition source for that journey, and first touch wins inside it,
   // so calling it from here would not merely file a wrong row -- it would
   // consume the slot and leave a later, genuine Location touch unrecorded.
-  const connectionAudienceRef = useRef(connectionAudience);
-  connectionAudienceRef.current = connectionAudience;
-
   const contactSync = useContactSync({
     routeId: "connect",
     // `user ? getIdToken : null`, not `getIdToken`. The option is nullable so
@@ -840,10 +942,10 @@ export default function ConnectPageClient() {
     // the start; a captured value would refresh the People audience into the
     // RIAs group and repaint it with the wrong people.
     onConnectionGraphChanged: async () => {
-      await refreshConnectionsFirstPage({
-        audience: connectionAudienceRef.current,
-      });
-      setDirectoryRefreshNonce((nonce) => nonce + 1);
+      // The contact-sync hook publishes the graph event before invoking this
+      // callback. Join the subscriber's in-flight reconciliation instead of
+      // starting a second identical read.
+      await reconcileConnectionSurfaces();
     },
   });
 
@@ -851,14 +953,20 @@ export default function ConnectPageClient() {
     // Audience is part of the server-side truth for this list. Clear the
     // previous audience before loading so a failed RIAs request cannot leave
     // ordinary People rows displayed under the RIAs heading (or vice versa).
+    // Only when the rows on screen belong to someone or something else: the
+    // first run would otherwise wipe this person's cached page for the same
+    // audience, which is exactly what the seed is for.
+    const listOwner = `${user?.uid ?? ""}:${connectionAudience}`;
+    const clearBeforeLoad = connectionsListOwnerRef.current !== listOwner;
+    connectionsListOwnerRef.current = listOwner;
     void refreshConnectionsFirstPage({
       audience: connectionAudience,
-      clearBeforeLoad: true,
+      clearBeforeLoad,
     });
     return () => {
       connectionsRequestRef.current += 1;
     };
-  }, [connectionAudience, refreshConnectionsFirstPage]);
+  }, [connectionAudience, refreshConnectionsFirstPage, user?.uid]);
 
   useEffect(() => {
     void loadOutgoingRequestIds();
@@ -873,13 +981,7 @@ export default function ConnectPageClient() {
       // requests, not bookkeeping echoes like "fcm_opened" that would
       // otherwise flash the list on every notification read.
       if (!detail.action && !detail.reconcile) return;
-      void refreshConnectionsFirstPage({ audience: connectionAudience });
-      void loadOutgoingRequestIds();
-      // A Circle roster open behind this page shows the same relationships,
-      // one row per member. Without this it kept a blue "Connect" on somebody
-      // who had just asked to connect with the viewer -- and pressing it then
-      // claimed a request was sent and offered a Cancel the API refuses.
-      setCircleRefreshToken((token) => token + 1);
+      void reconcileConnectionSurfaces({ ensureAfterCurrent: true });
     };
     window.addEventListener(CONSENT_STATE_CHANGED_EVENT, handleStateChanged);
     return () => {
@@ -888,7 +990,61 @@ export default function ConnectPageClient() {
         handleStateChanged,
       );
     };
-  }, [connectionAudience, loadOutgoingRequestIds, refreshConnectionsFirstPage]);
+  }, [reconcileConnectionSurfaces]);
+
+  useEffect(() => {
+    const userId = user?.uid;
+    if (!userId) return;
+
+    const unsubscribeGraph = subscribeToConnectionGraphChanges((detail) => {
+      if (detail.userId !== userId) return;
+      if (suppressNextLocalGraphEventRef.current) {
+        suppressNextLocalGraphEventRef.current = false;
+        return;
+      }
+      void reconcileConnectionSurfaces({ ensureAfterCurrent: true });
+    });
+    const refreshWhenActive = (ensureAfterCurrent = false) => {
+      if (document.visibilityState === "hidden") return;
+      if (connectionReconcileInFlightRef.current) {
+        if (ensureAfterCurrent) {
+          void reconcileConnectionSurfaces({ ensureAfterCurrent: true });
+        }
+        return;
+      }
+      const now = Date.now();
+      if (
+        !ensureAfterCurrent &&
+        now - lastForegroundReconcileAtRef.current < 750
+      ) {
+        return;
+      }
+      lastForegroundReconcileAtRef.current = now;
+      void reconcileConnectionSurfaces({ ensureAfterCurrent });
+    };
+    const refreshOnFocus = () => refreshWhenActive();
+    const refreshOnOnline = () => refreshWhenActive(true);
+
+    window.addEventListener("focus", refreshOnFocus);
+    window.addEventListener("online", refreshOnOnline);
+    document.addEventListener("visibilitychange", refreshOnFocus);
+    const removeLifecycleListener =
+      appInteractionCoordinator.subscribeLifecycle(() => {
+        if (
+          appInteractionCoordinator.getLifecycleSnapshot().state === "active"
+        ) {
+          refreshWhenActive(true);
+        }
+      });
+
+    return () => {
+      unsubscribeGraph();
+      window.removeEventListener("focus", refreshOnFocus);
+      window.removeEventListener("online", refreshOnOnline);
+      document.removeEventListener("visibilitychange", refreshOnFocus);
+      removeLifecycleListener();
+    };
+  }, [reconcileConnectionSurfaces, user?.uid]);
 
   // Both browsing and search load the directory in bounded server batches.
   // Scrolling appends the next batch without replacing people already visible.
@@ -911,9 +1067,11 @@ export default function ConnectPageClient() {
   // the same mistake as asking for page 3 of a query they just retyped.
   const directoryAudience = CONNECT_TAB_AUDIENCE[tab];
   const isAdvisorTab = tab === "advisors";
-  const connectionsHeading = isAdvisorTab
-    ? `My RIAs (${connectionsTotalCount})`
-    : `My connections (${connectionsTotalCount})`;
+  // No count until the list has answered: "(0)" is a claim, not a placeholder.
+  const connectionsHeadingLabel = isAdvisorTab ? "My RIAs" : "My connections";
+  const connectionsHeading = connectionsLoaded
+    ? `${connectionsHeadingLabel} (${connectionsTotalCount})`
+    : connectionsHeadingLabel;
   const handleRefreshConnections = useCallback(() => {
     if (connectionsRefreshingFirstPage) return;
     void refreshConnectionsFirstPage({ audience: connectionAudience });
@@ -1142,7 +1300,9 @@ export default function ConnectPageClient() {
       if (!user) return false;
       const ownerId = user.uid;
       const generation = batchDraftGenerationRef.current;
-      const isCurrent = () => connectOwnerRef.current === ownerId && batchDraftGenerationRef.current === generation;
+      const isCurrent = () =>
+        connectOwnerRef.current === ownerId &&
+        batchDraftGenerationRef.current === generation;
       try {
         setBusyId(person.userId);
         const idToken = await user.getIdToken();
@@ -1154,25 +1314,41 @@ export default function ConnectPageClient() {
           offeredScopeHandles,
         });
         if (!isCurrent()) return false;
-        if (request.status !== "pending") throw new Error("The request state changed. Refresh Connect before trying again.");
+        if (request.status !== "pending")
+          throw new Error(
+            "The request state changed. Refresh Connect before trying again.",
+          );
         const outgoing = request.requesterUserId === user.uid;
         setPeople((prev) =>
           prev.map((p) =>
             p.userId === person.userId
-              ? { ...p, relationship: outgoing ? "pending_outgoing" : "pending_incoming" }
+              ? {
+                  ...p,
+                  relationship: outgoing
+                    ? "pending_outgoing"
+                    : "pending_incoming",
+                }
               : p,
           ),
         );
-        if (outgoing) setOutgoingRequestIds((current) => ({
-          ...current,
-          [person.userId]: request.id,
-        }));
+        if (outgoing)
+          setOutgoingRequestIds((current) => ({
+            ...current,
+            [person.userId]: request.id,
+          }));
         CacheSyncService.onConnectionCapabilityMutated(user.uid);
         // A Circle roster open behind this sheet is now stale: the row that
         // said "Connect" should say "Requested". Re-read rather than patch.
         setCircleRefreshToken((token) => token + 1);
-        toast.success(outgoing ? "Connection request sent" : "This person already asked to connect. Review their request.");
-        if (!outgoing) router.push(buildConsentCenterHref("pending",{requestId:request.id}));
+        toast.success(
+          outgoing
+            ? "Connection request sent"
+            : "This person already asked to connect. Review their request.",
+        );
+        if (!outgoing)
+          router.push(
+            buildConsentCenterHref("pending", { requestId: request.id }),
+          );
         return true;
       } catch (sendError) {
         if (!isCurrent()) return false;
@@ -1186,7 +1362,7 @@ export default function ConnectPageClient() {
         if (isCurrent()) setBusyId(null);
       }
     },
-    [user,router],
+    [user, router],
   );
 
   const sendConnectRequest = useCallback(
@@ -1244,6 +1420,7 @@ export default function ConnectPageClient() {
           audience: connectionAudienceRef.current,
           removedConnection: true,
         });
+        suppressNextLocalGraphEventRef.current = true;
         CacheSyncService.onConnectionGraphMutated(user.uid);
         // Let the directory offer "Connect" again for this person.
         setPeople((prev) =>
@@ -1369,7 +1546,9 @@ export default function ConnectPageClient() {
       const generation = batchDraftGenerationRef.current + 1;
       batchDraftGenerationRef.current = generation;
       const ownerId = user.uid;
-      const isCurrent = () => batchDraftGenerationRef.current === generation && connectOwnerRef.current === ownerId;
+      const isCurrent = () =>
+        batchDraftGenerationRef.current === generation &&
+        connectOwnerRef.current === ownerId;
       setBatchConnectDraft({
         ownerId,
         people,
@@ -1421,31 +1600,51 @@ export default function ConnectPageClient() {
   );
 
   useEffect(() => {
-    if (!user || !commandReviewPerson || commandReviewPerson.length > 128) return;
+    if (!user || !commandReviewPerson || commandReviewPerson.length > 128)
+      return;
     const key = `${user.uid}:${commandReviewPerson}`;
     if (openedCommandReview.current === key) return;
     let cancelled = false;
-    void (async()=>{
+    void (async () => {
       try {
         const idToken = await user.getIdToken();
         if (cancelled) return;
-        const result = await ConnectionsService.getPersonContext({idToken,counterpartUserId:commandReviewPerson});
+        const result = await ConnectionsService.getPersonContext({
+          idToken,
+          counterpartUserId: commandReviewPerson,
+        });
         if (cancelled) return;
         openedCommandReview.current = key;
-        if (result.person.relationship === "pending_incoming" && result.request?.direction === "incoming") {
-          router.push(buildConsentCenterHref("pending",{requestId:result.request.id,
-            from: `${ROUTES.CONNECT}?${new URLSearchParams({[CONNECT_REVIEW_PERSON_PARAM]:commandReviewPerson})}`}));
+        if (
+          result.person.relationship === "pending_incoming" &&
+          result.request?.direction === "incoming"
+        ) {
+          router.push(
+            buildConsentCenterHref("pending", {
+              requestId: result.request.id,
+              from: `${ROUTES.CONNECT}?${new URLSearchParams({ [CONNECT_REVIEW_PERSON_PARAM]: commandReviewPerson })}`,
+            }),
+          );
         } else if (result.person.relationship === "none") {
           await openBatchConnectDraft([result.person]);
         } else {
-          toast.info(result.person.relationship === "connected" ? "This connection is active. Continue your Location task to check its requirements." : "Your connection request is still pending. Nothing has been sent again.");
+          toast.info(
+            result.person.relationship === "connected"
+              ? "This connection is active. Continue your Location task to check its requirements."
+              : "Your connection request is still pending. Nothing has been sent again.",
+          );
         }
       } catch {
-        if (!cancelled) toast.error("This connection could not be checked. Refresh Connect or cancel the task.");
+        if (!cancelled)
+          toast.error(
+            "This connection could not be checked. Refresh Connect or cancel the task.",
+          );
       }
     })();
-    return ()=>{cancelled=true;};
-  },[user,commandReviewPerson,openBatchConnectDraft,router]);
+    return () => {
+      cancelled = true;
+    };
+  }, [user, commandReviewPerson, openBatchConnectDraft, router]);
 
   const toggleBatchRequestedHandle = useCallback(
     (userId: string, handle: string, checked: boolean) => {
@@ -1478,13 +1677,22 @@ export default function ConnectPageClient() {
   );
 
   const handleConnectMultiple = useCallback(async () => {
-    if (!user || !batchConnectDraft || batchConnectDraft.ownerId !== user.uid || batchConnectDraft.loadingCatalogs || batchSendingRef.current || batchConnectDraft.people.length === 0)
+    if (
+      !user ||
+      !batchConnectDraft ||
+      batchConnectDraft.ownerId !== user.uid ||
+      batchConnectDraft.loadingCatalogs ||
+      batchSendingRef.current ||
+      batchConnectDraft.people.length === 0
+    )
       return;
     const draft = batchConnectDraft;
     const draftPeople = draft.people;
     const ownerId = user.uid;
     const generation = batchDraftGenerationRef.current;
-    const isCurrent = () => connectOwnerRef.current === ownerId && batchDraftGenerationRef.current === generation;
+    const isCurrent = () =>
+      connectOwnerRef.current === ownerId &&
+      batchDraftGenerationRef.current === generation;
 
     // Keep the dispatch boundary bounded even if selection state is restored or
     // changed outside the row controls.
@@ -1515,7 +1723,7 @@ export default function ConnectPageClient() {
         CONNECT_REQUEST_CONCURRENCY,
         async (person) => {
           try {
-            if (!isCurrent()) return {success:false,person} as const;
+            if (!isCurrent()) return { success: false, person } as const;
             const request = await ConnectionsService.sendRequest({
               idToken,
               addresseeUserId: person.userId,
@@ -1524,7 +1732,8 @@ export default function ConnectPageClient() {
                 draft.requestedHandles[person.userId] ?? [],
               offeredScopeHandles: draft.offeredHandles,
             });
-            if (request.status !== "pending") return {success:false,person} as const;
+            if (request.status !== "pending")
+              return { success: false, person } as const;
             return { success: true, person, request } as const;
           } catch (sendError) {
             console.error(
@@ -1541,7 +1750,8 @@ export default function ConnectPageClient() {
       const incoming = new Set<string>();
       for (const result of results) {
         if (result.success) {
-          if (result.request.requesterUserId === ownerId) outgoing[result.person.userId] = result.request.id;
+          if (result.request.requesterUserId === ownerId)
+            outgoing[result.person.userId] = result.request.id;
           else incoming.add(result.person.userId);
           successfulUserIds.add(result.person.userId);
         }
@@ -1553,7 +1763,12 @@ export default function ConnectPageClient() {
       setPeople((prev) =>
         prev.map((p) =>
           successfulUserIds.has(p.userId) && p.relationship === "none"
-            ? { ...p, relationship: incoming.has(p.userId) ? "pending_incoming" : "pending_outgoing" }
+            ? {
+                ...p,
+                relationship: incoming.has(p.userId)
+                  ? "pending_incoming"
+                  : "pending_outgoing",
+              }
             : p,
         ),
       );
@@ -1564,12 +1779,29 @@ export default function ConnectPageClient() {
         // Report what happened rather than only what worked. A partial send
         // that says "Sent 6 requests" leaves two people quietly unasked.
         const sentCount = Object.keys(outgoing).length;
-        toast.success([sentCount ? `Sent ${sentCount} connection request${sentCount === 1 ? "" : "s"}.` : "",
-          incoming.size ? `${incoming.size} incoming request${incoming.size === 1 ? " needs" : "s need"} your review.` : "",
-          failedCount ? `${failedCount} couldn't be sent.` : ""].filter(Boolean).join(" "));
+        toast.success(
+          [
+            sentCount
+              ? `Sent ${sentCount} connection request${sentCount === 1 ? "" : "s"}.`
+              : "",
+            incoming.size
+              ? `${incoming.size} incoming request${incoming.size === 1 ? " needs" : "s need"} your review.`
+              : "",
+            failedCount ? `${failedCount} couldn't be sent.` : "",
+          ]
+            .filter(Boolean)
+            .join(" "),
+        );
         if (incoming.size === 1 && sendable.length === 1) {
-          const response = results.find((result) => result.success && incoming.has(result.person.userId));
-          if (response?.success) router.push(buildConsentCenterHref("pending",{requestId:response.request.id}));
+          const response = results.find(
+            (result) => result.success && incoming.has(result.person.userId),
+          );
+          if (response?.success)
+            router.push(
+              buildConsentCenterHref("pending", {
+                requestId: response.request.id,
+              }),
+            );
         }
       } else if (sendable.length === 0) {
         toast.error("Already asked.");
@@ -1613,7 +1845,7 @@ export default function ConnectPageClient() {
         setIsConnectingMultiple(false);
       }
     }
-  }, [user, batchConnectDraft,router]);
+  }, [user, batchConnectDraft, router]);
 
   const cancelConnectionRequest = useCallback(
     async (person: DirectoryPerson) => {
@@ -1933,245 +2165,338 @@ export default function ConnectPageClient() {
       summary: "Searching Connect for the name you gave.",
     };
   });
-  const prepareConnection = (remove: boolean): LocalActionPreparer => async (slots, chosenResourceId) => {
-    if (!user) return { status: "blocked", gate: "permission", summary: "Sign in to manage connections." };
-    const person = typeof slots.person === "string" ? slots.person.trim() : "";
-    const key = remove ? "connectionId" : "userId";
-    const selected = Object.prototype.hasOwnProperty.call(slots, key) ? slots[key] : chosenResourceId;
-    if (selected !== undefined && (typeof selected !== "string" || !selected.trim() || selected.length > 256)) {
-      return { status: "blocked", gate: "input", summary: "Choose one person again." };
-    }
-    if (!person) return { status: "blocked", gate: "input", summary: "Who is this for?" };
-    try {
-      const idToken = await user.getIdToken();
-      if (remove) {
-        const result = await resolveConnectionForVoice({ idToken, spokenName: person, connectionId: String(selected ?? "") });
-        if (!result.complete || result.matches.length !== 1) return { status: "blocked", gate: "input", summary: "Choose one current connection." };
-        const row = result.matches[0]!;
-        return { status: "ready", binding: { owner: user.uid, connectionId: row.connectionId, person: row.displayName }, summary: `Remove your connection with ${row.displayName}?` };
-      }
-      const candidates: DirectoryPerson[] = [];
-      const query = person.split(/\s+/).sort((a, b) => b.length - a.length)[0] ?? person;
-      let complete = false;
-      for (let page = 1; page <= DIRECTORY_RESOLVE_MAX_PAGES; page += 1) {
-        const result = await ConnectionsService.searchDirectory({ idToken, query, page, limit: DIRECTORY_RESOLVE_PAGE_SIZE });
-        candidates.push(...result.items);
-        if (!result.hasMore) { complete = true; break; }
-      }
-      const matches = matchByName(candidates, person, (row) => row.displayName)
-        .filter((row) => selected === undefined || row.userId === selected);
-      if ((!complete && selected === undefined) || matches.length !== 1 || matches[0]!.relationship !== "none") {
-        return { status: "blocked", gate: "input", summary: "Choose one person who can receive a new request." };
-      }
-      const row = matches[0]!;
-      return { status: "ready", binding: { owner: user.uid, userId: row.userId, person: row.displayName }, summary: `Send a connection request to ${row.displayName}?` };
-    } catch {
-      return { status: "blocked", gate: "permission", summary: "Connections could not be checked. Try again." };
-    }
-  };
-
-  useLocalOnboardingActionHandler("connect.send_request", async (slots, context) => {
-    if (context?.preparedBinding && !context.directiveId && !context.humanConfirmationToken) {
-      return { status: "blocked", summary: "Confirm the connection request in the app first." };
-    }
-    if (context?.preparedBinding) slots = { ...slots, ...context.preparedBinding };
-    const spokenName =
-      typeof slots.person === "string" ? slots.person.trim() : "";
-    // Set only by the disambiguation card, which resolves a name the person
-    // already saw into the one account they pointed at. It skips the matcher
-    // entirely rather than re-running it: the ambiguity has been settled by a
-    // human, and re-deriving it from the same words would just fail the same
-    // way and bounce the card straight back.
-    const chosenUserId =
-      typeof slots.userId === "string" ? slots.userId.trim() : "";
-    if (Object.prototype.hasOwnProperty.call(slots, "userId") &&
-        (!chosenUserId || chosenUserId.length > 256)) {
-      return { status: "blocked", summary: "Choose the person again." };
-    }
-    if (!user) {
-      return {
-        status: "blocked",
-        summary: "Sign in before sending a connection request.",
-      };
-    }
-    if (!spokenName && !chosenUserId) {
-      return {
-        status: "blocked",
-        summary: "Say the person's full name before sending a request.",
-      };
-    }
-
-    try {
-      const idToken = await user.getIdToken();
-      // Read the whole result set for this name, not its first three rows.
-      //
-      // This searched page 1 at limit 3 and refused outright whenever
-      // `hasMore` was true, so it could never tell "no such person" from "not
-      // on the first page" -- and it answered both with "I could not identify
-      // one exact person by that name", about people who were plainly there.
-      // Bounded, because a directory is unbounded and a runaway loop here
-      // would be worse than a refusal.
-      // Search on ONE word, then match the full name here.
-      //
-      // The server predicate is a single substring test --
-      // `LOWER(display_name) LIKE '%' || query || '%'` -- so passing the whole
-      // spoken name makes the whole name have to appear, contiguously, exactly
-      // as stored. "Abdul Rashid" then finds nobody when the directory holds
-      // "Abdul R.", and "Abdul" finds nobody when it holds "Abdul Kumar
-      // Rashid". Reported as voice being unable to find people plainly visible
-      // in the list, which is exactly what it was: the query could not reach
-      // them, so there was never a candidate for the matcher to consider.
-      //
-      // One token maximises what comes back; deciding WHICH person stays here,
-      // where the whole name is available. Longest word rather than first,
-      // because it is the most selective and least likely to be a title or
-      // initial.
-      const searchTerm =
-        spokenName
-          .split(/\s+/)
-          .filter(Boolean)
-          .sort((left, right) => right.length - left.length)[0] ?? spokenName;
-      const candidates: DirectoryPerson[] = [];
-      for (
-        let pageNumber = 1;
-        pageNumber <= DIRECTORY_RESOLVE_MAX_PAGES;
-        pageNumber += 1
-      ) {
-        const page = await ConnectionsService.searchDirectory({
-          idToken,
-          query: searchTerm,
-          page: pageNumber,
-          limit: DIRECTORY_RESOLVE_PAGE_SIZE,
-        });
-        candidates.push(...page.items);
-        if (!page.hasMore) break;
-      }
-      // Same matcher the cancel and remove actions use: exact wins outright,
-      // and only when nothing is exact does a prefix or whole-word match
-      // count, so "Sarah" finds "Sarah Chen" without "Chen" matching every
-      // Chen. Requiring full-name equality made the person say a name the way
-      // the directory happens to store it, which is not something they can
-      // know.
-      // A resolved id wins outright: the person has already pointed at a row.
-      const exactMatches = chosenUserId
-        ? candidates.filter((c) => c.userId === chosenUserId &&
-            (!spokenName || matchByName([c], spokenName, (entry) => entry.displayName).length === 1))
-        : matchByName(candidates, spokenName, (c) => c.displayName);
-      if (exactMatches.length === 0) {
+  const prepareConnection =
+    (remove: boolean): LocalActionPreparer =>
+    async (slots, chosenResourceId) => {
+      if (!user)
         return {
           status: "blocked",
-          summary: chosenUserId
-            ? "That person is no longer in the directory."
-            : `I could not find anyone called ${spokenName} in Connect.`,
+          gate: "permission",
+          summary: "Sign in to manage connections.",
+        };
+      const person =
+        typeof slots.person === "string" ? slots.person.trim() : "";
+      const key = remove ? "connectionId" : "userId";
+      const selected = Object.prototype.hasOwnProperty.call(slots, key)
+        ? slots[key]
+        : chosenResourceId;
+      if (
+        selected !== undefined &&
+        (typeof selected !== "string" ||
+          !selected.trim() ||
+          selected.length > 256)
+      ) {
+        return {
+          status: "blocked",
+          gate: "input",
+          summary: "Choose one person again.",
         };
       }
-      if (exactMatches.length > 1) {
-        // Show them instead of asking. Naming the candidates aloud was already
-        // better than "be more specific", but it cannot resolve the ordinary
-        // case where two accounts share a display name -- there is no utterance
-        // that separates them, so the person is asked for something they cannot
-        // give. What tells them apart is the handle under the name, so it has
-        // to be seen.
+      if (!person)
         return {
           status: "blocked",
-          summary: `${exactMatches.length} people are called ${spokenName}. Pick the right one.`,
+          gate: "input",
+          summary: "Who is this for?",
+        };
+      try {
+        const idToken = await user.getIdToken();
+        if (remove) {
+          const result = await resolveConnectionForVoice({
+            idToken,
+            spokenName: person,
+            connectionId: String(selected ?? ""),
+          });
+          if (!result.complete || result.matches.length !== 1)
+            return {
+              status: "blocked",
+              gate: "input",
+              summary: "Choose one current connection.",
+            };
+          const row = result.matches[0]!;
+          return {
+            status: "ready",
+            binding: {
+              owner: user.uid,
+              connectionId: row.connectionId,
+              person: row.displayName,
+            },
+            summary: `Remove your connection with ${row.displayName}?`,
+          };
+        }
+        const candidates: DirectoryPerson[] = [];
+        const query =
+          person.split(/\s+/).sort((a, b) => b.length - a.length)[0] ?? person;
+        let complete = false;
+        for (let page = 1; page <= DIRECTORY_RESOLVE_MAX_PAGES; page += 1) {
+          const result = await ConnectionsService.searchDirectory({
+            idToken,
+            query,
+            page,
+            limit: DIRECTORY_RESOLVE_PAGE_SIZE,
+          });
+          candidates.push(...result.items);
+          if (!result.hasMore) {
+            complete = true;
+            break;
+          }
+        }
+        const matches = matchByName(
+          candidates,
+          person,
+          (row) => row.displayName,
+        ).filter((row) => selected === undefined || row.userId === selected);
+        if (
+          (!complete && selected === undefined) ||
+          matches.length !== 1 ||
+          matches[0]!.relationship !== "none"
+        ) {
+          return {
+            status: "blocked",
+            gate: "input",
+            summary: "Choose one person who can receive a new request.",
+          };
+        }
+        const row = matches[0]!;
+        return {
+          status: "ready",
+          binding: {
+            owner: user.uid,
+            userId: row.userId,
+            person: row.displayName,
+          },
+          summary: `Send a connection request to ${row.displayName}?`,
+        };
+      } catch {
+        return {
+          status: "blocked",
+          gate: "permission",
+          summary: "Connections could not be checked. Try again.",
+        };
+      }
+    };
+
+  useLocalOnboardingActionHandler(
+    "connect.send_request",
+    async (slots, context) => {
+      if (
+        context?.preparedBinding &&
+        !context.directiveId &&
+        !context.humanConfirmationToken
+      ) {
+        return {
+          status: "blocked",
+          summary: "Confirm the connection request in the app first.",
+        };
+      }
+      if (context?.preparedBinding)
+        slots = { ...slots, ...context.preparedBinding };
+      const spokenName =
+        typeof slots.person === "string" ? slots.person.trim() : "";
+      // Set only by the disambiguation card, which resolves a name the person
+      // already saw into the one account they pointed at. It skips the matcher
+      // entirely rather than re-running it: the ambiguity has been settled by a
+      // human, and re-deriving it from the same words would just fail the same
+      // way and bounce the card straight back.
+      const chosenUserId =
+        typeof slots.userId === "string" ? slots.userId.trim() : "";
+      if (
+        Object.prototype.hasOwnProperty.call(slots, "userId") &&
+        (!chosenUserId || chosenUserId.length > 256)
+      ) {
+        return { status: "blocked", summary: "Choose the person again." };
+      }
+      if (!user) {
+        return {
+          status: "blocked",
+          summary: "Sign in before sending a connection request.",
+        };
+      }
+      if (!spokenName && !chosenUserId) {
+        return {
+          status: "blocked",
+          summary: "Say the person's full name before sending a request.",
+        };
+      }
+
+      try {
+        const idToken = await user.getIdToken();
+        // Read the whole result set for this name, not its first three rows.
+        //
+        // This searched page 1 at limit 3 and refused outright whenever
+        // `hasMore` was true, so it could never tell "no such person" from "not
+        // on the first page" -- and it answered both with "I could not identify
+        // one exact person by that name", about people who were plainly there.
+        // Bounded, because a directory is unbounded and a runaway loop here
+        // would be worse than a refusal.
+        // Search on ONE word, then match the full name here.
+        //
+        // The server predicate is a single substring test --
+        // `LOWER(display_name) LIKE '%' || query || '%'` -- so passing the whole
+        // spoken name makes the whole name have to appear, contiguously, exactly
+        // as stored. "Abdul Rashid" then finds nobody when the directory holds
+        // "Abdul R.", and "Abdul" finds nobody when it holds "Abdul Kumar
+        // Rashid". Reported as voice being unable to find people plainly visible
+        // in the list, which is exactly what it was: the query could not reach
+        // them, so there was never a candidate for the matcher to consider.
+        //
+        // One token maximises what comes back; deciding WHICH person stays here,
+        // where the whole name is available. Longest word rather than first,
+        // because it is the most selective and least likely to be a title or
+        // initial.
+        const searchTerm =
+          spokenName
+            .split(/\s+/)
+            .filter(Boolean)
+            .sort((left, right) => right.length - left.length)[0] ?? spokenName;
+        const candidates: DirectoryPerson[] = [];
+        for (
+          let pageNumber = 1;
+          pageNumber <= DIRECTORY_RESOLVE_MAX_PAGES;
+          pageNumber += 1
+        ) {
+          const page = await ConnectionsService.searchDirectory({
+            idToken,
+            query: searchTerm,
+            page: pageNumber,
+            limit: DIRECTORY_RESOLVE_PAGE_SIZE,
+          });
+          candidates.push(...page.items);
+          if (!page.hasMore) break;
+        }
+        // Same matcher the cancel and remove actions use: exact wins outright,
+        // and only when nothing is exact does a prefix or whole-word match
+        // count, so "Sarah" finds "Sarah Chen" without "Chen" matching every
+        // Chen. Requiring full-name equality made the person say a name the way
+        // the directory happens to store it, which is not something they can
+        // know.
+        // A resolved id wins outright: the person has already pointed at a row.
+        const exactMatches = chosenUserId
+          ? candidates.filter(
+              (c) =>
+                c.userId === chosenUserId &&
+                (!spokenName ||
+                  matchByName([c], spokenName, (entry) => entry.displayName)
+                    .length === 1),
+            )
+          : matchByName(candidates, spokenName, (c) => c.displayName);
+        if (exactMatches.length === 0) {
+          return {
+            status: "blocked",
+            summary: chosenUserId
+              ? "That person is no longer in the directory."
+              : `I could not find anyone called ${spokenName} in Connect.`,
+          };
+        }
+        if (exactMatches.length > 1) {
+          // Show them instead of asking. Naming the candidates aloud was already
+          // better than "be more specific", but it cannot resolve the ordinary
+          // case where two accounts share a display name -- there is no utterance
+          // that separates them, so the person is asked for something they cannot
+          // give. What tells them apart is the handle under the name, so it has
+          // to be seen.
+          return {
+            status: "blocked",
+            summary: `${exactMatches.length} people are called ${spokenName}. Pick the right one.`,
+            data: {
+              [VOICE_DISAMBIGUATION_DATA_KEY]: {
+                actionId: "connect.send_request",
+                resolveSlot: "userId",
+                slots: { person: spokenName },
+                prompt: `${exactMatches.length} people are called ${spokenName}.`,
+                candidates: exactMatches.map((c) => ({
+                  id: c.userId,
+                  name: c.displayName || "Someone",
+                  // The same description the Connect list renders under each
+                  // name. Reading `email` alone showed "No other details" on
+                  // rows the list behind the card was captioning correctly:
+                  // the directory usually returns the masked variants, not the
+                  // raw address. This helper already falls through
+                  // email -> maskedEmail -> maskedPhone, so contact sync's phone
+                  // numbers land here without another change.
+                  detail: getDirectoryPersonDescription(c) ?? null,
+                  ...connectCandidateAffordance(c.relationship),
+                })),
+              },
+            },
+          };
+        }
+        const person = exactMatches[0];
+        if (!person) {
+          return {
+            status: "blocked",
+            summary: "I could not identify one exact person by that name.",
+          };
+        }
+        // The backend already distinguishes these four, and collapsing them lost
+        // the only part the person needed. "A new connection request is not
+        // available" was returned when they were ALREADY connected -- which is
+        // success -- and equally when the other party had yet to accept, when
+        // the person had an invitation of their own sitting unread, and when
+        // something had genuinely gone wrong. Reported as One saying it needed
+        // approval for something already done.
+        //
+        // Only `none` sends. The rest each mean something specific and are said
+        // plainly, because two of them are not problems at all.
+        if (person.relationship === "connected") {
+          return {
+            // `succeeded`, not `blocked`. The person asked to be connected to
+            // someone they are already connected to: the thing they wanted is
+            // true, so anything that sounds like a refusal is a lie about their
+            // own account. (A local handler has no `noop`; the settlement enum
+            // does, but this layer only speaks started/succeeded/blocked/failed.)
+            status: "succeeded",
+            summary: `You are already connected to ${person.displayName}, so there was nothing to send.`,
+          };
+        }
+        if (person.relationship === "pending_outgoing") {
+          return {
+            status: "blocked",
+            // The honest boundary: nothing the app or One can do advances this.
+            summary: `You already asked ${person.displayName} to connect, and it is waiting on them to accept. Nobody here can move that along.`,
+          };
+        }
+        if (person.relationship === "pending_incoming") {
+          return {
+            status: "blocked",
+            summary: `${person.displayName} has already asked to connect with you. Open Connect and accept request instead of sending one back.`,
+          };
+        }
+        if (person.relationship !== "none") {
+          return {
+            status: "blocked",
+            summary:
+              "A new connection request is not available for that person.",
+          };
+        }
+        const sent = await sendConnectionRequest(person);
+        if (!sent) {
+          return {
+            status: "failed",
+            summary: "Could not send the connection request.",
+          };
+        }
+        return {
+          status: "succeeded",
+          summary: `Connection request sent to ${person.displayName}.`,
           data: {
-            [VOICE_DISAMBIGUATION_DATA_KEY]: {
-              actionId: "connect.send_request",
-              resolveSlot: "userId",
-              slots: { person: spokenName },
-              prompt: `${exactMatches.length} people are called ${spokenName}.`,
-              candidates: exactMatches.map((c) => ({
-                id: c.userId,
-                name: c.displayName || "Someone",
-                // The same description the Connect list renders under each
-                // name. Reading `email` alone showed "No other details" on
-                // rows the list behind the card was captioning correctly:
-                // the directory usually returns the masked variants, not the
-                // raw address. This helper already falls through
-                // email -> maskedEmail -> maskedPhone, so contact sync's phone
-                // numbers land here without another change.
-                detail: getDirectoryPersonDescription(c) ?? null,
-                ...connectCandidateAffordance(c.relationship),
-              })),
+            subject: {
+              name: person.displayName || "Someone",
+              detail: getDirectoryPersonDescription(person) ?? null,
             },
           },
         };
-      }
-      const person = exactMatches[0];
-      if (!person) {
-        return {
-          status: "blocked",
-          summary: "I could not identify one exact person by that name.",
-        };
-      }
-      // The backend already distinguishes these four, and collapsing them lost
-      // the only part the person needed. "A new connection request is not
-      // available" was returned when they were ALREADY connected -- which is
-      // success -- and equally when the other party had yet to accept, when
-      // the person had an invitation of their own sitting unread, and when
-      // something had genuinely gone wrong. Reported as One saying it needed
-      // approval for something already done.
-      //
-      // Only `none` sends. The rest each mean something specific and are said
-      // plainly, because two of them are not problems at all.
-      if (person.relationship === "connected") {
-        return {
-          // `succeeded`, not `blocked`. The person asked to be connected to
-          // someone they are already connected to: the thing they wanted is
-          // true, so anything that sounds like a refusal is a lie about their
-          // own account. (A local handler has no `noop`; the settlement enum
-          // does, but this layer only speaks started/succeeded/blocked/failed.)
-          status: "succeeded",
-          summary: `You are already connected to ${person.displayName}, so there was nothing to send.`,
-        };
-      }
-      if (person.relationship === "pending_outgoing") {
-        return {
-          status: "blocked",
-          // The honest boundary: nothing the app or One can do advances this.
-          summary: `You already asked ${person.displayName} to connect, and it is waiting on them to accept. Nobody here can move that along.`,
-        };
-      }
-      if (person.relationship === "pending_incoming") {
-        return {
-          status: "blocked",
-          summary: `${person.displayName} has already asked to connect with you. Open Connect and accept request instead of sending one back.`,
-        };
-      }
-      if (person.relationship !== "none") {
-        return {
-          status: "blocked",
-          summary: "A new connection request is not available for that person.",
-        };
-      }
-      const sent = await sendConnectionRequest(person);
-      if (!sent) {
+      } catch (error) {
         return {
           status: "failed",
-          summary: "Could not send the connection request.",
+          summary:
+            error instanceof Error
+              ? error.message
+              : "Could not send the connection request.",
         };
       }
-      return {
-        status: "succeeded",
-        summary: `Connection request sent to ${person.displayName}.`,
-        data: {
-          subject: {
-            name: person.displayName || "Someone",
-            detail: getDirectoryPersonDescription(person) ?? null,
-          },
-        },
-      };
-    } catch (error) {
-      return {
-        status: "failed",
-        summary:
-          error instanceof Error
-            ? error.message
-            : "Could not send the connection request.",
-      };
-    }
-  }, { prepare: prepareConnection(false) });
+    },
+    { prepare: prepareConnection(false) },
+  );
 
   useLocalOnboardingActionHandler("connect.cancel_request", async (slots) => {
     const spokenName =
@@ -2240,13 +2565,16 @@ export default function ConnectPageClient() {
   useLocalOnboardingActionHandler(
     "connect.remove_connection",
     async (slots, context) => {
-      if (context?.preparedBinding) slots = { ...slots, ...context.preparedBinding };
+      if (context?.preparedBinding)
+        slots = { ...slots, ...context.preparedBinding };
       const spokenName =
         typeof slots.person === "string" ? slots.person.trim() : "";
       const chosenConnectionId =
         typeof slots.connectionId === "string" ? slots.connectionId.trim() : "";
-      if (Object.prototype.hasOwnProperty.call(slots, "connectionId") &&
-          (!chosenConnectionId || chosenConnectionId.length > 256)) {
+      if (
+        Object.prototype.hasOwnProperty.call(slots, "connectionId") &&
+        (!chosenConnectionId || chosenConnectionId.length > 256)
+      ) {
         return { status: "blocked", summary: "Choose the connection again." };
       }
       if (!user) {
@@ -2342,6 +2670,7 @@ export default function ConnectPageClient() {
           audience: connectionAudience,
           removedConnection: true,
         });
+        suppressNextLocalGraphEventRef.current = true;
         CacheSyncService.onConnectionGraphMutated(user.uid);
         return {
           status: "succeeded",
@@ -2410,7 +2739,10 @@ export default function ConnectPageClient() {
               aria-label={`Current directory: ${CONNECT_TAB_LABEL[tab]}`}
               className="inline-flex min-h-11 max-w-full items-center gap-1.5 rounded-full text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
             >
-              <SectionLabel as="span" compact>
+              <SectionLabel
+                as="span"
+                className={CONNECT_SECTION_CONTROL_LABEL_CLASSNAME}
+              >
                 {CONNECT_TAB_LABEL[tab]}
               </SectionLabel>
               <ChevronDown
@@ -2442,7 +2774,10 @@ export default function ConnectPageClient() {
             className="inline-flex min-h-11 max-w-full items-center gap-1.5 rounded-full text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
             onClick={() => setDirectoryMenuOpen((current) => !current)}
           >
-            <SectionLabel as="span" compact>
+            <SectionLabel
+              as="span"
+              className={CONNECT_SECTION_CONTROL_LABEL_CLASSNAME}
+            >
               {CONNECT_TAB_LABEL[tab]}
             </SectionLabel>
             <ChevronDown
@@ -2529,6 +2864,7 @@ export default function ConnectPageClient() {
                   <div
                     ref={stickyHeaderRef}
                     data-testid="connect-sticky-header"
+                    data-top-chrome-collapse-consumer=""
                     className={CONNECT_STICKY_HEADER_CLASSNAME}
                   >
                     <TopShellTabs
@@ -2540,18 +2876,19 @@ export default function ConnectPageClient() {
                     />
                   </div>
 
-                  {surface === "circles" ? (
-                    <ConnectCirclesTab
-                      onStateChange={setCirclesState}
-                      currentUserId={user?.uid ?? null}
-                      // The roster's Connect opens the SAME capability review the
-                      // directory opens, rather than sending outright.
-                      onRequestConnection={sendConnectRequest}
-                      onCancelConnectionRequest={cancelConnectionRequest}
-                      refreshToken={circleRefreshToken}
-                    />
-                  ) : (
-                    <>
+                  {/* Both surfaces live in one pager so the tab strip above is
+                      swipeable, the way Finance and Consent are; a swipe commits the
+                      same route the tab pill pushes. */}
+                  <SwipeViews
+                    tabSetId={CONNECT_SURFACE_TAB_DEFINITION.id}
+                    activeValue={surface}
+                    options={CONNECT_SURFACE_TAB_DEFINITION.tabs}
+                    onSelectionCommit={commitSurface}
+                    panelInset="none"
+                    viewportMinHeight="fill"
+                    heightMode="active"
+                  >
+                    <div data-connect-surface="all">
                       {tab === "nearby" ? (
                         <div className="space-y-3">
                           <div className="px-1">{directorySelector}</div>
@@ -2565,21 +2902,29 @@ export default function ConnectPageClient() {
                                 type="button"
                                 variant="none"
                                 effect="fade"
+                                size="compact"
                                 aria-controls="connect-my-connections-panel"
                                 aria-expanded={connectionsExpanded}
                                 onClick={() =>
-                                  setConnectionsExpanded((expanded) => !expanded)
+                                  setConnectionsExpanded(
+                                    (expanded) => !expanded,
+                                  )
                                 }
                                 data-testid="connect-my-connections-toggle"
-                                className="group h-11 min-h-11 max-w-full rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-secondary-fill)] px-3 text-[14px] font-semibold text-[color:var(--app-label)] shadow-none hover:bg-[color:var(--app-tertiary-fill)] focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2"
+                                className={cn(
+                                  CONNECT_SECTION_CONTROL_LABEL_CLASSNAME,
+                                  "group max-w-full rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-secondary-fill)] px-3 text-[color:var(--app-label)] shadow-none hover:bg-[color:var(--app-tertiary-fill)] focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2",
+                                )}
                               >
-                                <span className={CONNECT_WRAPPING_TEXT_CLASSNAME}>
+                                <span
+                                  className={CONNECT_WRAPPING_TEXT_CLASSNAME}
+                                >
                                   {connectionsHeading}
                                 </span>
                                 <ChevronDown
                                   aria-hidden="true"
                                   className={cn(
-                                    "ml-1.5 h-4 w-4 shrink-0 transition-transform duration-200",
+                                    "ml-1.5 h-4 w-4 shrink-0 transition-transform duration-150",
                                     connectionsExpanded && "rotate-180",
                                   )}
                                 />
@@ -2593,7 +2938,7 @@ export default function ConnectPageClient() {
                                 type="button"
                                 variant="none"
                                 effect="fade"
-                                size="sm"
+                                size="icon-touch"
                                 aria-label="Refresh contacts"
                                 aria-busy={connectionsRefreshingFirstPage}
                                 title="Refresh contacts"
@@ -2632,7 +2977,19 @@ export default function ConnectPageClient() {
                                 density="compact"
                               />
                             )}
-                            {sortedConnections.length === 0 ? (
+                            {sortedConnections.length === 0 && !connectionsLoaded ? (
+                              // The list's resting shape while its first page
+                              // is on the way: same rows, same height, no claim.
+                              Array.from({ length: 4 }, (_, index) => (
+                                <SettingsRow
+                                  key={`connection-placeholder-${index}`}
+                                  layout="person"
+                                  leading={<Skeleton className="h-10 w-10 rounded-full" />}
+                                  title={<Skeleton className="h-4 w-32 rounded" />}
+                                  disabled
+                                />
+                              ))
+                            ) : sortedConnections.length === 0 ? (
                               <SettingsRow
                                 // No description. "Connections appear here." explained what
                                 // an empty list already showed, and the obvious replacement
@@ -2719,7 +3076,7 @@ export default function ConnectPageClient() {
                                             type="button"
                                             variant="destructive"
                                             effect="fill"
-                                            size="sm"
+                                            size="compact"
                                             className={
                                               CONNECT_INLINE_BUTTON_CLASSNAME
                                             }
@@ -2739,7 +3096,7 @@ export default function ConnectPageClient() {
                                             type="button"
                                             variant="none"
                                             effect="fade"
-                                            size="sm"
+                                            size="compact"
                                             className={
                                               CONNECT_INLINE_BUTTON_CLASSNAME
                                             }
@@ -2759,7 +3116,7 @@ export default function ConnectPageClient() {
                                           type="button"
                                           variant="none"
                                           effect="fade"
-                                          size="sm"
+                                          size="compact"
                                           onClick={(event) => {
                                             event.stopPropagation();
                                             setPendingRemoveId(
@@ -2788,7 +3145,7 @@ export default function ConnectPageClient() {
                                 type="button"
                                 variant="none"
                                 effect="fill"
-                                size="sm"
+                                size="compact"
                                 className={CONNECT_PAGER_BUTTON_CLASSNAME}
                                 disabled={
                                   connectionsLoadingMore ||
@@ -2824,13 +3181,16 @@ export default function ConnectPageClient() {
                                     type="button"
                                     variant="none"
                                     effect="fade"
-                                    size="sm"
+                                    size="compact"
                                     aria-label="Sync contacts"
                                     aria-busy={contactSync.syncing}
                                     title="Sync contacts"
                                     disabled={contactSync.syncing}
                                     onClick={() => void contactSync.sync()}
-                                    className={CONNECT_INLINE_BUTTON_CLASSNAME}
+                                    className={cn(
+                                      CONNECT_INLINE_BUTTON_CLASSNAME,
+                                      CONNECT_SECTION_CONTROL_LABEL_CLASSNAME,
+                                    )}
                                   >
                                     <BookUser
                                       aria-hidden="true"
@@ -2875,6 +3235,7 @@ export default function ConnectPageClient() {
                     Held by e2e/connect-sticky-header.layout.spec.ts. */
                                 <div
                                   data-testid="connect-search-row"
+                                  data-top-chrome-collapse-consumer=""
                                   className={cn(
                                     CONNECT_STICKY_SEARCH_CLASSNAME,
                                     "block",
@@ -2985,7 +3346,7 @@ export default function ConnectPageClient() {
                                       type="button"
                                       variant="none"
                                       effect="fade"
-                                      size="sm"
+                                      size="compact"
                                       className={
                                         CONNECT_INLINE_BUTTON_CLASSNAME
                                       }
@@ -3193,7 +3554,7 @@ export default function ConnectPageClient() {
                                             type="button"
                                             variant="none"
                                             effect="fill"
-                                            size="sm"
+                                            size="compact"
                                             // One word at the width of every other action in
                                             // this column. "Cancel request" plus a 100px
                                             // floor sized for "Cancelling…" made the widest
@@ -3230,7 +3591,7 @@ export default function ConnectPageClient() {
                                             type="button"
                                             variant="none"
                                             effect="fill"
-                                            size="sm"
+                                            size="compact"
                                             className={cn(
                                               CONNECT_ROW_ACTION_CLASSNAME,
                                               "min-w-[72px]",
@@ -3279,7 +3640,7 @@ export default function ConnectPageClient() {
                                       type="button"
                                       variant="none"
                                       effect="fade"
-                                      size="sm"
+                                      size="compact"
                                       className={CONNECT_PAGER_BUTTON_CLASSNAME}
                                       onClick={loadNextDirectoryBatch}
                                     >
@@ -3302,6 +3663,7 @@ export default function ConnectPageClient() {
                                       type="button"
                                       variant="blue"
                                       effect="fill"
+                                      size="prominent"
                                       disabled={isConnectingMultiple}
                                       onClick={() => {
                                         // Everyone picked, not everyone picked who is still on
@@ -3321,8 +3683,19 @@ export default function ConnectPageClient() {
                           </div>
                         </div>
                       )}
-                    </>
-                  )}
+                    </div>
+                    <div data-connect-surface="circles">
+                    <ConnectCirclesTab
+                      onStateChange={setCirclesState}
+                      currentUserId={user?.uid ?? null}
+                      // The roster's Connect opens the SAME capability review the
+                      // directory opens, rather than sending outright.
+                      onRequestConnection={sendConnectRequest}
+                      onCancelConnectionRequest={cancelConnectionRequest}
+                      refreshToken={circleRefreshToken}
+                    />
+                    </div>
+                  </SwipeViews>
                 </div>
               </SurfaceStack>
             </AppPageContentRegion>
@@ -3330,7 +3703,11 @@ export default function ConnectPageClient() {
         )}
 
         <Dialog
-          open={batchConnectDraft !== null && batchConnectDraft.ownerId === user?.uid}
+          modal
+          open={
+            batchConnectDraft !== null &&
+            batchConnectDraft.ownerId === user?.uid
+          }
           onOpenChange={(open) => {
             if (!open && !isConnectingMultiple) closeBatchConnectDraft();
           }}
@@ -3381,7 +3758,7 @@ export default function ConnectPageClient() {
                             type="button"
                             variant="none"
                             effect="fade"
-                            size="sm"
+                            size="compact"
                             disabled={isConnectingMultiple}
                             onClick={() => {
                               setBatchConnectDraft((current) => {
@@ -3410,7 +3787,10 @@ export default function ConnectPageClient() {
                                 return next;
                               });
                             }}
-                            className="h-8 rounded-[10px] px-3 text-[13px] font-medium text-muted-foreground hover:text-destructive"
+                            className={cn(
+                              CONNECT_INLINE_BUTTON_CLASSNAME,
+                              "text-muted-foreground hover:text-destructive",
+                            )}
                           >
                             Remove
                           </Button>
@@ -3525,45 +3905,47 @@ export default function ConnectPageClient() {
               </div>
             ) : null}
 
-            <DialogFooter className="shrink-0 w-full flex-row items-center justify-between gap-3 sm:justify-between">
-              <Button
-                type="button"
-                variant="none"
-                effect="fade"
-                className="min-w-[96px]"
-                disabled={isConnectingMultiple}
-                onClick={closeBatchConnectDraft}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                variant="blue"
-                effect="fill"
-                className="min-w-[148px]"
-                // Held until the catalogs land. Sending first is not a slower
-                // version of the same thing -- it is a send with no picks
-                // attached, reported as a success, which is the exact failure
-                // this sheet exists to end.
-                disabled={
-                  !batchConnectDraft ||
-                  isConnectingMultiple ||
-                  batchConnectDraft.loadingCatalogs
+            <DialogFooter className="shrink-0 w-full">
+              <FlowActionGroup
+                primary={
+                  <Button
+                    type="button"
+                    variant="blue"
+                    effect="fill"
+                    size="prominent"
+                    className="min-w-[148px]"
+                    // Held until the catalogs land. Sending first is not a slower
+                    // version of the same thing -- it is a send with no picks
+                    // attached, reported as a success, which is the exact failure
+                    // this sheet exists to end.
+                    disabled={
+                      !batchConnectDraft ||
+                      isConnectingMultiple ||
+                      batchConnectDraft.loadingCatalogs
+                    }
+                    onClick={() => void handleConnectMultiple()}
+                  >
+                    {isConnectingMultiple
+                      ? "Sending…"
+                      : batchConnectDraft?.loadingCatalogs
+                        ? "Checking…"
+                        : "Send requests"}
+                  </Button>
                 }
-                onClick={() => void handleConnectMultiple()}
-              >
-                {/*
-                A disabled Button in this system still renders full Action
-                Blue, so a held button that kept its ready label would look
-                tappable and read as a dead tap. The label carries the state
-                instead of the colour.
-              */}
-                {isConnectingMultiple
-                  ? "Sending…"
-                  : batchConnectDraft?.loadingCatalogs
-                    ? "Checking…"
-                    : "Send requests"}
-              </Button>
+                secondary={
+                  <Button
+                    type="button"
+                    variant="none"
+                    effect="fade"
+                    size="standard"
+                    className="min-w-[96px]"
+                    disabled={isConnectingMultiple}
+                    onClick={closeBatchConnectDraft}
+                  >
+                    Cancel
+                  </Button>
+                }
+              />
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -3577,7 +3959,7 @@ export default function ConnectPageClient() {
         />
 
         {showLimitBanner && (
-          <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[9999] w-[92%] max-w-md rounded-2xl bg-popover/95 backdrop-blur-md p-3.5 shadow-xl border border-border/50 flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-3 duration-200">
+          <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[9999] w-[92%] max-w-md rounded-2xl bg-popover/95 backdrop-blur-md p-3.5 shadow-xl border border-border/50 flex items-center justify-between gap-3 animate-in fade-in slide-in-from-top-3 duration-150">
             <span className="text-xs font-medium text-foreground">
               You can connect up to {MAX_BULK_CONNECTION_REQUESTS} at a time.
             </span>
@@ -3586,8 +3968,8 @@ export default function ConnectPageClient() {
                 type="button"
                 variant="none"
                 effect="fade"
-                size="sm"
-                className="h-7 rounded-xl px-2.5 text-xs font-normal text-muted-foreground hover:bg-muted"
+                size="compact"
+                className="text-muted-foreground hover:bg-muted"
                 onClick={() => setShowLimitBanner(false)}
               >
                 Cancel
@@ -3596,8 +3978,7 @@ export default function ConnectPageClient() {
                 type="button"
                 variant="blue"
                 effect="fill"
-                size="sm"
-                className="h-7 rounded-xl px-3 text-xs font-medium"
+                size="compact"
                 onClick={() => {
                   setShowLimitBanner(false);
                   if (selectedPeople.size === 0) return;

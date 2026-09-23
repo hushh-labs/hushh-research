@@ -107,7 +107,12 @@ class PkmConfirmationReceiptV2(BaseModel):
         "owner_auto_save_policy",
         "product_default_auto_save_policy",
         "owner_requested_workflow",
+        # A refresh from a financial source the owner connected (a Plaid link or
+        # an imported statement). The connection is the authority; the receipt
+        # never claims the owner reviewed this write.
+        "owner_connected_source_sync",
     ] = "owner_confirmed"
+    connected_source_provider: Literal["plaid", "statement_import"] | None = None
     auto_save_policy_version: Literal[1] | None = None
     auto_save_policy_enabled_at: datetime | None = None
     product_default_effective_at: datetime | None = None
@@ -138,6 +143,23 @@ class PkmConfirmationReceiptV2(BaseModel):
                 raise ValueError("requested_workflow_cannot_include_auto_save_policy")
         elif self.workflow_authority is not None:
             raise ValueError("workflow_authority_requires_requested_workflow")
+        if self.authorization_mode == "owner_connected_source_sync":
+            if self.connected_source_provider is None:
+                raise ValueError("connected_source_sync_requires_provider")
+            if self.sharing_impact_acknowledged:
+                raise ValueError("connected_source_sync_cannot_acknowledge_sharing")
+            if any(
+                value is not None
+                for value in (
+                    self.auto_save_policy_version,
+                    self.auto_save_policy_enabled_at,
+                    self.product_default_effective_at,
+                )
+            ):
+                raise ValueError("connected_source_sync_cannot_include_auto_save_policy")
+            return self
+        if self.connected_source_provider is not None:
+            raise ValueError("connected_source_provider_requires_connected_source_sync")
         if self.authorization_mode == "owner_auto_save_policy":
             if self.auto_save_policy_version != 1 or self.auto_save_policy_enabled_at is None:
                 raise ValueError("auto_save_policy_receipt_incomplete")
@@ -260,6 +282,9 @@ class PkmMutationPlanV2(BaseModel):
                 or self.sharing_impact.enters_next_export_revision
             ):
                 raise ValueError("requested_workflow_requires_private_location_save")
+        if self.confirmation_receipt.authorization_mode == "owner_connected_source_sync":
+            if domain != "financial" or self.operation == "delete":
+                raise ValueError("connected_source_sync_requires_financial_refresh")
         if self.confirmation_receipt.authorization_mode in {
             "owner_auto_save_policy",
             "product_default_auto_save_policy",

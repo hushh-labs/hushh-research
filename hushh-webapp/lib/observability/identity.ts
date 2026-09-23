@@ -40,6 +40,9 @@ import { resolveAnalyticsMeasurementId } from "@/lib/observability/env";
 const USER_ID_SALT = "hushh-observability-v1";
 
 let lastAppliedUserId: string | null | undefined;
+let pendingWebRetry: ReturnType<typeof setInterval> | null = null;
+let identityGeneration = 0;
+let identityApplicationQueue: Promise<void> = Promise.resolve();
 
 function toHex(buffer: ArrayBuffer): string {
   return Array.from(new Uint8Array(buffer))
@@ -97,36 +100,6 @@ function applyWebUserId(userId: string | null): boolean {
   const measurementId = resolveAnalyticsMeasurementId();
   if (!measurementId) return false;
 
-  // `set`, not a second `config`.
-  //
-  // This used to re-`config` the measurement id, on the reasoning that it
-  // would scope the identity to that id the way the adapter scopes events
-  // with `send_to`. Sound reasoning, but the runtime does not honour it: a
-  // `config` issued after the stream is already initialised does not attach
-  // `user_id` to subsequent hits, and it fails silently -- no error, no
-  // exception, and this function returned true, so the id was memoised as
-  // applied and never retried.
-  //
-  // Measured on the live production page with the transport intercepted:
-  //
-  //   gtag('config', id, { user_id })  ->  next event sent  uid absent
-  //   gtag('set', { user_id })         ->  next event sent  uid present
-  //
-  // Which matches what we saw in BigQuery: 67 completed web sign-ins over a
-  // month and not one `user_id`, while iOS -- which goes through Firebase
-  // Analytics rather than gtag -- bound 16 of 17.
-  //
-  // `set` is page-global rather than scoped to one measurement id. That is
-  // fine while the page configures exactly one; if a second property is ever
-  // added, this needs revisiting.
-  //
-  // `send_page_view` is deliberately gone: it was only needed because a
-  // repeated `config` re-applies gtag's default of true and would have fired
-  // a spurious page view on every sign-in. `set` does not re-initialise the
-  // stream, so that hazard disappears with it.
-  //
-  // Guarded because this is third-party code called from the auth state
-  // handler. Analytics identity is never allowed to disturb a sign-in.
   try {
     (
       window.gtag as unknown as (
@@ -146,6 +119,12 @@ function applyWebUserId(userId: string | null): boolean {
   }
 }
 
+function clearPendingWebRetry(): void {
+  if (pendingWebRetry === null) return;
+  clearInterval(pendingWebRetry);
+  pendingWebRetry = null;
+}
+
 /**
  * Binds (or on sign-out, clears) the analytics identity on whichever surface
  * this build is running.
@@ -154,11 +133,12 @@ function applyWebUserId(userId: string | null): boolean {
  * auth-state re-render does not thrash the GA4 config. A failed one is
  * deliberately not remembered, so the next auth event retries it.
  */
-export async function setObservabilityUserId(
-  firebaseUid: string | null
+async function applyObservabilityUserId(
+  firebaseUid: string | null,
+  generation: number
 ): Promise<void> {
   const userId = firebaseUid ? await resolveAnalyticsUserId(firebaseUid) : null;
-  if (userId === lastAppliedUserId) return;
+  if (generation !== identityGeneration || userId === lastAppliedUserId) return;
 
   const applied = Capacitor.isNativePlatform()
     ? await applyNativeUserId(userId)
@@ -168,5 +148,44 @@ export async function setObservabilityUserId(
   // had not yet loaded bound nothing and then short-circuited forever, which
   // made cross-surface stitching -- the entire reason this file exists -- a
   // no-op on web for anyone already signed in at load.
-  if (applied) lastAppliedUserId = userId;
+  if (applied) {
+    lastAppliedUserId = userId;
+  } else if (
+    !Capacitor.isNativePlatform() &&
+    userId &&
+    generation === identityGeneration
+  ) {
+    // Retry on web if gtag script is still loading asynchronously after hydration
+    let attempts = 0;
+    pendingWebRetry = setInterval(() => {
+      if (generation !== identityGeneration) {
+        clearPendingWebRetry();
+        return;
+      }
+      attempts += 1;
+      const ok = applyWebUserId(userId);
+      if (ok) {
+        lastAppliedUserId = userId;
+        clearPendingWebRetry();
+      } else if (attempts >= 10) {
+        clearPendingWebRetry();
+      }
+    }, 1000);
+  }
+}
+
+/**
+ * Queue identity changes so a slow native bridge call for account A can never
+ * finish after a later sign-out or account-B binding and become the final
+ * analytics identity on a shared device.
+ */
+export function setObservabilityUserId(firebaseUid: string | null): Promise<void> {
+  const generation = ++identityGeneration;
+  clearPendingWebRetry();
+
+  const application = identityApplicationQueue.then(() =>
+    applyObservabilityUserId(firebaseUid, generation)
+  );
+  identityApplicationQueue = application.catch(() => undefined);
+  return application;
 }

@@ -1,6 +1,11 @@
 "use client";
 
-import { ChevronDown, Loader2, PenLine, Trash2 } from "lucide-react";
+import {
+  ChevronDownIcon as ChevronDown,
+  SpinnerGapIcon as Loader2,
+  PencilIcon as PenLine,
+  TrashIcon as Trash2,
+} from "@/components/icons";
 
 import { Badge } from "@/components/ui/badge";
 import type {

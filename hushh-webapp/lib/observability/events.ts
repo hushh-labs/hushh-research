@@ -68,29 +68,32 @@ export type GrowthLocationInviteSource =
  * Circles and Profile surfaces without sending any record identifiers or
  * user-authored text to analytics.
  */
-export type OneLocationJourneyAction =
-  | "contact_sync_started"
-  | "contact_invitation_handoff"
-  | "circle_tab_opened"
-  | "circle_create_started"
-  | "circle_join_started"
-  | "circle_opened"
-  | "circle_joined"
-  | "circle_member_invited"
-  | "circle_member_removed"
-  | "circle_invite_cancelled"
-  | "circle_invite_declined"
-  | "circle_left"
-  | "circle_deleted"
-  | "circle_code_shared"
-  | "location_request_approved"
-  | "location_request_denied"
-  | "location_request_fulfilled"
-  | "location_share_viewed"
-  | "nearby_check_in_result"
-  | "public_link_opened"
-  | "public_link_shared"
-  | "public_link_revoked";
+export const ONE_LOCATION_JOURNEY_ACTIONS = [
+  "contact_sync_started",
+  "contact_invitation_handoff",
+  "circle_tab_opened",
+  "circle_create_started",
+  "circle_join_started",
+  "circle_opened",
+  "circle_joined",
+  "circle_member_invited",
+  "circle_member_removed",
+  "circle_invite_cancelled",
+  "circle_invite_declined",
+  "circle_left",
+  "circle_deleted",
+  "circle_code_shared",
+  "location_request_approved",
+  "location_request_denied",
+  "location_request_fulfilled",
+  "location_share_viewed",
+  "nearby_check_in_result",
+  "public_link_opened",
+  "public_link_shared",
+  "public_link_revoked",
+] as const;
+
+export type OneLocationJourneyAction = (typeof ONE_LOCATION_JOURNEY_ACTIONS)[number];
 
 export type OneLocationJourneyEntrySurface =
   | "location_hub"
@@ -640,7 +643,7 @@ export interface EventPayloadMap {
   agent_pkm_context_resolved: {
     route_id: "agent";
     result: "success";
-    context_mode: "relevant" | "broad";
+    context_mode: "full";
     total_fact_count_bucket: PkmFactCountBucket;
     selected_fact_count_bucket: PkmFactCountBucket;
     context_clipped: boolean;

@@ -3,14 +3,14 @@
 // =============================================================================
 
 export const motionDurations = {
-  // Enter/exit – tuned for mobile-first responsiveness
-  xs: 120,
-  sm: 180,
-  md: 240,
-  lg: 320,
-  xl: 450,
+  // Enter/exit – tuned for mobile-first responsiveness (Threads snappy standard)
+  xs: 75,
+  sm: 100,
+  md: 125,
+  lg: 140,
+  xl: 150,
   // Long sequences / marquee fallbacks
-  xxl: 600,
+  xxl: 150,
 } as const;
 
 export type MotionDurationKey = keyof typeof motionDurations;

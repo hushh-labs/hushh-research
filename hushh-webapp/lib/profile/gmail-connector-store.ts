@@ -286,9 +286,9 @@ function normalizeConnectorSyncState(
 }
 
 function deriveTaskTitle(kind: GmailConnectorTaskKind): string {
-  if (kind === "gmail_bootstrap") return "Scanning Gmail in the background";
+  if (kind === "gmail_bootstrap") return "Scanning Mail in the background";
   if (kind === "gmail_backfill") return "Fetching older receipts";
-  return "Syncing Gmail receipts";
+  return "Syncing Mail receipts";
 }
 
 function deriveTaskDescription(
@@ -296,22 +296,22 @@ function deriveTaskDescription(
   run: GmailSyncRun | null,
 ): string {
   if (run?.status === "queued") {
-    return "One is getting the Gmail sync ready. You can keep using the app.";
+    return "One is getting the Mail sync ready. You can keep using the app.";
   }
   if (run?.status === "failed") {
     return sanitizeGmailUserMessage(run.error_message, {
       fallback:
         "We couldn't update your receipts. Please try again in a moment.",
-      authFallback: "Reconnect Gmail to continue syncing your receipts.",
+      authFallback: "Reconnect Mail to continue syncing your receipts.",
     });
   }
   if (kind === "gmail_bootstrap") {
-    return "One is scanning your recent Gmail receipts in the background.";
+    return "One is scanning your recent Mail receipts in the background.";
   }
   if (kind === "gmail_backfill") {
-    return "One is fetching older Gmail receipts without blocking the UI.";
+    return "One is fetching older Mail receipts without blocking the UI.";
   }
-  return "One is syncing Gmail receipts without blocking the UI.";
+  return "One is syncing Mail receipts without blocking the UI.";
 }
 
 function readPersistedState(): Record<string, GmailConnectorEntry> {
@@ -402,7 +402,7 @@ function persistState(): void {
 function getOrCreateEntry(userId: string): GmailConnectorEntry {
   const normalizedUserId = String(userId || "").trim();
   if (!normalizedUserId) {
-    throw new Error("Missing Gmail user id.");
+    throw new Error("Missing Mail user id.");
   }
 
   const existing = entries.get(normalizedUserId);
@@ -530,7 +530,7 @@ function seedTaskFromRun(
       routeHref,
       metadata,
       visibility: kind === "gmail_backfill" ? "passive" : "primary",
-      groupLabel: "Gmail",
+      groupLabel: "Mail",
       autoClearAfterMs: kind === "gmail_backfill" ? 15_000 : 10_000,
     });
   } else {
@@ -540,7 +540,7 @@ function seedTaskFromRun(
       routeHref,
       metadata,
       visibility: kind === "gmail_backfill" ? "passive" : "primary",
-      groupLabel: "Gmail",
+      groupLabel: "Mail",
     });
   }
 
@@ -559,7 +559,7 @@ function finishTaskFromRun(
     const safeMessage = sanitizeGmailUserMessage(run.error_message, {
       fallback:
         "We couldn't update your receipts. Please try again in a moment.",
-      authFallback: "Reconnect Gmail to continue syncing your receipts.",
+      authFallback: "Reconnect Mail to continue syncing your receipts.",
     });
     AppBackgroundTaskService.failTask(taskId, safeMessage, safeMessage);
     return;
@@ -680,7 +680,7 @@ async function fetchStatusFromNetwork(params: {
       );
       const nextError = statusErrorMessage(
         error,
-        "We couldn't check your Gmail connection right now. Please try again in a moment.",
+        "We couldn't check your Mail connection right now. Please try again in a moment.",
       );
       updateEntry(normalizedUserId, {
         statusError: nextError,
@@ -907,7 +907,7 @@ async function pollSyncRun(params: {
     );
     const nextError = statusErrorMessage(
       error,
-      "Something went wrong while syncing your emails. Please try again in a moment.",
+      "Something went wrong while syncing your mail messages. Please try again in a moment.",
     );
     updateEntry(normalizedUserId, {
       statusError: nextError,
@@ -1144,7 +1144,7 @@ export function failGmailOAuthCompletion(userId: string, message: string): void 
     isOAuthCompletionPending: false,
     isRefreshing: false,
     statusError: sanitizeGmailUserMessage(message, {
-      fallback: "Gmail connection could not be completed. Try again from Gmail.",
+      fallback: "Mail connection could not be completed. Try again from Mail.",
     }),
   });
 }

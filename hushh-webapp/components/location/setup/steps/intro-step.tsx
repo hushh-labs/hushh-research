@@ -1,6 +1,6 @@
 "use client";
 
-import { Lock, MapPin, Users } from "lucide-react";
+import { Lock, MapPin, Users } from "@/components/icons";
 
 import {
   HelperText,

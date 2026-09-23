@@ -119,6 +119,83 @@ async def test_text_runtime_replays_history_and_extracts_generated_directive(mon
     assert observed["state"][STATE_PKM_CONTEXT] == "bounded context"
 
 
+@pytest.mark.parametrize("tier", ["full", "intro"])
+async def test_compat_stream_drops_thoughts_and_preserves_answers_and_directives(monkeypatch, tier):
+    class FakeRunner:
+        def __init__(self, **kwargs):
+            pass
+
+        async def run_async(self, **kwargs):
+            yield Event(
+                author="one",
+                partial=True,
+                content=genai_types.Content(
+                    role="model", parts=[genai_types.Part(text="private thought", thought=True)]
+                ),
+            )
+            yield Event(
+                author="one",
+                partial=True,
+                content=genai_types.Content(
+                    role="model",
+                    parts=[
+                        genai_types.Part(text="private thought", thought=True),
+                        genai_types.Part(text="Public answer"),
+                    ],
+                ),
+            )
+            yield Event(
+                author="one",
+                content=genai_types.Content(
+                    role="model",
+                    parts=[
+                        genai_types.Part(text="private thought", thought=True),
+                        genai_types.Part(text="Public answer"),
+                    ],
+                ),
+            )
+            yield Event(
+                author="one",
+                actions=EventActions(
+                    state_delta={
+                        "hussh:pending_directive:route.one_location": {
+                            "kind": "action",
+                            "payload": {"actionId": "route.one_location", "slots": {}},
+                        },
+                    }
+                ),
+            )
+
+    monkeypatch.setattr(text_runtime, "Runner", FakeRunner)
+    monkeypatch.setattr(text_runtime, "build_one_text_agent", lambda **kwargs: None)
+    monkeypatch.setattr(text_runtime, "build_one_intro_text_agent", lambda **kwargs: None)
+    common = dict(
+        user_id="u1",
+        message="hello",
+        screen_context={},
+        runtime_provider="gemini",
+        runtime_model="gemini-test",
+        runtime_mode="hushh_managed_vertex",
+        runtime_credential=None,
+    )
+    source = (
+        text_runtime.stream_one_intro_text_turn(**common)
+        if tier == "intro"
+        else text_runtime.stream_one_text_turn(
+            **common,
+            consent_token="owner-" + "token",
+            conversation_id="c1",
+            history=[],
+            timezone=None,
+            pkm_context=None,
+        )
+    )
+    events = [event async for event in source]
+    assert [event.kind for event in events] == ["token", "directive"]
+    assert events[0].text == "Public answer"
+    assert "private thought" not in repr(events)
+
+
 def test_text_runtime_rejects_unknown_client_action_directive():
     directive = text_runtime._directive_from_value(
         {

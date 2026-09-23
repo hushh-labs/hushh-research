@@ -28,7 +28,7 @@ import {
   TrendingDown,
   PieChart,
   Wallet,
-} from "lucide-react";
+} from "@/components/icons";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { cn } from "@/lib/utils";
 import { Icon, SegmentedTabs } from "@/lib/morphy-ux/ui";
@@ -75,7 +75,6 @@ import {
   buildFinancialDomainSummary,
   buildStatementSource,
 } from "@/lib/kai/brokerage/financial-sources";
-import { PlaidPortfolioService } from "@/lib/kai/brokerage/plaid-portfolio-service";
 import {
   KAI_AUXILIARY_STEP_TIMEOUT_MS,
   runKaiStepWithTimeout,
@@ -1841,21 +1840,6 @@ export function PortfolioReviewView({
         throw new Error("Backend returned failure on store");
       }
 
-      void runKaiStepWithTimeout(
-        "Updating portfolio source preference",
-        PlaidPortfolioService.setActiveSource({
-          userId,
-          activeSource: "statement",
-          vaultOwnerToken: resolvedVaultOwnerToken,
-        }),
-        KAI_AUXILIARY_STEP_TIMEOUT_MS,
-      ).catch((sourcePreferenceError) => {
-        console.warn(
-          "[PortfolioReview] Saved statement portfolio but could not update active source preference:",
-          sourcePreferenceError,
-        );
-      });
-
       const postSaveSyncStartedAt = nowMs();
       // 5. Prime/invalidate deterministic cache entries for all financial reads.
       const cachePortfolioData: CachedPortfolioData = {
@@ -1974,7 +1958,7 @@ export function PortfolioReviewView({
     <div className={cn("relative w-full", className)}>
 
 
-      <div className="w-full space-y-8 pb-6 pt-4 transition-all duration-500 ease-in-out md:pt-6">
+      <div className="w-full space-y-8 pb-6 pt-4 transition-[opacity,transform] duration-150 ease-out md:pt-6">
 
 
 

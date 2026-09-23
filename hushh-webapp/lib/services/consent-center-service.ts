@@ -14,12 +14,7 @@ export type ConsentCenterActor = "investor" | "ria";
 type ConsentCenterCacheActor = ConsentCenterActor | "one";
 export type ConsentCenterMode = "consents" | "connections";
 export type ConsentCenterView =
-  | "incoming"
-  | "outgoing"
-  | "active"
-  | "history"
-  | "invites"
-  | "developer";
+  "incoming" | "outgoing" | "active" | "history" | "invites" | "developer";
 
 export interface ConsentCenterEntry {
   id: string;
@@ -46,6 +41,15 @@ export interface ConsentCenterEntry {
   counterpart_image_url?: string | null;
   counterpart_website_url?: string | null;
   request_id?: string | null;
+  /** Owner-scoped presentation group; decisions still use each item's entry. */
+  bundle_id?: string | null;
+  bundle_complete?: boolean;
+  bundle_items?: Array<{
+    request_id: string;
+    label: string;
+    status: string;
+    entry?: ConsentCenterEntry | null;
+  }>;
   chain_key?: string | null;
   chain_request_count?: number | null;
   chain_request_ids?: string[] | null;
@@ -547,7 +551,9 @@ export class ConsentCenterService {
         .catch(() => ({}))) as ConsentCenterPageSummary & ErrorPayload;
       if (!response.ok) {
         throw new Error(
-          payload.detail || payload.error || `Request failed: ${response.status}`,
+          payload.detail ||
+            payload.error ||
+            `Request failed: ${response.status}`,
         );
       }
       cache.set(cacheKey, payload, CACHE_TTL.MEDIUM);
@@ -565,10 +571,11 @@ export class ConsentCenterService {
     // known summary instantly instead of blocking on a cold backend call.
     // The fresh fetch then runs in the background to update both tiers.
     if (!options.force) {
-      const stored = await DeviceResourceCacheService.read<ConsentCenterPageSummary>({
-        userId: options.userId,
-        resourceKey: deviceResourceKey,
-      });
+      const stored =
+        await DeviceResourceCacheService.read<ConsentCenterPageSummary>({
+          userId: options.userId,
+          resourceKey: deviceResourceKey,
+        });
       if (stored) {
         cache.set(cacheKey, stored, CACHE_TTL.MEDIUM);
         void this.refreshSummaryInBackground(cacheKey, fetchFresh);
@@ -608,6 +615,7 @@ export class ConsentCenterService {
     actor?: ConsentCenterActor;
     mode?: ConsentCenterMode;
     surface: "pending" | "active" | "previous";
+    requestView?: "received" | "sent";
     q?: string;
     page?: number;
     limit?: number;
@@ -617,6 +625,8 @@ export class ConsentCenterService {
     const actor = options.actor;
     const cacheActor = consentCenterCacheActor(actor);
     const mode = options.mode || "consents";
+    const requestView = options.requestView === "sent" ? "sent" : "received";
+    const listScope = `${cacheActor}:${mode}${requestView === "sent" ? ":sent" : ""}`;
     const q = options.q || "";
     const previewTop =
       typeof options.top === "number"
@@ -627,13 +637,13 @@ export class ConsentCenterService {
     const cacheKey = previewTop
       ? CACHE_KEYS.CONSENT_CENTER_PREVIEW(
           options.userId,
-          `${cacheActor}:${mode}`,
+          listScope,
           options.surface,
           previewTop,
         )
       : CACHE_KEYS.CONSENT_CENTER_LIST(
           options.userId,
-          `${cacheActor}:${mode}`,
+          listScope,
           options.surface,
           q,
           page,
@@ -649,6 +659,7 @@ export class ConsentCenterService {
       surface: options.surface,
     });
     if (actor) query.set("actor", actor);
+    if (requestView === "sent") query.set("request_view", "sent");
     if (previewTop) {
       query.set("top", String(previewTop));
     } else {

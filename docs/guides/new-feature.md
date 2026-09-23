@@ -96,6 +96,7 @@ If you add a new `.swift` file (e.g. a new plugin or helper) and need to edit `i
 - [ ] Handle loading states
 - [ ] Handle error states
 - [ ] Show success feedback only after confirmed save
+- [ ] Animate only `transform`/`opacity`; no per-frame `<html>` custom-property writes, no non-passive `window` touch listeners, no body-wide subtree observers, no React state per audio/scroll/stream frame; charts pass `CHART_ANIMATION_ACTIVE`; floating layers use the `--z-*` ladder (`npm run verify:render-performance`; see `docs/reference/mobile/render-performance-charter.md`)
 
 ## Testing
 
@@ -128,6 +129,9 @@ static async getData() {
   return fetch("/api/...");  // Breaks on native
 }
 ```
+
+❌ **A scroll, gesture or streaming engine that touches the whole page per frame**
+- Writing `--some-var` on `document.documentElement` from a scroll handler, a `MutationObserver` on `document.body` with `subtree: true`, `addEventListener("touchmove", …, { passive: false })` on `window`, or `setState` per audio/scroll frame. Each one costs every frame in the app on WKWebView; `verify:render-performance` refuses them.
 
 ❌ **Missing native plugins**
 - Creating `app/api/feature/route.ts` without corresponding iOS/Android plugins

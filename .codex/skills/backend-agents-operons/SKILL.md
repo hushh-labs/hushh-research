@@ -23,6 +23,7 @@ Owned repo surfaces:
 3. `consent-protocol/hushh_mcp/tools`
 4. `consent-protocol/hushh_mcp/hushh_adk`
 5. `consent-protocol/hushh_mcp/adk_bridge`
+6. `consent-protocol/hushh_mcp/one_adk`
 
 Non-owned surfaces:
 
@@ -66,7 +67,7 @@ Non-owned surfaces:
 ## Required Checks
 
 ```bash
-cd consent-protocol && python3 -m pytest tests/agents -q
-cd consent-protocol && python3 -m pytest tests/test_hushh_adk_foundation.py -q
-cd consent-protocol && python3 scripts/verify_agent_hierarchy_contract.py
+cd consent-protocol && uv run pytest tests/agents -q
+cd consent-protocol && uv run pytest tests/test_hushh_adk_foundation.py -q
+cd consent-protocol && uv run python scripts/verify_agent_hierarchy_contract.py
 ```

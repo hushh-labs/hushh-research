@@ -27,7 +27,7 @@ import {
   MapPin,
   Phone,
   type LucideIcon,
-} from "lucide-react";
+} from "@/components/icons";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -379,7 +379,7 @@ function buildActions(card: PublicWalletCard): CardAction[] {
   if (card.email) {
     actions.push({
       id: "email",
-      label: "Email",
+      label: "Mail",
       href: mailtoHref(card.email),
       icon: Mail,
       external: false,

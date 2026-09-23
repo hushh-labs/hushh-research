@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { Check, Copy } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Check, Copy } from "@/components/icons";
 
 export async function copyTextToClipboard(text: string): Promise<void> {
   if (navigator.clipboard?.writeText) {
@@ -30,10 +31,13 @@ export function ChatMarkdownLink({
   href?: string;
   children?: ReactNode;
 }) {
+  const router = useRouter();
   const [copied, setCopied] = useState(false);
   const resetTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const url = href ?? "";
+  const url = href?.trim() ?? "";
   const copyable = /^https?:\/\//i.test(url);
+  const internalPath = url.startsWith("/") && !url.startsWith("//");
+  const safeLink = internalPath || copyable || /^mailto:/i.test(url) || url.startsWith("#");
 
   useEffect(
     () => () => {
@@ -53,11 +57,20 @@ export function ChatMarkdownLink({
     resetTimer.current = setTimeout(() => setCopied(false), 2000);
   };
 
+  if (!safeLink) return <span>{children}</span>;
+
   const anchor = (
     <a
-      href={url || "#"}
-      target="_blank"
-      rel="noopener noreferrer"
+      href={url}
+      target={copyable ? "_blank" : undefined}
+      rel={copyable ? "noopener noreferrer" : undefined}
+      onClick={(event) => {
+        if (!copyable || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+        const destination = new URL(url, window.location.href);
+        if (destination.origin !== window.location.origin) return;
+        event.preventDefault();
+        router.push(`${destination.pathname}${destination.search}${destination.hash}`);
+      }}
       className="break-all font-medium text-primary underline decoration-primary/40 underline-offset-4 transition-colors hover:decoration-primary"
     >
       {children}

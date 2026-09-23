@@ -313,7 +313,7 @@ describe("top shell breadcrumbs", () => {
       align: "center",
       hideBack: false,
       items: [
-        { label: "RIA", href: "/ria/onboarding" },
+        { label: "Advisor", href: "/ria/onboarding" },
         { label: "Claim profile" },
       ],
     });
@@ -326,7 +326,7 @@ describe("top shell breadcrumbs", () => {
       width: "content",
       align: "center",
       hideBack: false,
-      items: [{ label: "RIA", href: "/one/setup" }, { label: "Claim profile" }],
+      items: [{ label: "Advisor", href: "/one/setup" }, { label: "Claim profile" }],
     });
   });
 
@@ -369,6 +369,38 @@ describe("top shell breadcrumbs", () => {
         { label: "One", href: "/one" },
         { label: "Setup", href: "/one/setup" },
         { label: "Finance" },
+      ],
+    });
+  });
+
+  it("retraces a capability setup step to the internal origin that opened it", () => {
+    const fromDashboard = new URLSearchParams();
+    fromDashboard.set("from", "/one");
+
+    expect(
+      resolveTopShellBreadcrumb("/one/setup/gmail", fromDashboard),
+    ).toEqual({
+      backHref: "/one",
+      width: "content",
+      align: "center",
+      hideBack: false,
+      items: [
+        { label: "One", href: "/one" },
+        { label: "Setup", href: "/one" },
+        { label: "Mail" },
+      ],
+    });
+  });
+
+  it("hides the back arrow on the mandatory AI-choice step, matching the hub it now bypasses", () => {
+    expect(resolveTopShellBreadcrumb("/one/setup/connections")).toEqual({
+      backHref: "/one/setup",
+      width: "content",
+      align: "center",
+      hideBack: true,
+      items: [
+        { label: "Set up", href: "/one/setup" },
+        { label: "Choose your AI" },
       ],
     });
   });
@@ -456,7 +488,7 @@ describe("top shell breadcrumbs", () => {
       backHref: "/one/gmail",
       width: "profile",
       align: "center",
-      items: [{ label: "Gmail", href: "/one/gmail" }],
+      items: [{ label: "Mail", href: "/one/gmail" }],
     });
 
     // No origin → the historic default (back to the One dashboard) is preserved.
@@ -625,7 +657,7 @@ describe("top shell breadcrumbs", () => {
       align: "center",
       items: [
         { label: "One", href: "/one" },
-        { label: "Gmail", href: "/one/gmail" },
+        { label: "Mail", href: "/one/gmail" },
         { label: "Legacy receipts" },
       ],
     });
@@ -961,7 +993,7 @@ describe("top shell breadcrumbs", () => {
       width: "profile",
       align: "center",
       items: [
-        { label: "RIA", href: "/ria/profile" },
+        { label: "Advisor", href: "/ria/profile" },
         { label: "Clients", href: "/ria/clients" },
         { label: "Workspace" },
       ],
@@ -974,7 +1006,7 @@ describe("top shell breadcrumbs", () => {
       width: "profile",
       align: "center",
       items: [
-        { label: "RIA", href: "/ria/profile" },
+        { label: "Advisor", href: "/ria/profile" },
         { label: "Clients", href: "/ria/clients" },
         { label: "Workspace", href: "/ria/clients/user_123" },
         { label: "Account detail" },
@@ -988,7 +1020,7 @@ describe("top shell breadcrumbs", () => {
       width: "profile",
       align: "center",
       items: [
-        { label: "RIA", href: "/ria/profile" },
+        { label: "Advisor", href: "/ria/profile" },
         { label: "Clients", href: "/ria/clients" },
         { label: "Workspace", href: "/ria/clients/user_123" },
         { label: "Request detail" },

@@ -62,6 +62,7 @@ class ToolRegistryError(RuntimeError):
 
 def _family_tools() -> tuple[ToolSpec, ...]:
     from hushh_mcp.one_voice.tools import (
+        account_lifecycle,
         circles,
         location_state,
         onboarding,
@@ -73,7 +74,17 @@ def _family_tools() -> tuple[ToolSpec, ...]:
     )
 
     tools: list[ToolSpec] = []
-    for module in (session, people, location_state, sharing, circles, sos, profile, onboarding):
+    for module in (
+        session,
+        people,
+        location_state,
+        sharing,
+        circles,
+        sos,
+        profile,
+        account_lifecycle,
+        onboarding,
+    ):
         tools.extend(module.TOOLS)
     return tuple(tools)
 

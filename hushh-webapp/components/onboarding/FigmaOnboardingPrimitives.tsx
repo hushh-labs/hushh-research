@@ -5,7 +5,7 @@
 "use client";
 
 import type { ButtonHTMLAttributes, ImgHTMLAttributes, ReactNode } from "react";
-import { ChevronLeft } from "lucide-react";
+import { ChevronLeft } from "@/components/icons";
 
 import { cn } from "@/lib/utils";
 import styles from "./FigmaOnboardingPrimitives.module.css";

@@ -10,35 +10,40 @@ import {
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
-  Warning as AlertTriangle,
-  Briefcase as BriefcaseBusiness,
-  Code as CodeXml,
-  AddressBook as ContactRound,
-  ArrowSquareOut as ExternalLink,
-  Fingerprint,
-  FolderSimple as Folder,
-  Key as KeyRound,
-  SpinnerGap as Loader2,
-  SignOut as LogOut,
-  EnvelopeSimple as Mail,
-  MapPin,
-  Microphone as Mic,
-  Question as MessageCircleQuestion,
-  UsersThree as Users,
-  Desktop as Monitor,
-  Laptop,
-  Phone,
-  Palette,
-  ArrowsClockwise as RefreshCw,
-  ShareNetwork as Share2,
-  PaperPlaneRight as SendHorizontal,
-  ShieldCheck,
-  SlidersHorizontal,
-  Trash as Trash2,
-  UserCircle as User,
-  User as UserRound,
-  Wallet,
-} from "@phosphor-icons/react";
+  WarningIcon as AlertTriangle,
+  BriefcaseIcon as BriefcaseBusiness,
+  AddressBookIcon as ContactRound,
+  FingerprintIcon as Fingerprint,
+  KeyIcon as KeyRound,
+  LockIcon,
+  SpinnerGapIcon as Loader2,
+  LogOutIcon as LogOut,
+  MailIcon as Mail,
+  MicrophoneIcon as Mic,
+  DesktopIcon as Monitor,
+  PhoneIcon as Phone,
+  PaletteIcon as Palette,
+  ArrowsClockwiseIcon as RefreshCw,
+  SendIcon as SendHorizontal,
+  TrashIcon as Trash2,
+  UserCircleIcon as User,
+} from "@/components/icons";
+import {
+  AccountProfileIcon,
+  ConsentAgentIcon,
+  DeveloperToolsProfileIcon,
+  DevicesProfileIcon,
+  FingerprintProfileIcon,
+  GmailAgentIcon,
+  LocationAgentIcon,
+  MemoryAgentIcon,
+  PreferencesProfileIcon,
+  RiaAgentIcon,
+  SecurityProfileIcon,
+  SignOutProfileIcon,
+  SupportProfileIcon,
+  WalletAgentIcon,
+} from "@/components/icons/agents";
 import { toast } from "sonner";
 
 import {
@@ -114,6 +119,7 @@ import {
   accountDeletionErrorMessage,
   executeVerifiedAccountDeletion,
   resolveDeleteAccountAuth,
+  revokeVaultBanksBeforeErasure,
 } from "@/lib/flows/delete-account";
 import { buildLoginRouteWithAuthSessionNotice } from "@/lib/auth/session-invalidation";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -146,7 +152,21 @@ import { AppleIcon, GoogleIcon } from "@/lib/morphy-ux/social-icons";
 import { shouldUseGoogleBrandMark } from "@/lib/profile/profile-auth-provider-presentation";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
 import { cn } from "@/lib/utils";
+import { DisplayNameEditor } from "@/components/profile/display-name-editor";
 import { AccountService } from "@/lib/services/account-service";
+import {
+  AccountResetNotConfirmedError,
+  classifyDeletionError,
+  lifecycleOutcomeToVoice,
+  marketplaceOutcomeToVoice,
+  resetErrorMessage,
+  resolveMarketplaceTarget,
+  resolveResetOutcome,
+  supportOutcomeToVoice,
+  type LifecycleOutcome,
+  type MarketplaceOutcome,
+  type SupportSubmitOutcome,
+} from "@/lib/profile/profile-action-outcomes";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import {
   setOnboardingFlowActiveCookie,
@@ -429,7 +449,7 @@ function getProvider(user: ReturnType<typeof useAuth>["user"]) {
     case "apple.com":
       return { name: "Apple", id: "apple" };
     case "password":
-      return { name: "Email/Password", id: "password" };
+      return { name: "Mail/Password", id: "password" };
     default:
       return { name: providerId || "Unknown", id: providerId || "unknown" };
   }
@@ -516,35 +536,10 @@ function VaultComingSoonLogos() {
   return (
     <div className="flex items-center gap-1.5">
       <span className="grid h-7 w-7 place-items-center rounded-full border border-border/70 bg-background/70 text-muted-foreground">
-        <svg
-          aria-hidden="true"
-          viewBox="0 0 24 24"
-          className="h-3.5 w-3.5"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M15 7a4 4 0 1 0-3.3 3.94L7 15.64V18h2.36l1.36-1.36H13v-2.28l2.06-2.06A4 4 0 0 0 15 7Z" />
-          <path d="M15 7h.01" />
-        </svg>
+<KeyRound aria-hidden="true" className="h-3.5 w-3.5" />
       </span>
       <span className="grid h-7 w-7 place-items-center rounded-full border border-border/70 bg-background/70 text-muted-foreground">
-        <svg
-          aria-hidden="true"
-          viewBox="0 0 24 24"
-          className="h-3.5 w-3.5"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M12 3a5 5 0 0 0-5 5v2" />
-          <path d="M7 10h10a2 2 0 0 1 2 2v7H5v-7a2 2 0 0 1 2-2Z" />
-          <path d="M9 15h6" />
-        </svg>
+<LockIcon aria-hidden="true" className="h-3.5 w-3.5" />
       </span>
       <Badge variant="secondary" className={VAULT_INLINE_BADGE_CLASS}>
         Coming soon
@@ -623,6 +618,7 @@ function ProfilePageContent({
   const [isDeleting, setIsDeleting] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [isResetting, setIsResetting] = useState(false);
+  const [editingDisplayName, setEditingDisplayName] = useState(false);
   const [pendingProfileTarget, setPendingProfileTarget] = useState<{
     panel: ProfilePanel;
     detail: ProfileDetail | null;
@@ -773,7 +769,7 @@ function ProfilePageContent({
     : supportReplyEmail.trim();
   const supportReplyLine = effectiveReplyEmail
     ? `Replies go to ${effectiveReplyEmail}`
-    : "No reply email added.";
+    : "No reply mail added.";
   const supportMessageErrorId = "support-message-error";
   const supportReplyEmailErrorId = "support-reply-email-error";
   const supportSendStatusId = "support-send-status";
@@ -1528,8 +1524,11 @@ function ProfilePageContent({
     }
   };
 
-  const handleDeleteAccount = async () => {
-    if (!user) return;
+  // Returns what actually happened so the voice wrapper narrates the same
+  // outcome the screen shows. "unknown" (a lost response after a possible
+  // commit) is kept distinct from "failed"; neither is ever spoken as deleted.
+  const handleDeleteAccount = async (): Promise<LifecycleOutcome> => {
+    if (!user) return "auth_failed";
 
     setIsDeleting(true);
 
@@ -1547,7 +1546,7 @@ function ProfilePageContent({
       morphyToast.error("Failed to delete account. Please try again.");
       setIsDeleting(false);
       setShowDeleteConfirm(false);
-      return;
+      return "auth_failed";
     }
 
     if (resolution.kind === "needs_unlock") {
@@ -1558,7 +1557,7 @@ function ProfilePageContent({
       setShowDeleteConfirm(false);
       setVaultUnlockReason("delete_account");
       setShowVaultUnlock(true);
-      return;
+      return "needs_unlock";
     }
 
     setHasVault(resolution.hasVault);
@@ -1575,6 +1574,7 @@ function ProfilePageContent({
               userId: user.uid,
               vaultOwnerToken: token,
               sessionUser: user,
+              vaultKey,
             });
           })(),
           {
@@ -1595,8 +1595,10 @@ function ProfilePageContent({
         expectedUserId: user.uid,
         skipFcmCleanup: true,
       });
+      return "deleted";
     } catch (error) {
       console.error("Delete account error:", error);
+      return classifyDeletionError(error);
     } finally {
       setIsDeleting(false);
       setShowDeleteConfirm(false);
@@ -1633,8 +1635,10 @@ function ProfilePageContent({
     }
   };
 
-  const handleResetAccount = async () => {
-    if (!user) return;
+  const handleResetAccount = async (): Promise<
+    "reset" | "not_reset" | "unknown" | "needs_unlock" | "auth_failed"
+  > => {
+    if (!user) return "auth_failed";
 
     setIsResetting(true);
 
@@ -1649,7 +1653,7 @@ function ProfilePageContent({
       morphyToast.error("Failed to reset account. Please try again.");
       setIsResetting(false);
       setShowResetConfirm(false);
-      return;
+      return "auth_failed";
     }
 
     if (resolution.kind === "needs_unlock") {
@@ -1658,18 +1662,37 @@ function ProfilePageContent({
       setShowResetConfirm(false);
       setVaultUnlockReason("reset_account");
       setShowVaultUnlock(true);
-      return;
+      return "needs_unlock";
     }
 
     setHasVault(resolution.hasVault);
 
     // Branded actionable loading: keep the toast in its loading state until the
     // reset has been acknowledged and local state has been cleared.
+    //
+    // Success cleanup runs only on a reset the backend actually confirmed
+    // (`success && account_reset`). A resolved promise whose flags say
+    // otherwise -- or say nothing -- is not a reset, and a lost response is
+    // never permission to reset again.
+    // `committed` is set the moment the backend confirms, so a failure in the
+    // local cleanup that follows is reported as a committed reset with a
+    // failed refresh -- not as an unknown backend outcome.
+    const settlement = { committed: false };
     try {
       await morphyToast
         .promise(
           (async () => {
-            await AccountService.resetAccount(resolution.token);
+            await revokeVaultBanksBeforeErasure({
+              userId: user.uid,
+              vaultKey,
+              vaultOwnerToken: resolution.token,
+            });
+            const result = await AccountService.resetAccount(resolution.token);
+            const resetOutcome = resolveResetOutcome(result);
+            if (resetOutcome !== "reset") {
+              throw new AccountResetNotConfirmedError(resetOutcome);
+            }
+            settlement.committed = true;
 
             CacheSyncService.onAccountDeleted(user.uid);
             await UserLocalStateService.clearForUser(user.uid);
@@ -1683,7 +1706,7 @@ function ProfilePageContent({
           {
             loading: "Resetting your account...",
             success: "Account reset. Restarting onboarding...",
-            error: "Failed to reset account. Please try again.",
+            error: (error: unknown) => resetErrorMessage(error),
             variant: "destructive",
           },
         )
@@ -1691,8 +1714,11 @@ function ProfilePageContent({
 
       await new Promise((resolve) => setTimeout(resolve, 1200));
       router.replace(ROUTES.ONE_SETUP);
+      return "reset";
     } catch (error) {
       console.error("Reset account error:", error);
+      if (error instanceof AccountResetNotConfirmedError) return error.outcome;
+      return settlement.committed ? "reset" : "unknown";
     } finally {
       setIsResetting(false);
       setShowResetConfirm(false);
@@ -1749,29 +1775,37 @@ function ProfilePageContent({
     }
   };
 
-  const handleMarketplaceOptInToggle = async () => {
-    if (!user) return;
+  // `target` is the reviewed state a voice confirmation carries; the switch
+  // passes nothing and flips. The stored value comes back from the setter and
+  // is what the UI and the voice wrapper both report.
+  const handleMarketplaceOptInToggle = async (
+    target?: boolean,
+  ): Promise<MarketplaceOutcome> => {
+    if (!user) return { kind: "no_user" };
     try {
       setSavingMarketplaceOptIn(true);
       const idToken = await user.getIdToken();
       const result = await RiaService.setInvestorMarketplaceOptIn(
         idToken,
-        !marketplaceOptIn,
+        target ?? !marketplaceOptIn,
       );
-      setMarketplaceOptIn(Boolean(result.investor_marketplace_opt_in));
+      const stored = Boolean(result.investor_marketplace_opt_in);
+      setMarketplaceOptIn(stored);
       CacheSyncService.onMarketplaceVisibilityChanged(user.uid);
       await refreshPersonaState({ force: true });
       toast.success(
-        result.investor_marketplace_opt_in
+        stored
           ? "Investor marketplace profile is now discoverable."
           : "Investor marketplace profile is now hidden.",
       );
+      return { kind: "set", value: stored };
     } catch (error) {
       console.error(
         "[ProfilePage] Failed to update marketplace opt-in:",
         error,
       );
       toast.error("Couldn't update marketplace visibility.");
+      return { kind: "failed" };
     } finally {
       setSavingMarketplaceOptIn(false);
     }
@@ -1804,8 +1838,11 @@ function ProfilePageContent({
     updateProfileView({ panel, detail }, "push");
   }
 
-  async function submitSupportMessage(messageOverride?: string) {
-    if (!user || sendingSupportMessage) return;
+  async function submitSupportMessage(
+    messageOverride?: string,
+  ): Promise<SupportSubmitOutcome> {
+    if (!user) return { kind: "no_user" };
+    if (sendingSupportMessage) return { kind: "busy" };
 
     // Voice dictates the message rather than typing it into the composer, and
     // React state set in the same tick would not be readable here. Every
@@ -1819,7 +1856,7 @@ function ProfilePageContent({
       setSupportMessageError("Add a few more details.");
       setSupportComposerState({ status: "editing" });
       supportMessageRef.current?.focus();
-      return;
+      return { kind: "too_short" };
     }
 
     if (
@@ -1827,10 +1864,10 @@ function ProfilePageContent({
       trimmedReplyEmail &&
       !isValidReplyEmail(trimmedReplyEmail)
     ) {
-      setSupportReplyEmailError("Enter a valid email.");
+      setSupportReplyEmailError("Enter a valid mail.");
       setSupportComposerState({ status: "editing" });
       supportReplyEmailRef.current?.focus();
-      return;
+      return { kind: "invalid_reply_email" };
     }
 
     if (typeof navigator !== "undefined" && navigator.onLine === false) {
@@ -1838,7 +1875,7 @@ function ProfilePageContent({
         status: "error",
         message: "You're offline. Reconnect to send your message.",
       });
-      return;
+      return { kind: "offline" };
     }
 
     setSupportMessageError(null);
@@ -1861,17 +1898,23 @@ function ProfilePageContent({
       });
 
       if (!result.accepted) {
-        throw new Error("Support message was not accepted.");
+        setSupportComposerState({
+          status: "error",
+          message: "We couldn't send your message. Try again.",
+        });
+        return { kind: "rejected" };
       }
 
       setSupportComposerState({ status: "sent", kind: supportKind });
       setSupportMessage("");
+      return { kind: "accepted" };
     } catch (error) {
       console.error("[ProfilePage] Failed to send support message:", error);
       setSupportComposerState({
         status: "error",
         message: "We couldn't send your message. Try again.",
       });
+      return { kind: "failed" };
     }
   }
 
@@ -1881,11 +1924,11 @@ function ProfilePageContent({
       setGmailActionBusy("disconnect");
       const next = await gmail.disconnectGmail();
       if (!next) return;
-      toast.success("Gmail disconnected and Gmail receipt data was deleted.");
+      toast.success("Mail disconnected and Mail receipt data was deleted.");
     } catch (error) {
       const message = sanitizeGmailUserMessage(error, {
         fallback:
-          "We couldn't disconnect Gmail right now. Please try again in a moment.",
+          "We couldn't disconnect Mail right now. Please try again in a moment.",
       });
       console.error("[ProfilePage] Failed to disconnect Gmail:", error);
       toast.error(message);
@@ -1908,7 +1951,7 @@ function ProfilePageContent({
       const message = sanitizeGmailUserMessage(error, {
         fallback:
           "We couldn't sync your receipts. Please try again in a moment.",
-        authFallback: "Reconnect Gmail to continue syncing your receipts.",
+        authFallback: "Reconnect Mail to continue syncing your receipts.",
       });
       console.error("[ProfilePage] Failed to start Gmail sync:", error);
       toast.error(message);
@@ -2276,15 +2319,15 @@ function ProfilePageContent({
       {
         id: "profile_account",
         label: PROFILE_LABELS.account,
-        purpose: "opens account identity, email, and phone management.",
+        purpose: "opens account identity, mail, and phone management.",
         actionId: "route.profile",
         role: "card",
         voiceAliases: ["account", "phone number", "identity"],
       },
       {
         id: "profile_gmail",
-        label: "Gmail receipts",
-        purpose: "opens Gmail receipt sync and receipt-memory management.",
+        label: "Mail receipts",
+        purpose: "opens Mail receipt sync and receipt-memory management.",
         actionId: "route.profile_receipts",
         role: "card",
         voiceAliases: ["gmail receipts", "receipts"],
@@ -2364,7 +2407,7 @@ function ProfilePageContent({
                   : activePanel === "security"
                     ? PROFILE_LABELS.security
                     : activePanel === "gmail"
-                      ? "Gmail receipts"
+                      ? "Mail receipts"
                       : PROFILE_LABELS.support,
           ...(activeDetail ? [activeDetail] : []),
         ]
@@ -2374,7 +2417,7 @@ function ProfilePageContent({
           "Memory",
           "Access & sharing",
           ...(localCrmEnabled ? ["Connected Systems"] : []),
-          "Gmail receipts",
+          "Mail receipts",
           PROFILE_LABELS.security,
           "Trusted devices",
           PROFILE_LABELS.referrals,
@@ -2385,12 +2428,12 @@ function ProfilePageContent({
       activePanel === "gmail"
         ? [
             gmailPresentation.isConnected
-              ? "Sync Gmail receipts"
+              ? "Sync Mail receipts"
               : gmailPresentation.state === "needs_reauthentication"
-                ? "Reconnect Gmail"
-                : "Connect Gmail",
+                ? "Reconnect Mail"
+                : "Connect Mail",
             "Open receipts",
-            ...(gmailPresentation.isConnected ? ["Disconnect Gmail"] : []),
+            ...(gmailPresentation.isConnected ? ["Disconnect Mail"] : []),
           ]
         : activePanel === "support"
           ? [
@@ -2439,7 +2482,7 @@ function ProfilePageContent({
                   : activePanel === "security"
                     ? PROFILE_LABELS.security
                     : activePanel === "gmail"
-                      ? "Gmail receipts"
+                      ? "Mail receipts"
                       : PROFILE_LABELS.support
           : "Profile",
         purpose:
@@ -2448,7 +2491,7 @@ function ProfilePageContent({
           {
             id: "account",
             title: PROFILE_LABELS.account,
-            purpose: "Email, phone, and sign-in identity.",
+            purpose: "Mail, phone, and sign-in identity.",
           },
           {
             id: "preferences",
@@ -2603,12 +2646,11 @@ function ProfilePageContent({
           },
         };
       }
-      void handleDeleteAccount();
-      return {
-        status: "started" as const,
-        summary:
-          "Starting account deletion. You may need to unlock your vault.",
-      };
+      // Awaited, not fired: the spoken outcome is what actually happened --
+      // deleted, needs unlock, blocked by an external resource, failed, or
+      // genuinely unknown. "started" was narrated as done.
+      const outcome = await handleDeleteAccount();
+      return lifecycleOutcomeToVoice(outcome);
     },
     { enabled: Boolean(user) },
   );
@@ -2620,16 +2662,11 @@ function ProfilePageContent({
       // setter. Wired directly, "make me discoverable" would HIDE someone who
       // already was. So a stated intent is honoured as a target state, and
       // only a bare "toggle" actually flips.
-      const raw = slots?.enabled;
-      const desired =
-        typeof raw === "boolean"
-          ? raw
-          : typeof raw === "string"
-            ? ["true", "on", "yes", "enabled"].includes(
-                raw.trim().toLowerCase(),
-              )
-            : null;
-      if (desired !== null && desired === marketplaceOptIn) {
+      const { target: desired, alreadyThere } = resolveMarketplaceTarget(
+        slots?.enabled,
+        marketplaceOptIn,
+      );
+      if (alreadyThere && desired !== null) {
         return {
           status: "succeeded" as const,
           summary: desired
@@ -2658,11 +2695,11 @@ function ProfilePageContent({
           },
         };
       }
-      void handleMarketplaceOptInToggle();
-      return {
-        status: "started" as const,
-        summary: "Updating your visibility.",
-      };
+      // The confirmation card carried the reviewed target; apply exactly that
+      // and report the stored value. A delayed tap must not invert the result
+      // because the switch moved in between.
+      const outcome = await handleMarketplaceOptInToggle(desired ?? undefined);
+      return marketplaceOutcomeToVoice(outcome);
     },
     { enabled: Boolean(user) },
   );
@@ -2681,8 +2718,10 @@ function ProfilePageContent({
             "Tell me a bit more about the problem and I will send it to support.",
         };
       }
-      await submitSupportMessage(message);
-      return { status: "succeeded" as const, summary: "Sent that to support." };
+      // Only the real service's accepted result is "sent"; an early return or
+      // a caught error names why nothing went out and leaves the draft.
+      const outcome = await submitSupportMessage(message);
+      return supportOutcomeToVoice(outcome);
     },
     { enabled: Boolean(user) },
   );
@@ -3337,7 +3376,8 @@ function ProfilePageContent({
 
       <SettingsGroup>
         <SettingsRow
-          icon={MapPin}
+          icon={LocationAgentIcon}
+          iconTone="capability"
           title="Location sharing"
           description="Manage live location."
           trailing={<Badge variant="secondary">One</Badge>}
@@ -3346,7 +3386,8 @@ function ProfilePageContent({
           onClick={() => router.push(ROUTES.ONE_LOCATION)}
         />
         <SettingsRow
-          icon={ExternalLink}
+          icon={ConsentAgentIcon}
+          iconTone="capability"
           title="Consent center"
           description="Review sharing."
           trailing={<Badge variant="secondary">Manage</Badge>}
@@ -3408,11 +3449,29 @@ function ProfilePageContent({
           iconTone="blue"
           title="Display name"
           description={user.displayName || "Not available"}
+          trailing={
+            <span className="profile-account-inline-action">
+              {editingDisplayName ? "Close" : "Edit"}
+            </span>
+          }
+          onClick={() => setEditingDisplayName((open) => !open)}
         />
+        {editingDisplayName ? (
+          <div
+            className="px-4 pb-3"
+            data-testid="profile-account-display-name-editor"
+          >
+            <DisplayNameEditor
+              user={user}
+              onSaved={() => setEditingDisplayName(false)}
+              onCancel={() => setEditingDisplayName(false)}
+            />
+          </div>
+        ) : null}
         <SettingsRow
           icon={Mail}
           iconTone="orange"
-          title="Email"
+          title="Mail"
           description={user.email || "Not available"}
         />
         <SettingsRow
@@ -3441,8 +3500,8 @@ function ProfilePageContent({
         />
         {walletCardEntryEnabled ? (
           <SettingsRow
-            icon={Wallet}
-            iconTone="purple"
+            icon={WalletAgentIcon}
+            iconTone="capability"
             className="profile-account-service-row"
             title={WALLET_CARD_COPY.profileEntry.title}
             description={WALLET_CARD_COPY.profileEntry.description}
@@ -3562,7 +3621,8 @@ function ProfilePageContent({
     <div className="space-y-4">
       <SettingsGroup>
         <SettingsRow
-          icon={Fingerprint}
+          icon={FingerprintProfileIcon}
+          iconTone="capability"
           title="Vault methods"
           description="Passphrase, passkey, and unlock method."
           chevron
@@ -3651,7 +3711,7 @@ function ProfilePageContent({
                 }}
                 options={SUPPORT_INTENT_OPTIONS}
                 disabled={sendingSupportMessage}
-                className="min-h-11 [&_[data-state=active]]:!border-[color:var(--app-accent)] [&_[data-state=active]]:!bg-[color:var(--app-accent)] [&_[data-state=active]]:!text-white [&_[data-state=active]]:!shadow-none [&_[data-ui-contract=required-title]]:whitespace-normal"
+                className="min-h-11 [&_[data-ui-contract=required-title]]:whitespace-normal"
               />
             </div>
             <p id="support-intent-description" className="sr-only">
@@ -3706,7 +3766,7 @@ function ProfilePageContent({
                 htmlFor="support-reply-email"
                 className="text-[15px] font-semibold leading-5 text-foreground"
               >
-                Email for reply (optional)
+                Mail for reply (optional)
               </label>
               <Input
                 id="support-reply-email"
@@ -4023,7 +4083,8 @@ function ProfilePageContent({
     <div className="space-y-4 sm:space-y-5">
       <SettingsGroup title="Connection">
         <SettingsRow
-          icon={Mail}
+          icon={GmailAgentIcon}
+          iconTone="capability"
           title="Status"
           description={gmailSettingsDescription}
           trailing={<Badge variant="secondary">{gmailStatusLabel}</Badge>}
@@ -4037,7 +4098,7 @@ function ProfilePageContent({
               ? gmail.status.google_email
               : gmail.loadingStatus
                 ? "Resolving connected inbox..."
-                : "No Gmail inbox connected yet."
+                : "No Mail inbox connected yet."
           }
         />
         <SettingsRow
@@ -4068,20 +4129,21 @@ function ProfilePageContent({
         <SettingsRow
           icon={RefreshCw}
           title="Sync now"
-          description="Fetch new receipt emails and refresh extracted records."
+          description="Fetch new receipt mail messages and refresh extracted records."
           disabled={gmailActionsBusy || !gmailPresentation.isConnected}
           chevron
           onClick={() => void handleSyncGmailNow()}
         />
       ) : (
         <SettingsRow
-          icon={Mail}
+          icon={GmailAgentIcon}
+          iconTone="capability"
           title={
             gmailPresentation.state === "needs_reauthentication"
-              ? "Reconnect Gmail"
-              : "Connect Gmail"
+              ? "Reconnect Mail"
+              : "Connect Mail"
           }
-          description="Review Gmail data use, then authorize read-only receipt sync."
+          description="Review Mail data use, then authorize read-only receipt sync."
           disabled={gmailActionsBusy || gmail.status?.configured === false}
           chevron
           onClick={() => router.push(ROUTES.GMAIL)}
@@ -4091,14 +4153,15 @@ function ProfilePageContent({
       <SettingsRow
         icon={RefreshCw}
         title="Refresh status"
-        description="Re-check your Gmail connection, sync status, and inbox details."
+        description="Re-check your Mail connection, sync status, and inbox details."
         disabled={gmailActionsBusy}
         chevron
         onClick={() => void gmail.refreshStatus({ force: true })}
       />
 
       <SettingsRow
-        icon={Folder}
+        icon={MemoryAgentIcon}
+        iconTone="capability"
         title="Open receipts"
         description="Review synced receipts, merchants, and extracted totals."
         chevron
@@ -4108,8 +4171,8 @@ function ProfilePageContent({
       {gmailPresentation.isConnected ? (
         <SettingsRow
           icon={Trash2}
-          title="Disconnect Gmail"
-          description="Revoke Gmail, stop future syncs, and delete Gmail receipt data."
+          title="Disconnect Mail"
+          description="Revoke Mail, stop future syncs, and delete Mail receipt data."
           tone="destructive"
           disabled={gmailActionsBusy}
           chevron
@@ -4187,7 +4250,7 @@ function ProfilePageContent({
     profileStackEntries.push({
       key: "panel:account",
       title: "Account",
-      description: "Email, phone, and sign-in.",
+      description: "Mail, phone, and sign-in.",
       content: accountContent,
       presentation: "account",
     });
@@ -4422,7 +4485,7 @@ function ProfilePageContent({
   } else if (!routeBlockedByVault && activePanel === "gmail") {
     profileStackEntries.push({
       key: "panel:gmail",
-      title: "Gmail receipts",
+      title: "Mail receipts",
       description: "Receipts and sync.",
       content: gmailContent,
     });
@@ -4493,24 +4556,24 @@ function ProfilePageContent({
           <div className="profile-home-content">
             <SettingsGroup title="Your settings" separatorInset>
               <SettingsRow
-                icon={UserRound}
-                iconTone="blue"
+                icon={AccountProfileIcon}
+                iconTone="capability"
                 title={PROFILE_LABELS.account}
                 chevron
                 density="compact"
                 onClick={openAccountPanel}
               />
               <SettingsRow
-                icon={SlidersHorizontal}
-                iconTone="purple"
+                icon={PreferencesProfileIcon}
+                iconTone="capability"
                 title={PROFILE_LABELS.preferences}
                 chevron
                 density="compact"
                 onClick={openPreferencesPanel}
               />
               <SettingsRow
-                icon={ShieldCheck}
-                iconTone="green"
+                icon={SecurityProfileIcon}
+                iconTone="capability"
                 title={PROFILE_LABELS.security}
                 chevron
                 density="compact"
@@ -4521,46 +4584,8 @@ function ProfilePageContent({
                 onClick={openSecurityPanel}
               />
               <SettingsRow
-                icon={Folder}
-                iconTone="indigo"
-                title="Memory"
-                description="Saved details and sharing."
-                chevron
-                density="compact"
-                onClick={() => openVaultBackedPanel("my-data")}
-              />
-              <SettingsRow
-                icon={Share2}
-                iconTone="blue"
-                title="Access & sharing"
-                description="Review live access and sharing."
-                chevron
-                density="compact"
-                onClick={() => openVaultBackedPanel("my-data", "sharing")}
-              />
-              {localCrmEnabled ? (
-                <SettingsRow
-                  icon={BriefcaseBusiness}
-                  iconTone="purple"
-                  title="Connected Systems"
-                  description="Connected CRM systems."
-                  chevron
-                  density="compact"
-                  onClick={() => openVaultBackedPanel("connected-systems")}
-                />
-              ) : null}
-              <SettingsRow
-                icon={Mail}
-                iconTone="orange"
-                title="Gmail receipts"
-                description="Receipts and sync."
-                chevron
-                density="compact"
-                onClick={() => openVaultBackedPanel("gmail")}
-              />
-              <SettingsRow
-                icon={Laptop}
-                iconTone="indigo"
+                icon={DevicesProfileIcon}
+                iconTone="capability"
                 title="Trusted devices"
                 chevron
                 density="compact"
@@ -4569,8 +4594,8 @@ function ProfilePageContent({
                 }
               />
               <SettingsRow
-                icon={Users}
-                iconTone="orange"
+                icon={RiaAgentIcon}
+                iconTone="capability"
                 title={PROFILE_LABELS.referrals}
                 chevron
                 density="compact"
@@ -4586,8 +4611,8 @@ function ProfilePageContent({
                 }
               />
               <SettingsRow
-                icon={MessageCircleQuestion}
-                iconTone="blue"
+                icon={SupportProfileIcon}
+                iconTone="capability"
                 title={PROFILE_LABELS.support}
                 chevron
                 density="compact"
@@ -4597,8 +4622,8 @@ function ProfilePageContent({
               />
               {canShowPkmAgentLab ? (
                 <SettingsRow
-                  icon={CodeXml}
-                  iconTone="purple"
+                  icon={DeveloperToolsProfileIcon}
+                  iconTone="capability"
                   title={PROFILE_LABELS.developerTools}
                   trailing={<Badge variant="secondary">Local</Badge>}
                   chevron
@@ -4610,7 +4635,8 @@ function ProfilePageContent({
 
             <SettingsGroup title={PROFILE_LABELS.accountAccess} separatorInset>
               <SettingsRow
-                icon={LogOut}
+                icon={SignOutProfileIcon}
+                iconTone="capability"
                 title="Sign out"
                 tone="destructive"
                 chevron

@@ -112,6 +112,46 @@
       ]
     },
     {
+      "id": "consent.fields_in_professional",
+      "family": "consent",
+      "prompt": "what professional information can I ask Dev for",
+      "expected": [
+        "discover_person_information"
+      ]
+    },
+    {
+      "id": "consent.financial_fields_from_named_person",
+      "family": "consent",
+      "prompt": "list the financial fields I can request from Dev",
+      "expected": [
+        "discover_person_information"
+      ]
+    },
+    {
+      "id": "consent.granted_readback",
+      "family": "consent",
+      "prompt": "Dev approved my information request; can I see it here now",
+      "expected": [
+        "list_information_shared_with_me"
+      ]
+    },
+    {
+      "id": "consent.cancel_most_recent",
+      "family": "consent",
+      "prompt": "cancel that request I just sent",
+      "expected": [
+        "run_app_action:consent.cancel_request"
+      ]
+    },
+    {
+      "id": "consent.exact_email_clarification",
+      "family": "consent",
+      "prompt": "check the information available to request from dev@example.invalid",
+      "expected": [
+        "discover_person_information"
+      ]
+    },
+    {
       "id": "location.my_shares",
       "family": "location",
       "prompt": "who am I sharing my location with",
@@ -402,6 +442,24 @@
       "prompt": "what client request workflows does the email specialist have open for me",
       "expected": [
         "ask_email_agent"
+      ]
+    },
+    {
+      "id": "drive.browse_live_files",
+      "family": "drive",
+      "prompt": "find my Q3 planning notes in my connected Google Drive",
+      "expected": [
+        "discover_google_drive_tools",
+        "read_google_drive"
+      ]
+    },
+    {
+      "id": "drive.email_selected_file",
+      "family": "drive",
+      "prompt": "email the Q3 planning notes file from my Drive to dev@example.invalid",
+      "expected": [
+        "discover_google_drive_tools",
+        "read_google_drive"
       ]
     },
     {

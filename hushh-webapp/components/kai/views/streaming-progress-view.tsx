@@ -17,7 +17,7 @@ import {
   ChevronUp,
   AlertTriangle,
   Link2,
-} from "lucide-react";
+} from "@/components/icons";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
@@ -185,8 +185,8 @@ function SentimentGauge({ score }: { score: number }) {
           <div className="flex-1 bg-emerald-500/20" />
         </div>
         <div
-          className={cn("absolute top-0 h-full w-2.5 rounded-full transition-all duration-500", score > 0.3 ? "bg-emerald-500" : score < -0.3 ? "bg-red-500" : "bg-blue-500")}
-          style={{ left: `calc(${normalized}% - 5px)` }}
+          className={cn("absolute top-0 left-0 h-full w-2.5 rounded-full transition-transform duration-500", score > 0.3 ? "bg-emerald-500" : score < -0.3 ? "bg-red-500" : "bg-blue-500")}
+          style={{ transform: `translateX(calc(${normalized}% - 5px))` }}
         />
       </div>
       <div className="flex justify-between text-[10px] text-muted-foreground">
@@ -367,10 +367,10 @@ export function StreamingProgressView({
   const reasoningText = streamedText || thoughtsText;
 
   return (
-    <div className={cn("w-full transition-all duration-200 space-y-3", className)}>
+    <div className={cn("w-full transition-[opacity,transform] duration-150 space-y-3", className)}>
       {/* Status line - compact, no redundant title */}
       <div className="flex items-center gap-2">
-        <div className={cn("transition-colors duration-200 shrink-0", isActive ? accentColor : isComplete ? "text-emerald-500" : isError ? "text-red-500" : "text-muted-foreground")}>
+        <div className={cn("transition-colors duration-150 shrink-0", isActive ? accentColor : isComplete ? "text-emerald-500" : isError ? "text-red-500" : "text-muted-foreground")}>
           {isComplete ? (
             <Icon icon={CheckCircle2} size="sm" />
           ) : isError ? (

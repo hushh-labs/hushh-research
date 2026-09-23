@@ -9,7 +9,7 @@
  */
 
 import { useId } from "react";
-import { Search } from "lucide-react";
+import { Search } from "@/components/icons";
 
 import {
   Select,
@@ -378,24 +378,64 @@ export function ReasonChips({
     );
   }
 
+  // Adaptive: button grid on desktop, dropdown on phones. Both are driven
+  // by the same value/onChange, so picking a reason works identically on
+  // every viewport and no functionality is lost in either form.
+  const reasonSelect = (
+    <Select
+      value={value ?? undefined}
+      onValueChange={(next) => onChange(next as ReasonValue)}
+    >
+      <SelectTrigger
+        aria-label={label || "Reason"}
+        aria-labelledby={label ? labelId : undefined}
+        className="h-11 w-full rounded-[14px] border-[color:var(--app-separator)] bg-[color:var(--app-primary-surface)] shadow-none"
+      >
+        <InputValue as="span">
+          <SelectValue placeholder={placeholder} />
+        </InputValue>
+      </SelectTrigger>
+      <SelectContent
+        align="start"
+        position="popper"
+        className="rounded-[14px]"
+      >
+        {REASON_CHIPS.map((reason) => (
+          <SelectItem key={reason} value={reason}>
+            {reason}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+
   return (
     <div className="space-y-2">
       {label ? (
-        <FormLabel as="p">{label}</FormLabel>
+        <FormLabel as="p" id={labelId}>{label}</FormLabel>
       ) : null}
-      <div className="grid grid-cols-2 gap-2">
+      {/* Desktop: same bordered cell look as the duration rungs above
+          (rounded-[14px] + separator/accent border), in a 2-up grid. */}
+      <div
+        className="hidden gap-2 sm:grid sm:grid-cols-2"
+        role="radiogroup"
+        aria-labelledby={label ? labelId : undefined}
+        aria-label={label ? undefined : "Reason"}
+      >
         {REASON_CHIPS.map((reason) => {
           const active = reason === value;
           return (
             <button
               key={reason}
               type="button"
+              role="radio"
+              aria-checked={active}
               onClick={() => onChange(reason)}
               className={cn(
-                "h-10 rounded-[13px] px-3 transition-colors touch-manipulation",
+                "h-10 rounded-[14px] border px-3 transition-colors touch-manipulation",
                 active
-                  ? "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
-                  : "bg-[color:var(--app-neutral-fill)] text-foreground hover:bg-[color:var(--app-neutral-fill-strong)]",
+                  ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
+                  : "border-[color:var(--app-separator)] bg-[color:var(--app-neutral-fill)] text-foreground hover:border-[color:var(--app-accent-ring)] hover:bg-[color:var(--app-neutral-fill-strong)]",
                 )}
               >
               {reason}
@@ -403,6 +443,8 @@ export function ReasonChips({
           );
         })}
       </div>
+      {/* Phones: the same choice as a dropdown instead of plain buttons. */}
+      <div className="sm:hidden">{reasonSelect}</div>
     </div>
   );
 }

@@ -10,6 +10,7 @@ configured, so unit tests and credential-less environments stay clean.
 from __future__ import annotations
 
 import logging
+import uuid
 from urllib.parse import quote
 
 from hushh_mcp.branding import connection_request_body
@@ -28,6 +29,7 @@ def send_user_data_push(
     notification_category: str,
     data: dict[str, str] | None = None,
     show_alert: bool = True,
+    include_user_id: bool = True,
 ) -> int:
     """Send a metadata push to every device registered for ``user_id``.
 
@@ -66,13 +68,18 @@ def send_user_data_push(
 
         message_data = {
             "type": notification_type,
-            "user_id": user_id,
             "request_url": deep_link,
             "deep_link": deep_link,
             "notification_tag": notification_tag,
             "notification_category": notification_category,
             **{k: str(v) for k, v in (data or {}).items() if str(v or "").strip()},
         }
+        # Existing notification lanes retain their recipient reconciliation
+        # field. Privacy-scoped callers can opt out when their opaque message
+        # reference is sufficient and a raw account identifier must never
+        # reach Firebase or the device.
+        if include_user_id:
+            message_data["user_id"] = user_id
 
         sent = 0
         seen: set[str] = set()
@@ -125,6 +132,21 @@ _GENERIC_CONNECTION_REQUEST_BODY = connection_request_body()
 # is the shape `buildConsentCenterHref` emits and the one the Feed's Review
 # action already uses, so all three entry points agree.
 CONNECTION_REQUEST_LIST_LINK = "/one/consent?tab=connections"
+ONE_LOCATION_CIRCLE_LIST_LINK = "/one/location?view=people"
+
+
+def _circle_detail_link(circle_id: str) -> str:
+    return (
+        f"{ONE_LOCATION_CIRCLE_LIST_LINK}&action=circle-detail"
+        f"&circleId={quote(str(circle_id or '').strip(), safe='')}"
+    )
+
+
+def _circle_invite_link(invite_id: str) -> str:
+    return (
+        f"{ONE_LOCATION_CIRCLE_LIST_LINK}"
+        f"&circleInviteId={quote(str(invite_id or '').strip(), safe='')}"
+    )
 
 
 def _connection_request_link(connection_request_id: str | None) -> str:
@@ -429,6 +451,138 @@ def send_connection_request_resolved_push(
     )
 
 
+def send_connection_removed_push(
+    recipient_user_id: str,
+    counterpart_user_id: str,
+    *,
+    actor_user_id: str,
+    connection_id: str,
+    revocation_id: str,
+) -> int:
+    """Silently tell one side that a committed connection was removed.
+
+    Both people receive this metadata-only wake-up (including the actor, whose
+    other devices otherwise retain the old graph). The Feed already explains
+    the relationship transition, so this signal deliberately does not create
+    an OS alert; its job is to invalidate every connection-backed projection.
+    """
+
+    recipient_user_id = str(recipient_user_id or "").strip()
+    counterpart_user_id = str(counterpart_user_id or "").strip()
+    actor_user_id = str(actor_user_id or "").strip()
+    connection_id = str(connection_id or "").strip()
+    revocation_id = str(revocation_id or "").strip()
+    if not recipient_user_id or not counterpart_user_id or not connection_id or not revocation_id:
+        return 0
+
+    deep_link = CONNECTION_REQUEST_LIST_LINK
+    message_id = f"connection-removed:{connection_id}:{revocation_id}:{recipient_user_id}"
+    client_data = {
+        "message_id": message_id,
+        "connection_id": connection_id,
+        "counterpart_user_id": counterpart_user_id,
+        "actor_user_id": actor_user_id,
+        "revocation_id": revocation_id,
+    }
+
+    try:
+        import asyncio
+
+        from api.consent_listener import _push_to_consent_queue
+
+        sse_payload = {
+            "type": "connection_removed",
+            "action": "REMOVED",
+            "message_id": message_id,
+            "connection_id": connection_id,
+            "user_id": recipient_user_id,
+            "counterpart_user_id": counterpart_user_id,
+            "actor_user_id": actor_user_id,
+            "revocation_id": revocation_id,
+            "title": "Connection updated",
+            "body": "Your connections changed.",
+            "deep_link": deep_link,
+            "request_url": deep_link,
+        }
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(_push_to_consent_queue(recipient_user_id, sse_payload))
+        except RuntimeError:
+            from api.consent_listener import push_to_consent_queue_threadsafe
+
+            push_to_consent_queue_threadsafe(recipient_user_id, sse_payload)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("push.sse_queue_failed error=%s", exc)
+
+    return send_user_data_push(
+        recipient_user_id,
+        notification_type="connection_removed",
+        title="Connection updated",
+        body="Your connections changed.",
+        deep_link=deep_link,
+        notification_tag=message_id,
+        notification_category="ONE_CONNECTIONS",
+        data=client_data,
+        show_alert=False,
+    )
+
+
+def _send_circle_user_event(
+    user_id: str,
+    *,
+    notification_type: str,
+    title: str,
+    body: str,
+    deep_link: str,
+    notification_tag: str,
+    data: dict[str, str],
+    show_alert: bool = True,
+) -> int:
+    """Deliver one Circle transition over both live transports.
+
+    Circle helpers historically called FCM directly. A web session without a
+    push subscription therefore had no live path, even while its authenticated
+    SSE stream was open. One transition id is shared by both transports so the
+    client can collapse the two deliveries without collapsing a later, valid
+    transition on the same Circle.
+    """
+
+    message_id = f"{notification_type}:{uuid.uuid4()}"
+    client_data = {**data, "message_id": message_id}
+    try:
+        from api.consent_listener import publish_user_state_event_threadsafe
+
+        publish_user_state_event_threadsafe(
+            user_id,
+            {
+                "type": notification_type,
+                "user_id": user_id,
+                "message_id": message_id,
+                "request_url": deep_link,
+                "deep_link": deep_link,
+                "notification_tag": notification_tag,
+                "notification_category": "ONE_LOCATION",
+                "notification_title": title,
+                "notification_body": body,
+                **client_data,
+            },
+        )
+    except Exception as exc:  # noqa: BLE001 - delivery is best-effort
+        logger.warning("circle.sse_notify_skipped type=%s error=%s", notification_type, exc)
+
+    return send_user_data_push(
+        user_id,
+        notification_type=notification_type,
+        title=title,
+        body=body,
+        deep_link=deep_link,
+        notification_tag=notification_tag,
+        notification_category="ONE_LOCATION",
+        data=client_data,
+        show_alert=show_alert,
+    )
+
+
 def send_circle_code_joined_push(
     *,
     inviter_user_id: str,
@@ -447,15 +601,14 @@ def send_circle_code_joined_push(
     inviting, and they are the one person for whom this is news.
     """
 
-    deep_link = f"/one/location?tab=people&circleId={circle_id}"
-    return send_user_data_push(
+    deep_link = _circle_detail_link(circle_id)
+    return _send_circle_user_event(
         inviter_user_id,
         notification_type="location_circle_code_joined",
         title=circle_name or "Your Circle",
         body=f"{joiner_display_name} joined using your code.",
         deep_link=deep_link,
         notification_tag=f"location-circle-code-joined:{circle_id}",
-        notification_category="ONE_LOCATION",
         data={
             "circle_id": circle_id,
             "circle_name": circle_name,
@@ -493,15 +646,14 @@ def send_circle_member_added_push(
         body = f'You were added to "{circle}".'
     else:
         body = "You were added to a Circle."
-    deep_link = f"/one/location?tab=people&circleId={circle_id}"
-    return send_user_data_push(
+    deep_link = _circle_detail_link(circle_id)
+    return _send_circle_user_event(
         member_user_id,
         notification_type="location_circle_member_added",
         title="Added to a Circle",
         body=body,
         deep_link=deep_link,
         notification_tag=f"location-circle-member-added:{circle_id}",
-        notification_category="ONE_LOCATION",
         # The in-app toast reads only this map, never `body` -- the same reason
         # send_connection_accepted_push carries approver_label (see #5422).
         # Without added_by_label here the toast says "Someone" while the OS
@@ -524,15 +676,14 @@ def send_circle_member_invite_push(
 ) -> int:
     """Nudge one exact invitee about a pending named Circle invitation."""
 
-    deep_link = f"/one/location?tab=people&circleInviteId={invite_id}"
-    return send_user_data_push(
+    deep_link = _circle_invite_link(invite_id)
+    return _send_circle_user_event(
         invitee_user_id,
         notification_type="location_circle_member_invite",
         title="Circle invitation",
         body="You have a new Circle invitation.",
         deep_link=deep_link,
         notification_tag=f"location-circle-member-invite:{invite_id}",
-        notification_category="ONE_LOCATION",
         data={
             "invite_id": invite_id,
             "circle_id": circle_id,
@@ -558,15 +709,14 @@ def send_circle_member_invite_accepted_push(
     manual reload.
     """
 
-    deep_link = f"/one/location?tab=people&circleId={circle_id}"
-    return send_user_data_push(
+    deep_link = _circle_detail_link(circle_id)
+    return _send_circle_user_event(
         inviter_user_id,
         notification_type="location_circle_member_invite_accepted",
         title=circle_name or "Circle invitation",
         body=f"{invitee_display_name or 'Someone'} joined your Circle.",
         deep_link=deep_link,
         notification_tag=f"location-circle-member-invite-accepted:{invite_id}",
-        notification_category="ONE_LOCATION",
         data={
             "invite_id": invite_id,
             "circle_id": circle_id,
@@ -594,15 +744,14 @@ def send_circle_member_invite_declined_push(
     """
 
     label = str(invitee_display_name or "").strip() or "Someone"
-    deep_link = f"/one/location?tab=people&circleId={circle_id}"
-    return send_user_data_push(
+    deep_link = _circle_detail_link(circle_id)
+    return _send_circle_user_event(
         inviter_user_id,
         notification_type="location_circle_member_invite_declined",
         title=circle_name or "Circle invitation",
         body=f"{label} declined your Circle invitation.",
         deep_link=deep_link,
         notification_tag=f"location-circle-member-invite-declined:{invite_id}",
-        notification_category="ONE_LOCATION",
         data={
             "invite_id": invite_id,
             "circle_id": circle_id,
@@ -632,15 +781,14 @@ def send_circle_member_invite_cancelled_push(
         if circle
         else "A Circle invitation was withdrawn."
     )
-    deep_link = "/one/location?tab=people"
-    return send_user_data_push(
+    deep_link = ONE_LOCATION_CIRCLE_LIST_LINK
+    return _send_circle_user_event(
         invitee_user_id,
         notification_type="location_circle_member_invite_cancelled",
         title=circle or "Circle invitation",
         body=body,
         deep_link=deep_link,
         notification_tag=f"location-circle-member-invite-cancelled:{invite_id}",
-        notification_category="ONE_LOCATION",
         data={
             "invite_id": invite_id,
             "circle_id": circle_id,
@@ -663,18 +811,18 @@ def send_circle_member_removed_push(
 
     circle = str(circle_name or "").strip()
     body = f'You were removed from "{circle}".' if circle else "You were removed from a Circle."
-    deep_link = "/one/location?tab=people"
-    return send_user_data_push(
+    deep_link = ONE_LOCATION_CIRCLE_LIST_LINK
+    return _send_circle_user_event(
         member_user_id,
         notification_type="location_circle_member_removed",
         title=circle or "Circle",
         body=body,
         deep_link=deep_link,
         notification_tag=f"location-circle-member-removed:{circle_id}:{member_user_id}",
-        notification_category="ONE_LOCATION",
         data={
             "circle_id": circle_id,
             "circle_name": circle,
+            "member_user_id": member_user_id,
         },
     )
 
@@ -692,17 +840,70 @@ def send_circle_member_left_push(
     label = str(member_display_name or "").strip() or "Someone"
     circle = str(circle_name or "").strip()
     body = f'{label} left "{circle}".' if circle else f"{label} left your Circle."
-    deep_link = f"/one/location?tab=people&circleId={circle_id}"
-    return send_user_data_push(
+    deep_link = _circle_detail_link(circle_id)
+    return _send_circle_user_event(
         owner_user_id,
         notification_type="location_circle_member_left",
         title=circle or "Your Circle",
         body=body,
         deep_link=deep_link,
         notification_tag=f"location-circle-member-left:{circle_id}:{member_user_id}",
-        notification_category="ONE_LOCATION",
         data={
             "circle_id": circle_id,
             "circle_name": circle,
+            "member_user_id": member_user_id,
+            "network_display_label": label,
         },
+    )
+
+
+def send_circle_renamed_push(
+    *,
+    user_id: str,
+    circle_id: str,
+    circle_name: str,
+    show_alert: bool = True,
+) -> int:
+    """Tell an affected account to reconcile a renamed Circle."""
+
+    circle = str(circle_name or "").strip()
+    body = f'This Circle is now called "{circle}".' if circle else "A Circle was renamed."
+    data = {"circle_id": circle_id, "circle_name": circle}
+    if not show_alert:
+        data["sync_only"] = "true"
+    return _send_circle_user_event(
+        user_id,
+        notification_type="location_circle_renamed",
+        title="Circle renamed",
+        body=body,
+        deep_link=_circle_detail_link(circle_id),
+        notification_tag=f"location-circle-renamed:{circle_id}",
+        data=data,
+        show_alert=show_alert,
+    )
+
+
+def send_circle_deleted_push(
+    *,
+    user_id: str,
+    circle_id: str,
+    circle_name: str,
+    show_alert: bool = True,
+) -> int:
+    """Tell an affected account that an owned/joined Circle is gone."""
+
+    circle = str(circle_name or "").strip()
+    body = f'"{circle}" was deleted by its owner.' if circle else "A Circle was deleted."
+    data = {"circle_id": circle_id, "circle_name": circle}
+    if not show_alert:
+        data["sync_only"] = "true"
+    return _send_circle_user_event(
+        user_id,
+        notification_type="location_circle_deleted",
+        title="Circle deleted",
+        body=body,
+        deep_link=ONE_LOCATION_CIRCLE_LIST_LINK,
+        notification_tag=f"location-circle-deleted:{circle_id}",
+        data=data,
+        show_alert=show_alert,
     )

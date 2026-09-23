@@ -695,7 +695,7 @@ describe("gmail-connector-store", () => {
     expect(view.presentation.state).toBe("connected");
     expect(AppBackgroundTaskService.completeTask).toHaveBeenCalledWith(
       "gmail_gmail_backfill_run_backfill_done",
-      "One is fetching older Gmail receipts without blocking the UI.",
+      "One is fetching older Mail receipts without blocking the UI.",
       expect.objectContaining({
         runId: "run_backfill_done",
         syncMode: "backfill",

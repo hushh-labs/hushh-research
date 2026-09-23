@@ -35,6 +35,24 @@ describe("GmailVerificationOnboarding", () => {
     mocks.saveProfile.mockResolvedValue({ success: true, message: "KYC details saved privately." });
   });
 
+  it("keeps the setup check accessible without a visible skeleton or premature intake", async () => {
+    let finishCheck!: (snapshot: { data: Record<string, unknown> }) => void;
+    mocks.getStaleFirst.mockReturnValueOnce(new Promise((resolve) => { finishCheck = resolve; }));
+    const { container } = render(
+      <GmailVerificationOnboarding userId="user_1" vaultKey="vault-key" vaultOwnerToken="owner-token"
+        onRequestVaultUnlock={vi.fn()} deferred={false} onDeferredChange={vi.fn()}
+        details="" onDetailsChange={vi.fn()}>
+        <div>KYC workspace</div>
+      </GmailVerificationOnboarding>,
+    );
+    expect(screen.getByLabelText("Checking KYC setup")).toHaveClass("sr-only");
+    expect(container.querySelector('[data-slot="skeleton"]')).toBeNull();
+    expect(screen.queryByText("Build your KYC profile")).not.toBeInTheDocument();
+    expect(screen.queryByText("KYC workspace")).not.toBeInTheDocument();
+    finishCheck({ data: {} });
+    expect(await screen.findByText("Build your KYC profile")).toBeInTheDocument();
+  });
+
   it("continues to KYC immediately while the PKM save runs in the background", async () => {
     let finishSave: ((result: { success: boolean; message?: string }) => void) | null = null;
     mocks.saveProfile.mockImplementationOnce(
@@ -57,8 +75,8 @@ describe("GmailVerificationOnboarding", () => {
       </GmailVerificationOnboarding>,
     );
 
-    await screen.findByRole("button", { name: "Save KYC details" });
-    fireEvent.click(screen.getByRole("button", { name: "Save KYC details" }));
+    await screen.findByRole("button", { name: "Save KYC profile" });
+    fireEvent.click(screen.getByRole("button", { name: "Save KYC profile" }));
 
     expect(screen.getByText("KYC workspace")).toBeInTheDocument();
     expect(onDetailsChange).toHaveBeenCalledWith("");
@@ -127,8 +145,8 @@ describe("GmailVerificationOnboarding", () => {
       </GmailVerificationOnboarding>,
     );
 
-    await screen.findByRole("button", { name: "Save KYC details" });
-    fireEvent.click(screen.getByRole("button", { name: "Save KYC details" }));
+    await screen.findByRole("button", { name: "Save KYC profile" });
+    fireEvent.click(screen.getByRole("button", { name: "Save KYC profile" }));
 
     expect(screen.getByText("KYC workspace")).toBeInTheDocument();
     await waitFor(() => {

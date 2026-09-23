@@ -5,13 +5,10 @@ Two layers, both verifiable without a live pod:
 * **Model access** -- the rendered pod carries the Vertex env (USE_VERTEXAI,
   project, location) so the fleet inside it can call Gemini as itself, in the
   user's own cloud, holding no hub credential.
-* **Delegation** -- every product specialist is registered, so none is
-  hard-blocked at the availability layer; the three formerly-dark ones
-  (email, connections, connected_systems) are now REACHABLE and protected by
-  their own require_attenuated_authority guard. One forwards a first-party
-  authority context carrying the invocation capability only, so those three
-  still fail closed for information/action work until real grant refs exist --
-  reachable, self-guarding, and honest about the authority that actually exists.
+* **Delegation** -- owner-bound pod construction registers Connections and
+  Connected Systems after admission. Ambient hub registration remains limited
+  to specialists with independent authority gates. Pod tasks carry scoped door
+  grants when present and no information authority when absent.
 """
 
 from __future__ import annotations
@@ -79,8 +76,18 @@ def test_no_vertex_credential_is_ever_rendered_into_the_artifact():
 # --- delegation -----------------------------------------------------------------------
 
 
-def test_every_product_specialist_is_registered():
-    import hushh_mcp.adk_bridge  # noqa: F401 - registration side effect
+def test_pod_specialists_are_registered_only_after_owner_bound_setup(monkeypatch):
+    import hushh_mcp.adk_bridge as bridge
+    from hushh_mcp.adk_bridge import dispatch
+
+    # Use an isolated registry so the pod-only handlers do not remain available
+    # to later tests in this process.
+    monkeypatch.setattr(dispatch, "_REGISTRY", dict(dispatch._REGISTRY))
+    bridge._register_builtin_specialists()
+    for agent_id in ("agent_connections", "agent_connected_systems"):
+        assert not is_wired_specialist(agent_id)
+
+    bridge.register_pod_specialists()
 
     for agent_id in (
         "agent_location",
@@ -90,34 +97,38 @@ def test_every_product_specialist_is_registered():
         "agent_connections",
         "agent_connected_systems",
     ):
-        assert is_wired_specialist(agent_id), f"{agent_id} is not reachable"
+        assert is_wired_specialist(agent_id), f"{agent_id} is not reachable in the pod"
 
 
-def test_the_first_party_authority_context_is_built_for_a_governed_task(
-    monkeypatch: pytest.MonkeyPatch,
-):
-    from unittest.mock import MagicMock
+@pytest.mark.asyncio
+async def test_pod_task_without_door_grants_carries_invocation_only(monkeypatch):
+    from types import SimpleNamespace
 
-    import hushh_mcp.adk_bridge.delegation as delegation
-    import hushh_mcp.one_adk.agent_tree as tree
+    from hushh_mcp.one_adk import agent_tree as tree
 
-    # A validated first-party session: patch the consent check to accept. The
-    # import is deferred inside _first_party_authority (to avoid a cycle), so the
-    # patch target is the delegation module, not an agent_tree attribute.
-    validation = MagicMock(ok=True, user_id="user-1")
-    validation.required_scope.value = "cap.one.invoke"
-    monkeypatch.setattr(delegation, "validate_a2a_consent_token", lambda *a, **k: validation)
+    monkeypatch.setattr(tree, "pod_mode", lambda: True)
+    context = SimpleNamespace(
+        state={
+            tree.STATE_USER_ID: "user-1",
+            tree.STATE_CONSENT_TOKEN: "synthetic-owner-token",
+            tree.STATE_CONVERSATION_ID: "conv-1",
+        }
+    )
+    task = await tree._task_from_context(
+        context, "Find my connections", agent_id="agent_connections"
+    )
 
-    context = tree._first_party_authority("user-1", "HCT:token", "conv-1")
-
-    assert context is not None
-    assert context.caller_kind == "first_party"
-    assert context.subject_user_id == "user-1"
-    assert context.invocation_capabilities == ("cap.one.invoke",)
-    # The honest boundary: no information/export/action authority is fabricated.
-    assert context.information_grant_refs == ()
-    assert context.encrypted_export_refs == ()
-    assert context.action_capabilities == ()
+    assert task is not None
+    authority = task.authority
+    assert authority is not None
+    assert authority.caller_kind == "first_party"
+    assert authority.subject_user_id == "user-1"
+    assert authority.tenant_id == task.expected_tenant_id == "user-1"
+    assert authority.task_id == task.expected_task_id == "pod:conv-1"
+    assert authority.invocation_capabilities == ("cap.one.invoke",)
+    assert authority.information_grant_refs == ()
+    assert authority.encrypted_export_refs == ()
+    assert authority.action_capabilities == ()
 
 
 def test_invocation_only_authority_still_fails_closed_for_information_work():
@@ -147,6 +158,45 @@ def test_a_task_with_no_authority_context_still_fails_closed():
     task = A2ATask(user_id="user-1", consent_token="HCT:x", conversation_id="c1", authority=None)  # noqa: S106
     with pytest.raises(A2AAuthorityRequired):
         require_attenuated_authority(task, information=True)
+
+
+@pytest.mark.parametrize(
+    "requested_uid,passphrase",
+    [
+        ("counterpart_uid", None),
+        ("counterpart_uid", "wrong-passphrase"),
+        ("unknown_uid", "counterpart-passphrase"),
+        ("primary_uid", "counterpart-passphrase"),
+    ],
+)
+def test_review_session_uid_hint_cannot_select_or_mismatch_identity(
+    monkeypatch, requested_uid, passphrase
+):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from api.routes import health
+
+    monkeypatch.setenv("APP_RUNTIME_PROFILE", "uat")
+    monkeypatch.setenv("APP_REVIEW_MODE", "true")
+    monkeypatch.setenv("REVIEWER_UID", "primary_uid")
+    monkeypatch.setenv("REVIEWER_VAULT_PASSPHRASE", "primary-passphrase")
+    monkeypatch.setenv("REVIEWER_COUNTERPART_UID", "counterpart_uid")
+    monkeypatch.setenv("REVIEWER_COUNTERPART_VAULT_PASSPHRASE", "counterpart-passphrase")
+    monkeypatch.setattr(
+        health,
+        "ensure_firebase_auth_admin",
+        lambda: pytest.fail("identity mismatch reached Firebase token minting"),
+    )
+    app = FastAPI()
+    app.include_router(health.router)
+    response = TestClient(app).post(
+        "/api/app-config/review-mode/session",
+        json={"reviewer_uid": requested_uid, "smoke_passphrase": passphrase},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Reviewer identity mismatch"
 
 
 # -- the turn flag has to reach the POD ---------------------------------------------

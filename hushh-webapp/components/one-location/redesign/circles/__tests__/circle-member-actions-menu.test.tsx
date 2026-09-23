@@ -11,9 +11,9 @@
  *   - under 640px there is no anchored popper at all, and the surface that
  *     opens names the member it belongs to;
  *   - the destructive step never stacks a second modal over the first;
- *   - at 640px and up the anchored menu still opens, and it too names the
- *     member -- and it closes when the confirm takes over rather than being
- *     left open behind it.
+ *   - at 640px and up the anchored menu opens outside the selected row,
+ *     carries both visible and accessible member-specific context, and closes
+ *     when the confirm takes over rather than being left open behind it.
  *
  * `__tests__/setup.ts` stubs `matchMedia` as permanently non-matching, which
  * is the desktop answer; the phone lane restubs it per test.
@@ -31,12 +31,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   CircleMemberActionsMenu,
+  MEMBER_ACTIONS_MENU_CONTEXT_TESTID,
   MEMBER_ACTIONS_MENU_TESTID,
   MEMBER_ACTIONS_SHEET_QUERY,
   MEMBER_ACTIONS_SHEET_TESTID,
   memberRemoveConfirmDescription,
   memberRemoveConfirmTitle,
 } from "@/components/one-location/redesign/circles/circle-member-actions-menu";
+import {
+  CIRCLE_MEMBER_ACTIONS_MENU_ALIGN,
+  CIRCLE_MEMBER_ACTIONS_MENU_COLLISION_PADDING_PX,
+  CIRCLE_MEMBER_ACTIONS_MENU_SIDE,
+  CIRCLE_MEMBER_ACTIONS_MENU_SIDE_OFFSET_PX,
+} from "@/components/one-location/redesign/circles/circle-member-row-layout";
 
 const MEMBER_NAME = "Ankit Kumar Singh";
 
@@ -201,19 +208,40 @@ describe("CircleMemberActionsMenu on a pointer device", () => {
     setViewport("desktop");
   });
 
-  it("keeps the anchored menu", async () => {
+  it("keeps the menu anchored beside the selected member", async () => {
     renderMenu();
 
     const trigger = screen.getByRole("button", { name: triggerName });
+    expect(trigger).toHaveClass("bg-transparent", "shadow-none");
+    expect(trigger).toHaveClass("hover:bg-transparent");
+    expect(trigger).toHaveClass(
+      "text-[color:var(--app-secondary-label)]",
+    );
+    expect(trigger).not.toHaveClass(
+      "hover:bg-[color:var(--app-accent-tint)]",
+    );
     // Radix opens DropdownMenuTrigger on pointerdown (no PointerEvent in
     // jsdom) or on Enter/Space keydown -- use the keyboard path here.
     fireEvent.keyDown(trigger, { key: "Enter" });
 
     const menu = await screen.findByTestId(MEMBER_ACTIONS_MENU_TESTID);
     expect(screen.queryByTestId(MEMBER_ACTIONS_SHEET_TESTID)).toBeNull();
+    expect(menu).toHaveAttribute("aria-label", triggerName);
+    expect(CIRCLE_MEMBER_ACTIONS_MENU_SIDE).toBe("right");
+    expect(CIRCLE_MEMBER_ACTIONS_MENU_ALIGN).toBe("center");
+    expect(CIRCLE_MEMBER_ACTIONS_MENU_SIDE_OFFSET_PX).toBe(22);
+    expect(CIRCLE_MEMBER_ACTIONS_MENU_COLLISION_PADDING_PX).toBe(12);
     expect(
-      within(menu).getByRole("menuitem", { name: /Share location/i }),
-    ).toBeInTheDocument();
+      within(menu).getByTestId(MEMBER_ACTIONS_MENU_CONTEXT_TESTID),
+    ).toHaveTextContent(`Actions for ${MEMBER_NAME}`);
+    const share = within(menu).getByRole("menuitem", {
+      name: /Share location/i,
+    });
+    expect(share).toBeInTheDocument();
+    expect(share).toHaveClass(
+      "focus:!text-[color:var(--app-primary-label)]",
+      "data-[highlighted]:!text-[color:var(--app-primary-label)]",
+    );
   });
 
   it("closes the menu when the remove confirm takes over", async () => {

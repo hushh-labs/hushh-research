@@ -13,7 +13,7 @@ import {
   ScanSearch,
   ShieldCheck,
   Workflow,
-} from "lucide-react";
+} from "@/components/icons";
 import { toast } from "sonner";
 
 import { useIsMobile } from "@/hooks/use-mobile";
@@ -650,7 +650,7 @@ function AccessWorkspace({
           />
 
           {workspaceTab === "overview" ? (
-            <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-150">
               <SurfaceInset className="grid gap-4 lg:grid-cols-2">
                 <div className="space-y-2">
                   <p className="text-xs font-semibold uppercase tracking-[0.24em] text-primary/80">
@@ -663,7 +663,7 @@ function AccessWorkspace({
                     Agent id: <code>{access.app?.agent_id}</code>
                   </p>
                   <p className="text-sm leading-6 text-muted-foreground">
-                    Contact email: <code>{access.app?.contact_email}</code>
+                    Contact mail: <code>{access.app?.contact_email}</code>
                   </p>
                 </div>
                 <div className="space-y-2">
@@ -810,7 +810,7 @@ function AccessWorkspace({
           ) : null}
 
           {workspaceTab === "tokens" ? (
-            <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-150">
               <p className="text-sm font-semibold text-foreground">
                 Self-serve credentials
               </p>
@@ -877,7 +877,7 @@ function AccessWorkspace({
           ) : null}
 
           {workspaceTab === "profile" ? (
-            <SurfaceInset className="animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <SurfaceInset className="animate-in fade-in slide-in-from-bottom-2 duration-150">
               <FieldSet>
                 <FieldGroup>
                   <Field orientation="responsive">
@@ -1002,7 +1002,7 @@ function AccessWorkspace({
           ) : null}
 
           {workspaceTab === "contract" ? (
-            <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+            <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-150">
               <SurfaceInset className="space-y-3">
                 <p className="text-sm font-semibold text-foreground">
                   Public beta tools

@@ -110,6 +110,44 @@ describe("OneLocationStateResource", () => {
     ).toEqual([]);
   });
 
+  it("publishes auto-approve immediately and rejects an older in-flight snapshot", async () => {
+    const userId = "location-resource-owner";
+    const initial = {
+      recipients: [],
+      autoApprovePreference: {
+        enabled: false,
+        scope: null,
+        ruleVersion: 1,
+        enabledAt: null,
+        updatedAt: "2026-09-20T00:00:00.000Z",
+      },
+    } as unknown as OneLocationState;
+    OneLocationStateResource.write(userId, initial);
+    let resolveStale!: (state: OneLocationState) => void;
+    const staleLoad = OneLocationStateResource.load(
+      userId,
+      () => new Promise<OneLocationState>((resolve) => {
+        resolveStale = resolve;
+      }),
+    );
+
+    expect(
+      OneLocationStateResource.mergeAutoApprovePreference(userId, {
+        enabled: true,
+        scope: { kind: "all_contacts" },
+        ruleVersion: 2,
+        enabledAt: "2026-09-20T01:00:00.000Z",
+        updatedAt: "2026-09-20T01:00:00.000Z",
+      }),
+    ).toBe(true);
+
+    resolveStale(initial);
+    await staleLoad;
+    expect(
+      OneLocationStateResource.readPresentation(userId)?.autoApprovePreference,
+    ).toMatchObject({ enabled: true, ruleVersion: 2 });
+  });
+
   it("merges a duration response without losing identity or accepting an older refresh", async () => {
     const userId = "location-resource-owner";
     const initial = {

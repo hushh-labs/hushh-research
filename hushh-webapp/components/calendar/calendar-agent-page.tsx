@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
-import { CalendarDays, CheckCircle2, Loader2 } from "lucide-react";
+import { CalendarDays, CheckCircle2, Loader2 } from "@/components/icons";
 import { toast } from "sonner";
 
 import { AskOneButton } from "@/components/agent/ask-one-button";
@@ -46,6 +46,7 @@ import {
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { navigateToAgentChat } from "@/lib/navigation/agent-navigation";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
+import { ROUTES } from "@/lib/navigation/routes";
 import {
   createGoogleOAuthPopupAttempt,
   isGoogleOAuthPopupSettlement,
@@ -233,6 +234,7 @@ export function CalendarAgentPage({
           userId: user.uid,
           accessLevel,
           serverAuthCode: nativeResult.serverAuthCode,
+          state: start.state,
         });
         setStatus(completed);
         if (!completed.connected) {
@@ -316,8 +318,8 @@ export function CalendarAgentPage({
         ? "Reconnect needed"
         : "Not connected";
   const permissionLabel = needsSchedulingReconnect
-    ? "View events and availability. Enable scheduling only when you want One to propose meeting changes."
-    : "View availability and manage meetings after confirmation";
+    ? "View events and availability with One."
+    : "View availability and manage meetings with One.";
   const connectLabel =
     status?.status === "needs_reauth"
       ? "Reconnect Calendar"
@@ -340,7 +342,23 @@ export function CalendarAgentPage({
   };
 
   return (
-    <AppPageShell width="reading" className={CALENDAR_SETUP_SHELL_CLASSNAME}>
+    <AppPageShell
+      width="reading"
+      className={CALENDAR_SETUP_SHELL_CLASSNAME}
+      nativeTest={{
+        routeId: ROUTES.CALENDAR,
+        marker: "native-route-calendar",
+        authState: user ? "authenticated" : loading ? "pending" : "anonymous",
+        dataState:
+          connectionPending || loading
+            ? "loading"
+            : status === null
+              ? "unavailable-valid"
+              : connected
+                ? "loaded"
+                : "empty-valid",
+      }}
+    >
       <AppPageContentRegion className={CALENDAR_SETUP_REGION_CLASSNAME}>
         <SurfaceCard className="overflow-hidden w-full shadow-md text-center">
           <SurfaceCardHeader className="pb-3 pt-5 flex flex-col items-center text-center space-y-0.5">
@@ -380,19 +398,20 @@ export function CalendarAgentPage({
                 <div className="flex flex-col items-center gap-2.5 w-full pt-1">
                   <AskOneButton
                     disabled={busy}
-                    onClick={() => openChat("Summarize my calendar events")}
-                    // Full width at every size: this card is a centred column,
-                    // not a page whose actions sit inline.
+                    onClick={() => {
+                      openChat("Summarize my calendar events and help me plan meetings");
+                    }}
                     className="sm:w-full"
                   >
                     Try Calendar Agent with One
                   </AskOneButton>
                   {needsSchedulingReconnect ? (
                     <Button
-                      variant="muted"
+                      type="button"
+                      variant="none"
+                      effect="fade"
                       disabled={busy}
                       onClick={() => void connect("manage")}
-                      className="w-full justify-center"
                     >
                       Enable scheduling
                     </Button>
@@ -421,7 +440,7 @@ export function CalendarAgentPage({
                         : undefined
                     }
                     data-voice-label="Connect Calendar"
-                    data-voice-purpose="starts read-only Google Calendar authorization from this Calendar agent."
+                    data-voice-purpose="starts Google Calendar authorization from this Calendar agent."
                   >
                     {connectLabel}
                   </Button>
@@ -443,7 +462,7 @@ export function CalendarAgentPage({
                       : undefined
                   }
                   data-voice-label="Connect Calendar"
-                  data-voice-purpose="starts read-only Google Calendar authorization from this Calendar agent."
+                  data-voice-purpose="starts Google Calendar authorization from this Calendar agent."
                 >
                   {connectLabel}
                 </Button>

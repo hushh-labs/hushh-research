@@ -1,7 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { type CSSProperties, useEffect, useMemo, useState } from "react";
+import {
+  type CSSProperties,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
 import {
   CaretRightIcon,
@@ -22,6 +27,7 @@ import {
 } from "@/lib/onboarding/one-capabilities";
 import {
   getCapabilityStatusDisplay,
+  isCapabilityOnboarded,
   type CapabilityStatusTone,
 } from "@/lib/onboarding/capability-status-display";
 import { getCapabilitySetupCopy } from "@/lib/onboarding/capability-setup-copy";
@@ -44,6 +50,13 @@ type OneAgentMode = {
   href: string;
   icon: OneCapabilityIcon;
   statusTone: CapabilityStatusTone;
+  /**
+   * Computed but not currently rendered -- greyscale-until-onboarded icons
+   * were reverted (icons stay full color regardless of setup state) pending
+   * further product direction. Kept so the icon treatment is a one-line
+   * change to bring back, not a rebuild.
+   */
+  isOnboarded: boolean;
   primaryMetric: {
     value: string;
     label: string;
@@ -62,6 +75,19 @@ type DashboardAgentIconStyle = CSSProperties & {
   "--agent-icon-profile-bg-dark": string;
   "--agent-icon-profile-fg-dark": string;
 };
+
+/**
+ * Returns true only when this person is actively sharing their location.
+ * Received grants describe someone else's share and must not light up the
+ * owner's roster entry as if the owner had an active outbound share.
+ */
+export function hasActiveLocationActivity(
+  location: OneLocationState | null | undefined,
+): boolean {
+  return (location?.ownerGrants ?? []).some(
+    (grant) => /^(active|shared|granted)$/i.test(String(grant.status).trim()),
+  );
+}
 
 const AGENT_ROSTER_VIEW_STORAGE_KEY = "hushh:one-agent-roster-view";
 
@@ -277,11 +303,8 @@ export function resolveCachedAgentMetrics(
     CACHE_KEYS.ONE_LOCATION_STATE(userId),
   )?.data;
   if (location) {
-    const liveShares = [
-      ...location.ownerGrants,
-      ...location.receivedGrants,
-    ].filter((grant) =>
-      /active|approved|shared|granted/i.test(String(grant.status)),
+    const liveShares = location.ownerGrants.filter((grant) =>
+      /^(active|shared|granted)$/i.test(String(grant.status).trim()),
     ).length;
     metrics.location = {
       value: String(liveShares),
@@ -399,6 +422,7 @@ function buildModes(
         : capability.href,
       icon: capability.icon,
       statusTone: display.tone,
+      isOnboarded: isCapabilityOnboarded(status),
       primaryMetric,
       paletteIndex,
       tone: capability.tone,
@@ -591,7 +615,9 @@ function AgentGridItem({
         icon={mode.icon}
         tone={mode.tone}
         paletteIndex={mode.paletteIndex}
-        isActive={mode.statusTone !== "muted"}
+        // Greyscale-until-onboarded is reverted for now -- see isOnboarded's
+        // own comment. Icons stay full color regardless of setup state.
+        isActive
         size="roster-lg"
         treatment="profile"
         glyphContrast="default"
@@ -632,7 +658,7 @@ function AgentListRow({ mode }: { mode: OneAgentMode }) {
           icon={mode.icon}
           tone={mode.tone}
           paletteIndex={mode.paletteIndex}
-          isActive={mode.statusTone !== "muted"}
+          isActive
           size="roster"
           treatment="profile"
           glyphContrast="default"
@@ -678,7 +704,7 @@ function AgentRosterViewToggle({
     <div
       role="group"
       aria-label="Agent roster view"
-      className="inline-flex h-9 shrink-0 items-center gap-0.5 rounded-[13px] bg-[rgba(120,120,128,.14)] p-0.5"
+      className="inline-flex h-8 shrink-0 items-center gap-0.5 rounded-full bg-black/[0.04] p-[3px] backdrop-blur-md border border-black/[0.06] dark:border-white/[0.08] dark:bg-white/[0.06] shadow-[inset_0_1px_2px_rgba(0,0,0,0.02)]"
     >
       <ShellActionSurface
         aria-label="Show agent grid view"
@@ -686,13 +712,13 @@ function AgentRosterViewToggle({
         data-testid="one-agents-view-grid"
         onClick={() => onChange("grid")}
         className={cn(
-          "h-8 w-8 rounded-[11px]",
+          "h-[26px] w-7 rounded-full border-0 transition-[background-color,color,box-shadow,transform] duration-150",
           value === "grid"
-            ? "bg-white text-[color:var(--app-accent-deep)] shadow-[0_1px_2px_rgba(0,0,0,.10)] hover:bg-white dark:bg-[#141418] dark:text-[color:var(--app-accent-bright)] dark:border dark:border-white/[0.08]"
-            : "bg-transparent text-[#6E6E73] shadow-none hover:bg-transparent hover:text-[#1D1D1F] dark:bg-transparent dark:text-[#98989D]",
+            ? "bg-white text-neutral-900 shadow-[0_1px_3px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)] hover:bg-white dark:bg-white/[0.16] dark:text-white dark:shadow-[0_1px_2px_rgba(0,0,0,0.25)]"
+            : "bg-transparent text-muted-foreground/75 shadow-none hover:bg-transparent hover:text-foreground dark:bg-transparent",
         )}
       >
-        <GridIcon className="h-4 w-4" aria-hidden />
+        <GridIcon className="h-3.5 w-3.5" aria-hidden />
       </ShellActionSurface>
       <ShellActionSurface
         aria-label="Show agent list view"
@@ -700,17 +726,20 @@ function AgentRosterViewToggle({
         data-testid="one-agents-view-list"
         onClick={() => onChange("list")}
         className={cn(
-          "h-8 w-8 rounded-[11px]",
+          "h-[26px] w-7 rounded-full border-0 transition-[background-color,color,box-shadow,transform] duration-150",
           value === "list"
-            ? "bg-white text-[color:var(--app-accent-deep)] shadow-[0_1px_2px_rgba(0,0,0,.10)] hover:bg-white dark:bg-[#141418] dark:text-[color:var(--app-accent-bright)] dark:border dark:border-white/[0.08]"
-            : "bg-transparent text-[#6E6E73] shadow-none hover:bg-transparent hover:text-[#1D1D1F] dark:bg-transparent dark:text-[#98989D]",
+            ? "bg-white text-neutral-900 shadow-[0_1px_3px_rgba(0,0,0,0.08),0_1px_2px_rgba(0,0,0,0.04)] hover:bg-white dark:bg-white/[0.16] dark:text-white dark:shadow-[0_1px_2px_rgba(0,0,0,0.25)]"
+            : "bg-transparent text-muted-foreground/75 shadow-none hover:bg-transparent hover:text-foreground dark:bg-transparent",
         )}
       >
-        <ListIcon className="h-4 w-4" aria-hidden />
+        <ListIcon className="h-3.5 w-3.5" aria-hidden />
       </ShellActionSurface>
     </div>
   );
 }
+
+/** Search isn't pulling its weight yet at 9 agents -- off for now, easy to flip back on. */
+const SHOW_AGENT_SEARCH = false;
 
 export function OneAgentRoster({
   capabilityStatusById,
@@ -785,28 +814,30 @@ export function OneAgentRoster({
         </PageTitle>
         <AgentRosterViewToggle value={view} onChange={selectView} />
       </div>
-      <label className="relative mb-3.5 block">
-        <SearchIcon
-          className="pointer-events-none absolute left-4 top-1/2 h-[17px] w-[17px] -translate-y-1/2 text-[#8E8E93]"
-          aria-hidden="true"
-        />
-        <input
-          type="search"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search agents"
-          aria-label="Search agents"
-          data-ui-role="input-text"
-          data-testid="one-agents-search"
-          className="h-11 w-full rounded-[14px] border border-[rgba(60,60,67,.12)] bg-white/95 py-[11px] pl-11 pr-12 text-[15px] font-normal leading-5 text-[#1D1D1F] outline-none placeholder:text-[#8E8E93] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent)]/60 dark:border-white/[0.1] dark:bg-[#0A0A0C] dark:text-[#F5F5F7]"
-        />
-        <SearchClearButton
-          visible={query.length > 0}
-          label="Clear agent search"
-          onClear={() => setQuery("")}
-          className="text-[#8E8E93] hover:bg-black/[0.06] hover:text-[#1D1D1F] dark:hover:bg-white/[0.08] dark:hover:text-[#F5F5F7]"
-        />
-      </label>
+      {SHOW_AGENT_SEARCH ? (
+        <label className="relative mb-3.5 block">
+          <SearchIcon
+            className="pointer-events-none absolute left-4 top-1/2 h-[17px] w-[17px] -translate-y-1/2 text-[#8E8E93]"
+            aria-hidden="true"
+          />
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search agents"
+            aria-label="Search agents"
+            data-ui-role="input-text"
+            data-testid="one-agents-search"
+            className="h-11 w-full rounded-[14px] border border-[rgba(60,60,67,.12)] bg-white/95 py-[11px] pl-11 pr-12 text-[15px] font-normal leading-5 text-[#1D1D1F] outline-none placeholder:text-[#8E8E93] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent)]/60 dark:border-white/[0.1] dark:bg-[#0A0A0C] dark:text-[#F5F5F7]"
+          />
+          <SearchClearButton
+            visible={query.length > 0}
+            label="Clear agent search"
+            onClear={() => setQuery("")}
+            className="text-[#8E8E93] hover:bg-black/[0.06] hover:text-[#1D1D1F] dark:hover:bg-white/[0.08] dark:hover:text-[#F5F5F7]"
+          />
+        </label>
+      ) : null}
       <div
         key={view}
         data-testid="one-agents-view-content"

@@ -396,13 +396,10 @@
 
 :global(.dark) .ctaLabel {
   display: block;
-  width: 155px;
+  width: auto;
   height: 18px;
+  text-align: center;
   white-space: nowrap;
-}
-
-:global(.dark) .ctaArrow::before {
-  content: "\00a0";
 }
 
 :global(.dark) .links {
@@ -602,11 +599,8 @@
 
 :global(html:not(.dark)) .ctaLabel {
   display: block;
-  width: 155px;
+  width: auto;
   height: 18px;
+  text-align: center;
   white-space: nowrap;
-}
-
-:global(html:not(.dark)) .ctaArrow::before {
-  content: "\00a0";
 }

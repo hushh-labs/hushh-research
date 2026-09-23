@@ -376,6 +376,37 @@ jobs:
             -authenticationKeyID "$ASC_KEY_ID" \
             -authenticationKeyIssuerID "$ASC_ISSUER_ID"
 
+      - name: Preserve dry-run UAT IPA in private bucket
+        id: private_artifact
+        if: ${{ inputs.dry_run == true }}
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ needs.preflight.outputs.release_sha }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          ipa_files=("$RUNNER_TEMP"/export/*.ipa)
+          test "${#ipa_files[@]}" -eq 1 || {
+            echo "Expected exactly one signed UAT IPA." >&2
+            exit 1
+          }
+          python3 scripts/ci/upload-private-native-artifact.py \
+            --file "${ipa_files[0]}" \
+            --source-sha "$RELEASE_SHA" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --platform ios-testflight \
+            --receipt "$RUNNER_TEMP/private-native-artifact-receipt.json"
+
+      - name: Upload redacted private IPA receipt
+        if: ${{ inputs.dry_run == true && steps.private_artifact.outcome == 'success' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: hushh-one-ios-uat-private-receipt-${{ needs.preflight.outputs.release_sha }}
+          path: ${{ runner.temp }}/private-native-artifact-receipt.json
+          retention-days: 14
+          if-no-files-found: error
+
       - name: Preserve uploaded build identity for recovery
         if: inputs.dry_run != true
         shell: bash
@@ -441,7 +472,7 @@ jobs:
             --output-json "$RUNNER_TEMP/testflight-distribution.json"
 
       - name: Upload redacted release evidence
-        if: always()
+        if: ${{ always() && inputs.dry_run != true }}
         uses: actions/upload-artifact@v4
         with:
           name: one-voice-testflight-evidence-${{ needs.preflight.outputs.release_sha }}
@@ -464,6 +495,8 @@ jobs:
       - name: Publish TestFlight-only summary
         if: always()
         shell: bash
+        env:
+          PRIVATE_ARTIFACT_OUTCOME: ${{ steps.private_artifact.outcome }}
         run: |
           {
             echo "## Normal UAT TestFlight release"
@@ -472,7 +505,8 @@ jobs:
             echo "| Physical iPhone p95 (ms) | ${{ inputs.require_hardware == true && needs.hardware-capture.outputs.p95_time_to_capture_ms || 'not requested' }} |"
             echo "| Focused App Intent/action gate | ${{ steps.core_tests.outcome }} |"
             echo "| Build number | ${{ steps.build_number.outputs.next_build }} |"
-            echo "| Upload | ${{ steps.upload.outcome }} |"
+            echo "| IPA export / TestFlight upload | ${{ steps.upload.outcome }} |"
+            echo "| Private dry-run UAT IPA | ${PRIVATE_ARTIFACT_OUTCOME:-not requested} (14-day bucket retention; receipt only in Actions) |"
             echo "| Apple processing | ${{ steps.processing.outcome }} |"
             echo "| TestFlight distribution | ${{ steps.distribution.outcome }} |"
             echo

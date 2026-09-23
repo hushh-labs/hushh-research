@@ -170,6 +170,8 @@ class TestDynamicScopes:
         assert ConsentScope.validate("attr.financial.holdings") is True
         assert ConsentScope.validate("attr.subscriptions.netflix") is True
         assert ConsentScope.validate("attr.health.*") is True
+        assert ConsentScope.validate("attr.professional.profile.entities._entities.summary") is True
+        assert ConsentScope.validate("attr.professional.profile._entities.summary") is False
 
     def test_check_access_direct_match(self):
         """Test check_access() with direct scope match."""

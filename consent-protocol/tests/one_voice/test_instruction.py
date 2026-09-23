@@ -107,3 +107,46 @@ def test_resumed_caveat_is_added_only_when_the_conversation_was_resumed(resumed)
 
 def test_resumed_default_is_false():
     assert instruction.RESUMED_CAVEAT not in _build()
+
+
+def test_rule_ten_separates_circle_membership_from_connection_and_leave_from_delete():
+    text = _build()
+    rule = _rule(text, 10)
+    assert "a circle is a group; being in one is not being connected" in rule
+    assert '"Who is in it" is list_circle_members' in rule
+    assert "remove_circle_member, never remove_connection" in rule
+    assert "leave_circle, never delete_circle" in rule
+    assert "Confirming which circle or person they meant approves nothing" in rule
+    assert "send a connection request only if they ask, with invite_person" in rule
+    assert "one at a time, and report each real result separately" in rule
+    # Both circle reads are declared with their first line, so the model can pick them.
+    declared = {item["name"] for item in registry.declarations()}
+    assert {"get_circle_details", "list_circle_members"} <= declared
+    assert "- get_circle_details: " in text and "- list_circle_members: " in text
+
+
+def test_rules_three_six_and_eleven_ground_connections_in_real_records_and_results():
+    text = _build()
+    three = _rule(text, 3)
+    assert 'A relative ("my uncle", "my mom") is not a name and there is no family list' in three
+    assert "A phone number or email is not a name either" in three
+    assert (
+        "Low confidence, none, or truncated: ask them to repeat, spell, or give the full name"
+        in three
+    )
+    six = _rule(text, 6)
+    assert "A pending request is not a connection" in six
+    eleven = _rule(text, 11)
+    assert "invite_person sends a plain request and nothing else" in eleven
+    assert '"Sent" means the result says sent with a request id' in eleven
+    assert "accept_connection_request or decline_connection_request" in eleven
+    assert "remove_connection, which ends it everywhere" in eleven
+    assert (
+        "scope_review_required means the review screen is open and nothing was accepted yet"
+        in eleven
+    )
+    assert "firebase_proof_required, ask them to tap Confirm on the card" in eleven
+    assert 'A correction ("no, Priya Sharma") starts over' in eleven
+    declared = {item["name"] for item in registry.declarations()}
+    assert {"accept_connection_request", "decline_connection_request", "invite_person"} <= declared
+    assert "respond_connection_request" not in declared

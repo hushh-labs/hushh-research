@@ -223,7 +223,7 @@ describe("Google results to personal web invitations", () => {
     );
     expect(await screen.findByText("Invite your contacts")).toBeVisible();
     expect(screen.getByText("No match found")).toBeVisible();
-    expect(screen.getByText(/Not checked.*email only/)).toBeVisible();
+    expect(screen.getByText(/Not checked.*mail only/)).toBeVisible();
     for (const checkbox of screen.getAllByRole("checkbox")) {
       expect(checkbox).not.toBeChecked();
     }
@@ -262,7 +262,7 @@ describe("Google results to personal web invitations", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Continue with 2 invitations" }),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Open email" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open mail" }));
     await screen.findByRole("button", { name: "Done with this contact" });
     expect(compose).toHaveBeenCalledWith(
       candidates[0].destinations[0],
@@ -346,7 +346,7 @@ describe("Google results to personal web invitations", () => {
     await start();
     expect(await screen.findByText("No phone numbers to match")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Invite contacts" }));
-    expect(await screen.findByText(/Not checked.*email only/)).toBeVisible();
+    expect(await screen.findByText(/Not checked.*mail only/)).toBeVisible();
     expect(
       screen.getByRole("checkbox", { name: "Select Email Friend" }),
     ).not.toBeChecked();
@@ -363,7 +363,7 @@ describe("web Google sync across auth gate remounts", () => {
     mocks.probe.mockReturnValueOnce(probe.promise);
     app.rerender(<App />);
     expect(
-      screen.getByRole("button", { name: "Find contacts" }),
+      screen.getByRole("button", { name: "Find contacts", hidden: true }),
     ).toBeDisabled();
     fireEvent.click(
       screen.getByRole("button", { name: "Choose Google account" }),
@@ -546,6 +546,38 @@ describe("web Google sync across auth gate remounts", () => {
     expect(
       screen.getByRole("button", { name: "Choose Google account" }),
     ).toBeEnabled();
+  });
+});
+
+describe("Google account chooser", () => {
+  it("reuses the granted account silently unless the chooser is requested", async () => {
+    render(<App />);
+    await waitFor(() => expect(controller).toBeDefined());
+
+    await act(async () => {
+      await controller.run({
+        routeId: "connect",
+        resolveIdToken: async () => "id-token",
+        accountPhoneNumber: "+14155550199",
+      });
+    });
+    expect(mocks.token).toHaveBeenLastCalledWith(
+      expect.anything(),
+      undefined,
+    );
+
+    mocks.token.mockClear();
+    await act(async () => {
+      await controller.run({
+        routeId: "connect",
+        resolveIdToken: async () => "id-token",
+        accountPhoneNumber: "+14155550199",
+        promptAccountPicker: true,
+      });
+    });
+    expect(mocks.token).toHaveBeenLastCalledWith(expect.anything(), {
+      forceAccountPicker: true,
+    });
   });
 });
 

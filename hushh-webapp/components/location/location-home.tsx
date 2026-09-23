@@ -25,7 +25,7 @@ import {
   Navigation,
   Settings2,
   UserRoundCheck,
-} from "lucide-react";
+} from "@/components/icons";
 
 import {
   LocationStatusCard,
@@ -61,6 +61,8 @@ import {
 } from "@/lib/morphy-ux/ui/surface-primitives";
 import { ROUTES } from "@/lib/navigation/routes";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
+import { subscribeToOneLocationStateChanges } from "@/lib/one-location/one-location-state-events";
+import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { OneLocationService } from "@/lib/one-location/service";
 import {
   describeShareRemaining,
@@ -200,6 +202,10 @@ export type LocationWorkspace = {
   state: OneLocationState | null;
   status: LocationWorkspaceStatus;
   error: string | null;
+  /** Commit an acknowledged mutation immediately and fence older reads. */
+  commitState: (
+    update: OneLocationState | ((current: OneLocationState) => OneLocationState),
+  ) => string | null;
   /** Refetch; `invalidate` fences off any in-flight pre-mutation load first. */
   refresh: (options?: { invalidate?: boolean }) => Promise<void>;
 };
@@ -220,6 +226,10 @@ export function useLocationWorkspaceState(): LocationWorkspace {
   const [status, setStatus] = useState<LocationWorkspaceStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const mountedRef = useRef(true);
+  const refreshRevisionRef = useRef(0);
+  const localCommitEventIdsRef = useRef(new Set<string>());
+  const foregroundTaskRef = useRef<Promise<void> | null>(null);
+  const foregroundQueuedRef = useRef(false);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -231,18 +241,19 @@ export function useLocationWorkspaceState(): LocationWorkspace {
   const refresh = useCallback(
     async (options?: { invalidate?: boolean }) => {
       if (!userId || !vaultOwnerToken) return;
+      const revision = ++refreshRevisionRef.current;
       if (options?.invalidate) OneLocationStateResource.invalidate(userId);
       setStatus((current) => (current === "ready" ? "ready" : "loading"));
       try {
         const next = await OneLocationStateResource.load(userId, () =>
           OneLocationService.getState(vaultOwnerToken),
         );
-        if (!mountedRef.current) return;
+        if (!mountedRef.current || refreshRevisionRef.current !== revision) return;
         setState(next);
         setError(null);
         setStatus("ready");
       } catch (caught) {
-        if (!mountedRef.current) return;
+        if (!mountedRef.current || refreshRevisionRef.current !== revision) return;
         setError(
           caught instanceof Error && caught.message
             ? caught.message
@@ -252,6 +263,31 @@ export function useLocationWorkspaceState(): LocationWorkspace {
       }
     },
     [userId, vaultOwnerToken],
+  );
+
+  const commitState = useCallback(
+    (
+      update:
+        | OneLocationState
+        | ((current: OneLocationState) => OneLocationState),
+    ) => {
+      if (!userId || !mountedRef.current) return null;
+      const current = OneLocationStateResource.readPresentation(userId);
+      if (!current) return null;
+      const next = typeof update === "function" ? update(current) : update;
+      const eventId = `location_workspace:${Date.now()}:${Math.random()
+        .toString(36)
+        .slice(2)}`;
+      localCommitEventIdsRef.current.add(eventId);
+      ++refreshRevisionRef.current;
+      OneLocationStateResource.invalidate(userId);
+      OneLocationStateResource.write(userId, next);
+      setState(next);
+      setError(null);
+      setStatus("ready");
+      return eventId;
+    },
+    [userId],
   );
 
   useEffect(() => {
@@ -268,9 +304,63 @@ export function useLocationWorkspaceState(): LocationWorkspace {
     onLocationState: () => void refresh({ invalidate: true }),
   });
 
+  useEffect(() => {
+    if (!userId || !vaultOwnerToken) return;
+    return subscribeToOneLocationStateChanges((detail) => {
+      if (detail.userId !== userId || !detail.domains.includes("workspace")) {
+        return;
+      }
+      if (
+        detail.eventId &&
+        localCommitEventIdsRef.current.delete(detail.eventId)
+      ) {
+        return;
+      }
+      void refresh({ invalidate: true });
+    });
+  }, [refresh, userId, vaultOwnerToken]);
+
+  useEffect(() => {
+    if (!userId || !vaultOwnerToken) return;
+    const reconcile = () => {
+      if (
+        typeof document !== "undefined" &&
+        document.visibilityState === "hidden"
+      ) return;
+      if (foregroundTaskRef.current) {
+        foregroundQueuedRef.current = true;
+        return;
+      }
+      const run = async () => {
+        do {
+          foregroundQueuedRef.current = false;
+          await refresh({ invalidate: true });
+        } while (foregroundQueuedRef.current);
+      };
+      const task = run().finally(() => {
+        if (foregroundTaskRef.current === task) foregroundTaskRef.current = null;
+      });
+      foregroundTaskRef.current = task;
+    };
+    window.addEventListener("focus", reconcile);
+    window.addEventListener("online", reconcile);
+    document.addEventListener("visibilitychange", reconcile);
+    const removeLifecycle = appInteractionCoordinator.subscribeLifecycle(() => {
+      if (appInteractionCoordinator.getLifecycleSnapshot().state === "active") {
+        reconcile();
+      }
+    });
+    return () => {
+      window.removeEventListener("focus", reconcile);
+      window.removeEventListener("online", reconcile);
+      document.removeEventListener("visibilitychange", reconcile);
+      removeLifecycle();
+    };
+  }, [refresh, userId, vaultOwnerToken]);
+
   return useMemo(
-    () => ({ userId, vaultOwnerToken, state, status, error, refresh }),
-    [error, refresh, state, status, userId, vaultOwnerToken],
+    () => ({ userId, vaultOwnerToken, state, status, error, commitState, refresh }),
+    [commitState, error, refresh, state, status, userId, vaultOwnerToken],
   );
 }
 

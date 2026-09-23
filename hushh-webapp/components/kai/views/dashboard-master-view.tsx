@@ -18,7 +18,7 @@ import {
   Share2,
   FileUp,
   WalletCards,
-} from "lucide-react";
+} from "@/components/icons";
 import { toast } from "sonner";
 
 import { AppPageContentRegion } from "@/components/app-ui/app-page-shell";
@@ -78,22 +78,12 @@ import {
 import { trackEvent } from "@/lib/observability/client";
 import { type PortfolioSource } from "@/lib/kai/brokerage/portfolio-sources";
 import {
-  buildFinancialDomainSummary,
-  removePlaidSource,
-} from "@/lib/kai/brokerage/financial-sources";
+  connectVaultPlaid,
+  disconnectAllVaultPlaid,
+  relinkVaultPlaid,
+} from "@/lib/kai/plaid-vault/vault-sync";
 import { usePortfolioSources } from "@/lib/kai/brokerage/use-portfolio-sources";
 import { PortfolioSourceSwitcher } from "@/components/kai/portfolio-source-switcher";
-import { loadPlaidLink } from "@/lib/kai/brokerage/plaid-link-loader";
-import {
-  clearPlaidOAuthResumeSession,
-  savePlaidOAuthResumeSession,
-} from "@/lib/kai/brokerage/plaid-oauth-session";
-import { resolvePlaidRedirectUri } from "@/lib/kai/brokerage/plaid-redirect-uri";
-import { PlaidPortfolioService } from "@/lib/kai/brokerage/plaid-portfolio-service";
-import {
-  KAI_AUXILIARY_STEP_TIMEOUT_MS,
-  runKaiStepWithTimeout,
-} from "@/lib/kai/brokerage/kai-operation-timeout";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import {
   buildPortfolioSharePayloadFromDashboardModel,
@@ -105,7 +95,6 @@ import {
 } from "@/lib/voice/voice-surface-metadata";
 import {
   buildKaiPortfolioSectionRoute,
-  ROUTES,
   type KaiPortfolioSection,
 } from "@/lib/navigation/routes";
 
@@ -426,7 +415,6 @@ export function DashboardMasterView({
     changeActiveStatementSnapshot,
     deleteStatementSnapshot,
     refreshPlaid,
-    cancelPlaidRefresh,
     reload,
   } = usePortfolioSources({
     userId,
@@ -490,8 +478,6 @@ export function DashboardMasterView({
   const isPlaidView = activeSource === "plaid";
   const hasPlaidConnections = (plaidStatus?.aggregate?.item_count || 0) > 0;
   const plaidConfigured = plaidStatus?.configured ?? true;
-  const plaidLocalDualEnvironmentEnabled =
-    plaidStatus?.local_dual_environment_enabled ?? false;
   const activePlaidItemIds = useMemo(
     () =>
       (plaidStatus?.items || [])
@@ -735,66 +721,19 @@ export function DashboardMasterView({
     [changeActiveSource],
   );
 
-  const handleRefreshPlaid = useCallback(
-    (itemId?: string) => {
-      void refreshPlaid(itemId)
-        .then((result) => {
-          if (result.status === "already_running") {
-            toast.info("A refresh is already in progress. Let it finish or cancel it first.", {
-              
-              action: result.runIds.length
-                ? {
-                    label: "Cancel",
-                    onClick: () => {
-                      void cancelPlaidRefresh({
-                        itemId,
-                        runIds: result.runIds,
-                      });
-                    },
-                  }
-                : undefined,
-            });
-            return;
-          }
-          if (result.status !== "started") return;
-          toast.message(
-            itemId
-              ? "Refreshing this brokerage in the background."
-              : "Refreshing your brokerage data in the background.",
-            {
-              
-              action: {
-                label: "Cancel",
-                onClick: () => {
-                  void cancelPlaidRefresh({ itemId, runIds: result.runIds });
-                },
-              },
-            },
-          );
-        })
-        .catch(() => {
-          toast.error("Could not refresh Plaid.");
-        });
-    },
-    [cancelPlaidRefresh, refreshPlaid],
-  );
-
-  const handleCancelPlaidRefresh = useCallback(
-    (params?: { itemId?: string; runIds?: string[] }) => {
-      void cancelPlaidRefresh(params)
-        .then((result) => {
-          if (result.status === "noop") {
-            toast.info("No active Plaid refresh is running.");
-            return;
-          }
-          toast.success("Plaid refresh canceled.");
-        })
-        .catch(() => {
-          toast.error("Could not cancel Plaid refresh.");
-        });
-    },
-    [cancelPlaidRefresh],
-  );
+  const handleRefreshPlaid = useCallback(() => {
+    void refreshPlaid()
+      .then((result) => {
+        if (result.needsRelink.length > 0) {
+          toast.info("A connected bank needs you to log in again. Open Manage connections to reconnect it.");
+          return;
+        }
+        toast.success(result.refreshed > 0 ? "Your connected accounts are up to date." : "Already up to date.");
+      })
+      .catch(() => {
+        toast.error("Could not refresh your connected accounts.");
+      });
+  }, [refreshPlaid]);
 
   const handleStatementSnapshotChange = useCallback(
     (snapshotId: string) => {
@@ -827,120 +766,54 @@ export function DashboardMasterView({
   );
 
   const openPlaidLinkFlow = useCallback(
-    async (itemId?: string, environment?: string | null) => {
+    async (itemId?: string) => {
       if (!vaultOwnerToken) {
         toast.error("Please unlock your Vault and try again.");
         return;
       }
 
+      if (!itemId) {
+        // New connections are sealed in the person's vault: the token and
+        // every record go into their encrypted financial memory, never to
+        // Hussh's servers (founder decision 2026-09-23).
+        setIsLinkingPlaid(true);
+        try {
+          const result = await connectVaultPlaid({ userId, vaultKey, vaultOwnerToken });
+          if (result.status === "connected") {
+            toast.success(
+              result.institutionName
+                ? `${result.institutionName} connected.`
+                : "Bank connected with Plaid.",
+            );
+            void reload();
+          } else if (result.status === "blocked") {
+            toast.error(result.reason);
+          }
+        } catch {
+          toast.error("Could not connect that bank.");
+        } finally {
+          setIsLinkingPlaid(false);
+        }
+        return;
+      }
+
+      // Repair a sealed connection in place (Plaid update mode).
       setIsLinkingPlaid(true);
       try {
-        const redirectUri = resolvePlaidRedirectUri();
-        const linkToken = await PlaidPortfolioService.createLinkToken({
-          userId,
-          vaultOwnerToken,
-          itemId,
-          updateMode: Boolean(itemId),
-          redirectUri,
-          environment,
-        });
-        if (!linkToken.configured || !linkToken.link_token) {
-          throw new Error("Plaid is not configured for this environment.");
+        const result = await relinkVaultPlaid({ userId, vaultKey, vaultOwnerToken, itemId });
+        if (result.status === "repaired") {
+          toast.success("Plaid connection updated.");
+          void reload();
+        } else if (result.status === "blocked") {
+          toast.error(result.reason);
         }
-        if (linkToken.resume_session_id) {
-          savePlaidOAuthResumeSession({
-            version: 1,
-            userId,
-            resumeSessionId: linkToken.resume_session_id,
-            returnPath: ROUTES.KAI_PORTFOLIO,
-            startedAt: new Date().toISOString(),
-          });
-        }
-
-        const Plaid = await loadPlaidLink();
-        await new Promise<void>((resolve, reject) => {
-          let settled = false;
-          const finish = (callback: () => void) => {
-            if (settled) return;
-            settled = true;
-            callback();
-          };
-
-          const handler = Plaid.create({
-            token: linkToken.link_token,
-            onSuccess: (
-              publicToken: string,
-              metadata: Record<string, unknown>,
-            ) => {
-              void PlaidPortfolioService.exchangePublicToken({
-                userId,
-                publicToken,
-                vaultOwnerToken,
-                metadata,
-                resumeSessionId: linkToken.resume_session_id || null,
-                environment: linkToken.environment || environment || null,
-              })
-                .then(() => {
-                  clearPlaidOAuthResumeSession();
-                  void runKaiStepWithTimeout(
-                    "Refreshing portfolio after Plaid connection",
-                    Promise.resolve().then(() => reload()),
-                    KAI_AUXILIARY_STEP_TIMEOUT_MS,
-                  ).catch((reloadError) => {
-                    console.warn(
-                      "[DashboardMasterView] Plaid connected but portfolio refresh did not complete:",
-                      reloadError,
-                    );
-                  });
-                  toast.success(
-                    itemId
-                      ? "Plaid connection updated."
-                      : "Brokerage connected with Plaid.",
-                  );
-                  finish(resolve);
-                })
-                .catch((error) => {
-                  finish(() =>
-                    reject(
-                      error instanceof Error
-                        ? error
-                        : new Error("Plaid connection failed."),
-                    ),
-                  );
-                })
-                .finally(() => {
-                  handler.destroy?.();
-                });
-            },
-            onExit: (exitError: Record<string, unknown> | null) => {
-              handler.destroy?.();
-              clearPlaidOAuthResumeSession();
-              if (exitError && typeof exitError === "object") {
-                const detail =
-                  typeof exitError.error_message === "string"
-                    ? exitError.error_message
-                    : "Plaid Link closed with an error.";
-                finish(() => reject(new Error(detail)));
-                return;
-              }
-              finish(resolve);
-            },
-          });
-
-          handler.open();
-        });
       } catch {
-        clearPlaidOAuthResumeSession();
-        toast.error(
-          itemId
-            ? "Could not update this Plaid connection."
-            : "Could not start Plaid.",
-        );
+        toast.error("Could not update this Plaid connection.");
       } finally {
         setIsLinkingPlaid(false);
       }
     },
-    [reload, userId, vaultOwnerToken],
+    [reload, userId, vaultKey, vaultOwnerToken],
   );
 
   const sortedHoldingsDraft = useMemo(
@@ -1370,55 +1243,13 @@ export function DashboardMasterView({
       const nowIso = new Date().toISOString();
 
       if (activeSource === "plaid") {
-        if (activePlaidItemIds.length === 0) {
-          toast.info("There is no Plaid portfolio to delete.");
-          return;
+        const { failed } = await disconnectAllVaultPlaid({ userId, vaultKey, vaultOwnerToken });
+        if (failed > 0) {
+          throw new Error("Some Plaid connections could not be disconnected.");
         }
-
-        for (const itemId of activePlaidItemIds) {
-          await PlaidPortfolioService.removeItem({
-            userId,
-            itemId,
-            vaultOwnerToken,
-          });
-        }
-
-        const result = await PkmWriteCoordinator.saveMergedDomain({
-          userId,
-          domain: "financial",
-          vaultKey,
-          vaultOwnerToken,
-          confirmation: {
-            confirmedByUser: true,
-            surface: "web",
-            source: "kai_dashboard_portfolio_item_delete",
-          },
-          build: (context) => {
-            const nextFinancialDomain = removePlaidSource(
-              (context.currentDomainData as Record<string, unknown> | null) ??
-                {},
-              nowIso,
-              { clearActivePortfolio: true },
-            );
-            return {
-              domainData: nextFinancialDomain,
-              summary: buildFinancialDomainSummary(nextFinancialDomain),
-              mergeDecision: {
-                merge_mode: "replace_domain",
-                target_domain: "financial",
-              },
-            };
-          },
-        });
-
-        if (!result.success) {
-          throw new Error("Failed to remove Plaid portfolio data from Vault.");
-        }
-
         CacheSyncService.onPkmDomainCleared(userId, "financial");
         setDeleteImportedDialogOpen(false);
-        toast.success("Plaid portfolio deleted.");
-        await reload();
+        toast.success("Plaid connections disconnected and removed.");
         return;
       }
 
@@ -1607,7 +1438,6 @@ export function DashboardMasterView({
       setIsDeletingImportedData(false);
     }
   }, [
-    activePlaidItemIds,
     activeSource,
     changeActiveSource,
     hasPlaidConnections,
@@ -2318,10 +2148,7 @@ export function DashboardMasterView({
                   : "Read-only account sync"
               }
               onClick={() =>
-                void openPlaidLinkFlow(
-                  undefined,
-                  plaidLocalDualEnvironmentEnabled ? "sandbox" : undefined,
-                )
+                void openPlaidLinkFlow()
               }
               disabled={plaidConfigured === false || isLinkingPlaid}
               chevron={!isLinkingPlaid && plaidConfigured !== false}
@@ -2507,7 +2334,7 @@ export function DashboardMasterView({
               ? "How your portfolio value is distributed."
               : section === "performance"
                 ? "Value and change from real portfolio history."
-                : "Choose and manage the active portfolio source."
+                : "Where your holdings come from."
         }
         actions={
           <ShellActionSurface
@@ -2546,9 +2373,6 @@ export function DashboardMasterView({
             }
             onRefreshPlaid={
               hasPlaidConnections ? () => handleRefreshPlaid() : undefined
-            }
-            onCancelRefreshPlaid={
-              isPlaidRefreshing ? () => handleCancelPlaidRefresh() : undefined
             }
             onManageConnections={
               plaidConfigured !== false

@@ -137,7 +137,7 @@ function profilePanelLabel(panel: ProfilePanel | null): string | null {
   if (panel === "security") return "Security";
   if (panel === "referrals") return "Invite friends";
   if (panel === "support") return "Support & feedback";
-  if (panel === "gmail") return "Gmail";
+  if (panel === "gmail") return "Mail";
   if (panel === "regulatory") return "Regulatory profile";
   return null;
 }
@@ -179,7 +179,7 @@ function profileOriginCrumbLabel(backHref: string): string {
   const labels: Record<string, string> = {
     [ROUTES.ONE_HOME]: "One",
     [ROUTES.ONE_LOCATION]: "Location",
-    [ROUTES.GMAIL]: "Gmail",
+    [ROUTES.GMAIL]: "Mail",
     [ROUTES.PKM]: "Memory",
     [ROUTES.PKM_RECENT]: "Recently learned",
     [ROUTES.ONE_MARKETPLACE]: "Marketplace",
@@ -292,10 +292,17 @@ function resolveTopShellBreadcrumbInner(
   }
 
   if (pathname === ROUTES.ONE_SETUP_CONNECTIONS) {
+    // Choosing an AI is now the direct post-auth landing for an unresolved
+    // user (post-auth-route-service.ts's PRE_VAULT_ROUTE) -- the same "no
+    // confirmed previous step" situation the bare hub below hides its own
+    // back arrow for. A hardcoded retrace to the hub is stale here: most
+    // arrivals never visited it, and finishing this step now goes straight
+    // home regardless of how it was reached.
     return {
       backHref: ROUTES.ONE_SETUP,
       width: "content",
       align: "center",
+      hideBack: true,
       items: [
         { label: "Set up", href: ROUTES.ONE_SETUP },
         // Matches the on-screen title; a crumb that disagrees with the heading
@@ -537,7 +544,7 @@ function resolveTopShellBreadcrumbInner(
         align: "center",
         items: [
           { label: "One", href: ROUTES.ONE_HOME },
-          { label: "RIA", href: ROUTES.RIA_PROFILE },
+          { label: "Advisor", href: ROUTES.RIA_PROFILE },
           { label },
         ],
       };
@@ -553,7 +560,7 @@ function resolveTopShellBreadcrumbInner(
       width: "content",
       align: "center",
       hideBack: false,
-      items: [{ label: "RIA", href: returnHref }, { label: "Claim profile" }],
+      items: [{ label: "Advisor", href: returnHref }, { label: "Claim profile" }],
     };
   }
 
@@ -617,9 +624,10 @@ function resolveTopShellBreadcrumbInner(
   }
 
   // Per-capability setup step (`/one/setup/<capability>`, e.g. finance, gmail).
-  // These live under the setup hub, so back returns to the hub and the user is
-  // never trapped on a capability step with no exit. Checked before the bare
-  // hub so the more specific nested route wins.
+  // Default retrace is the hub, for a direct/legacy entry with no known
+  // origin. A handoff carrying `?from=` retraces there instead, so the person
+  // doesn't lose their place in whatever list sent them here. Checked before the bare hub so the more
+  // specific nested route wins.
   if (
     pathname.startsWith(`${ROUTES.ONE_SETUP}/`) &&
     pathname !== ROUTES.ONE_SETUP_KAI
@@ -628,14 +636,16 @@ function resolveTopShellBreadcrumbInner(
       .slice(`${ROUTES.ONE_SETUP}/`.length)
       .split("/")
       .filter(Boolean)[0];
+    const originHref = normalizeInternalRouteHref(searchParams?.get("from"));
+    const setupBackHref = originHref || ROUTES.ONE_SETUP;
     return {
-      backHref: ROUTES.ONE_SETUP,
+      backHref: setupBackHref,
       width: "content",
       align: "center",
       hideBack: false,
       items: [
         { label: "One", href: ROUTES.ONE_HOME },
-        { label: "Setup", href: ROUTES.ONE_SETUP },
+        { label: "Setup", href: setupBackHref },
         ...(capabilitySegment
           ? [
               {
@@ -687,7 +697,7 @@ function resolveTopShellBreadcrumbInner(
         width: "profile",
         align: "center",
         items: [
-          { label: "RIA", href: ROUTES.RIA_PROFILE },
+          { label: "Advisor", href: ROUTES.RIA_PROFILE },
           { label: "Clients", href: ROUTES.RIA_CLIENTS },
           { label: "Workspace" },
         ],
@@ -701,7 +711,7 @@ function resolveTopShellBreadcrumbInner(
         width: "profile",
         align: "center",
         items: [
-          { label: "RIA", href: ROUTES.RIA_PROFILE },
+          { label: "Advisor", href: ROUTES.RIA_PROFILE },
           { label: "Clients", href: ROUTES.RIA_CLIENTS },
           { label: "Workspace", href: primaryWorkspaceHref },
           { label: "Account detail" },
@@ -715,7 +725,7 @@ function resolveTopShellBreadcrumbInner(
         width: "profile",
         align: "center",
         items: [
-          { label: "RIA", href: ROUTES.RIA_PROFILE },
+          { label: "Advisor", href: ROUTES.RIA_PROFILE },
           { label: "Clients", href: ROUTES.RIA_CLIENTS },
           { label: "Workspace", href: primaryWorkspaceHref },
           { label: "Request detail" },
@@ -948,7 +958,7 @@ function resolveTopShellBreadcrumbInner(
         resolveCapabilitySetupBackHref(pathname, originHref) || ROUTES.ONE_HOME,
       width: "profile",
       align: "center",
-      items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Gmail" }],
+      items: [{ label: "One", href: ROUTES.ONE_HOME }, { label: "Mail" }],
     };
   }
 
@@ -1234,7 +1244,7 @@ function resolveTopShellBreadcrumbInner(
       align: "center",
       items: [
         { label: "One", href: ROUTES.ONE_HOME },
-        { label: "Gmail", href: ROUTES.GMAIL },
+        { label: "Mail", href: ROUTES.GMAIL },
         { label: "Legacy receipts" },
       ],
     };

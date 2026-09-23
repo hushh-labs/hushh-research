@@ -18,7 +18,7 @@ import {
   ShieldOff,
   Timer,
   XCircle,
-} from "lucide-react";
+} from "@/components/icons";
 
 import { useAuth } from "@/hooks/use-auth";
 import {

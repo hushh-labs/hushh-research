@@ -26,6 +26,12 @@ ENV VIRTUAL_ENV=/opt/venv \
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-install-project --active
 
+# Bake the exact-revision local E5 snapshot in the same virtual environment as
+# the serving API. The document worker uses this image offline at runtime.
+COPY hushh_mcp/services/embedding_client_leaf.py hushh_mcp/services/embedding_client_leaf.py
+COPY scripts/ops/bake_drive_embedding_model.py scripts/ops/bake_drive_embedding_model.py
+RUN python -m scripts.ops.bake_drive_embedding_model
+
 # Stage 2: Production runtime
 FROM python:3.13-slim
 
@@ -38,8 +44,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Copy Python dependencies from builder
 COPY --from=builder /opt/venv /opt/venv
+COPY --from=builder /opt/hushh/models /opt/hushh/models
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    HUSHH_DRIVE_EMBEDDING_MODEL_DIR=/opt/hushh/models/multilingual-e5-small
 
 # Make sure scripts in .local are usable
 ENV VIRTUAL_ENV=/opt/venv \
