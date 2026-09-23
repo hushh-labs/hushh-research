@@ -223,6 +223,18 @@ describe("refreshing on unlock", () => {
     expect(plans[0]?.mergeDecision?.merge_mode).toBe("replace_domain");
   });
 
+  it("runs one background refresh per person at a time", async () => {
+    saveRunsBuild(linked);
+    const params = { userId: "owner", vaultKey: "vk", vaultOwnerToken: "vot", financial: linked };
+    const [first, second] = await Promise.all([refreshVaultConnections(params), refreshVaultConnections(params)]);
+    expect(second).toBe(first);
+    expect(client.fetchVaultSnapshot).toHaveBeenCalledTimes(1);
+    expect(coordinator.saveMergedDomain).toHaveBeenCalledTimes(1);
+    // Finished runs do not block the next one.
+    await refreshVaultConnections(params);
+    expect(client.fetchVaultSnapshot).toHaveBeenCalledTimes(2);
+  });
+
   it("leaves a connection refreshed moments ago alone", async () => {
     const fresh = {
       connections_v1: {

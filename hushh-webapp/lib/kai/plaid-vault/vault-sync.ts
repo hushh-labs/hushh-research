@@ -324,14 +324,32 @@ function isStale(connection: ConnectionRecord, nowMs: number): boolean {
  * Reads Plaid first (outside the write), then applies everything to the
  * latest memory inside one write so a concurrent save is never overwritten.
  */
-export async function refreshVaultConnections(params: {
+type VaultRefreshParams = {
   userId: string;
   vaultKey: string | null | undefined;
   vaultOwnerToken: string | null | undefined;
   financial: AnyRecord | null | undefined;
   surface?: VaultSurface;
   force?: boolean;
-}): Promise<VaultRefreshOutcome> {
+};
+
+// One background refresh per person at a time. Unlock warming and the Kai
+// finance loader both ask for one; overlapping runs would read the same pages
+// twice and save twice. A forced (person-initiated) refresh always runs.
+const refreshInFlight = new Map<string, Promise<VaultRefreshOutcome>>();
+
+export function refreshVaultConnections(params: VaultRefreshParams): Promise<VaultRefreshOutcome> {
+  if (params.force === true) return runVaultRefresh(params);
+  const existing = refreshInFlight.get(params.userId);
+  if (existing) return existing;
+  const run = runVaultRefresh(params).finally(() => {
+    if (refreshInFlight.get(params.userId) === run) refreshInFlight.delete(params.userId);
+  });
+  refreshInFlight.set(params.userId, run);
+  return run;
+}
+
+async function runVaultRefresh(params: VaultRefreshParams): Promise<VaultRefreshOutcome> {
   const outcome: VaultRefreshOutcome = { refreshed: 0, needsRelink: [], failed: 0, saved: false };
   const { userId, vaultKey, vaultOwnerToken } = params;
   if (!vaultKey || !vaultOwnerToken) return outcome;
