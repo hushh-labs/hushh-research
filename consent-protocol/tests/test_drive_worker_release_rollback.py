@@ -17,6 +17,11 @@ WORKER_ORIGIN = "https://consent-protocol-drive-worker-abc.a.run.app"
 PATH = "/api/internal/drive-work/drain"
 PREFIX = "projects/hushh-pda-uat/locations/us-central1/jobs/"
 ACCOUNT = "drive-work-drain-sched@hushh-pda-uat.iam.gserviceaccount.com"
+SCANNER_AMD64_IMAGE = (
+    "mirror.gcr.io/clamav/clamav@sha256:"
+    "e8388295191bff0893fb889d9415ae975491201c989b205e30c9057b1985d36a"
+)
+WRONG_SCANNER_IMAGE = "mirror.gcr.io/clamav/clamav@sha256:" + "0" * 64
 
 
 def _job(name: str, stage: str | None, schedule: str, deadline: str) -> dict:
@@ -225,11 +230,6 @@ def test_term_after_partial_retarget_restores_exact_job_set_or_quarantines(
     state_path = tmp_path / "scheduler.json"
     state_path.write_text(json.dumps({"jobs": initial_jobs, "mutations": 0}), encoding="utf-8")
     setup_count = tmp_path / "setup-count"
-    clamav_image = next(
-        line.split('"')[1]
-        for line in WORKER_RELEASE.read_text(encoding="utf-8").splitlines()
-        if line.startswith("readonly CLAMAV_IMAGE=")
-    )
     environment = os.environ.copy()
     environment.update(
         {
@@ -238,7 +238,7 @@ def test_term_after_partial_retarget_restores_exact_job_set_or_quarantines(
             "MOCK_SETUP_COUNT": str(setup_count),
             "MOCK_RESTORE_FAIL": str(not restore_succeeds).lower(),
             "MOCK_WORKER_ORIGIN": WORKER_ORIGIN,
-            "MOCK_CLAMAV_IMAGE": clamav_image,
+            "MOCK_CLAMAV_IMAGE": SCANNER_AMD64_IMAGE,
             "IMAGE_REFERENCE": "gcr.io/hushh-pda-uat/consent-protocol@sha256:" + "a" * 64,
             "DEPLOY_SHA": "b" * 40,
             "RUNTIME_SERVICE_ACCOUNT": (
@@ -273,8 +273,9 @@ def test_term_after_partial_retarget_restores_exact_job_set_or_quarantines(
 
 
 @pytest.mark.parametrize("missing_sharing_200", [False, True])
+@pytest.mark.parametrize("wrong_scanner_child", [False, True])
 def test_success_requires_all_three_fixed_stage_jobs_and_fresh_200_logs(
-    tmp_path: Path, missing_sharing_200: bool
+    tmp_path: Path, missing_sharing_200: bool, wrong_scanner_child: bool
 ):
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
@@ -292,11 +293,6 @@ def test_success_requires_all_three_fixed_stage_jobs_and_fresh_200_logs(
         encoding="utf-8",
     )
     setup_count = tmp_path / "setup-count"
-    clamav_image = next(
-        line.split('"')[1]
-        for line in WORKER_RELEASE.read_text(encoding="utf-8").splitlines()
-        if line.startswith("readonly CLAMAV_IMAGE=")
-    )
     environment = os.environ.copy()
     environment.update(
         {
@@ -306,7 +302,9 @@ def test_success_requires_all_three_fixed_stage_jobs_and_fresh_200_logs(
             "MOCK_TERMINATE_AFTER_SETUP": "false",
             "MOCK_FAIL_LOG_JOB": "drive-work-sharing-uat" if missing_sharing_200 else "",
             "MOCK_WORKER_ORIGIN": WORKER_ORIGIN,
-            "MOCK_CLAMAV_IMAGE": clamav_image,
+            "MOCK_CLAMAV_IMAGE": (
+                WRONG_SCANNER_IMAGE if wrong_scanner_child else SCANNER_AMD64_IMAGE
+            ),
             "IMAGE_REFERENCE": "gcr.io/hushh-pda-uat/consent-protocol@sha256:" + "a" * 64,
             "DEPLOY_SHA": "b" * 40,
             "RUNTIME_SERVICE_ACCOUNT": ACCOUNT.replace(
@@ -327,6 +325,12 @@ def test_success_requires_all_three_fixed_stage_jobs_and_fresh_200_logs(
     )
     output = result.stdout + result.stderr
     state = json.loads(state_path.read_text(encoding="utf-8"))
+    if wrong_scanner_child:
+        assert result.returncode != 0
+        assert "scanner image digest mismatch" in output
+        assert not setup_count.exists(), output
+        assert state["jobs"] == {"drive-work-drain-uat": original_document}
+        return
     assert setup_count.read_text(encoding="utf-8") == "3", output
     assert state["triggered"] == [
         "drive-work-drain-uat",

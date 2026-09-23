@@ -11,6 +11,9 @@ readonly SCHEDULER_STATE_HELPER="deploy/drive/work_drain_scheduler_snapshot.py"
 readonly SCHEDULER_AUDIENCE="https://api.uat.hushh.ai"
 readonly SCHEDULER_ID="drive-work-drain-sched@hushh-pda-uat.iam.gserviceaccount.com"
 readonly CLAMAV_IMAGE="clamav/clamav@sha256:0e31ce089574268aefa0b543767d66b70240ab51ed49eec53e07f18d5629d817"
+# The pinned OCI index above contains this Linux/AMD64 child manifest. Cloud
+# Run's registry mirror records the child digest in the deployed revision.
+readonly CLAMAV_AMD64_DIGEST="sha256:e8388295191bff0893fb889d9415ae975491201c989b205e30c9057b1985d36a"
 
 IMAGE_REFERENCE="${IMAGE_REFERENCE:?immutable backend image required}"
 DEPLOY_SHA="${DEPLOY_SHA:?release SHA required}"
@@ -173,19 +176,9 @@ fi
 gcloud run revisions describe "${candidate_revision}" \
   --project="${PROJECT_ID}" --region="${REGION}" --format=json \
   | EXPECTED_SHA="${DEPLOY_SHA}" EXPECTED_APP_IMAGE="${IMAGE_REFERENCE}" \
-      EXPECTED_SCANNER_IMAGE="${CLAMAV_IMAGE}" python3 -c '
-import json, os, sys
-revision=json.load(sys.stdin)
-labels=(revision.get("metadata") or {}).get("labels") or {}
-containers=(revision.get("spec") or {}).get("containers") or []
-images={item.get("name"): item.get("image") for item in containers}
-conditions=(revision.get("status") or {}).get("conditions") or []
-ready=any(item.get("type")=="Ready" and item.get("status")=="True" for item in conditions)
-if (not ready or labels.get("deploy-sha")!=os.environ["EXPECTED_SHA"]
-    or images.get("drive-worker")!=os.environ["EXPECTED_APP_IMAGE"]
-    or not str(images.get("clamav") or "").endswith(os.environ["EXPECTED_SCANNER_IMAGE"].split("@",1)[1])):
-    raise SystemExit("Drive worker candidate readiness or image provenance failed")
-print("Verified Drive worker candidate readiness, SHA and image digests")'
+      EXPECTED_SCANNER_INDEX_DIGEST="${CLAMAV_IMAGE#*@}" \
+      EXPECTED_SCANNER_AMD64_DIGEST="${CLAMAV_AMD64_DIGEST}" \
+      python3 deploy/drive/verify_worker_revision.py
 
 # The private service admits only this scheduler identity. The route repeats
 # the exact issuer/email/audience check after Cloud Run IAM verification.
