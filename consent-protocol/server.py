@@ -147,6 +147,7 @@ from api.routes import (  # noqa: E402
     debug_firebase,
     developer,
     drive_sharing,
+    drive_work_drain,
     external_connectors,
     health,
     hushh_tech,
@@ -308,6 +309,9 @@ app.include_router(connected_systems.router)
 # External MCP connector routes (/api/connectors/...)
 app.include_router(external_connectors.router)
 app.include_router(drive_sharing.router)
+# A separately authenticated, default-off Cloud Scheduler route performs one
+# finite Drive workflow sweep. It has no startup/background execution path.
+app.include_router(drive_work_drain.router)
 
 # Consent management routes (/api/consent/...)
 app.include_router(consent.router)

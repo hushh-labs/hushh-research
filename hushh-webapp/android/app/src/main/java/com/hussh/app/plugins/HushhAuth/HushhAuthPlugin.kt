@@ -73,6 +73,15 @@ class HushhAuthPlugin : Plugin() {
     private lateinit var driveAuthorizationLauncher: ActivityResultLauncher<Intent>
     private val identityHandler = Handler(Looper.getMainLooper())
     private val driveAuthorizationHandler = Handler(Looper.getMainLooper())
+    /**
+     * Connection and selected-file Picker handoffs share exactly one browser
+     * slot. Their callback paths stay distinct so a credential return cannot
+     * settle a staged Picker candidate (or vice versa).
+     */
+    private enum class DriveAuthorizationKind(val returnPath: String) {
+        CONNECTION("/return"),
+        PICKER("/picker-return")
+    }
     private class IdentityReauthentication(
         val call: PluginCall,
         val user: FirebaseUser,
@@ -84,7 +93,8 @@ class HushhAuthPlugin : Plugin() {
     private class DriveAuthorization(
         val call: PluginCall,
         val user: FirebaseUser,
-        val fence: NativeDriveAuthorizationFence
+        val fence: NativeDriveAuthorizationFence,
+        val kind: DriveAuthorizationKind
     ) {
         var timeout: Runnable? = null
         var fallbackCancellation: Runnable? = null
@@ -430,6 +440,27 @@ class HushhAuthPlugin : Plugin() {
             activity.runOnUiThread { connectDrive(call) }
             return
         }
+        startDriveAuthorization(call, DriveAuthorizationKind.CONNECTION)
+    }
+
+    /**
+     * Opens Google's server-authored selected-file browser flow. It returns
+     * only the opaque attempt reference/outcome; candidate metadata stays
+     * staged server-side until the owner explicitly confirms it in One.
+     */
+    @PluginMethod
+    fun pickDriveFiles(call: PluginCall) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            activity.runOnUiThread { pickDriveFiles(call) }
+            return
+        }
+        startDriveAuthorization(call, DriveAuthorizationKind.PICKER)
+    }
+
+    private fun startDriveAuthorization(
+        call: PluginCall,
+        kind: DriveAuthorizationKind
+    ) {
         if (driveAuthorization != null || identityReauthentication != null || pendingCall != null ||
             pendingGmailConnectCall != null || pendingCalendarConnectCall != null
         ) {
@@ -447,14 +478,26 @@ class HushhAuthPlugin : Plugin() {
             expectedUserId.isNullOrBlank() || user == null || user.uid != expectedUserId ||
             expiresAt == null || expiresAt <= now || expiresAt > now + 11 * 60_000L
         ) {
-            call.reject("Drive connection is unavailable.", "drive_connection_unavailable")
+            call.reject(
+                if (kind == DriveAuthorizationKind.PICKER) {
+                    "Drive file selection is unavailable."
+                } else {
+                    "Drive connection is unavailable."
+                },
+                if (kind == DriveAuthorizationKind.PICKER) {
+                    "drive_picker_unavailable"
+                } else {
+                    "drive_connection_unavailable"
+                }
+            )
             return
         }
 
         val operation = DriveAuthorization(
             call,
             user,
-            NativeDriveAuthorizationFence(expectedUserId, attemptId, expiresAt)
+            NativeDriveAuthorizationFence(expectedUserId, attemptId, expiresAt),
+            kind
         )
         driveAuthorization = operation
         val timeout = Runnable {
@@ -476,7 +519,7 @@ class HushhAuthPlugin : Plugin() {
     override fun handleOnNewIntent(intent: Intent) {
         super.handleOnNewIntent(intent)
         val operation = driveAuthorization ?: return
-        val result = parseNativeDriveReturn(intent.data) ?: return
+        val result = parseNativeDriveReturn(intent.data, operation.kind) ?: return
         if (operation.fence.settled) {
             operation.fence.drainProvider()
             if (operation.fence.canRelease && driveAuthorization === operation) {
@@ -524,7 +567,7 @@ class HushhAuthPlugin : Plugin() {
             )
             return
         }
-        val result = parseNativeDriveReturn(resultUri)
+        val result = parseNativeDriveReturn(resultUri, operation.kind)
         if (result == null) {
             if (!operation.fence.drainProvider()) return
             finishDriveAuthorization(operation, "failed", drainProvider = false)
@@ -557,8 +600,11 @@ class HushhAuthPlugin : Plugin() {
     private fun isOpaqueDriveAttemptId(value: String): Boolean =
         value.matches(Regex("^[A-Za-z0-9_-]{16,128}$"))
 
-    private fun parseNativeDriveReturn(uri: Uri?): Pair<String, String>? {
-        if (uri?.scheme != "hushh" || uri.host != "connectors" || uri.path != "/return" ||
+    private fun parseNativeDriveReturn(
+        uri: Uri?,
+        kind: DriveAuthorizationKind
+    ): Pair<String, String>? {
+        if (uri?.scheme != "hushh" || uri.host != "connectors" || uri.path != kind.returnPath ||
             uri.userInfo != null || uri.port != -1 || uri.fragment != null ||
             uri.queryParameterNames != setOf("attemptId", "outcome")
         ) return null

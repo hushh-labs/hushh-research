@@ -15,7 +15,9 @@ import { useVault } from "@/lib/vault/vault-context";
 import { HushhAuth } from "@/lib/capacitor";
 import {
   NATIVE_CONNECTOR_RETURN_EVENT,
+  NATIVE_DRIVE_PICKER_RETURN_EVENT,
   type NativeConnectorReturn,
+  type NativeDrivePickerReturn,
 } from "@/lib/navigation/use-deep-link-return";
 import { ROUTES } from "@/lib/navigation/routes";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
@@ -37,6 +39,7 @@ import {
   ExternalConnectorService,
   type ConnectorOverview,
   type DriveDocument,
+  type PendingNativeDrivePicker,
 } from "@/lib/services/external-connector-service";
 import {
   GoogleDrivePickerService,
@@ -68,6 +71,42 @@ const labels: Record<string, string> = {
   failed_retryable: "Retry needed",
 };
 
+type PendingDriveSelection =
+  | {
+      kind: "web";
+      sessionId: string;
+      expiresAt: number;
+      files: PickedDriveFile[];
+    }
+  | {
+      kind: "native";
+      attemptId: string;
+      expiresAt: number;
+      files: PickedDriveFile[];
+    };
+
+function selectedNativePickerFiles(
+  pending: PendingNativeDrivePicker,
+): PickedDriveFile[] | null {
+  if (!Array.isArray(pending.files) || pending.files.length === 0) return null;
+  const files = pending.files.map((file) => ({
+    id: String(file?.documentId || ""),
+    name: String(file?.name || ""),
+  }));
+  if (
+    files.some(
+      (file) =>
+        !/^[A-Za-z0-9_-]{1,256}$/.test(file.id) ||
+        !file.name.trim() ||
+        file.name.length > 1_024,
+    ) ||
+    new Set(files.map((file) => file.id)).size !== files.length
+  ) {
+    return null;
+  }
+  return files;
+}
+
 export function ConnectorsPanel(props: Props) {
   const { user } = useAuth();
   // Discard all local state on account switch or lock; don't display the prior
@@ -98,11 +137,7 @@ function OwnerConnectorsPanel({
   const [mailMessage, setMailMessage] = useState("");
   const [driveBusy, setDriveBusy] = useState(false);
   const [mailBusy, setMailBusy] = useState(false);
-  const [pending, setPending] = useState<{
-    sessionId: string;
-    expiresAt: number;
-    files: PickedDriveFile[];
-  } | null>(null);
+  const [pending, setPending] = useState<PendingDriveSelection | null>(null);
   const [confirm, setConfirm] = useState<string | null>(null);
   const controller = useRef<AbortController | null>(null);
   const currentToken = useRef(vaultOwnerToken);
@@ -117,15 +152,33 @@ function OwnerConnectorsPanel({
     expectedAttemptId?: string;
   } | null>(null);
   const drainNativeReconcile = useRef<() => void>(() => undefined);
+  // Picker candidates are deliberately reconciled separately from connection
+  // credentials. A native picker return is not permission to add a document.
+  const queuedNativePickerReconcile = useRef<{
+    expectedAttemptId?: string;
+  } | null>(null);
+  const drainNativePickerReconcile = useRef<() => void>(() => undefined);
   const mailLock = useRef(false);
   const chooseRef = useRef<HTMLButtonElement>(null);
   const pendingRef = useRef<HTMLElement>(null);
+  // A native app-url return and the browser bridge promise can both arrive for
+  // one Picker attempt. Keep a synchronous record so the second reconciliation
+  // cannot replace the reviewed selection or reset its explicit processing
+  // choice before React commits the first state update.
+  const pendingSelection = useRef<PendingDriveSelection | null>(null);
   const restorePickerFocus = useRef(false);
   const overviewRead = useRef(0);
   const documentRead = useRef(0);
   const mailToken = useCallback(
     () => user?.getIdToken() ?? Promise.resolve(""),
     [user],
+  );
+  const updatePendingSelection = useCallback(
+    (next: PendingDriveSelection | null) => {
+      pendingSelection.current = next;
+      setPending(next);
+    },
+    [],
   );
   const gmail = useGmailConnectorStatus({
     userId: user?.uid,
@@ -224,13 +277,14 @@ function OwnerConnectorsPanel({
     setAllowBackground(false);
     const timer = window.setTimeout(
       () => {
-        setPending(null);
+        restorePickerFocus.current = true;
+        updatePendingSelection(null);
         setDriveMessage("Selection expired. Choose files again.");
       },
       Math.max(0, pending.expiresAt - Date.now()),
     );
     return () => window.clearTimeout(timer);
-  }, [pending]);
+  }, [pending, updatePendingSelection]);
   useEffect(() => {
     if (driveBusy || !restorePickerFocus.current) return;
     restorePickerFocus.current = false;
@@ -269,6 +323,8 @@ function OwnerConnectorsPanel({
         driveLock.current = false;
         if (queuedNativeReconcile.current)
           queueMicrotask(() => drainNativeReconcile.current());
+        if (queuedNativePickerReconcile.current)
+          queueMicrotask(() => drainNativePickerReconcile.current());
         if (!signal.aborted) {
           setDriveBusy(false);
           setLoading(false);
@@ -332,7 +388,7 @@ function OwnerConnectorsPanel({
         );
         if (finalized && !signal.aborted)
           setDriveMessage(
-            "Drive connected. Choose files from a browser to authorize them.",
+            "Drive connected. Choose files to authorize them.",
           );
       },
       { clearMessage: false },
@@ -356,6 +412,105 @@ function OwnerConnectorsPanel({
       drainQueuedNativeReconcile();
     },
     [drainQueuedNativeReconcile],
+  );
+
+  const reconcileNativePicker = useCallback(
+    async (
+      token: string,
+      signal: AbortSignal,
+      expectedAttemptId?: string,
+    ): Promise<boolean> => {
+      const isEffectCurrent = () =>
+        !signal.aborted && currentToken.current === token;
+      const staged = await ExternalConnectorService.pendingNativePicker({
+        vaultOwnerToken: token,
+        isEffectCurrent,
+      });
+      if (!isEffectCurrent()) return false;
+      if (
+        !staged ||
+        (expectedAttemptId && staged.attemptId !== expectedAttemptId)
+      ) {
+        return false;
+      }
+      const expiresAt = Date.parse(staged.expiresAt);
+      const files = selectedNativePickerFiles(staged);
+      if (
+        !Number.isFinite(expiresAt) ||
+        expiresAt <= Date.now() ||
+        !files
+      ) {
+        // Do not use malformed candidates, even for display. The server keeps
+        // its short-lived staged selection until its own expiry; no document
+        // is selected or persisted from this path.
+        setDriveMessage("Drive could not verify the selected files. Choose them again.");
+        return false;
+      }
+      const existing = pendingSelection.current;
+      if (
+        existing?.kind === "native" &&
+        existing.attemptId === staged.attemptId
+      ) {
+        return true;
+      }
+      restorePickerFocus.current = true;
+      updatePendingSelection({
+        kind: "native",
+        attemptId: staged.attemptId,
+        expiresAt,
+        files,
+      });
+      return true;
+    },
+    [updatePendingSelection],
+  );
+
+  const drainQueuedNativePickerReconcile = useCallback(() => {
+    if (
+      !open ||
+      !vaultOwnerToken ||
+      !Capacitor.isNativePlatform() ||
+      driveLock.current ||
+      pending?.kind === "web"
+    ) {
+      return;
+    }
+    const queued = queuedNativePickerReconcile.current;
+    if (!queued) return;
+    queuedNativePickerReconcile.current = null;
+    void runDrive(
+      async (token, signal) => {
+        const recovered = await reconcileNativePicker(
+          token,
+          signal,
+          queued.expectedAttemptId,
+        );
+        if (recovered && !signal.aborted)
+          setDriveMessage(
+            "Review the selected files, then add them to your private One library.",
+          );
+      },
+      { clearMessage: false },
+    );
+  }, [open, pending?.kind, reconcileNativePicker, runDrive, vaultOwnerToken]);
+
+  useLayoutEffect(() => {
+    drainNativePickerReconcile.current = drainQueuedNativePickerReconcile;
+    return () => {
+      drainNativePickerReconcile.current = () => undefined;
+    };
+  }, [drainQueuedNativePickerReconcile]);
+
+  const queueNativePickerReconcile = useCallback(
+    (expectedAttemptId?: string) => {
+      const queued = queuedNativePickerReconcile.current;
+      // A callback is scoped to one opaque attempt; startup recovery is not.
+      // Retain that specificity if the Vault Owner token renews mid-return.
+      if (!queued || expectedAttemptId)
+        queuedNativePickerReconcile.current = { expectedAttemptId };
+      drainQueuedNativePickerReconcile();
+    },
+    [drainQueuedNativePickerReconcile],
   );
 
   const startDrive = () => {
@@ -420,7 +575,7 @@ function OwnerConnectorsPanel({
         if (!signal.aborted) {
           setDriveMessage(
             finalized
-              ? "Drive connected. Choose files from a browser to authorize them."
+              ? "Drive connected. Choose files to authorize them."
               : "Drive authorization is still settling. Reopen Connections to check it.",
           );
         }
@@ -481,7 +636,86 @@ function OwnerConnectorsPanel({
     return () =>
       window.removeEventListener(NATIVE_CONNECTOR_RETURN_EVENT, handleReturn);
   }, [open, queueNativeReconcile, vaultOwnerToken]);
-  const chooseFiles = () =>
+
+  useEffect(() => {
+    if (!open || !vaultOwnerToken || !Capacitor.isNativePlatform()) return;
+    const handlePickerReturn = (event: Event) => {
+      const result = (event as CustomEvent<NativeDrivePickerReturn>).detail;
+      if (!result) return;
+      // The opaque event has no file identifiers. The server-side pending
+      // record is the only source for candidates, and confirming it remains a
+      // separate owner action.
+      queueNativePickerReconcile(result.attemptId);
+      if (result.outcome === "cancelled")
+        setDriveMessage(
+          "Choosing Drive files was cancelled. Your chat and draft stay here.",
+        );
+      else if (result.outcome === "failed")
+        setDriveMessage("Drive could not finish choosing files. Try again.");
+    };
+    window.addEventListener(
+      NATIVE_DRIVE_PICKER_RETURN_EVENT,
+      handlePickerReturn,
+    );
+    // Covers an app restart or a return which arrived before the panel
+    // mounted. Only opaque candidates are fetched after the vault unlock.
+    queueNativePickerReconcile();
+    return () =>
+      window.removeEventListener(
+        NATIVE_DRIVE_PICKER_RETURN_EVENT,
+        handlePickerReturn,
+      );
+  }, [open, queueNativePickerReconcile, vaultOwnerToken]);
+  const chooseFiles = () => {
+    if (Capacitor.isNativePlatform()) {
+      void runDrive(async (token, signal) => {
+        const isEffectCurrent = () =>
+          !signal.aborted && currentToken.current === token;
+        if (!user?.uid) throw new Error("native_owner_unavailable");
+        const start = await ExternalConnectorService.startNativePicker({
+          vaultOwnerToken: token,
+          redirectUri: ExternalConnectorService.nativeDrivePickerCallbackUri(),
+          isEffectCurrent,
+        });
+        const expiresAt = Date.parse(start.expiresAt);
+        if (
+          !isEffectCurrent() ||
+          !/^[A-Za-z0-9_-]{16,128}$/.test(start.attemptId) ||
+          !Number.isFinite(expiresAt) ||
+          expiresAt <= Date.now()
+        ) {
+          throw new Error("invalid_picker_start");
+        }
+        const result = await HushhAuth.pickDriveFiles({
+          authorizeUrl: start.authorizeUrl,
+          attemptId: start.attemptId,
+          expiresAt,
+          expectedUserId: user.uid,
+        });
+        if (!isEffectCurrent()) return;
+        if (result.attemptId !== start.attemptId) {
+          // A stale custom-scheme result never gets to select documents. Query
+          // only the exact active attempt after the browser bridge releases.
+          queueNativePickerReconcile(start.attemptId);
+          setDriveMessage("Drive could not finish choosing files. Try again.");
+          return;
+        }
+        // Custom Tabs can surface RESULT_CANCELED just before the opaque
+        // picker-return intent. Reconcile the attempt either way; candidates
+        // still require the explicit Add selected files tap below.
+        queueNativePickerReconcile(start.attemptId);
+        if (result.outcome !== "ready") {
+          await refresh(signal);
+          if (!signal.aborted)
+            setDriveMessage(
+              result.outcome === "cancelled"
+                ? "Choosing Drive files was cancelled. Your chat and draft stay here."
+                : "Drive could not finish choosing files. Try again.",
+            );
+        }
+      });
+      return;
+    }
     void runDrive(async (token, signal) => {
       const session = await ExternalConnectorService.pickerSession(
         token,
@@ -495,7 +729,8 @@ function OwnerConnectorsPanel({
       try {
         const files = await GoogleDrivePickerService.choose(session, signal);
         if (!signal.aborted && files.length)
-          setPending({
+          updatePendingSelection({
+            kind: "web",
             sessionId: session.sessionId,
             expiresAt: Date.parse(session.expiresAt),
             files,
@@ -509,6 +744,7 @@ function OwnerConnectorsPanel({
         }
       }
     });
+  };
   const connectMail = () => {
     const signal = controller.current?.signal;
     if (!user || !signal || signal.aborted || mailLock.current) return;
@@ -606,13 +842,12 @@ function OwnerConnectorsPanel({
     overview?.features.google_drive_connection === true;
   const canPick =
     drive?.available !== false &&
-    !Capacitor.isNativePlatform() &&
     overview?.features.google_drive_picker === true &&
     ["connected", "verifying"].includes(drive?.status ?? "");
   const confirmAction = () => {
     const target = confirm;
     setConfirm(null);
-    setPending(null);
+    updatePendingSelection(null);
     if (target === "mail") {
       const signal = controller.current?.signal;
       if (mailLock.current || !signal || signal.aborted) return;
@@ -861,14 +1096,30 @@ function OwnerConnectorsPanel({
                       disabled={driveBusy}
                       onClick={() =>
                         void runDrive(async (token, signal) => {
-                          await ExternalConnectorService.selectDocuments(
-                            token,
-                            pending.sessionId,
-                            pending.files.map((file) => file.id),
-                            allowBackground,
-                          );
+                          if (pending.kind === "native") {
+                            const selected =
+                              await ExternalConnectorService.confirmNativePicker(
+                                {
+                                  vaultOwnerToken: token,
+                                  attemptId: pending.attemptId,
+                                  backgroundProcessing: allowBackground,
+                                  isEffectCurrent: () =>
+                                    !signal.aborted &&
+                                    currentToken.current === token,
+                                },
+                              );
+                            if (!signal.aborted) setDocuments(selected.documents);
+                          } else {
+                            await ExternalConnectorService.selectDocuments(
+                              token,
+                              pending.sessionId,
+                              pending.files.map((file) => file.id),
+                              allowBackground,
+                            );
+                          }
                           if (!signal.aborted) {
-                            setPending(null);
+                            restorePickerFocus.current = true;
+                            updatePendingSelection(null);
                             await refreshDocuments(signal);
                           }
                         })
@@ -880,7 +1131,25 @@ function OwnerConnectorsPanel({
                       className={touch}
                       variant="outline"
                       disabled={driveBusy}
-                      onClick={() => setPending(null)}
+                      onClick={() => {
+                        if (pending.kind !== "native") {
+                          restorePickerFocus.current = true;
+                          updatePendingSelection(null);
+                          return;
+                        }
+                        void runDrive(async (token, signal) => {
+                          await ExternalConnectorService.cancelNativePicker({
+                            vaultOwnerToken: token,
+                            attemptId: pending.attemptId,
+                            isEffectCurrent: () =>
+                              !signal.aborted && currentToken.current === token,
+                          });
+                          if (!signal.aborted) {
+                            restorePickerFocus.current = true;
+                            updatePendingSelection(null);
+                          }
+                        });
+                      }}
                     >
                       Cancel selection
                     </Button>

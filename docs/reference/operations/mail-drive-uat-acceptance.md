@@ -30,6 +30,11 @@ parsing, embeddings and document access control remain outside Google AI service
   adapter, default-off Picker admission, owner-bound selection sessions and encrypted catalog
   in migration 228. Selection reports `queued`, not indexed. Scope upgrades, whole-Drive listing,
   remote MCP and provider writes are absent.
+- Native One Picker backend checkpoint: a separate owner/generation/credential-version-bound,
+  ten-minute PKCE attempt uses only `drive.file`, receives Google’s fixed HTTPS redirect, stages
+  at most 25 encrypted candidates after callback-token and existing-grant metadata checks, and
+  requires the original owner to confirm before catalog insertion. The callback token, OAuth
+  code and selected Google IDs are transient; none are persisted or handed to the app.
 - The adapter caps metadata at 256 KiB, ingestion bytes at 4 MiB and each operation/selection
   at 20 seconds. It rejects compressed responses, policy denials, CSE and shortcuts; checks
   source metadata both before and after fetch. The local processing checkpoint below adds bounded PDF/DOCX parsing.
@@ -101,7 +106,7 @@ parsing, embeddings and document access control remain outside Google AI service
   Google permission IDs identify grantees, not immutable grant instances: a fresh review must
   explicitly disclose removal of the current matching direct ACL, not promise detection of
   an indistinguishable external delete/recreate. Other inherited/group access may remain.
-  Grant/revoke outcome events are independent; delivery into Feed/push remains unimplemented.
+  Grant/revoke outcome events are independent; live delivery into Feed remains unimplemented.
 - Sharing-route checkpoint: authenticated request, private review, exact approval, decline,
   cancellation, delivery status and fresh revocation endpoints. B's request requires a recent
   verified Google Firebase identity matching the Vault Owner, not a Drive connection. All
@@ -113,9 +118,21 @@ parsing, embeddings and document access control remain outside Google AI service
   unselected inputs, is version/consent-fenced under publication locks; lease expiry is checked
   again after lock waits. B sees no candidate names or coverage. Three failed attempts require
   explicit owner refresh. Empty/partial coverage is not a complete-coverage claim.
-- Finite permission and suggestion worker entrypoints now exist. They use durable job authority,
-  not stored owner tokens. Concurrent workers cannot redispatch an uncertain Google write;
-  existing receipts are reconciled using reads. These workers are not deployed or scheduled.
+- Finite document, suggestion and permission workers use durable job authority, not stored owner
+  tokens. Concurrent workers cannot redispatch an uncertain Google write; existing receipts are
+  reconciled using reads. A default-off, OIDC-protected Drive work drain now sequences a small
+  bounded UAT sweep (indexing -> suggestions -> permission work -> notifications); it has no API
+  startup/background hook and remains inactive until explicit UAT runtime/scheduler configuration.
+- Notification-outbox checkpoint: migration 235 gives the existing opaque Drive-share events a
+  short lease, three bounded dispatch attempts, fair inspection and crash recovery. The finite
+  worker sends only one of the six reviewed `document_share_*` event types plus opaque request,
+  event and message IDs through the existing push adapter; its deterministic event-ID tag
+  deduplicates client delivery. Web/native derives its fixed review target locally and ignores
+  dynamic links for these event types. It never decrypts request/review/permission data or calls
+  a provider under the request transaction. `delivered_at` and
+  `notification_settled_at` mean the worker settled a dispatch attempt—not that a device showed
+  it or a person read it. Unknown event types are terminally suppressed without dispatch. The
+  worker is not live-notification accepted.
 - Account-lifecycle checkpoint: migration 234 separates owner-only removal contexts from
   private requests, including a migration-first compatibility trigger. Both account reset
   and deletion call transactional connector/Drive cleanup. B's request, app identity, review
@@ -132,7 +149,7 @@ parsing, embeddings and document access control remain outside Google AI service
   recorded outcomes. Vault generation checks run at dispatch and between every chained read;
   a successful mutation followed by a failed refresh still reconciles the generic feed.
   Private details stay in component memory. Missing pre-rollout tables preserve ordinary
-  consents without hiding real SQL failures. This does not prove notification delivery,
+  consents without hiding real SQL failures. This does not prove live notification delivery,
   native recovery or authenticated Google acceptance.
 - Request-creation web checkpoint: connected profiles provide purpose/period entry, fresh
   same-current-user Google verification and separate Firebase/Vault headers. Public person
@@ -183,12 +200,15 @@ stale results, wrong owner, partial consent, rotation, native finalization, revo
 legacy envelopes, cryptographically signed identity fixtures, bounded provider responses,
 redacted errors, and route authentication. Synthetic consent is not live-provider proof.
 
-## Required before enabling native authorization
+## Required before enabling native Google authorization or Picker
 
-The Google callback is fixed at
-`https://api.uat.hushh.ai/api/connectors/oauth/native/callback`.
-Its query contains a short-lived authorization code and signed state. Application filters
-redact both; Cloud Run generates its own request logs outside those filters.
+The normal native OAuth callback is fixed at
+`https://api.uat.hushh.ai/api/connectors/oauth/native/callback`; the native One Picker callback
+is fixed at
+`https://api.uat.hushh.ai/api/connectors/google_drive/picker/native/callback`.
+Both callback queries contain a short-lived authorization code and signed state; the Picker
+callback also contains selected Google file IDs. Application filters redact them, but Cloud Run
+generates its own request logs outside those filters.
 
 Inventory **all** applicable log sinks (project, ancestor and custom sinks) before consent.
 Record approved routing exclusions for only the secret-bearing callback request records,
@@ -198,13 +218,15 @@ while retaining redacted outcome/security telemetry. A narrow filter to review i
 resource.type="cloud_run_revision"
 resource.labels.service_name="consent-protocol"
 LOG_ID("run.googleapis.com/requests")
-httpRequest.requestUrl =~ "^https://[^/]+/api/connectors/oauth/native/callback([?].*)?$"
+httpRequest.requestUrl =~ "^https://[^/]+/api/connectors/(oauth/native/callback|google_drive/picker/native/callback)([?].*)?$"
 ```
 
 Do not apply a broad service/logging disablement or claim an `_Default` sink change covers
 ancestor/custom sinks. Routing exclusions act after ingestion; the accurate claim is
 “not retained or routed by verified sinks,” not “never ingested.” Use synthetic callback
-values for verification; never place a real code/token in logs or test evidence.
+values for verification; never place a real code, token, selected file ID, or filename in logs
+or test evidence. Sink inventory plus exclusion verification for **both** fixed callback paths
+is a release prerequisite before either native flow is enabled.
 References: [Cloud Run logging](https://docs.cloud.google.com/run/docs/logging),
 [Cloud Logging routing](https://docs.cloud.google.com/logging/docs/routing/overview).
 
@@ -212,6 +234,36 @@ The current cleanup is bounded and opportunistic: lifecycle traffic scrubs expir
 secrets and deletes workflow rows expired over 24 hours ago. Wire and prove the existing
 maintenance/scheduler lane for a hard retention deadline before rollout. Cleanup must not
 revoke a provider grant or mutate an active connection.
+
+## Required UAT Drive work-drain configuration
+
+The source route is intentionally default-off. After the governed backend candidate containing
+migration 235 is deployed, the UAT operator must configure these non-secret runtime values on
+that exact revision:
+
+```text
+ENVIRONMENT=uat
+DRIVE_WORK_DRAIN_ENABLED=true
+DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID=hushh-pda-uat
+DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL=drive-work-drain-sched@hushh-pda-uat.iam.gserviceaccount.com
+DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE=https://<exact-backend-origin>
+```
+
+The feature flags remain independently default-off: `GOOGLE_DRIVE_CONNECTION`,
+`DRIVE_DOCUMENT_INDEXING`, and `DRIVE_DOCUMENT_SHARING` must be enabled only for the named
+synthetic/internal accounts in `CONNECTOR_INTERNAL_OWNER_COHORT`. Do not use `*`, `all`, or a
+production environment. The Scheduler identity must be the exact same-project address above;
+the route rejects missing/non-OIDC tokens, a non-Google issuer, another project, a mismatched
+audience or an unverified service-account email.
+
+Run [`deploy/drive/setup_work_drain_scheduler.sh`](../../../deploy/drive/setup_work_drain_scheduler.sh)
+through the infrastructure/release owner with `BACKEND_URL` and the matching `OIDC_AUDIENCE`.
+The helper creates or updates only `drive-work-drain-uat`, posts to the fixed drain route every
+two minutes, and verifies its OIDC target. If Cloud Run ingress requires IAM invocation, grant
+only that scheduler account `roles/run.invoker` through the approved infrastructure path before
+running the helper; do not weaken the route or make a direct Cloud Run deployment. A successful
+Scheduler attempt means a bounded work dispatch occurred—not that Firebase delivered a push,
+someone opened a review, or Google shared a file.
 
 ## Remaining delivery checklist
 
@@ -242,7 +294,12 @@ revoke a provider grant or mutate an active connection.
   test/build artifacts. Existing staged OAuth completion is not native Picker proof.
 - [x] Chromium/WebKit mounted web checkpoint at 320/390/768/desktop widths. Full end-to-end
   acceptance remains required after ingestion/retrieval/sharing and native parity are complete.
-- [ ] Callback log-routing and scheduled retention proof before granting access.
+- [ ] Unified Drive work drain scheduled with verified Firebase push configuration, registered
+  synthetic-device token, normal notification cue and authenticated notification-tap proof.
+  Source-level outbox/lease/retry and Scheduler configuration do not prove device delivery or
+  receipt.
+- [ ] Verified callback log-routing for both native OAuth and native Picker fixed paths, plus
+  scheduled retention proof, before granting access.
 - [ ] Required CI/review, final overlap reconciliation, protected merge, green containing main
   SHA with its own Main Post-Merge Smoke Gate, serialized immutable-SHA UAT deployment.
 - [ ] Live serving SHA/image/revision/health and authenticated connector acceptance.

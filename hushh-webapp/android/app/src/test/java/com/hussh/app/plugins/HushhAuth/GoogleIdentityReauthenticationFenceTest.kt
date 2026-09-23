@@ -74,4 +74,23 @@ class GoogleIdentityReauthenticationFenceTest {
         assertTrue(fence.drainProvider())
         assertTrue(fence.canRelease)
     }
+
+    @Test fun pickerReturnHasItsOwnOpaqueAttemptAndCannotSettleAConnection() {
+        val picker = NativeDriveAuthorizationFence("owner", "picker_1234567890123", 120_000)
+        assertEquals(
+            NativeDriveAuthorizationFence.Claim.STALE,
+            picker.claim("attempt_123456789012", "owner", true, 101)
+        )
+        assertEquals(
+            NativeDriveAuthorizationFence.Claim.STALE,
+            picker.claim("picker_1234567890123", "other-owner", false, 101)
+        )
+        assertEquals(
+            NativeDriveAuthorizationFence.Claim.ACCEPTED,
+            picker.claim("picker_1234567890123", "owner", true, 101)
+        )
+        assertTrue(picker.settle())
+        assertTrue(picker.drainProvider())
+        assertTrue(picker.canRelease)
+    }
 }

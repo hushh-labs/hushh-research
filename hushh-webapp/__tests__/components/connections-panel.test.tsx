@@ -17,10 +17,16 @@ const state = vi.hoisted(() => ({
   pick: vi.fn(),
   native: false,
   nativeDrive: vi.fn(),
+  nativePicker: vi.fn(),
   nativeStart: vi.fn(),
   nativePending: vi.fn(),
   nativeFinalize: vi.fn(),
   nativeCallback: vi.fn(),
+  nativePickerStart: vi.fn(),
+  nativePickerPending: vi.fn(),
+  nativePickerConfirm: vi.fn(),
+  nativePickerCancel: vi.fn(),
+  nativePickerCallback: vi.fn(),
 }));
 vi.mock("@capacitor/core", () => ({
   Capacitor: { isNativePlatform: () => state.native },
@@ -34,7 +40,10 @@ vi.mock("@/lib/vault/vault-context", () => ({
   useVault: () => ({ vaultOwnerToken: state.token }),
 }));
 vi.mock("@/lib/capacitor", () => ({
-  HushhAuth: { connectDrive: state.nativeDrive },
+  HushhAuth: {
+    connectDrive: state.nativeDrive,
+    pickDriveFiles: state.nativePicker,
+  },
 }));
 vi.mock("@/lib/profile/gmail-connector-store", () => ({
   useGmailConnectorStatus: () => ({
@@ -54,6 +63,11 @@ vi.mock("@/lib/services/external-connector-service", () => ({
     pendingNative: state.nativePending,
     finalizeNative: state.nativeFinalize,
     nativeDriveOAuthCallbackUri: state.nativeCallback,
+    startNativePicker: state.nativePickerStart,
+    pendingNativePicker: state.nativePickerPending,
+    confirmNativePicker: state.nativePickerConfirm,
+    cancelNativePicker: state.nativePickerCancel,
+    nativeDrivePickerCallbackUri: state.nativePickerCallback,
   },
 }));
 vi.mock("@/lib/services/google-drive-picker-service", () => ({
@@ -87,6 +101,20 @@ const props = () => ({
   onExternalModalChange: vi.fn(),
 });
 
+function runAnimationFramesImmediately() {
+  const request = window.requestAnimationFrame;
+  const cancel = window.cancelAnimationFrame;
+  window.requestAnimationFrame = (callback: FrameRequestCallback) => {
+    callback(performance.now());
+    return 0;
+  };
+  window.cancelAnimationFrame = () => undefined;
+  return () => {
+    window.requestAnimationFrame = request;
+    window.cancelAnimationFrame = cancel;
+  };
+}
+
 describe("Connections owner and mutation fences", () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -103,10 +131,16 @@ describe("Connections owner and mutation fences", () => {
     }));
     state.pick.mockResolvedValue([]);
     state.nativeDrive.mockReset();
+    state.nativePicker.mockReset();
     state.nativeStart.mockReset();
     state.nativePending.mockReset();
     state.nativeFinalize.mockReset();
     state.nativeCallback.mockReset();
+    state.nativePickerStart.mockReset();
+    state.nativePickerPending.mockReset();
+    state.nativePickerConfirm.mockReset();
+    state.nativePickerCancel.mockReset();
+    state.nativePickerCallback.mockReset();
     state.nativePending.mockResolvedValue(null);
     state.nativeFinalize.mockResolvedValue({
       connectorId: "google_drive",
@@ -114,6 +148,12 @@ describe("Connections owner and mutation fences", () => {
     });
     state.nativeCallback.mockReturnValue(
       "https://api.example.invalid/api/connectors/oauth/native/callback",
+    );
+    state.nativePickerPending.mockResolvedValue(null);
+    state.nativePickerConfirm.mockResolvedValue({ documents: [] });
+    state.nativePickerCancel.mockResolvedValue(undefined);
+    state.nativePickerCallback.mockReturnValue(
+      "https://api.example.invalid/api/connectors/google_drive/picker/native/callback",
     );
   });
   afterEach(cleanup);
@@ -289,13 +329,13 @@ describe("Connections owner and mutation fences", () => {
     );
   });
 
-  it("reconciles a restart-safe native return and never exposes native Picker controls", async () => {
+  it("reconciles a restart-safe native connection return and exposes explicit native file selection", async () => {
     state.native = true;
     state.nativePending.mockResolvedValue(null);
     const p = props();
     render(<ConnectorsPanel {...p} />);
     expect(await screen.findByText("drive@example.invalid")).toBeVisible();
-    expect(screen.queryByRole("button", { name: "Choose files" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Choose files" })).toBeEnabled();
 
     state.nativePending.mockResolvedValue({
       attemptId: "attempt_123456789012",
@@ -313,6 +353,161 @@ describe("Connections owner and mutation fences", () => {
         expect.objectContaining({ attemptId: "attempt_123456789012" }),
       ),
     );
+  });
+
+  it("stages native Picker candidates after an opaque return and never adds them before confirmation", async () => {
+    const restoreAnimationFrames = runAnimationFramesImmediately();
+    try {
+      state.native = true;
+      state.overview.mockResolvedValue({
+        ...overview(),
+        features: {
+          ...overview().features,
+          drive_document_indexing: true,
+        },
+      });
+      state.nativePickerPending.mockResolvedValue({
+        attemptId: "picker_1234567890123",
+        expiresAt: new Date(Date.now() + 30_000).toISOString(),
+        files: [
+          {
+            documentId: "drive_file_123456789012",
+            name: "Six months of statements.pdf",
+            mimeType: "application/pdf",
+          },
+        ],
+      });
+      const p = props();
+      render(<ConnectorsPanel {...p} />);
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent("hushh:native-drive-picker-return", {
+            detail: { attemptId: "picker_1234567890123", outcome: "ready" },
+          }),
+        );
+      });
+      await screen.findByRole("region", { name: "Confirm selected files" });
+      expect(screen.getByText("Six months of statements.pdf")).toBeVisible();
+      expect(state.nativePickerConfirm).not.toHaveBeenCalled();
+      expect(state.documents).not.toHaveBeenCalledWith(
+        expect.stringContaining("drive_file"),
+      );
+
+      fireEvent.click(
+        screen.getByRole("checkbox", {
+          name: /allow one to process these files/i,
+        }),
+      );
+      const pendingCalls = state.nativePickerPending.mock.calls.length;
+      await act(async () => {
+        // A native browser bridge and appUrlOpen can report the same opaque
+        // completion. The second recovery must not erase explicit processing
+        // consent while the owner reviews the exact candidates.
+        window.dispatchEvent(
+          new CustomEvent("hushh:native-drive-picker-return", {
+            detail: { attemptId: "picker_1234567890123", outcome: "ready" },
+          }),
+        );
+      });
+      await waitFor(() =>
+        expect(state.nativePickerPending.mock.calls.length).toBeGreaterThan(
+          pendingCalls,
+        ),
+      );
+      expect(
+        screen.getByRole("checkbox", {
+          name: /allow one to process these files/i,
+        }),
+      ).toBeChecked();
+      await waitFor(() =>
+        expect(document.activeElement).toBe(
+          screen.getByRole("button", { name: "Add selected files" }),
+        ),
+      );
+      fireEvent.click(
+        screen.getByRole("button", { name: "Add selected files" }),
+      );
+      await waitFor(() =>
+        expect(state.nativePickerConfirm).toHaveBeenCalledWith(
+          expect.objectContaining({
+            vaultOwnerToken: "vault-a",
+            attemptId: "picker_1234567890123",
+            backgroundProcessing: true,
+          }),
+        ),
+      );
+      await waitFor(() =>
+        expect(
+          screen.queryByRole("region", { name: "Confirm selected files" }),
+        ).toBeNull(),
+      );
+      await waitFor(() =>
+        expect(document.activeElement).toBe(
+          screen.getByRole("button", { name: "Choose files" }),
+        ),
+      );
+    } finally {
+      restoreAnimationFrames();
+    }
+  });
+
+  it("starts the native Picker through the opaque server callback and tolerates a bridge cancellation race", async () => {
+    state.native = true;
+    state.nativePickerStart.mockResolvedValue({
+      attemptId: "picker_1234567890123",
+      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=test",
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+    state.nativePicker.mockResolvedValue({
+      attemptId: "picker_1234567890123",
+      outcome: "cancelled",
+    });
+    render(<ConnectorsPanel {...props()} />);
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Choose files" }),
+    );
+    await waitFor(() =>
+      expect(state.nativePickerStart).toHaveBeenCalledWith(
+        expect.objectContaining({
+          vaultOwnerToken: "vault-a",
+          redirectUri:
+            "https://api.example.invalid/api/connectors/google_drive/picker/native/callback",
+        }),
+      ),
+    );
+    await waitFor(() => expect(state.nativePickerPending).toHaveBeenCalled());
+    expect(state.nativePickerConfirm).not.toHaveBeenCalled();
+  });
+
+  it("cancels a staged native Picker selection without adding documents", async () => {
+    state.native = true;
+    state.nativePickerPending.mockResolvedValue({
+      attemptId: "picker_1234567890123",
+      expiresAt: new Date(Date.now() + 30_000).toISOString(),
+      files: [
+        {
+          documentId: "drive_file_123456789012",
+          name: "Statement.pdf",
+          mimeType: "application/pdf",
+        },
+      ],
+    });
+    render(<ConnectorsPanel {...props()} />);
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("hushh:native-drive-picker-return", {
+          detail: { attemptId: "picker_1234567890123", outcome: "ready" },
+        }),
+      );
+    });
+    await screen.findByRole("region", { name: "Confirm selected files" });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel selection" }));
+    await waitFor(() =>
+      expect(state.nativePickerCancel).toHaveBeenCalledWith(
+        expect.objectContaining({ attemptId: "picker_1234567890123" }),
+      ),
+    );
+    expect(state.nativePickerConfirm).not.toHaveBeenCalled();
   });
 
   it("keeps a cancelled native Drive attempt disconnected when no pending credential exists", async () => {

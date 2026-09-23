@@ -56,6 +56,16 @@
                 <data android:scheme="hushh" android:host="connectors" android:path="/return" />
             </intent-filter>
 
+            <!-- Google selected-file Picker has a distinct opaque handoff.
+                 Do not broaden the connection route: a Picker return stages
+                 candidates only and cannot complete credential activation. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="hushh" android:host="connectors" android:path="/picker-return" />
+            </intent-filter>
+
             <!--
                 Android App Links for the OAuth returns. Without an autoVerify
                 https filter the system hands the redirect to the browser, and a

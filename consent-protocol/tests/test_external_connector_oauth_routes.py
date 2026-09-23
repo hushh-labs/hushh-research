@@ -47,6 +47,20 @@ def route_client(monkeypatch):
         ("/api/connectors/google_drive/disconnect", {}),
         ("/api/connectors/google_drive/picker/session", {"origin": "https://example.invalid"}),
         (
+            "/api/connectors/google_drive/picker/native/start",
+            {
+                "redirectUri": "https://example.invalid/api/connectors/google_drive/picker/native/callback"
+            },
+        ),
+        (
+            "/api/connectors/google_drive/picker/native/confirm",
+            {"attemptId": "550e8400-e29b-41d4-a716-446655440000"},
+        ),
+        (
+            "/api/connectors/google_drive/picker/native/cancel",
+            {"attemptId": "550e8400-e29b-41d4-a716-446655440000"},
+        ),
+        (
             "/api/connectors/google_drive/documents/select",
             {
                 "sessionId": "550e8400-e29b-41d4-a716-446655440000",
@@ -110,6 +124,146 @@ def test_selection_routes_derive_owner_reject_unknown_fields_and_do_not_cache_to
         file_ids=["file-one"],
         processing_consent=None,
     )
+
+
+def test_native_picker_routes_keep_candidates_owner_bound_and_processing_opt_in(
+    route_client, monkeypatch
+):
+    client, app, _ = route_client
+    native = SimpleNamespace(
+        start=AsyncMock(
+            return_value={
+                "authorizeUrl": "https://accounts.google.com/o/oauth2/v2/auth?state=signed",
+                "attemptId": "550e8400-e29b-41d4-a716-446655440000",
+                "expiresAt": "2026-09-23T12:00:00+00:00",
+            }
+        ),
+        pending=AsyncMock(
+            return_value={
+                "attemptId": "550e8400-e29b-41d4-a716-446655440000",
+                "expiresAt": "2026-09-23T12:00:00+00:00",
+                "files": [
+                    {
+                        "documentId": "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+                        "name": "Statement",
+                        "mimeType": "application/pdf",
+                    }
+                ],
+            }
+        ),
+        confirm=AsyncMock(return_value=[{"documentId": "catalog-document"}]),
+        cancel=AsyncMock(return_value="cancelled"),
+    )
+    monkeypatch.setattr(routes, "DriveNativePickerService", lambda: native)
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "verified-owner"}
+    redirect = "https://example.invalid/api/connectors/google_drive/picker/native/callback"
+    start_response = client.post(
+        "/api/connectors/google_drive/picker/native/start", json={"redirectUri": redirect}
+    )
+    assert start_response.status_code == 200
+    assert start_response.headers["cache-control"] == "no-store"
+    native.start.assert_awaited_once_with(user_id="verified-owner", redirect_uri=redirect)
+
+    pending_response = client.get("/api/connectors/google_drive/picker/native/pending")
+    assert pending_response.status_code == 200
+    assert pending_response.headers["cache-control"] == "no-store"
+    assert pending_response.json()["pending"]["files"][0].keys() == {
+        "documentId",
+        "name",
+        "mimeType",
+    }
+    assert "fileId" not in pending_response.text
+    assert "token" not in pending_response.text
+
+    attempt_id = "550e8400-e29b-41d4-a716-446655440000"
+    assert (
+        client.post(
+            "/api/connectors/google_drive/picker/native/confirm",
+            json={
+                "attemptId": attempt_id,
+                "processingConsent": "selected-files-background-v1",
+            },
+        ).status_code
+        == 200
+    )
+    native.confirm.assert_awaited_once_with(
+        user_id="verified-owner",
+        attempt_id=attempt_id,
+        processing_consent="selected-files-background-v1",
+    )
+    cancel_response = client.post(
+        "/api/connectors/google_drive/picker/native/cancel",
+        json={"attemptId": attempt_id},
+    )
+    assert cancel_response.status_code == 200
+    assert cancel_response.json() == {"status": "cancelled"}
+    native.cancel.assert_awaited_once_with(user_id="verified-owner", attempt_id=attempt_id)
+
+
+def test_native_picker_cancel_route_reports_a_confirmed_race_winner(route_client, monkeypatch):
+    client, app, _ = route_client
+    native = SimpleNamespace(cancel=AsyncMock(return_value="confirmed"))
+    monkeypatch.setattr(routes, "DriveNativePickerService", lambda: native)
+    app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "verified-owner"}
+
+    response = client.post(
+        "/api/connectors/google_drive/picker/native/cancel",
+        json={"attemptId": "550e8400-e29b-41d4-a716-446655440000"},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"status": "confirmed"}
+    native.cancel.assert_awaited_once_with(
+        user_id="verified-owner", attempt_id="550e8400-e29b-41d4-a716-446655440000"
+    )
+
+
+def test_native_picker_callback_returns_only_opaque_handoff(route_client, monkeypatch):
+    client, _, _ = route_client
+    native = SimpleNamespace(
+        callback=AsyncMock(return_value=("550e8400-e29b-41d4-a716-446655440000", "ready"))
+    )
+    monkeypatch.setattr(routes, "DriveNativePickerService", lambda: native)
+    response = client.get(
+        "/api/connectors/google_drive/picker/native/callback",
+        params={
+            "state": "signed-native-state",
+            "code": "provider-code-must-not-leak",
+            "scope": "https://www.googleapis.com/auth/drive.file",
+            "picked_file_ids": "provider-file-id-must-not-leak",
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 303
+    destination = urlparse(response.headers["location"])
+    assert (destination.scheme, destination.netloc, destination.path) == (
+        "hushh",
+        "connectors",
+        "/picker-return",
+    )
+    assert parse_qs(destination.query) == {
+        "attemptId": ["550e8400-e29b-41d4-a716-446655440000"],
+        "outcome": ["ready"],
+    }
+    assert response.headers["cache-control"] == "no-store"
+    assert response.headers["referrer-policy"] == "no-referrer"
+    assert "provider-code-must-not-leak" not in str(response.headers)
+    assert "provider-file-id-must-not-leak" not in str(response.headers)
+
+
+def test_native_picker_invalid_state_has_no_handoff(route_client, monkeypatch):
+    client, _, _ = route_client
+    native = SimpleNamespace(
+        callback=AsyncMock(side_effect=ExternalConnectorOAuthError("OAuth state is invalid"))
+    )
+    monkeypatch.setattr(routes, "DriveNativePickerService", lambda: native)
+    response = client.get(
+        "/api/connectors/google_drive/picker/native/callback",
+        params={"state": "forged", "code": "provider-code"},
+        follow_redirects=False,
+    )
+    assert response.status_code == 400
+    assert "location" not in response.headers
 
 
 def test_processing_and_resync_are_owner_bound(route_client, monkeypatch):

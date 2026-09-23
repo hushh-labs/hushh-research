@@ -108,6 +108,23 @@ export class HushhAuthWeb implements HushhAuthPlugin {
     );
   }
 
+  async pickDriveFiles(_options: {
+    authorizeUrl: string;
+    attemptId: string;
+    expiresAt: number;
+    expectedUserId: string;
+  }): Promise<{
+    attemptId: string;
+    outcome: "ready" | "cancelled" | "failed";
+  }> {
+    // The web surface deliberately uses the Google Picker service instead.
+    // A native Picker callback is opaque and cannot be safely emulated with a
+    // popup or an access token in browser JavaScript.
+    throw new Error(
+      "Native Drive file selection is only available in the mobile app.",
+    );
+  }
+
   async signInWithApple(): Promise<{
     idToken: string;
     accessToken?: string;

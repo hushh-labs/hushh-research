@@ -102,4 +102,74 @@ describe("ExternalConnectorService native Drive OAuth", () => {
     expect(JSON.stringify(apiFetch.mock.calls)).not.toContain("accessToken");
     expect(JSON.stringify(apiFetch.mock.calls)).not.toContain("refreshToken");
   });
+
+  it("keeps native Picker candidates server-staged until the owner confirms", async () => {
+    const isEffectCurrent = vi.fn(() => true);
+    apiFetch
+      .mockResolvedValueOnce(
+        Response.json({
+          authorizeUrl:
+            "https://accounts.google.com/o/oauth2/v2/auth?synthetic=picker",
+          expiresAt: "2026-09-23T12:00:00+00:00",
+          attemptId: "picker_1234567890123",
+        }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          pending: {
+            attemptId: "picker_1234567890123",
+            expiresAt: "2026-09-23T12:00:00+00:00",
+            files: [
+              {
+                documentId: "drive_file_123456789012",
+                name: "Statement.pdf",
+                mimeType: "application/pdf",
+              },
+            ],
+          },
+        }),
+      )
+      .mockResolvedValueOnce(Response.json({ documents: [] }))
+      .mockResolvedValueOnce(Response.json({}));
+
+    await expect(
+      ExternalConnectorService.startNativePicker({
+        vaultOwnerToken: "owner-token",
+        redirectUri:
+          "https://api.uat.hushh.ai/api/connectors/google_drive/picker/native/callback",
+        isEffectCurrent,
+      }),
+    ).resolves.toMatchObject({ attemptId: "picker_1234567890123" });
+    await expect(
+      ExternalConnectorService.pendingNativePicker({
+        vaultOwnerToken: "owner-token",
+        isEffectCurrent,
+      }),
+    ).resolves.toMatchObject({ attemptId: "picker_1234567890123" });
+
+    // Reading a staged candidate does not confirm it.
+    expect(apiFetch.mock.calls.map((call) => call[0])).not.toContain(
+      "/api/connectors/google_drive/picker/native/confirm",
+    );
+
+    await ExternalConnectorService.confirmNativePicker({
+      vaultOwnerToken: "owner-token",
+      attemptId: "picker_1234567890123",
+      isEffectCurrent,
+    });
+    await ExternalConnectorService.cancelNativePicker({
+      vaultOwnerToken: "owner-token",
+      attemptId: "picker_1234567890123",
+      isEffectCurrent,
+    });
+
+    expect(apiFetch.mock.calls.map((call) => call[0])).toEqual([
+      "/api/connectors/google_drive/picker/native/start",
+      "/api/connectors/google_drive/picker/native/pending",
+      "/api/connectors/google_drive/picker/native/confirm",
+      "/api/connectors/google_drive/picker/native/cancel",
+    ]);
+    expect(JSON.stringify(apiFetch.mock.calls)).not.toContain("accessToken");
+    expect(JSON.stringify(apiFetch.mock.calls)).not.toContain("refreshToken");
+  });
 });

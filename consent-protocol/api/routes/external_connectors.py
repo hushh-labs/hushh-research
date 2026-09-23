@@ -14,12 +14,13 @@ from typing import Literal, Optional
 from urllib.parse import urlencode
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from hushh_mcp.services.connector_feature_admission import connector_features
+from hushh_mcp.services.drive_native_picker_service import DriveNativePickerService
 from hushh_mcp.services.drive_selection_service import DriveSelectionService
 from hushh_mcp.services.external_connector_credentials_service import (
     ExternalConnectorCredentialError,
@@ -112,6 +113,44 @@ class PickerSessionRequest(BaseModel):
     origin: str = Field(min_length=1, max_length=2048)
 
 
+class NativePickerStartRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    redirectUri: str = Field(min_length=1, max_length=2048)
+
+
+class NativePickerStartResponse(BaseModel):
+    authorizeUrl: str
+    attemptId: str
+    expiresAt: str
+
+
+class NativePickerAttemptFile(BaseModel):
+    documentId: str
+    name: str
+    mimeType: str
+
+
+class PendingNativePickerAttempt(BaseModel):
+    attemptId: str
+    expiresAt: str
+    files: list[NativePickerAttemptFile]
+
+
+class PendingNativePickerResponse(BaseModel):
+    pending: PendingNativePickerAttempt | None
+
+
+class NativePickerConfirmRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    attemptId: UUID
+    processingConsent: Literal["selected-files-background-v1"] | None = None
+
+
+class NativePickerCancelRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    attemptId: UUID
+
+
 class SelectDriveDocumentsRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     sessionId: UUID
@@ -162,6 +201,104 @@ async def drive_picker_session(
         )
     except _DRIVE_ERRORS as error:
         raise _drive_selection_error(error) from None
+
+
+@router.post("/google_drive/picker/native/start", response_model=NativePickerStartResponse)
+async def start_native_drive_picker(
+    body: NativePickerStartRequest,
+    response: Response,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Start the documented One Picker redirect without giving the app a token."""
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    try:
+        return await DriveNativePickerService().start(
+            user_id=_user_id(token_data), redirect_uri=body.redirectUri
+        )
+    except _DRIVE_ERRORS as error:
+        raise _drive_selection_error(error) from None
+
+
+@router.get("/google_drive/picker/native/pending", response_model=PendingNativePickerResponse)
+async def pending_native_drive_picker(
+    response: Response, token_data: dict = Depends(require_vault_owner_token)
+):
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Pragma"] = "no-cache"
+    try:
+        return {"pending": await DriveNativePickerService().pending(user_id=_user_id(token_data))}
+    except _DRIVE_ERRORS as error:
+        raise _drive_selection_error(error) from None
+
+
+@router.post("/google_drive/picker/native/confirm")
+async def confirm_native_drive_picker(
+    body: NativePickerConfirmRequest,
+    response: Response,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        return {
+            "documents": await DriveNativePickerService().confirm(
+                user_id=_user_id(token_data),
+                attempt_id=str(body.attemptId),
+                processing_consent=body.processingConsent,
+            )
+        }
+    except _DRIVE_ERRORS as error:
+        raise _drive_selection_error(error) from None
+
+
+@router.post("/google_drive/picker/native/cancel")
+async def cancel_native_drive_picker(
+    body: NativePickerCancelRequest,
+    response: Response,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        status = await DriveNativePickerService().cancel(
+            user_id=_user_id(token_data), attempt_id=str(body.attemptId)
+        )
+        return {"status": status}
+    except _DRIVE_ERRORS as error:
+        raise _drive_selection_error(error) from None
+
+
+@router.get("/google_drive/picker/native/callback")
+async def native_drive_picker_callback(
+    request: Request,
+    state: str = Query(min_length=1, max_length=4096),
+    code: Optional[str] = Query(default=None, max_length=4096),
+    scope: Optional[str] = Query(default=None, max_length=2048),
+    picked_file_ids: Optional[str] = Query(default=None, max_length=6000),
+    error: Optional[str] = Query(default=None, max_length=200),
+):
+    """Fixed Google One Picker redirect; the app receives no provider material."""
+    # Repeated callback fields are ambiguous.  Reject before extracting an
+    # attempt id so a malformed public query cannot select a different value.
+    for name in ("state", "code", "scope", "picked_file_ids", "error"):
+        if len(request.query_params.getlist(name)) > 1:
+            raise HTTPException(status_code=400, detail="invalid_callback")
+    try:
+        attempt_id, outcome = await DriveNativePickerService().callback(
+            state=state,
+            code=code,
+            scope=scope,
+            picked_file_ids=picked_file_ids,
+            error=error,
+        )
+    except ExternalConnectorOAuthError as exc:
+        # Invalid signed state must not produce an app handoff.
+        raise _oauth_error(exc) from None
+    return RedirectResponse(
+        "hushh://connectors/picker-return?"
+        + urlencode({"attemptId": attempt_id, "outcome": outcome}),
+        status_code=303,
+        headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"},
+    )
 
 
 @router.post("/google_drive/documents/select")

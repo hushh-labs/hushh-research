@@ -11,6 +11,15 @@ tests/services/test_drive_ingestion.py
 tests/services/test_drive_document_processor.py
 tests/services/test_drive_document_retrieval.py
 tests/services/test_drive_document_worker.py
+# Native selected-file staging, the privacy-only notification outbox, and the
+# bounded Scheduler coordinator each rely on real PostgreSQL leases.  Keep
+# these in the blocking manifest: collection-only coverage cannot catch a
+# migration, callback replay, or concurrent claim regression.
+tests/services/test_drive_native_picker.py
+tests/services/test_drive_share_notification_worker.py
+tests/services/test_drive_work_drain.py
+tests/test_drive_work_drain_routes.py
+tests/test_drive_work_drain_scheduler_contract.py
 tests/services/test_google_drive_permission_adapter.py
 tests/services/test_drive_sharing_contract.py
 tests/services/test_document_review_authority_postgres.py

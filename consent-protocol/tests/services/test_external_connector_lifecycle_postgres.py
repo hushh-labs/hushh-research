@@ -136,6 +136,7 @@ def lifecycle(connector_postgres_url):
                 "228_selected_drive_documents.sql",
                 "229_drive_document_chunks.sql",
                 "230_drive_processing_consent.sql",
+                "236_drive_native_picker_attempts.sql",
             ):
                 connection.exec_driver_sql((MIGRATIONS / filename).read_text())
             # Release migrations are replayable, including after constraints exist.
@@ -144,6 +145,9 @@ def lifecycle(connector_postgres_url):
             )
             connection.exec_driver_sql(
                 (MIGRATIONS / "228_selected_drive_documents.sql").read_text()
+            )
+            connection.exec_driver_sql(
+                (MIGRATIONS / "236_drive_native_picker_attempts.sql").read_text()
             )
             connection.execute(
                 text("""
@@ -503,6 +507,7 @@ def drive(lifecycle, monkeypatch):
                 registered_redirect_uris=(
                     "https://example.invalid/return",
                     "https://api.example.invalid/api/connectors/oauth/native/callback",
+                    "https://api.example.invalid/api/connectors/google_drive/picker/native/callback",
                 ),
             )
         )

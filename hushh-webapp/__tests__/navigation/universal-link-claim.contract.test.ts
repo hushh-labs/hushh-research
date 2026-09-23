@@ -7,6 +7,7 @@ import { UNIVERSAL_LINK_PATHS } from "@/app/.well-known/apple-app-site-associati
 import {
   resolveDeepLinkPath,
   resolveNativeConnectorReturn,
+  resolveNativeDrivePickerReturn,
 } from "@/lib/navigation/use-deep-link-return";
 
 /**
@@ -135,6 +136,36 @@ describe("Universal Link / App Link claim", () => {
     expect(iosAuth).toContain(
       "url.user == nil, url.password == nil, url.port == nil",
     );
+  });
+
+  it("keeps native Drive Picker returns separate, opaque, and narrowly claimed", () => {
+    const attemptId = "picker_1234567890123";
+    expect(
+      resolveNativeDrivePickerReturn(
+        `hushh://connectors/picker-return?attemptId=${attemptId}&outcome=ready`,
+      ),
+    ).toEqual({ attemptId, outcome: "ready" });
+    for (const malformed of [
+      `hushh://connectors/picker-return?attemptId=${attemptId}&outcome=ready&fileId=private`,
+      `hushh://connectors/return?attemptId=${attemptId}&outcome=ready`,
+      `hushh://connectors/picker-return?attemptId=${attemptId}&outcome=ready&outcome=ready`,
+      `hushh://user@connectors/picker-return?attemptId=${attemptId}&outcome=ready`,
+      `hushh://connectors:444/picker-return?attemptId=${attemptId}&outcome=ready`,
+      `hushh://connectors/picker-return?attemptId=short&outcome=ready`,
+    ]) {
+      expect(resolveNativeDrivePickerReturn(malformed)).toBeNull();
+    }
+
+    const manifest = read("android/app/src/main/AndroidManifest.xml");
+    expect(manifest).toContain('android:path="/picker-return"');
+    const androidAuth = read(
+      "android/app/src/main/java/com/hussh/app/plugins/HushhAuth/HushhAuthPlugin.kt",
+    );
+    const iosAuth = read("ios/App/App/Plugins/HushhAuthPlugin.swift");
+    expect(androidAuth).toContain('PICKER("/picker-return")');
+    expect(androidAuth).toContain("pickDriveFiles(call: PluginCall)");
+    expect(iosAuth).toContain('url.path == "/picker-return"');
+    expect(iosAuth).toContain("pickDriveFiles(_ call: CAPPluginCall)");
   });
 
   it("delegates handle_all_urls, not only login credentials", () => {

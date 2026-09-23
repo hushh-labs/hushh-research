@@ -993,6 +993,11 @@ routes remain default-off and do **not** enable chat reads or indexing.
 | `POST /api/connectors/google_drive/disconnect` | Vault Owner; remains available when rollout is off | Immediately disables local execution, invalidates attempts, clears credentials, then makes a bounded in-memory provider revocation attempt. Reports `revocationOutcome`; no background retry is promised. |
 | `POST /api/connectors/google_drive/picker/session` | Vault Owner + Picker cohort/flag | Exact registered web `origin`; verifies authenticated Drive About and fixed selected-file policy, then returns a ten-minute opaque selection session and the minimum short-lived Google access credential for the official Picker. Backend and web proxy both set `no-store`. No refresh token. |
 | `POST /api/connectors/google_drive/documents/select` | Same Vault Owner + current single-use session + explicit `confirmed=true` | At most 25 unique candidate IDs. Revalidates fixed provider metadata/policy; atomically consumes the session and inserts encrypted internal catalog references in `queued` state. Does not claim indexing completed. |
+| `POST /api/connectors/google_drive/picker/native/start` | Vault Owner + Picker cohort/flag | Requires the exact registered HTTPS callback. Starts a separate ten-minute PKCE One Picker attempt with only `drive.file`, `trigger_onepick=true`, and `allow_multiple=true`; returns an authorization URL, opaque attempt ID and expiry only. |
+| `GET /api/connectors/google_drive/picker/native/callback` | Signed state + atomic native Picker attempt claim | Fixed Google HTTPS callback accepts the provider redirect server-side. It validates exactly `drive.file`, transiently exchanges the code, validates no more than 25 picked IDs with both the callback credential and the current verified connector credential, encrypts minimal staged metadata, then redirects only to `hushh://connectors/picker-return?attemptId=…&outcome=…`. It never persists the callback token, OAuth code, selected provider IDs, or a callback-account identity claim. Invalid state has no handoff. |
+| `GET /api/connectors/google_drive/picker/native/pending` | Original Vault Owner | Returns only the current opaque attempt, expiry, owner-review display name/mime type, and opaque staging document handles. No provider IDs, codes, subjects, raw query data, or credentials. |
+| `POST /api/connectors/google_drive/picker/native/confirm` | Original Vault Owner | Accepts only an opaque attempt ID and optional explicit `selected-files-background-v1` processing consent. Rechecks generation, credential version, policy, and current stored grant before atomically consuming the shared selection session and inserting catalog entries. Omitting consent cannot enable processing. |
+| `POST /api/connectors/google_drive/picker/native/cancel` | Original Vault Owner | Idempotently removes the linked selection session and native attempt, suppressing late callback/confirmation results. |
 | `GET /api/connectors/google_drive/documents` | Vault Owner | Owner-only internal document references, names and safe states. Available after grant rejection and with execution disabled; never provider file IDs or tokens. |
 | `DELETE /api/connectors/google_drive/documents/{document_id}` | Vault Owner + explicit `confirmed=true` | Repeat-safe local removal, no Google mutation. Invalidates pending Picker sessions so in-flight selection cannot resurrect a removed source. Works without provider credentials or document decryption. |
 
@@ -1029,19 +1034,23 @@ server completion. Other management routes retain their vault gates. The officia
 receives an in-memory short-lived token only, and selection needs a separate explicit owner
 confirmation. Blocked popups remain in chat; no unencrypted full-page recovery is used.
 
-Native Drive uses the same registered backend HTTPS callback, followed only by the
-opaque `hushh://connectors/return` handoff. iOS presents it through
-`ASWebAuthenticationSession`; Android uses Auth Tab with the documented Custom Tabs
-fallback. The app validates the fixed Google authorization origin and the opaque result,
-keeps browser/auth interactions single-flight, and reconciles staged state only after the
-original Vault Owner is current. The native return never replaces chat navigation or exposes
-an OAuth code, state, provider identity, token, or selected file identifier to JavaScript.
+Native Drive authorization and native file selection use separate fixed registered backend HTTPS
+callbacks. The One Picker path requests **only** `drive.file`; Google does not return OIDC identity
+in that flow, so it never claims to identify the callback account. Its callback credential is
+transient, validates the picked metadata only, and is discarded before the opaque
+`hushh://connectors/picker-return` handoff. iOS presents it through
+`ASWebAuthenticationSession`; Android uses Auth Tab with the documented Custom Tabs fallback.
+The app validates the fixed Google authorization origin and opaque result, keeps browser/auth
+interactions single-flight, and reconciles staged state only after the original Vault Owner is
+current. The native return never replaces chat navigation or exposes an OAuth code, state,
+provider identity, token, or selected file identifier to JavaScript.
 
-Release prerequisites still include native Picker, encrypted full-page recovery, ingestion/index/search/grants,
-scheduled retention, and OAuth callback ingress-log routing evidence. Native Picker requires a
-separate drive.file-only system-browser flow; the existing staged native OAuth foundation alone
-is not native Picker completion. Application redaction covers query `code`/`state`/`picked_file_ids`
-and Drive file-ID paths, but does not sanitize platform-managed request logs.
+Release prerequisites still include encrypted full-page recovery, ingestion/index/search/grants,
+scheduled retention, authenticated mobile Picker acceptance, and OAuth callback ingress-log routing
+evidence. Native Picker requires the fixed registered HTTPS callback plus the Google Picker API key
+in the native shell; source-level handling does not prove either environment prerequisite.
+Application redaction covers query `code`/`state`/`picked_file_ids` and Drive file-ID paths, but
+does not sanitize platform-managed request logs.
 See [Mail + Drive UAT acceptance](../operations/mail-drive-uat-acceptance.md).
 
 ### Delegated Mail metadata reads (default-off)

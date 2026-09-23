@@ -26,11 +26,20 @@ import { useRouter } from "next/navigation";
 import { APP_FRONTEND_ORIGIN } from "@/lib/config";
 
 export const NATIVE_CONNECTOR_RETURN_EVENT = "hushh:native-connector-return";
+export const NATIVE_DRIVE_PICKER_RETURN_EVENT =
+  "hushh:native-drive-picker-return";
 
 export type NativeConnectorReturn = {
   attemptId: string;
   outcome: "ready" | "cancelled" | "failed";
 };
+
+/**
+ * Keep file-selection handoffs distinct from connection handoffs. Both are
+ * opaque browser arrivals, but a selected-file candidate must never be
+ * mistaken for a completed credential connection (or vice versa).
+ */
+export type NativeDrivePickerReturn = NativeConnectorReturn;
 
 function knownOrigins(): string[] {
   const configured = String(APP_FRONTEND_ORIGIN || "")
@@ -115,6 +124,55 @@ export function resolveNativeConnectorReturn(
   return { attemptId, outcome };
 }
 
+/**
+ * Native Google Picker returns are opaque events, never app navigation. The
+ * exact path is part of the protocol so a connection return cannot release a
+ * staged selection, and no callback can inject a provider URL or file data
+ * into the mounted chat.
+ */
+export function resolveNativeDrivePickerReturn(
+  rawUrl: string,
+): NativeDrivePickerReturn | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(String(rawUrl || "").trim());
+  } catch {
+    return null;
+  }
+  if (
+    parsed.protocol !== "hushh:" ||
+    parsed.hostname !== "connectors" ||
+    parsed.pathname !== "/picker-return" ||
+    parsed.username ||
+    parsed.password ||
+    parsed.port ||
+    parsed.hash
+  ) {
+    return null;
+  }
+  const keys = [...parsed.searchParams.keys()];
+  if (
+    keys.length !== 2 ||
+    !keys.includes("attemptId") ||
+    !keys.includes("outcome")
+  ) {
+    return null;
+  }
+  const attemptIds = parsed.searchParams.getAll("attemptId");
+  const outcomes = parsed.searchParams.getAll("outcome");
+  const attemptId = attemptIds[0] || "";
+  const outcome = outcomes[0];
+  if (
+    attemptIds.length !== 1 ||
+    outcomes.length !== 1 ||
+    !/^[A-Za-z0-9_-]{16,128}$/.test(attemptId) ||
+    (outcome !== "ready" && outcome !== "cancelled" && outcome !== "failed")
+  ) {
+    return null;
+  }
+  return { attemptId, outcome };
+}
+
 export function useDeepLinkReturn(): void {
   const router = useRouter();
 
@@ -122,6 +180,7 @@ export function useDeepLinkReturn(): void {
     let disposed = false;
     let remove: (() => void) | undefined;
     let latestConnectorReturn = "";
+    let latestPickerReturn = "";
 
     void (async () => {
       const { Capacitor } = await import("@capacitor/core");
@@ -140,6 +199,21 @@ export function useDeepLinkReturn(): void {
               NATIVE_CONNECTOR_RETURN_EVENT,
               {
                 detail: connectorReturn,
+              },
+            ),
+          );
+          return;
+        }
+        const pickerReturn = resolveNativeDrivePickerReturn(rawUrl);
+        if (pickerReturn) {
+          const key = `${pickerReturn.attemptId}:${pickerReturn.outcome}`;
+          if (latestPickerReturn === key || disposed) return;
+          latestPickerReturn = key;
+          window.dispatchEvent(
+            new CustomEvent<NativeDrivePickerReturn>(
+              NATIVE_DRIVE_PICKER_RETURN_EVENT,
+              {
+                detail: pickerReturn,
               },
             ),
           );

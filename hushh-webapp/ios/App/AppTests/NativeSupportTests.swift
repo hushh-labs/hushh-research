@@ -76,6 +76,27 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertTrue(fence.canRelease)
     }
 
+    func testNativeDrivePickerFenceDoesNotAcceptAnotherOwnersOrConnectionsReturn() {
+        let picker = NativeDriveAuthorizationFence(
+            expectedUserID: "owner-a", expectedAttemptID: "picker_1234567890123", expiresAtMilliseconds: 120_000
+        )
+        XCTAssertEqual(
+            picker.claim(attemptID: "attempt_123456789012", userID: "owner-a", sameSession: true, now: 101),
+            .stale
+        )
+        XCTAssertEqual(
+            picker.claim(attemptID: "picker_1234567890123", userID: "owner-b", sameSession: false, now: 101),
+            .stale
+        )
+        XCTAssertEqual(
+            picker.claim(attemptID: "picker_1234567890123", userID: "owner-a", sameSession: true, now: 101),
+            .accepted
+        )
+        XCTAssertTrue(picker.settle())
+        XCTAssertTrue(picker.drainProvider())
+        XCTAssertTrue(picker.canRelease)
+    }
+
     func testNativeTestConfigurationParsesArguments() {
         let config = NativeTestConfiguration(arguments: [
             "App",

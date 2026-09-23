@@ -135,6 +135,22 @@ export interface HushhAuthPlugin {
   }>;
 
   /**
+   * Opens the server-authored Google selected-file Picker in the native
+   * browser surface. The bridge returns no file identifiers, OAuth material,
+   * or provider metadata; the owner-protected backend stages candidates until
+   * the person explicitly confirms them in One.
+   */
+  pickDriveFiles(options: {
+    authorizeUrl: string;
+    attemptId: string;
+    expiresAt: number;
+    expectedUserId: string;
+  }): Promise<{
+    attemptId: string;
+    outcome: "ready" | "cancelled" | "failed";
+  }>;
+
+  /**
    * Sign in with Apple using native iOS AuthenticationServices or Firebase OAuthProvider
    *
    * iOS: Uses ASAuthorizationController (native Apple Sign-In sheet)

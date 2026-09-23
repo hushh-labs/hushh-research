@@ -175,6 +175,34 @@ class DriveDocumentStore(ExternalConnectorLifecycleStore):
         files: list[DriveMetadata],
         processing_consent: str | None = None,
     ) -> list[dict]:
+        return await self._transaction(
+            lambda connection: self._select_locked(
+                connection,
+                user_id=user_id,
+                generation=generation,
+                session_id=session_id,
+                files=files,
+                processing_consent=processing_consent,
+            )
+        )
+
+    def _select_locked(
+        self,
+        connection,
+        *,
+        user_id: str,
+        generation: int,
+        session_id: str,
+        files: list[DriveMetadata],
+        processing_consent: str | None = None,
+    ) -> list[dict]:
+        """Consume a pre-authorized Picker session inside the caller's transaction.
+
+        The native Picker flow receives candidates through Google's mobile
+        redirect but must still use this exact catalog admission path.  Keeping
+        the insertion fence here prevents a staged native result from becoming
+        a second, subtly different way to add a Drive source.
+        """
         if processing_consent is not None and processing_consent != PROCESSING_DISCLOSURE_VERSION:
             raise DriveReadError("processing_consent_required")
         if not 1 <= len(files) <= MAX_SELECTION or len({file.file_id for file in files}) != len(
@@ -182,46 +210,43 @@ class DriveDocumentStore(ExternalConnectorLifecycleStore):
         ):
             raise DriveReadError("invalid_selection")
 
-        def operation(connection):
-            self._active(connection, user_id, generation)
-            claimed = self._row(
-                connection,
-                """
+        self._active(connection, user_id, generation)
+        claimed = self._row(
+            connection,
+            """
                 UPDATE drive_picker_sessions SET consumed_at = clock_timestamp()
                 WHERE session_id = :id AND user_id = :user AND connection_generation = :generation
                   AND consumed_at IS NULL AND expires_at > clock_timestamp()
                 RETURNING session_id
             """,
-                {"id": session_id, "user": user_id, "generation": generation},
-            )
-            if not claimed:
-                raise DriveReadError("selection_expired")
-            self._selection_policy(connection, user_id)
-            count = connection.execute(
-                text("SELECT count(*) FROM connected_documents WHERE user_id = :user"),
-                {"user": user_id},
-            ).scalar_one()
-            result = []
-            for metadata in files:
-                fingerprint = self.cipher.fingerprint(user_id, metadata.file_id)
-                existing = self._row(
-                    connection,
-                    """
+            {"id": session_id, "user": user_id, "generation": generation},
+        )
+        if not claimed:
+            raise DriveReadError("selection_expired")
+        self._selection_policy(connection, user_id)
+        count = connection.execute(
+            text("SELECT count(*) FROM connected_documents WHERE user_id = :user"),
+            {"user": user_id},
+        ).scalar_one()
+        result = []
+        for metadata in files:
+            fingerprint = self.cipher.fingerprint(user_id, metadata.file_id)
+            existing = self._row(
+                connection,
+                """
                     SELECT * FROM connected_documents
                     WHERE user_id = :user AND source_fingerprint = :fingerprint
                 """,
-                    {"user": user_id, "fingerprint": fingerprint},
-                )
-                if existing:
-                    # Repeat selection does not resync. Explicit renewed
-                    # background consent may resume a paused selection.
-                    if processing_consent and not existing["processing_enabled"]:
-                        self._selection_policy(
-                            connection, user_id, feature="drive_document_indexing"
-                        )
-                        existing = self._row(
-                            connection,
-                            """
+                {"user": user_id, "fingerprint": fingerprint},
+            )
+            if existing:
+                # Repeat selection does not resync. Explicit renewed
+                # background consent may resume a paused selection.
+                if processing_consent and not existing["processing_enabled"]:
+                    self._selection_policy(connection, user_id, feature="drive_document_indexing")
+                    existing = self._row(
+                        connection,
+                        """
                             UPDATE connected_documents SET processing_enabled=true,
                               processing_disclosure_version=:disclosure,
                               processing_accepted_at=clock_timestamp(),
@@ -231,29 +256,29 @@ class DriveDocumentStore(ExternalConnectorLifecycleStore):
                               next_attempt_at=clock_timestamp(), updated_at=clock_timestamp()
                             WHERE document_id=:id AND user_id=:user AND connection_generation=:generation
                             RETURNING *
-                        """,
-                            {
-                                "id": existing["document_id"],
-                                "user": user_id,
-                                "generation": generation,
-                                "disclosure": processing_consent,
-                            },
-                        )
-                    result.append(existing)
-                    continue
-                count += 1
-                if count > MAX_OWNER_DOCUMENTS:
-                    raise DriveReadError("document_limit_reached")
-                document_id = str(uuid.uuid4())
-                if processing_consent:
-                    self._selection_policy(connection, user_id, feature="drive_document_indexing")
-                sealed = self.cipher.seal(
-                    metadata, user_id=user_id, document_id=document_id, generation=generation
-                )
-                result.append(
-                    self._row(
-                        connection,
-                        """
+                            """,
+                        {
+                            "id": existing["document_id"],
+                            "user": user_id,
+                            "generation": generation,
+                            "disclosure": processing_consent,
+                        },
+                    )
+                result.append(existing)
+                continue
+            count += 1
+            if count > MAX_OWNER_DOCUMENTS:
+                raise DriveReadError("document_limit_reached")
+            document_id = str(uuid.uuid4())
+            if processing_consent:
+                self._selection_policy(connection, user_id, feature="drive_document_indexing")
+            sealed = self.cipher.seal(
+                metadata, user_id=user_id, document_id=document_id, generation=generation
+            )
+            result.append(
+                self._row(
+                    connection,
+                    """
                     INSERT INTO connected_documents
                       (document_id,user_id,connection_generation,source_fingerprint,metadata_envelope,source_version,
                        processing_enabled,processing_disclosure_version,processing_accepted_at,processing_revision)
@@ -261,22 +286,20 @@ class DriveDocumentStore(ExternalConnectorLifecycleStore):
                             :enabled,:disclosure,CASE WHEN :enabled THEN clock_timestamp() END,
                             CASE WHEN :enabled THEN 1 ELSE 0 END)
                     RETURNING *
-                """,
-                        {
-                            "id": document_id,
-                            "user": user_id,
-                            "generation": generation,
-                            "fingerprint": fingerprint,
-                            "envelope": json.dumps(sealed),
-                            "version": metadata.version,
-                            "enabled": processing_consent is not None,
-                            "disclosure": processing_consent,
-                        },
-                    )
+                    """,
+                    {
+                        "id": document_id,
+                        "user": user_id,
+                        "generation": generation,
+                        "fingerprint": fingerprint,
+                        "envelope": json.dumps(sealed),
+                        "version": metadata.version,
+                        "enabled": processing_consent is not None,
+                        "disclosure": processing_consent,
+                    },
                 )
-            return [self.public_document(row) for row in result]
-
-        return await self._transaction(operation)
+            )
+        return [self.public_document(row) for row in result]
 
     def public_document(self, row: dict) -> dict:
         metadata = self.cipher.open(row)
