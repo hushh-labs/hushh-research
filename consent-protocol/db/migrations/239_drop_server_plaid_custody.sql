@@ -67,6 +67,9 @@ DROP TABLE IF EXISTS kai_funding_transfers;
 DROP TABLE IF EXISTS kai_funding_ach_relationships;
 DROP TABLE IF EXISTS kai_funding_consent_records;
 DROP TABLE IF EXISTS kai_funding_plaid_accounts;
+-- Created by the retired 047 migration (applied to UAT and production, later
+-- removed from the repo); it references kai_funding_plaid_items.
+DROP TABLE IF EXISTS kai_funding_plaid_link_sessions;
 DROP TABLE IF EXISTS kai_funding_plaid_items;
 DROP TABLE IF EXISTS kai_funding_brokerage_accounts;
 DROP TABLE IF EXISTS kai_funding_alpaca_connect_sessions;
