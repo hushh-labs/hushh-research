@@ -8,6 +8,7 @@ is never called here: the HTTP client is replaced by a scripted fake.
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -171,6 +172,7 @@ def test_link_token_web_happy_path_has_no_webhook_and_opaque_user(authed_client,
     assert "webhook" not in payload
     assert payload["redirect_uri"] == _REDIRECT_URI
     assert "android_package_name" not in payload
+    assert "sandbox_proof" not in payload
     assert payload["products"]
     client_user_id = payload["user"]["client_user_id"]
     assert "owner-123" not in client_user_id
@@ -178,6 +180,98 @@ def test_link_token_web_happy_path_has_no_webhook_and_opaque_user(authed_client,
     # Stable per owner so Plaid can recognise a returning person.
     assert client_user_id == plaid_vault._client_user_id("owner-123")
     assert client_user_id != plaid_vault._client_user_id("owner-456")
+
+
+def test_link_token_sandbox_proof_allows_local_sandbox_before_issuing_token(
+    authed_client, monkeypatch
+):
+    for name in (
+        "ENVIRONMENT",
+        "HUSHH_DEPLOY_ENV",
+        "APP_RUNTIME_PROFILE",
+        "HUSHH_LOCAL_PLAID_SANDBOX_PROOF",
+        "K_SERVICE",
+        "K_REVISION",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("ENVIRONMENT", "local")
+    monkeypatch.setenv("HUSHH_LOCAL_PLAID_SANDBOX_PROOF", "true")
+    fake = _use(
+        monkeypatch,
+        _FakePlaid(
+            {"/link/token/create": [{"link_token": "link-sandbox-proof", "expiration": "x"}]}
+        ),
+    )
+
+    response = authed_client.post(
+        f"{_BASE}/link-token",
+        json={"platform": "web", "sandbox_proof": True},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["link_token"] == "link-sandbox-proof"
+    assert "sandbox_proof" not in fake.calls[0][1]
+
+
+@pytest.mark.parametrize(
+    ("provider_environment", "deployment_values"),
+    [
+        ("development", {"ENVIRONMENT": "local", "HUSHH_LOCAL_PLAID_SANDBOX_PROOF": "true"}),
+        ("production", {"ENVIRONMENT": "local", "HUSHH_LOCAL_PLAID_SANDBOX_PROOF": "true"}),
+        ("sandbox", {"ENVIRONMENT": "uat"}),
+        ("sandbox", {"ENVIRONMENT": "production"}),
+        ("sandbox", {}),
+        (
+            "sandbox",
+            {
+                "ENVIRONMENT": "development",
+                "HUSHH_DEPLOY_ENV": "uat",
+                "HUSHH_LOCAL_PLAID_SANDBOX_PROOF": "true",
+            },
+        ),
+        ("sandbox", {"ENVIRONMENT": "dev", "HUSHH_LOCAL_PLAID_SANDBOX_PROOF": "true"}),
+        ("sandbox", {"ENVIRONMENT": "local"}),
+        (
+            "sandbox",
+            {
+                "ENVIRONMENT": "local",
+                "HUSHH_LOCAL_PLAID_SANDBOX_PROOF": "true",
+                "K_SERVICE": "hosted-service",
+            },
+        ),
+    ],
+)
+def test_link_token_sandbox_proof_rejects_nonlocal_or_non_sandbox_before_plaid_call(
+    authed_client,
+    monkeypatch,
+    provider_environment: str,
+    deployment_values: dict[str, str],
+):
+    for name in (
+        "ENVIRONMENT",
+        "HUSHH_DEPLOY_ENV",
+        "APP_RUNTIME_PROFILE",
+        "HUSHH_LOCAL_PLAID_SANDBOX_PROOF",
+        "K_SERVICE",
+        "K_REVISION",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    for name, value in deployment_values.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr(
+        plaid_vault, "_plaid_config", lambda: replace(_config(), environment=provider_environment)
+    )
+    fake = _use(monkeypatch, _FakePlaid({}))
+
+    response = authed_client.post(
+        f"{_BASE}/link-token",
+        json={"platform": "web", "sandbox_proof": True},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"]["code"] == "PLAID_SANDBOX_PROOF_FORBIDDEN"
+    assert response.headers["cache-control"] == "no-store"
+    assert fake.calls == []
 
 
 def test_link_token_android_carries_package_name_and_no_redirect(authed_client, monkeypatch):

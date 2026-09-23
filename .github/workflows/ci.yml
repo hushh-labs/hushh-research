@@ -474,6 +474,11 @@ jobs:
           cache: npm
           cache-dependency-path: hushh-webapp/package-lock.json
 
+      - name: Verify native proof build contract
+        run: |
+          node --test hushh-webapp/scripts/native/native-runtime-contract.test.mjs
+          node --test hushh-webapp/scripts/perf/verify-ios-plaid-sandbox-proof.test.mjs
+
       - name: Install web and local Swift-package dependencies
         run: npm ci --prefix hushh-webapp
 

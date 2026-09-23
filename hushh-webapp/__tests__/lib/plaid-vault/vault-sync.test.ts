@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const client = vi.hoisted(() => ({
   createVaultLinkToken: vi.fn(),
@@ -7,8 +7,14 @@ const client = vi.hoisted(() => ({
   removeVaultItem: vi.fn(),
 }));
 const coordinator = vi.hoisted(() => ({ saveMergedDomain: vi.fn() }));
+const nativeRuntime = vi.hoisted(() => ({
+  isNativePlatform: vi.fn(() => false),
+  get: vi.fn(),
+}));
 
 vi.mock("@/lib/kai/plaid-vault/vault-client", () => client);
+vi.mock("@capacitor/core", () => ({ Capacitor: { isNativePlatform: (...args: unknown[]) => nativeRuntime.isNativePlatform(...args) } }));
+vi.mock("@capacitor/preferences", () => ({ Preferences: { get: (...args: unknown[]) => nativeRuntime.get(...args) } }));
 vi.mock("@/lib/services/pkm-write-coordinator", () => ({ PkmWriteCoordinator: coordinator }));
 vi.mock("@/lib/capacitor/plaid-link", () => ({ resolvePlaidLinkPlatform: async () => "ios" }));
 vi.mock("@/lib/kai/brokerage/plaid-redirect-uri", () => ({
@@ -19,6 +25,8 @@ vi.mock("@/lib/pkm/pkm-domain-resource", () => ({ PkmDomainResourceService: {} }
 
 import {
   buildVaultPlaidStatus,
+  createVaultLink,
+  PLAID_SANDBOX_PROOF_PREFERENCE_KEY,
   refreshVaultConnections,
   sealVaultPlaidConnection,
 } from "@/lib/kai/plaid-vault/vault-sync";
@@ -59,6 +67,9 @@ function saveRunsBuild(current: Record<string, unknown> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.unstubAllEnvs();
+  nativeRuntime.isNativePlatform.mockReturnValue(false);
+  nativeRuntime.get.mockResolvedValue({ value: null });
   plans.length = 0;
   client.exchangeVaultPublicToken.mockResolvedValue({
     access_token: ACCESS_TOKEN,
@@ -69,6 +80,52 @@ beforeEach(() => {
   });
   client.fetchVaultSnapshot.mockResolvedValue(snapshot());
   client.removeVaultItem.mockResolvedValue({ removed: true });
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
+
+describe("local Plaid sandbox proof marker", () => {
+  it("keeps ordinary Link-token requests unmarked", async () => {
+    client.createVaultLinkToken.mockResolvedValue({ link_token: "link-normal", expiration: "x" });
+    await createVaultLink({ vaultOwnerToken: "owner" });
+    expect(client.createVaultLinkToken).toHaveBeenCalledWith({
+      vaultOwnerToken: "owner",
+      request: { platform: "ios", redirect_uri: "https://uat.one.hushh.ai/one/kai/plaid/oauth/return" },
+    });
+  });
+
+  it("marks only a compiled local proof launched with its native one-shot flag", async () => {
+    vi.stubEnv("NEXT_PUBLIC_PLAID_SANDBOX_PROOF", "true");
+    nativeRuntime.isNativePlatform.mockReturnValue(true);
+    nativeRuntime.get.mockResolvedValue({ value: "1" });
+    client.createVaultLinkToken.mockResolvedValue({ link_token: "link-proof", expiration: "x" });
+
+    await createVaultLink({ vaultOwnerToken: "owner" });
+
+    expect(nativeRuntime.get).toHaveBeenCalledWith({ key: PLAID_SANDBOX_PROOF_PREFERENCE_KEY });
+    expect(client.createVaultLinkToken).toHaveBeenCalledWith({
+      vaultOwnerToken: "owner",
+      request: {
+        platform: "ios",
+        redirect_uri: "https://uat.one.hushh.ai/one/kai/plaid/oauth/return",
+        sandbox_proof: true,
+      },
+    });
+  });
+
+  it("refuses a proof build or native launch marker that does not match before the request", async () => {
+    vi.stubEnv("NEXT_PUBLIC_PLAID_SANDBOX_PROOF", "true");
+    await expect(createVaultLink({ vaultOwnerToken: "owner" })).rejects.toThrow(/matching local build/);
+    expect(client.createVaultLinkToken).not.toHaveBeenCalled();
+
+    vi.unstubAllEnvs();
+    nativeRuntime.isNativePlatform.mockReturnValue(true);
+    nativeRuntime.get.mockResolvedValue({ value: "1" });
+    await expect(createVaultLink({ vaultOwnerToken: "owner" })).rejects.toThrow(/matching local build/);
+    expect(client.createVaultLinkToken).not.toHaveBeenCalled();
+  });
 });
 
 describe("sealing a new Plaid connection", () => {

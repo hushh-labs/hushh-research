@@ -23,6 +23,8 @@ export type PlaidVaultPlatform = "web" | "ios" | "android";
 export interface PlaidVaultLinkTokenRequest {
   platform: PlaidVaultPlatform;
   redirect_uri?: string | null;
+  /** Local native proof only; never selects a provider environment. */
+  sandbox_proof?: boolean;
 }
 
 export interface PlaidVaultLinkTokenResponse {
