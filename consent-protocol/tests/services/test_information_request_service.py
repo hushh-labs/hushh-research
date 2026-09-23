@@ -109,6 +109,7 @@ class _Service(InformationRequestService):
                 "request_fingerprint": params["fingerprint"],
                 "purpose": params["purpose"],
                 "duration_seconds": params["duration"],
+                "connector_key_id": params["key_id"],
                 "public_person_ref": "11111111-1111-4111-8111-111111111111",
                 "cancelled_at": None,
             }
@@ -149,7 +150,7 @@ _CURRENT_STRICT_EXPORT = {
     "encrypted_data": "ciphertext",
     "iv": "iv",
     "tag": "tag",
-    "wrapped_key_bundle": {"alg": "x25519-aes-gcm"},
+    "wrapped_key_bundle": {"alg": "x25519-aes-gcm", "connector_key_id": "client-key"},
     "scope": "attr.identity.legal_name",
     "export_revision": 3,
     "export_generated_at": "2026-09-14T00:00:00Z",
@@ -158,6 +159,7 @@ _CURRENT_STRICT_EXPORT = {
     "envelope_aad_sha256": "aad-sha",
     "ciphertext_sha256": "ct-sha",
     "ciphertext_bytes": 10,
+    "payload_algorithm": "AES-256-GCM",
 }
 
 
@@ -184,7 +186,29 @@ async def _granted_service() -> tuple[_Service, str, str]:
         # Approval replaces the request deadline with the grant's access expiry.
         "expires_at": 1_900_000_000_000,
     }
-    service.consent.exports["tok_granted"] = dict(_CURRENT_STRICT_EXPORT)
+    metadata = service.consent.events[request_id]["metadata"]
+    service.consent.exports["tok_granted"] = {
+        **_CURRENT_STRICT_EXPORT,
+        "consent_token": "tok_granted",
+        "user_id": "subject",
+        "grant_id": request_id,
+        "app_id": "agent_one",
+        "scope_handle": metadata["scope_handle"],
+        "connector_key_id": "client-key",
+        "recipient_key_fingerprint": metadata["recipient_key_fingerprint"],
+        "envelope_aad": {
+            "version": 2,
+            "app_id": "agent_one",
+            "grant_id": request_id,
+            "export_id": "exp_1",
+            "revision": 3,
+            "machine_scope": service.items[0]["scope"],
+            "scope_handle": metadata["scope_handle"],
+            "recipient_key_fingerprint": metadata["recipient_key_fingerprint"],
+            "expires_at_ms": 1_900_000_000_000,
+            "payload_algorithm": "AES-256-GCM",
+        },
+    }
     return service, created["bundleId"], request_id
 
 
@@ -382,6 +406,44 @@ async def test_exports_records_export_read_once_per_hour_per_request(monkeypatch
     # The audit row never demotes the grant the requester is reading.
     refreshed = await service.get(requester_user_id="viewer", bundle_id=bundle_id)
     assert refreshed["items"][0]["status"] == "granted"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("surface", "field", "invalid"),
+    [
+        ("status", "agent_id", "one_person:someone-else"),
+        ("status", "scope", "attr.professional.other"),
+        ("status", "expires_at", 1),
+        ("metadata", "bundle_id", "another-bundle"),
+        ("export", "user_id", "another-owner"),
+        ("export", "scope", "attr.professional.other"),
+        ("export", "grant_id", "another-request"),
+        ("export", "app_id", "another-app"),
+        ("export", "connector_key_id", "another-key"),
+        ("export", "export_revision", 99),
+        ("aad", "grant_id", "another-request"),
+        ("aad", "expires_at_ms", 1),
+        ("aad", "recipient_key_fingerprint", "another-key"),
+        ("aad", "revision", "invalid"),
+    ],
+)
+async def test_exports_rejects_swapped_or_expired_bindings_without_read_receipt(
+    surface: str, field: str, invalid: object
+) -> None:
+    service, bundle_id, request_id = await _granted_service()
+    if surface == "status":
+        service.consent.events[request_id][field] = invalid
+    elif surface == "metadata":
+        service.consent.events[request_id]["metadata"][field] = invalid
+    elif surface == "aad":
+        service.consent.exports["tok_granted"]["envelope_aad"][field] = invalid
+    else:
+        service.consent.exports["tok_granted"][field] = invalid
+
+    result = await service.exports(requester_user_id="viewer", bundle_id=bundle_id)
+    assert result["exports"] == []
+    assert not any(row["action"] == "EXPORT_READ" for row in service.consent.ledger)
 
 
 @pytest.mark.asyncio

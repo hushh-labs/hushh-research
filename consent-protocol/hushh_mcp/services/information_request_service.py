@@ -27,6 +27,91 @@ class InformationRequestError(ValueError):
 
 
 _ONE_INFORMATION_REQUEST_APP_ID = "agent_one"
+
+
+def _future_ms(value: Any, now_ms: int) -> bool:
+    try:
+        return int(value) > now_ms
+    except (TypeError, ValueError, OverflowError):
+        return False
+
+
+def _bound_person_export(
+    *,
+    bundle: dict[str, Any],
+    bundle_id: str,
+    item: dict[str, Any],
+    status: dict[str, Any],
+    encrypted: dict[str, Any] | None,
+    now_ms: int,
+) -> bool:
+    """Fail closed before returning ciphertext or recording a read receipt."""
+    metadata = status.get("metadata")
+    if not isinstance(metadata, dict) or not encrypted:
+        return False
+    aad = encrypted.get("envelope_aad")
+    wrapped = encrypted.get("wrapped_key_bundle")
+    if not isinstance(aad, dict) or not isinstance(wrapped, dict):
+        return False
+
+    subject = str(bundle["subject_user_id"])
+    request_id = str(item["request_id"])
+    scope = str(item["scope"])
+    token_id = str(status.get("token_id") or "")
+    scope_handle = str(metadata.get("scope_handle") or "")
+    fingerprint = str(metadata.get("recipient_key_fingerprint") or "")
+    connector_id = str(bundle.get("connector_key_id") or "")
+    export_id = str(encrypted.get("export_id") or "")
+    try:
+        revision = int(encrypted.get("export_revision") or 0)
+        aad_revision = int(aad.get("revision") or 0)
+        ciphertext_bytes = int(encrypted.get("ciphertext_bytes") or 0)
+    except (TypeError, ValueError, OverflowError):
+        return False
+
+    return bool(
+        status.get("action") == "CONSENT_GRANTED"
+        and token_id
+        and str(status.get("user_id") or "") == subject
+        and str(status.get("agent_id") or "") == str(bundle["requester_principal"])
+        and str(status.get("request_id") or "") == request_id
+        and str(status.get("scope") or "") == scope
+        and str(metadata.get("bundle_id") or "") == bundle_id
+        and _future_ms(status.get("expires_at"), now_ms)
+        and encrypted.get("is_strict_zero_knowledge")
+        and encrypted.get("refresh_status") == "current"
+        and encrypted.get("envelope_version") == 2
+        and str(encrypted.get("consent_token") or "") == token_id
+        and str(encrypted.get("user_id") or "") == subject
+        and str(encrypted.get("scope") or "") == scope
+        and str(encrypted.get("grant_id") or "") == request_id
+        and str(encrypted.get("app_id") or "") == _ONE_INFORMATION_REQUEST_APP_ID
+        and scope_handle
+        and str(encrypted.get("scope_handle") or "") == scope_handle
+        and connector_id
+        and str(encrypted.get("connector_key_id") or "") == connector_id
+        and str(wrapped.get("connector_key_id") or "") == connector_id
+        and fingerprint
+        and str(encrypted.get("recipient_key_fingerprint") or "") == fingerprint
+        and export_id
+        and str(aad.get("export_id") or "") == export_id
+        and aad.get("version") == 2
+        and str(aad.get("grant_id") or "") == request_id
+        and str(aad.get("app_id") or "") == _ONE_INFORMATION_REQUEST_APP_ID
+        and str(aad.get("machine_scope") or "") == scope
+        and str(aad.get("scope_handle") or "") == scope_handle
+        and str(aad.get("recipient_key_fingerprint") or "") == fingerprint
+        and revision > 0
+        and aad_revision == revision
+        and _future_ms(aad.get("expires_at_ms"), now_ms)
+        and aad.get("payload_algorithm") == "AES-256-GCM"
+        and encrypted.get("payload_algorithm") == "AES-256-GCM"
+        and encrypted.get("envelope_aad_sha256")
+        and encrypted.get("ciphertext_sha256")
+        and ciphertext_bytes > 0
+    )
+
+
 # The owner sees one "opened" record per approved item per hour, not one per
 # poll: the requesting device refreshes the encrypted package on every open of
 # its own screen, and a ledger that repeats itself that often stops being read.
@@ -484,6 +569,7 @@ class InformationRequestService:
     async def exports(self, *, requester_user_id: str, bundle_id: str) -> dict[str, Any]:
         bundle, items = await self._bundle(requester_user_id, bundle_id)
         exports = []
+        now_ms = int(time.time() * 1000)
         for item in items:
             status = await self._consent.get_request_status(
                 str(bundle["subject_user_id"]), str(item["request_id"])
@@ -493,11 +579,13 @@ class InformationRequestService:
             ).get("token_id"):
                 continue
             encrypted = await self._consent.get_consent_export(str(status["token_id"]))
-            if (
-                encrypted
-                and encrypted.get("is_strict_zero_knowledge")
-                and encrypted.get("refresh_status") == "current"
-                and int(encrypted.get("envelope_version") or 0) == 2
+            if _bound_person_export(
+                bundle=bundle,
+                bundle_id=bundle_id,
+                item=item,
+                status=status,
+                encrypted=encrypted,
+                now_ms=now_ms,
             ):
                 # This is the connector-facing encrypted package only. Internal
                 # token, owner, grant, app, and storage identifiers never cross
