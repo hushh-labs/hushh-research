@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -106,8 +107,16 @@ DEFAULTS = {
 }
 
 
+def resolve_command(cmd: list[str]) -> list[str]:
+    """Resolve platform-specific command shims such as gcloud.cmd on Windows."""
+    executable = shutil.which(cmd[0])
+    if not executable:
+        raise RuntimeError(f"required command is unavailable: {cmd[0]}")
+    return [executable, *cmd[1:]]
+
+
 def run_json_command(cmd: list[str]) -> object:
-    return json.loads(subprocess.check_output(cmd, text=True))
+    return json.loads(subprocess.check_output(resolve_command(cmd), text=True))
 
 
 def repo_root() -> Path:
@@ -201,7 +210,7 @@ def load_service_account_json(args: argparse.Namespace) -> str:
             try:
                 return validate_service_account_payload(
                     subprocess.check_output(
-                        [
+                        resolve_command([
                             "gcloud",
                             "secrets",
                             "versions",
@@ -209,7 +218,7 @@ def load_service_account_json(args: argparse.Namespace) -> str:
                             "latest",
                             f"--secret={secret_name}",
                             f"--project={secret_project}",
-                        ],
+                        ]),
                         text=True,
                     )
                 )
@@ -297,6 +306,9 @@ def bq_event_counts(
     GROUP BY event_name
     ORDER BY event_name
     """
+    # Windows command shims pass multiline arguments through cmd.exe; collapse
+    # the generated SQL so line breaks cannot be interpreted as separators.
+    query = " ".join(query.split())
     try:
         rows = run_json_command(
             [
@@ -305,11 +317,14 @@ def bq_event_counts(
                 "--quiet",
                 "--use_legacy_sql=false",
                 "--format=json",
+                f"--project_id={project_id}",
                 query,
             ]
         )
-    except subprocess.CalledProcessError:
-        return {}
+    except subprocess.CalledProcessError as error:
+        raise RuntimeError(
+            f"BigQuery event-count query failed for {project_id}:{dataset_id}"
+        ) from error
     if not isinstance(rows, list):
         return {}
     return {

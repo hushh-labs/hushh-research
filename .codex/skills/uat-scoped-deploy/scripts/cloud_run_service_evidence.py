@@ -62,6 +62,26 @@ def _describe(project: str, service: str, region: str) -> dict[str, Any]:
     )
 
 
+def _describe_revision(project: str, revision: str, region: str) -> dict[str, Any]:
+    return _run(
+        [
+            _gcloud(),
+            "run",
+            "revisions",
+            "describe",
+            revision,
+            "--project",
+            project,
+            "--region",
+            region,
+            "--platform",
+            "managed",
+            "--format",
+            "json",
+        ]
+    )
+
+
 def _env_map(service: dict[str, Any]) -> dict[str, str]:
     containers = service.get("spec", {}).get("template", {}).get("spec", {}).get("containers", [])
     env: dict[str, str] = {}
@@ -98,6 +118,27 @@ def _summarize(project: str, service_name: str, region_hint: str | None, service
     annotations = metadata.get("annotations", {})
     containers = spec.get("template", {}).get("spec", {}).get("containers", [])
     traffic = status.get("traffic") or spec.get("traffic") or []
+    serving_revisions = []
+    for target in traffic:
+        revision_name = target.get("revisionName")
+        if not revision_name and target.get("latestRevision"):
+            revision_name = status.get("latestReadyRevisionName")
+        if not revision_name or not target.get("percent"):
+            continue
+        revision = _describe_revision(project, revision_name, region)
+        revision_metadata = revision.get("metadata", {})
+        revision_labels = revision_metadata.get("labels", {})
+        revision_containers = revision.get("spec", {}).get("containers", [])
+        serving_revisions.append(
+            {
+                "revision": revision_name,
+                "percent": target.get("percent"),
+                "tag": target.get("tag"),
+                "image": revision_containers[0].get("image") if revision_containers else None,
+                "deploy_sha": revision_labels.get("deploy-sha") or revision_labels.get("commit-sha"),
+                "github_run_id": revision_labels.get("github-run-id"),
+            }
+        )
     env = _env_map(described)
     return {
         "project": project,
@@ -105,6 +146,7 @@ def _summarize(project: str, service_name: str, region_hint: str | None, service
         "region": region,
         "latest_ready_revision": status.get("latestReadyRevisionName"),
         "traffic": traffic,
+        "serving_revisions": serving_revisions,
         "image": containers[0].get("image") if containers else None,
         "timeout": spec.get("template", {}).get("spec", {}).get("timeoutSeconds"),
         "deploy_sha": labels.get("deploy-sha") or labels.get("commit-sha"),
@@ -128,10 +170,17 @@ def main() -> int:
         print(json.dumps(summaries, indent=2, sort_keys=True))
         return 0
     for item in summaries:
+        serving = ";".join(
+            f"{target['revision']}:{target['percent']}%"
+            f"@{target['deploy_sha'] or 'unknown'}"
+            f" run={target['github_run_id'] or 'unknown'}"
+            f" image={target['image'] or 'unknown'}"
+            for target in item["serving_revisions"]
+        ) or "none"
         print(
             f"{item['project']} {item['service']} {item['region']} "
-            f"revision={item['latest_ready_revision']} image={item['image']} "
-            f"timeout={item['timeout']} deploy_sha={item['deploy_sha']} run={item['github_run_id']}"
+            f"latest_ready={item['latest_ready_revision']} candidate_image={item['image']} "
+            f"traffic={serving} timeout={item['timeout']}"
         )
     return 0
 
