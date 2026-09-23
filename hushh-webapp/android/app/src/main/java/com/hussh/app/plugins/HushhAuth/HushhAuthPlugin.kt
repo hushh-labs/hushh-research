@@ -60,9 +60,11 @@ class HushhAuthPlugin : Plugin() {
     private var pendingCall: PluginCall? = null
     private var pendingGmailConnectCall: PluginCall? = null
     private var pendingCalendarConnectCall: PluginCall? = null
+    private var pendingDriveConnectCall: PluginCall? = null
     private lateinit var signInLauncher: ActivityResultLauncher<Intent>
     private lateinit var gmailConnectLauncher: ActivityResultLauncher<Intent>
     private lateinit var calendarConnectLauncher: ActivityResultLauncher<Intent>
+    private lateinit var driveConnectLauncher: ActivityResultLauncher<Intent>
 
     // Current user data
     private var currentIdToken: String? = null
@@ -103,6 +105,9 @@ class HushhAuthPlugin : Plugin() {
         ) { result ->
             handleCalendarConnectResult(result.data)
         }
+        driveConnectLauncher = activity.registerForActivityResult(
+            ActivityResultContracts.StartActivityForResult()
+        ) { result -> handleDriveConnectResult(result.data) }
     }
 
     /**
@@ -371,6 +376,59 @@ class HushhAuthPlugin : Plugin() {
             }
         } finally {
             pendingCalendarConnectCall = null
+        }
+    }
+
+    // ==================== Drive Connect ====================
+
+    @PluginMethod
+    fun connectDrive(call: PluginCall) {
+        val serverClientId = call.getString("serverClientId")?.trim()
+        if (serverClientId.isNullOrEmpty()) {
+            call.reject("Missing Google server client ID")
+            return
+        }
+        activity.runOnUiThread {
+            if (pendingDriveConnectCall != null) {
+                call.reject("Drive connection is already in progress")
+                return@runOnUiThread
+            }
+            pendingDriveConnectCall = call
+            try {
+                val options = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+                    .requestServerAuthCode(serverClientId, true)
+                    .requestEmail()
+                    .requestScopes(Scope("https://www.googleapis.com/auth/drive.readonly"))
+                    .build()
+                driveConnectLauncher.launch(GoogleSignIn.getClient(activity, options).signInIntent)
+            } catch (_: Exception) {
+                pendingDriveConnectCall = null
+                call.reject("Drive connection could not start")
+            }
+        }
+    }
+
+    private fun handleDriveConnectResult(data: Intent?) {
+        val call = pendingDriveConnectCall ?: return
+        try {
+            val account = GoogleSignIn.getSignedInAccountFromIntent(data)
+                .getResult(ApiException::class.java)
+            val code = account.serverAuthCode
+            if (code.isNullOrBlank()) {
+                call.reject("Google did not return a Drive authorization code")
+            } else {
+                call.resolve(JSObject().put("serverAuthCode", code))
+            }
+        } catch (error: ApiException) {
+            if (error.statusCode == 12501) {
+                call.reject("Drive connection was cancelled", "USER_CANCELLED")
+            } else {
+                call.reject("Drive connection failed")
+            }
+        } catch (_: Exception) {
+            call.reject("Drive connection could not be completed")
+        } finally {
+            pendingDriveConnectCall = null
         }
     }
 

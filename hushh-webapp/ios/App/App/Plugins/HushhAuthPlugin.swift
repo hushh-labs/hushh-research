@@ -46,6 +46,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "signIn", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "connectGmail", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "connectCalendar", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "connectDrive", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "signInWithApple", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "signOut", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getIdToken", returnType: CAPPluginReturnPromise),
@@ -57,6 +58,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
     private let TAG = "HushhAuth"
     private var currentIdToken: String?
     private var currentAccessToken: String?
+    private var driveConnectInProgress = false
 
     // Apple Sign-In properties
     private var currentNonce: String?
@@ -508,6 +510,50 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
     
+    /// Drive is a provider grant, not an app sign-in or file-sharing action.
+    @objc func connectDrive(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            guard !self.driveConnectInProgress else {
+                call.reject("Drive connection is already in progress")
+                return
+            }
+            guard self.ensureFirebaseConfigured(),
+                  let viewController = self.bridge?.viewController,
+                  let serverClientId = call.getString("serverClientId")?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !serverClientId.isEmpty,
+                  let path = Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist"),
+                  let plist = NSDictionary(contentsOfFile: path),
+                  let clientId = plist["CLIENT_ID"] as? String else {
+                call.reject("Google connection is not configured")
+                return
+            }
+            self.driveConnectInProgress = true
+            GIDSignIn.sharedInstance.configuration = GIDConfiguration(
+                clientID: clientId, serverClientID: serverClientId
+            )
+            GIDSignIn.sharedInstance.signIn(
+                withPresenting: viewController,
+                hint: nil,
+                additionalScopes: ["https://www.googleapis.com/auth/drive.readonly"]
+            ) { result, error in
+                defer { self.driveConnectInProgress = false }
+                if let error = error {
+                    let cancelled = (error as NSError).code == -5
+                    call.reject(
+                        cancelled ? "Drive connection was cancelled" : "Drive connection failed",
+                        cancelled ? "USER_CANCELLED" : nil
+                    )
+                    return
+                }
+                guard let code = result?.serverAuthCode, !code.isEmpty else {
+                    call.reject("Google did not return a Drive authorization code")
+                    return
+                }
+                call.resolve(["serverAuthCode": code])
+            }
+        }
+    }
+
     // MARK: - Sign Out
     @objc func signOut(_ call: CAPPluginCall) {
         print("🤖 [\(TAG)] signOut() called")

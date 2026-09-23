@@ -104,6 +104,12 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
   permissions; native completion requires bound state. Shared browser completion
   derives service from its consumed attempt. Wrong-service completion consumes
   the attempt without provider exchange; unexpected diagnostics are sanitized.
+- Google callback UI admits only the server-confirmed service, checks popup
+  service identity, and never infers a timed-out completion from a prior grant.
+  Real transport tests reject unmount, owner switch and A-to-B-to-A before
+  dispatch. Native Drive SDK requests return only a code; callers still need
+  the backend attempt state and current owner authority. Compilation and source
+  contract checks do not establish provider/native acceptance.
 
 1. No private data leakage in public surfaces.
 2. Audit records include actor/scope/duration metadata.

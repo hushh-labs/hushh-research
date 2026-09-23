@@ -1,13 +1,7 @@
 import { ApiService } from "@/lib/services/api-service";
+import type { GoogleConnectionStatus } from "@/lib/services/google-connection-service";
 
-export type GoogleCalendarStatus = {
-  configured: boolean;
-  connected: boolean;
-  google_email?: string | null;
-  status: "connected" | "needs_reauth" | "disconnected";
-  access_level?: "read" | "manage" | null;
-  scope_csv: string;
-};
+export type GoogleCalendarStatus = GoogleConnectionStatus;
 
 type OAuthStart = {
   authorize_url: string;

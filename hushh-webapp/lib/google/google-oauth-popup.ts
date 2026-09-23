@@ -6,7 +6,7 @@ const MAX_AGE_MS = 15 * 60 * 1000;
 const POPUP_FEATURES =
   "popup=yes,width=520,height=720,resizable=yes,scrollbars=yes";
 
-export type GoogleOAuthPopupService = "gmail_send" | "calendar";
+export type GoogleOAuthPopupService = "gmail_send" | "calendar" | "drive";
 export type GoogleOAuthPopupAttempt = {
   version: 1;
   attemptId: string;
@@ -87,7 +87,9 @@ export function readGoogleOAuthPopupAttempt(): GoogleOAuthPopupAttempt | null {
     ) as Partial<GoogleOAuthPopupAttempt>;
     if (
       parsed.version === 1 &&
-      (parsed.service === "gmail_send" || parsed.service === "calendar") &&
+      (parsed.service === "gmail_send" ||
+        parsed.service === "calendar" ||
+        parsed.service === "drive") &&
       validId(parsed.attemptId) &&
       typeof parsed.startedAt === "number" &&
       Date.now() - parsed.startedAt >= 0 &&
@@ -108,7 +110,9 @@ export function isGoogleOAuthPopupSettlement(
   return (
     item.schemaVersion === 1 &&
     item.type === "google_oauth_settlement" &&
-    (item.service === "gmail_send" || item.service === "calendar") &&
+    (item.service === "gmail_send" ||
+      item.service === "calendar" ||
+      item.service === "drive") &&
     validId(item.attemptId) &&
     ["succeeded", "cancelled", "failed"].includes(String(item.outcome))
   );

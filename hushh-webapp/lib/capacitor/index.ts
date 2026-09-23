@@ -114,6 +114,11 @@ export interface HushhAuthPlugin {
     serverAuthCode: string;
   }>;
 
+  /** Read-only Drive consent; never changes the app's Firebase identity. */
+  connectDrive(options: {
+    serverClientId: string;
+  }): Promise<{ serverAuthCode: string }>;
+
   /**
    * Sign in with Apple using native iOS AuthenticationServices or Firebase OAuthProvider
    *

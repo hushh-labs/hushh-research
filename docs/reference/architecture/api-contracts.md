@@ -336,9 +336,22 @@ The internal Drive MCP adapter admits an explicit read-only tool set through
 that same credential owner. Drive connection-management routes exist, but do not
 expose private file reads, agent dispatch or onward sharing. Their browser/native
 UI integration and authenticated end-to-end acceptance remain separate work.
-The shared callback returns `service` from the consumed server-side attempt;
-clients must not infer completion from an already-connected service after a timeout.
-Calendar's completion endpoint remains a compatibility facade over that same owner.
+The shared callback returns `service` from the consumed server-side attempt.
+The frontend callback uses it to route Calendar/setup or Drive/connections, checks
+popup service identity, and keeps a single in-memory completion promise across
+Strict Mode effects. Owner-generation and lifecycle checks reach the transport's
+final dispatch guard. Timeout reports an uncertain outcome; it no longer infers
+success from an already-connected Calendar grant. Unknown services and provider
+errors produce fixed safe recovery messages. Calendar's completion endpoint
+remains a compatibility facade over the same owner.
+
+The existing `HushhAuth` native bridge declares `connectDrive({serverClientId})`
+on iOS/Android and a native-only rejection on web. Native SDK requests add only
+`drive.readonly`, return a single-use server code and do not replace Firebase
+identity. This bridge alone does not complete the Drive sidebar/native flow:
+the caller must retain the exact backend-issued attempt state and verify current
+owner/lifecycle authority before completion. Real provider/device acceptance
+remains open; a static export or native compile is not sign-in proof.
 
 | Method | Path                                  | Authorization      | Description                                                                                                         |
 | ------ | ------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------- |
