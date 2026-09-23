@@ -9,6 +9,7 @@ tests/test_data_model_audit_postgres.py
 tests/services/test_gmail_cache_retention.py
 tests/services/test_consent_request_lock.py
 tests/test_scoped_export_download.py
+tests/test_financial_raw_records_not_shareable.py
 tests/test_partner_developer_apps.py
 tests/test_hushh_tech_client_migration.py
 tests/test_hushh_tech_synthetic_import.py

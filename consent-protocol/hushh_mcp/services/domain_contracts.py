@@ -319,7 +319,11 @@ DOMAIN_SHARING_POLICY_REGISTRY: dict[str, DomainSharingPolicy] = {
     "financial": DomainSharingPolicy(
         domain_key="financial",
         allow_domain_wildcard=False,
-        denied_manifest_path_prefixes=("analysis_history",),
+        # `sources` holds the raw per-connection copies (Plaid items, statement
+        # snapshots) and `runtime` holds app state: private records, never
+        # shareable. Sharing gets derived facts and summaries instead
+        # (founder decision 2026-09-23).
+        denied_manifest_path_prefixes=("analysis_history", "sources", "runtime"),
         denied_manifest_path_parts=frozenset(
             {
                 "agent_votes",
@@ -327,6 +331,15 @@ DOMAIN_SHARING_POLICY_REGISTRY: dict[str, DomainSharingPolicy] = {
                 "raw_card",
                 "stream_diagnostics",
                 "transcript",
+                # Account identifiers and security codes never leave the vault
+                # through a grant, wherever they sit in the tree.
+                "account_mask",
+                "mask",
+                "account_number",
+                "routing_number",
+                "symbol_cusip",
+                "cusip",
+                "last_error_message",
             }
         ),
     ),

@@ -22,6 +22,8 @@ An explicit `empty` materialization is hidden from Memory and cannot be requeste
 
 `financial.analysis_history`, raw cards, debate transcripts, and the old broad `attr.financial.*` scope are private source material. They are rejected at manifest generation, discovery, new requests, pending approval, client export creation, export retrieval, and refresh. Compact `financial.analysis.decisions` remains the intended consentable decision surface when materialized.
 
+Since 2026-09-23 the same rule covers the raw financial records and identifiers: `financial.sources` (per-connection Plaid and statement copies) and `financial.runtime` (app state) are private branches, and account masks, account and routing numbers, CUSIPs and error text are filtered out of every export wherever they sit (`account_mask`, `mask`, `account_number`, `routing_number`, `symbol_cusip`, `cusip`, `last_error_message`). The server policy is `DomainSharingPolicy["financial"]` in `consent-protocol/hushh_mcp/services/domain_contracts.py`; the device mirror is `hushh-webapp/lib/consent/pkm-scope-policy.ts`, and the two must stay equal. Sharing receives derived facts and summaries, not raw rows.
+
 PKM events and durable Kai terminal checkpoints are metadata-only. They must never retain raw cards, debate transcripts, model prose, votes, market sources, or decrypted PKM context. Migration 128 redacts existing decision-event metadata and clears the operational checkpoint cache; it does not delete encrypted owner PKM history.
 
 Memory is available by default once the vault is unlocked. The former
