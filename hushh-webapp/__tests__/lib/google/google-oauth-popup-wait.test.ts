@@ -10,7 +10,7 @@ describe("owner-bound Google popup wait", () => {
     const attempt = {
       version: 1 as const,
       attemptId: "synthetic-attempt",
-      service: "drive" as const,
+      service: "calendar" as const,
       startedAt: Date.now(),
     };
     const wait = waitForGoogleOAuthPopup(popup, attempt, () => true, failed);
@@ -18,7 +18,7 @@ describe("owner-bound Google popup wait", () => {
       schemaVersion: 1,
       type: "google_oauth_settlement",
       attemptId: attempt.attemptId,
-      service: "drive",
+      service: "calendar",
       outcome: "succeeded",
     };
     const message = (
@@ -39,7 +39,7 @@ describe("owner-bound Google popup wait", () => {
     const { popup, wait, failed, message } = setup();
     message({}, null);
     message({}, popup, "https://example.invalid");
-    message({ service: "calendar" });
+    message({ service: "gmail_send" });
     message({ attemptId: "other-attempt" });
     expect(popup.close).not.toHaveBeenCalled();
     message();
