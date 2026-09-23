@@ -89,6 +89,29 @@ async def test_classifier_uses_the_bounded_thirty_second_timeout(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_classifier_prompt_marks_explicit_kyc_disclosure_requests_as_positive(monkeypatch):
+    service = PersonalGmailInformationRequestService()
+    calls: dict[str, object] = {}
+
+    async def classify(**kwargs):
+        calls.update(kwargs)
+        return {
+            "is_information_request": True,
+            "confidence": 0.9,
+            "requested_field_labels": ["Passport number"],
+            "requested_domains": ["identity"],
+        }
+
+    monkeypatch.setattr(monitor_module, "run_email_gene", classify)
+
+    result = await service._classify(_message())
+
+    assert result.is_information_request is True
+    assert "direct request to submit, provide, upload, confirm, or verify" in str(calls["prompt"])
+    assert "self-delivered test email" in str(calls["prompt"])
+
+
+@pytest.mark.asyncio
 async def test_classifier_timeout_stays_retryable_and_does_not_classify_message(monkeypatch):
     async def classify(**_kwargs):
         raise TimeoutError("classifier turn timed out")
@@ -184,6 +207,34 @@ async def test_personal_monitor_inbox_page_keeps_gmail_cursor_server_side(monkey
     assert [message["id"] for message in messages] == ["one"]
     assert next_page_token == "opaque-cursor"
     assert captured["page_token"] == previous_cursor
+
+
+@pytest.mark.asyncio
+async def test_personal_monitor_inbox_page_keeps_self_delivered_inbox_mail(monkeypatch):
+    service = GmailReceiptsService()
+
+    async def ensure_access_token(*, user_id: str):
+        assert user_id == "owner"
+        return "access-token", {}
+
+    async def list_messages(**_kwargs):
+        return {"messages": [{"id": "self-delivered"}]}
+
+    async def get_full(*, access_token: str, gmail_message_id: str):
+        assert access_token == "access-token"
+        return {
+            "id": gmail_message_id,
+            "threadId": "thread-self-delivered",
+            "labelIds": ["INBOX", "SENT"],
+        }
+
+    monkeypatch.setattr(service, "_ensure_access_token", ensure_access_token)
+    monkeypatch.setattr(service, "_list_messages", list_messages)
+    monkeypatch.setattr(service, "_get_message_full", get_full)
+
+    messages, _next_page_token = await service.list_personal_inbox_monitor_page(user_id="owner")
+
+    assert [message["id"] for message in messages] == ["self-delivered"]
 
 
 @pytest.mark.asyncio
@@ -302,6 +353,7 @@ async def test_personal_monitor_history_page_reads_new_inbox_messages_even_after
                 {"messagesAdded": [{"message": {"id": "inbox-message"}}]},
                 {"messagesAdded": [{"message": {"id": "read-message"}}]},
                 {"messagesAdded": [{"message": {"id": "sent-message"}}]},
+                {"messagesAdded": [{"message": {"id": "self-delivered-message"}}]},
             ],
             "nextPageToken": "next-history-page",
             "historyId": "history-high-water",
@@ -317,6 +369,8 @@ async def test_personal_monitor_history_page_reads_new_inbox_messages_even_after
                 else ["INBOX"]
                 if gmail_message_id == "read-message"
                 else ["SENT"]
+                if gmail_message_id == "sent-message"
+                else ["INBOX", "SENT"]
             ),
         }
 
@@ -337,7 +391,11 @@ async def test_personal_monitor_history_page_reads_new_inbox_messages_even_after
         limit=99,
     )
 
-    assert [message["id"] for message in messages] == ["inbox-message", "read-message"]
+    assert [message["id"] for message in messages] == [
+        "inbox-message",
+        "read-message",
+        "self-delivered-message",
+    ]
     assert next_page_token == "next-history-page"
     assert high_water == "history-high-water"
     assert next_message_offset is None
@@ -987,6 +1045,82 @@ async def test_owner_confirmed_recent_unread_scan_deduplicates_existing_mail(mon
     assert result["scanned_count"] == 0
     assert result["unchanged_count"] == 1
     assert result["workflow_ids"] == []
+
+
+@pytest.mark.asyncio
+async def test_classifier_policy_refresh_rechecks_only_the_newest_page(monkeypatch):
+    message = _message()
+
+    class GmailService:
+        async def list_personal_inbox_monitor_history_page(self, **_kwargs):
+            return [], None, "history-high-water", None
+
+        async def list_personal_inbox_monitor_page(self, *, page_token, **_kwargs):
+            assert page_token is None
+            return [message], "newer-page"
+
+    service = PersonalGmailInformationRequestService(gmail_service=GmailService())
+    checkpoints: list[dict[str, object]] = []
+    recorded: list[dict[str, object]] = []
+
+    monkeypatch.setattr(
+        monitor_module,
+        "get_core_security_settings",
+        lambda: type("Settings", (), {"app_signing_key": "test-signing-key"})(),
+    )
+    source_hmac = _source_fingerprint(message)
+
+    async def monitor_state(**_kwargs):
+        return {
+            "monitor_history_id": "history-at-opt-in",
+            "monitor_cursor": None,
+            "monitor_message_offset": 0,
+            "monitoring_generation": 7,
+            "classifier_policy_version": 1,
+            "initial_inbox_scan_completed": True,
+            "initial_inbox_backfill_completed": True,
+            "initial_inbox_cursor": None,
+        }
+
+    async def scan_state(**_kwargs):
+        return {"message-1": source_hmac}
+
+    async def classify_and_record(**_kwargs):
+        return "workflow-1"
+
+    async def record_scan_state(**kwargs):
+        recorded.append(kwargs)
+        return True
+
+    async def set_monitor_checkpoint(**_kwargs):
+        return True
+
+    async def set_initial_checkpoint(**kwargs):
+        checkpoints.append(kwargs)
+        return True
+
+    monkeypatch.setattr(service, "_monitor_state", monitor_state)
+    monkeypatch.setattr(service, "_scan_state_by_message", scan_state)
+    monkeypatch.setattr(service, "_classify_and_record", classify_and_record)
+    monkeypatch.setattr(service, "_record_scan_state", record_scan_state)
+    monkeypatch.setattr(service, "_set_monitor_checkpoint", set_monitor_checkpoint)
+    monkeypatch.setattr(service, "_set_initial_inbox_backfill_checkpoint", set_initial_checkpoint)
+
+    result = await service.scan_recent(user_id="owner")
+
+    assert result["classifier_policy_refreshed"] is True
+    assert result["scanned_count"] == 1
+    assert result["backfill_pending"] is False
+    assert len(recorded) == 1
+    assert checkpoints == [
+        {
+            "user_id": "owner",
+            "initial_inbox_cursor": None,
+            "completed": True,
+            "expected_generation": 7,
+            "classifier_policy_version": monitor_module._CLASSIFIER_POLICY_VERSION,
+        }
+    ]
 
 
 @pytest.mark.asyncio

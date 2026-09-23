@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 237,
+  "expected_migration_version": 238,
   "migration_version_policy": "exact",
   "required_functions": [
     "ensure_drive_share_management_context",
@@ -810,6 +810,7 @@
       "monitoring_enabled",
       "monitoring_enabled_at",
       "monitoring_generation",
+      "classifier_policy_version",
       "monitor_history_id",
       "monitor_cursor",
       "monitor_message_offset",

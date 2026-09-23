@@ -2662,14 +2662,17 @@ class GmailReceiptsService:
                 for label in result.get("labelIds", [])
                 if _clean_text(label)
             }
-            if "INBOX" in labels and not {"SENT", "DRAFT", "SPAM", "TRASH"} & labels:
+            # Gmail marks mail sent to the same connected account as both
+            # INBOX and SENT. It is still an Inbox message and must reach the
+            # model; the model decides whether its text is an information ask.
+            if "INBOX" in labels and not {"DRAFT", "SPAM", "TRASH"} & labels:
                 messages.append(result)
             else:
                 trace_kyc_debug(
                     "gmail.fetch.message_filtered",
                     message_ref=kyc_message_ref(message_id),
                     has_inbox_label="INBOX" in labels,
-                    excluded_system_labels=sorted(labels & {"SENT", "DRAFT", "SPAM", "TRASH"}),
+                    excluded_system_labels=sorted(labels & {"DRAFT", "SPAM", "TRASH"}),
                 )
                 filtered_count += 1
         next_page_token = _clean_text(listing.get("nextPageToken")) or None
@@ -2778,10 +2781,10 @@ class GmailReceiptsService:
                 for label in result.get("labelIds", [])
                 if _clean_text(label)
             }
-            # After the opt-in History checkpoint, every incoming Inbox
-            # message is eligible whether or not the owner opens it before the
-            # bounded scan reaches it. Sent mail is never a KYC request source.
-            if "INBOX" in labels and not {"SENT", "DRAFT", "SPAM", "TRASH"} & labels:
+            # Inbox/Sent is Gmail's normal self-delivery label combination.
+            # Preserve it as a model-classified source; drafts, spam, and trash
+            # remain outside this opt-in Inbox workflow.
+            if "INBOX" in labels and not {"DRAFT", "SPAM", "TRASH"} & labels:
                 messages.append(result)
         return (
             messages,

@@ -32,6 +32,8 @@ _ALLOWED_FIELD_NAMES = frozenset(
         "backfill_pending",
         "candidate_count",
         "candidate_scope_count",
+        "classifier_policy_refresh",
+        "classifier_policy_version",
         "classified_count",
         "confidence",
         "created",
