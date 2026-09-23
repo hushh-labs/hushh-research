@@ -84,7 +84,7 @@ export const ProfilePane = memo(function ProfilePane({ open, onOpenChange }: Pro
                 onClick={() =>
                   popProfilePaneLocation(pathname, searchParams)
                 }
-                className="-ml-3 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+                className="-ml-4 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
               >
                 <ArrowLeft className="h-5 w-5" />
               </button>
