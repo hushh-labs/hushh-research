@@ -24,6 +24,19 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 
+const PROFILE_DETAIL_TITLES: Record<string, string> = {
+  phone: "Phone number",
+  sharing: "Access & sharing",
+  "kai-preferences": "Finance preferences",
+  gemini: "Gemini",
+  voice: "Voice",
+  vault: "Vault methods",
+  session: "Account access",
+  "trusted-devices": "Trusted devices",
+  "gmail-connection": "Connection",
+  "gmail-actions": "Actions",
+};
+
 type ProfilePaneProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -40,9 +53,7 @@ export const ProfilePane = memo(function ProfilePane({ open, onOpenChange }: Pro
   const searchParams = useSearchParams();
   const paneState = resolveProfilePaneUrlState(searchParams);
   const canGoBack = canGoBackProfilePane(paneState.location);
-  const title = paneState.location.detail
-    ? "Profile detail"
-    : paneState.location.panel
+  const panelTitle = paneState.location.panel
       ? paneState.location.panel === "my-data"
         ? "Memory"
         : paneState.location.panel === "connected-systems"
@@ -59,6 +70,11 @@ export const ProfilePane = memo(function ProfilePane({ open, onOpenChange }: Pro
                     ? "Invite friends"
                     : "Help & feedback"
       : "Profile";
+  // A detail is named for what it is ("Trusted devices"), matching its entry
+  // in the Profile stack; it used to read "Profile detail" for all of them.
+  // Details without a fixed name (a domain, a connection) keep the panel's.
+  const detail = paneState.location.detail;
+  const title = detail ? (PROFILE_DETAIL_TITLES[detail] ?? panelTitle) : panelTitle;
 
   // URL state requests a destination, not admission. Keep it for resume, but
   // unmount the modal while the vault gate owns the screen (including cold
