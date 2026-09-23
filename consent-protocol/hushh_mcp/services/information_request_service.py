@@ -274,16 +274,20 @@ class InformationRequestService:
     async def get(self, *, requester_user_id: str, bundle_id: str) -> dict[str, Any]:
         bundle, items = await self._bundle(requester_user_id, bundle_id)
         output = []
+        now_ms = int(time.time() * 1000)
         for item in items:
             status = await self._consent.get_request_status(
                 str(bundle["subject_user_id"]), str(item["request_id"])
             )
             action = str((status or {}).get("action") or "REQUESTED")
-            expires_at = (status or {}).get("expires_at") or (status or {}).get("poll_timeout_at")
+            # A request's decision deadline is not the expiry of a later grant.
+            expires_at = (status or {}).get("expires_at")
+            if action == "REQUESTED" and expires_at is None:
+                expires_at = (status or {}).get("poll_timeout_at")
             is_expired = action == "TIMEOUT" or (
-                action == "REQUESTED"
+                action in {"REQUESTED", "CONSENT_GRANTED"}
                 and expires_at is not None
-                and int(expires_at) <= int(time.time() * 1000)
+                and int(expires_at) <= now_ms
             )
             output.append(
                 {
@@ -291,13 +295,15 @@ class InformationRequestService:
                     "scopeRef": item["scope_ref"],
                     "label": item["label"],
                     "sensitivity": item.get("sensitivity"),
-                    "status": {
+                    "status": "expired"
+                    if is_expired
+                    else {
                         "CONSENT_GRANTED": "granted",
                         "CONSENT_DENIED": "denied",
                         "CANCELLED": "cancelled",
                         "REVOKED": "revoked",
                         "TIMEOUT": "expired",
-                    }.get(action, "expired" if is_expired else "pending"),
+                    }.get(action, "pending"),
                 }
             )
         return {

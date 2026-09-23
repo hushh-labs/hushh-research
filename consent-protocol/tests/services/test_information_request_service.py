@@ -181,6 +181,8 @@ async def _granted_service() -> tuple[_Service, str, str]:
         **service.consent.events[request_id],
         "action": "CONSENT_GRANTED",
         "token_id": "tok_granted",
+        # Approval replaces the request deadline with the grant's access expiry.
+        "expires_at": 1_900_000_000_000,
     }
     service.consent.exports["tok_granted"] = dict(_CURRENT_STRICT_EXPORT)
     return service, created["bundleId"], request_id
@@ -325,6 +327,24 @@ async def test_timeout_is_reported_as_expired() -> None:
     )
     request_id = created["items"][0]["requestId"]
     service.consent.events[request_id]["action"] = "TIMEOUT"
+    refreshed = await service.get(requester_user_id="viewer", bundle_id=created["bundleId"])
+    assert refreshed["items"][0]["status"] == "expired"
+
+
+@pytest.mark.asyncio
+async def test_expired_grant_is_not_reported_as_current_access() -> None:
+    service = _Service()
+    created = await service.create(
+        requester_user_id="viewer",
+        person_ref="11111111-1111-4111-8111-111111111111",
+        scope_refs=["psr_opaque"],
+        purpose="Complete an employment verification workflow",
+        duration_seconds=604800,
+        connector_key_id="client-key",
+        idempotency_key="stable-idempotency-key",
+    )
+    request_id = created["items"][0]["requestId"]
+    service.consent.events[request_id].update({"action": "CONSENT_GRANTED", "expires_at": 1})
     refreshed = await service.get(requester_user_id="viewer", bundle_id=created["bundleId"])
     assert refreshed["items"][0]["status"] == "expired"
 
