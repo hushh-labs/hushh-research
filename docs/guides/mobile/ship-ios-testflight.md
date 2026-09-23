@@ -151,7 +151,10 @@ authority contract.
    private soft-delete recovery window after lifecycle deletion. The helper
    checks the project-attached `native-uat-artifact-read` deny policy before and
    after upload; that policy blocks inherited organization-level object reads
-   and the developers group's object mutations. Its reviewed source is
+   and the developers group's object mutations. The operator service account
+   belongs to that group, so it is explicitly exempted in both independent
+   deny rules; the UAT deployer remains exempted only from the broad read rule.
+   Its reviewed source is
    `deploy/storage/native-artifact-deny-policy.json`.
 
 The run summary reports the source SHA, the physical capture p95 when that lane

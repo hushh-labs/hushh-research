@@ -22,6 +22,9 @@
         "deniedPrincipals": [
           "principalSet://goog/group/developers@hushh.ai"
         ],
+        "exceptionPrincipals": [
+          "principal://iam.googleapis.com/projects/-/serviceAccounts/claude-code-gcp-operator@hussh-developer-platform.iam.gserviceaccount.com"
+        ],
         "deniedPermissions": [
           "storage.googleapis.com/objects.*"
         ]
