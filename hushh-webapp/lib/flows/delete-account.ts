@@ -47,6 +47,40 @@ export const ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING_CODE =
 export const ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING_MESSAGE =
   "Your private agent or cloud setup must be removed before the account can be deleted. Please try again later or contact support.";
 
+export const ACCOUNT_ERASURE_BANKS_NOT_DISCONNECTED_MESSAGE =
+  "We couldn't disconnect your linked banks at Plaid, so nothing was deleted. Check your connection and try again.";
+
+/** Raised before anything is erased: a sealed bank connection could not be revoked. */
+export class AccountErasureBanksNotDisconnectedError extends Error {
+  readonly code = "ACCOUNT_ERASURE_BANKS_NOT_DISCONNECTED";
+
+  constructor(readonly failed: number) {
+    super(ACCOUNT_ERASURE_BANKS_NOT_DISCONNECTED_MESSAGE);
+    this.name = "AccountErasureBanksNotDisconnectedError";
+  }
+}
+
+/**
+ * Deleting or resetting the account erases the vault, and with it the only
+ * copy of each sealed Plaid token. Revoke every connection at Plaid first, or
+ * it would stay live with nobody able to disconnect it. Without the vault key
+ * (the vault cannot be opened) there is nothing this device can revoke.
+ */
+export async function revokeVaultBanksBeforeErasure(params: {
+  userId: string;
+  vaultKey: string | null | undefined;
+  vaultOwnerToken: string;
+}): Promise<void> {
+  if (!params.vaultKey) return;
+  const { revokeAllVaultPlaidAtPlaid } = await import("@/lib/kai/plaid-vault/vault-sync");
+  const outcome = await revokeAllVaultPlaidAtPlaid({
+    userId: params.userId,
+    vaultKey: params.vaultKey,
+    vaultOwnerToken: params.vaultOwnerToken,
+  }).catch(() => ({ revoked: 0, failed: -1 }));
+  if (outcome.failed !== 0) throw new AccountErasureBanksNotDisconnectedError(outcome.failed);
+}
+
 function isRecoverableAccountDeletionPrecondition(error: unknown): boolean {
   return (
     error instanceof ApiError &&
@@ -71,6 +105,9 @@ export function accountDeletionErrorMessage(error: unknown): string {
   }
   if (isRecoverableAccountDeletionPrecondition(error)) {
     return ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING_MESSAGE;
+  }
+  if (error instanceof AccountErasureBanksNotDisconnectedError) {
+    return ACCOUNT_ERASURE_BANKS_NOT_DISCONNECTED_MESSAGE;
   }
   return "Failed to delete account. Please try again.";
 }
@@ -199,10 +236,18 @@ export async function executeVerifiedAccountDeletion(params: {
   userId: string;
   vaultOwnerToken: string;
   sessionUser: AccountDeletionSessionUser;
+  /** When the vault is open, its bank connections are revoked at Plaid first. */
+  vaultKey?: string | null;
 }): Promise<void> {
   if (params.sessionUser.uid !== params.userId) {
     throw new Error("Account deletion session identity changed. Please retry.");
   }
+
+  await revokeVaultBanksBeforeErasure({
+    userId: params.userId,
+    vaultKey: params.vaultKey,
+    vaultOwnerToken: params.vaultOwnerToken,
+  });
 
   // Capture a UID-bound Firebase credential before the destructive request.
   // Even if Firebase is removed and the HTTP response is lost, this token can

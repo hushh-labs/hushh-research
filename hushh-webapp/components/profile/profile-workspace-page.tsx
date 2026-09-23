@@ -119,6 +119,7 @@ import {
   accountDeletionErrorMessage,
   executeVerifiedAccountDeletion,
   resolveDeleteAccountAuth,
+  revokeVaultBanksBeforeErasure,
 } from "@/lib/flows/delete-account";
 import { buildLoginRouteWithAuthSessionNotice } from "@/lib/auth/session-invalidation";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -1573,6 +1574,7 @@ function ProfilePageContent({
               userId: user.uid,
               vaultOwnerToken: token,
               sessionUser: user,
+              vaultKey,
             });
           })(),
           {
@@ -1680,6 +1682,11 @@ function ProfilePageContent({
       await morphyToast
         .promise(
           (async () => {
+            await revokeVaultBanksBeforeErasure({
+              userId: user.uid,
+              vaultKey,
+              vaultOwnerToken: resolution.token,
+            });
             const result = await AccountService.resetAccount(resolution.token);
             const resetOutcome = resolveResetOutcome(result);
             if (resetOutcome !== "reset") {

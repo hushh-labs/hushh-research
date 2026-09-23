@@ -28,7 +28,7 @@ import {
   savePlaidOAuthResumeSession,
   type PlaidOAuthResumeSession,
 } from "@/lib/kai/brokerage/plaid-oauth-session";
-import { clearPendingSeal, recordPendingSeal } from "@/lib/kai/plaid-vault/pending-seal";
+import { clearPendingSeal, recordPendingSeal, recoverPendingSeals } from "@/lib/kai/plaid-vault/pending-seal";
 import {
   buildFinancialDomainSummary,
   getActiveStatementSnapshotId,
@@ -726,6 +726,35 @@ export async function loadFinancialForVault(params: {
     vaultOwnerToken: params.vaultOwnerToken,
   });
   return (prepared.domainData as AnyRecord | null) ?? null;
+}
+
+/**
+ * Before the account (and with it the vault) is erased: remove every sealed
+ * connection at Plaid, and any link that never reached the vault. Nothing is
+ * written back, because the memory is about to be deleted. Once the vault is
+ * gone nobody holds these tokens, so an Item left live here stays live.
+ */
+export async function revokeAllVaultPlaidAtPlaid(params: {
+  userId: string;
+  vaultKey: string;
+  vaultOwnerToken: string;
+}): Promise<{ revoked: number; failed: number }> {
+  // A failed read throws and stops the erasure; null means no finance record.
+  const financial = await loadFinancialForVault(params);
+  const connections = vaultConnections(financial);
+  let revoked = 0;
+  let failed = 0;
+  for (const connection of Object.values(connections)) {
+    if (!connection?.access_token) continue;
+    try {
+      await removeVaultItem({ vaultOwnerToken: params.vaultOwnerToken, accessToken: connection.access_token });
+      revoked += 1;
+    } catch {
+      failed += 1;
+    }
+  }
+  const pending = await recoverPendingSeals({ ...params, sealedItemIds: new Set(Object.keys(connections)) });
+  return { revoked: revoked + pending.disconnected, failed: failed + pending.failed };
 }
 
 /** Disconnect every sealed connection (the person deleted their Plaid data). */

@@ -10,7 +10,11 @@ const client = vi.hoisted(() => ({
 const coordinator = vi.hoisted(() => ({ saveMergedDomain: vi.fn() }));
 const domainResource = vi.hoisted(() => ({ prepareDomainWriteContext: vi.fn() }));
 const linkLoader = vi.hoisted(() => ({ loadPlaidLink: vi.fn() }));
-const pendingSeal = vi.hoisted(() => ({ recordPendingSeal: vi.fn(), clearPendingSeal: vi.fn() }));
+const pendingSeal = vi.hoisted(() => ({
+  recordPendingSeal: vi.fn(),
+  clearPendingSeal: vi.fn(),
+  recoverPendingSeals: vi.fn(),
+}));
 const linkPlatform = vi.hoisted(() => ({ value: "ios" as "ios" | "android" | "web" }));
 const nativeRuntime = vi.hoisted(() => ({
   isNativePlatform: vi.fn(() => false),
@@ -39,6 +43,7 @@ import {
   PLAID_SANDBOX_PROOF_PREFERENCE_KEY,
   refreshVaultConnections,
   relinkVaultPlaid,
+  revokeAllVaultPlaidAtPlaid,
   sealVaultPlaidConnection,
 } from "@/lib/kai/plaid-vault/vault-sync";
 
@@ -545,5 +550,49 @@ describe("a bank's OAuth login on the web", () => {
 
     expect(outcome).toEqual({ kind: "relink", result: { status: "repaired", refreshed: 1 } });
     expect(client.exchangeVaultPublicToken).not.toHaveBeenCalled();
+  });
+});
+
+describe("revoking every bank before the account is erased", () => {
+  const sealedTwo = {
+    connections_v1: {
+      item_1: { access_token: ACCESS_TOKEN, status: "active" },
+      item_2: { access_token: "access-sandbox-second", status: "needs_relink" },
+    },
+  };
+
+  beforeEach(() => {
+    pendingSeal.recoverPendingSeals.mockResolvedValue({ disconnected: 1, alreadySealed: 0, failed: 0 });
+  });
+
+  it("removes each sealed connection and any unsaved link, writing nothing back", async () => {
+    domainResource.prepareDomainWriteContext.mockResolvedValue({ domainData: sealedTwo });
+    client.removeVaultItem.mockResolvedValue({ removed: true });
+
+    const outcome = await revokeAllVaultPlaidAtPlaid({ userId: "owner", vaultKey: "vk", vaultOwnerToken: "vot" });
+
+    expect(outcome).toEqual({ revoked: 3, failed: 0 });
+    expect(client.removeVaultItem).toHaveBeenCalledTimes(2);
+    expect([...pendingSeal.recoverPendingSeals.mock.calls[0]![0].sealedItemIds]).toEqual(["item_1", "item_2"]);
+    expect(coordinator.saveMergedDomain).not.toHaveBeenCalled();
+  });
+
+  it("reports a connection Plaid would not remove", async () => {
+    domainResource.prepareDomainWriteContext.mockResolvedValue({ domainData: sealedTwo });
+    client.removeVaultItem.mockResolvedValueOnce({ removed: true }).mockRejectedValueOnce(new Error("offline"));
+
+    const outcome = await revokeAllVaultPlaidAtPlaid({ userId: "owner", vaultKey: "vk", vaultOwnerToken: "vot" });
+
+    expect(outcome.failed).toBe(1);
+  });
+
+  it("has nothing to revoke without a finance record", async () => {
+    domainResource.prepareDomainWriteContext.mockResolvedValue({ domainData: null });
+    pendingSeal.recoverPendingSeals.mockResolvedValue({ disconnected: 0, alreadySealed: 0, failed: 0 });
+
+    await expect(
+      revokeAllVaultPlaidAtPlaid({ userId: "owner", vaultKey: "vk", vaultOwnerToken: "vot" }),
+    ).resolves.toEqual({ revoked: 0, failed: 0 });
+    expect(client.removeVaultItem).not.toHaveBeenCalled();
   });
 });
