@@ -1247,14 +1247,15 @@ export default function GmailReceiptsPage({
   const connectGmailHelper = Capacitor.isNativePlatform()
     ? "A secure Google account sheet opens next. Approve Mail access and return here automatically."
     : null;
+  // "loading" intentionally shares the neutral tone: it is a transient state
+  // between page load and a real status, and briefly painting it in the
+  // brand-accent colour before it resolves to success/error reads as a flash.
   const statusToneClassName =
     statusSummary.tone === "success"
       ? "border-emerald-500/18 bg-emerald-500/[0.05]"
       : statusSummary.tone === "error"
         ? "border-rose-500/22 bg-rose-500/[0.06]"
-        : statusSummary.tone === "loading"
-          ? "border-accent-border bg-accent-surface"
-          : "border-border/60 bg-background/68";
+        : "border-border/60 bg-background/68";
   const receiptsVoiceSurfaceMetadata = useMemo(() => {
     const receiptsWorkspaceForVoice =
       journeyVariant === "onboarding" ||
