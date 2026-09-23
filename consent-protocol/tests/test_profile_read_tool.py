@@ -14,6 +14,7 @@ silence.
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
@@ -73,6 +74,48 @@ async def test_it_answers_the_three_questions_profile_could_not() -> None:
         "pending_consents": 3,
         "marketplace_visible": True,
     }
+
+
+@pytest.mark.asyncio
+async def test_independent_profile_reads_start_concurrently() -> None:
+    started: set[str] = set()
+    all_started = asyncio.Event()
+
+    async def read_after_peers(name: str, result: object) -> object:
+        started.add(name)
+        if len(started) == 3:
+            all_started.set()
+        await all_started.wait()
+        return result
+
+    async def identity_mock(*_: object) -> object:
+        return await read_after_peers("identity", {"user_1": {}})
+
+    async def consents_mock(*_: object, **__: object) -> object:
+        return await read_after_peers("consents", {"counts": {"pending": 2}})
+
+    async def persona_mock(*_: object) -> object:
+        return await read_after_peers("persona", {"investor_marketplace_opt_in": True})
+
+    with (
+        _auth(),
+        patch(
+            "hushh_mcp.one_adk.action_tools.ActorIdentityService.get_many",
+            new=AsyncMock(side_effect=identity_mock),
+        ),
+        patch(
+            "hushh_mcp.one_adk.action_tools.ConsentCenterService.get_center_summary",
+            new=AsyncMock(side_effect=consents_mock),
+        ),
+        patch(
+            "hushh_mcp.one_adk.action_tools.RIAIAMService.get_persona_state",
+            new=AsyncMock(side_effect=persona_mock),
+        ),
+    ):
+        result = await asyncio.wait_for(read_my_profile_status(_tool_context(_state())), timeout=1)
+
+    assert started == {"identity", "consents", "persona"}
+    assert result["result"]["pending_consents"] == 2
 
 
 @pytest.mark.asyncio
