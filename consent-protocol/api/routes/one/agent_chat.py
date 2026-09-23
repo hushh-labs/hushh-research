@@ -7,13 +7,17 @@ import json
 import logging
 import re
 from typing import Any
+from uuid import uuid4
 
 from ag_ui.core import RunAgentInput
 from ag_ui_adk import ADKAgent, add_adk_fastapi_endpoint
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from fastapi.routing import APIRoute
 from google.adk.apps import App, ResumabilityConfig
 from google.adk.sessions import InMemorySessionService
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 
 from api.middleware import require_vault_owner_token
@@ -39,9 +43,97 @@ from hushh_mcp.one_adk.external_read_boundary import READ_TOOLS, STATE_EXECUTION
 from hushh_mcp.one_adk.external_read_projection import redacted_read_receipt
 from hushh_mcp.one_adk.request_secrets import store_request_secret
 from hushh_mcp.services.action_gateway import get_action_gateway_action, list_action_gateway_actions
+from hushh_mcp.services.drive_context_envelope import (
+    DriveContextEnvelope,
+    DriveContextEnvelopeBuilder,
+)
+from hushh_mcp.services.google_drive_adapter import DriveReadError
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Agent One"])
+
+_DRIVE_PREVIEW_NO_STORE = {"Cache-Control": "private, no-store", "Pragma": "no-cache"}
+
+
+class _PrivateDrivePreviewRoute(APIRoute):
+    def get_route_handler(self):
+        handler = super().get_route_handler()
+
+        async def private_response(request):
+            try:
+                response = await handler(request)
+            except RequestValidationError:
+                response = JSONResponse(
+                    {
+                        "detail": {
+                            "code": "invalid_argument",
+                            "message": "Use an empty request object.",
+                        }
+                    },
+                    status_code=422,
+                )
+            except HTTPException as error:
+                error.headers = {**(error.headers or {}), **_DRIVE_PREVIEW_NO_STORE}
+                raise
+            response.headers.update(_DRIVE_PREVIEW_NO_STORE)
+            return response
+
+        return private_response
+
+
+_drive_preview_router = APIRouter(route_class=_PrivateDrivePreviewRoute, tags=["Agent One"])
+
+
+class _DrivePreviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+def _drive_context_builder() -> DriveContextEnvelopeBuilder:
+    return DriveContextEnvelopeBuilder()
+
+
+@_drive_preview_router.post("/api/one/agent-chat/drive-context/preview")
+async def preview_drive_context(
+    _payload: _DrivePreviewRequest,
+    request: Request,
+    response: Response,
+    token: dict = Depends(require_vault_owner_token),
+    builder: DriveContextEnvelopeBuilder = Depends(_drive_context_builder),
+) -> DriveContextEnvelope:
+    """Diagnostic metadata snapshot. References have no external resolve endpoint."""
+    response.headers.update(_DRIVE_PREVIEW_NO_STORE)
+    user_id = token.get("user_id")
+    if not isinstance(user_id, str) or not user_id:
+        raise HTTPException(401, "Owner authorization required.")
+    if request.query_params:
+        raise HTTPException(
+            422, {"code": "invalid_argument", "message": "Use an empty request object."}
+        )
+    try:
+        return await builder.assemble(user_id, f"preview:{uuid4()}")
+    except DriveReadError as error:
+        code = str(error)
+        known = {
+            "connector_unavailable": (403, "Drive context is unavailable."),
+            "connect_required": (409, "Connect Drive before previewing selected documents."),
+            "connection_changed": (409, "Reconnect Drive and try again."),
+            "connector_policy_changed": (409, "Drive connection policy changed."),
+            "narrow_selection_required": (409, "Narrow the selected documents and try again."),
+            "incomplete_authority": (409, "Document authority is incomplete. Try again later."),
+        }
+        status, message = known.get(code, (503, "Drive context is temporarily unavailable."))
+        safe_code = code if code in known else "document_storage_unavailable"
+        raise HTTPException(status, {"code": safe_code, "message": message}) from None
+    except Exception:
+        # Neither SQL/provider details nor sealed metadata belong in a preview
+        # error body or ordinary request log.
+        raise HTTPException(
+            503,
+            {
+                "code": "document_storage_unavailable",
+                "message": "Drive context is temporarily unavailable.",
+            },
+        ) from None
 
 
 def _user_id(input_data: RunAgentInput) -> str:
@@ -817,4 +909,5 @@ async def search_actions_endpoint(
     }
 
 
+router.include_router(_drive_preview_router)
 router.include_router(command_proposals_router)

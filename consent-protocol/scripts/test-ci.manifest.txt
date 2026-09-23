@@ -11,6 +11,7 @@ tests/services/test_drive_document_selection.py
 tests/services/test_drive_ingestion.py
 tests/services/test_drive_document_processor.py
 tests/services/test_drive_document_retrieval.py
+tests/services/test_drive_context_envelope.py
 tests/services/test_drive_document_worker.py
 # Native selected-file staging, the privacy-only notification outbox, and the
 # bounded Scheduler coordinator each rely on real PostgreSQL leases.  Keep
@@ -30,6 +31,7 @@ tests/services/test_drive_sharing_store.py
 tests/services/test_drive_permission_executor.py
 tests/services/test_drive_revocation_executor.py
 tests/test_documents_agent_a2a.py
+tests/test_one_drive_context_preview.py
 tests/services/test_connector_feature_admission.py
 tests/test_external_connector_oauth_routes.py
 tests/services/test_gmail_metadata_reader.py
