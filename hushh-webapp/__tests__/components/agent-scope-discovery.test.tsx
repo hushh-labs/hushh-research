@@ -7,14 +7,19 @@ import type { ViewerPersonProfile } from "@/lib/services/person-profile-service"
 const mocks = vi.hoisted(() => ({
   user: { uid: "reviewer-a", getIdToken: vi.fn(async () => "test-token") },
   unlocked: true, getViewer: vi.fn(), create: vi.fn(), getInformationRequest: vi.fn(),
+  getInformationRequestExports: vi.fn(), readStoredConnector: vi.fn(), decryptScopedExport: vi.fn(),
 }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: mocks.user }) }));
 vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ isVaultUnlocked: mocks.unlocked, vaultKey: "test-key", vaultOwnerToken: "test-owner-token" }) }));
 vi.mock("@/lib/services/person-profile-service", async importOriginal => ({
   ...await importOriginal<object>(),
-  PersonProfileService: { getViewer: mocks.getViewer, createInformationRequest: mocks.create, getInformationRequest: mocks.getInformationRequest },
+  PersonProfileService: { getViewer: mocks.getViewer, createInformationRequest: mocks.create, getInformationRequest: mocks.getInformationRequest, getInformationRequestExports: mocks.getInformationRequestExports },
 }));
-vi.mock("@/lib/services/one-kyc-client-zk-service", () => ({ OneKycClientZkService: { ensureConnector: async () => ({ connector_key_id: "test-connector" }) } }));
+vi.mock("@/lib/services/one-kyc-client-zk-service", () => ({ OneKycClientZkService: {
+  ensureConnector: async () => ({ connector_key_id: "test-connector" }),
+  readStoredConnector: mocks.readStoredConnector,
+  decryptScopedExport: mocks.decryptScopedExport,
+} }));
 vi.mock("@/lib/morphy-ux/button", () => ({ Button: ({ children, ...props }: { children: ReactNode }) => <button {...props}>{children}</button> }));
 vi.mock("@/lib/morphy-ux/ui/surface-primitives", () => ({
   SectionCard: ({ children, title }: { children: ReactNode; title: string }) => <section><h4>{title}</h4>{children}</section>,
@@ -52,6 +57,10 @@ describe("current-authority inline Chat catalog", () => {
     mocks.create.mockReset();
     mocks.create.mockResolvedValue({ bundleId: "test-bundle" });
     mocks.getInformationRequest.mockReset();
+    mocks.getInformationRequestExports.mockReset();
+    mocks.readStoredConnector.mockReset();
+    mocks.readStoredConnector.mockResolvedValue({ connector_key_id: "test-connector" });
+    mocks.decryptScopedExport.mockReset();
   });
   afterEach(cleanup);
 
@@ -224,6 +233,73 @@ describe("current-authority inline Chat catalog", () => {
     expect(await screen.findByText("Current label")).toBeInTheDocument();
     expect(screen.queryByText("Stale label")).toBeNull();
     expect(screen.getByText("Access granted")).toBeInTheDocument();
+  });
+
+  it("opens an approved value inside Chat using the stored browser connector", async () => {
+    const restored: InformationRequestReviewExperience = {
+      type: "one.information_request_review.v1", personName: "Synthetic Recipient",
+      purpose: "Review approved information.", durationLabel: "2 days",
+      direction: "outgoing", phase: "submitted", subjectRef: person,
+      bundleId: "bundle_12345678", requestId: "request_12345678", status: "pending",
+      fields: [{ label: "Professional role", domain: "Professional", sensitivity: "standard", requestId: "request_12345678" }],
+    };
+    mocks.getInformationRequest.mockResolvedValue({
+      bundleId: restored.bundleId, personRef: person, purpose: restored.purpose,
+      durationSeconds: 172800, cancelled: false,
+      items: [{ requestId: "request_12345678", scopeRef: "scope-1", label: "Professional role", sensitivity: "standard", status: "granted" }],
+    });
+    mocks.getInformationRequestExports.mockResolvedValue([{
+      requestId: "request_12345678", scopeRef: "scope-1",
+      encryptedExport: {
+        request_id: "request_12345678", scope: "attr.professional.role", export_revision: 1,
+        export_envelope: { version: 2, export_id: "export-1", aad: {
+          version: 2, app_id: "agent_one", grant_id: "request_12345678", export_id: "export-1",
+          revision: 1, machine_scope: "attr.professional.role", scope_handle: "scope-handle",
+          recipient_key_fingerprint: "fingerprint", payload_algorithm: "AES-256-GCM",
+          expires_at_ms: Date.now() + 3600_000,
+        } },
+      },
+    }]);
+    mocks.decryptScopedExport.mockResolvedValue({ professional: { role: "Synthetic analyst" } });
+
+    render(<AgentStructuredExperienceView experience={restored} />);
+    fireEvent.click(await screen.findByRole("button", { name: "View shared information" }));
+    expect(await screen.findByTestId("chat-shared-information")).toHaveTextContent("Synthetic analyst");
+    expect(mocks.readStoredConnector).toHaveBeenCalledTimes(1);
+    expect(mocks.decryptScopedExport).toHaveBeenCalledTimes(1);
+    mocks.getInformationRequest.mockResolvedValue({
+      bundleId: restored.bundleId, personRef: person, purpose: restored.purpose,
+      durationSeconds: 172800, cancelled: false,
+      items: [{ requestId: "request_12345678", scopeRef: "scope-1", label: "Professional role", sensitivity: "standard", status: "revoked" }],
+    });
+    act(() => window.dispatchEvent(new Event("consent-state-changed")));
+    await waitFor(() => expect(screen.queryByTestId("chat-shared-information")).toBeNull());
+    expect(await screen.findByText("Revoked")).toBeInTheDocument();
+  });
+
+  it("rejects a swapped export scope before decrypting it", async () => {
+    const restored: InformationRequestReviewExperience = {
+      type: "one.information_request_review.v1", personName: "Synthetic Recipient",
+      purpose: "Review approved information.", durationLabel: "2 days",
+      direction: "outgoing", phase: "submitted", subjectRef: person,
+      bundleId: "bundle_12345678", requestId: "request_12345678", status: "pending",
+      fields: [{ label: "Professional role", domain: "Professional", sensitivity: "standard", requestId: "request_12345678" }],
+    };
+    mocks.getInformationRequest.mockResolvedValue({
+      bundleId: restored.bundleId, personRef: person, purpose: restored.purpose,
+      durationSeconds: 172800, cancelled: false,
+      items: [{ requestId: "request_12345678", scopeRef: "scope-1", label: "Professional role", sensitivity: "standard", status: "granted" }],
+    });
+    mocks.getInformationRequestExports.mockResolvedValue([{
+      requestId: "request_12345678", scopeRef: "another-scope",
+      encryptedExport: { request_id: "request_12345678" },
+    }]);
+
+    render(<AgentStructuredExperienceView experience={restored} />);
+    fireEvent.click(await screen.findByRole("button", { name: "View shared information" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("could not be opened");
+    expect(screen.queryByTestId("chat-shared-information")).toBeNull();
+    expect(mocks.decryptScopedExport).not.toHaveBeenCalled();
   });
 
   it("does not refresh current status for an unbound historical card", async () => {

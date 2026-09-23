@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/dialog";
 import { InformationRequestReviewFields } from "@/components/consent/information-request-review-fields";
 import { usePersonInformationRequest } from "@/lib/consent/use-person-information-request";
+import { projectGrantPayload } from "@/lib/consent/project-grant-payload";
 import {
   SectionCard,
   StatusPill,
@@ -76,20 +77,6 @@ function withGrantDecryptTimeout<T>(operation: Promise<T>, message: string): Pro
   return Promise.race([operation, timeout]).finally(() => {
     if (timeoutId !== null) window.clearTimeout(timeoutId);
   });
-}
-
-function projectGrantPayload(
-  payload: Record<string, unknown>,
-  domain: string | null | undefined,
-): Record<string, unknown> {
-  const requestedDomain = String(domain || "").trim().toLowerCase();
-  if (!requestedDomain) return payload;
-  const domainEntry = Object.entries(payload).find(
-    ([key, value]) => key.toLowerCase() === requestedDomain && value && typeof value === "object" && !Array.isArray(value),
-  )?.[1];
-  return domainEntry && typeof domainEntry === "object" && !Array.isArray(domainEntry)
-    ? domainEntry as Record<string, unknown>
-    : payload;
 }
 
 export function PersonProfilePage({ personRef, initialProfile }: Props) {

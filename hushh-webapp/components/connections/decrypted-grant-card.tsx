@@ -130,7 +130,7 @@ function resolveDomainVisuals(domain?: string | null) {
 /**
  * Elegantly presents structured decrypted records without raw JSON dumps or nested boxes.
  */
-function DecryptedRecordContent({ data }: { data: Record<string, unknown> }) {
+export function DecryptedRecordContent({ data }: { data: Record<string, unknown> }) {
   // Extract summary/headline if present
   const summary = typeof data.summary === "string" ? data.summary : null;
   const description = typeof data.description === "string" ? data.description : null;
