@@ -23,8 +23,11 @@ CREATE TABLE IF NOT EXISTS drive_native_picker_attempts (
   confirmed_at TIMESTAMPTZ,
   cancelled_at TIMESTAMPTZ,
   invalidated_at TIMESTAMPTZ,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
-  expires_at TIMESTAMPTZ NOT NULL DEFAULT (clock_timestamp() + interval '10 minutes'),
+  -- These two defaults must use one transaction-stable clock. Separate
+  -- clock_timestamp() calls can differ by microseconds and violate the strict
+  -- ten-minute upper bound below during an otherwise valid INSERT.
+  created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  expires_at TIMESTAMPTZ NOT NULL DEFAULT (CURRENT_TIMESTAMP + interval '10 minutes'),
   FOREIGN KEY (user_id, connector_id)
     REFERENCES user_external_connector_connections(user_id, connector_id) ON DELETE CASCADE,
   CHECK (expires_at > created_at AND expires_at <= created_at + interval '10 minutes'),

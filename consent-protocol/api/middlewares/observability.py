@@ -20,6 +20,14 @@ logger = logging.getLogger(__name__)
 REQUEST_ID_HEADER = "x-request-id"
 TRACE_ID_HEADER = "x-trace-id"
 
+# These Google GET callbacks contain OAuth codes and/or selected Drive IDs in
+# their query strings. App-level structured telemetry keeps only route
+# templates, while OpenTelemetry must not create a second, URL-bearing export.
+_PRIVATE_CALLBACK_TRACE_URLS = (
+    r"/api/connectors/oauth/native/callback(?:[?]|$)|"
+    r"/api/connectors/google_drive/picker/native/callback(?:[?]|$)"
+)
+
 
 @dataclass(frozen=True)
 class RequestTraceMetadata:
@@ -334,7 +342,7 @@ def configure_opentelemetry(app: FastAPI) -> None:
         )
 
         trace.set_tracer_provider(provider)
-        FastAPIInstrumentor.instrument_app(app)
+        FastAPIInstrumentor.instrument_app(app, excluded_urls=_PRIVATE_CALLBACK_TRACE_URLS)
         HTTPXClientInstrumentor().instrument()
         logger.info("observability.otel_enabled")
     except Exception:

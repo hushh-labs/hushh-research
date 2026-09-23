@@ -81,6 +81,39 @@ def test_sdk_exception_records_keep_type_not_prompt_bearing_exception():
     assert "PRIVATE" not in record.getMessage()
 
 
+def test_trace_export_never_retains_callback_query_material():
+    """Callback state/codes/file IDs must not become durable trace attributes."""
+    from api.utils.private_trace_exporter import _safe_attributes
+
+    projected = _safe_attributes(
+        {
+            "http.route": "/api/connectors/oauth/native/callback",
+            "http.url": "https://api.uat.hushh.ai/api/connectors/oauth/native/callback?code=PRIVATE_CODE",
+            "http.target": "/api/connectors/oauth/native/callback?state=PRIVATE_STATE",
+            "url.full": "https://api.uat.hushh.ai/api/connectors/google_drive/picker/native/callback?picked_file_ids=PRIVATE_IDS",
+        }
+    )
+
+    assert projected == {"http.route": "/api/connectors/oauth/native/callback"}
+
+
+def test_opentelemetry_excludes_only_the_two_query_bearing_native_callbacks():
+    from opentelemetry.util.http import parse_excluded_urls
+
+    from api.middlewares.observability import _PRIVATE_CALLBACK_TRACE_URLS
+
+    exclusions = parse_excluded_urls(_PRIVATE_CALLBACK_TRACE_URLS)
+    assert exclusions.url_disabled(
+        "https://api.uat.hushh.ai/api/connectors/oauth/native/callback?code=PRIVATE_CODE"
+    )
+    assert exclusions.url_disabled(
+        "https://api.uat.hushh.ai/api/connectors/google_drive/picker/native/callback?picked_file_ids=PRIVATE_IDS"
+    )
+    assert not exclusions.url_disabled(
+        "https://api.uat.hushh.ai/api/connectors/google_drive/picker/session"
+    )
+
+
 @pytest.mark.parametrize("fail,private_export", [(False, True), (True, True), (True, False)])
 async def test_real_sdk_export_excludes_private_content_and_provider_exception(
     monkeypatch, fail, private_export

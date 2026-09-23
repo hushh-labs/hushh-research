@@ -22,10 +22,24 @@ _PRIVATE_ERROR_FIELDS = frozenset(
     }
 )
 
+# ASGI instrumentation records the full callback URL by default. Google sends
+# OAuth codes, signed state and Picker file IDs in its fixed GET callbacks, so
+# retaining either legacy or current HTTP URL attributes would make the trace
+# export a credential/content sink. Route attributes remain safe and useful.
+_PRIVATE_HTTP_URL_FIELDS = frozenset(
+    {
+        "http.url",
+        "http.target",
+        "url.full",
+    }
+)
+
 
 def _safe_attributes(attributes):
     return {
-        key: value for key, value in (attributes or {}).items() if key not in _PRIVATE_ERROR_FIELDS
+        key: value
+        for key, value in (attributes or {}).items()
+        if key not in _PRIVATE_ERROR_FIELDS | _PRIVATE_HTTP_URL_FIELDS
     }
 
 

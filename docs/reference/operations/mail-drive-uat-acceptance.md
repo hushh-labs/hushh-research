@@ -235,6 +235,33 @@ secrets and deletes workflow rows expired over 24 hours ago. Wire and prove the 
 maintenance/scheduler lane for a hard retention deadline before rollout. Cleanup must not
 revoke a provider grant or mutate an active connection.
 
+## Required UAT Drive registry provisioning
+
+The `google_drive` catalog row is operator configuration, not a schema seed and
+not a generic external-MCP descriptor. After the exact UAT migration target is
+attested and before enabling any Drive cohort, use the fixed, no-secret
+provisioner from the UAT runner with its existing Cloud SQL proxy and `DB_*`
+environment:
+
+```bash
+cd consent-protocol
+ENVIRONMENT=uat HUSSH_RELEASE_ENVIRONMENT=uat GCP_PROJECT_ID=hushh-pda-uat \
+  CLOUDSQL_INSTANCE_CONNECTION_NAME=hushh-pda-uat:us-central1:hushh-uat-pg \
+  python scripts/ops/reconcile_google_drive_uat_connector.py --activate
+ENVIRONMENT=uat HUSSH_RELEASE_ENVIRONMENT=uat GCP_PROJECT_ID=hushh-pda-uat \
+  CLOUDSQL_INSTANCE_CONNECTION_NAME=hushh-pda-uat:us-central1:hushh-uat-pg \
+  python scripts/ops/reconcile_google_drive_uat_connector.py
+```
+
+The first command can create or reactivate only the reviewed UAT row; the
+second is read-only verification. Both require the canonical UAT environment,
+project, Cloud SQL instance and server-derived database identity. They accept
+no endpoint, scope, redirect, OAuth client or secret argument, serialize on a
+connector-specific advisory lock, and refuse registry drift rather than
+rewriting it. Their output contains only connector ID, transport, policy hash
+and redirect count. Registry activation does not enable Drive: the independent
+feature flags and named internal owner cohort remain default-off.
+
 ## Required UAT Drive work-drain configuration
 
 The source route is intentionally default-off. After the governed backend candidate containing

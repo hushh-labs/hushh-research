@@ -43,6 +43,9 @@ Legacy/bootstrap SQL and one-off repair scripts here are not the release lane.
   for the OIDC-protected bounded sequence: document indexing, review suggestions, permission
   delivery/reconciliation and metadata-only notifications. It is not an application deployment,
   does not enable a cohort, and scheduler success is not person or device delivery evidence.
+- `ops/reconcile_google_drive_uat_connector.py`: attested, fixed-policy UAT registry verifier;
+  `--activate` is explicit and cannot accept provider endpoints, scopes, redirects or secrets.
+  It creates no feature cohort and does not enable Drive execution.
 
 ### Inspection and Evaluation
 

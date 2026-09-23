@@ -10,7 +10,7 @@ import json
 import os
 import threading
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from urllib.parse import parse_qs, urlparse
@@ -150,6 +150,7 @@ async def test_native_one_picker_start_is_same_client_version_bound_and_secret_f
     assert row["connection_generation"] == 1
     assert row["credential_version"] == 1
     assert row["expires_at"] > row["created_at"]
+    assert row["expires_at"] == row["created_at"] + timedelta(minutes=10)
     assert "subject-a" not in str(row)
     assert "synthetic-access" not in str(row)
     assert "synthetic-refresh" not in str(row)
