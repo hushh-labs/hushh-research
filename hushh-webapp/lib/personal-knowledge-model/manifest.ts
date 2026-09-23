@@ -201,8 +201,15 @@ const BLOCKED_EXTERNAL_PATH_PARTS = new Set([
 ]);
 
 /**
- * The sealed Plaid tiers (see `lib/kai/plaid-vault/types.ts`). Each is private
- * to the owner and never offered for sharing; the shareable tier is `summary`.
+ * The sealed Plaid tiers (see `lib/kai/plaid-vault/types.ts`). Private to the
+ * owner, never offered for sharing (the shareable tier is `summary`), so the
+ * manifest declares each as one opaque node and does not walk inside it.
+ *
+ * Walked field by field they grew with the records: one bank's 264
+ * transactions declared 3,349 paths, and even collapsed they cost ~190 of the
+ * 1000 `json_paths` a domain may declare. A real account already spent 821 on
+ * statements and the older Plaid copy, so the sealed connect write died with a
+ * 422 (iPhone proof, run 13). Nothing reads a path below these roots.
  */
 const VAULT_PRIVATE_BRANCHES = new Set([
   "connections_v1",
@@ -211,19 +218,6 @@ const VAULT_PRIVATE_BRANCHES = new Set([
   "securities_v1",
   "transactions_v1",
   "derived_v1",
-]);
-
-/**
- * The tiers that are maps keyed by a record id. Walked key by key, one bank's
- * 264 transactions declared 3,349 paths and the sealed write died with a 422
- * against the server's 1000-path cap, so they collapse like `entities` maps.
- */
-const VAULT_RECORD_MAP_BRANCHES = new Set([
-  "connections_v1",
-  "accounts_v1",
-  "holdings_v1",
-  "securities_v1",
-  "transactions_v1",
 ]);
 
 /** Segments the walk invents; they were never keys the owner wrote. */
@@ -387,6 +381,10 @@ function walkValue(
     }
   }
 
+  if (path.length === 1 && VAULT_PRIVATE_BRANCHES.has(path[0] ?? "")) {
+    return;
+  }
+
   if (Array.isArray(value)) {
     for (const item of value) {
       if (item !== undefined) {
@@ -413,8 +411,7 @@ function walkValue(
   const isAnalysisHistoryMap =
     mapKey === ANALYSIS_HISTORY_MAP_KEY &&
     Object.values(record).some((childValue) => Array.isArray(childValue));
-  const isVaultRecordMap = path.length === 1 && VAULT_RECORD_MAP_BRANCHES.has(mapKey ?? "");
-  if (mapKey === ENTITY_MAP_KEY || isAnalysisHistoryMap || isVaultRecordMap) {
+  if (mapKey === ENTITY_MAP_KEY || isAnalysisHistoryMap) {
     for (const [rawKey, childValue] of Object.entries(record)) {
       if (childValue === undefined || rawKey.trim().startsWith("_")) continue;
       // `domain_intent` is metadata on the analysis-history map, not an

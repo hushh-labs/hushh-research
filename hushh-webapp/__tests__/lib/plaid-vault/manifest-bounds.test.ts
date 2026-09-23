@@ -68,13 +68,19 @@ describe("the sealed Plaid memory's manifest", () => {
     expect(manifest.paths.every((path) => path.json_path.length <= 1024)).toBe(true);
   });
 
-  it("grows with the shape of the records, not with their number", () => {
+  it("declares each sealed tier as one opaque path, however many banks are linked", () => {
     const one = manifestFor(
       connect(null, "item_fp_a", FIRST_PLATYPUS, firstPlatypusSnapshot("item_fp_a", "fpa")),
     );
     const six = manifestFor(sixBanks());
-    // One bank already carries every record shape; five more add rows, not paths.
-    expect(six.paths.length).toBeLessThanOrEqual(one.paths.length + 40);
+    for (const manifest of [one, six]) {
+      const sealed = manifest.paths.filter((path) => PRIVATE_TIERS.includes(path.json_path.split(".")[0]!));
+      // A real account already spends ~821 of the 1000 json_paths on statements
+      // and the older Plaid copy; the sealed tiers must cost six, not hundreds.
+      expect(sealed.map((path) => path.json_path).sort()).toEqual([...PRIVATE_TIERS].sort());
+      expect(sealed.every((path) => path.exposure_eligibility === false)).toBe(true);
+    }
+    expect(six.paths.length).toBe(one.paths.length);
   });
 
   it("never offers a private tier, a record id or a token for sharing", () => {
