@@ -90,6 +90,27 @@ describe("current-authority inline Chat catalog", () => {
     expect(screen.getByRole("link", { name: "View profile" })).toHaveAttribute("href", `/people/${person}`);
   });
 
+  it("submits one validated Professional root instead of separate covered requests", async () => {
+    const profile = page(1);
+    profile.requestableScopes = [
+      { scopeRef: "opaque-professional-root", label: "Professional Domain", description: null, domain: "professional", sensitivity: "standard", wildcard: true, pathSegments: [] },
+      { scopeRef: "opaque-professional-role", label: "Professional role", description: null, domain: "professional", sensitivity: "standard", wildcard: false, pathSegments: ["role"] },
+    ];
+    mocks.getViewer.mockResolvedValue(profile);
+    render(<AgentStructuredExperienceView experience={experience} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Professional Domain" }));
+    fireEvent.click(screen.getByRole("button", { name: "Professional role" }));
+    fireEvent.click(screen.getByRole("button", { name: "Review request" }));
+    expect(screen.getByText("This includes all available information in this area, not just one detail.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "What you are asking for" }).parentElement)
+      .not.toHaveTextContent("Professional role");
+    fireEvent.change(screen.getByTestId("chat-request-purpose"), { target: { value: "Synthetic professional review" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send request" }));
+    await waitFor(() => expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({
+      personRef: person, scopeRefs: ["opaque-professional-root"],
+    })));
+  });
+
   it("clears selected fields when continuation reports a changed catalog", async () => {
     const reset = page(1, "b".repeat(64)); reset.requestableScopes[0]!.scopeRef = "replacement"; reset.scopeCatalog!.paginationReset = true;
     mocks.getViewer.mockResolvedValueOnce(page(1)).mockResolvedValueOnce(reset);
