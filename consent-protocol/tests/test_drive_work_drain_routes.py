@@ -193,7 +193,7 @@ def test_route_runs_fixed_bounded_coordinator_and_returns_only_aggregate_status(
     assert "private_request_id" not in response.text
     assert "must-not-leak" not in response.text
     purge.assert_awaited_once_with()
-    run.assert_awaited_once_with(max_jobs_per_worker=4, deadline_seconds=175)
+    run.assert_awaited_once_with(max_jobs_per_worker=4, deadline_seconds=205)
 
 
 def test_retention_failure_fails_closed_before_provider_work(client, monkeypatch):

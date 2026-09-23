@@ -332,4 +332,6 @@ def test_agent_chat_route_bounds_the_execution_registry():
         assert agent._max_concurrent == agent_chat._MAX_CONCURRENT_EXECUTIONS
         assert agent._execution_timeout == agent_chat._EXECUTION_TIMEOUT_SECONDS
     assert agent_chat._MAX_CONCURRENT_EXECUTIONS > 10
-    assert agent_chat._EXECUTION_TIMEOUT_SECONDS <= 120
+    # Cold, locally pinned Drive retrieval is bounded by its own 160s gate;
+    # One leaves a narrow orchestration margin without the bridge's 600s default.
+    assert 160 < agent_chat._EXECUTION_TIMEOUT_SECONDS <= 200

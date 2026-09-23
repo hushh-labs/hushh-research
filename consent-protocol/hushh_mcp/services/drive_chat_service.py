@@ -81,7 +81,7 @@ class DriveChatService:
                 "input_required",
             )
         try:
-            async with asyncio.timeout(90):
+            async with asyncio.timeout(160):
                 reader = self.reader_factory(user_id=user_id, require_access=require_access)
                 retrieved = await reader.search(query=message)
                 content = retrieved["untrusted_external_content"]

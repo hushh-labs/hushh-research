@@ -56,14 +56,23 @@ PY
 )"
 traffic_flags=(--tag="${traffic_tag}")
 if [[ "${service_exists}" == true ]]; then
-  previous_revision="$(gcloud run services describe "${SERVICE}" \
+  serving_state="$(gcloud run services describe "${SERVICE}" \
     --project="${PROJECT_ID}" --region="${REGION}" --format=json \
-    | python3 -c 'import json,sys; data=json.load(sys.stdin); traffic=(data.get("status") or {}).get("traffic") or []; serving=[item.get("revisionName") for item in traffic if item.get("percent")==100]; print(serving[0] if len(serving)==1 else "")')"
-  if [[ -z "${previous_revision}" ]]; then
-    echo "Existing Drive worker has no unambiguous serving revision; refusing release" >&2
-    exit 1
-  fi
-  traffic_flags=(--no-traffic "${traffic_flags[@]}")
+    | python3 -c 'import json,sys; data=json.load(sys.stdin); traffic=(data.get("status") or {}).get("traffic") or []; positive=[item for item in traffic if item.get("percent",0)>0]; print("empty" if not positive else "serving:"+str(positive[0].get("revisionName")) if len(positive)==1 and positive[0].get("percent")==100 and positive[0].get("revisionName") else "ambiguous")')"
+  case "${serving_state}" in
+    serving:*)
+      previous_revision="${serving_state#serving:}"
+      traffic_flags=(--no-traffic "${traffic_flags[@]}")
+      ;;
+    empty)
+      # A failed first creation leaves an IAM-private service but no serving
+      # revision. The next verified candidate is still a first real release.
+      ;;
+    *)
+      echo "Existing Drive worker has no unambiguous serving revision; refusing release" >&2
+      exit 1
+      ;;
+  esac
 fi
 previous_scheduler_uri="$(gcloud scheduler jobs describe "${SCHEDULER_JOB}" \
   --project="${PROJECT_ID}" --location="${REGION}" \
@@ -133,13 +142,13 @@ gcloud --quiet run deploy "${SERVICE}" \
   --ingress=internal --no-allow-unauthenticated \
   --add-custom-audiences="${SCHEDULER_AUDIENCE}" \
   --add-cloudsql-instances="${CLOUDSQL_INSTANCE}" \
-  --concurrency=1 --timeout=240 --max-instances=1 --min-instances=0 \
-  --max=1 --min=0 "${traffic_flags[@]}" \
+  --concurrency=1 --timeout=240 --max-instances=2 --min-instances=0 \
+  --max=2 --min=0 "${traffic_flags[@]}" \
   --labels="managed-by=hushh-github-actions,deploy-env=uat,deploy-sha=${DEPLOY_SHA},github-run-id=${RELEASE_RUN_ID}" \
   --container=drive-worker \
   --image="${IMAGE_REFERENCE}" --port=8080 --cpu=2 --memory=4Gi \
   --command=gunicorn \
-  --args=server_drive_worker:app,-w,1,-k,uvicorn.workers.UvicornWorker,--timeout,220,-b,0.0.0.0:8080 \
+  --args=server_drive_worker:app,-w,1,-k,uvicorn.workers.UvicornWorker,--timeout,220,--worker-tmp-dir,/tmp,-b,0.0.0.0:8080 \
   --depends-on=clamav \
   --startup-probe=httpGet.port=8080,httpGet.path=/ready,periodSeconds=10,timeoutSeconds=5,failureThreshold=24 \
   --set-env-vars="ENVIRONMENT=uat,GOOGLE_CLOUD_PROJECT=${PROJECT_ID},DRIVE_WORKER_MODE=true,DRIVE_WORK_DRAIN_ENABLED=true,DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID=${PROJECT_ID},DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL=${SCHEDULER_ID},DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE=${SCHEDULER_AUDIENCE},DB_POOL_MIN_SIZE=0,DB_POOL_MAX_SIZE=2,DB_SQLALCHEMY_POOL_SIZE=1,DB_SQLALCHEMY_MAX_OVERFLOW=0" \

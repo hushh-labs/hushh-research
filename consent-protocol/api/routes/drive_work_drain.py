@@ -35,7 +35,7 @@ _UAT_SCHEDULER_AUDIENCES = frozenset(
     }
 )
 _MAX_JOBS_PER_WORKER = 4
-_DRAIN_DEADLINE_SECONDS = 175
+_DRAIN_DEADLINE_SECONDS = 205
 
 
 def _drain_enabled() -> bool:

@@ -4,6 +4,7 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import text
 
+from hushh_mcp.services.drive_document_store import PROCESSING_DISCLOSURE_VERSION
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 from hushh_mcp.services.drive_sharing_projection_store import DriveSharingProjectionStore
 
@@ -70,7 +71,7 @@ class DriveSuggestionStore(DriveSharingProjectionStore):
             connection.execute(
                 text("""
                 UPDATE drive_share_requests SET status='preparing',preparation_attempts=preparation_attempts+1,
-                  preparation_lease_id=:lease,preparation_lease_expires_at=clock_timestamp()+INTERVAL '120 seconds',
+                  preparation_lease_id=:lease,preparation_lease_expires_at=clock_timestamp()+INTERVAL '180 seconds',
                   preparation_error_code=NULL,updated_at=clock_timestamp()
                 WHERE request_id=:request
             """),
@@ -106,6 +107,32 @@ class DriveSuggestionStore(DriveSharingProjectionStore):
 
     async def require_preparation_current(self, job):
         await self._transaction(lambda connection: self._preparation_current(connection, job))
+
+    async def indexing_pending(self, job) -> bool:
+        """Defer an empty review only while consented selected files can still become ready."""
+
+        def operation(connection):
+            self._preparation_current(connection, job)
+            return (
+                connection.execute(
+                    text("""
+                    SELECT 1 FROM connected_documents
+                    WHERE user_id=:user AND connection_generation=:generation
+                      AND processing_enabled AND processing_disclosure_version=:disclosure
+                      AND active_version IS NULL
+                      AND status IN ('queued','fetching','parsing','indexing','failed_retryable','stale')
+                    LIMIT 1
+                    """),
+                    {
+                        "user": job["user_id"],
+                        "generation": job["generation"],
+                        "disclosure": PROCESSING_DISCLOSURE_VERSION,
+                    },
+                ).first()
+                is not None
+            )
+
+        return await self._transaction(operation)
 
     async def fail_preparation(self, job, *, code, retryable=False):
         allowed = {

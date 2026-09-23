@@ -138,7 +138,7 @@ def test_worker_promotion_is_post_gate_attested_and_recoverable():
     assert "--no-allow-unauthenticated" in release
     assert "--depends-on=clamav" in release
     assert "--startup-probe=tcpSocket.port=3310" in release
-    assert "--max-instances=1 --min-instances=0" in release
+    assert "--max-instances=2 --min-instances=0" in release
     assert "--timeout=240" in release
     assert 'traffic_flags=(--no-traffic "${traffic_flags[@]}")' in release
     assert "promoted=true\ngcloud run services update-traffic" in release
@@ -389,6 +389,7 @@ def test_scheduler_capture_rejects_malformed_or_wrong_identity(
     ("worker_state", "expect_no_traffic", "expect_deploy"),
     [
         ("absent", False, True),
+        ("failed_first_create", False, True),
         ("existing", True, True),
         ("ambiguous", False, False),
         ("list_error", False, False),
@@ -429,11 +430,14 @@ state = os.environ["MOCK_WORKER_STATE"]
 if command[:3] == ["run", "services", "list"]:
     if state == "list_error":
         sys.exit(77)
-    names = ["consent-protocol-drive-worker"] if state in ("existing", "ambiguous") else []
+    names = ["consent-protocol-drive-worker"] if state in ("existing", "ambiguous", "failed_first_create") else []
     print(json.dumps([{"metadata": {"name": name}} for name in names]))
 elif command[:3] == ["run", "services", "describe"]:
     traffic = ([{"revisionName": "worker-previous-00001", "percent": 100}]
-               if state == "existing" else [])
+               if state == "existing" else
+               [{"revisionName": "worker-previous-00001", "percent": 50},
+                {"revisionName": "worker-previous-00002", "percent": 50}]
+               if state == "ambiguous" else [])
     print(json.dumps({"status": {"traffic": traffic}}))
 elif command[:3] == ["scheduler", "jobs", "describe"]:
     if "--format=value(httpTarget.uri)" in command:
