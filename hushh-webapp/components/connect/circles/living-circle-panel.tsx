@@ -26,7 +26,11 @@ export function LivingCirclePanel({
   error,
   addingUserId,
   onAdd,
-  onOpenAll,
+  searchQuery,
+  onSearchChange,
+  hasMore,
+  loadingMore,
+  onLoadMore,
   onRetry,
 }: {
   circleName: string;
@@ -40,11 +44,16 @@ export function LivingCirclePanel({
   error: string | null;
   addingUserId: string | null;
   onAdd: (userId: string) => void;
-  onOpenAll: () => void;
+  searchQuery: string;
+  onSearchChange: (query: string) => void;
+  hasMore: boolean;
+  loadingMore: boolean;
+  onLoadMore: () => void;
   onRetry: () => void;
 }) {
   const [overCircle, setOverCircle] = useState(false);
-  const shownCandidates = candidates.slice(0, 6);
+  const [expanded, setExpanded] = useState(false);
+  const shownCandidates = expanded ? candidates : candidates.slice(0, 6);
   const addFromDrop = (userId: string) => {
     if (!canInvite || addingUserId || remainingCapacity <= 0) return;
     if (candidates.some((candidate) => candidate.userId === userId)) onAdd(userId);
@@ -106,12 +115,32 @@ export function LivingCirclePanel({
                 Drag a person into the circle on desktop, or tap Add on any device.
               </p>
             </div>
-            {availableCount > shownCandidates.length ? (
-              <Button type="button" variant="ghost" size="compact" onClick={onOpenAll}>
-                See all
+            {remainingCapacity > 0 && (availableCount > 6 || expanded) ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="compact"
+                onClick={() => {
+                  if (expanded) onSearchChange("");
+                  setExpanded(!expanded);
+                }}
+              >
+                {expanded ? "Show less" : `See all (${availableCount})`}
               </Button>
             ) : null}
           </div>
+          {expanded ? (
+            <label className="mt-4 block">
+              <span className="sr-only">Search connections to add</span>
+              <input
+                type="search"
+                value={searchQuery}
+                onChange={(event) => onSearchChange(event.target.value)}
+                placeholder="Search connections"
+                className="h-11 w-full rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 text-[color:var(--app-primary-label)] outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+              />
+            </label>
+          ) : null}
           {loading ? (
             <p className="ui-text-row-description mt-4 text-[color:var(--app-secondary-label)]">Loading connections…</p>
           ) : error ? (
@@ -147,11 +176,20 @@ export function LivingCirclePanel({
                 </div>
               ))}
             </div>
+          ) : searchQuery.trim() ? (
+            <p className="ui-text-row-description mt-4 text-[color:var(--app-secondary-label)]">
+              No matching connections.
+            </p>
           ) : (
             <p className="ui-text-row-description mt-4 text-[color:var(--app-secondary-label)]">
               No connections available to add. <Link className="font-semibold text-[color:var(--app-accent)] underline-offset-2 hover:underline" href={`${ROUTES.CONNECT}?tab=all`}>Find people</Link>
             </p>
           )}
+          {expanded && hasMore && !loading && !error && remainingCapacity > 0 ? (
+            <Button type="button" variant="outline" size="compact" className="mt-4 w-full" disabled={loadingMore} onClick={onLoadMore}>
+              {loadingMore ? "Loading…" : "Load more connections"}
+            </Button>
+          ) : null}
         </div>
       ) : null}
     </section>

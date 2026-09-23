@@ -1830,10 +1830,14 @@ export function CircleDetailFlow({
 
   useEffect(() => {
     if (!livingCircleExperience || !circle?.id || !canInviteMembers) return;
-    void loadEligibleConnections({ page: 1, query: "" });
-    // This preview is a bounded first page, refreshed by reloadSignal below.
+    // Connect keeps the entire add flow inline. Search its bounded candidate
+    // page here instead of opening the legacy Add people sheet.
+    const timer = window.setTimeout(() => {
+      void loadEligibleConnections({ page: 1, query: peopleSearch });
+    }, peopleSearch.trim() ? 250 : 0);
+    return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [circle?.id, canInviteMembers, livingCircleExperience]);
+  }, [circle?.id, canInviteMembers, livingCircleExperience, peopleSearch]);
 
   useEffect(() => {
     if (reloadSignal === lastEligibleReloadSignalRef.current) return;
@@ -1845,7 +1849,7 @@ export function CircleDetailFlow({
     // eligible set.
     void loadEligibleConnections({
       page: 1,
-      query: peopleSheetOpen ? peopleSearch : "",
+      query: peopleSheetOpen || livingCircleExperience ? peopleSearch : "",
       reconcileSelections: peopleSheetOpen,
     });
     // This effect is signal-driven. Capturing the current loader is intended;
@@ -1947,7 +1951,7 @@ export function CircleDetailFlow({
       // Both success and a stale-capacity rejection need fresh membership and
       // eligibility. A refresh error must not claim a successful add failed.
       await reload();
-      await loadEligibleConnections({ page: 1, query: "" });
+      await loadEligibleConnections({ page: 1, query: peopleSearch });
     } finally {
       peopleSubmitInFlightRef.current = false;
       setQuickAddingUserId(null);
@@ -2117,6 +2121,7 @@ export function CircleDetailFlow({
 
           {livingCircleExperience ? (
             <LivingCirclePanel
+              key={circle.id}
               circleName={circle.name}
               members={orbitMembers}
               memberCount={visibleMemberCount}
@@ -2128,8 +2133,12 @@ export function CircleDetailFlow({
               error={peopleLoadError}
               addingUserId={quickAddingUserId}
               onAdd={(userId) => void quickAddConnection(userId)}
-              onOpenAll={openPeopleSheet}
-              onRetry={() => void loadEligibleConnections({ page: 1, query: "" })}
+              searchQuery={peopleSearch}
+              onSearchChange={setPeopleSearch}
+              hasMore={peopleHasMore}
+              loadingMore={peopleLoadingMore}
+              onLoadMore={() => void loadEligibleConnections({ page: peoplePage + 1, append: true, query: peopleSearch })}
+              onRetry={() => void loadEligibleConnections({ page: 1, query: peopleSearch })}
             />
           ) : null}
 
@@ -2222,14 +2231,14 @@ export function CircleDetailFlow({
             </Sheet>
           ) : null}
 
-          {canInviteMembers || canViewInviteCode ? (
+          {(!livingCircleExperience && canInviteMembers) || canViewInviteCode ? (
             <SettingsGroup
               title="Invite"
               separatorInset
               shellClassName="!rounded-[18px]"
               testId="one-location-circle-invite-card"
             >
-              {canInviteMembers ? (
+              {!livingCircleExperience && canInviteMembers ? (
                 <SettingsRow
                   icon={Plus}
                   iconTone="accent"
@@ -2421,7 +2430,8 @@ export function CircleDetailFlow({
             </AlertDialog>
           ) : null}
 
-          <Sheet
+          {!livingCircleExperience ? (
+            <Sheet
             modal
             open={peopleSheetOpen}
             onOpenChange={(open) => {
@@ -2705,7 +2715,8 @@ export function CircleDetailFlow({
                 </Button>
               </div>
             </SheetContent>
-          </Sheet>
+            </Sheet>
+          ) : null}
 
           {/* One section, in reading order: what this is, how to narrow it,
               then the list. The search field used to sit ABOVE the "Members"

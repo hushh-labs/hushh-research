@@ -49,7 +49,11 @@ describe("Connect circle growth", () => {
         error={null}
         addingUserId={null}
         onAdd={onAdd}
-        onOpenAll={vi.fn()}
+        searchQuery=""
+        onSearchChange={vi.fn()}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
         onRetry={vi.fn()}
       />,
     );
@@ -84,11 +88,56 @@ describe("Connect circle growth", () => {
         error={null}
         addingUserId={null}
         onAdd={vi.fn()}
-        onOpenAll={vi.fn()}
+        searchQuery=""
+        onSearchChange={vi.fn()}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
         onRetry={vi.fn()}
       />,
     );
     expect(screen.queryByText("Bring in your connections")).toBeNull();
     expect(screen.queryByRole("button", { name: /Add Asha Rao/ })).toBeNull();
+  });
+
+  it("expands the candidate list inline with search and pagination, never a modal", () => {
+    const onSearchChange = vi.fn();
+    const onLoadMore = vi.fn();
+    const candidates = Array.from({ length: 7 }, (_, index) => ({
+      ...candidate,
+      userId: `person-${index + 1}`,
+      displayName: `Person ${index + 1}`,
+    }));
+    render(
+      <LivingCirclePanel
+        circleName="Family"
+        members={[]}
+        memberCount={1}
+        canInvite
+        candidates={candidates}
+        availableCount={60}
+        remainingCapacity={10}
+        loading={false}
+        error={null}
+        addingUserId={null}
+        onAdd={vi.fn()}
+        searchQuery=""
+        onSearchChange={onSearchChange}
+        hasMore
+        loadingMore={false}
+        onLoadMore={onLoadMore}
+        onRetry={vi.fn()}
+      />,
+    );
+    expect(screen.queryByText("Person 7")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "See all (60)" }));
+    expect(screen.getByText("Person 7")).toBeTruthy();
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search connections to add" }), {
+      target: { value: "Person 55" },
+    });
+    expect(onSearchChange).toHaveBeenCalledWith("Person 55");
+    fireEvent.click(screen.getByRole("button", { name: "Load more connections" }));
+    expect(onLoadMore).toHaveBeenCalledOnce();
+    expect(screen.queryByRole("dialog", { name: "Add people" })).toBeNull();
   });
 });

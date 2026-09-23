@@ -125,6 +125,9 @@ describe("named Circle flows", () => {
       });
       render(<CircleDetailFlow circleId="family" livingCircleExperience {...props} />);
       const addButton = await screen.findByRole("button", { name: "Add Asha Rao to Family" });
+      expect(screen.queryByTestId("one-location-circle-add-people-row")).toBeNull();
+      expect(screen.queryByRole("dialog", { name: "Add people" })).toBeNull();
+      expect(screen.getByTestId("one-location-circle-invite-code-row")).toBeTruthy();
       if (method === "tap") {
         fireEvent.click(addButton);
       } else {
@@ -148,6 +151,69 @@ describe("named Circle flows", () => {
       expect(props.onInviteConnections).toHaveBeenCalledTimes(1);
     },
   );
+
+  it("reaches later eligible connections through inline expansion, pagination, and search", async () => {
+    const firstPage = Array.from({ length: 7 }, (_, index) => ({
+      connectionId: `connection-${index + 1}`,
+      userId: `person-${index + 1}`,
+      displayName: `Person ${index + 1}`,
+    }));
+    const lastPerson = {
+      connectionId: "connection-8",
+      userId: "person-8",
+      displayName: "Person 8",
+    };
+    const onLoadEligibleConnectionsPage = vi.fn(async (
+      _circleId: string,
+      options: { page: number; limit: number; query?: string },
+    ) => ({
+      eligibleConnections: options.query
+        ? [lastPerson]
+        : options.page === 2
+          ? [lastPerson]
+          : firstPage,
+      pendingInvites: [],
+      remainingCapacity: 19,
+      page: options.page,
+      hasMore: !options.query && options.page === 1,
+      totalCount: options.query ? 1 : 8,
+    }));
+    const props = detailProps(async () => circle("family", "Family"));
+    render(
+      <CircleDetailFlow
+        circleId="family"
+        livingCircleExperience
+        {...props}
+        onLoadEligibleConnectionsPage={onLoadEligibleConnectionsPage}
+      />,
+    );
+    expect(await screen.findByRole("button", { name: "See all (8)" })).toBeTruthy();
+    expect(screen.queryByTestId("one-location-circle-add-people-row")).toBeNull();
+    expect(screen.queryByRole("dialog", { name: "Add people" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Add Person 7 to Family" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "See all (8)" }));
+    expect(screen.getByRole("button", { name: "Add Person 7 to Family" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Load more connections" }));
+    expect(await screen.findByRole("button", { name: "Add Person 8 to Family" })).toBeTruthy();
+    expect(onLoadEligibleConnectionsPage).toHaveBeenCalledWith("family", {
+      page: 2,
+      limit: 50,
+      query: undefined,
+    });
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search connections to add" }), {
+      target: { value: "Person 8" },
+    });
+    await waitFor(() => expect(onLoadEligibleConnectionsPage).toHaveBeenCalledWith("family", {
+      page: 1,
+      limit: 50,
+      query: "Person 8",
+    }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Add Person 1 to Family" })).toBeNull());
+    fireEvent.click(screen.getByRole("button", { name: "Add Person 8 to Family" }));
+    await waitFor(() => expect(props.onInviteConnections).toHaveBeenCalledWith("family", ["person-8"]));
+  });
 
   it("offers Proceed to SMS only when the SMS Circle has another member", async () => {
     const onProceedToSms = vi.fn();
