@@ -5,6 +5,59 @@
 self.__HUSHH_FCM_DEFAULT_TARGET__ = "/one/feed";
 const pendingForegroundDeliveryAcks = new Map();
 const pendingNotificationClickAcks = new Map();
+// Keep this closed vocabulary and UUID rule aligned with
+// lib/consent/document-share-consent.ts. A document-share push is only a
+// wake-up signal; raw provider URLs and file/recipient details never leave
+// this worker or choose a navigation target.
+const DOCUMENT_SHARE_NOTIFICATION_TYPES = new Set([
+  "document_share_request",
+  "document_share_review_ready",
+  "document_share_decided",
+  "document_share_outcome",
+  "document_share_revoked",
+  "document_share_revocation_outcome",
+]);
+const DOCUMENT_REQUEST_UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const DOCUMENT_SHARE_NOTIFICATION_COPY = {
+  title: "Document request",
+  body: "Open One to review.",
+};
+
+function normalizedDocumentShareType(data) {
+  return typeof data?.type === "string" ? data.type.trim().toLowerCase() : "";
+}
+
+function isDocumentShareNotificationType(data) {
+  return DOCUMENT_SHARE_NOTIFICATION_TYPES.has(
+    normalizedDocumentShareType(data),
+  );
+}
+
+function isDocumentShareNotificationCandidate(data) {
+  return normalizedDocumentShareType(data).startsWith("document_share_");
+}
+
+function documentShareNotificationRequestId(data) {
+  if (!isDocumentShareNotificationType(data)) return null;
+  const requestId =
+    typeof data?.request_id === "string" ? data.request_id.trim() : "";
+  return DOCUMENT_REQUEST_UUID.test(requestId) ? requestId.toLowerCase() : null;
+}
+
+function sanitizeDocumentShareNotificationData(data) {
+  // Unknown document-share events must remain unacknowledged downstream, but
+  // they still cannot carry private content into a log, notification, or click
+  // target while the client waits for an explicitly reviewed vocabulary.
+  if (!isDocumentShareNotificationCandidate(data)) return null;
+  const safe = { type: normalizedDocumentShareType(data) };
+  if (!isDocumentShareNotificationType(data)) return safe;
+  const requestId = documentShareNotificationRequestId(data);
+  if (requestId) safe.request_id = requestId;
+  const userId = typeof data?.user_id === "string" ? data.user_id.trim() : "";
+  if (userId && userId.length <= 128) safe.user_id = userId;
+  return safe;
+}
 
 function nextDeliveryId() {
   if (self.crypto?.randomUUID) return self.crypto.randomUUID();
@@ -53,12 +106,21 @@ function isSilentNotification(data) {
 }
 
 function notificationTapTarget(data) {
+  const documentRequestId = documentShareNotificationRequestId(data);
+  if (documentRequestId) {
+    return `/one/consent?tab=pending&requestId=${encodeURIComponent(
+      `document_share_request:${documentRequestId}`,
+    )}`;
+  }
   const type = String(data?.type || "")
     .trim()
     .toLowerCase();
   // Recipient-only alerts match the native/shared FCM tap handler. Historical
   // identifiers must not reopen another workflow or imply current access.
-  if (type === "location_share_created" || type === "location_access_approved") {
+  if (
+    type === "location_share_created" ||
+    type === "location_access_approved"
+  ) {
     return "/one/location?section=shared";
   }
   if (type !== "consent_request") {
@@ -191,42 +253,61 @@ self.addEventListener("push", function (event) {
   if (!event.data) return;
   try {
     const data = event.data.json();
-    const title = data.notification?.title || data.title || "Notification";
-    const body =
-      data.notification?.body || data.body || "You have a new notification";
-    const sourceUrl =
-      data.data?.request_url ||
-      data.data?.deep_link ||
-      data.data?.url ||
-      data.fcmOptions?.link ||
-      data.webpush?.fcmOptions?.link ||
-      data.url ||
-      self.__HUSHH_FCM_DEFAULT_TARGET__;
-    const url = notificationTapTarget(data.data);
+    const rawData =
+      data.data && typeof data.data === "object" && !Array.isArray(data.data)
+        ? data.data
+        : {};
+    const safeDocumentData = sanitizeDocumentShareNotificationData(rawData);
+    const notificationData = safeDocumentData || rawData;
+    const title = safeDocumentData
+      ? DOCUMENT_SHARE_NOTIFICATION_COPY.title
+      : data.notification?.title || data.title || "Notification";
+    const body = safeDocumentData
+      ? DOCUMENT_SHARE_NOTIFICATION_COPY.body
+      : data.notification?.body || data.body || "You have a new notification";
+    const url = notificationTapTarget(notificationData);
+    const sourceUrl = safeDocumentData
+      ? url
+      : rawData?.request_url ||
+        rawData?.deep_link ||
+        rawData?.url ||
+        data.fcmOptions?.link ||
+        data.webpush?.fcmOptions?.link ||
+        data.url ||
+        self.__HUSHH_FCM_DEFAULT_TARGET__;
     const notificationIdentity =
-      data.data?.message_id ||
-      data.data?.request_id ||
-      data.data?.bundle_id ||
-      data.data?.grant_id ||
-      data.data?.submission_id ||
-      data.data?.referral_id ||
-      data.data?.connection_id ||
-      data.data?.invite_id ||
-      data.data?.transfer_id ||
+      notificationData?.message_id ||
+      notificationData?.request_id ||
+      notificationData?.bundle_id ||
+      notificationData?.grant_id ||
+      notificationData?.submission_id ||
+      notificationData?.referral_id ||
+      notificationData?.connection_id ||
+      notificationData?.invite_id ||
+      notificationData?.transfer_id ||
       nextDeliveryId();
-    const notificationType = String(data.data?.type || "notification")
+    const notificationType = String(notificationData?.type || "notification")
       .trim()
       .toLowerCase();
-    const tag =
-      data.data?.notification_tag ||
-      data.notification?.tag ||
-      `hussh:${notificationType}:${notificationIdentity}`;
-    const requireInteraction = data.notification?.requireInteraction ?? true;
-    const isEmergencySms = isEmergencySmsAlert(data.data);
-    const isSilent = isSilentNotification(data.data);
+    const tag = safeDocumentData
+      ? `hussh:${notificationType}:${notificationIdentity}`
+      : notificationData?.notification_tag ||
+        data.notification?.tag ||
+        `hussh:${notificationType}:${notificationIdentity}`;
+    // A sharing review is routine—not an SOS escalation. Its presentation is
+    // always the normal system cue regardless of an untrusted provider body.
+    const requireInteraction = safeDocumentData
+      ? false
+      : data.notification?.requireInteraction ?? true;
+    const isEmergencySms = isEmergencySmsAlert(notificationData);
+    const isSilent = isSilentNotification(notificationData);
     const notificationOptions = {
       body,
-      data: { ...(data.data || {}), source_url: sourceUrl, url },
+      data: {
+        ...notificationData,
+        source_url: safeDocumentData ? url : sourceUrl,
+        url,
+      },
       tag,
       requireInteraction,
       icon: "/hushh_icon.png",
@@ -247,7 +328,7 @@ self.addEventListener("push", function (event) {
             url,
             tag,
             requireInteraction: false,
-            data: data.data || {},
+            data: notificationData,
           });
           return;
         }
@@ -260,7 +341,7 @@ self.addEventListener("push", function (event) {
           url,
           tag,
           requireInteraction,
-          data: data.data || {},
+          data: notificationData,
         });
         const acknowledged = visibleClientCount > 0 ? await deliveryAck : false;
         // Suppress the browser notification only after the visible app bridge

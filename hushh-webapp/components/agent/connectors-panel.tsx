@@ -1,427 +1,1269 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { Unplug as PlugIcon } from "@/components/icons";
-
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
+import { Capacitor } from "@capacitor/core";
+import { ArrowLeftIcon } from "@/components/icons";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
-import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { useAuth } from "@/hooks/use-auth";
+import { useVault } from "@/lib/vault/vault-context";
+import { HushhAuth } from "@/lib/capacitor";
+import {
+  NATIVE_CONNECTOR_RETURN_EVENT,
+  NATIVE_DRIVE_PICKER_RETURN_EVENT,
+  type NativeConnectorReturn,
+  type NativeDrivePickerReturn,
+} from "@/lib/navigation/use-deep-link-return";
 import { ROUTES } from "@/lib/navigation/routes";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
 import {
+  createGmailOAuthPopupAttempt,
+  openGmailOAuthPopup,
+  navigateGmailOAuthPopup,
+  isGmailOAuthPopupSettlement,
+  readGmailOAuthPopupSettlementFallback,
+  clearGmailOAuthPopupAttempt,
+} from "@/lib/profile/gmail-oauth-popup";
+import {
+  openDriveOAuthPopup,
+  navigateDriveOAuthPopup,
+  waitForDrivePopup,
+  waitForOAuthPopup,
+} from "@/lib/profile/drive-oauth-popup";
+import {
   ExternalConnectorService,
-  type ExternalConnectorSummary,
+  type ConnectorOverview,
+  type DriveDocument,
+  type PendingNativeDrivePicker,
 } from "@/lib/services/external-connector-service";
+import {
+  GoogleDrivePickerService,
+  type PickedDriveFile,
+} from "@/lib/services/google-drive-picker-service";
 import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
-import { useVault } from "@/lib/vault/vault-context";
 
-/**
- * The team's named next connectors (see the external-MCP-connector plan).
- * None of these has a registered `external_mcp_connectors` row yet -- listing
- * them here, disabled, tells a person what's coming without implying any of
- * them is one API call away. Real rows from the registry always render first
- * and never duplicate an id also listed here.
- *
- * Google Workspace/Gmail is deliberately absent: it's a real, already-shipped
- * connection (see `useGmailConnectorStatus`), not a registry row, so it gets
- * its own card above with live status instead of a disabled stub here.
- */
-const COMING_SOON_CONNECTORS: { id: string; displayName: string }[] = [
-  { id: "microsoft-graph", displayName: "Microsoft Graph" },
-  { id: "notion", displayName: "Notion" },
-  { id: "hubspot", displayName: "HubSpot" },
-  { id: "shopify", displayName: "Shopify" },
-  { id: "plaid", displayName: "Plaid" },
-  { id: "circle", displayName: "Circle" },
-];
-
-export function ConnectorsPanel({
-  open,
-  onOpenChange,
-}: {
+type Props = {
   open: boolean;
-  onOpenChange: (open: boolean) => void;
-}) {
+  onBack: () => void;
+  onAvailableChange: (available: boolean) => void;
+  onExternalModalChange: (open: boolean) => void;
+};
+const touch = "min-h-11 min-w-11 whitespace-normal";
+const labels: Record<string, string> = {
+  not_connected: "Not connected",
+  revoked: "Not connected",
+  connected: "Connected",
+  verifying: "Authorized · choose files to verify",
+  needs_reauth: "Reconnect needed",
+  error: "Connection unavailable",
+  queued: "Waiting to process",
+  fetching: "Reading",
+  parsing: "Processing",
+  indexing: "Indexing",
+  ready: "Ready",
+  stale: "Update needed",
+  unsupported: "Unsupported format",
+  failed_retryable: "Retry needed",
+};
+
+type PendingDriveSelection =
+  | {
+      kind: "web";
+      sessionId: string;
+      expiresAt: number;
+      files: PickedDriveFile[];
+    }
+  | {
+      kind: "native";
+      attemptId: string;
+      expiresAt: number;
+      files: PickedDriveFile[];
+    };
+
+function selectedNativePickerFiles(
+  pending: PendingNativeDrivePicker,
+): PickedDriveFile[] | null {
+  if (!Array.isArray(pending.files) || pending.files.length === 0) return null;
+  const files = pending.files.map((file) => ({
+    id: String(file?.documentId || ""),
+    name: String(file?.name || ""),
+  }));
+  if (
+    files.some(
+      (file) =>
+        !/^[A-Za-z0-9_-]{1,256}$/.test(file.id) ||
+        !file.name.trim() ||
+        file.name.length > 1_024,
+    ) ||
+    new Set(files.map((file) => file.id)).size !== files.length
+  ) {
+    return null;
+  }
+  return files;
+}
+
+export function ConnectorsPanel(props: Props) {
+  const { user } = useAuth();
+  // Discard all local state on account switch or lock; don't display the prior
+  // owner's account labels, pending selection or status on the new session.
+  const { vaultOwnerToken } = useVault();
+  return (
+    <OwnerConnectorsPanel
+      key={`${user?.uid ?? "signed-out"}:${Boolean(vaultOwnerToken)}`}
+      {...props}
+    />
+  );
+}
+
+function OwnerConnectorsPanel({
+  open,
+  onBack,
+  onAvailableChange,
+  onExternalModalChange,
+}: Props) {
   const { user } = useAuth();
   const { vaultOwnerToken } = useVault();
-  const [showUnlock, setShowUnlock] = useState(false);
-  const [connectors, setConnectors] = useState<ExternalConnectorSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [apiKeyTarget, setApiKeyTarget] =
-    useState<ExternalConnectorSummary | null>(null);
-  const [gmailConnectBusy, setGmailConnectBusy] = useState(false);
-
-  const gmailIdTokenProvider = useCallback(
-    () => (user?.getIdToken ? user.getIdToken() : Promise.resolve("")),
+  const [overview, setOverview] = useState<ConnectorOverview | null>(null);
+  const [documents, setDocuments] = useState<DriveDocument[]>([]);
+  const [allowBackground, setAllowBackground] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [statusChecked, setStatusChecked] = useState(false);
+  const [driveMessage, setDriveMessage] = useState("");
+  const [mailMessage, setMailMessage] = useState("");
+  const [driveBusy, setDriveBusy] = useState(false);
+  const [mailBusy, setMailBusy] = useState(false);
+  const [pending, setPending] = useState<PendingDriveSelection | null>(null);
+  const [confirm, setConfirm] = useState<string | null>(null);
+  const controller = useRef<AbortController | null>(null);
+  const currentToken = useRef(vaultOwnerToken);
+  useLayoutEffect(() => {
+    currentToken.current = vaultOwnerToken;
+  }, [vaultOwnerToken]);
+  const driveLock = useRef(false);
+  // Native browser returns and Vault Owner token renewal can overlap the
+  // existing Drive mutation. Keep only opaque attempt metadata in memory and
+  // drain it after that mutation releases the single-flight lock.
+  const queuedNativeReconcile = useRef<{
+    expectedAttemptId?: string;
+  } | null>(null);
+  const drainNativeReconcile = useRef<() => void>(() => undefined);
+  // Picker candidates are deliberately reconciled separately from connection
+  // credentials. A native picker return is not permission to add a document.
+  const queuedNativePickerReconcile = useRef<{
+    expectedAttemptId?: string;
+  } | null>(null);
+  const drainNativePickerReconcile = useRef<() => void>(() => undefined);
+  const mailLock = useRef(false);
+  const chooseRef = useRef<HTMLButtonElement>(null);
+  const pendingRef = useRef<HTMLElement>(null);
+  // A native app-url return and the browser bridge promise can both arrive for
+  // one Picker attempt. Keep a synchronous record so the second reconciliation
+  // cannot replace the reviewed selection or reset its explicit processing
+  // choice before React commits the first state update.
+  const pendingSelection = useRef<PendingDriveSelection | null>(null);
+  const restorePickerFocus = useRef(false);
+  const overviewRead = useRef(0);
+  const documentRead = useRef(0);
+  const mailToken = useCallback(
+    () => user?.getIdToken() ?? Promise.resolve(""),
     [user],
   );
-  const gmailConnectorStatus = useGmailConnectorStatus({
-    userId: user?.uid || null,
+  const updatePendingSelection = useCallback(
+    (next: PendingDriveSelection | null) => {
+      pendingSelection.current = next;
+      setPending(next);
+    },
+    [],
+  );
+  const gmail = useGmailConnectorStatus({
+    userId: user?.uid,
     enabled: open,
-    idTokenProvider: user?.getIdToken ? gmailIdTokenProvider : null,
+    idTokenProvider: user ? mailToken : null,
     routeHref: ROUTES.HOME,
   });
-  const handleConnectGmail = useCallback(async () => {
-    if (!user?.uid || !user?.getIdToken) return;
-    setGmailConnectBusy(true);
-    try {
-      const idToken = await user.getIdToken();
-      const start = await GmailReceiptsService.startConnect({
-        idToken,
-        userId: user.uid,
-        includeGrantedScopes: false,
-      });
-      window.location.assign(start.authorize_url);
-    } catch {
-      setGmailConnectBusy(false);
-    }
-  }, [user]);
-  const handleDisconnectGmail = useCallback(async () => {
-    setGmailConnectBusy(true);
-    try {
-      await gmailConnectorStatus.disconnectGmail();
-    } finally {
-      setGmailConnectBusy(false);
-    }
-  }, [gmailConnectorStatus]);
-
-  const refresh = useCallback(async () => {
-    if (!vaultOwnerToken) {
-      setLoading(false);
-      return;
-    }
+  const refresh = useCallback(async (signal?: AbortSignal) => {
+    const token = currentToken.current;
+    if (!token) return false;
+    const request = ++overviewRead.current;
+    setStatusChecked(false);
     setLoading(true);
-    setError(null);
     try {
-      const list = await ExternalConnectorService.list(vaultOwnerToken);
-      setConnectors(list);
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Unable to load your connectors.",
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, [vaultOwnerToken]);
-
-  useEffect(() => {
-    if (open) void refresh();
-  }, [open, refresh]);
-
-  const handleConnectOAuth = useCallback(
-    async (connector: ExternalConnectorSummary) => {
-      if (!vaultOwnerToken) {
-        setShowUnlock(true);
-        return;
-      }
-      try {
-        const redirectUri = `${window.location.origin}${ROUTES.PROFILE_CONNECTOR_OAUTH_RETURN}`;
-        const { authorizeUrl } =
-          await ExternalConnectorService.startOAuthConnect({
-            vaultOwnerToken,
-            connectorId: connector.connectorId,
-            redirectUri,
-          });
-        window.location.assign(authorizeUrl);
-      } catch (err) {
-        setError(
-          err instanceof Error
-            ? err.message
-            : `Unable to connect ${connector.displayName}.`,
+      const result = await ExternalConnectorService.overview(token);
+      if (
+        signal?.aborted ||
+        currentToken.current !== token ||
+        request !== overviewRead.current
+      )
+        return false;
+      setOverview(result);
+      setStatusChecked(true);
+      return true;
+    } catch {
+      if (
+        !signal?.aborted &&
+        currentToken.current === token &&
+        request === overviewRead.current
+      )
+        setDriveMessage(
+          "Could not check Drive. Retry before starting another connection.",
         );
+      return false;
+    } finally {
+      if (
+        !signal?.aborted &&
+        currentToken.current === token &&
+        request === overviewRead.current
+      )
+        setLoading(false);
+    }
+  }, []);
+  const refreshDocuments = useCallback(async (signal: AbortSignal) => {
+    const token = currentToken.current;
+    if (!token) return;
+    const request = ++documentRead.current;
+    const next = await ExternalConnectorService.documents(token);
+    if (
+      !signal.aborted &&
+      currentToken.current === token &&
+      request === documentRead.current
+    )
+      setDocuments(next);
+  }, []);
+  useEffect(() => {
+    const lifetime = new AbortController();
+    controller.current = lifetime;
+    return () => {
+      lifetime.abort();
+      onExternalModalChange(false);
+    };
+  }, [onExternalModalChange]);
+  useEffect(() => {
+    if (vaultOwnerToken) void refresh(controller.current?.signal);
+  }, [vaultOwnerToken, refresh]);
+  const drive = overview?.connectors.find(
+    (item) => item.connectorId === "google_drive",
+  );
+  const hasDriveGrant = Boolean(
+    drive && !["not_connected", "revoked"].includes(drive.status),
+  );
+  useEffect(() => {
+    onAvailableChange(
+      Boolean(
+        vaultOwnerToken &&
+        (overview?.features.connections_panel_v2 === true || hasDriveGrant),
+      ),
+    );
+  }, [
+    vaultOwnerToken,
+    overview?.features.connections_panel_v2,
+    hasDriveGrant,
+    onAvailableChange,
+  ]);
+  useEffect(() => {
+    const signal = controller.current?.signal;
+    if (open && hasDriveGrant && signal)
+      void refreshDocuments(signal).catch(() => {
+        if (!signal.aborted)
+          setDriveMessage("Could not load selected files. Try again.");
+      });
+  }, [open, hasDriveGrant, refreshDocuments]);
+  useEffect(() => {
+    if (!pending) return;
+    setAllowBackground(false);
+    const timer = window.setTimeout(
+      () => {
+        restorePickerFocus.current = true;
+        updatePendingSelection(null);
+        setDriveMessage("Selection expired. Choose files again.");
+      },
+      Math.max(0, pending.expiresAt - Date.now()),
+    );
+    return () => window.clearTimeout(timer);
+  }, [pending, updatePendingSelection]);
+  useEffect(() => {
+    if (driveBusy || !restorePickerFocus.current) return;
+    restorePickerFocus.current = false;
+    const frame = requestAnimationFrame(() => {
+      (
+        pendingRef.current?.querySelector<HTMLButtonElement>("button") ??
+        chooseRef.current
+      )?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [driveBusy, pending]);
+
+  const runDrive = useCallback(
+    async (
+      action: (token: string, signal: AbortSignal) => Promise<void>,
+      options: { clearMessage?: boolean } = {},
+    ) => {
+      const token = vaultOwnerToken;
+      const signal = controller.current?.signal;
+      if (!token || !signal || signal.aborted || driveLock.current) return;
+      // Retire reads taken before this operation. Late GETs cannot resurrect
+      // removed documents or a connection which has just been disconnected.
+      overviewRead.current++;
+      documentRead.current++;
+      driveLock.current = true;
+      setDriveBusy(true);
+      if (options.clearMessage !== false) setDriveMessage("");
+      try {
+        await action(token, signal);
+      } catch {
+        if (!signal.aborted)
+          setDriveMessage(
+            "Drive could not finish this action. Check the connection and try again.",
+          );
+      } finally {
+        driveLock.current = false;
+        if (queuedNativeReconcile.current)
+          queueMicrotask(() => drainNativeReconcile.current());
+        if (queuedNativePickerReconcile.current)
+          queueMicrotask(() => drainNativePickerReconcile.current());
+        if (!signal.aborted) {
+          setDriveBusy(false);
+          setLoading(false);
+        }
       }
     },
     [vaultOwnerToken],
   );
 
-  const handleDisconnect = useCallback(
-    async (connector: ExternalConnectorSummary) => {
-      if (!vaultOwnerToken) return;
-      try {
-        await ExternalConnectorService.disconnect({
-          vaultOwnerToken,
-          connectorId: connector.connectorId,
-        });
-        await refresh();
-      } catch (err) {
-        setError(
-          err instanceof Error
-            ? err.message
-            : `Unable to disconnect ${connector.displayName}.`,
-        );
+  const finalizeNativeDrive = useCallback(
+    async (
+      token: string,
+      signal: AbortSignal,
+      expectedAttemptId?: string,
+    ): Promise<boolean> => {
+      const isEffectCurrent = () =>
+        !signal.aborted && currentToken.current === token;
+      const pending = await ExternalConnectorService.pendingNative({
+        vaultOwnerToken: token,
+        isEffectCurrent,
+      });
+      if (!isEffectCurrent()) return false;
+      if (
+        !pending ||
+        (expectedAttemptId && pending.attemptId !== expectedAttemptId)
+      ) {
+        // A recovery poll itself is a Drive operation and retires any older
+        // overview read. Restore the authoritative connection status even
+        // when there was no staged credential to finalize.
+        await refresh(signal);
+        return false;
       }
+      await ExternalConnectorService.finalizeNative({
+        vaultOwnerToken: token,
+        attemptId: pending.attemptId,
+        isEffectCurrent,
+      });
+      if (!isEffectCurrent()) return false;
+      return await refresh(signal);
     },
-    [refresh, vaultOwnerToken],
+    [refresh],
   );
 
-  const registeredIds = new Set(connectors.map((c) => c.connectorId));
-  const comingSoon = COMING_SOON_CONNECTORS.filter(
-    (c) => !registeredIds.has(c.id),
+  const drainQueuedNativeReconcile = useCallback(() => {
+    if (
+      !open ||
+      !vaultOwnerToken ||
+      !Capacitor.isNativePlatform() ||
+      driveLock.current
+    )
+      return;
+    const queued = queuedNativeReconcile.current;
+    if (!queued) return;
+    queuedNativeReconcile.current = null;
+    void runDrive(
+      async (token, signal) => {
+        const finalized = await finalizeNativeDrive(
+          token,
+          signal,
+          queued.expectedAttemptId,
+        );
+        if (finalized && !signal.aborted)
+          setDriveMessage(
+            "Drive connected. Choose files to authorize them.",
+          );
+      },
+      { clearMessage: false },
+    );
+  }, [finalizeNativeDrive, open, runDrive, vaultOwnerToken]);
+
+  useLayoutEffect(() => {
+    drainNativeReconcile.current = drainQueuedNativeReconcile;
+    return () => {
+      drainNativeReconcile.current = () => undefined;
+    };
+  }, [drainQueuedNativeReconcile]);
+
+  const queueNativeReconcile = useCallback(
+    (expectedAttemptId?: string) => {
+      const queued = queuedNativeReconcile.current;
+      // A completed callback is more specific than startup recovery. Never
+      // replace a callback attempt with a generic poll while it is queued.
+      if (!queued || expectedAttemptId)
+        queuedNativeReconcile.current = { expectedAttemptId };
+      drainQueuedNativeReconcile();
+    },
+    [drainQueuedNativeReconcile],
   );
 
-  return (
-    <>
-      <Sheet open={open} onOpenChange={onOpenChange}>
-        <SheetContent
-          side="right"
-          className="flex w-full flex-col gap-0 sm:max-w-md"
-        >
-          <SheetHeader className="text-left">
-            <SheetTitle className="flex items-center gap-2">
-              <PlugIcon className="h-5 w-5" aria-hidden="true" />
-              MCP connections
-            </SheetTitle>
-            <SheetDescription>
-              Connect outside services so Kai can use your own data from them.
-              Disconnect any time.
-            </SheetDescription>
-          </SheetHeader>
-
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
-            {error ? (
-              <p className="mb-3 text-sm text-[color:var(--app-destructive)]">
-                {error}
-              </p>
-            ) : null}
-
-            {loading ? (
-              <p className="text-muted-foreground text-sm">
-                Loading your connectors…
-              </p>
-            ) : (
-              <div className="flex flex-col gap-3">
-                <Card key="google-workspace">
-                  <CardHeader className="flex-row items-center justify-between gap-4">
-                    <div>
-                      <CardTitle>Google Workspace</CardTitle>
-                      <CardDescription>Gmail and Calendar</CardDescription>
-                    </div>
-                    {gmailConnectorStatus.status?.connected ? (
-                      <Button
-                        type="button"
-                        variant="outline"
-                        disabled={gmailConnectBusy}
-                        onClick={() => void handleDisconnectGmail()}
-                      >
-                        {gmailConnectBusy ? "Disconnecting…" : "Disconnect"}
-                      </Button>
-                    ) : (
-                      <Button
-                        type="button"
-                        disabled={gmailConnectBusy}
-                        onClick={() => void handleConnectGmail()}
-                      >
-                        {gmailConnectBusy ? "Connecting…" : "Connect"}
-                      </Button>
-                    )}
-                  </CardHeader>
-                  {gmailConnectorStatus.status?.connected &&
-                  gmailConnectorStatus.status?.google_email ? (
-                    <CardContent className="pt-0">
-                      <p className="text-muted-foreground text-xs">
-                        Connected as {gmailConnectorStatus.status.google_email}
-                      </p>
-                    </CardContent>
-                  ) : null}
-                </Card>
-
-                {connectors.map((connector) => (
-                  <Card key={connector.connectorId}>
-                    <CardHeader className="flex-row items-center justify-between gap-4">
-                      <div>
-                        <CardTitle>{connector.displayName}</CardTitle>
-                        <CardDescription>
-                          {connector.description || " "}
-                        </CardDescription>
-                      </div>
-                      {connector.status === "connected" ? (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          onClick={() => void handleDisconnect(connector)}
-                        >
-                          Disconnect
-                        </Button>
-                      ) : (
-                        <Button
-                          type="button"
-                          onClick={() =>
-                            connector.authStyle === "oauth"
-                              ? void handleConnectOAuth(connector)
-                              : setApiKeyTarget(connector)
-                          }
-                        >
-                          Connect
-                        </Button>
-                      )}
-                    </CardHeader>
-                    {connector.status === "connected" &&
-                    connector.accountLabel ? (
-                      <CardContent className="pt-0">
-                        <p className="text-muted-foreground text-xs">
-                          Connected as {connector.accountLabel}
-                        </p>
-                      </CardContent>
-                    ) : null}
-                  </Card>
-                ))}
-
-                {comingSoon.length > 0 ? (
-                  <>
-                    <p className="mt-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                      Coming soon
-                    </p>
-                    <div className="divide-y divide-border rounded-lg border border-border">
-                      {comingSoon.map((connector) => (
-                        <div
-                          key={connector.id}
-                          className="flex items-center justify-between gap-3 px-3 py-2 opacity-60"
-                          aria-disabled="true"
-                        >
-                          <span className="text-sm font-medium">
-                            {connector.displayName}
-                          </span>
-                          <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                            Coming soon
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                ) : null}
-              </div>
-            )}
-          </div>
-        </SheetContent>
-      </Sheet>
-
-      {user ? (
-        <VaultUnlockDialog
-          user={user}
-          open={showUnlock}
-          onOpenChange={setShowUnlock}
-          title="Set up your private vault"
-          description="Open your vault to manage connectors."
-          onSuccess={() => {
-            setShowUnlock(false);
-            void refresh();
-          }}
-        />
-      ) : null}
-
-      <ApiKeyConnectDialog
-        connector={apiKeyTarget}
-        vaultOwnerToken={vaultOwnerToken}
-        onClose={() => setApiKeyTarget(null)}
-        onConnected={() => {
-          setApiKeyTarget(null);
-          void refresh();
-        }}
-      />
-    </>
+  const reconcileNativePicker = useCallback(
+    async (
+      token: string,
+      signal: AbortSignal,
+      expectedAttemptId?: string,
+    ): Promise<boolean> => {
+      const isEffectCurrent = () =>
+        !signal.aborted && currentToken.current === token;
+      const staged = await ExternalConnectorService.pendingNativePicker({
+        vaultOwnerToken: token,
+        isEffectCurrent,
+      });
+      if (!isEffectCurrent()) return false;
+      if (
+        !staged ||
+        (expectedAttemptId && staged.attemptId !== expectedAttemptId)
+      ) {
+        return false;
+      }
+      const expiresAt = Date.parse(staged.expiresAt);
+      const files = selectedNativePickerFiles(staged);
+      if (
+        !Number.isFinite(expiresAt) ||
+        expiresAt <= Date.now() ||
+        !files
+      ) {
+        // Do not use malformed candidates, even for display. The server keeps
+        // its short-lived staged selection until its own expiry; no document
+        // is selected or persisted from this path.
+        setDriveMessage("Drive could not verify the selected files. Choose them again.");
+        return false;
+      }
+      const existing = pendingSelection.current;
+      if (
+        existing?.kind === "native" &&
+        existing.attemptId === staged.attemptId
+      ) {
+        return true;
+      }
+      restorePickerFocus.current = true;
+      updatePendingSelection({
+        kind: "native",
+        attemptId: staged.attemptId,
+        expiresAt,
+        files,
+      });
+      return true;
+    },
+    [updatePendingSelection],
   );
-}
 
-function ApiKeyConnectDialog({
-  connector,
-  vaultOwnerToken,
-  onClose,
-  onConnected,
-}: {
-  connector: ExternalConnectorSummary | null;
-  vaultOwnerToken: string | null | undefined;
-  onClose: () => void;
-  onConnected: () => void;
-}) {
-  const [apiKey, setApiKey] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const drainQueuedNativePickerReconcile = useCallback(() => {
+    if (
+      !open ||
+      !vaultOwnerToken ||
+      !Capacitor.isNativePlatform() ||
+      driveLock.current ||
+      pending?.kind === "web"
+    ) {
+      return;
+    }
+    const queued = queuedNativePickerReconcile.current;
+    if (!queued) return;
+    queuedNativePickerReconcile.current = null;
+    void runDrive(
+      async (token, signal) => {
+        const recovered = await reconcileNativePicker(
+          token,
+          signal,
+          queued.expectedAttemptId,
+        );
+        if (recovered && !signal.aborted)
+          setDriveMessage(
+            "Review the selected files, then add them to your private One library.",
+          );
+      },
+      { clearMessage: false },
+    );
+  }, [open, pending?.kind, reconcileNativePicker, runDrive, vaultOwnerToken]);
+
+  useLayoutEffect(() => {
+    drainNativePickerReconcile.current = drainQueuedNativePickerReconcile;
+    return () => {
+      drainNativePickerReconcile.current = () => undefined;
+    };
+  }, [drainQueuedNativePickerReconcile]);
+
+  const queueNativePickerReconcile = useCallback(
+    (expectedAttemptId?: string) => {
+      const queued = queuedNativePickerReconcile.current;
+      // A callback is scoped to one opaque attempt; startup recovery is not.
+      // Retain that specificity if the Vault Owner token renews mid-return.
+      if (!queued || expectedAttemptId)
+        queuedNativePickerReconcile.current = { expectedAttemptId };
+      drainQueuedNativePickerReconcile();
+    },
+    [drainQueuedNativePickerReconcile],
+  );
+
+  const startDrive = () => {
+    if (!vaultOwnerToken || driveLock.current) return;
+    if (Capacitor.isNativePlatform()) {
+      void runDrive(async (token, signal) => {
+        const isEffectCurrent = () =>
+          !signal.aborted && currentToken.current === token;
+        if (!user?.uid) throw new Error("native_owner_unavailable");
+        const start = await ExternalConnectorService.startOAuthConnect({
+          vaultOwnerToken: token,
+          connectorId: "google_drive",
+          redirectUri: ExternalConnectorService.nativeDriveOAuthCallbackUri(),
+          flow: "native",
+          isEffectCurrent,
+        });
+        const expiresAt = Date.parse(start.expiresAt);
+        if (
+          !isEffectCurrent() ||
+          !start.attemptId ||
+          start.connectorId !== "google_drive" ||
+          !Number.isFinite(expiresAt) ||
+          expiresAt <= Date.now()
+        ) {
+          throw new Error("invalid_start");
+        }
+        const result = await HushhAuth.connectDrive({
+          authorizeUrl: start.authorizeUrl,
+          attemptId: start.attemptId,
+          expiresAt,
+          expectedUserId: user.uid,
+        });
+        if (!isEffectCurrent()) return;
+        if (result.attemptId !== start.attemptId) {
+          // A stale custom-scheme return must not terminate a newer native
+          // operation. The exact current attempt remains recoverable through
+          // the owner-only pending endpoint after this lock releases.
+          queueNativeReconcile(start.attemptId);
+          setDriveMessage("Drive could not finish connecting. Try again.");
+          return;
+        }
+        if (result.outcome !== "ready") {
+          // Older Android browsers can deliver their Custom Tabs return just
+          // after RESULT_CANCELED. Reconcile the exact attempt after the
+          // native operation releases its lock before treating it as terminal.
+          queueNativeReconcile(start.attemptId);
+          await refresh(signal);
+          if (!signal.aborted) {
+            setDriveMessage(
+              result.outcome === "cancelled"
+                ? "Drive connection was cancelled. Your chat and draft stay here."
+                : "Drive could not finish connecting. Try again.",
+            );
+          }
+          return;
+        }
+        const finalized = await finalizeNativeDrive(
+          token,
+          signal,
+          start.attemptId,
+        );
+        if (!signal.aborted) {
+          setDriveMessage(
+            finalized
+              ? "Drive connected. Choose files to authorize them."
+              : "Drive authorization is still settling. Reopen Connections to check it.",
+          );
+        }
+      });
+      return;
+    }
+    const popup = openDriveOAuthPopup();
+    if (!popup) {
+      setDriveMessage(
+        "Allow popups, then retry. Your chat and draft stay here.",
+      );
+      return;
+    }
+    void runDrive(async (token, signal) => {
+      const close = () => popup.close();
+      signal.addEventListener("abort", close, { once: true });
+      try {
+        const start = await ExternalConnectorService.startOAuthConnect({
+          vaultOwnerToken: token,
+          connectorId: "google_drive",
+          redirectUri: `${window.location.origin}${ROUTES.PROFILE_CONNECTOR_OAUTH_RETURN}`,
+          flow: "web",
+        });
+        if (signal.aborted) return;
+        if (!start.attemptId || start.connectorId !== "google_drive")
+          throw new Error("invalid_start");
+        const attempt = {
+          connectorId: "google_drive" as const,
+          attemptId: start.attemptId,
+          expiresAt: Date.parse(start.expiresAt),
+        };
+        navigateDriveOAuthPopup(popup, attempt, start.authorizeUrl);
+        await waitForDrivePopup(popup, attempt, signal);
+        if (!signal.aborted && (await refresh(signal)))
+          setDriveMessage(
+            "Connection checked. Choose files if authorized, or retry Connect.",
+          );
+      } finally {
+        signal.removeEventListener("abort", close);
+        popup.close();
+      }
+    });
+  };
+  useEffect(() => {
+    if (!open || !vaultOwnerToken || !Capacitor.isNativePlatform()) return;
+    const handleReturn = (event: Event) => {
+      const result = (event as CustomEvent<NativeConnectorReturn>).detail;
+      if (!result) return;
+      if (result.outcome === "ready") queueNativeReconcile(result.attemptId);
+      else if (result.outcome === "cancelled")
+        setDriveMessage(
+          "Drive connection was cancelled. Your chat and draft stay here.",
+        );
+      else setDriveMessage("Drive could not finish connecting. Try again.");
+    };
+    window.addEventListener(NATIVE_CONNECTOR_RETURN_EVENT, handleReturn);
+    queueNativeReconcile();
+    return () =>
+      window.removeEventListener(NATIVE_CONNECTOR_RETURN_EVENT, handleReturn);
+  }, [open, queueNativeReconcile, vaultOwnerToken]);
 
   useEffect(() => {
-    setApiKey("");
-    setError(null);
-  }, [connector]);
-
-  const handleSubmit = useCallback(async () => {
-    if (!connector || !vaultOwnerToken || !apiKey.trim()) return;
-    setSubmitting(true);
-    setError(null);
-    try {
-      await ExternalConnectorService.connectWithApiKey({
-        vaultOwnerToken,
-        connectorId: connector.connectorId,
-        apiKey: apiKey.trim(),
+    if (!open || !vaultOwnerToken || !Capacitor.isNativePlatform()) return;
+    const handlePickerReturn = (event: Event) => {
+      const result = (event as CustomEvent<NativeDrivePickerReturn>).detail;
+      if (!result) return;
+      // The opaque event has no file identifiers. The server-side pending
+      // record is the only source for candidates, and confirming it remains a
+      // separate owner action.
+      queueNativePickerReconcile(result.attemptId);
+      if (result.outcome === "cancelled")
+        setDriveMessage(
+          "Choosing Drive files was cancelled. Your chat and draft stay here.",
+        );
+      else if (result.outcome === "failed")
+        setDriveMessage("Drive could not finish choosing files. Try again.");
+    };
+    window.addEventListener(
+      NATIVE_DRIVE_PICKER_RETURN_EVENT,
+      handlePickerReturn,
+    );
+    // Covers an app restart or a return which arrived before the panel
+    // mounted. Only opaque candidates are fetched after the vault unlock.
+    queueNativePickerReconcile();
+    return () =>
+      window.removeEventListener(
+        NATIVE_DRIVE_PICKER_RETURN_EVENT,
+        handlePickerReturn,
+      );
+  }, [open, queueNativePickerReconcile, vaultOwnerToken]);
+  const chooseFiles = () => {
+    if (Capacitor.isNativePlatform()) {
+      void runDrive(async (token, signal) => {
+        const isEffectCurrent = () =>
+          !signal.aborted && currentToken.current === token;
+        if (!user?.uid) throw new Error("native_owner_unavailable");
+        const start = await ExternalConnectorService.startNativePicker({
+          vaultOwnerToken: token,
+          redirectUri: ExternalConnectorService.nativeDrivePickerCallbackUri(),
+          isEffectCurrent,
+        });
+        const expiresAt = Date.parse(start.expiresAt);
+        if (
+          !isEffectCurrent() ||
+          !/^[A-Za-z0-9_-]{16,128}$/.test(start.attemptId) ||
+          !Number.isFinite(expiresAt) ||
+          expiresAt <= Date.now()
+        ) {
+          throw new Error("invalid_picker_start");
+        }
+        const result = await HushhAuth.pickDriveFiles({
+          authorizeUrl: start.authorizeUrl,
+          attemptId: start.attemptId,
+          expiresAt,
+          expectedUserId: user.uid,
+        });
+        if (!isEffectCurrent()) return;
+        if (result.attemptId !== start.attemptId) {
+          // A stale custom-scheme result never gets to select documents. Query
+          // only the exact active attempt after the browser bridge releases.
+          queueNativePickerReconcile(start.attemptId);
+          setDriveMessage("Drive could not finish choosing files. Try again.");
+          return;
+        }
+        // Custom Tabs can surface RESULT_CANCELED just before the opaque
+        // picker-return intent. Reconcile the attempt either way; candidates
+        // still require the explicit Add selected files tap below.
+        queueNativePickerReconcile(start.attemptId);
+        if (result.outcome !== "ready") {
+          await refresh(signal);
+          if (!signal.aborted)
+            setDriveMessage(
+              result.outcome === "cancelled"
+                ? "Choosing Drive files was cancelled. Your chat and draft stay here."
+                : "Drive could not finish choosing files. Try again.",
+            );
+        }
       });
-      onConnected();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to save this key.");
-    } finally {
-      setSubmitting(false);
+      return;
     }
-  }, [apiKey, connector, onConnected, vaultOwnerToken]);
+    void runDrive(async (token, signal) => {
+      const session = await ExternalConnectorService.pickerSession(
+        token,
+        window.location.origin,
+      );
+      if (signal.aborted) {
+        session.accessToken = "";
+        return;
+      }
+      onExternalModalChange(true);
+      try {
+        const files = await GoogleDrivePickerService.choose(session, signal);
+        if (!signal.aborted && files.length)
+          updatePendingSelection({
+            kind: "web",
+            sessionId: session.sessionId,
+            expiresAt: Date.parse(session.expiresAt),
+            files,
+          });
+      } finally {
+        session.accessToken = "";
+        if (!signal.aborted) {
+          onExternalModalChange(false);
+          restorePickerFocus.current = true;
+          await refresh(signal);
+        }
+      }
+    });
+  };
+  const connectMail = () => {
+    const signal = controller.current?.signal;
+    if (!user || !signal || signal.aborted || mailLock.current) return;
+    const native = Capacitor.isNativePlatform();
+    const attempt = createGmailOAuthPopupAttempt();
+    const popup = native ? null : openGmailOAuthPopup(attempt);
+    if (!native && !popup) {
+      setMailMessage(
+        "Allow popups, then retry. Your chat and draft stay here.",
+      );
+      return;
+    }
+    mailLock.current = true;
+    setMailBusy(true);
+    setMailMessage("");
+    const close = () => popup?.close();
+    signal.addEventListener("abort", close, { once: true });
+    void (async () => {
+      try {
+        const idToken = await user.getIdToken();
+        if (signal.aborted) return;
+        if (native) {
+          const start = await GmailReceiptsService.startNativeConnect({
+            idToken,
+            purpose: "read",
+          });
+          if (signal.aborted || !start.configured) return;
+          const result = await HushhAuth.connectGmail({
+            serverClientId: start.server_client_id,
+            purpose: start.purpose,
+          });
+          if (signal.aborted) return;
+          await GmailReceiptsService.completeNativeConnect({
+            idToken,
+            userId: user.uid,
+            serverAuthCode: result.serverAuthCode,
+          });
+        } else if (popup) {
+          const start = await GmailReceiptsService.startConnect({
+            idToken,
+            userId: user.uid,
+            includeGrantedScopes: false,
+            purpose: "read",
+          });
+          if (signal.aborted) return;
+          const url = new URL(start.authorize_url);
+          if (
+            !start.configured ||
+            url.origin !== "https://accounts.google.com" ||
+            url.pathname !== "/o/oauth2/v2/auth"
+          )
+            throw new Error("invalid_start");
+          navigateGmailOAuthPopup(popup, start.authorize_url);
+          await waitForOAuthPopup({
+            popup,
+            signal,
+            expiresAt: Math.min(
+              Date.parse(start.expires_at),
+              attempt.startedAt + 10 * 60_000,
+            ),
+            matches: (value) =>
+              isGmailOAuthPopupSettlement(value) &&
+              value.attemptId === attempt.attemptId,
+            storageValue: readGmailOAuthPopupSettlementFallback,
+          });
+        }
+        if (!signal.aborted) {
+          const status = await gmail.refreshStatus({
+            force: true,
+            reconcile: false,
+          });
+          if (!signal.aborted)
+            setMailMessage(
+              status?.connected
+                ? "Mail connected."
+                : "Mail is not connected yet. You can retry.",
+            );
+        }
+      } catch {
+        if (!signal.aborted)
+          setMailMessage("Could not finish Mail connection. Try again.");
+      } finally {
+        signal.removeEventListener("abort", close);
+        popup?.close();
+        clearGmailOAuthPopupAttempt();
+        mailLock.current = false;
+        if (!signal.aborted) setMailBusy(false);
+      }
+    })();
+  };
+
+  const canConnectDrive =
+    statusChecked &&
+    drive?.available !== false &&
+    overview?.features.google_drive_connection === true;
+  const canPick =
+    drive?.available !== false &&
+    overview?.features.google_drive_picker === true &&
+    ["connected", "verifying"].includes(drive?.status ?? "");
+  const confirmAction = () => {
+    const target = confirm;
+    setConfirm(null);
+    updatePendingSelection(null);
+    if (target === "mail") {
+      const signal = controller.current?.signal;
+      if (mailLock.current || !signal || signal.aborted) return;
+      mailLock.current = true;
+      setMailBusy(true);
+      void gmail
+        .disconnectGmail()
+        .then(() => {
+          if (!signal.aborted)
+            setMailMessage("Mail disconnected. Drive is unchanged.");
+        })
+        .catch(() => {
+          if (!signal.aborted)
+            setMailMessage("Could not disconnect Mail. Check and retry.");
+        })
+        .finally(() => {
+          mailLock.current = false;
+          if (!signal.aborted) setMailBusy(false);
+        });
+    } else if (target)
+      void runDrive(async (token, signal) => {
+        if (target === "drive") {
+          const result = await ExternalConnectorService.disconnect({
+            vaultOwnerToken: token,
+            connectorId: "google_drive",
+          });
+          if (signal.aborted) return;
+          setDocuments([]);
+          setDriveMessage(
+            result.revocationOutcome === "revoked"
+              ? "Drive disconnected. Mail is unchanged."
+              : "Drive is disabled in One. Google revocation was not confirmed; remove access in your Google account if needed.",
+          );
+        } else await ExternalConnectorService.removeDocument(token, target);
+        if (!signal.aborted) {
+          await refresh(signal);
+          await refreshDocuments(signal);
+        }
+      });
+  };
 
   return (
-    <Dialog
-      open={connector !== null}
-      onOpenChange={(open) => {
-        if (!open) onClose();
-      }}
+    <div
+      className="flex h-full min-h-0 flex-col rounded-r-2xl border-r border-border bg-background"
+      data-connections-panel
     >
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Connect {connector?.displayName}</DialogTitle>
-          <DialogDescription>
-            Paste an API key for {connector?.displayName}. It's encrypted and
-            only used to read your data through it.
-          </DialogDescription>
-        </DialogHeader>
-        <Input
-          type="password"
-          autoComplete="off"
-          placeholder="API key"
-          value={apiKey}
-          onChange={(event) => setApiKey(event.target.value)}
-        />
-        {error ? (
-          <p className="text-sm text-[color:var(--app-destructive)]">{error}</p>
-        ) : null}
-        <DialogFooter>
-          <Button type="button" variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            disabled={!apiKey.trim() || submitting}
-            onClick={() => void handleSubmit()}
-          >
-            {submitting ? "Connecting…" : "Connect"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+      <header className="flex shrink-0 items-center gap-2 border-b border-border p-3">
+        <Button
+          variant="ghost"
+          className={touch}
+          onClick={onBack}
+          aria-label="Back to Chats"
+        >
+          <ArrowLeftIcon className="h-5 w-5" aria-hidden="true" />
+        </Button>
+        <h2 className="text-base font-semibold">Connections</h2>
+      </header>
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3">
+        {!vaultOwnerToken ? (
+          <p role="status" className="text-sm text-muted-foreground">
+            Unlock your vault to manage connections.
+          </p>
+        ) : (
+          <>
+            <section
+              aria-labelledby="connection-mail-title"
+              className="space-y-3 rounded-xl border border-border p-3"
+            >
+              <h3 id="connection-mail-title" className="font-semibold">
+                Mail
+              </h3>
+              <p className="break-all text-sm text-muted-foreground">
+                {gmail.status?.google_email || "Gmail"}
+              </p>
+              <p role="status" className="text-sm">
+                {gmail.loadingStatus
+                  ? "Checking Mail…"
+                  : gmail.statusError
+                    ? "Status unavailable"
+                    : gmail.status?.needs_reauth
+                      ? "Reconnect needed"
+                      : gmail.status?.connected
+                        ? "Connected"
+                        : "Not connected"}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {(!gmail.status?.connected || gmail.status?.needs_reauth) && (
+                  <Button
+                    className={touch}
+                    disabled={mailBusy || gmail.loadingStatus}
+                    onClick={connectMail}
+                  >
+                    {gmail.status?.needs_reauth
+                      ? "Reconnect Mail"
+                      : "Connect Mail"}
+                  </Button>
+                )}
+                {(gmail.status?.connected || gmail.status?.needs_reauth) && (
+                  <Button
+                    className={touch}
+                    variant="outline"
+                    disabled={mailBusy}
+                    onClick={() => setConfirm("mail")}
+                  >
+                    Disconnect Mail
+                  </Button>
+                )}
+                {gmail.statusError && (
+                  <Button
+                    className={touch}
+                    variant="outline"
+                    disabled={mailBusy}
+                    onClick={() =>
+                      void gmail.refreshStatus({
+                        force: true,
+                        reconcile: false,
+                      })
+                    }
+                  >
+                    Retry Mail
+                  </Button>
+                )}
+              </div>
+              <p
+                role="status"
+                aria-live="polite"
+                className="text-sm text-muted-foreground"
+              >
+                {mailBusy ? "Updating Mail…" : mailMessage}
+              </p>
+            </section>
+            <section
+              aria-labelledby="connection-drive-title"
+              className="space-y-3 rounded-xl border border-border p-3"
+            >
+              <h3 id="connection-drive-title" className="font-semibold">
+                Drive
+              </h3>
+              <p className="break-all text-sm text-muted-foreground">
+                {drive?.accountLabel || "Only files you choose"}
+              </p>
+              <p role="status" className="text-sm">
+                {loading
+                  ? "Checking Drive…"
+                  : drive
+                    ? (labels[drive.status] ?? "Status unavailable")
+                    : "Not connected"}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {(!hasDriveGrant ||
+                  drive?.status === "needs_reauth" ||
+                  drive?.status === "error") && (
+                  <Button
+                    className={touch}
+                    disabled={driveBusy || loading || !canConnectDrive}
+                    onClick={startDrive}
+                  >
+                    {hasDriveGrant ? "Reconnect Drive" : "Connect Drive"}
+                  </Button>
+                )}
+                {hasDriveGrant && (
+                  <Button
+                    className={touch}
+                    variant="outline"
+                    disabled={driveBusy}
+                    onClick={() => setConfirm("drive")}
+                  >
+                    Disconnect Drive
+                  </Button>
+                )}
+                {canPick && (
+                  <Button
+                    ref={chooseRef}
+                    className={touch}
+                    disabled={driveBusy || Boolean(pending)}
+                    onClick={chooseFiles}
+                  >
+                    Choose files
+                  </Button>
+                )}
+                <Button
+                  className={touch}
+                  variant="ghost"
+                  disabled={driveBusy || loading}
+                  onClick={() => {
+                    void refresh(controller.current?.signal);
+                    if (controller.current)
+                      void refreshDocuments(controller.current.signal).catch(
+                        () => undefined,
+                      );
+                  }}
+                >
+                  Retry Drive
+                </Button>
+              </div>
+              {!canConnectDrive && (
+                <p className="text-sm text-muted-foreground">
+                  New Drive connections are not available here yet.
+                </p>
+              )}
+              <p
+                role="status"
+                aria-live="polite"
+                className="text-sm text-muted-foreground"
+              >
+                {driveBusy ? "Updating Drive…" : driveMessage}
+              </p>
+              {pending && (
+                <section
+                  ref={pendingRef}
+                  className="space-y-3 rounded-lg border border-border p-3"
+                  aria-label="Confirm selected files"
+                >
+                  <p className="text-sm">
+                    Add these files to your private One library? Google access
+                    is not the same as sharing with another person.
+                  </p>
+                  <ul className="space-y-2 text-sm">
+                    {pending.files.map((file) => (
+                      <li key={file.id} className="break-all">
+                        {file.name}
+                      </li>
+                    ))}
+                  </ul>
+                  {overview?.features.drive_document_indexing && (
+                    <label className="flex min-h-11 items-start gap-3 text-sm">
+                      <input
+                        type="checkbox"
+                        className="mt-1 size-5 shrink-0"
+                        checked={allowBackground}
+                        disabled={driveBusy}
+                        onChange={(event) =>
+                          setAllowBackground(event.target.checked)
+                        }
+                      />
+                      <span>
+                        Allow One to process these files while Hushh is closed
+                        and prepare suggestions for requests. Sharing still
+                        needs your approval.
+                      </span>
+                    </label>
+                  )}
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      className={touch}
+                      disabled={driveBusy}
+                      onClick={() =>
+                        void runDrive(async (token, signal) => {
+                          if (pending.kind === "native") {
+                            const selected =
+                              await ExternalConnectorService.confirmNativePicker(
+                                {
+                                  vaultOwnerToken: token,
+                                  attemptId: pending.attemptId,
+                                  backgroundProcessing: allowBackground,
+                                  isEffectCurrent: () =>
+                                    !signal.aborted &&
+                                    currentToken.current === token,
+                                },
+                              );
+                            if (!signal.aborted) setDocuments(selected.documents);
+                          } else {
+                            await ExternalConnectorService.selectDocuments(
+                              token,
+                              pending.sessionId,
+                              pending.files.map((file) => file.id),
+                              allowBackground,
+                            );
+                          }
+                          if (!signal.aborted) {
+                            restorePickerFocus.current = true;
+                            updatePendingSelection(null);
+                            await refreshDocuments(signal);
+                          }
+                        })
+                      }
+                    >
+                      Add selected files
+                    </Button>
+                    <Button
+                      className={touch}
+                      variant="outline"
+                      disabled={driveBusy}
+                      onClick={() => {
+                        if (pending.kind !== "native") {
+                          restorePickerFocus.current = true;
+                          updatePendingSelection(null);
+                          return;
+                        }
+                        void runDrive(async (token, signal) => {
+                          await ExternalConnectorService.cancelNativePicker({
+                            vaultOwnerToken: token,
+                            attemptId: pending.attemptId,
+                            isEffectCurrent: () =>
+                              !signal.aborted && currentToken.current === token,
+                          });
+                          if (!signal.aborted) {
+                            restorePickerFocus.current = true;
+                            updatePendingSelection(null);
+                          }
+                        });
+                      }}
+                    >
+                      Cancel selection
+                    </Button>
+                  </div>
+                </section>
+              )}
+              {documents.length > 0 && (
+                <ul className="space-y-3" aria-label="Selected Drive files">
+                  {documents.map((item) => (
+                    <li
+                      key={item.documentId}
+                      className="space-y-1 border-t border-border pt-3"
+                    >
+                      <p className="break-all text-sm">{item.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {!item.backgroundProcessing && item.status === "queued"
+                          ? "Background processing is off"
+                          : (labels[item.status] ?? "Status unavailable")}
+                      </p>
+                      {(overview?.features.drive_document_indexing ||
+                        item.backgroundProcessing) && (
+                        <label className="flex min-h-11 items-start gap-3 text-sm">
+                          <input
+                            type="checkbox"
+                            className="mt-1 size-5 shrink-0"
+                            checked={item.backgroundProcessing === true}
+                            aria-label={`Background processing for ${item.name}`}
+                            disabled={driveBusy}
+                            onChange={(event) => {
+                              const enabled = event.target.checked;
+                              void runDrive(async (token, signal) => {
+                                await ExternalConnectorService.setDocumentProcessing(
+                                  token,
+                                  item.documentId,
+                                  enabled,
+                                );
+                                await refreshDocuments(signal);
+                              });
+                            }}
+                          />
+                          <span>
+                            Process this file while Hushh is closed. Prepare
+                            suggestions, never share without approval. Turning
+                            this off keeps the existing private index.
+                          </span>
+                        </label>
+                      )}
+                      {item.backgroundProcessing &&
+                        overview?.features.drive_document_indexing && (
+                          <Button
+                            variant="ghost"
+                            className={touch}
+                            aria-label={`Sync ${item.name} now`}
+                            disabled={driveBusy}
+                            onClick={() =>
+                              void runDrive(async (token, signal) => {
+                                await ExternalConnectorService.syncDocument(
+                                  token,
+                                  item.documentId,
+                                );
+                                await refreshDocuments(signal);
+                              })
+                            }
+                          >
+                            Sync now
+                          </Button>
+                        )}
+                      <Button
+                        variant="ghost"
+                        className={touch}
+                        disabled={driveBusy}
+                        aria-label={`Remove ${item.name}`}
+                        onClick={() => setConfirm(item.documentId)}
+                      >
+                        Remove
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+            {confirm && (
+              <section
+                className="space-y-3 rounded-xl border border-border p-3"
+                aria-label="Confirm connection change"
+              >
+                <p className="text-sm">
+                  {confirm === "mail"
+                    ? "Disconnect Mail? Drive stays connected."
+                    : confirm === "drive"
+                      ? "Disconnect Drive and remove its selected files from One? Existing Google sharing stays active until you revoke it. Mail stays connected."
+                      : "Remove this file from One? The original in Google Drive is unchanged."}
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    className={touch}
+                    disabled={mailBusy || driveBusy}
+                    onClick={confirmAction}
+                  >
+                    Confirm
+                  </Button>
+                  <Button
+                    className={touch}
+                    variant="outline"
+                    onClick={() => setConfirm(null)}
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </section>
+            )}
+          </>
+        )}
+      </div>
+    </div>
   );
 }

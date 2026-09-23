@@ -1549,6 +1549,24 @@ Both lines must be the positive form. Verified 2026-09-08, including flags
 placed before the secret name and an unprotected secret passing through to real
 gcloud.
 
+### R38 — Choose static SQL statements; never concatenate a query variant
+
+**Incident (2026-09-23, Drive UAT registry provisioning).** A registry lookup
+assembled a `FOR UPDATE` suffix into an otherwise fixed SQL statement. Bandit's
+B608 rule correctly stopped the backend gate before tests; a similar pattern
+with a nonconstant suffix would turn a lock-mode convenience into an injection
+surface.
+
+**Rule.** When a query has a small set of structural variants, define one
+reviewed static SQL statement per variant and select the statement object. Bind
+all values through parameters; do not concatenate SQL fragments.
+
+**Check.**
+```bash
+cd consent-protocol && ./.venv/bin/bandit -q -r \
+  hushh_mcp/services/drive_uat_registry_provisioning.py -ll
+```
+
 ## Adding a rule
 
 Every mistake found becomes a rule. Fix the **cause**, not the symptom, then add

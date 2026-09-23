@@ -19,6 +19,7 @@ const {
   mockFirebaseApp,
   mockPhoneClaimAuth,
   mockSignInWithPopup,
+  mockReauthenticateWithPopup,
   mockGoogleCredentialFromResult,
   mockGoogleSetCustomParameters,
 } = vi.hoisted(() => ({
@@ -50,6 +51,7 @@ const {
     unlink: vi.fn(),
   },
   mockHushhAuth: {
+    reauthenticateGoogleIdentity: vi.fn(),
     getCurrentUser: vi.fn(),
     getIdToken: vi.fn(),
     signOut: vi.fn(),
@@ -71,6 +73,7 @@ const {
   mockGetApps: vi.fn(),
   mockInitializeApp: vi.fn(),
   mockSignInWithPopup: vi.fn(),
+  mockReauthenticateWithPopup: vi.fn(),
   mockGoogleCredentialFromResult: vi.fn(),
   mockGoogleSetCustomParameters: vi.fn(),
 }));
@@ -121,6 +124,7 @@ vi.mock("firebase/auth", () => ({
   signInWithCredential: mockSignInWithCredential,
   signInWithCustomToken: vi.fn(),
   signInWithPopup: mockSignInWithPopup,
+  reauthenticateWithPopup: mockReauthenticateWithPopup,
   signOut: mockFirebaseSignOut,
   onAuthStateChanged: vi.fn(),
   updatePhoneNumber: mockUpdatePhoneNumber,
@@ -182,6 +186,149 @@ function enableLocalDevPhoneTest() {
     },
   });
 }
+
+describe("AuthService.reauthenticateGoogleIdentity", () => {
+  const currentUser = () => ({
+    uid: "recipient",
+    providerData: [{ providerId: "google.com" }],
+    getIdToken: vi.fn().mockResolvedValue("fresh-firebase-proof"),
+  });
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCapacitor.isNativePlatform.mockReturnValue(false);
+    mockAuth.currentUser = currentUser();
+    mockReauthenticateWithPopup.mockResolvedValue({ user: mockAuth.currentUser });
+  });
+  it("opens reauthentication synchronously for the existing user, never signs in another account", async () => {
+    const pending = AuthService.reauthenticateGoogleIdentity("recipient", () => true);
+    expect(mockReauthenticateWithPopup).toHaveBeenCalledWith(mockAuth.currentUser, expect.any(Object));
+    await expect(pending).resolves.toBe("fresh-firebase-proof");
+    expect(mockAuth.currentUser.getIdToken).toHaveBeenCalledWith(true);
+    expect(mockSignInWithPopup).not.toHaveBeenCalled();
+    expect(mockSignInWithCredential).not.toHaveBeenCalled();
+    expect(mockFirebaseSignOut).not.toHaveBeenCalled();
+  });
+  it.each([
+    ["auth/popup-closed-by-user", "identity_cancelled"],
+    ["auth/popup-blocked", "identity_popup_blocked"],
+    ["auth/user-mismatch", "identity_mismatch"],
+    ["auth/unknown", "identity_verification_failed"],
+  ])("redacts provider errors (%s)", async (code, expected) => {
+    mockReauthenticateWithPopup.mockRejectedValueOnce({ code, message: "secret-provider-value" });
+    await expect(AuthService.reauthenticateGoogleIdentity("recipient", () => true)).rejects.toThrow(expected);
+    expect(mockAuth.currentUser.getIdToken).not.toHaveBeenCalled();
+    expect(mockFirebaseSignOut).not.toHaveBeenCalled();
+  });
+  it("rejects a mismatched result before reading its token", async () => {
+    const other = { ...currentUser(), uid: "other" };
+    mockReauthenticateWithPopup.mockResolvedValueOnce({ user: other });
+    await expect(AuthService.reauthenticateGoogleIdentity("recipient", () => true)).rejects.toThrow("identity_mismatch");
+    expect(other.getIdToken).not.toHaveBeenCalled();
+  });
+  it("does not begin a popup for a stale or non-Google identity", async () => {
+    await expect(AuthService.reauthenticateGoogleIdentity("other", () => true)).rejects.toThrow("google_identity_required");
+    await expect(AuthService.reauthenticateGoogleIdentity("recipient", () => false)).rejects.toThrow("session_changed");
+    mockAuth.currentUser.providerData = [];
+    await expect(AuthService.reauthenticateGoogleIdentity("recipient", () => true)).rejects.toThrow("google_identity_required");
+    expect(mockReauthenticateWithPopup).not.toHaveBeenCalled();
+  });
+  it("suppresses a late proof after lock or same-UID session replacement", async () => {
+    let current = true;
+    mockReauthenticateWithPopup.mockImplementationOnce(async () => {
+      current = false;
+      return { user: mockAuth.currentUser };
+    });
+    await expect(AuthService.reauthenticateGoogleIdentity("recipient", () => current)).rejects.toThrow("session_changed");
+    expect(mockAuth.currentUser.getIdToken).not.toHaveBeenCalled();
+    mockReauthenticateWithPopup.mockImplementationOnce(async () => {
+      const previous = mockAuth.currentUser;
+      mockAuth.currentUser = currentUser();
+      return { user: previous };
+    });
+    await expect(AuthService.reauthenticateGoogleIdentity("recipient", () => true)).rejects.toThrow("session_changed");
+  });
+  it("rechecks the session after the fresh token resolves", async () => {
+    let current = true;
+    mockAuth.currentUser.getIdToken.mockImplementationOnce(async () => {
+      current = false;
+      return "must-not-escape";
+    });
+    await expect(AuthService.reauthenticateGoogleIdentity("recipient", () => current)).rejects.toThrow("session_changed");
+  });
+});
+
+describe("AuthService native same-user Google proof", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockCapacitor.isNativePlatform.mockReturnValue(true);
+    mockAuth.currentUser = null; // The JS observer is not the native authority.
+    mockHushhAuth.reauthenticateGoogleIdentity.mockResolvedValue({
+      userId: "recipient", idToken: "fresh-native-proof",
+    });
+  });
+  it.each(["ios", "android"])("uses the additive bridge on %s without replacing sign-in", async (platform) => {
+    mockCapacitor.getPlatform.mockReturnValue(platform);
+    await expect(AuthService.reauthenticateGoogleIdentity("recipient", () => true)).resolves.toBe("fresh-native-proof");
+    expect(mockHushhAuth.reauthenticateGoogleIdentity).toHaveBeenCalledWith({ expectedUserId: "recipient" });
+    expect(mockHushhAuth.signIn).not.toHaveBeenCalled();
+    expect(mockHushhAuth.signOut).not.toHaveBeenCalled();
+    expect(mockHushhAuth.getIdToken).not.toHaveBeenCalled();
+    expect(mockFirebaseAuthentication.signInWithGoogle).not.toHaveBeenCalled();
+    expect(mockReauthenticateWithPopup).not.toHaveBeenCalled();
+  });
+  it.each([
+    [{ userId: "other", idToken: "do-not-release" }, "identity_mismatch"],
+    [{ userId: "recipient", idToken: "" }, "identity_verification_failed"],
+    [{ userId: "recipient", idToken: "   " }, "identity_verification_failed"],
+    [{ userId: "recipient", idToken: 42 }, "identity_verification_failed"],
+  ])("rejects malformed or mismatched native proof", async (value, expected) => {
+    mockHushhAuth.reauthenticateGoogleIdentity.mockResolvedValueOnce(value);
+    await expect(AuthService.reauthenticateGoogleIdentity("recipient", () => true)).rejects.toThrow(expected);
+  });
+  it.each([
+    ["identity_cancelled", "identity_cancelled"],
+    ["identity_busy", "identity_busy"],
+    ["identity_timeout", "identity_timeout"],
+    ["google_identity_required", "google_identity_required"],
+    ["session_changed", "session_changed"],
+    ["UNIMPLEMENTED", "native_identity_unavailable"],
+    ["UNAVAILABLE", "native_identity_unavailable"],
+    ["SDK_PRIVATE_ERROR", "identity_verification_failed"],
+  ])("redacts %s without falling back to sign-in", async (code, expected) => {
+    mockHushhAuth.reauthenticateGoogleIdentity.mockRejectedValueOnce({ code, message: "private-provider-detail" });
+    await expect(AuthService.reauthenticateGoogleIdentity("recipient", () => true)).rejects.toThrow(expected);
+    expect(mockHushhAuth.signIn).not.toHaveBeenCalled();
+    expect(mockHushhAuth.signOut).not.toHaveBeenCalled();
+  });
+  it("does not launch when locked and suppresses proof that arrives after lock", async () => {
+    await expect(AuthService.reauthenticateGoogleIdentity("recipient", () => false)).rejects.toThrow("session_changed");
+    expect(mockHushhAuth.reauthenticateGoogleIdentity).not.toHaveBeenCalled();
+    let current = true;
+    mockHushhAuth.reauthenticateGoogleIdentity.mockImplementationOnce(async () => {
+      current = false;
+      return { userId: "recipient", idToken: "late-proof" };
+    });
+    await expect(AuthService.reauthenticateGoogleIdentity("recipient", () => current)).rejects.toThrow("session_changed");
+  });
+  it("bounds an older shell's missing-method hang without fallback or late proof release", async () => {
+    vi.useFakeTimers();
+    try {
+      let finish!: (value: { userId: string; idToken: string }) => void;
+      mockHushhAuth.reauthenticateGoogleIdentity.mockImplementationOnce(() => new Promise((resolve) => { finish = resolve; }));
+      const result = AuthService.reauthenticateGoogleIdentity("recipient", () => true);
+      const rejected = expect(result).rejects.toThrow("identity_timeout");
+      await vi.advanceTimersByTimeAsync(125_000);
+      await rejected;
+      finish({ userId: "recipient", idToken: "late-proof" });
+      await Promise.resolve();
+      expect(mockHushhAuth.getIdToken).not.toHaveBeenCalled();
+      expect(mockHushhAuth.signIn).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
 
 describe("AuthService.signOut", () => {
   beforeEach(() => {

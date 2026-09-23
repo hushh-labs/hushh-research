@@ -20,6 +20,8 @@ from typing import Any, cast
 from ag_ui.core import BaseEvent, EventType, RunAgentInput
 from ag_ui_adk import ADKAgent
 
+from hushh_mcp.one_adk.output_privacy import public_event
+
 logger = logging.getLogger(__name__)
 
 HEAD_ONE = "one"
@@ -115,6 +117,13 @@ class TimedADKAgent(ADKAgent):
 
     head: str = HEAD_UNLABELED
 
+    def _default_run_config(self, input: RunAgentInput):
+        from hushh_mcp.hushh_adk.telemetry import private_telemetry
+
+        config = super()._default_run_config(input)
+        config.telemetry = private_telemetry()
+        return config
+
     @classmethod
     def from_app(cls, app: Any, *, head: str, **kwargs: Any) -> TimedADKAgent:
         """Build the agent from an ADK ``App`` and label it with ``head``.
@@ -133,7 +142,9 @@ class TimedADKAgent(ADKAgent):
         try:
             async for event in super().run(input):
                 timing.observe(event)
-                yield event
+                projected = public_event(event) if self.head in (HEAD_ONE, HEAD_INTRO) else event
+                if projected is not None:
+                    yield projected
         except (asyncio.CancelledError, GeneratorExit):
             interrupted = True
             # Consumers commonly close immediately after the terminal event.

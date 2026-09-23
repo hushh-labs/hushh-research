@@ -60,6 +60,9 @@ async def list_published_slices() -> dict:
 
 
 class _Gmail:
+    def __init__(self):
+        self.receipt_calls = []
+
     async def list_nudges(self, *, user_id: str, limit: int) -> dict:
         return {"account_email": "owner@example.com", "nudges": []}
 
@@ -67,6 +70,7 @@ class _Gmail:
         return []
 
     async def list_receipts(self, *, user_id: str, page: int, per_page: int) -> dict:
+        self.receipt_calls.append((user_id, page, per_page))
         return {"items": [], "page": page, "total": 0}
 
     async def get_status(self, *, user_id: str) -> dict:
@@ -130,9 +134,10 @@ async def test_email_direct_route_uses_one_adk_agent_for_inbox_and_receipts():
         [_response(call="list_receipts"), _response(text="No receipts are synced yet.")]
     )
     store = _Store()
+    gmail = _Gmail()
     service = EmailChatService(
         chat_store=store,
-        gmail_service=_Gmail(),
+        gmail_service=gmail,
         model=model,
         ready=lambda: True,
     )
@@ -144,6 +149,7 @@ async def test_email_direct_route_uses_one_adk_agent_for_inbox_and_receipts():
     )
 
     assert result["response"] == "No receipts are synced yet."
+    assert gmail.receipt_calls == [("owner", 1, 25)]
     assert result["isComplete"] is True
     assert result["stateChanged"] is False
     assert model._calls == 2

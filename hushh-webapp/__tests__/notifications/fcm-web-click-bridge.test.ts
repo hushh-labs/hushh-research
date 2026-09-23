@@ -29,6 +29,7 @@ vi.mock("@/lib/feed/feed-events", () => ({
 }));
 
 import {
+  buildNotificationTapTarget,
   FCM_MESSAGE_EVENT,
   prepareFCMListeners,
 } from "@/lib/notifications/fcm-service";
@@ -53,6 +54,35 @@ describe("web system-notification click bridge", () => {
         ),
       },
     });
+  });
+
+  it("builds a document-review route from only an allowlisted type and UUID", () => {
+    const requestId = "11111111-1111-4111-8111-111111111111";
+
+    expect(
+      buildNotificationTapTarget({
+        type: "document_share_review_ready",
+        request_id: requestId,
+        request_url: "https://example.com/ignored",
+        deep_link: "/one/profile?ignored=true",
+        file_name: "bank-statement.pdf",
+      }),
+    ).toBe(
+      "/one/consent?tab=pending&requestId=document_share_request%3A11111111-1111-4111-8111-111111111111",
+    );
+  });
+
+  it.each([
+    {
+      type: "document_share_review_ready",
+      request_id: "not-a-uuid",
+    },
+    {
+      type: "document_share_unreviewed_future_event",
+      request_id: "11111111-1111-4111-8111-111111111111",
+    },
+  ])("fails closed to Feed for an invalid document-share payload", (data) => {
+    expect(buildNotificationTapTarget(data)).toBe("/one/feed");
   });
 
   it("accepts Feed navigation and acknowledges the matching click id", async () => {
@@ -91,6 +121,29 @@ describe("web system-notification click bridge", () => {
 
     expect(mocks.requestInternalAppNavigation).toHaveBeenCalledWith({
       href: "/one/feed",
+      scroll: false,
+    });
+  });
+
+  it("ignores a worker URL for a document-review tap", async () => {
+    await prepareFCMListeners();
+    const requestId = "11111111-1111-4111-8111-111111111111";
+    mocks.serviceWorkerMessageListener?.({
+      data: {
+        type: "hushh:fcm_notification_clicked",
+        click_id: "document-click",
+        url: "https://example.com/ignored",
+        data: {
+          type: "document_share_request",
+          request_id: requestId,
+          request_url: "https://example.com/ignored",
+        },
+      },
+      source: { postMessage: vi.fn() },
+    } as unknown as MessageEvent);
+
+    expect(mocks.requestInternalAppNavigation).toHaveBeenCalledWith({
+      href: "/one/consent?tab=pending&requestId=document_share_request%3A11111111-1111-4111-8111-111111111111",
       scroll: false,
     });
   });

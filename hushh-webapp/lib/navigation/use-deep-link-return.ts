@@ -25,8 +25,26 @@ import { useRouter } from "next/navigation";
 
 import { APP_FRONTEND_ORIGIN } from "@/lib/config";
 
+export const NATIVE_CONNECTOR_RETURN_EVENT = "hushh:native-connector-return";
+export const NATIVE_DRIVE_PICKER_RETURN_EVENT =
+  "hushh:native-drive-picker-return";
+
+export type NativeConnectorReturn = {
+  attemptId: string;
+  outcome: "ready" | "cancelled" | "failed";
+};
+
+/**
+ * Keep file-selection handoffs distinct from connection handoffs. Both are
+ * opaque browser arrivals, but a selected-file candidate must never be
+ * mistaken for a completed credential connection (or vice versa).
+ */
+export type NativeDrivePickerReturn = NativeConnectorReturn;
+
 function knownOrigins(): string[] {
-  const configured = String(APP_FRONTEND_ORIGIN || "").trim().replace(/\/+$/, "");
+  const configured = String(APP_FRONTEND_ORIGIN || "")
+    .trim()
+    .replace(/\/+$/, "");
   const origins = [
     configured,
     "https://one.hushh.ai",
@@ -58,12 +76,111 @@ export function resolveDeepLinkPath(rawUrl: string): string | null {
   return `${parsed.pathname}${parsed.search}${parsed.hash}` || "/";
 }
 
+/**
+ * Native Drive OAuth returns are opaque handoffs, never routes. They must be
+ * consumed before generic navigation so an external URL cannot replace the
+ * mounted chat, composer, or draft while the owner finishes activation.
+ */
+export function resolveNativeConnectorReturn(
+  rawUrl: string,
+): NativeConnectorReturn | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(String(rawUrl || "").trim());
+  } catch {
+    return null;
+  }
+  if (
+    parsed.protocol !== "hushh:" ||
+    parsed.hostname !== "connectors" ||
+    parsed.pathname !== "/return" ||
+    parsed.username ||
+    parsed.password ||
+    parsed.port ||
+    parsed.hash
+  ) {
+    return null;
+  }
+  const keys = [...parsed.searchParams.keys()];
+  if (
+    keys.length !== 2 ||
+    !keys.includes("attemptId") ||
+    !keys.includes("outcome")
+  ) {
+    return null;
+  }
+  const attemptIds = parsed.searchParams.getAll("attemptId");
+  const outcomes = parsed.searchParams.getAll("outcome");
+  const attemptId = attemptIds[0] || "";
+  const outcome = outcomes[0];
+  if (
+    attemptIds.length !== 1 ||
+    outcomes.length !== 1 ||
+    !/^[A-Za-z0-9_-]{16,128}$/.test(attemptId) ||
+    (outcome !== "ready" && outcome !== "cancelled" && outcome !== "failed")
+  ) {
+    return null;
+  }
+  return { attemptId, outcome };
+}
+
+/**
+ * Native Google Picker returns are opaque events, never app navigation. The
+ * exact path is part of the protocol so a connection return cannot release a
+ * staged selection, and no callback can inject a provider URL or file data
+ * into the mounted chat.
+ */
+export function resolveNativeDrivePickerReturn(
+  rawUrl: string,
+): NativeDrivePickerReturn | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(String(rawUrl || "").trim());
+  } catch {
+    return null;
+  }
+  if (
+    parsed.protocol !== "hushh:" ||
+    parsed.hostname !== "connectors" ||
+    parsed.pathname !== "/picker-return" ||
+    parsed.username ||
+    parsed.password ||
+    parsed.port ||
+    parsed.hash
+  ) {
+    return null;
+  }
+  const keys = [...parsed.searchParams.keys()];
+  if (
+    keys.length !== 2 ||
+    !keys.includes("attemptId") ||
+    !keys.includes("outcome")
+  ) {
+    return null;
+  }
+  const attemptIds = parsed.searchParams.getAll("attemptId");
+  const outcomes = parsed.searchParams.getAll("outcome");
+  const attemptId = attemptIds[0] || "";
+  const outcome = outcomes[0];
+  if (
+    attemptIds.length !== 1 ||
+    outcomes.length !== 1 ||
+    !/^[A-Za-z0-9_-]{16,128}$/.test(attemptId) ||
+    (outcome !== "ready" && outcome !== "cancelled" && outcome !== "failed")
+  ) {
+    return null;
+  }
+  return { attemptId, outcome };
+}
+
 export function useDeepLinkReturn(): void {
   const router = useRouter();
 
   useEffect(() => {
     let disposed = false;
     let remove: (() => void) | undefined;
+    let latestConnectorReturn = "";
+    let latestPickerReturn = "";
 
     void (async () => {
       const { Capacitor } = await import("@capacitor/core");
@@ -71,25 +188,60 @@ export function useDeepLinkReturn(): void {
 
       const { App } = await import("@capacitor/app");
 
-      // A cold start opens the app directly on the link, so the event has
-      // already fired by the time this mounts. Ask for it explicitly.
-      try {
-        const launch = await App.getLaunchUrl();
-        const launchPath = launch?.url ? resolveDeepLinkPath(launch.url) : null;
-        if (launchPath && !disposed) router.replace(launchPath);
-      } catch {
-        // A missing launch URL is the normal case, not a failure.
-      }
-
-      const handle = await App.addListener("appUrlOpen", (event) => {
-        const path = resolveDeepLinkPath(event.url);
+      const consume = (rawUrl: string) => {
+        const connectorReturn = resolveNativeConnectorReturn(rawUrl);
+        if (connectorReturn) {
+          const key = `${connectorReturn.attemptId}:${connectorReturn.outcome}`;
+          if (latestConnectorReturn === key || disposed) return;
+          latestConnectorReturn = key;
+          window.dispatchEvent(
+            new CustomEvent<NativeConnectorReturn>(
+              NATIVE_CONNECTOR_RETURN_EVENT,
+              {
+                detail: connectorReturn,
+              },
+            ),
+          );
+          return;
+        }
+        const pickerReturn = resolveNativeDrivePickerReturn(rawUrl);
+        if (pickerReturn) {
+          const key = `${pickerReturn.attemptId}:${pickerReturn.outcome}`;
+          if (latestPickerReturn === key || disposed) return;
+          latestPickerReturn = key;
+          window.dispatchEvent(
+            new CustomEvent<NativeDrivePickerReturn>(
+              NATIVE_DRIVE_PICKER_RETURN_EVENT,
+              {
+                detail: pickerReturn,
+              },
+            ),
+          );
+          return;
+        }
+        const path = resolveDeepLinkPath(rawUrl);
         if (path && !disposed) router.replace(path);
-      });
+      };
+
+      // Register the listener before reading the cold URL so an early OAuth
+      // return cannot race generic navigation during app bootstrap.
+      const handle = await App.addListener("appUrlOpen", (event) =>
+        consume(event.url),
+      );
       if (disposed) {
         void handle.remove();
         return;
       }
       remove = () => void handle.remove();
+
+      // A cold start opens the app directly on the link, so the event may have
+      // fired before the web runtime mounted. Ask for it after subscribing.
+      try {
+        const launch = await App.getLaunchUrl();
+        if (launch?.url) consume(launch.url);
+      } catch {
+        // A missing launch URL is the normal case, not a failure.
+      }
     })();
 
     return () => {

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
@@ -130,3 +131,57 @@ async def test_missing_key_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None
 
     with pytest.raises(ExternalConnectorCredentialError):
         await service.store_credential(user_id="user_1", connector_id="notion", secret={})
+
+
+def versioned_row(service):
+    expiry = datetime.now(UTC) + timedelta(hours=1)
+    sealed = service.seal_credential(
+        user_id="owner",
+        connector_id="google_drive",
+        generation=2,
+        version=3,
+        secret={"accessToken": "synthetic", "subject": "verified-subject"},
+        expires_at=expiry,
+    )
+    return dict(
+        credential_ciphertext=sealed["ciphertext"],
+        credential_iv=sealed["iv"],
+        credential_expires_at=expiry,
+        connection_generation=2,
+        credential_version=3,
+        envelope_version=2,
+    )
+
+
+def test_v2_encrypts_identity_and_roundtrips_without_plaintext_fields():
+    service = ExternalConnectorCredentialsService(db=_FakeConnectionsDb())
+    row = versioned_row(service)
+    assert "synthetic" not in str(row)
+    assert "verified-subject" not in str(row)
+    assert service.open_credential(user_id="owner", connector_id="google_drive", row=row) == {
+        "accessToken": "synthetic",
+        "subject": "verified-subject",
+    }
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("user_id", "other"),
+        ("connector_id", "other"),
+        ("connection_generation", 3),
+        ("credential_version", 4),
+        ("envelope_version", 1),
+        ("credential_expires_at", datetime(2030, 1, 1, tzinfo=UTC)),
+    ],
+)
+def test_v2_rejects_owner_connector_generation_version_or_expiry_substitution(field, value):
+    service = ExternalConnectorCredentialsService(db=_FakeConnectionsDb())
+    row = versioned_row(service)
+    context = dict(user_id="owner", connector_id="google_drive")
+    if field in context:
+        context[field] = value
+    else:
+        row[field] = value
+    with pytest.raises(ExternalConnectorCredentialError, match="needs reauthorization"):
+        service.open_credential(**context, row=row)

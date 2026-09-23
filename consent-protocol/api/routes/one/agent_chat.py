@@ -35,6 +35,8 @@ from hushh_mcp.one_adk.agent_tree import (
 from hushh_mcp.one_adk.agui_action_tools import action_id_from_tool_name
 from hushh_mcp.one_adk.agui_turn_timing import HEAD_INTRO, HEAD_ONE, TimedADKAgent
 from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionService
+from hushh_mcp.one_adk.external_read_boundary import READ_TOOLS, STATE_EXECUTION_SURFACE
+from hushh_mcp.one_adk.external_read_projection import redacted_read_receipt
 from hushh_mcp.one_adk.request_secrets import store_request_secret
 from hushh_mcp.services.action_gateway import get_action_gateway_action, list_action_gateway_actions
 
@@ -94,6 +96,7 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         user_id or f"anonymous:{hashlib.sha256(anonymous_seed.encode()).hexdigest()[:24]}"
     )
     return {
+        STATE_EXECUTION_SURFACE: "typed_chat",
         STATE_USER_ID: session_user_id,
         STATE_CONSENT_TOKEN: store_request_secret(str((token or {}).get("token") or "")),
         STATE_CONVERSATION_ID: input_data.thread_id,
@@ -141,7 +144,7 @@ _authenticated_capabilities = {
     "tools": {"supported": True, "parallelCalls": False, "clientProvided": True},
     "state": {"snapshots": True, "deltas": True, "memory": False, "persistentState": True},
     "multiAgent": {"supported": True, "delegation": True, "handoffs": False},
-    "reasoning": {"supported": True, "streaming": True, "encrypted": False},
+    "reasoning": {"supported": False, "streaming": False, "encrypted": False},
     "humanInTheLoop": {
         "supported": True,
         "approvals": True,
@@ -211,12 +214,9 @@ add_adk_fastapi_endpoint(
 
 
 def _event_text(event: Any) -> str:
-    parts = getattr(getattr(event, "content", None), "parts", None) or []
-    return "".join(
-        str(getattr(part, "text", "") or "")
-        for part in parts
-        if not getattr(part, "thought", False)
-    ).strip()
+    from hushh_mcp.one_adk.output_privacy import public_text
+
+    return public_text(event)
 
 
 _SAFE_PROFILE_PATH = re.compile(r"^/people/[A-Za-z0-9_-]{16,128}$")
@@ -676,7 +676,18 @@ async def conversation_history(
     if session is None:
         raise HTTPException(status_code=404, detail="Conversation not found.")
     messages: list[dict[str, object]] = []
-    for event in session.events:
+    receipts: dict[str, dict[str, Any]] = {}
+    last_answer: dict[str, int] = {}
+    for index, event in enumerate(session.events):
+        if event.invocation_id and event.author == "one" and _event_text(event):
+            last_answer[event.invocation_id] = index
+        for part in event.content.parts or [] if event.content else []:
+            response = part.function_response
+            if response and response.name in READ_TOOLS:
+                receipt = redacted_read_receipt(response.response)
+                if isinstance(receipt.get("structured"), dict):
+                    receipts[event.invocation_id] = receipt["structured"]
+    for index, event in enumerate(session.events):
         text = _event_text(event)
         metadata = _safe_agent_history_metadata(event)
         if (event.author not in {"user", "one"} and not metadata) or (not text and not metadata):
@@ -693,7 +704,13 @@ async def conversation_history(
                 "model": event.model_version,
                 "created_at": event.timestamp,
                 "completed_at": event.timestamp,
-                "metadata": metadata,
+                "metadata": (
+                    {**(metadata or {}), "specialist_read": receipts[event.invocation_id]}
+                    if event.author == "one"
+                    and event.invocation_id in receipts
+                    and last_answer.get(event.invocation_id) == index
+                    else metadata
+                ),
             }
         )
     return {"conversation_id": conversation_id, "messages": messages[-limit:]}
