@@ -219,12 +219,15 @@ class PolicyTests(unittest.TestCase):
             "generation": "1001",
             "size": "42",
             "md5_hash": "md5-base64",
-            "metadata": {"sha256": "sha256-hex"},
+            # This is the shape returned by `gcloud storage objects describe
+            # --format=json`, not the raw Cloud Storage REST representation.
+            "custom_fields": {"sha256": "sha256-hex", "source_sha": SHA},
         }
         expected = {
             "name": remote["name"],
             "size": 42,
             "sha256": "sha256-hex",
+            "source_sha": SHA,
             "md5_base64": "md5-base64",
         }
         self.assertEqual(artifact.validate_uploaded_object(remote, **expected), 1001)
@@ -241,10 +244,42 @@ class PolicyTests(unittest.TestCase):
                     )
         with self.assertRaises(artifact.ArtifactPolicyError):
             artifact.validate_uploaded_object(
-                {**remote, "metadata": {"sha256": "other"}}, **expected
+                {**remote, "custom_fields": {"sha256": "other", "source_sha": SHA}},
+                **expected,
             )
         with self.assertRaises(artifact.ArtifactPolicyError):
-            artifact.validate_uploaded_object({**remote, "metadata": None}, **expected)
+            artifact.validate_uploaded_object(
+                {**remote, "custom_fields": None}, **expected
+            )
+        with self.assertRaises(artifact.ArtifactPolicyError):
+            artifact.validate_uploaded_object(
+                {
+                    **remote,
+                    "custom_fields": {"sha256": "sha256-hex", "source_sha": "other"},
+                },
+                **expected,
+            )
+        with self.assertRaises(artifact.ArtifactPolicyError):
+            artifact.validate_uploaded_object(
+                {**remote, "custom_fields": {"sha256": "sha256-hex"}},
+                **expected,
+            )
+        with self.assertRaises(artifact.ArtifactPolicyError):
+            artifact.validate_uploaded_object(
+                {**remote, "custom_fields": {"source_sha": SHA}}, **expected
+            )
+        with self.assertRaises(artifact.ArtifactPolicyError):
+            artifact.validate_uploaded_object(
+                {
+                    "metadata": {"sha256": "sha256-hex", "source_sha": SHA},
+                    **{
+                        key: value
+                        for key, value in remote.items()
+                        if key != "custom_fields"
+                    },
+                },
+                **expected,
+            )
 
     def test_upload_checks_policy_before_copy_and_uses_create_only_precondition(
         self,
@@ -265,7 +300,7 @@ class PolicyTests(unittest.TestCase):
                 "generation": "101",
                 "size": str(len(payload)),
                 "md5_hash": md5,
-                "metadata": {"sha256": digest},
+                "custom_fields": {"sha256": digest, "source_sha": SHA},
             }
             with mock.patch.object(artifact, "validate_destination") as validate:
                 with mock.patch.object(
@@ -282,6 +317,10 @@ class PolicyTests(unittest.TestCase):
             self.assertEqual(command.call_count, 1)
             self.assertIn("--if-generation-match=0", command.call_args.args)
             self.assertIn(f"--content-md5={md5}", command.call_args.args)
+            self.assertIn(
+                f"--custom-metadata=sha256={digest},source_sha={SHA}",
+                command.call_args.args,
+            )
             self.assertEqual(receipt["sha256"], digest)
             self.assertEqual(receipt["generation"], 101)
 
