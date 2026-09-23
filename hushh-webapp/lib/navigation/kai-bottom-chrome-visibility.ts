@@ -39,30 +39,36 @@ let scrollRootRefreshFrame: number | null = null;
 // 2026-09-22). Momentum keeps a flick scrolling after the finger lifts, so an
 // input counts for a while.
 const USER_SCROLL_INPUT_WINDOW_MS = 2500;
-const USER_SCROLL_INPUT_EVENTS = [
-  "touchstart",
-  "touchmove",
-  "pointerdown",
-  "wheel",
-  "keydown",
-] as const;
+// Scroll gestures only. A tap is not a scroll: counting touchstart and
+// pointerdown let the tap on the Chat tab itself pass as "a person scrolled"
+// for the page's own scroll-to-latest right after it.
+const USER_SCROLL_INPUT_EVENTS = ["touchmove", "wheel", "keydown", "pointermove"] as const;
 let lastUserScrollInputAt = Number.NEGATIVE_INFINITY;
 let userInputListenersAttached = false;
-const markUserScrollInput = () => {
+const markUserScrollInput = (event: Event) => {
+  // A pointer counts only while dragging (a desktop scrollbar, a trackpad).
+  if (event.type === "pointermove" && (event as PointerEvent).buttons === 0) return;
   lastUserScrollInputAt = performance.now();
 };
-const handleScroll = () => {
-  const y = readActiveScrollY();
+
+/**
+ * The scroll entry point for every consumer, the app scroll root's listener
+ * and any surface with its own scroller (Chat's transcript). The chrome moves
+ * only for a person's scroll; the app's own scrolling follows along silently.
+ */
+export function onContentScroll(y: number): void {
   const fromPerson =
     performance.now() - lastUserScrollInputAt <= USER_SCROLL_INPUT_WINDOW_MS;
   // Reaching the top always brings the chrome back, whoever scrolled.
   if (!fromPerson && y > MIN_SCROLL_Y_FOR_SHOW) {
     // Follow the position so the next real gesture measures from here.
-    if (state.initialized) state.lastY = y;
+    if (state.initialized) state.lastY = Math.max(0, y);
     return;
   }
   onScroll(y);
-};
+}
+
+const handleScroll = () => onContentScroll(readActiveScrollY());
 
 function attachUserInputListeners() {
   if (userInputListenersAttached || typeof window === "undefined") return;

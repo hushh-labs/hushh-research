@@ -168,7 +168,7 @@ import {
   requestAgentConversationStop,
 } from "@/lib/agent/agent-voice-settings";
 import {
-  onScroll as onKaiBottomChromeScroll,
+  onContentScroll as onKaiBottomChromeScroll,
   snapKaiBottomChromeVisible,
 } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import {
