@@ -216,9 +216,10 @@ for fixed_job in drive-work-drain-uat drive-work-suggestions-uat drive-work-shar
   verified=false
   # Scheduler and Cloud Run each allow a 240-second attempt; wait through the
   # full bounded execution plus log-delivery margin before declaring failure.
+  # Cloud Logging requires the RFC3339 timestamp to be a quoted string literal.
   for _attempt in $(seq 1 55); do
     if gcloud logging read \
-      "resource.type=cloud_scheduler_job AND resource.labels.job_id=${fixed_job} AND timestamp>=${triggered_at}" \
+      "resource.type=\"cloud_scheduler_job\" AND resource.labels.job_id=\"${fixed_job}\" AND timestamp>=\"${triggered_at}\"" \
       --project="${PROJECT_ID}" --freshness=10m --limit=20 --format=json \
       | EXPECTED_URL="${worker_url}/api/internal/drive-work/drain" \
           EXPECTED_JOB="projects/${PROJECT_ID}/locations/${REGION}/jobs/${fixed_job}" \
