@@ -6202,6 +6202,31 @@ html[data-accent="gold"].dark {
   }
 }
 
+/* Android draws the WebView through its own Vulkan pass, and every backdrop
+ * blur on screen is recomputed on every frame of any motion. Measured on the
+ * Galaxy S24 Ultra (2026-09-22, DevTools trace of one sheet open): with the
+ * six always-on chrome blurs the draw pass averaged 14.9 ms (worst 98 ms) and
+ * the slide painted 7 frames with a 100 ms freeze; with them off, 5.3 ms
+ * (worst 33 ms) and 23 evenly spaced frames at 120 Hz. So on Android nothing
+ * blurs, and the glass fills turn nearly opaque to keep text legible. iOS
+ * keeps the material (measured at no cost there). */
+html.native-android *,
+html.native-android *::before,
+html.native-android *::after {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+html.native-android {
+  --app-glass-surface: rgba(255, 255, 255, 0.97);
+  --ios-account-nav-material-background: rgba(255, 255, 255, 0.97);
+}
+
+html.native-android.dark {
+  --app-glass-surface: rgba(24, 24, 28, 0.97);
+  --ios-account-nav-material-background: rgba(24, 24, 28, 0.97);
+}
+
 @media (prefers-reduced-motion: reduce) {
   [data-slot$="-content"][data-state],
   [data-slot$="-overlay"][data-state],

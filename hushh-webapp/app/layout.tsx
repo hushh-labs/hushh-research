@@ -113,7 +113,7 @@ export default function RootLayout({
           id="native-ios-class"
           strategy="beforeInteractive"
           dangerouslySetInnerHTML={{
-            __html: `try{var c=window.Capacitor;if(c&&typeof c.getPlatform==="function"&&c.getPlatform()==="ios"){document.documentElement.classList.add("native-ios");}}catch(e){}`,
+            __html: `try{var c=window.Capacitor;if(c&&typeof c.getPlatform==="function"&&c.getPlatform()==="ios"){document.documentElement.classList.add("native-ios");}else if(c&&typeof c.getPlatform==="function"&&c.getPlatform()==="android"){document.documentElement.classList.add("native-android");}}catch(e){}`,
           }}
         />
         {loadWebAnalyticsScripts && analyticsMeasurementId ? (
