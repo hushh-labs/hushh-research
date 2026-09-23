@@ -445,11 +445,17 @@ function getConsentRequiredPayload(
 
 function getGmailEmailDraftPayload(
   event: AgentChatToolEvent | null,
-): { instruction: string } | null {
+): { instruction: string; driveFileId: string | null } | null {
   if (!event || event.raw.toolName !== "open_gmail_email_draft") return null;
   const instruction =
     typeof event.slots.request === "string" ? event.slots.request.trim() : "";
-  return instruction ? { instruction } : null;
+  const driveFileId =
+    typeof event.slots.drive_file_id === "string"
+      ? event.slots.drive_file_id.trim()
+      : "";
+  return instruction
+    ? { instruction, driveFileId: driveFileId && driveFileId.length <= 256 ? driveFileId : null }
+    : null;
 }
 
 /** Metadata-only context for a Gmail KYC handoff. Gmail content never enters chat. */
@@ -865,6 +871,20 @@ export async function resolvePendingConsentCardTargets(input: {
   const requestIds = pendingConsentCardRequestIds(input.item);
   if (!input.userId.trim() || !input.vaultOwnerToken?.trim()) {
     throw new Error("Unlock your vault first.");
+  }
+  // Notifications can arrive one item at a time. Never decide a partially
+  // hydrated bundle and then label the whole request approved or denied.
+  if (
+    input.item.bundleId &&
+    typeof input.item.bundleScopeCount === "number" &&
+    input.item.bundleScopeCount > requestIds.length
+  ) {
+    throw new Error("This request is still loading. Review all its fields before deciding.");
+  }
+  // The owner-scoped lookup currently admits 25 IDs, while creation admits
+  // up to 50. Failing closed prevents a truncated batch from being decided.
+  if (requestIds.length > 25) {
+    throw new Error("This request has too many fields for an inline decision.");
   }
   const result = await ConsentCenterService.lookupPendingRequests({
     userId: input.userId,
@@ -2979,7 +2999,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         return true;
       }
       setEmailDraftInstruction(payload.instruction);
-      setEmailDraftInitialValue(null);
+      setEmailDraftInitialValue(payload.driveFileId
+        ? { to: "", cc: "", bcc: "", subject: "", body: "", driveFileId: payload.driveFileId }
+        : null);
       setEmailDraftAutoDraft(true);
       setEmailDraftAnchorMessageId(assistantMessageId);
       setEmailDraftOpen(true);
@@ -6111,9 +6133,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                               ),
                           }));
                         } catch (error) {
-                          console.error("Chat consent approve failed:", error);
                           addErrorMessage(
-                            "Could not approve that request. Try again.",
+                            error instanceof Error && error.message.startsWith("This request")
+                              ? error.message
+                              : "Could not approve that request. Try again.",
                           );
                         } finally {
                           setSpecialistBusyItemId(null);
@@ -6158,9 +6181,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                               ),
                           }));
                         } catch (error) {
-                          console.error("Chat consent deny failed:", error);
                           addErrorMessage(
-                            "Could not decline that request. Try again.",
+                            error instanceof Error && error.message.startsWith("This request")
+                              ? error.message
+                              : "Could not decline that request. Try again.",
                           );
                         } finally {
                           setSpecialistBusyItemId(null);

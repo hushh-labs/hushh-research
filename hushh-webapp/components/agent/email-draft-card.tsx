@@ -13,6 +13,7 @@ import {
   EmailDeliveryError,
   EmailDeliveryService,
   type EmailDraft,
+  type PreparedEmailSend,
 } from "@/lib/services/email-delivery-service";
 import {
   ConnectionsService,
@@ -95,8 +96,13 @@ export function EmailDraftCard({
   const [connections, setConnections] = useState<ConnectionSummaryEntry[]>([]);
   const [activeDropdownField, setActiveDropdownField] = useState<"to" | "cc" | "bcc" | null>(null);
   const dropdownContainerRef = useRef<HTMLDivElement>(null);
-  const [busy, setBusy] = useState<"draft" | null>(null);
+  const [busy, setBusy] = useState<"draft" | "attachment" | null>(null);
   const [error, setError] = useState<EmailDeliveryError | null>(null);
+  const [attachmentReview, setAttachmentReview] = useState<{
+    draft: EmailDraft;
+    prepared: PreparedEmailSend;
+  } | null>(null);
+  const attachmentIdempotencyKeyRef = useRef<string | null>(null);
   const autoDraftStartedRef = useRef(false);
   const sendStartedRef = useRef(false);
 
@@ -137,6 +143,8 @@ export function EmailDraftCard({
     }));
     setMissingDetails([]);
     setError(null);
+    setAttachmentReview(null);
+    attachmentIdempotencyKeyRef.current = null;
   };
 
   const selectConnection = (field: "to" | "cc" | "bcc", conn: ConnectionSummaryEntry) => {
@@ -251,6 +259,7 @@ export function EmailDraftCard({
         subject: next.subject,
         body: normalizeRichEmailText(next.body),
         htmlBody: richEmailHtmlFromMarkdown(normalizeRichEmailText(next.body)),
+        driveFileId: draft.driveFileId,
       });
       if (next.cc || next.bcc) {
         setShowCcBcc(true);
@@ -268,7 +277,7 @@ export function EmailDraftCard({
     } finally {
       setBusy(null);
     }
-  }, [autoDraft, draft.body, initialInstruction, withAuth]);
+  }, [autoDraft, draft.body, draft.driveFileId, initialInstruction, withAuth]);
 
   useEffect(() => {
     if (!autoDraft || autoDraftStartedRef.current) return;
@@ -276,10 +285,49 @@ export function EmailDraftCard({
     void askOneToDraft();
   }, [askOneToDraft, autoDraft]);
 
+  const prepareAttachmentReview = async () => {
+    if (busy || attachmentReview || !draft.driveFileId) return;
+    const auth = await withAuth();
+    if (!auth) return;
+    setBusy("attachment");
+    setError(null);
+    try {
+      attachmentIdempotencyKeyRef.current ??= newIdempotencyKey();
+      const reviewedDraft = { ...draft };
+      const prepared = await EmailDeliveryService.prepare({
+        ...auth,
+        draft: reviewedDraft,
+        idempotencyKey: attachmentIdempotencyKeyRef.current,
+      });
+      const file = prepared.driveAttachment;
+      if (
+        !prepared.actionId || !prepared.attachmentToken || !file?.filename ||
+        !file.mimeType || !file.sourceAccountLabel || file.size <= 0
+      ) {
+        throw new EmailDeliveryError("Drive file could not be reviewed. Try again.", 409);
+      }
+      setAttachmentReview({ draft: reviewedDraft, prepared });
+    } catch (cause) {
+      if (cause instanceof EmailDeliveryError &&
+          ["IDEMPOTENCY_PAYLOAD_MISMATCH", "EMAIL_ACTION_EXPIRED"].includes(cause.code ?? "")) {
+        attachmentIdempotencyKeyRef.current = null;
+      }
+      setError(cause instanceof EmailDeliveryError
+        ? cause
+        : new EmailDeliveryError("Drive file could not be reviewed. Try again.", 500));
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const send = () => {
+    if (draft.driveFileId && !sourceBoundReply && !attachmentReview) {
+      void prepareAttachmentReview();
+      return;
+    }
     if (sendStartedRef.current) return;
     sendStartedRef.current = true;
-    const reviewedDraft = { ...draft };
+    const reviewedDraft = attachmentReview?.draft ?? { ...draft };
     // Close the editor before any token or provider request. The background
     // work keeps a snapshot of the exact owner-reviewed fields.
     const attemptId = onSendStarted?.(reviewedDraft) ?? null;
@@ -291,7 +339,7 @@ export function EmailDraftCard({
           onRequireVault();
           throw new EmailDeliveryError("Unlock your vault and try again.", 403);
         }
-        const idempotencyKey = newIdempotencyKey();
+        const idempotencyKey = attachmentIdempotencyKeyRef.current ?? newIdempotencyKey();
         const outcome = sourceBoundReply
           ? await sourceBoundReply.send({
               ...auth,
@@ -299,7 +347,7 @@ export function EmailDraftCard({
               idempotencyKey,
             })
           : await (async () => {
-              const prepared = await EmailDeliveryService.prepare({
+              const prepared = attachmentReview?.prepared ?? await EmailDeliveryService.prepare({
                 ...auth,
                 draft: reviewedDraft,
                 idempotencyKey,
@@ -314,6 +362,7 @@ export function EmailDraftCard({
                 ...auth,
                 actionId: prepared.actionId,
                 draft: reviewedDraft,
+                attachmentToken: prepared.attachmentToken,
               });
             })();
         if (outcome.outcomeUnknown) {
@@ -512,6 +561,24 @@ export function EmailDraftCard({
               <span>One still needs: {missingDetails.join(", ")}.</span>
             </div>
           ) : null}
+          {attachmentReview?.prepared.driveAttachment ? (
+            <div
+              className="rounded-xl border border-border/70 bg-muted/40 px-3.5 py-3 text-sm"
+              data-testid="one-email-attachment-review"
+            >
+              <p className="font-semibold text-foreground">Review before sending</p>
+              <p className="mt-1 text-muted-foreground">To: {attachmentReview.draft.to}</p>
+              {attachmentReview.draft.cc ? <p className="text-muted-foreground">Cc: {attachmentReview.draft.cc}</p> : null}
+              {attachmentReview.draft.bcc ? <p className="text-muted-foreground">Bcc: {attachmentReview.draft.bcc}</p> : null}
+              <p className="mt-1 text-foreground">{attachmentReview.prepared.driveAttachment.filename}</p>
+              <p className="text-muted-foreground">
+                {attachmentReview.prepared.driveAttachment.mimeType} · {Math.ceil(attachmentReview.prepared.driveAttachment.size / 1024)} KB
+                {" · "}{attachmentReview.prepared.driveAttachment.sourceAccountLabel}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">This file is attached only after you press Send email.</p>
+            </div>
+          ) : null}
+          {busy === "attachment" ? <p role="status" className="text-sm text-muted-foreground">Checking the selected Drive file…</p> : null}
           {error ? (
             <p
               className="rounded-lg bg-destructive/10 px-3 py-2 text-sm leading-5 text-destructive"
@@ -547,7 +614,13 @@ export function EmailDraftCard({
           data-testid="one-email-draft-send"
         >
           <Send className="h-3.5 w-3.5" />
-          {sourceBoundReply ? "Send reply" : "Send"}
+          {sourceBoundReply
+            ? "Send reply"
+            : draft.driveFileId && !attachmentReview
+              ? "Review attachment"
+              : draft.driveFileId
+                ? "Send email"
+                : "Send"}
         </Button>
       </div>
     </section>

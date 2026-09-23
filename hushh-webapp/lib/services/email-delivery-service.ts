@@ -13,6 +13,15 @@ export type EmailDraft = {
   body: string;
   /** Gmail-safe rich representation derived from the owner-reviewed body. */
   htmlBody?: string;
+  /** An untrusted selection hint; the server resolves and binds the exact file. */
+  driveFileId?: string;
+};
+
+export type DriveAttachmentPreview = {
+  filename: string;
+  mimeType: string;
+  size: number;
+  sourceAccountLabel: string;
 };
 
 export type EmailDraftResult = EmailDraft & {
@@ -22,6 +31,8 @@ export type EmailDraftResult = EmailDraft & {
 export type PreparedEmailSend = {
   actionId: string;
   expiresAt: string | null;
+  driveAttachment?: DriveAttachmentPreview | null;
+  attachmentToken?: string | null;
 };
 
 export type SentEmailResult = {
@@ -111,6 +122,10 @@ function safeErrorMessage(code: string | null, status: number): string {
   if (code === "EMAIL_ACTION_OUTCOME_UNKNOWN") {
     return "We could not confirm delivery. Check Sent Mail before trying again.";
   }
+  if (code === "DRIVE_ATTACHMENT_UNAVAILABLE" || code === "DRIVE_ATTACHMENT_CHANGED" ||
+      code === "IDEMPOTENCY_PAYLOAD_MISMATCH") {
+    return "The selected Drive file or connection changed. Review the attachment again.";
+  }
   if (status === 401 || status === 403) {
     return "Unlock your vault and try again.";
   }
@@ -173,17 +188,31 @@ export class EmailDeliveryService {
       body: input.draft.body,
       html_body: input.draft.htmlBody,
       idempotency_key: input.idempotencyKey,
+      ...(input.draft.driveFileId
+        ? { drive_attachment: { file_id: input.draft.driveFileId } }
+        : {}),
     });
     const record = asRecord(payload);
+    const attachment = asRecord(record?.drive_attachment);
     return {
       actionId: stringValue(record, "action_id", "actionId"),
       expiresAt: stringValue(record, "expires_at", "expiresAt") || null,
+      driveAttachment: attachment
+        ? {
+            filename: stringValue(attachment, "filename"),
+            mimeType: stringValue(attachment, "mime_type"),
+            size: typeof attachment.size === "number" ? attachment.size : 0,
+            sourceAccountLabel: stringValue(attachment, "source_account_label"),
+          }
+        : null,
+      attachmentToken: stringValue(record, "attachment_token") || null,
     };
   }
 
   static async send(input: EmailDeliveryAuth & {
     actionId: string;
     draft: EmailDraft;
+    attachmentToken?: string | null;
   }): Promise<SentEmailResult> {
     const payload = await postJson<unknown>("/api/one/email/send", input, {
       action_id: input.actionId,
@@ -193,6 +222,9 @@ export class EmailDeliveryService {
       subject: input.draft.subject,
       body: input.draft.body,
       html_body: input.draft.htmlBody,
+      ...(input.attachmentToken
+        ? { attachment_token: input.attachmentToken }
+        : {}),
     });
     const record = asRecord(payload);
     return {
