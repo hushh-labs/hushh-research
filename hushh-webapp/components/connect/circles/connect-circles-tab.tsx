@@ -11,6 +11,7 @@ import {
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import { KeyRound, Plus, ShieldCheck, UsersRound } from "@/components/icons";
+import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import { SectionTitle, RowDescription } from "@/components/app-ui/typography";
@@ -40,7 +41,7 @@ import {
   readConnectCircleAction,
   type ConnectCircleAction,
 } from "@/lib/navigation/connect-routes";
-import type { OneLocationCircleSummary } from "@/lib/one-location/types";
+import type { OneLocationCircleMember, OneLocationCircleSummary } from "@/lib/one-location/types";
 import type { DirectoryPerson } from "@/lib/services/connections-service";
 import { ROUTES } from "@/lib/navigation/routes";
 import { VaultContext } from "@/lib/vault/vault-context";
@@ -112,19 +113,70 @@ const SYSTEM_CIRCLE_COPY = {
 
 type SystemCircleKind = "trusted" | "sms";
 
-/** The summary contains counts, not member identities; these dots represent seats. */
+/** A bounded roster preview, loaded only when its card approaches the viewport. */
 function CircleCluster({
   circle,
+  vaultOwnerToken,
+  reloadToken,
 }: {
   circle: OneLocationCircleSummary;
+  vaultOwnerToken: string;
+  reloadToken: number;
 }) {
   const kind = systemKindOf(circle);
-  const visibleSeats = Math.min(Math.max(circle.memberCount, 0), 4);
+  const nodeRef = useRef<HTMLSpanElement>(null);
+  const [visible, setVisible] = useState(false);
+  const [members, setMembers] = useState<OneLocationCircleMember[]>([]);
+  useEffect(() => {
+    const node = nodeRef.current;
+    if (!node) return;
+    if (typeof IntersectionObserver === "undefined") {
+      setVisible(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setVisible(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "200px" },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+  useEffect(() => {
+    if (!visible || !vaultOwnerToken || circle.memberCount <= 1) {
+      setMembers([]);
+      return;
+    }
+    let active = true;
+    void OneLocationService.listCircleMembersPage({
+      vaultOwnerToken,
+      circleId: circle.id,
+      page: 1,
+      limit: 4,
+    })
+      .then((page) => {
+        if (active) setMembers(page.items);
+      })
+      .catch(() => {
+        if (active) setMembers([]);
+      });
+    return () => {
+      active = false;
+    };
+  }, [circle.id, circle.memberCount, reloadToken, vaultOwnerToken, visible]);
+  const shown = members.slice(0, circle.memberCount > 4 ? 3 : 4);
+  const remaining = Math.max(0, circle.memberCount - shown.length);
+  const slots = shown.length + (remaining && shown.length ? 1 : 0);
   return (
     <span
+      ref={nodeRef}
       aria-hidden="true"
       data-testid="connect-circle-cluster"
-      className="relative flex size-24 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-secondary-fill)] sm:size-28"
+      className="relative flex size-28 shrink-0 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-secondary-fill)]"
     >
       <span className="flex size-12 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] text-[color:var(--app-primary-label)]">
         {kind === "sms" ? (
@@ -137,16 +189,29 @@ function CircleCluster({
           <UsersRound className="size-5" />
         )}
       </span>
-      {Array.from({ length: visibleSeats }, (_, index) => (
+      {shown.map((member, index) => (
         <span
-          key={index}
-          className="absolute size-3 rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-accent)]"
+          key={member.userId}
+          className="absolute z-10 rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-card-surface-default-solid)] shadow-sm"
           style={{
-            left: ["45%", "80%", "45%", "10%"][index],
-            top: ["4%", "45%", "82%", "45%"][index],
+            left: `${50 + Math.cos(-Math.PI / 2 + index * 2 * Math.PI / slots) * 39}%`,
+            top: `${50 + Math.sin(-Math.PI / 2 + index * 2 * Math.PI / slots) * 39}%`,
+            transform: "translate(-50%, -50%)",
           }}
-        />
+        >
+          <ConnectionPersonAvatar size="compact" photoUrl={member.photoUrl} label={member.displayName} />
+        </span>
       ))}
+      {remaining && shown.length ? (
+        <span
+          className="absolute z-10 flex size-8 items-center justify-center rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-card-surface-default-solid)] text-[10px] font-semibold text-[color:var(--app-primary-label)] shadow-sm"
+          style={{
+            left: `${50 + Math.cos(-Math.PI / 2 + (slots - 1) * 2 * Math.PI / slots) * 39}%`,
+            top: `${50 + Math.sin(-Math.PI / 2 + (slots - 1) * 2 * Math.PI / slots) * 39}%`,
+            transform: "translate(-50%, -50%)",
+          }}
+        >+{remaining}</span>
+      ) : null}
     </span>
   );
 }
@@ -574,6 +639,7 @@ export function ConnectCirclesTab({
   ) {
     return (
       <CircleDetailFlow
+        livingCircleExperience
         // A signal, not a `key`. Remounting would re-read the roster but also
         // close an open add-people sheet, clear a half-typed search and drop
         // the selection -- and a notification can arrive at any moment.
@@ -730,7 +796,7 @@ export function ConnectCirclesTab({
         data-testid={testId}
         aria-label={`Open ${title} circle, ${circleRowDescription(circle)}`}
       >
-        <CircleCluster circle={circle} />
+        <CircleCluster circle={circle} vaultOwnerToken={vaultOwnerToken ?? ""} reloadToken={reloadToken + refreshToken} />
         <span className="ui-text-card-title max-w-full [overflow-wrap:anywhere] text-[color:var(--app-primary-label)]">
           {title}
         </span>

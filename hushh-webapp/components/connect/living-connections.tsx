@@ -7,8 +7,8 @@ import type { ConnectionSummaryEntry } from "@/lib/services/connections-service"
 import {
   CONNECT_HERO_ACTIONS_CLASSNAME,
   CONNECT_HERO_CLASSNAME,
-  CONNECT_HERO_ORBIT_CLASSNAME,
 } from "./connect-living-layout";
+import { PeopleOrbit } from "./people-orbit";
 
 type LivingConnectionsProps = {
   ownerName: string;
@@ -23,13 +23,6 @@ type LivingConnectionsProps = {
   onRetry: () => void;
 };
 
-const NODE_POSITIONS = [
-  { left: "20%", top: "26%" },
-  { left: "80%", top: "26%" },
-  { left: "20%", top: "74%" },
-  { left: "80%", top: "74%" },
-] as const;
-
 /** A small visual summary of real connections; the directory remains the full roster. */
 export function LivingConnections({
   ownerName,
@@ -43,7 +36,6 @@ export function LivingConnections({
   onOpenPerson,
   onRetry,
 }: LivingConnectionsProps) {
-  const visible = connections.slice(0, NODE_POSITIONS.length);
   const isEmpty = !loading && !error && totalCount === 0;
 
   return (
@@ -53,108 +45,30 @@ export function LivingConnections({
       className={CONNECT_HERO_CLASSNAME}
     >
       <div className="mx-auto max-w-[36rem] text-center">
-        <div className={CONNECT_HERO_ORBIT_CLASSNAME}>
-          <svg
-            aria-hidden="true"
-            viewBox="0 0 100 100"
-            preserveAspectRatio="none"
-            className="pointer-events-none absolute inset-0 h-full w-full overflow-visible"
-          >
-            {visible.map((connection, index) => {
-              const position = [
-                [20, 26],
-                [80, 26],
-                [20, 74],
-                [80, 74],
-              ][index];
-              if (!position) return null;
-              return (
-                <line
-                  key={connection.connectionId}
-                  x1="50"
-                  y1="50"
-                  x2={position[0]}
-                  y2={position[1]}
-                  stroke="var(--app-card-border-standard)"
-                  strokeWidth="0.42"
-                  vectorEffect="non-scaling-stroke"
-                />
-              );
-            })}
-            {isEmpty ? (
-              <line
-                x1="50"
-                y1="50"
-                x2="80"
-                y2="36"
-                stroke="var(--app-card-border-standard)"
-                strokeWidth="0.42"
-                strokeDasharray="4 5"
-                vectorEffect="non-scaling-stroke"
-              />
-            ) : null}
-          </svg>
-
-          <div className="absolute left-1/2 top-1/2 z-10 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1.5">
-            <span className="rounded-full border-2 border-[color:var(--app-accent)] p-1">
-              <ConnectionPersonAvatar
-                size="profile"
-                photoUrl={ownerPhotoUrl}
-                label={ownerName}
-              />
+        <PeopleOrbit
+          people={connections.map((connection) => ({
+            id: connection.connectionId,
+            name: connection.displayName || connection.userId,
+            photoUrl: connection.photoUrl,
+            verified: Boolean(connection.isRia),
+            publicPersonRef: connection.publicPersonRef,
+          }))}
+          totalCount={isEmpty ? 0 : totalCount}
+          onOpenPerson={onOpenPerson}
+          emptyAdornment={isEmpty ? (
+            <span className="flex size-11 items-center justify-center rounded-full border border-dashed border-[color:var(--app-card-border-standard)] bg-[color:var(--app-secondary-fill)] text-[color:var(--app-secondary-label)]">
+              <UserPlus className="size-5" />
             </span>
-            <span className="ui-text-row-description max-w-24 truncate text-[color:var(--app-primary-label)]">
-              You
+          ) : undefined}
+          center={
+            <span className="flex flex-col items-center gap-1">
+              <span className="rounded-full border-2 border-[color:var(--app-accent)] bg-[color:var(--app-card-surface-default-solid)] p-1">
+                <ConnectionPersonAvatar size="profile" photoUrl={ownerPhotoUrl} label={ownerName} />
+              </span>
+              <span className="ui-text-row-description text-[color:var(--app-primary-label)]">You</span>
             </span>
-          </div>
-
-          {visible.map((connection, index) => {
-            const position = NODE_POSITIONS[index];
-            if (!position) return null;
-            const name = connection.displayName || connection.userId;
-            const content = (
-              <>
-                <span className="rounded-full border border-[color:var(--app-card-border-standard)] bg-background p-1 transition-colors group-hover:border-[color:var(--app-accent)] motion-reduce:transition-none">
-                  <ConnectionPersonAvatar
-                    size="list"
-                    photoUrl={connection.photoUrl}
-                    label={name}
-                    verified={Boolean(connection.isRia)}
-                  />
-                </span>
-              </>
-            );
-            const className =
-              "group absolute z-10 flex min-h-11 -translate-x-1/2 -translate-y-1/2 items-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]";
-            const style = { left: position.left, top: position.top };
-            return connection.publicPersonRef ? (
-              <button
-                key={connection.connectionId}
-                type="button"
-                className={className}
-                style={style}
-                aria-label={`Open ${name}'s profile`}
-                title={name}
-                onClick={() => onOpenPerson(connection.publicPersonRef!)}
-              >
-                {content}
-              </button>
-            ) : (
-              <div key={connection.connectionId} className={className} style={style} title={name}>
-                {content}
-              </div>
-            );
-          })}
-
-          {isEmpty ? (
-            <div
-              aria-hidden="true"
-              className="absolute left-[80%] top-[36%] flex size-14 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border border-dashed border-[color:var(--app-card-border-standard)] bg-[color:var(--app-secondary-fill)] text-[color:var(--app-secondary-label)] sm:size-16"
-            >
-              <UserPlus className="size-6" />
-            </div>
-          ) : null}
-        </div>
+          }
+        />
 
         <h2 className="ui-text-major-section-title text-[color:var(--app-primary-label)]">
           {loading

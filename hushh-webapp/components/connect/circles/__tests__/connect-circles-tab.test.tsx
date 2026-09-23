@@ -321,6 +321,38 @@ describe("ConnectCirclesTab", () => {
     expect(screen.getAllByText("SMS")).toHaveLength(2);
   });
 
+  it("shows real member photos and a bounded remainder on populated circle cards", async () => {
+    vi.stubGlobal("IntersectionObserver", class {
+      private callback: IntersectionObserverCallback;
+      constructor(callback: IntersectionObserverCallback) { this.callback = callback; }
+      observe() { this.callback([{ isIntersecting: true } as IntersectionObserverEntry], this as unknown as IntersectionObserver); }
+      disconnect() {}
+      unobserve() {}
+      takeRecords() { return []; }
+    });
+    mocks.listCircles.mockResolvedValue([circle("family", "Family", 7)]);
+    mocks.listCircleMembersPage.mockResolvedValue({
+      items: [
+        { userId: "a", displayName: "Asha", photoUrl: "https://example.com/asha.png" },
+        { userId: "b", displayName: "Bina", photoUrl: "https://example.com/bina.png" },
+        { userId: "c", displayName: "Chirag", photoUrl: "https://example.com/chirag.png" },
+        { userId: "d", displayName: "Deepa", photoUrl: "https://example.com/deepa.png" },
+      ],
+      page: 1,
+      hasMore: true,
+      totalCount: 7,
+    });
+    render(<ConnectCirclesTab />);
+    const card = await screen.findByTestId("connect-circle-owned");
+    await waitFor(() => expect(card.querySelectorAll("[data-photo-url]")).toHaveLength(3));
+    expect(card.querySelector('[data-photo-url="https://example.com/asha.png"]')).toBeTruthy();
+    expect(within(card).getByText("+4")).toBeTruthy();
+    expect(mocks.listCircleMembersPage).toHaveBeenCalledWith(expect.objectContaining({
+      circleId: "family", page: 1, limit: 4,
+    }));
+    vi.unstubAllGlobals();
+  });
+
   it("renders the server's name for a Circle you do not own", async () => {
     mocks.listCircles.mockResolvedValue([
       circle("theirs", "Alice's SMS Circle", 4, "sms", "member"),

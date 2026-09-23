@@ -93,6 +93,41 @@ describe("named Circle flows", () => {
     vi.clearAllMocks();
   });
 
+  it("adds a Connect circle candidate through the existing membership callback and refreshes the roster", async () => {
+    let current = circle("family", "Family");
+    const onLoad = vi.fn(async () => current);
+    const props = detailProps(onLoad);
+    props.onLoadEligibleConnections = vi.fn(async () => ({
+      eligibleConnections: current.memberCount === 1 ? [{
+        connectionId: "connection-asha",
+        userId: "asha",
+        displayName: "Asha Rao",
+        photoUrl: null,
+        isRia: false,
+      }] : [],
+      pendingInvites: [],
+      remainingCapacity: 20 - current.memberCount,
+    }));
+    props.onInviteConnections = vi.fn(async () => {
+      current = {
+        ...current,
+        memberCount: 2,
+        members: [...current.members, {
+          userId: "asha",
+          displayName: "Asha Rao",
+          role: "member",
+          phoneVerified: true,
+          secureLocationReady: true,
+        }],
+      };
+    });
+    render(<CircleDetailFlow circleId="family" livingCircleExperience {...props} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Add Asha Rao to Family" }));
+    await waitFor(() => expect(props.onInviteConnections).toHaveBeenCalledWith("family", ["asha"]));
+    await waitFor(() => expect(within(screen.getByTestId("one-location-circle-members")).getByText("Asha Rao")).toBeTruthy());
+    expect(props.onInviteConnections).toHaveBeenCalledTimes(1);
+  });
+
   it("offers Proceed to SMS only when the SMS Circle has another member", async () => {
     const onProceedToSms = vi.fn();
     const ownerOnly = circle("sms-circle", "SMS Circle");

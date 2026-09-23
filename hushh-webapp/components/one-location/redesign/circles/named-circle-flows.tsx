@@ -106,6 +106,7 @@ import { isForeignSmsSystemCircle } from "@/lib/one-location/system-circles";
 import { BLOCKED_CTA } from "@/components/one-location/redesign/circles/blocked-cta";
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
+import { LivingCirclePanel } from "@/components/connect/circles/living-circle-panel";
 import { LOCATION_SEARCH_INPUT_CLASSNAME } from "@/components/one-location/redesign/selectors";
 import { relationshipCta } from "@/lib/connections/relationship-label";
 import { ActionMenu } from "@/components/app-ui/action-menu";
@@ -1334,6 +1335,7 @@ export function CircleDetailFlow({
   onLeave,
   onDelete,
   onProceedToSms,
+  livingCircleExperience = false,
 }: {
   circleId: string;
   currentUserId: string | null;
@@ -1404,11 +1406,14 @@ export function CircleDetailFlow({
   onDelete: (circleId: string) => Promise<void>;
   /** SMS Circle only: continue once at least one member besides the owner exists. */
   onProceedToSms?: () => void;
+  /** Connect-only enhancement; Location keeps its existing Circle flow. */
+  livingCircleExperience?: boolean;
 }) {
   const [loadedCircle, setCircle] = useState<
     OneLocationCircleDetail | OneLocationCircleOverview | null
   >(null);
   const [memberRows, setMemberRows] = useState<OneLocationCircleMember[]>([]);
+  const [orbitMembers, setOrbitMembers] = useState<OneLocationCircleMember[]>([]);
   const [memberPage, setMemberPage] = useState(1);
   const [memberHasMore, setMemberHasMore] = useState(false);
   const [memberTotalCount, setMemberTotalCount] = useState(0);
@@ -1443,6 +1448,7 @@ export function CircleDetailFlow({
   const [peopleLoadError, setPeopleLoadError] = useState<string | null>(null);
   const [peopleLoading, setPeopleLoading] = useState(false);
   const [peopleSubmitting, setPeopleSubmitting] = useState(false);
+  const [quickAddingUserId, setQuickAddingUserId] = useState<string | null>(null);
   const [savingName, setSavingName] = useState(false);
   const [cancellingInviteId, setCancellingInviteId] = useState<string | null>(
     null,
@@ -1481,12 +1487,14 @@ export function CircleDetailFlow({
       setCircle(nextCircle);
       if (nextMembersPage) {
         setMemberRows(nextMembersPage.items);
+        if (!memberSearch.trim()) setOrbitMembers(nextMembersPage.items);
         setMemberPage(nextMembersPage.page);
         setMemberHasMore(nextMembersPage.hasMore);
         setMemberTotalCount(nextMembersPage.totalCount);
       } else {
         const completeMembers = (nextCircle as OneLocationCircleDetail).members;
         setMemberRows(completeMembers);
+        if (!memberSearch.trim()) setOrbitMembers(completeMembers);
         setMemberPage(1);
         setMemberHasMore(false);
         setMemberTotalCount(completeMembers.length);
@@ -1513,10 +1521,14 @@ export function CircleDetailFlow({
   useEffect(() => {
     setCircle(null);
     setMemberRows([]);
+    setOrbitMembers([]);
     setInviteCode(null);
     setPeopleSheetOpen(false);
     setPeopleSearch("");
     setSelectedConnections(new Map());
+    setEligibleConnections([]);
+    setPeopleTotalCount(0);
+    setRemainingCapacity(0);
     setMemberSearch("");
     setSavingName(false);
     peopleRequestRef.current += 1;
@@ -1641,6 +1653,7 @@ export function CircleDetailFlow({
         .then((result) => {
           if (requestId !== memberRequestRef.current) return;
           setMemberRows(result.items);
+          if (!memberSearch.trim()) setOrbitMembers(result.items);
           setMemberPage(result.page);
           setMemberHasMore(result.hasMore);
           setMemberTotalCount(result.totalCount);
@@ -1816,22 +1829,29 @@ export function CircleDetailFlow({
   };
 
   useEffect(() => {
+    if (!livingCircleExperience || !circle?.id || !canInviteMembers) return;
+    void loadEligibleConnections({ page: 1, query: "" });
+    // This preview is a bounded first page, refreshed by reloadSignal below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [circle?.id, canInviteMembers, livingCircleExperience]);
+
+  useEffect(() => {
     if (reloadSignal === lastEligibleReloadSignalRef.current) return;
     lastEligibleReloadSignalRef.current = reloadSignal;
-    if (!peopleSheetOpen || !circle) return;
+    if ((!peopleSheetOpen && !livingCircleExperience) || !circle) return;
     // A relationship removed in Connect must disappear from an already-open
     // picker too. Reload in place so search text and the sheet stay put; the
     // response also trims selections that no longer fit the authoritative
     // eligible set.
     void loadEligibleConnections({
       page: 1,
-      query: peopleSearch,
-      reconcileSelections: true,
+      query: peopleSheetOpen ? peopleSearch : "",
+      reconcileSelections: peopleSheetOpen,
     });
     // This effect is signal-driven. Capturing the current loader is intended;
     // depending on its render-local identity would refetch on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [circle?.id, peopleSearch, peopleSheetOpen, reloadSignal]);
+  }, [circle?.id, livingCircleExperience, peopleSearch, peopleSheetOpen, reloadSignal]);
 
   useEffect(() => {
     if (!peopleSheetOpen || !onLoadEligibleConnectionsPage || !circle) return;
@@ -1879,6 +1899,9 @@ export function CircleDetailFlow({
       setPeopleSearch("");
       setPeopleSheetOpen(false);
       await reload();
+      if (livingCircleExperience) {
+        await loadEligibleConnections({ page: 1, query: "" });
+      }
     } catch (error) {
       toast.error(circleFlowErrorMessage(error, "Could not add them."));
       // A capacity/eligibility conflict means this selected set is no longer
@@ -1900,6 +1923,34 @@ export function CircleDetailFlow({
     } finally {
       peopleSubmitInFlightRef.current = false;
       setPeopleSubmitting(false);
+    }
+  };
+
+  const quickAddConnection = async (userId: string) => {
+    if (
+      !circle ||
+      !canInviteMembers ||
+      remainingCapacity <= 0 ||
+      peopleSubmitInFlightRef.current ||
+      !eligibleConnections.some((person) => person.userId === userId)
+    ) {
+      return;
+    }
+    peopleSubmitInFlightRef.current = true;
+    setQuickAddingUserId(userId);
+    try {
+      try {
+        await onInviteConnections(circle.id, [userId]);
+      } catch (error) {
+        toast.error(circleFlowErrorMessage(error, "Could not add this person."));
+      }
+      // Both success and a stale-capacity rejection need fresh membership and
+      // eligibility. A refresh error must not claim a successful add failed.
+      await reload();
+      await loadEligibleConnections({ page: 1, query: "" });
+    } finally {
+      peopleSubmitInFlightRef.current = false;
+      setQuickAddingUserId(null);
     }
   };
 
@@ -2063,6 +2114,24 @@ export function CircleDetailFlow({
               </Button>
             ) : null}
           </div>
+
+          {livingCircleExperience ? (
+            <LivingCirclePanel
+              circleName={circle.name}
+              members={orbitMembers}
+              memberCount={visibleMemberCount}
+              canInvite={canInviteMembers}
+              candidates={eligibleConnections}
+              availableCount={peopleTotalCount}
+              remainingCapacity={remainingCapacity}
+              loading={peopleLoading}
+              error={peopleLoadError}
+              addingUserId={quickAddingUserId}
+              onAdd={(userId) => void quickAddConnection(userId)}
+              onOpenAll={openPeopleSheet}
+              onRetry={() => void loadEligibleConnections({ page: 1, query: "" })}
+            />
+          ) : null}
 
           {isOwner && circle.systemKind !== "trusted" ? (
             <Sheet
@@ -2362,6 +2431,9 @@ export function CircleDetailFlow({
                 peopleRequestRef.current += 1;
                 setPeopleSearch("");
                 setSelectedConnections(new Map());
+                if (livingCircleExperience) {
+                  void loadEligibleConnections({ page: 1, query: "" });
+                }
               }
             }}
           >
