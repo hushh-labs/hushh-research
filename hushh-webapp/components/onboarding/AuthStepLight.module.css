@@ -19,11 +19,11 @@
 .brandMark {
   display: grid;
   place-items: center;
-  width: 96px;
-  height: 96px;
+  width: 56px;
+  height: 56px;
   flex: none;
   font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif;
-  font-size: 80px;
+  font-size: 56px;
   line-height: 1;
 }
 
@@ -33,7 +33,7 @@
   flex-direction: column;
   height: 100dvh !important;
   min-height: 100svh !important;
-  padding-top: max(112px, calc(var(--app-safe-area-top-effective, 0px) + 64px));
+  padding-top: max(204px, calc(var(--app-safe-area-top-effective, 0px) + 156px));
   padding-bottom: max(62px, calc(env(safe-area-inset-bottom, 0px) + 28px));
   overflow-y: auto;
   background: #f6f5fc;
@@ -58,12 +58,12 @@
 }
 
 :global(html:not(.dark)) .clusters {
-  gap: 36px;
+  gap: 24px;
   padding: 0;
 }
 
 :global(html:not(.dark)) .hero {
-  gap: 24px;
+  gap: 34px;
 }
 
 :global(html:not(.dark)) .title {
@@ -199,7 +199,7 @@
 
 :global(html:not(.dark)) .back {
   position: absolute;
-  left: max(23px, calc((100% - 402px) / 2 + 23px));
+  left: max(16px, calc(env(safe-area-inset-left, 0px) + 16px));
   top: max(72px, calc(var(--app-safe-area-top-effective, 0px) + 10px));
   width: 44px;
   height: 44px;
@@ -231,7 +231,7 @@
   flex-direction: column;
   height: 100dvh !important;
   min-height: 100svh !important;
-  padding-top: max(112px, calc(var(--app-safe-area-top-effective, 0px) + 64px));
+  padding-top: max(204px, calc(var(--app-safe-area-top-effective, 0px) + 156px));
   padding-bottom: max(62px, calc(env(safe-area-inset-bottom, 0px) + 28px));
   overflow-y: auto;
   background: #000;
@@ -249,8 +249,8 @@
   padding: 0;
   justify-content: flex-start;
 }
-:global(html.dark) .clusters { gap: 38px; padding: 0; }
-:global(html.dark) .hero { gap: 24px; }
+:global(html.dark) .clusters { gap: 24px; padding: 0; }
+:global(html.dark) .hero { gap: 34px; }
 :global(html.dark) .title {
   --foundation-title1-size: 27px;
   --foundation-title1-line: 32px;
@@ -357,7 +357,7 @@
 :global(html.dark) .legalRow button { color: #0088ff; }
 :global(html.dark) .back {
   position: absolute;
-  left: max(24px, calc((100% - 402px) / 2 + 24px));
+  left: max(16px, calc(env(safe-area-inset-left, 0px) + 16px));
   top: max(73px, calc(var(--app-safe-area-top-effective, 0px) + 11px));
   width: 43px;
   height: 43px;
