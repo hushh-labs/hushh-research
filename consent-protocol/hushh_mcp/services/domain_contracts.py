@@ -215,6 +215,15 @@ FINANCIAL_INTENT_MAP: tuple[str, ...] = (
     "analysis_history",
     "runtime",
     "analysis.decisions",
+    # Zero-knowledge Plaid (founder decision 2026-09-23): raw records sealed in
+    # the owner's vault, never shareable. Only `summary` crosses a grant.
+    "connections_v1",
+    "accounts_v1",
+    "holdings_v1",
+    "securities_v1",
+    "transactions_v1",
+    "derived_v1",
+    "summary",
 )
 
 FINANCIAL_SUBINTENT_REGISTRY: tuple[DomainSubintentEntry, ...] = (
@@ -265,6 +274,62 @@ FINANCIAL_SUBINTENT_REGISTRY: tuple[DomainSubintentEntry, ...] = (
         icon_name="brain",
         color_hex="#D4AF37",
         description="Persisted Kai decision metadata and audit lineage",
+    ),
+    DomainSubintentEntry(
+        domain_key="financial.connections_v1",
+        parent_domain="financial",
+        display_name="Financial Connections",
+        icon_name="link",
+        color_hex="#D4AF37",
+        description="Linked financial connections sealed in the vault; never shared",
+    ),
+    DomainSubintentEntry(
+        domain_key="financial.accounts_v1",
+        parent_domain="financial",
+        display_name="Financial Accounts",
+        icon_name="landmark",
+        color_hex="#D4AF37",
+        description="Linked account records sealed in the vault; never shared",
+    ),
+    DomainSubintentEntry(
+        domain_key="financial.holdings_v1",
+        parent_domain="financial",
+        display_name="Financial Holdings",
+        icon_name="pie-chart",
+        color_hex="#D4AF37",
+        description="Raw holdings records sealed in the vault; never shared",
+    ),
+    DomainSubintentEntry(
+        domain_key="financial.securities_v1",
+        parent_domain="financial",
+        display_name="Financial Securities",
+        icon_name="line-chart",
+        color_hex="#D4AF37",
+        description="Security reference records sealed in the vault; never shared",
+    ),
+    DomainSubintentEntry(
+        domain_key="financial.transactions_v1",
+        parent_domain="financial",
+        display_name="Financial Transactions",
+        icon_name="receipt",
+        color_hex="#D4AF37",
+        description="Raw transaction records sealed in the vault; never shared",
+    ),
+    DomainSubintentEntry(
+        domain_key="financial.derived_v1",
+        parent_domain="financial",
+        display_name="Financial Derived Facts",
+        icon_name="sparkles",
+        color_hex="#D4AF37",
+        description="Private records and derived facts computed on device; never shared",
+    ),
+    DomainSubintentEntry(
+        domain_key="financial.summary",
+        parent_domain="financial",
+        display_name="Financial Summary",
+        icon_name="bar-chart-3",
+        color_hex="#D4AF37",
+        description="Shareable financial summary: bands and percentages only",
     ),
 )
 
@@ -321,9 +386,21 @@ DOMAIN_SHARING_POLICY_REGISTRY: dict[str, DomainSharingPolicy] = {
         allow_domain_wildcard=False,
         # `sources` holds the raw per-connection copies (Plaid items, statement
         # snapshots) and `runtime` holds app state: private records, never
-        # shareable. Sharing gets derived facts and summaries instead
-        # (founder decision 2026-09-23).
-        denied_manifest_path_prefixes=("analysis_history", "sources", "runtime"),
+        # shareable. The zero-knowledge Plaid branches (`connections_v1` ..
+        # `derived_v1`) hold the vault-sealed raw records and private derived
+        # facts. Sharing gets the `summary` branch instead (founder decision
+        # 2026-09-23).
+        denied_manifest_path_prefixes=(
+            "analysis_history",
+            "sources",
+            "runtime",
+            "connections_v1",
+            "accounts_v1",
+            "holdings_v1",
+            "securities_v1",
+            "transactions_v1",
+            "derived_v1",
+        ),
         denied_manifest_path_parts=frozenset(
             {
                 "agent_votes",

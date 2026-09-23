@@ -5,7 +5,18 @@
  */
 
 /** Private financial branches: raw per-connection copies and app state. */
-const PRIVATE_FINANCIAL_PREFIXES = new Set(["analysis_history", "sources", "runtime"]);
+const PRIVATE_FINANCIAL_PREFIXES = new Set([
+  "analysis_history",
+  "sources",
+  "runtime",
+  // Zero-knowledge Plaid branches: vault-sealed raw records and private facts.
+  "connections_v1",
+  "accounts_v1",
+  "holdings_v1",
+  "securities_v1",
+  "transactions_v1",
+  "derived_v1",
+]);
 
 const PRIVATE_ARTIFACT_PARTS = new Set([
   "agent_votes",
