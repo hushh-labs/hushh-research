@@ -146,6 +146,10 @@ async function waitForValue(readValue, label, timeoutMs) {
   throw new Error(`Timed out waiting for ${label}.`);
 }
 
+export function shouldRetryReviewerBootstrap(error) {
+  return error?.code !== "REVIEWER_TERMINAL_BOOTSTRAP";
+}
+
 /** A loaded route beacon can describe anonymous or locked UI, not admission. */
 export async function waitForReviewerVaultAdmission(page, expectedUserId, timeoutMs = 60_000) {
   if (!expectedUserId) throw new Error("Reviewer admission requires a configured identity.");
@@ -311,9 +315,11 @@ export async function createReviewerSessionHarness({
       const bootstrap = await safeBootstrapState();
       if (bootstrap.state === "vault_unlocked" && bootstrap.userMatches) return;
       if (terminalFailures.has(bootstrap.state)) {
-        throw new Error(
+        const error = new Error(
           `Reviewer vault bootstrap failed (state=${bootstrap.state}, error_class=${bootstrap.errorClass || "unknown"}, path=${bootstrap.path}, user_match=${bootstrap.userMatches}).`
         );
+        error.code = "REVIEWER_TERMINAL_BOOTSTRAP";
+        throw error;
       }
 
       if (!reviewerLoginSubmitted && await reviewerButton.isVisible().catch(() => false)) {
@@ -407,6 +413,7 @@ export async function createReviewerSessionHarness({
       } catch (error) {
         lastError = error;
         await context.close().catch(() => undefined);
+        if (!shouldRetryReviewerBootstrap(error)) throw error;
       }
     }
 
