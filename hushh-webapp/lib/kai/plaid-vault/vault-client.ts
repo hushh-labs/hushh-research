@@ -114,10 +114,14 @@ export async function createVaultLinkToken(params: {
   // Plaid's Android SDK rejects a redirect URI beside the package name.
   const redirectUri =
     params.request.platform === "android" ? null : params.request.redirect_uri ?? null;
-  return post<PlaidVaultLinkTokenResponse>("link-token", params.vaultOwnerToken, {
+  const body: Record<string, unknown> = {
     platform: params.request.platform,
     redirect_uri: redirectUri,
-  });
+  };
+  // This is an opt-in local proof marker, not an environment selector. Omit
+  // it from every ordinary client request to preserve the public contract.
+  if (params.request.sandbox_proof === true) body.sandbox_proof = true;
+  return post<PlaidVaultLinkTokenResponse>("link-token", params.vaultOwnerToken, body);
 }
 
 /** Single-shot. Never call twice for the same public token. */

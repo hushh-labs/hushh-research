@@ -28,6 +28,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import logging
+import os
 from functools import lru_cache
 from typing import Any, Callable, Coroutine, Literal
 
@@ -68,6 +69,7 @@ _PRODUCT_UNAVAILABLE_CODES = frozenset(
 )
 _PRODUCT_NOT_ON_ITEM = "PRODUCTS_NOT_SUPPORTED"
 _ITEM_ALREADY_REMOVED_CODES = frozenset({"ITEM_NOT_FOUND"})
+_LOCAL_SANDBOX_PROOF_DEPLOYMENTS = frozenset({"local", "test"})
 
 # Plaid tokens and cursors are opaque ASCII; bound and constrain them so a
 # request can never smuggle arbitrary text through to Plaid.
@@ -129,6 +131,9 @@ class _StrictModel(BaseModel):
 class VaultLinkTokenRequest(_StrictModel):
     platform: Literal["web", "ios", "android"] = "web"
     redirect_uri: str | None = Field(default=None, max_length=2048)
+    # A non-secret marker used only by the local Plaid Sandbox proof.  It is
+    # deliberately opt-in so ordinary clients retain their existing contract.
+    sandbox_proof: bool = False
 
 
 class VaultExchangeRequest(_StrictModel):
@@ -255,6 +260,26 @@ def _require_configured() -> PlaidRuntimeConfig:
     return config
 
 
+def _local_sandbox_proof_deployment() -> bool:
+    """A sandbox provider is not enough: hosted UAT must never run this proof."""
+    if os.getenv("K_SERVICE") or os.getenv("K_REVISION"):
+        return False
+    if os.getenv("HUSHH_LOCAL_PLAID_SANDBOX_PROOF") != "true":
+        return False
+    deployment_identities = {
+        name: str(value).strip().lower()
+        for name in ("ENVIRONMENT", "HUSHH_DEPLOY_ENV", "APP_RUNTIME_PROFILE")
+        if (value := os.getenv(name)) and str(value).strip()
+    }
+    # A missing identity, contradictory deployment metadata, or ambiguous
+    # development profile must never turn a provider-sandbox configuration
+    # into a hosted proof endpoint.
+    return bool(deployment_identities) and (
+        len(set(deployment_identities.values())) == 1
+        and next(iter(deployment_identities.values())) in _LOCAL_SANDBOX_PROOF_DEPLOYMENTS
+    )
+
+
 def _item_error(error: Any) -> dict[str, str | None] | None:
     if not isinstance(error, dict):
         return None
@@ -296,6 +321,19 @@ async def create_vault_link_token(
     """Create a Link token. No webhook, no resume-session row, no storage."""
     try:
         config = _require_configured()
+        # Never trust a caller to select its Plaid environment.  The local
+        # proof marker is valid only when this server's resolved runtime
+        # configuration is Sandbox, and is rejected before Plaid is called.
+        if payload.sandbox_proof and (
+            config.environment != "sandbox" or not _local_sandbox_proof_deployment()
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={
+                    "code": "PLAID_SANDBOX_PROOF_FORBIDDEN",
+                    "message": "This verification flow is not available.",
+                },
+            )
         link_payload: dict[str, Any] = {
             "client_name": config.client_name,
             "user": {"client_user_id": _client_user_id(str(token_data["user_id"]))},

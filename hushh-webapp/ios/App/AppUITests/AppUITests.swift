@@ -1181,11 +1181,27 @@ final class AppUITests: XCTestCase {
 
     func testRenderPerformanceCardAttached() throws {
         let environment = ProcessInfo.processInfo.environment
+        let section = environment["HUSHH_PERF_ATTACHED_SECTION"] ?? "all"
+        let plaidSandboxProof = section == "plaid" || section == "plaid-vault"
         guard environment["HUSHH_ENABLE_PERF_ATTACHED"] == "true" else {
+            if plaidSandboxProof {
+                XCTFail("Plaid proof requires HUSHH_ENABLE_PERF_ATTACHED=true.")
+                throw NSError(domain: "AppUITests", code: 1)
+            }
             throw XCTSkip("Attached render performance card runs only with HUSHH_ENABLE_PERF_ATTACHED=true.")
         }
         let repetitions = max(1, Int(environment["HUSHH_PERF_REPS"] ?? "") ?? 3)
-        let section = environment["HUSHH_PERF_ATTACHED_SECTION"] ?? "all"
+        if plaidSandboxProof {
+            guard environment["HUSHH_PLAID_SANDBOX_PROOF"] == "true" else {
+                XCTFail("Plaid proof requires the explicit local sandbox guard.")
+                throw NSError(domain: "AppUITests", code: 2)
+            }
+            #if targetEnvironment(simulator)
+            #else
+            XCTFail("Plaid proof is restricted to the local iOS Simulator.")
+            throw NSError(domain: "AppUITests", code: 3)
+            #endif
+        }
         let passphrase = (environment["HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE"] ?? environment["REVIEWER_VAULT_PASSPHRASE"] ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         #if DEBUG
@@ -1202,6 +1218,12 @@ final class AppUITests: XCTestCase {
         func launchAttached(route: String?, shellOptional: Bool = false, failHard: Bool = true, unlockTimeout: TimeInterval = 240) throws -> (XCUIApplication, XCUIElement) {
             let app = XCUIApplication()
             var arguments = ["-CapacitorStorage.hushh_perf_probe", "1"]
+            if plaidSandboxProof {
+                // NSArgumentDomain supplies this to Capacitor Preferences for
+                // this launch only. The WebView also requires its compiled
+                // local-proof marker before it will request a Link token.
+                arguments += ["-CapacitorStorage.hushh_plaid_sandbox_proof", "1"]
+            }
             if let route {
                 arguments += ["-CapacitorStorage.hushh_perf_route", route]
             }
@@ -1449,10 +1471,6 @@ final class AppUITests: XCTestCase {
             }
             func checkpoint(_ name: String) {
                 perfSettle(1.0)
-                let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
-                shot.name = "plaid-\(name)"
-                shot.lifetime = .keepAlways
-                add(shot)
                 NSLog("PLAID_STEP \(name)")
             }
             // XCUITest can drop keystrokes while the keyboard is still coming
@@ -1529,7 +1547,12 @@ final class AppUITests: XCTestCase {
             ]
             // Resume after banks already sealed on this account, so a rerun
             // adds the missing ones instead of duplicating kept connections.
-            let startIndex = Int(ProcessInfo.processInfo.environment["HUSHH_PLAID_START_INDEX"] ?? "") ?? 0
+            let rawStartIndex = ProcessInfo.processInfo.environment["HUSHH_PLAID_START_INDEX"] ?? "0"
+            guard let startIndex = Int(rawStartIndex), (0..<banks.count).contains(startIndex) else {
+                XCTFail("HUSHH_PLAID_START_INDEX must be an integer from 0 through \(banks.count - 1).")
+                throw NSError(domain: "AppUITests", code: 3)
+            }
+            let expectedConnections = banks.count - startIndex
             var connected = 0
             bankLoop: for (index, bank) in banks.enumerated() where index >= startIndex {
                 guard tapFirst("Portfolio source", contains: true, timeout: 12) else {
@@ -1632,7 +1655,12 @@ final class AppUITests: XCTestCase {
                 connected += 1
                 NSLog("PLAID_CONNECTED index=\(index) bank=\(bank)")
             }
-            NSLog("PLAID_DONE connected=\(connected)")
+            NSLog("PLAID_DONE connected=\(connected) expected=\(expectedConnections)")
+            XCTAssertEqual(
+                connected,
+                expectedConnections,
+                "Plaid proof did not complete every requested sandbox connection."
+            )
             checkpoint("final")
             return
         }
