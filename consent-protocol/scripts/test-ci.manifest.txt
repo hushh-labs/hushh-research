@@ -354,3 +354,4 @@ tests/one_voice/test_tools_account_lifecycle.py
 tests/one_voice/test_relay_account_lifecycle.py
 tests/one_voice/test_tools_onboarding.py
 tests/one_voice/test_one_voice_postgres.py
+tests/services/test_plaid_link_platform.py

@@ -382,6 +382,19 @@ class PlaidPortfolioService:
     def resolve_redirect_uri(self, requested_redirect_uri: str | None = None) -> str | None:
         return self.config.resolve_redirect_uri(requested_redirect_uri)
 
+    def _apply_link_platform(
+        self,
+        payload: dict[str, Any],
+        *,
+        platform: str | None,
+        redirect_uri: str | None,
+    ) -> str | None:
+        return self.config.apply_link_platform(
+            payload,
+            platform=platform,
+            requested_redirect_uri=redirect_uri,
+        )
+
     def _tx_history_days(self) -> int:
         return self.config.tx_history_days
 
@@ -1895,12 +1908,17 @@ class PlaidPortfolioService:
         item_id: str | None = None,
         redirect_uri: str | None = None,
         environment: str | None = None,
+        platform: str | None = None,
     ) -> dict[str, Any]:
         """Create a Plaid Link token.
 
         ``environment`` optionally overrides which Plaid environment to use
         (e.g. "production" from local dev's secondary connect button). It
         only takes effect locally; see `PlaidRuntimeConfig.from_env`.
+
+        ``platform`` is the Link runtime ("web", "ios", "android"; default
+        web). Android's native SDK gets ``android_package_name`` and no
+        ``redirect_uri``; see `PlaidRuntimeConfig.apply_link_platform`.
         """
         config = self._config_for(environment)
         if not config.configured:
@@ -1923,9 +1941,11 @@ class PlaidPortfolioService:
         webhook_url = self._webhook_url()
         if webhook_url:
             payload["webhook"] = webhook_url
-        resolved_redirect_uri = self.resolve_redirect_uri(redirect_uri)
-        if resolved_redirect_uri:
-            payload["redirect_uri"] = resolved_redirect_uri
+        resolved_redirect_uri = self._apply_link_platform(
+            payload,
+            platform=platform,
+            redirect_uri=redirect_uri,
+        )
 
         mode: str = "create"
         if item_id:

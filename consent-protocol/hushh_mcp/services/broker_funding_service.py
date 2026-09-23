@@ -1302,6 +1302,7 @@ class BrokerFundingService:
         user_id: str,
         item_id: str | None = None,
         redirect_uri: str | None = None,
+        platform: str | None = None,
     ) -> dict[str, Any]:
         if not self.plaid_config.configured:
             return {
@@ -1329,9 +1330,12 @@ class BrokerFundingService:
         if self.plaid_config.webhook_url:
             payload["webhook"] = self.plaid_config.webhook_url
 
-        resolved_redirect_uri = self.plaid_config.resolve_redirect_uri(redirect_uri)
-        if resolved_redirect_uri:
-            payload["redirect_uri"] = resolved_redirect_uri
+        # Android's native Link SDK takes android_package_name, never redirect_uri.
+        resolved_redirect_uri = self.plaid_config.apply_link_platform(
+            payload,
+            platform=platform,
+            requested_redirect_uri=redirect_uri,
+        )
 
         mode = "create"
         cleaned_item_id = _clean_text(item_id)
