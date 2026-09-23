@@ -18,7 +18,7 @@ from starlette.concurrency import run_in_threadpool
 
 from api.middleware import require_vault_owner_token
 from api.routes.one.agent_context import sanitize_agent_context
-from api.routes.one.command_proposals import router as command_proposals_router
+from api.routes.one.command_proposals import require_private_runtime
 from api.utils.firebase_auth import verify_firebase_bearer
 from hushh_mcp.one_adk.agent_tree import (
     ONE_APP_NAME,
@@ -37,7 +37,6 @@ from hushh_mcp.one_adk.agui_turn_timing import HEAD_INTRO, HEAD_ONE, TimedADKAge
 from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionService
 from hushh_mcp.one_adk.external_read_boundary import READ_TOOLS, STATE_EXECUTION_SURFACE
 from hushh_mcp.one_adk.external_read_projection import redacted_read_receipt
-from hushh_mcp.one_adk.request_secrets import store_request_secret
 from hushh_mcp.services.action_gateway import get_action_gateway_action, list_action_gateway_actions
 
 logger = logging.getLogger(__name__)
@@ -56,21 +55,36 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
     authorization = request.headers.get("authorization")
     consent_header = request.headers.get("x-hushh-consent")
     token: dict[str, Any] | None = None
-    try:
+    authorization_token = re.sub(r"^Bearer\s+", "", (authorization or "").strip(), flags=re.I)
+    authorization_is_consent = authorization_token.startswith("HCT:")
+    if consent_header is not None:
         token = await require_vault_owner_token(
             request=request,
-            authorization=authorization,
+            authorization=None,
             hushh_consent=consent_header,
         )
-    except HTTPException:
-        token = None
+    if authorization_is_consent:
+        bearer_token = await require_vault_owner_token(
+            request=request,
+            authorization=authorization,
+            hushh_consent=None,
+        )
+        if token is not None and bearer_token["user_id"] != token["user_id"]:
+            raise HTTPException(status_code=403, detail="Credential owner mismatch")
+        token = bearer_token
     firebase_uid = ""
-    if token is None and authorization:
-        try:
-            firebase_uid = await run_in_threadpool(verify_firebase_bearer, authorization)
-        except HTTPException:
-            firebase_uid = ""
+    if authorization and not authorization_is_consent:
+        firebase_uid = await run_in_threadpool(verify_firebase_bearer, authorization)
+        if token is not None and firebase_uid != token["user_id"]:
+            raise HTTPException(status_code=403, detail="Credential owner mismatch")
+    if token is not None:
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "AGENT_PRIVATE_RUNTIME_REQUIRED"},
+        )
     forwarded = input_data.forwarded_props if isinstance(input_data.forwarded_props, dict) else {}
+    if forwarded.get("pkmContext") or forwarded.get("runtimeCredential") or input_data.context:
+        raise HTTPException(status_code=400, detail="Private context requires the private agent")
     screen_payload = forwarded.get("screenContext")
     screen_context = sanitize_agent_context(
         screen_payload if isinstance(screen_payload, dict) else {}
@@ -98,7 +112,7 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
     return {
         STATE_EXECUTION_SURFACE: "typed_chat",
         STATE_USER_ID: session_user_id,
-        STATE_CONSENT_TOKEN: store_request_secret(str((token or {}).get("token") or "")),
+        STATE_CONSENT_TOKEN: "",
         STATE_CONVERSATION_ID: input_data.thread_id,
         STATE_TIMEZONE: str(forwarded.get("timezone") or "")[:64],
         # This is only an untrusted selection request. The resolver validates
@@ -116,7 +130,7 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         "hussh:typed_chat_context": True,
         STATE_SCREEN: str(screen_context.get("screen") or "")[:64],
         STATE_VOICE_CONTEXT: screen_context,
-        STATE_PKM_CONTEXT: store_request_secret(str(forwarded.get("pkmContext") or "")[:20000]),
+        STATE_PKM_CONTEXT: "",
     }
 
 
@@ -201,7 +215,9 @@ _intro_agent = TimedADKAgent.from_app(
 
 async def _resolve_agent(_request: Request, input_data: RunAgentInput) -> ADKAgent:
     state = input_data.state if isinstance(input_data.state, dict) else {}
-    return _agent if state.get(STATE_CONSENT_TOKEN) else _intro_agent
+    if state.get(STATE_CONSENT_TOKEN):
+        raise HTTPException(status_code=409, detail={"code": "AGENT_PRIVATE_RUNTIME_REQUIRED"})
+    return _intro_agent
 
 
 add_adk_fastapi_endpoint(
@@ -764,7 +780,7 @@ class ActionSearchRequest(BaseModel):
     limit: int = Field(default=10, ge=1, le=20)
 
 
-@router.post("/api/one/actions/search")
+@router.post("/api/one/actions/search", dependencies=[Depends(require_private_runtime)])
 async def search_actions_endpoint(
     payload: ActionSearchRequest,
     request: Request,
@@ -815,6 +831,3 @@ async def search_actions_endpoint(
         "total": len(results),
         "results": results,
     }
-
-
-router.include_router(command_proposals_router)

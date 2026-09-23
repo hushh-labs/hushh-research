@@ -31,6 +31,7 @@ from hushh_mcp.operons.location.plan import (
     validate_assessment,
 )
 from hushh_mcp.operons.location.references import LocationObservation
+from hushh_mcp.runtime_settings import pod_mode
 from hushh_mcp.services.action_directive_ledger import (
     ActionDirectiveAuthorityError,
     ActionDirectiveStore,
@@ -56,7 +57,18 @@ from hushh_mcp.services.location_command_workflow import (
     workflow_command_descriptor,
 )
 
-router = APIRouter(tags=["Agent One"])
+
+def require_private_runtime(token: dict = Depends(require_vault_owner_token)) -> dict:
+    """Authenticate before declining shared-runtime proposal execution."""
+    if not pod_mode():
+        raise HTTPException(
+            status_code=409,
+            detail={"code": "AGENT_PRIVATE_RUNTIME_REQUIRED"},
+        )
+    return token
+
+
+router = APIRouter(tags=["Agent One"], dependencies=[Depends(require_private_runtime)])
 logger = logging.getLogger(__name__)
 _checkpoints = CommandCheckpointStore()
 _ledger = ActionDirectiveStore()
