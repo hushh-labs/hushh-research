@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import base64
-from dataclasses import dataclass
+import hashlib
+from dataclasses import asdict, dataclass
+from email import message_from_bytes
+from email.policy import default
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import httpx
@@ -15,6 +19,75 @@ from hushh_mcp.services.gmail_delivery_service import (
     _message_for,
     normalize_draft,
 )
+from hushh_mcp.services.google_connection_service import GoogleConnectionError
+from hushh_mcp.services.google_drive_blob_attachment_service import (
+    DriveBlobDescriptor,
+    DriveGrantIdentity,
+    GoogleDriveBlobAttachmentService,
+    ResolvedDriveBlob,
+)
+
+_BLOB = b"private attachment\n"
+_BINDING = "b" * 64
+_ACCOUNT_LABEL = "owner@example.com"
+_DESCRIPTOR = DriveBlobDescriptor(
+    file_id="drive-file-1",
+    filename="note.txt",
+    mime_type="text/plain",
+    size=len(_BLOB),
+    revision="revision-1",
+    sha256=hashlib.sha256(_BLOB).hexdigest(),
+)
+
+
+def _drive(*, descriptor=_DESCRIPTOR, content=_BLOB, error=None, binding=_BINDING):
+    return SimpleNamespace(
+        grant_identity=AsyncMock(
+            return_value=DriveGrantIdentity(binding=binding, account_label=_ACCOUNT_LABEL)
+        ),
+        resolve=AsyncMock(
+            side_effect=error if error is not None else None,
+            return_value=ResolvedDriveBlob(descriptor=descriptor, content=content),
+        ),
+    )
+
+
+def _attachment_ref():
+    return {"file_id": _DESCRIPTOR.file_id}
+
+
+def _reviewed_attachment():
+    return {
+        **asdict(_DESCRIPTOR),
+        "grant_binding": _BINDING,
+        "source_account_label": _ACCOUNT_LABEL,
+    }
+
+
+def _attachment_token(service):
+    return service._seal_attachment(
+        user_id="owner",
+        action_id="action",
+        descriptor=_DESCRIPTOR,
+        grant_binding=_BINDING,
+        source_account_label=_ACCOUNT_LABEL,
+    )
+
+
+def _prepared_attachment_row(service, *, state="prepared", descriptor=_DESCRIPTOR):
+    return {
+        "action_id": "action",
+        "state": state,
+        "expires_at": "later",
+        "sent_at": "now" if state == "sent" else None,
+        "envelope_hmac": service._envelope_hmac(
+            normalize_draft(_envelope()),
+            attachment=descriptor,
+            owner_user_id="owner",
+            grant_binding=_BINDING,
+            source_account_label=_ACCOUNT_LABEL,
+        ),
+    }
 
 
 def _envelope() -> dict[str, object]:
@@ -502,3 +575,303 @@ async def test_provider_transport_failure_becomes_outcome_unknown_without_retry(
         for query, args in conn.calls
         if "UPDATE gmail_owner_send_actions" in query and args
     )
+
+
+@pytest.mark.asyncio
+async def test_prepare_binds_server_verified_attachment_without_persisting_bytes(monkeypatch):
+    module = _signing_key(monkeypatch)
+    drive = _drive()
+    service = GmailDeliveryService(gmail_service=_Gmail(), drive_blobs=drive)
+    conn = _PrepareConn()
+    monkeypatch.setattr(
+        module, "get_pool", lambda: __import__("asyncio").sleep(0, result=_Pool(conn))
+    )
+
+    result = await service.prepare(
+        user_id="owner",
+        draft_payload={**_envelope(), "drive_attachment": _attachment_ref()},
+        idempotency_key="client-request-id-123",
+    )
+
+    assert result["drive_attachment"] == {
+        "filename": "note.txt",
+        "mime_type": "text/plain",
+        "size": len(_BLOB),
+        "source_account_label": _ACCOUNT_LABEL,
+        "revision": _DESCRIPTOR.revision,
+        "sha256": _DESCRIPTOR.sha256,
+    }
+    assert result["attachment_token"]
+    assert _DESCRIPTOR.file_id not in repr(result)
+    assert _BLOB.decode().strip() not in repr(result)
+    drive.resolve.assert_awaited_once_with(
+        file_id=_DESCRIPTOR.file_id,
+        authenticated_owner_user_id="owner",
+        expected_revision=None,
+        expected_sha256=None,
+    )
+    persisted = repr(conn.calls)
+    assert _BLOB.decode().strip() not in persisted
+    assert _DESCRIPTOR.filename not in persisted
+    assert _DESCRIPTOR.sha256 not in persisted
+
+
+@pytest.mark.asyncio
+async def test_attachment_metadata_change_breaks_prepare_idempotency(monkeypatch):
+    module = _signing_key(monkeypatch)
+    original = GmailDeliveryService(gmail_service=_Gmail())
+    changed = DriveBlobDescriptor(**{**asdict(_DESCRIPTOR), "filename": "changed.txt"})
+    drive = _drive(descriptor=changed)
+    service = GmailDeliveryService(gmail_service=_Gmail(), drive_blobs=drive)
+    conn = _ActionConn([_prepared_attachment_row(original)])
+    monkeypatch.setattr(
+        module, "get_pool", lambda: __import__("asyncio").sleep(0, result=_Pool(conn))
+    )
+
+    with pytest.raises(GmailDeliveryError) as error:
+        await service.prepare(
+            user_id="owner",
+            draft_payload={**_envelope(), "drive_attachment": _attachment_ref()},
+            idempotency_key="client-request-id-123",
+        )
+    assert error.value.code == "IDEMPOTENCY_PAYLOAD_MISMATCH"
+    assert not any("INSERT INTO gmail_owner_send_actions" in query for query, _ in conn.calls)
+
+
+@pytest.mark.asyncio
+async def test_matching_attachment_prepare_reuses_action_and_returns_safe_review(monkeypatch):
+    module = _signing_key(monkeypatch)
+    service = GmailDeliveryService(gmail_service=_Gmail(), drive_blobs=_drive())
+    conn = _ActionConn([_prepared_attachment_row(service)])
+    monkeypatch.setattr(
+        module, "get_pool", lambda: __import__("asyncio").sleep(0, result=_Pool(conn))
+    )
+    result = await service.prepare(
+        user_id="owner",
+        draft_payload={**_envelope(), "drive_attachment": _attachment_ref()},
+        idempotency_key="client-request-id-123",
+    )
+    assert result["action_id"] == "action"
+    assert result["drive_attachment"]["source_account_label"] == _ACCOUNT_LABEL
+    assert (
+        service._open_attachment(result["attachment_token"], user_id="owner", action_id="action")[0]
+        == _DESCRIPTOR
+    )
+    assert not any("INSERT INTO gmail_owner_send_actions" in query for query, _ in conn.calls)
+
+
+@pytest.mark.asyncio
+async def test_attachment_send_rejects_changed_or_revoked_drive_before_claim(monkeypatch):
+    module = _signing_key(monkeypatch)
+    for drive in (
+        _drive(error=GoogleConnectionError("revoked", status_code=403)),
+        _drive(descriptor=DriveBlobDescriptor(**{**asdict(_DESCRIPTOR), "filename": "new.txt"})),
+    ):
+        service = GmailDeliveryService(gmail_service=_Gmail(), drive_blobs=drive)
+        conn = _ActionConn([_prepared_attachment_row(service)])
+        monkeypatch.setattr(
+            module, "get_pool", lambda conn=conn: __import__("asyncio").sleep(0, result=_Pool(conn))
+        )
+        with pytest.raises(GmailDeliveryError) as error:
+            await service.execute(
+                user_id="owner",
+                action_id="action",
+                draft_payload={**_envelope(), "attachment_token": _attachment_token(service)},
+            )
+        assert error.value.code in {"DRIVE_ATTACHMENT_UNAVAILABLE", "DRIVE_ATTACHMENT_CHANGED"}
+        assert not any("SET state = 'sending'" in query for query, _ in conn.calls)
+
+
+@pytest.mark.asyncio
+async def test_account_or_grant_swap_blocks_send_before_claim(monkeypatch):
+    module = _signing_key(monkeypatch)
+    drive = _drive(binding="c" * 64)
+    service = GmailDeliveryService(gmail_service=_Gmail(), drive_blobs=drive)
+    conn = _ActionConn([_prepared_attachment_row(service)])
+    monkeypatch.setattr(
+        module, "get_pool", lambda: __import__("asyncio").sleep(0, result=_Pool(conn))
+    )
+    with pytest.raises(GmailDeliveryError) as error:
+        await service.execute(
+            user_id="owner",
+            action_id="action",
+            draft_payload={**_envelope(), "attachment_token": _attachment_token(service)},
+        )
+    assert error.value.code == "DRIVE_ATTACHMENT_CHANGED"
+    assert not any("SET state = 'sending'" in query for query, _ in conn.calls)
+
+
+@pytest.mark.asyncio
+async def test_grant_swap_during_resolve_is_rejected(monkeypatch):
+    module = _signing_key(monkeypatch)
+    drive = _drive()
+    drive.grant_identity = AsyncMock(
+        side_effect=[
+            DriveGrantIdentity(binding=_BINDING, account_label=_ACCOUNT_LABEL),
+            DriveGrantIdentity(binding="c" * 64, account_label=_ACCOUNT_LABEL),
+        ]
+    )
+    service = GmailDeliveryService(gmail_service=_Gmail(), drive_blobs=drive)
+    conn = _PrepareConn()
+    monkeypatch.setattr(
+        module, "get_pool", lambda: __import__("asyncio").sleep(0, result=_Pool(conn))
+    )
+    with pytest.raises(GmailDeliveryError) as error:
+        await service.prepare(
+            user_id="owner",
+            draft_payload={**_envelope(), "drive_attachment": _attachment_ref()},
+            idempotency_key="client-request-id-123",
+        )
+    assert error.value.code == "DRIVE_ATTACHMENT_CHANGED"
+    assert conn.calls == []
+
+
+@pytest.mark.asyncio
+async def test_binding_tracks_account_and_grant_generation_without_exposing_identity(monkeypatch):
+    from hushh_mcp.services import google_drive_blob_attachment_service as blob_module
+
+    monkeypatch.setattr(
+        blob_module,
+        "get_core_security_settings",
+        lambda: type("Settings", (), {"app_signing_key": "test-signing-key"})(),
+    )
+    row = {
+        "provider_subject": "private-google-subject",
+        "provider_email": _ACCOUNT_LABEL,
+        "refresh_token_ciphertext": "private-ciphertext",
+        "connection_status": "connected",
+        "grant_status": "connected",
+        "scope_csv": "https://www.googleapis.com/auth/drive.readonly",
+        "grant_updated_at": "2026-09-23T12:00:00Z",
+    }
+    connections = SimpleNamespace(
+        _execute_raw_async=AsyncMock(return_value=SimpleNamespace(data=[row]))
+    )
+    resolver = GoogleDriveBlobAttachmentService(connections=connections)
+    first = await resolver.grant_binding(authenticated_owner_user_id="owner")
+    assert len(first) == 64
+    assert row["provider_subject"] not in first
+    identity = await resolver.grant_identity(authenticated_owner_user_id="owner")
+    assert identity.account_label == _ACCOUNT_LABEL
+    connections._execute_raw_async.return_value = SimpleNamespace(
+        data=[{**row, "provider_subject": "another-google-subject"}]
+    )
+    assert await resolver.grant_binding(authenticated_owner_user_id="owner") != first
+    connections._execute_raw_async.return_value = SimpleNamespace(
+        data=[{**row, "grant_updated_at": "2026-09-23T12:01:00Z"}]
+    )
+    assert await resolver.grant_binding(authenticated_owner_user_id="owner") != first
+    connections._execute_raw_async.return_value = SimpleNamespace(
+        data=[{**row, "grant_status": "disconnected"}]
+    )
+    with pytest.raises(GoogleConnectionError) as error:
+        await resolver.grant_identity(authenticated_owner_user_id="owner")
+    assert error.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_attachment_send_rejects_tampered_token_before_drive_read(monkeypatch):
+    module = _signing_key(monkeypatch)
+    drive = _drive()
+    service = GmailDeliveryService(gmail_service=_Gmail(), drive_blobs=drive)
+    conn = _ActionConn([_prepared_attachment_row(service)])
+    monkeypatch.setattr(
+        module, "get_pool", lambda: __import__("asyncio").sleep(0, result=_Pool(conn))
+    )
+    token = _attachment_token(service)
+    tampered = ("A" if token[0] != "A" else "B") + token[1:]
+    with pytest.raises(GmailDeliveryError) as error:
+        await service.execute(
+            user_id="owner",
+            action_id="action",
+            draft_payload={**_envelope(), "attachment_token": tampered},
+        )
+    assert error.value.code == "INVALID_ATTACHMENT"
+    drive.resolve.assert_not_awaited()
+
+
+def test_attachment_token_is_bound_to_owner_and_action(monkeypatch):
+    _signing_key(monkeypatch)
+    service = GmailDeliveryService(gmail_service=_Gmail(), drive_blobs=_drive())
+    token = _attachment_token(service)
+    for owner, action in (("another-owner", "action"), ("owner", "another-action")):
+        with pytest.raises(GmailDeliveryError) as error:
+            service._open_attachment(token, user_id=owner, action_id=action)
+        assert error.value.code == "INVALID_ATTACHMENT"
+
+
+@pytest.mark.asyncio
+async def test_sent_attachment_retry_is_idempotent_without_drive_read(monkeypatch):
+    module = _signing_key(monkeypatch)
+    drive = _drive(error=GoogleConnectionError("revoked", status_code=403))
+    service = GmailDeliveryService(gmail_service=_Gmail(), drive_blobs=drive)
+    conn = _ActionConn([_prepared_attachment_row(service, state="sent")])
+    monkeypatch.setattr(
+        module, "get_pool", lambda: __import__("asyncio").sleep(0, result=_Pool(conn))
+    )
+    result = await service.execute(
+        user_id="owner",
+        action_id="action",
+        draft_payload={**_envelope(), "attachment_token": _attachment_token(service)},
+    )
+    assert result["state"] == "sent"
+    drive.resolve.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_verified_attachment_is_added_to_mime_only_after_claim(monkeypatch):
+    module = _signing_key(monkeypatch)
+    gmail = _Gmail()
+    gmail.get_send_access_token = AsyncMock(return_value="canonical-connector-token")
+    drive = _drive()
+    service = GmailDeliveryService(gmail_service=gmail, drive_blobs=drive)
+    conn = _ActionConn(
+        [
+            _prepared_attachment_row(service),
+            _prepared_attachment_row(service),
+            {"action_id": "action", "state": "sending", "expires_at": "later", "sent_at": None},
+        ]
+    )
+    monkeypatch.setattr(
+        module, "get_pool", lambda: __import__("asyncio").sleep(0, result=_Pool(conn))
+    )
+    sent = []
+
+    class _Response:
+        status_code = 200
+        content = b"legacy-provider-response"
+
+        @staticmethod
+        def json():
+            return {"id": "gmail-message-1", "threadId": "gmail-thread-1"}
+
+    class _Client:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        async def post(self, url, *, headers, json):
+            sent.append(json)
+            return _Response()
+
+    monkeypatch.setattr(module.httpx, "AsyncClient", _Client)
+    result = await service.execute(
+        user_id="owner",
+        action_id="action",
+        draft_payload={**_envelope(), "attachment_token": _attachment_token(service)},
+    )
+    assert result == {"action_id": "action", "state": "sent", "outcome_unknown": False}
+    assert len(sent) == 1
+    raw = base64.urlsafe_b64decode(sent[0]["raw"].encode("ascii"))
+    message = message_from_bytes(raw, policy=default)
+    attachments = list(message.iter_attachments())
+    assert len(attachments) == 1
+    assert attachments[0].get_filename() == "note.txt"
+    assert attachments[0].get_content_type() == "text/plain"
+    assert attachments[0].get_payload(decode=True) == _BLOB
+    assert _BLOB.decode().strip() not in repr(conn.calls)
