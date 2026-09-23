@@ -12,6 +12,10 @@ from hushh_mcp.services.drive_sharing_contract import DriveSharingError, Sharing
 from hushh_mcp.services.drive_sharing_store import DriveSharingStore
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 
+# The serialized queue may dispatch 25 exact-file grants at one job per minute.
+# Keep a finite batch window; every claim still rechecks live owner/source authority.
+GRANT_AUTHORITY_WINDOW_SECONDS = 2 * 60 * 60
+
 
 class DrivePermissionStore(DriveSharingStore):
     def _settlement_gate(self, connection, user_id, request_id):
@@ -65,7 +69,7 @@ class DrivePermissionStore(DriveSharingStore):
             or request["approval_invalidated_at"] is not None
             or request["revision"] != initial["review_revision"]
             or request["expires_at"] <= now
-            or (now - initial["created_at"]).total_seconds() > 300
+            or (now - initial["created_at"]).total_seconds() > GRANT_AUTHORITY_WINDOW_SECONDS
         ):
             raise DriveSharingError("approval_superseded")
         plan = self._plan(initial)

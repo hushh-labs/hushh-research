@@ -9,7 +9,7 @@ set -euo pipefail
 readonly UAT_PROJECT_ID="hushh-pda-uat"
 readonly UAT_SCHEDULER_LOCATION="us-central1"
 readonly UAT_JOB_NAME="drive-work-drain-uat"
-readonly UAT_CRON="*/2 * * * *"
+readonly UAT_CRON="*/4 * * * *"
 readonly UAT_TIMEZONE="Etc/UTC"
 readonly UAT_SCHEDULER_SERVICE_ACCOUNT_NAME="drive-work-drain-sched"
 # The scheduler can mint a bearer token for its target. Keep that target to
@@ -23,6 +23,7 @@ PROJECT_ID="${PROJECT_ID:-${UAT_PROJECT_ID}}"
 SCHEDULER_LOCATION="${SCHEDULER_LOCATION:-${UAT_SCHEDULER_LOCATION}}"
 BACKEND_URL="${BACKEND_URL:-}"
 JOB_NAME="${JOB_NAME:-${UAT_JOB_NAME}}"
+STAGE="${STAGE:-documents}"
 CRON="${CRON:-${UAT_CRON}}"
 TIMEZONE="${TIMEZONE:-${UAT_TIMEZONE}}"
 SCHEDULER_SERVICE_ACCOUNT_NAME="${SCHEDULER_SERVICE_ACCOUNT_NAME:-${UAT_SCHEDULER_SERVICE_ACCOUNT_NAME}}"
@@ -39,9 +40,22 @@ if [[ "${PROJECT_ID}" != "${UAT_PROJECT_ID}" ]]; then
   exit 1
 fi
 
+valid_stage=false
+if [[ "${JOB_NAME}" == "drive-work-drain-uat" \
+  && "${STAGE}" == "documents" \
+  && "${CRON}" == "*/4 * * * *" ]]; then
+  valid_stage=true
+elif [[ "${JOB_NAME}" == "drive-work-suggestions-uat" \
+  && "${STAGE}" == "suggestions" \
+  && "${CRON}" == "2-59/4 * * * *" ]]; then
+  valid_stage=true
+elif [[ "${JOB_NAME}" == "drive-work-sharing-uat" \
+  && "${STAGE}" == "sharing" \
+  && "${CRON}" == "* * * * *" ]]; then
+  valid_stage=true
+fi
 if [[ "${SCHEDULER_LOCATION}" != "${UAT_SCHEDULER_LOCATION}" \
-  || "${JOB_NAME}" != "${UAT_JOB_NAME}" \
-  || "${CRON}" != "${UAT_CRON}" \
+  || "${valid_stage}" != true \
   || "${TIMEZONE}" != "${UAT_TIMEZONE}" \
   || "${SCHEDULER_SERVICE_ACCOUNT_NAME}" != "${UAT_SCHEDULER_SERVICE_ACCOUNT_NAME}" ]]; then
   echo "This helper only configures the reviewed UAT Drive work-drain job" >&2
@@ -109,7 +123,7 @@ COMMON_ARGS=(
   --time-zone="${TIMEZONE}"
   --uri="${URI}"
   --http-method=POST
-  --message-body='{}'
+  --message-body="{\"stage\":\"${STAGE}\"}"
   --oidc-service-account-email="${SCHEDULER_SERVICE_ACCOUNT_EMAIL}"
   --oidc-token-audience="${OIDC_AUDIENCE}"
   --attempt-deadline=240s
@@ -138,8 +152,21 @@ if [[ "${JOB_EVIDENCE}" != "${EXPECTED}" ]]; then
   echo "Cloud Scheduler verification failed for ${JOB_NAME}" >&2
   exit 1
 fi
+if ! gcloud scheduler jobs describe "${JOB_NAME}" \
+  --project="${PROJECT_ID}" --location="${SCHEDULER_LOCATION}" --format=json \
+  | EXPECTED_STAGE="${STAGE}" python3 -c '
+import base64, json, os, sys
+job = json.load(sys.stdin)
+body = ((job.get("httpTarget") or {}).get("body") or "")
+expected = json.dumps({"stage": os.environ["EXPECTED_STAGE"]}, separators=(",", ":")).encode()
+if base64.b64decode(body, validate=True) != expected:
+    raise SystemExit("Drive scheduler stage body did not match the fixed job")
+'; then
+  echo "Cloud Scheduler stage verification failed for ${JOB_NAME}" >&2
+  exit 1
+fi
 
 # The job stores only a service-account identity and audience. It dispatches
 # background work; a successful attempt never means a person saw a prompt or
 # approved/received a document.
-echo "Configured and verified Drive work drain ${JOB_NAME}: ${JOB_EVIDENCE} auth=oidc"
+echo "Configured and verified Drive work drain ${JOB_NAME}: stage=${STAGE} ${JOB_EVIDENCE} auth=oidc"

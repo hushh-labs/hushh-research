@@ -72,13 +72,14 @@ def prepare_payload(client: EmbeddingClient, parsed: ParsedText) -> dict:
 
 def main() -> None:
     resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
-    resource.setrlimit(resource.RLIMIT_CPU, (40, 40))
+    resource.setrlimit(resource.RLIMIT_CPU, (80, 80))
     if sys.platform == "linux":
         resource.setrlimit(resource.RLIMIT_AS, (8 * 1024 * 1024 * 1024,) * 2)
     try:
         import torch
 
-        torch.set_num_threads(2)
+        torch.set_num_threads(1)
+        torch.set_num_interop_threads(1)
         value = json.loads(sys.stdin.buffer.read(INDEX_TEXT_BYTES * 6 + 4097))
         if len(sys.argv) != 2 or sys.argv[1] not in {"embed", "query"}:
             raise ValueError("invalid operation")

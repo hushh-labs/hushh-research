@@ -1860,11 +1860,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gcloud scheduler jobs describe drive-work-drain-uat \
+          gcloud scheduler jobs list \
             --project="${{ env.GCP_PROJECT_ID }}" --location="${{ env.GCP_REGION }}" \
             --format=json > /tmp/uat-drive-worker-pre-scheduler.json
-          python3 deploy/drive/verify_scheduler_state.py capture \
+          WORKER_ORIGIN="$(gcloud run services describe consent-protocol-drive-worker \
+            --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" \
+            --format='value(status.url)' 2>/dev/null || true)"
+          python3 deploy/drive/verify_scheduler_state.py capture-set \
             --snapshot /tmp/uat-drive-worker-pre-scheduler.json \
+            --canonical /tmp/uat-drive-worker-pre-scheduler-canonical.json \
+            --worker-origin "$WORKER_ORIGIN" \
             --github-output "$GITHUB_OUTPUT"
 
       - name: Deploy and attest private Drive worker
@@ -1912,19 +1917,30 @@ jobs:
         id: verify-drive-worker-scheduler-rollback
         if: always() && steps.promote-uat-traffic.outcome != 'skipped' && steps.classify-uat-release.outputs.release_failed != 'true' && steps.deploy-drive-worker.outcome != 'success' && steps.scope.outputs.deploy_backend == 'true'
         shell: bash
-        env:
-          EXPECTED_SCHEDULER_URI: ${{ steps.capture-drive-worker-scheduler.outputs.uri }}
-          EXPECTED_SCHEDULER_AUDIENCE: ${{ steps.capture-drive-worker-scheduler.outputs.audience }}
         run: |
           set -euo pipefail
-          gcloud scheduler jobs describe drive-work-drain-uat \
-            --project="${{ env.GCP_PROJECT_ID }}" --location="${{ env.GCP_REGION }}" \
-            --format=json > /tmp/uat-drive-worker-post-scheduler.json
-          python3 deploy/drive/verify_scheduler_state.py verify \
-            --snapshot /tmp/uat-drive-worker-post-scheduler.json \
-            --expected-uri "$EXPECTED_SCHEDULER_URI" \
-            --expected-audience "$EXPECTED_SCHEDULER_AUDIENCE" \
-            --github-output "$GITHUB_OUTPUT"
+          if [ "${{ steps.capture-drive-worker-scheduler.outcome }}" != "success" ]; then
+            echo "No validated scheduler baseline; worker rollout did not begin" >&2
+            exit 1
+          fi
+          if ! gcloud scheduler jobs list \
+              --project="${{ env.GCP_PROJECT_ID }}" --location="${{ env.GCP_REGION }}" \
+              --format=json > /tmp/uat-drive-worker-post-scheduler.json; then
+            python3 deploy/drive/work_drain_scheduler_snapshot.py quarantine
+            exit 1
+          fi
+          WORKER_ORIGIN="$(gcloud run services describe consent-protocol-drive-worker \
+            --project="${{ env.GCP_PROJECT_ID }}" --region="${{ env.GCP_REGION }}" \
+            --format='value(status.url)' 2>/dev/null || true)"
+          if ! python3 deploy/drive/verify_scheduler_state.py verify-set \
+              --snapshot /tmp/uat-drive-worker-post-scheduler.json \
+              --canonical /tmp/uat-drive-worker-pre-scheduler-canonical.json \
+              --worker-origin "$WORKER_ORIGIN" \
+              --github-output "$GITHUB_OUTPUT"; then
+            python3 deploy/drive/work_drain_scheduler_snapshot.py quarantine
+            echo "Drive scheduler set was not restored; exact jobs quarantined" >&2
+            exit 1
+          fi
 
       - name: Resolve final Cloud Run state
         if: always()

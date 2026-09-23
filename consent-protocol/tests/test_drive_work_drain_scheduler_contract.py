@@ -30,7 +30,16 @@ def test_scheduler_targets_only_the_bounded_oidc_drain_and_never_mutates_runtime
     )
     assert 'URI="${BACKEND_URL%/}/api/internal/drive-work/drain"' in source
     assert "--http-method=POST" in source
-    assert "--message-body='{}'" in source
+    assert '--message-body="{\\"stage\\":\\"${STAGE}\\"}"' in source
+    for name, stage, cron in (
+        ("drive-work-drain-uat", "documents", "*/4 * * * *"),
+        ("drive-work-suggestions-uat", "suggestions", "2-59/4 * * * *"),
+        ("drive-work-sharing-uat", "sharing", "* * * * *"),
+    ):
+        assert f'"${{JOB_NAME}}" == "{name}"' in source
+        assert f'"${{STAGE}}" == "{stage}"' in source
+        assert f'"${{CRON}}" == "{cron}"' in source
+    assert "base64.b64decode(body, validate=True) != expected" in source
     assert "--oidc-service-account-email" in source
     assert "--oidc-token-audience" in source
     assert "--attempt-deadline=240s" in source
@@ -95,6 +104,22 @@ def test_scheduler_refuses_audience_substitution_before_any_gcloud_mutation():
     assert "must exactly match BACKEND_URL" in result.stderr
 
 
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"JOB_NAME": "drive-work-suggestions-uat", "STAGE": "documents"},
+        {"JOB_NAME": "drive-work-drain-uat", "STAGE": "suggestions"},
+        {"JOB_NAME": "drive-work-sharing-uat", "STAGE": "sharing", "CRON": "*/2 * * * *"},
+        {"JOB_NAME": "attacker-job", "STAGE": "sharing", "CRON": "* * * * *"},
+    ],
+)
+def test_scheduler_rejects_mismatched_fixed_job_stage_or_cadence_before_mutation(overrides):
+    result = _run_scheduler_with(**overrides)
+
+    assert result.returncode != 0
+    assert "only configures the reviewed UAT Drive work-drain job" in result.stderr
+
+
 def test_uat_runtime_wires_the_exact_scheduler_identity_and_keeps_other_lanes_default_off():
     cloudbuild = CLOUDBUILD.read_text(encoding="utf-8")
     uat = UAT_WORKFLOW.read_text(encoding="utf-8")
@@ -138,12 +163,16 @@ def test_worker_promotion_is_post_gate_attested_and_recoverable():
     assert "--no-allow-unauthenticated" in release
     assert "--depends-on=clamav" in release
     assert "--startup-probe=tcpSocket.port=3310" in release
-    assert "--max-instances=1 --min-instances=0" in release
+    assert "--max-instances=2 --min-instances=0" in release
     assert "--timeout=240" in release
     assert 'traffic_flags=(--no-traffic "${traffic_flags[@]}")' in release
     assert "promoted=true\ngcloud run services update-traffic" in release
-    assert 'retargeted=true\nBACKEND_URL="${worker_url}"' in release
-    assert "actual_uri" in release and "actual_audience" in release
+    assert "retargeted=true\nfor fixed_job in drive-work-drain-uat" in release
+    assert 'python3 "${SCHEDULER_STATE_HELPER}" restore' in release
+    assert 'python3 "${SCHEDULER_STATE_HELPER}" quarantine' in release
+    assert 'JOB_NAME="${fixed_job}" STAGE="${fixed_stage}" CRON="${fixed_cron}"' in release
+    assert 'gcloud scheduler jobs run "${fixed_job}"' in release
+    assert 'rm -f "${scheduler_snapshot}"' in release
     assert "actual_revision" in release and "restore_failed" in release
     assert "trap rollback EXIT" in release
     assert "trap 'exit 130' INT" in release
@@ -389,6 +418,7 @@ def test_scheduler_capture_rejects_malformed_or_wrong_identity(
     ("worker_state", "expect_no_traffic", "expect_deploy"),
     [
         ("absent", False, True),
+        ("failed_first_create", False, True),
         ("existing", True, True),
         ("ambiguous", False, False),
         ("list_error", False, False),
@@ -429,17 +459,23 @@ state = os.environ["MOCK_WORKER_STATE"]
 if command[:3] == ["run", "services", "list"]:
     if state == "list_error":
         sys.exit(77)
-    names = ["consent-protocol-drive-worker"] if state in ("existing", "ambiguous") else []
+    names = ["consent-protocol-drive-worker"] if state in ("existing", "ambiguous", "failed_first_create") else []
     print(json.dumps([{"metadata": {"name": name}} for name in names]))
 elif command[:3] == ["run", "services", "describe"]:
     traffic = ([{"revisionName": "worker-previous-00001", "percent": 100}]
-               if state == "existing" else [])
-    print(json.dumps({"status": {"traffic": traffic}}))
+               if state == "existing" else
+               [{"revisionName": "worker-previous-00001", "percent": 50},
+                {"revisionName": "worker-previous-00002", "percent": 50}]
+               if state == "ambiguous" else [])
+    if "--format=value(status.url)" in command:
+        print("https://consent-protocol-drive-worker-abc.a.run.app")
+    else:
+        print(json.dumps({"status": {"traffic": traffic}}))
+elif command[:3] == ["scheduler", "jobs", "list"]:
+    print(os.environ["MOCK_SCHEDULER_JOB"])
 elif command[:3] == ["scheduler", "jobs", "describe"]:
-    if "--format=value(httpTarget.uri)" in command:
-        print("https://api.uat.hushh.ai/api/internal/drive-work/drain")
-    elif "--format=value(httpTarget.oidcToken.audience)" in command:
-        print("https://api.uat.hushh.ai")
+    if "--format=json" in command:
+        print(json.dumps(json.loads(os.environ["MOCK_SCHEDULER_JOB"])[0]))
     else:
         sys.exit(78)
 elif command[:2] == ["run", "deploy"]:
@@ -460,6 +496,39 @@ else:
             "PATH": f"{fake_bin}:{environment['PATH']}",
             "MOCK_GCLOUD_CALLS": str(call_log),
             "MOCK_WORKER_STATE": worker_state,
+            "MOCK_SCHEDULER_JOB": json.dumps(
+                [
+                    {
+                        "name": "projects/hushh-pda-uat/locations/us-central1/jobs/drive-work-drain-uat",
+                        "schedule": "*/2 * * * *",
+                        "timeZone": "Etc/UTC",
+                        "state": "ENABLED",
+                        "attemptDeadline": "120s",
+                        "retryConfig": {
+                            "retryCount": 3,
+                            "minBackoffDuration": "10s",
+                            "maxBackoffDuration": "120s",
+                            "maxDoublings": 3,
+                            "maxRetryDuration": "0s",
+                        },
+                        "httpTarget": {
+                            "uri": "https://api.uat.hushh.ai/api/internal/drive-work/drain",
+                            "httpMethod": "POST",
+                            "body": "e30=",
+                            "headers": {
+                                "Content-Type": "application/json",
+                                "User-Agent": "Google-Cloud-Scheduler",
+                            },
+                            "oidcToken": {
+                                "audience": "https://api.uat.hushh.ai",
+                                "serviceAccountEmail": (
+                                    "drive-work-drain-sched@hushh-pda-uat.iam.gserviceaccount.com"
+                                ),
+                            },
+                        },
+                    }
+                ]
+            ),
             "IMAGE_REFERENCE": "gcr.io/hushh-pda-uat/consent-protocol@sha256:" + "a" * 64,
             "DEPLOY_SHA": "b" * 40,
             "RUNTIME_SERVICE_ACCOUNT": (

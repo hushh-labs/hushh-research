@@ -23,7 +23,7 @@ from hushh_mcp.services.drive_document_store import (
 )
 from hushh_mcp.services.google_drive_adapter import DriveMetadata, DriveReadError
 
-LEASE_SECONDS = 120
+LEASE_SECONDS = 190
 MAX_ATTEMPTS = 5
 PURGE_ERRORS = frozenset({"source_unavailable", "reconnect_required", "unsafe_document"})
 RETRYABLE_ERRORS = frozenset(
