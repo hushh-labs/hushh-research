@@ -28,6 +28,7 @@ const state = vi.hoisted(() => ({
   nativePickerCancel: vi.fn(),
   nativePickerCallback: vi.fn(),
 }));
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock("@capacitor/core", () => ({
   Capacitor: { isNativePlatform: () => state.native },
 }));
