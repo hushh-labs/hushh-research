@@ -1,7 +1,7 @@
 """Shared API/tool admission using the existing hosted runtime configuration.
 
-This rollout is internal-only and fail-closed. Status, recovery and disconnect
-do not use these predicates: turning a feature off cannot strand a connection.
+This rollout is UAT-only and fail-closed. Status, recovery and disconnect do not
+use these predicates: turning a feature off cannot strand a connection.
 """
 
 from __future__ import annotations
@@ -27,6 +27,11 @@ def connector_feature_enabled(feature: str, user_id: str) -> bool:
     if not env_name or os.getenv(env_name, "").strip().lower() != "true":
         return False
     raw = os.getenv("CONNECTOR_INTERNAL_OWNER_COHORT", "")
+    all_uat_users = os.getenv("CONNECTOR_UAT_ALL_USERS", "").strip().lower() == "true"
+    if all_uat_users:
+        # Keep the broad UAT mode explicit and mutually exclusive with the
+        # exact-UID cohort. A malformed hosted config must fail closed.
+        return environment == "uat" and not raw and bool(user_id and user_id.strip())
     members = [value.strip() for value in raw.split(",")]
     if not raw or any(
         not value

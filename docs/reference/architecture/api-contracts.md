@@ -1070,7 +1070,7 @@ No silent success is emitted on terminal failures.
 
 ---
 
-## Personal Mail / Drive connector lifecycle (disabled draft)
+## Personal Mail / Drive connector lifecycle (UAT gated)
 
 The Drive lifecycle extends the existing external-connector registry and credential store;
 it does not migrate Gmail/Calendar credentials or change Firebase authentication. These
@@ -1079,12 +1079,12 @@ routes remain default-off and do **not** enable chat reads or indexing.
 | Route | Authority | Contract |
 | --- | --- | --- |
 | `GET /api/connectors` | Vault Owner | Existing catalog/status plus redacted validation/revocation state, `available`, and computed rollout flags; deactivated Drive keeps owner recovery status with `available=false`. No endpoints, scopes, raw policy, provider subject or credentials. |
-| `POST /api/connectors/google_drive/connect/oauth/start` | Vault Owner + internal cohort/connection flag | Registered `redirectUri`, optional `flow=web\|native`; returns authorization URL, opaque `attemptId`, connector and ten-minute expiry. |
+| `POST /api/connectors/google_drive/connect/oauth/start` | Vault Owner + UAT admission/connection flag | Registered `redirectUri`, optional `flow=web\|native`; returns authorization URL, opaque `attemptId`, connector and ten-minute expiry. |
 | `POST /api/connectors/oauth/complete` | Vault Owner | Existing owner completion remains compatible. Drive uses atomic single-use claims and verified Google identity/scopes. |
 | `POST /api/connectors/oauth/complete/web` | Verified Firebase identity matching an existing unexpired Vault-authorized Drive attempt | Requires `code`, signed `state` and matching opaque `attemptId` before exchange. Popup-only completion exception; no opener Vault Owner token transfer. |
 | `GET /api/connectors/oauth/native/callback` | Signed state + atomic native attempt claim | Backend code exchange; encrypted pending credentials only. Fixed `hushh://connectors/return` handoff contains only opaque attempt/outcome. Invalid state has no redirect. |
 | `GET /api/connectors/oauth/native/pending` | Original Vault Owner | Returns only the current opaque staged native `attemptId` and expiry for restart recovery. It never returns provider credentials, codes, tokens, subjects, or callback data. |
-| `POST /api/connectors/oauth/native/finalize` | Original Vault Owner | Accepts `attemptId`; checks expiry, generation, client/redirect configuration and current cohort admission before activation. |
+| `POST /api/connectors/oauth/native/finalize` | Original Vault Owner | Accepts `attemptId`; checks expiry, generation, client/redirect configuration and current rollout admission before activation. |
 | `POST /api/connectors/google_drive/disconnect` | Vault Owner; remains available when rollout is off | Immediately disables local execution, invalidates attempts, clears credentials, then makes a bounded in-memory provider revocation attempt. Reports `revocationOutcome`; no background retry is promised. |
 | `POST /api/connectors/google_drive/picker/session` | Vault Owner + Picker cohort/flag | Exact registered web `origin`; verifies authenticated Drive About and fixed selected-file policy, then returns a ten-minute opaque selection session and the minimum short-lived Google access credential for the official Picker. Backend and web proxy both set `no-store`. No refresh token. |
 | `POST /api/connectors/google_drive/documents/select` | Same Vault Owner + current single-use session + explicit `confirmed=true` | At most 25 unique candidate IDs. Revalidates fixed provider metadata/policy; atomically consumes the session and inserts encrypted internal catalog references in `queued` state. Does not claim indexing completed. |
@@ -1103,8 +1103,8 @@ database lease and generation/version fencing. A pending revocation temporarily 
 reconnection so an old revoke request cannot race a new grant.
 
 The existing hosted runtime-config mechanism carries default-false `connections_panel_v2`,
-`google_drive_connection`, `google_drive_picker`, `drive_document_indexing`, `gmail_chat_reads`, and `google_drive_chat_reads` with an explicit
-internal owner cohort. This is revision-owned configuration, not an instantaneous fleet-wide
+`google_drive_connection`, `google_drive_picker`, `drive_document_indexing`, `gmail_chat_reads`, and `google_drive_chat_reads` with either an exact-UID cohort or explicit all-signed-in-UAT-users mode.
+This is revision-owned configuration, not an instantaneous fleet-wide
 flag service. Writes, user-facing downloads, connector voice execution and production remain
 disabled. Status, recovery callbacks and disconnect remain reachable with their required
 authority; an outstanding callback does not bypass activation eligibility.
@@ -1151,7 +1151,7 @@ See [Mail + Drive UAT acceptance](../operations/mail-drive-uat-acceptance.md).
 ### Delegated Mail metadata reads (default-off)
 
 One's existing AG-UI typed-chat route can delegate `list_needs_reply` or `search_inbox`
-through the authored Email specialist. Admission requires the internal owner cohort,
+through the authored Email specialist. Admission requires UAT rollout eligibility,
 `gmail_chat_reads`, a current Vault Owner session and a manifest-declared invocation
 capability bound to the same owner, task, call and expiry. Voice, arbitrary operations,
 client-supplied delegated results and action plans cannot enter this path. Existing
