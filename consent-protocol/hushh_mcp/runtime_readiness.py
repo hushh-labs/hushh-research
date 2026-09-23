@@ -24,9 +24,8 @@ def google_adk_version() -> str | None:
 def assert_pinned_google_adk() -> str:
     """Fail before accepting traffic when the One runtime is incompatible.
 
-    ``AgentTool.propagate_grounding_metadata`` is part of the pinned 2.4
-    contract. A system interpreter with an older package can otherwise start
-    FastAPI and only fail when One is constructed for a real request.
+    A system interpreter with an older package can otherwise start FastAPI and
+    only fail when One is constructed for a real request.
     """
     installed = google_adk_version()
     if installed != PINNED_GOOGLE_ADK_VERSION:

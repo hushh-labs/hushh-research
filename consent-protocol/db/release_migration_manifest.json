@@ -208,7 +208,9 @@
     "233_drive_suggestion_preparation.sql",
     "234_drive_permission_management_retention.sql",
     "235_drive_share_notification_outbox.sql",
-    "236_drive_native_picker_attempts.sql"
+    "236_drive_native_picker_attempts.sql",
+    "237_gmail_personal_information_request_incremental_backfill.sql",
+    "238_gmail_personal_information_request_classifier_policy_version.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -354,7 +356,9 @@
       "221_one_location_account_settings.sql",
       "222_one_voice_runtime.sql",
       "223_one_location_setup_progress.sql",
-      "224_setup_capability_declined_ids.sql"
+      "224_setup_capability_declined_ids.sql",
+      "237_gmail_personal_information_request_incremental_backfill.sql",
+      "238_gmail_personal_information_request_classifier_policy_version.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",
@@ -409,6 +413,8 @@
     ]
   },
   "rollback_migrations": {
+    "238_gmail_personal_information_request_classifier_policy_version.sql": "rollback/238_gmail_personal_information_request_classifier_policy_version.rollback.sql",
+    "237_gmail_personal_information_request_incremental_backfill.sql": "rollback/237_gmail_personal_information_request_incremental_backfill.rollback.sql",
     "236_drive_native_picker_attempts.sql": "rollback/236_drive_native_picker_attempts.rollback.sql",
     "235_drive_share_notification_outbox.sql": "rollback/235_drive_share_notification_outbox.rollback.sql",
     "234_drive_permission_management_retention.sql": "rollback/234_drive_permission_management_retention.rollback.sql",
@@ -428,6 +434,7 @@
     "221_one_location_account_settings.sql": "rollback/221_one_location_account_settings.rollback.sql",
     "222_one_voice_runtime.sql": "rollback/222_one_voice_runtime.rollback.sql",
     "223_one_location_setup_progress.sql": "rollback/223_one_location_setup_progress.rollback.sql",
-    "226_pkm_manifest_path_repair.sql": "rollback/226_pkm_manifest_path_repair.rollback.sql"
+    "226_pkm_manifest_path_repair.sql": "rollback/226_pkm_manifest_path_repair.rollback.sql",
+    "227_gmail_personal_information_request_incremental_backfill.sql": "rollback/227_gmail_personal_information_request_incremental_backfill.rollback.sql"
   }
 }

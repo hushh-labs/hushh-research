@@ -58,6 +58,8 @@ from hushh_mcp.services.gmail_nudges import (
     looks_like_meeting,
     parse_ics_event,
 )
+from hushh_mcp.services.kyc_debug_log import message_ref as kyc_message_ref
+from hushh_mcp.services.kyc_debug_log import trace as trace_kyc_debug
 
 logger = logging.getLogger(__name__)
 
@@ -146,6 +148,9 @@ _RUN_MESSAGE_FAILED_LOG_LIMIT = 160
 # foreground transition. It must fail before the browser proxy deadline rather
 # than holding a shared database connection until the caller has gone away.
 _STATUS_SNAPSHOT_TIMEOUT_SECONDS = 10.0
+_PERSONAL_MONITOR_FETCH_CONCURRENCY = 6
+_PERSONAL_MONITOR_FETCH_ATTEMPTS = 3
+_PERSONAL_MONITOR_FETCH_BACKOFF_SECONDS = 0.25
 
 
 @dataclass
@@ -154,6 +159,7 @@ class GmailApiError(RuntimeError):
     status_code: int = 500
     payload: dict[str, Any] | None = None
     code: str | None = None
+    provider_status_code: int | None = None
 
     def __str__(self) -> str:
         return self.message
@@ -1064,6 +1070,7 @@ class GmailReceiptsService:
                 f"Gmail API request failed ({response.status_code})",
                 status_code=status_code,
                 payload=parsed if isinstance(parsed, dict) else {},
+                provider_status_code=response.status_code,
             )
         return parsed if isinstance(parsed, dict) else {}
 
@@ -1083,15 +1090,24 @@ class GmailReceiptsService:
             payload = {}
         if response.status_code >= 400:
             if response.status_code in {401, 403}:
-                raise GmailApiError("Gmail authorization failed", status_code=401, payload=payload)
+                raise GmailApiError(
+                    "Gmail authorization failed",
+                    status_code=401,
+                    payload=payload,
+                    provider_status_code=response.status_code,
+                )
             if response.status_code == 404:
                 raise GmailApiError(
-                    "Gmail resource was not found", status_code=404, payload=payload
+                    "Gmail resource was not found",
+                    status_code=404,
+                    payload=payload,
+                    provider_status_code=response.status_code,
                 )
             raise GmailApiError(
                 f"Gmail API request failed ({response.status_code})",
                 status_code=502,
                 payload=payload,
+                provider_status_code=response.status_code,
             )
         return payload if isinstance(payload, dict) else {}
 
@@ -2578,20 +2594,31 @@ class GmailReceiptsService:
             message_id = _clean_text(entry.get("id"))
             if message_id:
                 message_ids.append(message_id)
+        trace_kyc_debug(
+            "gmail.fetch.listed",
+            requested_count=bounded_limit,
+            listed_count=len(message_ids),
+            has_page_cursor=bool(page_token),
+        )
         if not message_ids:
             return [], None
-        results = await asyncio.gather(
-            *[
-                self._get_message_full(access_token=access_token, gmail_message_id=message_id)
-                for message_id in message_ids
-            ],
-            return_exceptions=True,
+        results = await self._get_personal_monitor_messages(
+            access_token=access_token,
+            gmail_message_ids=message_ids,
         )
         messages: list[dict[str, Any]] = []
+        missing_count = 0
+        failed_count = 0
+        filtered_count = 0
         for message_id, result in zip(message_ids, results, strict=False):
             if isinstance(result, Exception):
                 if isinstance(result, GmailApiError) and result.status_code == 404:
                     logger.info("gmail.personal_information_request.message_gone_before_scan")
+                    trace_kyc_debug(
+                        "gmail.fetch.message_missing",
+                        message_ref=kyc_message_ref(message_id),
+                    )
+                    missing_count += 1
                     continue
                 # Unlike list_personal_inbox_monitor_history_page, this page
                 # has no checkpoint to protect -- it is a one-shot scan over
@@ -2609,21 +2636,54 @@ class GmailReceiptsService:
                     message_id,
                     result,
                 )
+                trace_kyc_debug(
+                    "gmail.fetch.message_failed",
+                    message_ref=kyc_message_ref(message_id),
+                    error_type=type(result).__name__,
+                    provider_status_code=(
+                        result.provider_status_code if isinstance(result, GmailApiError) else None
+                    ),
+                )
+                failed_count += 1
                 continue
             if not isinstance(result, dict):
                 logger.warning(
                     "gmail.personal_information_request.message_fetch_invalid message_id=%s",
                     message_id,
                 )
+                trace_kyc_debug(
+                    "gmail.fetch.message_invalid",
+                    message_ref=kyc_message_ref(message_id),
+                )
+                failed_count += 1
                 continue
             labels = {
                 _clean_text(label).upper()
                 for label in result.get("labelIds", [])
                 if _clean_text(label)
             }
-            if "INBOX" in labels and not {"SENT", "DRAFT", "SPAM", "TRASH"} & labels:
+            # Gmail marks mail sent to the same connected account as both
+            # INBOX and SENT. It is still an Inbox message and must reach the
+            # model; the model decides whether its text is an information ask.
+            if "INBOX" in labels and not {"DRAFT", "SPAM", "TRASH"} & labels:
                 messages.append(result)
+            else:
+                trace_kyc_debug(
+                    "gmail.fetch.message_filtered",
+                    message_ref=kyc_message_ref(message_id),
+                    has_inbox_label="INBOX" in labels,
+                    excluded_system_labels=sorted(labels & {"DRAFT", "SPAM", "TRASH"}),
+                )
+                filtered_count += 1
         next_page_token = _clean_text(listing.get("nextPageToken")) or None
+        trace_kyc_debug(
+            "gmail.fetch.completed",
+            eligible_count=len(messages),
+            missing_count=missing_count,
+            failed_count=failed_count,
+            filtered_count=filtered_count,
+            has_next_page=bool(next_page_token),
+        )
         return messages, next_page_token
 
     async def capture_personal_inbox_monitor_history_id(self, *, user_id: str) -> str:
@@ -2679,12 +2739,15 @@ class GmailReceiptsService:
         # unbounded number of message fetches or silently skip its tail.
         message_ids = self._message_ids_from_history(history)
         page_message_ids = message_ids[bounded_offset : bounded_offset + bounded_limit]
-        results = await asyncio.gather(
-            *[
-                self._get_message_full(access_token=access_token, gmail_message_id=message_id)
-                for message_id in page_message_ids
-            ],
-            return_exceptions=True,
+        trace_kyc_debug(
+            "gmail.history.listed",
+            listed_count=len(page_message_ids),
+            has_page_cursor=bool(page_token),
+            message_offset=bounded_offset,
+        )
+        results = await self._get_personal_monitor_messages(
+            access_token=access_token,
+            gmail_message_ids=page_message_ids,
         )
         messages: list[dict[str, Any]] = []
         for _message_id, result in zip(page_message_ids, results, strict=False):
@@ -2718,10 +2781,10 @@ class GmailReceiptsService:
                 for label in result.get("labelIds", [])
                 if _clean_text(label)
             }
-            # After the opt-in History checkpoint, every incoming Inbox
-            # message is eligible whether or not the owner opens it before the
-            # bounded scan reaches it. Sent mail is never a KYC request source.
-            if "INBOX" in labels and not {"SENT", "DRAFT", "SPAM", "TRASH"} & labels:
+            # Inbox/Sent is Gmail's normal self-delivery label combination.
+            # Preserve it as a model-classified source; drafts, spam, and trash
+            # remain outside this opt-in Inbox workflow.
+            if "INBOX" in labels and not {"DRAFT", "SPAM", "TRASH"} & labels:
                 messages.append(result)
         return (
             messages,
@@ -2731,6 +2794,67 @@ class GmailReceiptsService:
             if bounded_offset + len(page_message_ids) < len(message_ids)
             else None,
         )
+
+    async def _get_personal_monitor_messages(
+        self, *, access_token: str, gmail_message_ids: list[str]
+    ) -> list[dict[str, Any] | Exception]:
+        """Fetch KYC sources without a burst that Gmail will rate-limit."""
+
+        semaphore = asyncio.Semaphore(_PERSONAL_MONITOR_FETCH_CONCURRENCY)
+
+        async def _fetch(message_id: str) -> dict[str, Any]:
+            async with semaphore:
+                return await self._get_personal_monitor_message_with_retry(
+                    access_token=access_token,
+                    gmail_message_id=message_id,
+                )
+
+        results = await asyncio.gather(
+            *(_fetch(message_id) for message_id in gmail_message_ids),
+            return_exceptions=True,
+        )
+        return list(results)
+
+    async def _get_personal_monitor_message_with_retry(
+        self, *, access_token: str, gmail_message_id: str
+    ) -> dict[str, Any]:
+        for attempt in range(1, _PERSONAL_MONITOR_FETCH_ATTEMPTS + 1):
+            try:
+                message = await self._get_message_full(
+                    access_token=access_token,
+                    gmail_message_id=gmail_message_id,
+                )
+                trace_kyc_debug(
+                    "gmail.fetch.message_succeeded",
+                    message_ref=kyc_message_ref(gmail_message_id),
+                    attempt=attempt,
+                )
+                return message
+            except Exception as exc:
+                provider_status_code = (
+                    exc.provider_status_code if isinstance(exc, GmailApiError) else None
+                )
+                retryable = self._is_retryable_personal_monitor_fetch_error(exc)
+                trace_kyc_debug(
+                    "gmail.fetch.message_attempt_failed",
+                    message_ref=kyc_message_ref(gmail_message_id),
+                    attempt=attempt,
+                    retryable=retryable,
+                    error_type=type(exc).__name__,
+                    provider_status_code=provider_status_code,
+                )
+                if not retryable or attempt == _PERSONAL_MONITOR_FETCH_ATTEMPTS:
+                    raise
+                await asyncio.sleep(_PERSONAL_MONITOR_FETCH_BACKOFF_SECONDS * (2 ** (attempt - 1)))
+        raise RuntimeError("unreachable")
+
+    @staticmethod
+    def _is_retryable_personal_monitor_fetch_error(error: Exception) -> bool:
+        if isinstance(error, (httpx.TimeoutException, httpx.TransportError)):
+            return True
+        if not isinstance(error, GmailApiError):
+            return False
+        return (error.provider_status_code or error.status_code) in {429, 500, 502, 503, 504}
 
     async def get_personal_inbox_message_for_monitoring(
         self, *, user_id: str, gmail_message_id: str

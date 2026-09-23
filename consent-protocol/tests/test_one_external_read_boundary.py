@@ -185,7 +185,7 @@ async def test_registered_mail_hop_uses_real_genes_transport_contract_and_same_c
     import httpx
 
     from hushh_mcp.adk_bridge import email_agent
-    from hushh_mcp.agents.email import runtime
+    from hushh_mcp.hushh_adk import single_turn
     from hushh_mcp.one_adk.external_read_projection import durable_external_read_projection
     from hushh_mcp.services import gmail_metadata_reader
     from hushh_mcp.services.email_chat_service import EmailChatService
@@ -288,8 +288,7 @@ async def test_registered_mail_hop_uses_real_genes_transport_contract_and_same_c
         AsyncMock(return_value=SimpleNamespace(user_id="owner")),
     )
     monkeypatch.setattr(email_agent, "_singleton", email_agent.EmailAgentA2A(service=service))
-    monkeypatch.setattr(runtime, "build_managed_runtime_client", lambda _: object())
-    monkeypatch.setattr(runtime, "Gemini", lambda **kwargs: genes.pop(0))
+    monkeypatch.setattr(single_turn, "build_managed_gemini_adk_model", lambda _: genes.pop(0))
     monkeypatch.setattr(gmail_metadata_reader.httpx, "AsyncClient", FixedClient)
     root = agent_tree.build_one_text_agent(model=model)
     root.tools = [agent_tree.ask_email_agent]  # Real registered dispatch, not a tool double.

@@ -487,6 +487,19 @@ async function classifyVaultOwnerAuthFailure(
  * this only ever bounds a request the proxy itself could not bound.
  */
 const WEB_FETCH_TIMEOUT_MS = 60_000;
+const KYC_SCAN_WEB_FETCH_TIMEOUT_MS = 95_000;
+
+/**
+ * Keep the browser alive long enough to receive the KYC scan proxy's bounded
+ * response. The extra five seconds ensure a proxy 504 remains a structured,
+ * retryable API response rather than becoming a client-side abort.
+ */
+export function webFetchTimeoutMsForPath(path: string): number {
+  const pathname = path.split("?", 1)[0];
+  return pathname === "/api/one/email/information-requests/scan"
+    ? KYC_SCAN_WEB_FETCH_TIMEOUT_MS
+    : WEB_FETCH_TIMEOUT_MS;
+}
 
 /**
  * `fetch` has no default timeout. A request that never receives a response
@@ -858,7 +871,8 @@ async function apiFetch(
       // generous ceiling for the RIA scrape routes, a tight one otherwise.
       const isLongRunningRoute =
         path.includes("/ria/onboarding/") ||
-        path.includes("/ria/profile/refresh-license");
+        path.includes("/ria/profile/refresh-license") ||
+        path === "/api/one/email/information-requests/scan";
       // 90s ceiling for the RIA scrape routes; a generous 60s otherwise so we
       // only ever bound a genuinely hung request (native calls were previously
       // unbounded — keep legitimately-slow uploads/downloads working).
@@ -891,7 +905,7 @@ async function apiFetch(
             ...fetchOptions,
             credentials: "include",
             headers: mergedHeaders,
-          });
+          }, webFetchTimeoutMsForPath(path));
           return await settleAuthenticatedResponse(formResponse);
         }
         if (typeof options.body === "string") {
@@ -982,7 +996,7 @@ async function apiFetch(
       ...fetchOptions,
       credentials: "include",
       headers: mergedHeaders,
-    });
+    }, webFetchTimeoutMsForPath(path));
     return await settleAuthenticatedResponse(response);
   } catch (error) {
     recordApiRequestMetric(null);

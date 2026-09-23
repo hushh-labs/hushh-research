@@ -9,7 +9,10 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchWithWebTimeout } from "@/lib/services/api-service";
+import {
+  fetchWithWebTimeout,
+  webFetchTimeoutMsForPath,
+} from "@/lib/services/api-service";
 
 describe("fetchWithWebTimeout", () => {
   beforeEach(() => {
@@ -19,6 +22,13 @@ describe("fetchWithWebTimeout", () => {
   afterEach(() => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it("keeps the browser alive longer than the KYC scan proxy budget", () => {
+    expect(
+      webFetchTimeoutMsForPath("/api/one/email/information-requests/scan"),
+    ).toBe(95_000);
+    expect(webFetchTimeoutMsForPath("/api/one/feed/unread-count")).toBe(60_000);
   });
 
   it("aborts a request that never responds", async () => {

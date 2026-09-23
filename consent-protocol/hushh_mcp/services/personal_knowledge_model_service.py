@@ -1602,6 +1602,16 @@ class PersonalKnowledgeModelService:
             logger.warning("Manifest header lookup failed for %s: %s", user_id, e)
             return []
 
+    async def list_manifest_headers(self, user_id: str) -> list[dict]:
+        """Return the owner-visible manifest headers used to build PKM metadata.
+
+        Callers that already resolved the metadata index can reuse these headers
+        for an upgrade-status projection instead of issuing one full manifest
+        read per domain.  The rows contain structure metadata only; encrypted
+        domain payloads remain outside this read path.
+        """
+        return await self._list_manifest_rows(user_id)
+
     def _merge_manifest_summary(
         self,
         domain: str,
@@ -3659,6 +3669,8 @@ class PersonalKnowledgeModelService:
         user_id: str,
         *,
         resolved_index: Optional[PersonalKnowledgeModelIndex] | object = _UNRESOLVED_METADATA_INDEX,
+        index: Optional[PersonalKnowledgeModelIndex] = None,
+        include_available_scopes: bool = True,
     ) -> UserPersonalKnowledgeModelMetadata:
         """
         Get complete metadata about user's PKM for UI.
@@ -3672,18 +3684,30 @@ class PersonalKnowledgeModelService:
         """
         try:
             if resolved_index is _UNRESOLVED_METADATA_INDEX:
-                index = await self.resolve_metadata_index(user_id)
+                index = index or await self.resolve_metadata_index(user_id)
             else:
                 index = resolved_index
             if index is None:
                 return UserPersonalKnowledgeModelMetadata(user_id=user_id)
-            scope_entries_getter = getattr(
-                self.scope_generator, "get_available_scope_entries", None
-            )
-            if callable(scope_entries_getter):
-                scope_entries = await scope_entries_getter(user_id)
-            else:
-                scope_entries = []
+            scope_entries: list[dict] = []
+            if include_available_scopes:
+                scope_entries_getter = getattr(
+                    self.scope_generator, "get_available_scope_entries", None
+                )
+                try:
+                    scope_entries = (
+                        await scope_entries_getter(user_id)
+                        if callable(scope_entries_getter)
+                        else []
+                    )
+                except Exception as error:
+                    # Scope discovery enriches metadata but does not own the
+                    # encrypted-domain index. A temporary scope failure must not
+                    # erase already-persisted domains from the owner-facing view.
+                    logger.warning(
+                        "pkm.get_user_metadata.scope_entries_unavailable error_type=%s",
+                        type(error).__name__,
+                    )
             scopes = sorted(
                 {
                     "pkm.read",

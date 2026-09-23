@@ -46,6 +46,7 @@ type WarmPriority =
   | "analysis"
   | "consents"
   | "location"
+  | "pkm"
   | "profile"
   | "ria"
   | "default";
@@ -113,6 +114,7 @@ function resolveWarmPriority(routePath?: string | null): WarmPriority {
     return "consents";
   }
   if (path.startsWith(ROUTES.ONE_LOCATION)) return "location";
+  if (path.startsWith(ROUTES.PKM)) return "pkm";
   if (path.startsWith("/one/profile")) return "profile";
   if (path.startsWith("/ria")) return "ria";
   return "default";
@@ -411,6 +413,7 @@ export class UnlockWarmOrchestrator {
     const shouldWarmDashboardPicks =
       warmPriority === "dashboard" || warmPriority === "default";
     const shouldWarmMetadata =
+      warmPriority === "pkm" ||
       warmPriority === "profile" ||
       warmPriority === "dashboard" ||
       warmPriority === "analysis" ||
@@ -484,31 +487,43 @@ export class UnlockWarmOrchestrator {
           );
           return false;
         });
-      const runtimeConfigurationWarmPromise = warmGeminiRuntimeConnection({
-        userId: params.userId,
-        vaultKey: params.vaultKey,
-        vaultOwnerToken: params.vaultOwnerToken,
-      }).catch((error) => {
-        console.warn(
-          "[UnlockWarmOrchestrator] Runtime configuration warm-up failed:",
-          error,
-        );
-      });
-      const agentHistoryWarmPromise = warmAgentChatHistoryCache({
-        userId: params.userId,
-        vaultOwnerToken: params.vaultOwnerToken,
-      }).catch((error) => {
-        console.warn(
-          "[UnlockWarmOrchestrator] Agent history warm-up failed:",
-          error,
-        );
-      });
+      const runtimeConfigurationWarmPromise =
+        warmPriority === "pkm"
+          ? Promise.resolve()
+          : warmGeminiRuntimeConnection({
+              userId: params.userId,
+              vaultKey: params.vaultKey,
+              vaultOwnerToken: params.vaultOwnerToken,
+            }).catch((error) => {
+              console.warn(
+                "[UnlockWarmOrchestrator] Runtime configuration warm-up failed:",
+                error,
+              );
+            });
+      const agentHistoryWarmPromise =
+        warmPriority === "pkm"
+          ? Promise.resolve()
+          : warmAgentChatHistoryCache({
+              userId: params.userId,
+              vaultOwnerToken: params.vaultOwnerToken,
+            }).catch((error) => {
+              console.warn(
+                "[UnlockWarmOrchestrator] Agent history warm-up failed:",
+                error,
+              );
+            });
       let symbols: string[] = [];
       let prewarmedFinancialDomain: Record<string, unknown> | null = null;
       let financialHydrated = false;
 
       const skipBackgroundWrites = shouldSkipReviewerBackgroundWritesForAutomation();
-      const syncPromise = shouldWarmMetadata && !skipBackgroundWrites
+      const shouldSyncProfile =
+        warmPriority === "profile" ||
+        warmPriority === "dashboard" ||
+        warmPriority === "analysis" ||
+        warmPriority === "default";
+      const syncPromise =
+        shouldSyncProfile && shouldWarmMetadata && !skipBackgroundWrites
         ? KaiProfileSyncService.syncPendingToVault({
             userId: params.userId,
             vaultKey: params.vaultKey,

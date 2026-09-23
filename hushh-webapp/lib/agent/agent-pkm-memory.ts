@@ -113,7 +113,7 @@ export type AgentPkmContext = {
   updatedAt: string | null;
   detailCount?: number;
   source?: "metadata" | "decrypted_session_pkm";
-  mode?: "summary" | "relevant" | "broad";
+  mode?: "summary" | "full";
   coverage?: AgentPkmContextCoverage;
 };
 
@@ -750,10 +750,7 @@ export async function addToPKM(params: {
 
   const savedResults = completedResults.filter((result) => result.success);
   if (savedResults.length > 0 && (params.mayPublish?.() ?? true)) {
-    AgentPkmContextStore.invalidateUser(
-      params.userId,
-      savedResults.map((result) => result.domain),
-    );
+    AgentPkmContextStore.invalidateUser(params.userId);
   }
   return {
     attempted: completedResults.length,
@@ -930,14 +927,13 @@ export function warmAgentPkmContext(params: {
   const existing = agentPkmWarmups.get(params.userId);
   if (existing) return existing;
 
-  // Do not hydrate every encrypted PKM segment merely because the vault was
-  // unlocked. Targeted KYC/chat reads select manifest-backed segments on the
-  // first request; broad conversations still load their inventory on demand.
-  const warmup = PersonalKnowledgeModelService.getMetadata(
-    params.userId,
-    false,
-    params.vaultOwnerToken,
-  )
+  // The agent-safe packet is deliberately built once at unlock and stays only
+  // in browser RAM. Every subsequent One turn reads this same working set.
+  const warmup = AgentPkmContextStore.load({
+    userId: params.userId,
+    vaultKey: params.vaultKey,
+    vaultOwnerToken: params.vaultOwnerToken,
+  })
     .then(() => undefined)
     .finally(() => {
       if (agentPkmWarmups.get(params.userId) === warmup) {
