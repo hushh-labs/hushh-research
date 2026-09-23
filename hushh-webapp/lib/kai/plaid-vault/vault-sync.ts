@@ -45,6 +45,7 @@ import {
 } from "@/lib/kai/plaid-vault/vault-client";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
+import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 /** A connection refreshed more recently than this is not re-read on unlock. */
 export const VAULT_REFRESH_FRESHNESS_MS = 15 * 60 * 1000;
@@ -324,17 +325,37 @@ function isStale(connection: ConnectionRecord, nowMs: number): boolean {
  * Reads Plaid first (outside the write), then applies everything to the
  * latest memory inside one write so a concurrent save is never overwritten.
  */
-export async function refreshVaultConnections(params: {
+type VaultRefreshParams = {
   userId: string;
   vaultKey: string | null | undefined;
   vaultOwnerToken: string | null | undefined;
   financial: AnyRecord | null | undefined;
   surface?: VaultSurface;
   force?: boolean;
-}): Promise<VaultRefreshOutcome> {
+};
+
+// One background refresh per person and vault session at a time. Unlock warming and the Kai
+// finance loader both ask for one; overlapping runs would read the same pages
+// twice and save twice. A forced (person-initiated) refresh always runs.
+const refreshInFlight = new Map<string, Promise<VaultRefreshOutcome>>();
+
+export function refreshVaultConnections(params: VaultRefreshParams): Promise<VaultRefreshOutcome> {
+  const vaultEpoch = snapshotVaultSessionEpoch();
+  if (params.force === true) return runVaultRefresh(params, vaultEpoch);
+  const key = `${params.userId}:${vaultEpoch}`;
+  const existing = refreshInFlight.get(key);
+  if (existing) return existing;
+  const run = runVaultRefresh(params, vaultEpoch).finally(() => {
+    if (refreshInFlight.get(key) === run) refreshInFlight.delete(key);
+  });
+  refreshInFlight.set(key, run);
+  return run;
+}
+
+async function runVaultRefresh(params: VaultRefreshParams, vaultEpoch: number): Promise<VaultRefreshOutcome> {
   const outcome: VaultRefreshOutcome = { refreshed: 0, needsRelink: [], failed: 0, saved: false };
   const { userId, vaultKey, vaultOwnerToken } = params;
-  if (!vaultKey || !vaultOwnerToken) return outcome;
+  if (!vaultKey || !vaultOwnerToken || !isVaultSessionEpochCurrent(vaultEpoch)) return outcome;
   const nowMs = Date.now();
   const due = Object.entries(vaultConnections(params.financial)).filter(
     ([, connection]) => params.force === true || isStale(connection, nowMs),
@@ -343,19 +364,21 @@ export async function refreshVaultConnections(params: {
 
   const read: Array<{ itemId: string; pages: PlaidVaultSnapshot[] }> = [];
   for (const [itemId, connection] of due) {
+    if (!isVaultSessionEpochCurrent(vaultEpoch)) return outcome;
     try {
       const pages = await readSnapshotPages({
         vaultOwnerToken,
         accessToken: connection.access_token,
         cursor: connection.transactions_cursor,
       });
+      if (!isVaultSessionEpochCurrent(vaultEpoch)) return outcome;
       read.push({ itemId, pages });
       if (pages.some((page) => page.item?.error)) outcome.needsRelink.push(itemId);
     } catch {
       outcome.failed += 1;
     }
   }
-  if (read.length === 0) return outcome;
+  if (read.length === 0 || !isVaultSessionEpochCurrent(vaultEpoch)) return outcome;
 
   const now = new Date().toISOString();
   const result = await PkmWriteCoordinator.saveMergedDomain({
@@ -363,6 +386,11 @@ export async function refreshVaultConnections(params: {
     domain: "financial",
     vaultKey,
     vaultOwnerToken,
+    beforeEffect: async () => {
+      if (!isVaultSessionEpochCurrent(vaultEpoch)) {
+        throw new DOMException("The vault session changed.", "AbortError");
+      }
+    },
     confirmation: {
       authorizationMode: "owner_connected_source_sync",
       surface: params.surface ?? "web",
@@ -383,7 +411,7 @@ export async function refreshVaultConnections(params: {
       };
     },
   });
-  outcome.refreshed = read.length;
+  outcome.refreshed = result.success ? read.length : 0;
   outcome.saved = result.success;
   return outcome;
 }

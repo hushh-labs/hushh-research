@@ -23,6 +23,8 @@ import { warmGeminiRuntimeConnection } from "@/lib/connections/gemini-runtime-co
 
 import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
 import { KaiFinancialResourceService } from "@/lib/kai/kai-financial-resource";
+import { loadFinancialForVault, refreshVaultConnections } from "@/lib/kai/plaid-vault/vault-sync";
+import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { toDurationBucket, trackEvent } from "@/lib/observability/client";
 import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
 import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
@@ -300,6 +302,40 @@ export class UnlockWarmOrchestrator {
         error,
       );
     });
+  }
+
+  private static vaultPlaidRefreshedByUser = new Map<string, number>();
+
+  // Refresh on unlock for Plaid connections sealed in the owner's vault. The
+  // server holds no token and cannot refresh them, so the device does, once per
+  // session and on every route. It used to ride on the Kai finance loader, so a
+  // session that never opened the Kai dashboard never refreshed (seen on
+  // Android 2026-09-23: six connections still showing the iPhone's 3:52 sync at
+  // 7:57). refreshVaultConnections skips connections refreshed in the last 15
+  // minutes and saves under the connected-source receipt, never as a review.
+  private static queueVaultPlaidRefresh(params: {
+    userId: string;
+    vaultKey: string;
+    vaultOwnerToken: string;
+  }): void {
+    if (shouldSkipReviewerBackgroundWritesForAutomation()) return;
+    const vaultEpoch = snapshotVaultSessionEpoch();
+    if (this.vaultPlaidRefreshedByUser.get(params.userId) === vaultEpoch) return;
+    this.vaultPlaidRefreshedByUser.set(params.userId, vaultEpoch);
+    void loadFinancialForVault(params)
+      .then((financial) =>
+        isVaultSessionEpochCurrent(vaultEpoch) &&
+        financial?.connections_v1 && Object.keys(financial.connections_v1).length > 0
+          ? refreshVaultConnections({ ...params, financial })
+          : null,
+      )
+      .catch((error) => {
+        // Never block unlock warming; allow a later retry this session.
+        if (this.vaultPlaidRefreshedByUser.get(params.userId) === vaultEpoch) {
+          this.vaultPlaidRefreshedByUser.delete(params.userId);
+        }
+        console.warn("[UnlockWarmOrchestrator] Vault Plaid refresh failed:", error);
+      });
   }
 
   private static queueConsentExportRefresh(params: {
@@ -836,6 +872,11 @@ export class UnlockWarmOrchestrator {
       });
       // Deliver any slices an agent approved without a browser to seal.
       this.queueMarketplaceDeliverySweep({
+        userId: params.userId,
+        vaultKey: params.vaultKey,
+        vaultOwnerToken: params.vaultOwnerToken,
+      });
+      this.queueVaultPlaidRefresh({
         userId: params.userId,
         vaultKey: params.vaultKey,
         vaultOwnerToken: params.vaultOwnerToken,
