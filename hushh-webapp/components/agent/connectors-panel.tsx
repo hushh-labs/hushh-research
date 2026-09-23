@@ -3,14 +3,21 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
 } from "react";
 import { Capacitor } from "@capacitor/core";
 import { useRouter } from "next/navigation";
-import { ArrowLeftIcon } from "@/components/icons";
+import {
+  ArrowLeftIcon,
+  ChevronRightIcon,
+  SearchIcon,
+  XIcon,
+} from "@/components/icons";
 import { Button } from "@/components/ui/button";
+import { ShellActionSurface } from "@/components/app-ui/shell-action-surface";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { HushhAuth } from "@/lib/capacitor";
@@ -52,6 +59,7 @@ import type { DriveChatRecoveryReason } from "@/lib/agent/drive-oauth-chat-recov
 type Props = {
   open: boolean;
   onBack: () => void;
+  onClose?: () => void;
   onAvailableChange: (available: boolean) => void;
   onExternalModalChange: (open: boolean) => void;
   onPrepareRecovery: (input: {
@@ -77,6 +85,81 @@ const labels: Record<string, string> = {
   unsupported: "Unsupported format",
   failed_retryable: "Retry needed",
 };
+
+type ConnectorListEntry = {
+  id: string;
+  name: string;
+  detail?: string;
+  connected: boolean;
+  onOpen?: () => void;
+  action?: { label: string; onClick: () => void; disabled?: boolean };
+  trailingText?: string;
+};
+
+function ConnectorGlyph({ id }: { id: string }) {
+  return (
+    <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-background text-foreground shadow-sm" aria-hidden="true">
+      {id === "gmail" ? (
+        // The existing product asset keeps Gmail recognizable at list scale.
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src="/icons/agents/gmail.svg" alt="" className="size-6" />
+      ) : id === "google_drive" ? (
+        <svg viewBox="0 0 24 24" className="size-6" aria-hidden="true">
+          <path fill="#00875A" d="M8.1 2h5.2l-7 12.1H1.1z" />
+          <path fill="#0066DA" d="M6.3 14.1h14.1l-2.6 4.5H3.7z" />
+          <path fill="#FFBA00" d="M13.3 2 22 16.3l-2.6 4.5L8.1 2z" />
+        </svg>
+      ) : id === "calendar" ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src="/icons/agents/calendar.svg" alt="" className="size-6" />
+      ) : (
+        <span className="text-sm font-semibold">{id === "plaid" ? "P" : "•"}</span>
+      )}
+    </span>
+  );
+}
+
+function ConnectorRow({ entry }: { entry: ConnectorListEntry }) {
+  const detailId = useId();
+  return (
+    <li className="flex min-h-14 min-w-0 items-center gap-3 border-b border-foreground/10 px-4 last:border-b-0">
+      <ConnectorGlyph id={entry.id} />
+      {entry.onOpen ? (
+        <button
+          type="button"
+          aria-label={entry.name}
+          aria-describedby={entry.detail ? detailId : undefined}
+          onClick={entry.onOpen}
+          className="flex min-h-14 min-w-0 flex-1 items-center gap-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-medium">{entry.name}</span>
+            {entry.detail ? <span id={detailId} className="block truncate text-xs text-muted-foreground">{entry.detail}</span> : null}
+          </span>
+          {entry.connected && !entry.action ? <ChevronRightIcon className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" /> : null}
+        </button>
+      ) : (
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-sm font-medium">{entry.name}</span>
+          {entry.detail ? <span className="block truncate text-xs text-muted-foreground">{entry.detail}</span> : null}
+        </span>
+      )}
+      {entry.action ? (
+        <button
+          type="button"
+          className="min-h-11 shrink-0 px-1 text-sm font-semibold text-primary disabled:cursor-not-allowed disabled:opacity-50 focus-visible:rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label={entry.action.label}
+          disabled={entry.action.disabled}
+          onClick={entry.action.onClick}
+        >
+          {entry.action.label.startsWith("Connect ") ? "Connect" : "Manage"}
+        </button>
+      ) : entry.trailingText ? (
+        <span className="shrink-0 text-xs text-muted-foreground">{entry.trailingText}</span>
+      ) : null}
+    </li>
+  );
+}
 
 type PendingDriveSelection =
   | {
@@ -130,6 +213,7 @@ export function ConnectorsPanel(props: Props) {
 function OwnerConnectorsPanel({
   open,
   onBack,
+  onClose = onBack,
   onAvailableChange,
   onExternalModalChange,
   onPrepareRecovery,
@@ -149,6 +233,11 @@ function OwnerConnectorsPanel({
   const [mailBusy, setMailBusy] = useState(false);
   const [pending, setPending] = useState<PendingDriveSelection | null>(null);
   const [confirm, setConfirm] = useState<string | null>(null);
+  const [activeConnector, setActiveConnector] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+  const previousActiveConnector = useRef<string | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const detailBackRef = useRef<HTMLButtonElement>(null);
   const controller = useRef<AbortController | null>(null);
   const currentToken = useRef(vaultOwnerToken);
   useLayoutEffect(() => {
@@ -261,8 +350,25 @@ function OwnerConnectorsPanel({
     previousOpen.current = open;
     overviewRead.current++;
     documentRead.current++;
+    if (!open) {
+      setActiveConnector(null);
+      setSearch("");
+      setConfirm(null);
+    }
     if (open && vaultOwnerToken) void refresh(controller.current?.signal);
   }, [open, vaultOwnerToken, refresh]);
+  useLayoutEffect(() => {
+    const previous = previousActiveConnector.current;
+    previousActiveConnector.current = activeConnector;
+    if (!open || previous === activeConnector) return;
+    // Picker review owns focus when a native return restores a pending choice.
+    if (activeConnector === "google_drive" && pendingSelection.current) return;
+    const frame = requestAnimationFrame(() => {
+      if (activeConnector) detailBackRef.current?.focus();
+      else searchRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [activeConnector, open]);
   const drive = overview?.connectors.find(
     (item) => item.connectorId === "google_drive",
   );
@@ -292,6 +398,8 @@ function OwnerConnectorsPanel({
   }, [open, hasDriveGrant, refreshDocuments]);
   useEffect(() => {
     if (!pending) return;
+    setConfirm(null);
+    setActiveConnector("google_drive");
     setAllowBackground(false);
     const timer = window.setTimeout(
       () => {
@@ -469,6 +577,9 @@ function OwnerConnectorsPanel({
         existing?.kind === "native" &&
         existing.attemptId === staged.attemptId
       ) {
+        // A duplicate native return may briefly disable the review button.
+        // Restore it after the single-flight reconciliation releases.
+        restorePickerFocus.current = true;
         return true;
       }
       restorePickerFocus.current = true;
@@ -613,7 +724,7 @@ function OwnerConnectorsPanel({
           setDriveMessage(
             finalized
               ? "Drive connected. Choose files to authorize them."
-              : "Drive authorization is still settling. Reopen Connections to check it.",
+              : "Drive authorization is still settling. Reopen Connectors to check it.",
           );
         }
       });
@@ -933,6 +1044,11 @@ function OwnerConnectorsPanel({
   const confirmAction = () => {
     const target = confirm;
     setConfirm(null);
+    if (
+      !target ||
+      (target === "mail" && activeConnector !== "gmail") ||
+      (target !== "mail" && activeConnector !== "google_drive")
+    ) return;
     updatePendingSelection(null);
     if (target === "mail") {
       const signal = controller.current?.signal;
@@ -975,30 +1091,188 @@ function OwnerConnectorsPanel({
       });
   };
 
+  const mailConnected = Boolean(
+    gmail.status?.connected || gmail.status?.needs_reauth,
+  );
+  const showConnector = (id: string) => {
+    setConfirm(null);
+    setActiveConnector(id);
+  };
+  const entries: ConnectorListEntry[] = [
+    {
+      id: "gmail",
+      name: "Gmail",
+      detail: mailConnected
+        ? gmail.status?.needs_reauth
+          ? "Reconnect needed"
+          : gmail.status?.google_email || undefined
+        : undefined,
+      connected: mailConnected,
+      onOpen: () => showConnector("gmail"),
+      action: mailConnected
+        ? undefined
+        : {
+            label: "Connect Gmail",
+            onClick: () => {
+              showConnector("gmail");
+              connectMail();
+            },
+            disabled: mailBusy || gmail.loadingStatus,
+          },
+    },
+    {
+      id: "google_drive",
+      name: "Google Drive",
+      detail: hasDriveGrant
+        ? drive?.status === "needs_reauth"
+          ? "Reconnect needed"
+          : drive?.accountLabel || "Choose files for One"
+        : undefined,
+      connected: hasDriveGrant,
+      onOpen: () => showConnector("google_drive"),
+      action: hasDriveGrant
+        ? undefined
+        : {
+            label: "Connect Google Drive",
+            onClick: () => {
+              showConnector("google_drive");
+              startDrive();
+            },
+            disabled: driveBusy || loading || !canConnectDrive,
+          },
+    },
+    {
+      id: "calendar",
+      name: "Calendar",
+      connected: false,
+      action: {
+        label: "Manage Calendar",
+        onClick: () => {
+          onBack();
+          router.push(ROUTES.CALENDAR);
+        },
+      },
+    },
+    {
+      id: "plaid",
+      name: "Plaid",
+      connected: false,
+      action: {
+        label: "Manage Plaid",
+        onClick: () => {
+          onBack();
+          router.push(ROUTES.KAI_PORTFOLIO_SOURCES);
+        },
+      },
+    },
+    ...(overview?.connectors ?? [])
+      .filter((item) => !["google_drive", "gmail"].includes(item.connectorId))
+      .map((item): ConnectorListEntry => ({
+        id: item.connectorId,
+        name: item.displayName,
+        detail: item.accountLabel || item.description || undefined,
+        connected: !["not_connected", "revoked"].includes(item.status),
+        onOpen: !["not_connected", "revoked"].includes(item.status)
+          ? () => showConnector(item.connectorId)
+          : undefined,
+        trailingText: ["not_connected", "revoked"].includes(item.status)
+          ? labels[item.status]
+          : undefined,
+      })),
+  ];
+  const query = search.trim().toLocaleLowerCase();
+  const matchingEntries = entries.filter(
+    (entry) =>
+      !query ||
+      `${entry.name} ${entry.detail ?? ""}`.toLocaleLowerCase().includes(query),
+  );
+  const connectedEntries = matchingEntries.filter((entry) => entry.connected);
+  const availableEntries = matchingEntries.filter((entry) => !entry.connected);
+  const selectedCatalog = overview?.connectors.find(
+    (item) => item.connectorId === activeConnector,
+  );
+
   return (
     <div
-      className="flex h-full min-h-0 flex-col rounded-r-2xl border-r border-border bg-background"
+      className="flex h-full min-h-0 flex-col border-l border-border bg-background text-foreground"
       data-connections-panel
     >
-      <header className="flex shrink-0 items-center gap-2 border-b border-border p-3">
-        <Button
-          variant="ghost"
-          className={touch}
-          onClick={onBack}
-          aria-label="Back to Chats"
+      <header className="flex shrink-0 items-center gap-2 px-4 pb-3 pt-4">
+        {activeConnector ? (
+          <ShellActionSurface
+            ref={detailBackRef}
+            className="size-11"
+            onClick={() => {
+              setConfirm(null);
+              setActiveConnector(null);
+            }}
+            aria-label="Back to connectors"
+          >
+            <ArrowLeftIcon className="h-5 w-5" aria-hidden="true" />
+          </ShellActionSurface>
+        ) : null}
+        <h2 className="min-w-0 flex-1 truncate text-lg font-semibold">
+          {activeConnector
+            ? entries.find((entry) => entry.id === activeConnector)?.name || "Connector"
+            : "Connectors"}
+        </h2>
+        <ShellActionSurface
+          className="size-11"
+          onClick={() => {
+            setConfirm(null);
+            onClose();
+          }}
+          aria-label="Close connectors"
         >
-          <ArrowLeftIcon className="h-5 w-5" aria-hidden="true" />
-        </Button>
-        <h2 className="text-base font-semibold">Connections</h2>
+          <XIcon className="size-4" aria-hidden="true" />
+        </ShellActionSurface>
       </header>
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-3">
+      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 pb-6">
         {!vaultOwnerToken ? (
           <p role="status" className="text-sm text-muted-foreground">
-            Unlock your vault to manage connections.
+            Unlock your vault to manage connectors.
           </p>
+        ) : !activeConnector ? (
+          <>
+            <label className="flex min-h-11 items-center gap-2 rounded-full bg-foreground/10 px-4 text-muted-foreground focus-within:ring-2 focus-within:ring-ring">
+              <SearchIcon className="size-4 shrink-0" aria-hidden="true" />
+              <input
+                ref={searchRef}
+                type="search"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                aria-label="Search connectors"
+                placeholder="Search connectors"
+                className="min-h-11 min-w-0 flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground"
+              />
+            </label>
+            {([[
+              "Connected",
+              connectedEntries,
+            ], [
+              "Available",
+              availableEntries,
+            ]] as const).map(([heading, items]) =>
+              query && items.length === 0 ? null : (
+                <section key={heading} aria-label={heading} className="space-y-2">
+                  <h3 className="text-sm font-medium text-muted-foreground">{heading}</h3>
+                  <ul className="overflow-hidden rounded-2xl bg-foreground/10">
+                    {items.length ? items.map((entry) => <ConnectorRow key={entry.id} entry={entry} />) : (
+                      <li className="px-4 py-4 text-sm text-muted-foreground">
+                        {heading === "Connected" ? "No connected connectors" : "No available connectors"}
+                      </li>
+                    )}
+                  </ul>
+                </section>
+              ),
+            )}
+            {query && matchingEntries.length === 0 ? (
+              <p role="status" className="py-4 text-center text-sm text-muted-foreground">No connectors found</p>
+            ) : null}
+          </>
         ) : (
           <>
-            <section
+            {activeConnector === "gmail" && <section
               aria-labelledby="connection-mail-title"
               className="space-y-3 rounded-xl border border-border p-3"
             >
@@ -1064,8 +1338,8 @@ function OwnerConnectorsPanel({
               >
                 {mailBusy ? "Updating Mail…" : mailMessage}
               </p>
-            </section>
-            <section
+            </section>}
+            {activeConnector === "google_drive" && <section
               aria-labelledby="connection-drive-title"
               className="space-y-3 rounded-xl border border-border p-3"
             >
@@ -1321,24 +1595,15 @@ function OwnerConnectorsPanel({
                   ))}
                 </ul>
               )}
-            </section>
-            <section aria-labelledby="connection-more-title" className="space-y-3 rounded-xl border border-border p-3">
-              <h3 id="connection-more-title" className="font-semibold">More connections</h3>
-              <div className="flex flex-wrap gap-2">
-                <Button variant="outline" className={touch} onClick={() => { onBack(); router.push(ROUTES.CALENDAR); }}>
-                  Manage Calendar
-                </Button>
-                <Button variant="outline" className={touch} onClick={() => { onBack(); router.push(ROUTES.KAI_PORTFOLIO_SOURCES); }}>
-                  Manage Plaid
-                </Button>
-              </div>
-              {overview?.connectors.filter((item) => item.connectorId !== "google_drive").map((item) => (
-                <div key={item.connectorId} className="flex min-h-11 items-center justify-between gap-3 border-t border-border pt-3 text-sm">
-                  <span className="font-medium">{item.displayName}</span>
-                  <span className="text-muted-foreground">{labels[item.status] ?? "Status unavailable"}</span>
-                </div>
-              ))}
-            </section>
+            </section>}
+            {selectedCatalog && activeConnector !== "google_drive" && activeConnector !== "gmail" && (
+              <section className="space-y-3 rounded-xl border border-border p-3" aria-label={`${selectedCatalog.displayName} details`}>
+                <h3 className="font-semibold">{selectedCatalog.displayName}</h3>
+                <p className="text-sm text-muted-foreground">{selectedCatalog.description}</p>
+                {selectedCatalog.accountLabel ? <p className="break-all text-sm">{selectedCatalog.accountLabel}</p> : null}
+                <p role="status" className="text-sm">{labels[selectedCatalog.status] ?? "Status unavailable"}</p>
+              </section>
+            )}
             {confirm && (
               <section
                 className="space-y-3 rounded-xl border border-border p-3"
