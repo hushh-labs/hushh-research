@@ -1392,27 +1392,21 @@ function ConsentEntryDetail({
       ) : null}
 
       {canRevokeActive ? (
-        <SettingsGroup
-          embedded
-          title="Manage access"
-          description="Stop future access without removing the activity record."
-        >
-          <SettingsRow
-            title="Stop sharing"
-            description="Revoke this access now. The change remains visible in History."
-            trailing={
-              <Button
-                variant="none"
-                effect="fade"
-                size="sm"
-                disabled={revokeBusy}
-                onClick={() => setRevokeDialogOpen(true)}
-                data-voice-control-id="consent_revoke"
-              >
-                {revokeBusy ? "Stopping..." : "Stop sharing"}
-              </Button>
-            }
-          />
+        // One destructive row: it said "Stop sharing" three times (group,
+        // row, button) around two blurbs. The confirmation below carries the
+        // consequence, so the sheet only needs the action.
+        <SettingsGroup embedded>
+          <Button
+            variant="none"
+            effect="fade"
+            size="sm"
+            disabled={revokeBusy}
+            onClick={() => setRevokeDialogOpen(true)}
+            className="h-12 w-full justify-start rounded-none px-4 text-[15px] font-medium text-[color:var(--app-destructive)]"
+            data-voice-control-id="consent_revoke"
+          >
+            {revokeBusy ? "Stopping..." : "Stop sharing"}
+          </Button>
           <AlertDialog
             open={revokeDialogOpen}
             onOpenChange={setRevokeDialogOpen}

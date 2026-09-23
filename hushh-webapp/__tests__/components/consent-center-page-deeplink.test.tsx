@@ -1049,7 +1049,9 @@ describe("ConsentCenterPage requestId deep links", () => {
       await screen.findByRole("dialog", { name: "Kushal Trivedi" }),
     ).toBeTruthy();
     expect(screen.getAllByText("Active access").length).toBeGreaterThan(0);
-    expect(screen.getByText("Manage access")).toBeTruthy();
+    // The revoke action appears once, with no heading or blurb restating it.
+    expect(screen.getAllByRole("button", { name: "Stop sharing" })).toHaveLength(1);
+    expect(screen.queryByText("Manage access")).toBeNull();
     expect(screen.queryByText("Your decision")).toBeNull();
     expect(screen.queryByText("Technical details")).toBeNull();
     expect(screen.queryByText("Consent timeline")).toBeNull();
