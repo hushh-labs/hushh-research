@@ -121,12 +121,6 @@ export function deriveVoiceRouteScreen(
   ) {
     return { screen: "kai_plaid_oauth_return", subview: null };
   }
-  if (
-    normalizedPath === ROUTES.KAI_ALPACA_OAUTH_RETURN ||
-    normalizedPath === ROUTES.LEGACY_KAI_ALPACA_OAUTH_RETURN
-  ) {
-    return { screen: "kai_alpaca_oauth_return", subview: null };
-  }
   if (normalizedPath === ROUTES.KAI_NEWS) {
     return { screen: "kai_market_news", subview: null };
   }

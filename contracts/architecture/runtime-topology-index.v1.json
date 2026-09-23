@@ -883,14 +883,6 @@
       "primary_access_path": "One Feed route: cross-domain activity list, unread badge, and read-state tracking. Counterpart identity uses audit primary keys, indexed grant IDs, or indexed owner/recipient event candidates with exact source and audience checks; current photos join the identity cache."
     },
     {
-      "data_class": "audit_regulated",
-      "exact_tables": [],
-      "id": "funding_trading_audit",
-      "lifecycle_status": "current",
-      "owner": "backend-runtime-governance",
-      "primary_access_path": "Alpaca/Plaid funding, ACH, transfer, webhook, reconciliation, and trade-intent services"
-    },
-    {
       "data_class": "workflow_state",
       "exact_tables": [
         "gmail_owner_send_actions",
@@ -1017,14 +1009,6 @@
       "lifecycle_status": "current",
       "owner": "backend-runtime-governance",
       "primary_access_path": "Kai analyze (\"debate\") resumable-run store added in migration 125. The analyze run manager writes exactly one terminal-checkpoint row per run at the completed/failed/canceled transition and reads it back only when a resumed GET /run/{id}/stream lands on a Cloud Run instance that never created the run, replaying the already-delivered terminal DecisionCard instead of returning ANALYZE_RUN_NOT_FOUND. Gated by KAI_ANALYZE_DURABLE_RUN_STORE (default off); when off no row is ever written or read."
-    },
-    {
-      "data_class": "provider_cache",
-      "exact_tables": [],
-      "id": "kai_brokerage_provider_cache",
-      "lifecycle_status": "current",
-      "owner": "backend-runtime-governance",
-      "primary_access_path": "Plaid link, refresh, portfolio source preference, and portfolio-read services"
     },
     {
       "data_class": "provider_cache",
@@ -1517,8 +1501,6 @@
         "/marketplace"
       ],
       "table_family_ids": [
-        "kai_brokerage_provider_cache",
-        "funding_trading_audit",
         "ria_marketplace_relationships"
       ]
     },
@@ -1987,29 +1969,6 @@
         "action_ids": [],
         "delegate_agent_ids": [],
         "playbook_id": "route.kai"
-      }
-    },
-    {
-      "alias": null,
-      "api_dependencies": [],
-      "cache": {
-        "policy": "none",
-        "refresh_trigger": "none",
-        "resource_classes": [
-          "unknown"
-        ]
-      },
-      "implementation_override": null,
-      "lifecycle": "canonical",
-      "native_surface_id": "native-route-kai-alpaca-return",
-      "page_file": "app/kai/alpaca/oauth/return/page.tsx",
-      "pathname": "/kai/alpaca/oauth/return",
-      "route_mode": "redirect",
-      "semantic_routes": [],
-      "voice": {
-        "action_ids": [],
-        "delegate_agent_ids": [],
-        "playbook_id": "route.kai.alpaca.oauth.return"
       }
     },
     {
@@ -2824,29 +2783,6 @@
         ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.kai"
-      }
-    },
-    {
-      "alias": null,
-      "api_dependencies": [],
-      "cache": {
-        "policy": "memory-only",
-        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-        "resource_classes": [
-          "auth_state"
-        ]
-      },
-      "implementation_override": null,
-      "lifecycle": "canonical",
-      "native_surface_id": "native-route-kai-alpaca-return",
-      "page_file": "app/one/kai/alpaca/oauth/return/page.tsx",
-      "pathname": "/one/kai/alpaca/oauth/return",
-      "route_mode": "standard",
-      "semantic_routes": [],
-      "voice": {
-        "action_ids": [],
-        "delegate_agent_ids": [],
-        "playbook_id": "route.one.kai.alpaca.oauth.return"
       }
     },
     {
@@ -5676,15 +5612,15 @@
   "source_sha256": {
     "a2a_scope_map": "7379039859448ff3db422aa5ee50124bbcadcecc8c9c49e3c1471791f54208c1",
     "action_gateway": "f64403d3031e97fd519101bf242c5072cc94d592a44197277cb1870324990160",
-    "agent_registry": "5be3e7419d92b3b0f60320f569d51828bee0a86877f1341cd3a86a463391b4de",
-    "cache_manifest": "92da90abf52ba635673dc192dea64cad189286a62dab68f827af30e3e8e3fef6",
-    "data_plane": "2ba85018f4b5f575f04e26c9198cd752685309587d9c97b5464b53bb4ea58eb9",
+    "agent_registry": "ea01a909ad46a7f18026c297c9630b1a5cf1dddd4b6d91a8b4a8f00b9084a8f6",
+    "cache_manifest": "7e06bffcb92862a81614bcc30d40e6593942eedce8f9eea9f900302d76a478b7",
+    "data_plane": "c10f9438d190b07b4405991847f1f5fa19bf4aa10553b753cccfc1bef6711dda",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
-    "one_specialist_tools": "7ab79a909f538da320c13994d446316905bd6db8a0e87c0b8ac484ab0ffd51c5",
-    "route_index": "ab7e206f2ffbfe0dfab96a5462fdfb31a9af1af437ac2732a9567579805faa41",
-    "route_layout": "4cf774a9ebb6cc26db9cbacc38aeea491f01a6b7bf440c3aaae3d8fddc567bd1",
-    "surface_map": "cf49263605a8495f45808b2dab0725bd1f16635249fd4a8662e8c9c1dd3c7a33",
-    "topology_contract": "16f7f315d6ca6831bc4cae732b0b25a8cbb280288a1da4a53ab43ec5718c24e0",
+    "one_specialist_tools": "6100f74393bea856b3f88ec063449e8eb972cd929b1b0b86a4669152d394588c",
+    "route_index": "c99892f37570c3b151b066b26ef3f71f481d5782bbbd6c6f41606524217c2363",
+    "route_layout": "8615e5f82f15017bececf1034d797845a3a23bb9a662bc72a9aa420f49cdd27f",
+    "surface_map": "2be2e035ab4f748a61adf0949867a7a415f93891e8c3274b9dae4eb61740788c",
+    "topology_contract": "2731deba853b10ca369d14e98e8e5b414c13fab0667d08357e272c6dca6ea3dc",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
@@ -5695,8 +5631,8 @@
     "decision_required": 2,
     "in_process_specialists": 5,
     "one_specialist_tools": 6,
-    "physical_routes": 141,
+    "physical_routes": 139,
     "semantic_routes": 14,
-    "table_families": 72
+    "table_families": 70
   }
 }

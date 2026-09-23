@@ -167,6 +167,11 @@ vi.mock("@/lib/one-marketplace/delivery-sweep", () => ({
   ),
 }));
 
+const recoverPendingSealsMock = vi.fn();
+vi.mock("@/lib/kai/plaid-vault/pending-seal", () => ({
+  recoverPendingSeals: (...a: unknown[]) => recoverPendingSealsMock(...a),
+}));
+
 const loadFinancialForVaultMock = vi.fn();
 const refreshVaultConnectionsMock = vi.fn();
 vi.mock("@/lib/kai/plaid-vault/vault-sync", () => ({
@@ -212,6 +217,7 @@ function setupDefaultMocks() {
   oneLocationGetStateMock.mockResolvedValue({});
   loadFinancialForVaultMock.mockResolvedValue(null);
   refreshVaultConnectionsMock.mockResolvedValue({ refreshed: 0, needsRelink: [], failed: 0, saved: false });
+  recoverPendingSealsMock.mockResolvedValue({ disconnected: 0, alreadySealed: 0, failed: 0 });
 }
 
 const SEALED_FINANCIAL = { connections_v1: { item_1: { access_token: "access-sandbox-x", status: "active" } } };
@@ -252,6 +258,32 @@ describe("UnlockWarmOrchestrator", () => {
       await vi.waitFor(() => expect(refreshVaultConnectionsMock).toHaveBeenCalledTimes(2));
     },
   );
+  it("disconnects links that never reached the vault before refreshing, and never without a vault read", async () => {
+    setupDefaultMocks();
+    loadFinancialForVaultMock.mockResolvedValue(SEALED_FINANCIAL);
+    await UnlockWarmOrchestrator.run({ ...BASE_PARAMS, userId: "pending-recovery", routePath: "/one" });
+    await vi.waitFor(() => expect(refreshVaultConnectionsMock).toHaveBeenCalled());
+    const recovery = recoverPendingSealsMock.mock.calls[0]![0];
+    expect([...recovery.sealedItemIds]).toEqual(["item_1"]);
+    expect(recoverPendingSealsMock.mock.invocationCallOrder[0]!).toBeLessThan(
+      refreshVaultConnectionsMock.mock.invocationCallOrder[0]!,
+    );
+
+    vi.clearAllMocks();
+    setupDefaultMocks();
+    loadFinancialForVaultMock.mockResolvedValue({});
+    await UnlockWarmOrchestrator.run({ ...BASE_PARAMS, userId: "pending-recovery-empty", routePath: "/one" });
+    await vi.waitFor(() => expect(recoverPendingSealsMock).toHaveBeenCalled());
+    expect(refreshVaultConnectionsMock).not.toHaveBeenCalled();
+
+    // A failed or empty vault read must not be mistaken for "nothing sealed".
+    vi.clearAllMocks();
+    setupDefaultMocks();
+    await UnlockWarmOrchestrator.run({ ...BASE_PARAMS, userId: "pending-recovery-no-read", routePath: "/one" });
+    await vi.waitFor(() => expect(loadFinancialForVaultMock).toHaveBeenCalled());
+    await Promise.resolve();
+    expect(recoverPendingSealsMock).not.toHaveBeenCalled();
+  });
   it("does not refresh when nothing is sealed, or for a read-only reviewer session", async () => {
     setupDefaultMocks();
     await UnlockWarmOrchestrator.run({ ...BASE_PARAMS, userId: "vault-refresh-none", routePath: "/one" });

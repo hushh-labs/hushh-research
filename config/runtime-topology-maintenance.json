@@ -268,8 +268,6 @@
         "agent_portfolio_import"
       ],
       "table_family_ids": [
-        "kai_brokerage_provider_cache",
-        "funding_trading_audit",
         "ria_marketplace_relationships"
       ],
       "evidence_lanes": [

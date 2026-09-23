@@ -24,6 +24,7 @@ import { warmGeminiRuntimeConnection } from "@/lib/connections/gemini-runtime-co
 import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
 import { KaiFinancialResourceService } from "@/lib/kai/kai-financial-resource";
 import { loadFinancialForVault, refreshVaultConnections } from "@/lib/kai/plaid-vault/vault-sync";
+import { recoverPendingSeals } from "@/lib/kai/plaid-vault/pending-seal";
 import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { toDurationBucket, trackEvent } from "@/lib/observability/client";
 import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
@@ -323,12 +324,20 @@ export class UnlockWarmOrchestrator {
     if (this.vaultPlaidRefreshedByUser.get(params.userId) === vaultEpoch) return;
     this.vaultPlaidRefreshedByUser.set(params.userId, vaultEpoch);
     void loadFinancialForVault(params)
-      .then((financial) =>
-        isVaultSessionEpochCurrent(vaultEpoch) &&
-        financial?.connections_v1 && Object.keys(financial.connections_v1).length > 0
+      .then(async (financial) => {
+        // Fail closed: without a vault read we cannot tell a sealed link from
+        // an orphan, so pending links wait for the next unlock.
+        if (!financial || !isVaultSessionEpochCurrent(vaultEpoch)) return null;
+        const sealed = (financial.connections_v1 ?? {}) as Record<string, unknown>;
+        // Links that never reached the vault (app closed mid-link) are
+        // disconnected at Plaid before anything else reads the connections.
+        await recoverPendingSeals({ ...params, sealedItemIds: new Set(Object.keys(sealed)) }).catch(
+          () => undefined,
+        );
+        return isVaultSessionEpochCurrent(vaultEpoch) && Object.keys(sealed).length > 0
           ? refreshVaultConnections({ ...params, financial })
-          : null,
-      )
+          : null;
+      })
       .catch((error) => {
         // Never block unlock warming; allow a later retry this session.
         if (this.vaultPlaidRefreshedByUser.get(params.userId) === vaultEpoch) {

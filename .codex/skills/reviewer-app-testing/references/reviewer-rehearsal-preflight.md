@@ -213,3 +213,8 @@ request identity, 24-hour approval and grant duration, exact browser-local domai
 readback, and separate cold re-unlock. It retains the request/grant and reports
 only sanitized outcomes. It does not by itself prove Chat restoration, complete
 export isolation, or the full multi-account acceptance matrix.
+
+`REVIEWER_EXPECTED_PAYLOAD_SHA256` may replace the JSON expectation, never accompany it.
+Compute it in the owner's browser before submission from the reviewed synthetic projection: sort object keys; preserve array order/types. Hash the
+requester's JSON view in-browser for warm/cold comparison. Never derive the expectation
+from the received export, accept substrings, or print source values or digests.

@@ -121,6 +121,8 @@ export async function createVaultLinkToken(params: {
   // This is an opt-in local proof marker, not an environment selector. Omit
   // it from every ordinary client request to preserve the public contract.
   if (params.request.sandbox_proof === true) body.sandbox_proof = true;
+  // Update mode: the sealed token travels for this one call only.
+  if (params.request.access_token) body.access_token = params.request.access_token;
   return post<PlaidVaultLinkTokenResponse>("link-token", params.vaultOwnerToken, body);
 }
 

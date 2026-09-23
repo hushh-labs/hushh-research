@@ -182,6 +182,45 @@ def test_link_token_web_happy_path_has_no_webhook_and_opaque_user(authed_client,
     assert client_user_id != plaid_vault._client_user_id("owner-456")
 
 
+def test_link_token_update_mode_binds_the_item_and_sends_no_products(authed_client, monkeypatch):
+    fake = _use(
+        monkeypatch,
+        _FakePlaid(
+            {"/link/token/create": [{"link_token": "link-upd", "expiration": "2026-09-24"}]}
+        ),
+    )
+
+    response = authed_client.post(
+        f"{_BASE}/link-token",
+        json={
+            "platform": "web",
+            "redirect_uri": _REDIRECT_URI,
+            "access_token": "access-sandbox-relink-0001",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"link_token": "link-upd", "expiration": "2026-09-24"}
+    (_, payload) = fake.calls[0]
+    # Plaid update mode: the Item comes from the token; a product list is rejected.
+    assert payload["access_token"] == "access-sandbox-relink-0001"
+    assert "products" not in payload
+    assert "required_if_supported_products" not in payload
+    assert "webhook" not in payload
+
+
+def test_link_token_update_mode_rejects_a_malformed_token_before_plaid(authed_client, monkeypatch):
+    fake = _use(monkeypatch, _FakePlaid({}))
+
+    response = authed_client.post(
+        f"{_BASE}/link-token",
+        json={"platform": "web", "access_token": "not a token; drop table"},
+    )
+
+    assert response.status_code == 422
+    assert fake.calls == []
+
+
 def test_link_token_sandbox_proof_allows_local_sandbox_before_issuing_token(
     authed_client, monkeypatch
 ):
@@ -756,13 +795,11 @@ def test_wrong_scope_consent_token_is_refused(app, monkeypatch):
 
 def test_endpoints_never_touch_the_database(authed_client, monkeypatch):
     import db.db_client as db_client
-    from hushh_mcp.services import plaid_portfolio_service
 
     def _forbidden(*_args, **_kwargs):
         raise AssertionError("plaid vault routes must never touch the database")
 
     monkeypatch.setattr(db_client, "get_db", _forbidden)
-    monkeypatch.setattr(plaid_portfolio_service, "get_db", _forbidden)
     _use(
         monkeypatch,
         _FakePlaid(

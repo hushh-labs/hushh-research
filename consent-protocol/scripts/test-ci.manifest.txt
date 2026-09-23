@@ -200,7 +200,6 @@ tests/test_firebase_auth_split.py
 tests/services/test_account_deletion_lifecycle_service.py
 tests/test_account_deletion_tombstone_migration.py
 tests/test_account_deletion_release_workflow.py
-tests/test_account_erasure_disconnects_plaid.py
 tests/test_cloud_run_image_resolution.py
 
 # First-party document renewal: expiry is not revocation, but revoked lineage
@@ -397,5 +396,5 @@ tests/one_voice/test_tools_account_lifecycle.py
 tests/one_voice/test_relay_account_lifecycle.py
 tests/one_voice/test_tools_onboarding.py
 tests/one_voice/test_one_voice_postgres.py
-tests/services/test_plaid_link_platform.py
 tests/test_plaid_vault_routes.py
+tests/test_plaid_server_custody_retire.py

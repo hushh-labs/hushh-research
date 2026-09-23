@@ -388,6 +388,15 @@ class AttachedRenderPerfTest {
         settle(3_000)
         shot("$index-oauth-bank")
         if (!leftApp) return false
+        // Host-driven mode: input injected from inside the instrumentation
+        // never reached Edge's page on this phone (run 12, fields stayed
+        // empty), so the Mac drives the bank page over adb and the test only
+        // waits for a genuine hand-back.
+        if (args.getString("oauthHostDrive") == "1") {
+            log("PLAID_STEP oauth_waiting_for_host")
+            val hostDeadline = System.currentTimeMillis() + 600_000
+            while (System.currentTimeMillis() < hostDeadline && device.currentPackageName != pkg) settle(1_000)
+        } else {
         // The sandbox bank's own sign-in page (run 9: in Edge, fields empty).
         // Another app's window: the instrumentation cannot type into it, so
         // keys go through the shell like every tap in this lane. Plaid's
@@ -411,6 +420,7 @@ class AttachedRenderPerfTest {
                 if (tapText(label, timeoutMs = 1_500)) { settle(3_000); break }
             }
             shot("$index-oauth-step-$step")
+        }
         }
         val inApp = device.wait(Until.hasObject(By.pkg(pkg).depth(0)), 30_000) && device.currentPackageName == pkg
         // Back in the app is not the bank handing back: Link's "Return to
@@ -451,6 +461,13 @@ class AttachedRenderPerfTest {
     }
 
     private fun finishAccounts(index: Int): Boolean {
+        // After an OAuth hand-back Link skips its own account list and lands
+        // on "Connect faster next time" (run 16), so Continue never appears.
+        if (textObject("Finish without saving", contains = true, 5_000) != null) {
+            shot("$index-accounts")
+            tapText("Finish without saving", contains = true)
+            return awaitSeal(index)
+        }
         val cont = findContinue(45_000)
         if (cont == null || textObject("Incorrect credentials", contains = true) != null) {
             log("PLAID_MISSING index=$index step=login"); shot("$index-no-login"); return false
@@ -459,7 +476,11 @@ class AttachedRenderPerfTest {
         tapObject(cont)
         settle(3_000)
         tapText("Finish without saving", contains = true, timeoutMs = 30_000)
-        // Back in the app, then time for the exchange, the pages and the seal.
+        return awaitSeal(index)
+    }
+
+    /** Back in the app, then time for the exchange, the pages and the seal. */
+    private fun awaitSeal(index: Int): Boolean {
         var backInApp = false
         repeat(30) {
             if (!backInApp && device.currentPackageName == pkg && textObject("Portfolio source", contains = true) != null) backInApp = true

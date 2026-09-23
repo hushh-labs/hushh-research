@@ -201,6 +201,7 @@ def test_drive_turn_marks_first_visible_and_done():
     assert sample.run == "abcdef12"
     assert sample.rep == 1
     assert sample.client_first_visible_ms == pytest.approx(800.0, abs=0.2)
+    assert sample.client_first_answer_token_ms == pytest.approx(800.0, abs=0.2)
     assert sample.client_total_ms == pytest.approx(2500.0, abs=0.2)
     assert sample.first_visible_event == "TEXT_MESSAGE_CONTENT"
     assert sample.event_count == 5
@@ -226,7 +227,32 @@ def test_drive_turn_tool_call_start_counts_as_first_visible_and_run_error_is_ter
     assert sample.detail == "AGENT_ERROR"
     assert sample.first_visible_event == "TOOL_CALL_START"
     assert sample.client_first_visible_ms == pytest.approx(300.0, abs=0.2)
+    assert sample.client_first_answer_token_ms is None
     assert sample.client_total_ms == pytest.approx(500.0, abs=0.2)
+
+
+def test_drive_turn_distinguishes_first_tool_activity_from_answer_token():
+    clock = FakeClock()
+
+    def lines():
+        clock.advance(0.2)
+        yield from _sse({"type": "TOOL_CALL_START", "toolCallId": "c", "toolCallName": "n"})
+        clock.advance(0.7)
+        yield from _sse({"type": "TEXT_MESSAGE_CONTENT", "messageId": "m", "delta": "ready"})
+        clock.advance(0.1)
+        yield from _sse({"type": "RUN_FINISHED"})
+
+    sample = driver.drive_turn(
+        lambda _b: lines(),
+        driver.build_run_agent_input("x", thread_id="t", run_id="r", timezone="UTC"),
+        prompt=driver.PROMPTS[0],
+        rep=0,
+        clock=clock,
+    )
+    assert sample.outcome == "finished"
+    assert sample.client_first_visible_ms == pytest.approx(200.0, abs=0.2)
+    assert sample.client_first_answer_token_ms == pytest.approx(900.0, abs=0.2)
+    assert driver.summarize([sample])["client"]["first_answer_token"]["p50"] == pytest.approx(900.0)
 
 
 def test_drive_turn_without_terminal_frame_and_transport_failure():
@@ -302,7 +328,7 @@ def test_server_log_lines_are_matched_on_run_prefix(tmp_path: Path):
     with log.open("a", encoding="utf-8") as handle:
         handle.write(
             "INFO one_agent_chat_turn_complete head=one run=abcdef12 "
-            "first_visible_ms=640 elapsed_ms=2210\n"
+            "first_visible_ms=640 first_answer_token_ms=910 elapsed_ms=2210\n"
         )
         handle.write(
             "INFO one_agent_chat_turn_complete head=intro run=deadbeef first_visible_ms=None elapsed_ms=90\n"
@@ -310,8 +336,18 @@ def test_server_log_lines_are_matched_on_run_prefix(tmp_path: Path):
         handle.write("INFO unrelated run=abcdef12 elapsed_ms=1\n")
     by_run = driver.parse_server_turn_lines(driver.read_log_since(log, offset))
     assert by_run == {
-        "abcdef12": {"first_visible_ms": 640.0, "elapsed_ms": 2210.0, "head": 1.0},
-        "deadbeef": {"first_visible_ms": None, "elapsed_ms": 90.0, "head": 0.0},
+        "abcdef12": {
+            "first_visible_ms": 640.0,
+            "first_answer_token_ms": 910.0,
+            "elapsed_ms": 2210.0,
+            "head": 1.0,
+        },
+        "deadbeef": {
+            "first_visible_ms": None,
+            "first_answer_token_ms": None,
+            "elapsed_ms": 90.0,
+            "head": 0.0,
+        },
     }
     samples = [
         driver.TurnSample("p", "general", 0, "abcdef12", "finished"),
@@ -319,6 +355,7 @@ def test_server_log_lines_are_matched_on_run_prefix(tmp_path: Path):
     ]
     assert driver.attach_server_timings(samples, by_run) == 1
     assert samples[0].server_first_visible_ms == 640.0
+    assert samples[0].server_first_answer_token_ms == 910.0
     assert samples[0].server_elapsed_ms == 2210.0
     assert samples[1].server_elapsed_ms is None
 

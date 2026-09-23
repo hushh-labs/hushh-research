@@ -75,7 +75,6 @@ import {
   buildFinancialDomainSummary,
   buildStatementSource,
 } from "@/lib/kai/brokerage/financial-sources";
-import { PlaidPortfolioService } from "@/lib/kai/brokerage/plaid-portfolio-service";
 import {
   KAI_AUXILIARY_STEP_TIMEOUT_MS,
   runKaiStepWithTimeout,
@@ -1840,21 +1839,6 @@ export function PortfolioReviewView({
         }
         throw new Error("Backend returned failure on store");
       }
-
-      void runKaiStepWithTimeout(
-        "Updating portfolio source preference",
-        PlaidPortfolioService.setActiveSource({
-          userId,
-          activeSource: "statement",
-          vaultOwnerToken: resolvedVaultOwnerToken,
-        }),
-        KAI_AUXILIARY_STEP_TIMEOUT_MS,
-      ).catch((sourcePreferenceError) => {
-        console.warn(
-          "[PortfolioReview] Saved statement portfolio but could not update active source preference:",
-          sourcePreferenceError,
-        );
-      });
 
       const postSaveSyncStartedAt = nowMs();
       // 5. Prime/invalidate deterministic cache entries for all financial reads.

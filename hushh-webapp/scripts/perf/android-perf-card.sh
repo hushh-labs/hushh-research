@@ -237,6 +237,7 @@ if [[ "$ATTACHED" == "1" ]]; then
       -e reps "$REPS" -e section "$SECTION" -e thirdParty "${PERF_THIRD_PARTY:-0}" \
       -e holdMinutes "${PERF_HOLD_MINUTES:-20}" \
       -e plaidBanks "${(q)PLAID_BANKS_ARG}" \
+      -e oauthHostDrive "${PLAID_OAUTH_HOST_DRIVE:-0}" \
       -e class com.hussh.app.AttachedRenderPerfTest \
       com.hussh.app.test/androidx.test.runner.AndroidJUnitRunner > "$OUT_DIR/instrument.log" 2>&1
     TEST_STATUS=$?

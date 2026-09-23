@@ -18,6 +18,8 @@ declare global {
 type PlaidLinkStatic = NonNullable<Window["Plaid"]>;
 type PlaidLinkConfig = {
   token?: string;
+  /** Web only: resumes a bank's OAuth login on the redirect page. */
+  receivedRedirectUri?: string;
   onSuccess?: (publicToken: string, metadata: Record<string, unknown>) => void;
   onExit?: (error: Record<string, unknown> | null, metadata?: Record<string, unknown>) => void;
   onEvent?: (eventName: string, metadata: Record<string, unknown>) => void;

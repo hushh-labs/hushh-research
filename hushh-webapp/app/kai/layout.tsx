@@ -29,9 +29,7 @@ export default function KaiLayout({
   const { vaultKey, vaultOwnerToken } = useVault();
   const onOnboardingRoute = pathname.startsWith("/kai/onboarding");
   const onImportRoute = pathname.startsWith("/kai/import");
-  const onPlaidOauthReturnRoute = pathname === ROUTES.KAI_PLAID_OAUTH_RETURN;
-  const onAlpacaOauthReturnRoute = pathname === ROUTES.KAI_ALPACA_OAUTH_RETURN;
-  const onOauthReturnRoute = onPlaidOauthReturnRoute || onAlpacaOauthReturnRoute;
+  const onOauthReturnRoute = pathname === ROUTES.KAI_PLAID_OAUTH_RETURN;
   const localKaiPreview = isLocalKaiPreviewRequest({
     pathname,
     searchParams,

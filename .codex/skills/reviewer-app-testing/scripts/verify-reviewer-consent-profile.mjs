@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { createReviewerSessionHarness } from "./reviewer-session-harness.mjs";
 import { prepareReviewerRehearsal } from "./reviewer-rehearsal-preflight.mjs";
 import { resolveReviewerTestIdentity, resolveReviewerCounterpartIdentity, defaultReviewerIdentityEnvFiles } from "../../../../hushh-webapp/scripts/testing/reviewer-test-identity.mjs";
-import { requireEvidence, createDraftAdmission, assertRequestState, matchesExpectedJson, safeFailureCode, matchesOwnerBinding, assertGrantTiming } from "./consent-rehearsal-contract.mjs";
+import { requireEvidence, createDraftAdmission, assertRequestState, matchesExpectedJson, matchesExpectedJsonDigest, safeFailureCode, matchesOwnerBinding, assertGrantTiming } from "./consent-rehearsal-contract.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
 const appOrigin = process.env.REVIEWER_APP_ORIGIN || "http://localhost:3003";
@@ -22,8 +22,11 @@ try {
   requireEvidence(process.env.REVIEWER_ALLOW_SHARED_MUTATIONS === "true", "MUTATION_AUTHORITY_REQUIRED");
   requireEvidence(Boolean(ownerRef && scopeRef && process.env.REVIEWER_UID && process.env.REVIEWER_COUNTERPART_UID), "EXPLICIT_PAIR_AND_SCOPE_REQUIRED");
   const expectedPayload = JSON.parse(process.env.REVIEWER_EXPECTED_PAYLOAD_JSON || "null");
-  requireEvidence(expectedPayload && typeof expectedPayload === "object" && !Array.isArray(expectedPayload)
-    && Object.keys(expectedPayload).length > 0, "EXACT_SYNTHETIC_PAYLOAD_REQUIRED");
+  const expectedDigest = process.env.REVIEWER_EXPECTED_PAYLOAD_SHA256;
+  requireEvidence(expectedDigest
+    ? /^[a-f0-9]{64}$/.test(expectedDigest) && expectedPayload === null
+    : expectedPayload && typeof expectedPayload === "object" && !Array.isArray(expectedPayload)
+      && Object.keys(expectedPayload).length > 0, "EXACT_SYNTHETIC_PAYLOAD_REQUIRED");
   await prepareReviewerRehearsal({ repoRoot, appOrigin });
   const options = { envFiles: defaultReviewerIdentityEnvFiles({ repoRoot, webDir: path.join(repoRoot, "hushh-webapp") }) };
   const identities = [resolveReviewerTestIdentity(options), resolveReviewerCounterpartIdentity(options)];
@@ -69,6 +72,7 @@ try {
   // Use the existing permission-bounded connection projection, never a name
   // match or an operator-provided public reference alone.
   phase = "bind-owner";
+  await harnesses[1].navigateInApp(requester.page, "/one/connect");
   const requesterIdentityToken = await requester.capture.identityToken();
   let boundOwner = false;
   for (let pageNumber = 1; pageNumber <= 100; pageNumber += 1) {
@@ -196,7 +200,10 @@ try {
     await card.waitFor({ state: "visible", timeout: 120000 });
     if (await card.getByTestId("person-profile-grant-reveal").isVisible().catch(() => false)) await card.getByTestId("person-profile-grant-reveal").click();
     await card.getByRole("button", { name: "JSON", exact: true }).click({ timeout: 120000 });
-    requireEvidence(await card.locator('pre[data-testid="person-profile-grant-value"]').evaluate(matchesExpectedJson, expectedPayload), "EXACT_READBACK_MISMATCH");
+    const value = card.locator('pre[data-testid="person-profile-grant-value"]');
+    requireEvidence(expectedDigest
+      ? await value.evaluate(matchesExpectedJsonDigest, expectedDigest)
+      : await value.evaluate(matchesExpectedJson, expectedPayload), "EXACT_READBACK_MISMATCH");
     await card.getByRole("button", { name: "Formatted", exact: true }).click();
     await harness.assertVaultContinuity(session.page, "exact profile readback");
     session.capture.assertNoCriticalApiFailures("exact profile readback");

@@ -2130,8 +2130,10 @@ async def list_information_shared_with_me(
                     if selected_person_name
                     else "Tell the person what their connections have granted. "
                 )
-                + "Values stay end-to-end encrypted; point them to the profilePath link "
-                "where their browser automatically decrypts and displays the records using their vault key."
+                + "Values stay end-to-end encrypted. If the bound Chat request card is "
+                "available, its reveal control opens approved information in their unlocked "
+                "app; do not claim to have read the private values from these grant labels. "
+                "Only offer the same-app profilePath if the person asks to open Profile."
                 if shares
                 else empty_message
             ),

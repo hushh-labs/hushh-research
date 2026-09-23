@@ -2349,66 +2349,6 @@
     }
   },
   {
-    "route": "/kai/alpaca/oauth/return",
-    "mode": "redirect",
-    "exemptionReason": "Compatibility redirect route only launches the canonical /one/kai/alpaca/oauth/return surface.",
-    "voicePlaybook": {
-      "playbookId": "route.kai.alpaca.oauth.return",
-      "purpose": "Help the person understand and use the return screen through its generated controls.",
-      "screen": "kai_alpaca_oauth_return",
-      "entryCue": "",
-      "proactivity": "ambient",
-      "primaryActionId": null,
-      "happyPathActionIds": [],
-      "requiredInputs": [],
-      "recoveries": {
-        "blocked": "Explain the current guard and retain the goal.",
-        "cancelled": "Respect the cancellation and retain a safe next step.",
-        "failed": "Acknowledge the failure without claiming completion.",
-        "timeout": "Retain the goal and offer one safe retry.",
-        "callbackError": "Return to the verified callback recovery path without claiming success.",
-        "routeMismatch": "Use the verified current route and its generated actions only."
-      },
-      "completionBoundary": "Completion is shown only after the correlated browser settlement succeeds.",
-      "nextRoute": null,
-      "returnPolicy": "navigate",
-      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
-    }
-  },
-  {
-    "route": "/one/kai/alpaca/oauth/return",
-    "mode": "standard",
-    "shellVerification": {
-      "file": "app/one/kai/alpaca/oauth/return/page.tsx",
-      "includes": [
-        "AppPageShell",
-        "AppPageContentRegion"
-      ]
-    },
-    "voicePlaybook": {
-      "playbookId": "route.one.kai.alpaca.oauth.return",
-      "purpose": "Help the person understand and use the return screen through its generated controls.",
-      "screen": "kai_alpaca_oauth_return",
-      "entryCue": "",
-      "proactivity": "ambient",
-      "primaryActionId": null,
-      "happyPathActionIds": [],
-      "requiredInputs": [],
-      "recoveries": {
-        "blocked": "Explain the current guard and retain the goal.",
-        "cancelled": "Respect the cancellation and retain a safe next step.",
-        "failed": "Acknowledge the failure without claiming completion.",
-        "timeout": "Retain the goal and offer one safe retry.",
-        "callbackError": "Return to the verified callback recovery path without claiming success.",
-        "routeMismatch": "Use the verified current route and its generated actions only."
-      },
-      "completionBoundary": "Completion is shown only after the correlated browser settlement succeeds.",
-      "nextRoute": null,
-      "returnPolicy": "navigate",
-      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
-    }
-  },
-  {
     "route": "/kai/portfolio",
     "mode": "redirect",
     "exemptionReason": "Compatibility redirect route only launches the canonical /one/kai/portfolio surface.",

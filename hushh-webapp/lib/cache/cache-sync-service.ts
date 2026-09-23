@@ -591,7 +591,8 @@ export class CacheSyncService {
   }
 
   static onPlaidSourceProjected(userId: string): void {
-    this.invalidateKaiFinancialResource(userId);
+    // The device copy holds the same projection and would reopen stale.
+    this.invalidateKaiFinancialResource(userId, { includeDevice: true });
     this.onKaiMarketContextChanged(userId);
   }
 

@@ -25,6 +25,8 @@ export interface PlaidVaultLinkTokenRequest {
   redirect_uri?: string | null;
   /** Local native proof only; never selects a provider environment. */
   sandbox_proof?: boolean;
+  /** Update mode (relink): the sealed token of the Item being repaired. */
+  access_token?: string | null;
 }
 
 export interface PlaidVaultLinkTokenResponse {

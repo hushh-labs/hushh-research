@@ -151,9 +151,10 @@ Notes:
 ### `/one/kai/plaid/oauth/return`
 - UI: `hushh-webapp/app/kai/plaid/oauth/return/page.tsx`
 - Session helper: `hushh-webapp/lib/kai/brokerage/plaid-oauth-session.ts`
-- Backend route: `consent-protocol/api/routes/kai/plaid.py`
-- Backend service: `consent-protocol/hushh_mcp/services/plaid_portfolio_service.py`
-- Persistence: `kai_plaid_link_sessions`
+- Backend route: `consent-protocol/api/routes/kai/plaid_vault.py` (stateless pass-through; the
+  server-held Plaid routes, service, and webhook were retired, see
+  [plaid-vault-passthrough.md](./plaid-vault-passthrough.md))
+- Persistence: none on the server; the access token is sealed in the person's vault
 
 ### `/one/kai/analysis`
 - UI stream consumer: `hushh-webapp/components/kai/debate-stream-view.tsx`
