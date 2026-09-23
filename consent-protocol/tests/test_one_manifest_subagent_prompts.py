@@ -15,6 +15,12 @@ def test_one_chat_receives_authored_cross_connector_semantic_policy():
     assert "When a request spans connected services" in authored
     assert authored.strip() in composed
     assert "A connection or a read grant is not permission" in composed
+    assert (
+        "connecting or selecting files in the Connections panel does not establish that grant"
+        in composed
+    )
+    assert "Never use the broader MCP path as a fallback" in composed
+    assert "SELECTED-FILE DRIVE READ ADMISSION: disabled" in composed
 
 
 @pytest.mark.parametrize("child_id", ["one_intro", "google_search"])

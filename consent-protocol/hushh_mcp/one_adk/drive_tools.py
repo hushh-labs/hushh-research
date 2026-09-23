@@ -10,6 +10,7 @@ from google.adk.tools.tool_context import ToolContext
 from hushh_mcp.adk_bridge.delegation import validate_first_party_owner_token
 from hushh_mcp.one_adk.request_secrets import resolve_request_secret
 from hushh_mcp.runtime_settings import pod_mode
+from hushh_mcp.services.google_connection_service import GoogleConnectionError
 from hushh_mcp.services.google_drive_mcp_service import GoogleDriveMcpService
 
 DRIVE_READ_TOOL_NAME = "read_google_drive"
@@ -64,10 +65,17 @@ async def read_google_drive(
         result = await _service().read_tool(
             user_id=user_id, tool_name=tool_name, arguments=arguments
         )
+    except GoogleConnectionError as error:
+        if error.status_code == 403:
+            return {
+                "status": "permission_required",
+                "message": "This Drive read permission is not active. The selected-file library in Connections is separate.",
+            }
+        return {"status": "unavailable", "message": "Drive could not complete that read."}
     except Exception:  # noqa: BLE001 - provider diagnostics may contain private content
         return {
             "status": "unavailable",
-            "message": "Drive could not be read. Check the connection and try again.",
+            "message": "Drive could not be read right now. Try again later.",
         }
     # A lock/revocation/account change while MCP was running cannot publish
     # the private result to the model or browser.

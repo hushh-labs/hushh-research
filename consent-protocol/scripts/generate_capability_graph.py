@@ -854,7 +854,7 @@ def main() -> int:
     if args.check and stale:
         joined = ", ".join(str(path.relative_to(REPO_ROOT)) for path in stale)
         raise SystemExit(
-            f"CapabilityGraphV1 artifacts are stale: {joined}. Run npm run build:voice-gateway."
+            f"CapabilityGraphV1 artifacts are stale: {joined}. Run npm run build:capability-graph."
         )
     print(
         "CapabilityGraphV1 is current "
