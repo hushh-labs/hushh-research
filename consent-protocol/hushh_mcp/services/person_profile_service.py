@@ -249,16 +249,20 @@ class PersonProfileService:
             "subject": subject_user_id,
             "fetch_limit": limit + 1,
         }
-        position_sql = ""
+        history_sql = """
+            SELECT bundle.bundle_id, bundle.purpose, bundle.duration_seconds,
+                   bundle.created_at, bundle.cancelled_at,
+                   (SELECT COUNT(*) FROM one_information_request_items item
+                    WHERE item.bundle_id = bundle.bundle_id) AS item_count
+            FROM one_information_request_bundles bundle
+            WHERE bundle.requester_user_id = :viewer
+              AND bundle.subject_user_id = :subject
+            ORDER BY bundle.created_at DESC, bundle.bundle_id DESC
+            LIMIT :fetch_limit
+        """
         if position is not None:
             params["cursor_created_at"], params["cursor_bundle_id"] = position
-            position_sql = """AND (bundle.created_at, bundle.bundle_id) <
-              (CAST(:cursor_created_at AS TIMESTAMPTZ), CAST(:cursor_bundle_id AS UUID))"""
-        rows = await asyncio.to_thread(
-            lambda: (
-                get_db()
-                .execute_raw(
-                    f"""
+            history_sql = """
                 SELECT bundle.bundle_id, bundle.purpose, bundle.duration_seconds,
                        bundle.created_at, bundle.cancelled_at,
                        (SELECT COUNT(*) FROM one_information_request_items item
@@ -266,16 +270,12 @@ class PersonProfileService:
                 FROM one_information_request_bundles bundle
                 WHERE bundle.requester_user_id = :viewer
                   AND bundle.subject_user_id = :subject
-                  {position_sql}
+                  AND (bundle.created_at, bundle.bundle_id) <
+                    (CAST(:cursor_created_at AS TIMESTAMPTZ), CAST(:cursor_bundle_id AS UUID))
                 ORDER BY bundle.created_at DESC, bundle.bundle_id DESC
                 LIMIT :fetch_limit
-                """,
-                    params,
-                )
-                .data
-                or []
-            )
-        )
+            """
+        rows = await asyncio.to_thread(lambda: get_db().execute_raw(history_sql, params).data or [])
         page = rows[:limit]
         next_cursor = (
             _history_cursor(page[-1]["created_at"], str(page[-1]["bundle_id"]), public_person_ref)
