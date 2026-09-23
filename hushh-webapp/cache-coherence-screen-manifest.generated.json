@@ -10,16 +10,16 @@
     "cache_reference": "../docs/reference/architecture/cache-coherence.md"
   },
   "summary": {
-    "total_screens": 141,
-    "physical_page_count": 140,
-    "route_contract_count": 141,
-    "surface_map_count": 141,
+    "total_screens": 139,
+    "physical_page_count": 138,
+    "route_contract_count": 139,
+    "surface_map_count": 139,
     "class_counts": {
       "public/auth-split": 1,
-      "redirect/alias": 49,
+      "redirect/alias": 48,
       "vault-backed": 53,
       "hidden flow": 17,
-      "auth/pre-vault": 6,
+      "auth/pre-vault": 5,
       "RIA/provider": 8,
       "PKM-secure": 6,
       "public/static": 1
@@ -569,46 +569,6 @@
       ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fkai",
-      "surface_map_present": true,
-      "route_contract_present": true,
-      "evidence": {
-        "cache_service": false,
-        "use_stale_resource": false,
-        "device_cache": false,
-        "secure_cache": false,
-        "cache_sync": false,
-        "resource_wrapper": false,
-        "direct_fetch": false,
-        "api_service": false,
-        "hushh_loader": false,
-        "sse_or_streaming": false,
-        "native_beacon": false
-      },
-      "findings": []
-    },
-    {
-      "route": "/kai/alpaca/oauth/return",
-      "page_file": "app/kai/alpaca/oauth/return/page.tsx",
-      "route_contract_mode": "redirect",
-      "screen_class": "redirect/alias",
-      "cache_policy": "none",
-      "cache_keys": [],
-      "resource_classes": [
-        "unknown"
-      ],
-      "sensitivity_class": "app-metadata",
-      "ttl_class": "none",
-      "warm_source": "none",
-      "refresh_trigger": "none",
-      "mutation_invalidator": "none",
-      "best_available_ux_path": [
-        "static render"
-      ],
-      "readiness_kpis": [
-        "route_readiness_completed"
-      ],
-      "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fkai%2Falpaca%2Foauth%2Freturn",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -1909,54 +1869,6 @@
       "findings": [
         "no local cache primitive detected in page/contract source"
       ]
-    },
-    {
-      "route": "/one/kai/alpaca/oauth/return",
-      "page_file": "app/one/kai/alpaca/oauth/return/page.tsx",
-      "route_contract_mode": "standard",
-      "screen_class": "auth/pre-vault",
-      "cache_policy": "memory-only",
-      "cache_keys": [
-        "KAI_FINANCIAL_RESOURCE",
-        "STOCK_CONTEXT",
-        "PKM_METADATA"
-      ],
-      "resource_classes": [
-        "auth_state"
-      ],
-      "sensitivity_class": "auth-state",
-      "ttl_class": "single-use",
-      "warm_source": "UnlockWarmOrchestrator plus route resource loader",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
-      "best_available_ux_path": [
-        "fresh memory",
-        "cold loader"
-      ],
-      "readiness_kpis": [
-        "route_readiness_completed",
-        "cache_resource_resolved",
-        "route_refresh_completed",
-        "warmup_completed"
-      ],
-      "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fone%2Fkai%2Falpaca%2Foauth%2Freturn",
-      "surface_map_present": true,
-      "route_contract_present": true,
-      "evidence": {
-        "cache_service": false,
-        "use_stale_resource": false,
-        "device_cache": false,
-        "secure_cache": false,
-        "cache_sync": false,
-        "resource_wrapper": false,
-        "direct_fetch": false,
-        "api_service": false,
-        "hushh_loader": true,
-        "sse_or_streaming": false,
-        "native_beacon": false
-      },
-      "findings": []
     },
     {
       "route": "/one/kai/analysis",
@@ -6325,5 +6237,5 @@
       ]
     }
   ],
-  "content_sha256": "ab76f64c81b4ed20cc377b9d9f78e7d51fd4db7d9045e46d37942100786c8a8e"
+  "content_sha256": "28b709353014888ad3cd39d724f63545b2edaee72b120165f79659b09f0014e3"
 }

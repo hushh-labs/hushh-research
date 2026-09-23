@@ -11,6 +11,7 @@ const coordinator = vi.hoisted(() => ({ saveMergedDomain: vi.fn() }));
 const domainResource = vi.hoisted(() => ({ prepareDomainWriteContext: vi.fn() }));
 const linkLoader = vi.hoisted(() => ({ loadPlaidLink: vi.fn() }));
 const pendingSeal = vi.hoisted(() => ({ recordPendingSeal: vi.fn(), clearPendingSeal: vi.fn() }));
+const linkPlatform = vi.hoisted(() => ({ value: "ios" as "ios" | "android" | "web" }));
 const nativeRuntime = vi.hoisted(() => ({
   isNativePlatform: vi.fn(() => false),
   get: vi.fn(),
@@ -20,16 +21,20 @@ vi.mock("@/lib/kai/plaid-vault/vault-client", () => client);
 vi.mock("@capacitor/core", () => ({ Capacitor: { isNativePlatform: (...args: unknown[]) => nativeRuntime.isNativePlatform(...args) } }));
 vi.mock("@capacitor/preferences", () => ({ Preferences: { get: (...args: unknown[]) => nativeRuntime.get(...args) } }));
 vi.mock("@/lib/services/pkm-write-coordinator", () => ({ PkmWriteCoordinator: coordinator }));
-vi.mock("@/lib/capacitor/plaid-link", () => ({ resolvePlaidLinkPlatform: async () => "ios" }));
-vi.mock("@/lib/kai/brokerage/plaid-redirect-uri", () => ({
+vi.mock("@/lib/capacitor/plaid-link", () => ({ resolvePlaidLinkPlatform: async () => linkPlatform.value }));
+vi.mock("@/lib/kai/brokerage/plaid-redirect-uri", async (importActual) => ({
+  ...(await importActual<typeof import("@/lib/kai/brokerage/plaid-redirect-uri")>()),
   resolvePlaidRedirectUri: () => "https://uat.one.hushh.ai/one/kai/plaid/oauth/return",
 }));
 vi.mock("@/lib/kai/brokerage/plaid-link-loader", () => linkLoader);
 vi.mock("@/lib/kai/plaid-vault/pending-seal", () => pendingSeal);
 vi.mock("@/lib/pkm/pkm-domain-resource", () => ({ PkmDomainResourceService: domainResource }));
 
+import { loadPlaidOAuthResumeSession } from "@/lib/kai/brokerage/plaid-oauth-session";
 import {
   buildVaultPlaidStatus,
+  completeVaultOAuthReturn,
+  connectVaultPlaid,
   createVaultLink,
   PLAID_SANDBOX_PROOF_PREFERENCE_KEY,
   refreshVaultConnections,
@@ -74,6 +79,8 @@ function saveRunsBuild(current: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.unstubAllEnvs();
+  linkPlatform.value = "ios";
+  window.sessionStorage.clear();
   nativeRuntime.isNativePlatform.mockReturnValue(false);
   nativeRuntime.get.mockResolvedValue({ value: null });
   plans.length = 0;
@@ -399,5 +406,144 @@ describe("the orphan guard around a seal", () => {
     ).rejects.toThrow();
 
     expect(pendingSeal.clearPendingSeal).not.toHaveBeenCalled();
+  });
+});
+
+describe("a bank's OAuth login on the web", () => {
+  const REDIRECT = "https://uat.one.hushh.ai/one/kai/plaid/oauth/return";
+  let received: Array<Record<string, unknown>> = [];
+
+  function linkThat(outcome: "success" | "exit" | "leaves") {
+    linkLoader.loadPlaidLink.mockResolvedValue({
+      create: (config: Record<string, unknown> & { onSuccess: (t: string) => void; onExit: (e: null) => void }) => {
+        received.push(config);
+        return {
+          // "leaves": the bank takes the page away, so Link never calls back.
+          open: () =>
+            outcome === "success"
+              ? config.onSuccess("public-sandbox-oauth")
+              : outcome === "exit"
+                ? config.onExit(null)
+                : undefined,
+          destroy: vi.fn(),
+        };
+      },
+    });
+  }
+
+  beforeEach(() => {
+    received = [];
+    linkPlatform.value = "web";
+    client.createVaultLinkToken.mockResolvedValue({ link_token: "link-web", expiration: "x" });
+    saveRunsBuild();
+  });
+
+  it("sends no redirect URI on native Android, where the SDK hands the login back", async () => {
+    linkPlatform.value = "android";
+    const link = await createVaultLink({ vaultOwnerToken: "vot" });
+
+    expect(link.redirectUri).toBeNull();
+    expect(client.createVaultLinkToken.mock.calls[0]![0].request.redirect_uri).toBeNull();
+  });
+
+  it("remembers only the link token before Link leaves the page", async () => {
+    linkThat("leaves");
+    void connectVaultPlaid({ userId: "owner", vaultKey: "vk", vaultOwnerToken: "vot" });
+    await vi.waitFor(() => expect(received).toHaveLength(1));
+
+    const session = loadPlaidOAuthResumeSession();
+    expect(session).toMatchObject({ userId: "owner", linkToken: "link-web", redirectUri: REDIRECT });
+    expect(JSON.stringify(window.sessionStorage)).not.toContain("access-");
+  });
+
+  it("clears the remembered session when Link finishes on the same page", async () => {
+    linkThat("exit");
+    await connectVaultPlaid({ userId: "owner", vaultKey: "vk", vaultOwnerToken: "vot" });
+
+    expect(loadPlaidOAuthResumeSession()).toBeNull();
+  });
+
+  it("finishes on the return page: re-opens Link with the bank's parameters and seals", async () => {
+    linkThat("leaves");
+    void connectVaultPlaid({ userId: "owner", vaultKey: "vk", vaultOwnerToken: "vot" });
+    await vi.waitFor(() => expect(received).toHaveLength(1));
+    const session = loadPlaidOAuthResumeSession()!;
+
+    linkThat("success");
+    const outcome = await completeVaultOAuthReturn({
+      userId: "owner",
+      vaultKey: "vk",
+      vaultOwnerToken: "vot",
+      session,
+      currentUrl: "http://localhost:3000/one/kai/plaid/oauth/return?oauth_state_id=abc",
+    });
+
+    expect(outcome).toMatchObject({ kind: "connect", result: { status: "connected", itemId: "item_1" } });
+    expect(received.at(-1)).toMatchObject({ token: "link-web", receivedRedirectUri: `${REDIRECT}?oauth_state_id=abc` });
+    expect(coordinator.saveMergedDomain.mock.calls[0]![0].confirmation.surface).toBe("web");
+    // Single use.
+    expect(loadPlaidOAuthResumeSession()).toBeNull();
+  });
+
+  it("refuses a return started by a different account, without opening Link", async () => {
+    linkThat("success");
+    const outcome = await completeVaultOAuthReturn({
+      userId: "someone-else",
+      vaultKey: "vk",
+      vaultOwnerToken: "vot",
+      session: {
+        version: 2,
+        userId: "owner",
+        linkToken: "link-web",
+        redirectUri: REDIRECT,
+        returnPath: "/one/kai",
+        startedAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      },
+      currentUrl: `${REDIRECT}?oauth_state_id=abc`,
+    });
+
+    expect(outcome.result.status).toBe("blocked");
+    expect(received).toHaveLength(0);
+    expect(client.exchangeVaultPublicToken).not.toHaveBeenCalled();
+  });
+
+  it("finishes a relink with a forced refresh and seals nothing new", async () => {
+    domainResource.prepareDomainWriteContext.mockResolvedValue({
+      domainData: {
+        connections_v1: {
+          item_1: {
+            access_token: ACCESS_TOKEN,
+            institution_id: "ins_109508",
+            products: ["transactions"],
+            linked_at: "2026-09-01T00:00:00Z",
+            transactions_cursor: "cursor-0",
+            last_refreshed_at: new Date().toISOString(),
+            status: "needs_relink",
+          },
+        },
+      },
+    });
+    client.fetchVaultSnapshot.mockResolvedValue(snapshot());
+    linkThat("success");
+    const outcome = await completeVaultOAuthReturn({
+      userId: "owner",
+      vaultKey: "vk",
+      vaultOwnerToken: "vot",
+      session: {
+        version: 2,
+        userId: "owner",
+        linkToken: "link-upd",
+        redirectUri: REDIRECT,
+        returnPath: "/one/kai",
+        startedAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        relinkItemId: "item_1",
+      },
+      currentUrl: `${REDIRECT}?oauth_state_id=abc`,
+    });
+
+    expect(outcome).toEqual({ kind: "relink", result: { status: "repaired", refreshed: 1 } });
+    expect(client.exchangeVaultPublicToken).not.toHaveBeenCalled();
   });
 });

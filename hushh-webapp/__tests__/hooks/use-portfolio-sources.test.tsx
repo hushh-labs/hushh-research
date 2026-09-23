@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   saveMergedDomain: vi.fn(),
   cacheSync: vi.fn(),
   warm: vi.fn(),
+  invalidateWarm: vi.fn(),
   trackGrowth: vi.fn(),
 }));
 
@@ -36,7 +37,7 @@ vi.mock("@/lib/cache/cache-sync-service", () => ({
 }));
 
 vi.mock("@/lib/services/unlock-warm-orchestrator", () => ({
-  UnlockWarmOrchestrator: { run: mocks.warm },
+  UnlockWarmOrchestrator: { run: mocks.warm, invalidateForUser: mocks.invalidateWarm },
 }));
 
 vi.mock("@/lib/observability/growth", () => ({
@@ -186,6 +187,11 @@ describe("usePortfolioSources", () => {
 
     expect(result.current.isChangingSource).toBe(false);
     expect(result.current.activeSource).toBe("plaid");
+    // The re-warm must not reuse the warm result from before the change.
+    expect(mocks.invalidateWarm).toHaveBeenCalledWith("reviewer-user");
+    expect(mocks.invalidateWarm.mock.invocationCallOrder[0]!).toBeLessThan(
+      mocks.warm.mock.invocationCallOrder[0]!,
+    );
     const call = mocks.saveMergedDomain.mock.calls[0]![0];
     expect(call.confirmation).toMatchObject({
       confirmedByUser: true,

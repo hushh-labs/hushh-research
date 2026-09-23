@@ -22,7 +22,12 @@ import { Capacitor } from "@capacitor/core";
 import { Preferences } from "@capacitor/preferences";
 import { resolvePlaidLinkPlatform } from "@/lib/capacitor/plaid-link";
 import { loadPlaidLink } from "@/lib/kai/brokerage/plaid-link-loader";
-import { resolvePlaidRedirectUri } from "@/lib/kai/brokerage/plaid-redirect-uri";
+import { mergePlaidCallbackQuery, resolvePlaidRedirectUri } from "@/lib/kai/brokerage/plaid-redirect-uri";
+import {
+  clearPlaidOAuthResumeSession,
+  savePlaidOAuthResumeSession,
+  type PlaidOAuthResumeSession,
+} from "@/lib/kai/brokerage/plaid-oauth-session";
 import { clearPendingSeal, recordPendingSeal } from "@/lib/kai/plaid-vault/pending-seal";
 import {
   buildFinancialDomainSummary,
@@ -194,19 +199,48 @@ export async function createVaultLink(params: {
   vaultOwnerToken: string;
   /** Update mode: repair the Item this sealed token belongs to. */
   accessToken?: string;
-}): Promise<{ linkToken: string; platform: VaultSurface }> {
+}): Promise<{ linkToken: string; platform: VaultSurface; redirectUri: string | null }> {
   const platform = await resolvePlaidLinkPlatform();
   const sandboxProof = await requirePlaidSandboxProofMarker();
+  const redirectUri = platform === "android" ? null : resolvePlaidRedirectUri() ?? null;
   const link = await createVaultLinkToken({
     vaultOwnerToken: params.vaultOwnerToken,
     request: {
       platform,
-      redirect_uri: platform === "android" ? null : resolvePlaidRedirectUri(),
+      redirect_uri: redirectUri,
       ...(sandboxProof ? { sandbox_proof: true } : {}),
       ...(params.accessToken ? { access_token: params.accessToken } : {}),
     },
   });
-  return { linkToken: link.link_token, platform: surfaceFor(platform) };
+  return { linkToken: link.link_token, platform: surfaceFor(platform), redirectUri };
+}
+
+/**
+ * On the web an OAuth bank takes the whole page away and returns to the
+ * redirect URI, so the pending connect call never resolves. Remember just
+ * enough (the link token, never an access token) for the return page to
+ * re-open Link and seal the connection. Native keeps Link in its own process
+ * and needs none of this.
+ */
+export function rememberVaultOAuthReturn(params: {
+  userId: string;
+  link: { linkToken: string; platform: VaultSurface; redirectUri: string | null };
+  returnPath?: string;
+  onboardingAttemptId?: string;
+  relinkItemId?: string;
+}): void {
+  if (params.link.platform !== "web" || !params.link.redirectUri) return;
+  const returnPath =
+    params.returnPath ??
+    (typeof window !== "undefined" ? `${window.location.pathname}${window.location.search}` : "/");
+  savePlaidOAuthResumeSession({
+    userId: params.userId,
+    linkToken: params.link.linkToken,
+    redirectUri: params.link.redirectUri,
+    returnPath,
+    ...(params.onboardingAttemptId ? { onboardingAttemptId: params.onboardingAttemptId } : {}),
+    ...(params.relinkItemId ? { relinkItemId: params.relinkItemId } : {}),
+  });
 }
 
 export type SealedVaultConnection = {
@@ -305,13 +339,20 @@ export async function sealVaultPlaidConnection(params: {
   };
 }
 
-/** Open Plaid Link with a vault link token; resolves the public token, or null on exit. */
-export async function openVaultPlaidLink(linkToken: string): Promise<string | null> {
+/**
+ * Open Plaid Link with a vault link token; resolves the public token, or null
+ * on exit. `receivedRedirectUri` resumes a bank's OAuth login on the web.
+ */
+export async function openVaultPlaidLink(
+  linkToken: string,
+  options: { receivedRedirectUri?: string } = {},
+): Promise<string | null> {
   const Plaid = await loadPlaidLink();
   return new Promise<string | null>((resolve, reject) => {
     let settled = false;
     const handler = Plaid.create({
       token: linkToken,
+      ...(options.receivedRedirectUri ? { receivedRedirectUri: options.receivedRedirectUri } : {}),
       onSuccess: (token: string) => {
         if (settled) return;
         settled = true;
@@ -343,15 +384,16 @@ export async function connectVaultPlaid(params: {
   if (!vaultKey || !vaultOwnerToken) {
     return { status: "blocked", reason: "Unlock your vault to connect a bank." };
   }
-  const { linkToken, platform } = await createVaultLink({ vaultOwnerToken });
-  const publicToken = await openVaultPlaidLink(linkToken);
+  const link = await createVaultLink({ vaultOwnerToken });
+  rememberVaultOAuthReturn({ userId, link });
+  const publicToken = await openVaultPlaidLink(link.linkToken).finally(clearPlaidOAuthResumeSession);
   if (!publicToken) return { status: "exited" };
   const sealed = await sealVaultPlaidConnection({
     userId,
     vaultKey,
     vaultOwnerToken,
     publicToken,
-    surface: platform,
+    surface: link.platform,
   });
   return { status: "connected", itemId: sealed.itemId, institutionName: sealed.institutionName };
 }
@@ -381,11 +423,12 @@ export async function relinkVaultPlaid(params: {
   if (!connection?.access_token) {
     return { status: "blocked", reason: "That connection is no longer in your vault." };
   }
-  const { linkToken } = await createVaultLink({
+  const link = await createVaultLink({
     vaultOwnerToken,
     accessToken: connection.access_token,
   });
-  const publicToken = await openVaultPlaidLink(linkToken);
+  rememberVaultOAuthReturn({ userId, link, relinkItemId: itemId });
+  const publicToken = await openVaultPlaidLink(link.linkToken).finally(clearPlaidOAuthResumeSession);
   if (!publicToken) return { status: "exited" };
   const outcome = await refreshVaultConnections({
     userId,
@@ -395,6 +438,56 @@ export async function relinkVaultPlaid(params: {
     force: true,
   });
   return { status: "repaired", refreshed: outcome.refreshed };
+}
+
+export type VaultOAuthReturnResult =
+  | { kind: "connect"; result: VaultConnectResult }
+  | { kind: "relink"; result: VaultRelinkResult };
+
+/**
+ * Finishes a web bank login on the redirect page: re-opens Link with the
+ * link token remembered before the page left, then seals the new connection
+ * (or refreshes the repaired one). The session is single use.
+ */
+export async function completeVaultOAuthReturn(params: {
+  userId: string;
+  vaultKey: string | null | undefined;
+  vaultOwnerToken: string | null | undefined;
+  session: PlaidOAuthResumeSession;
+  currentUrl: string;
+}): Promise<VaultOAuthReturnResult> {
+  const { userId, vaultKey, vaultOwnerToken, session } = params;
+  clearPlaidOAuthResumeSession();
+  const blocked = (reason: string): VaultOAuthReturnResult =>
+    session.relinkItemId
+      ? { kind: "relink", result: { status: "blocked", reason } }
+      : { kind: "connect", result: { status: "blocked", reason } };
+  if (session.userId !== userId) return blocked("This bank login was started by a different account.");
+  if (!vaultKey || !vaultOwnerToken) return blocked("Unlock your vault to finish connecting.");
+
+  // Plaid matches this against the redirect URI the token was minted with,
+  // with the OAuth parameters the bank appended.
+  const receivedRedirectUri = mergePlaidCallbackQuery(session.redirectUri, params.currentUrl);
+  const publicToken = await openVaultPlaidLink(session.linkToken, { receivedRedirectUri });
+
+  if (session.relinkItemId) {
+    if (!publicToken) return { kind: "relink", result: { status: "exited" } };
+    const financial = await loadFinancialForVault({ userId, vaultKey, vaultOwnerToken });
+    const outcome = await refreshVaultConnections({ userId, vaultKey, vaultOwnerToken, financial, force: true });
+    return { kind: "relink", result: { status: "repaired", refreshed: outcome.refreshed } };
+  }
+  if (!publicToken) return { kind: "connect", result: { status: "exited" } };
+  const sealed = await sealVaultPlaidConnection({
+    userId,
+    vaultKey,
+    vaultOwnerToken,
+    publicToken,
+    surface: "web",
+  });
+  return {
+    kind: "connect",
+    result: { status: "connected", itemId: sealed.itemId, institutionName: sealed.institutionName },
+  };
 }
 
 export type VaultRefreshOutcome = {

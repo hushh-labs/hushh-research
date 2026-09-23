@@ -234,6 +234,9 @@ export function usePortfolioSources({
   const refreshDerivedMarketCaches = useCallback(async () => {
     if (!userId) return;
     CacheSyncService.onPlaidSourceProjected(userId);
+    // The sync above drops the warm result through a lazy import, which lands
+    // after the run below; without this the run returns the pre-change warm.
+    UnlockWarmOrchestrator.invalidateForUser(userId);
     if (!vaultKey || !vaultOwnerToken) return;
     await UnlockWarmOrchestrator.run({
       userId,

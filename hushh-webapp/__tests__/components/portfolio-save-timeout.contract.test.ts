@@ -10,12 +10,14 @@ function read(relativePath: string): string {
 }
 
 describe("statement Save to Vault completion contract", () => {
-  it("does not make source preference persistence hold the canonical save spinner", () => {
+  it("keeps the source choice in the saved record, with no server call after the save", () => {
     const source = read("components/kai/views/portfolio-review-view.tsx");
 
-    expect(source).toContain('"Updating portfolio source preference"');
-    expect(source).toContain("void runKaiStepWithTimeout(");
-    expect(source).not.toContain("await PlaidPortfolioService.setActiveSource");
+    // The statement save itself records the active source; the server
+    // preference table was removed with the server-held Plaid path.
+    expect(source).toContain('active_source: "statement"');
+    expect(source).not.toContain("PlaidPortfolioService");
+    expect(source).not.toContain('"Updating portfolio source preference"');
   });
 
   it("bounds the sample brokerage template and native multipart fallback", () => {

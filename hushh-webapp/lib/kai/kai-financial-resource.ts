@@ -23,12 +23,20 @@ import {
 } from "@/lib/kai/brokerage/portfolio-sources";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
 import { SecureResourceCacheService } from "@/lib/services/secure-resource-cache-service";
+import { currentPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
 
 const SECURE_RESOURCE_KEY = "kai_financial_resource_v1";
 const REQUEST_LABEL = "kai_financial_resource";
 const DEVICE_TTL_MS = 24 * 60 * 60 * 1000;
 
 const inflightNetworkLoads = new Map<string, Promise<KaiFinancialResource | null>>();
+// Bumped by invalidate(); together with the PKM write epoch it marks a read
+// that started before the latest change.
+const invalidationGenerations = new Map<string, number>();
+
+function readGeneration(userId: string): string {
+  return `${currentPkmInvalidationEpoch(userId)}:${invalidationGenerations.get(userId) ?? 0}`;
+}
 
 interface KaiFinancialResourceRequest {
   userId: string;
@@ -204,6 +212,9 @@ async function loadFinancialContext(
 async function loadNetworkResource(
   params: KaiFinancialResourceRequest
 ): Promise<KaiFinancialResource | null> {
+  // A write that lands while this read is in flight makes its result older
+  // than what is stored; it is still returned, but must not overwrite caches.
+  const startedAt = readGeneration(params.userId);
   // First-run statement import starts empty; everything else reads memory.
   const canUseSetupEmptyState =
     Boolean(params.skipEmptyFinancialProbe) &&
@@ -226,6 +237,10 @@ async function loadNetworkResource(
     source: "network",
   });
 
+  if (readGeneration(params.userId) !== startedAt) {
+    logRequest("stale_result_not_cached", { userId: params.userId });
+    return resource;
+  }
   const cache = CacheService.getInstance();
   cache.set(CACHE_KEYS.KAI_FINANCIAL_RESOURCE(params.userId), resource, CACHE_TTL.SESSION);
   primePortfolioCaches(resource);
@@ -434,6 +449,12 @@ export class KaiFinancialResourceService {
 
   static invalidate(userId: string, options?: { includeDevice?: boolean }): void {
     CacheService.getInstance().invalidate(CACHE_KEYS.KAI_FINANCIAL_RESOURCE(userId));
+    invalidationGenerations.set(userId, (invalidationGenerations.get(userId) ?? 0) + 1);
+    // A later refresh must read again rather than join a load that started
+    // before the change.
+    for (const key of inflightNetworkLoads.keys()) {
+      if (key.startsWith(`${userId}:`)) inflightNetworkLoads.delete(key);
+    }
     if (options?.includeDevice) {
       void SecureResourceCacheService.invalidateResource(userId, SECURE_RESOURCE_KEY);
     }

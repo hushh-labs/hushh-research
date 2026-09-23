@@ -556,11 +556,6 @@ const REDIRECT_EXPECTATIONS = {
     expectedPathname: "/one/kai/plaid/oauth/return",
     allowedRouteIds: ["/one/kai/plaid/oauth/return"],
   },
-  "/kai/alpaca/oauth/return": {
-    path: "/kai/alpaca/oauth/return",
-    expectedPathname: "/one/kai/alpaca/oauth/return",
-    allowedRouteIds: ["/one/kai/alpaca/oauth/return"],
-  },
   "/kai/dashboard": {
     path: "/kai/dashboard",
     expectedPathname: "/one/kai",

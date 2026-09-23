@@ -1311,14 +1311,14 @@ describe("ApiService.apiFetch", () => {
     }
   });
 
-  it("sends native Plaid status requests to the configured backend URL", async () => {
+  it("sends native Plaid vault requests to the configured backend URL", async () => {
     capacitorMocks.isNativePlatform.mockReturnValue(true);
     capacitorMocks.getPlatform.mockReturnValue("ios");
     capacitorMocks.request.mockResolvedValueOnce({
       status: 200,
       headers: { "content-type": "application/json" },
       data: { ok: true },
-      url: "https://api.hushh.ai/api/kai/plaid/status/user-123",
+      url: "https://api.hushh.ai/api/kai/plaid/vault/link-token",
     });
     const previousBackendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
     const previousServerBackendUrl = process.env.BACKEND_URL;
@@ -1327,8 +1327,10 @@ describe("ApiService.apiFetch", () => {
 
     try {
       const response = await ApiService.apiFetch(
-        "/api/kai/plaid/status/user-123",
+        "/api/kai/plaid/vault/link-token",
         {
+          method: "POST",
+          body: "{}",
           headers: { Authorization: "Bearer HCT:vault-owner-token" },
         },
       );
@@ -1336,7 +1338,7 @@ describe("ApiService.apiFetch", () => {
       expect(response.status).toBe(200);
       expect(capacitorMocks.request).toHaveBeenCalledWith(
         expect.objectContaining({
-          url: "https://api.hushh.ai/api/kai/plaid/status/user-123",
+          url: "https://api.hushh.ai/api/kai/plaid/vault/link-token",
         }),
       );
     } finally {
