@@ -106,6 +106,7 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "gmail_chat_reads": "GMAIL_CHAT_READS",
     "google_drive_chat_reads": "GOOGLE_DRIVE_CHAT_READS",
     "connector_internal_owner_cohort": "CONNECTOR_INTERNAL_OWNER_COHORT",
+    "connector_uat_all_users": "CONNECTOR_UAT_ALL_USERS",
     # Nearby check-in admission. Both are required to open the flow in
     # production -- the mode alone leaves it closed -- so that a half-finished
     # rollout fails safe. See `_nearby_presence_enabled` in the location routes.

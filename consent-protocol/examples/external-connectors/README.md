@@ -25,19 +25,9 @@ generic specialist as an arbitrary tool dispatcher under information-only
 authority. Copy/create and onward email delivery require separately reviewed
 action authority; document contents cannot supply that authority.
 
-The application adapter `google_drive_mcp_service.py` uses the existing shared
-Google connection owner, not a second generic OAuth credential for the same
-provider. It pins the official endpoint and rejects tools outside its explicit
-read set. The descriptor above remains a public-catalog inspection example: do
-not activate it as a generic OAuth row alongside the Google connection.
-
-Read-only Drive connection-management APIs and a shared Google callback API now
-use this same credential owner. They expose no private file reads. Current
-integration gaps: Chat invocation authority, the Drive sidebar connection caller
-and authenticated read acceptance remain open. A neutral browser callback and
-read-only native Drive SDK bridge exist, but are not a completed user flow. Google
-callback publication now has generation fencing and atomic local transactions;
-its provider-side revoke/reauthorization ordering remains unverified. Generic
-external OAuth also lacks the full refresh/native lifecycle and is not a
-shortcut. The descriptor contains no credentials, automatic activation, or
-grant of file-sharing permission.
+The descriptor remains a public-catalog inspection example. It must not be
+activated as a generic OAuth row. The retired `/api/one/drive/*` connection
+routes are intentionally unavailable; the selected-file Drive connector owns
+new connection, read, and sharing authority through the external connector
+boundary. The descriptor contains no credentials, automatic activation, or grant
+of file-sharing permission.

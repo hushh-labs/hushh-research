@@ -100,7 +100,7 @@ function makeToolEvent(overrides: Partial<AgentChatToolEvent> = {}): AgentChatTo
 }
 
 describe("AgentTurnStreamPanel", () => {
-  it("renders metadata provenance and opens Connections only on explicit click", () => {
+  it("renders metadata provenance and opens Connectors only on explicit click", () => {
     const onOpenConnections = vi.fn();
     const experience = { type: "one.connector_read.v1" as const, connector: "mail" as const,
       status: "ok" as const, sourceRefs: ["mail:1"], metadataOnly: true as const, truncated: true };
@@ -114,7 +114,7 @@ describe("AgentTurnStreamPanel", () => {
     rerender(<AgentTurnStreamPanel streamEvents={[]} responseText="Reconnect your Mail."
       isStreaming={false} structuredExperience={{ ...experience, status: "reconnect_required", sourceRefs: [] }}
       onOpenConnections={onOpenConnections} />);
-    fireEvent.click(screen.getByRole("button", { name: "Open Connections" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open Connectors" }));
     expect(onOpenConnections).toHaveBeenCalledOnce();
     expect(screen.queryByText("Mail 1")).not.toBeInTheDocument();
   });

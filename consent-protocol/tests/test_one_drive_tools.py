@@ -9,6 +9,18 @@ from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
 from hushh_mcp.services.google_connection_service import GoogleConnectionError
 
 
+def test_live_chat_does_not_register_legacy_account_wide_drive_tools():
+    from api.routes.one import agent_chat
+
+    names = {
+        getattr(tool, "name", getattr(tool, "__name__", ""))
+        for tool in agent_chat._app.root_agent.tools
+    }
+    assert "ask_documents_agent" in names
+    assert drive_tools.DRIVE_READ_TOOL_NAME not in names
+    assert drive_tools.DRIVE_DISCOVERY_TOOL_NAME not in names
+
+
 def _context(user_id="owner", admitted=True):
     return SimpleNamespace(
         user_id=user_id,

@@ -49,7 +49,7 @@ const connected = (service = "calendar") => ({
   status: "connected",
   service,
 });
-const attempt = (service = "drive") => ({
+const attempt = (service = "calendar") => ({
   service,
   attemptId: "synthetic-attempt",
   version: 1,
@@ -105,25 +105,16 @@ describe("GoogleOAuthReturnPage", () => {
       expect(mocks.replace).toHaveBeenCalledWith("/one/setup/calendar"),
     );
   });
-  it("returns Drive to connections even with a previous Calendar setup marker", async () => {
-    mocks.consumeSetupReturn.mockReturnValue(true);
-    mocks.completeConnect.mockResolvedValue(connected("drive"));
-    render(<GoogleOAuthReturnPage />);
-    await waitFor(() =>
-      expect(mocks.replace).toHaveBeenCalledWith("/one/profile/connectors"),
-    );
-  });
-  it("settles an exact Drive popup attempt", async () => {
+  it("settles an exact Calendar popup attempt", async () => {
     const popup = attempt();
     mocks.readAttempt.mockReturnValue(popup);
-    mocks.completeConnect.mockResolvedValue(connected("drive"));
     render(<GoogleOAuthReturnPage />);
     await waitFor(() =>
       expect(mocks.settle).toHaveBeenCalledWith(popup, "succeeded"),
     );
     expect(mocks.replace).not.toHaveBeenCalled();
   });
-  it.each([undefined, "contacts"])(
+  it.each([undefined, "contacts", "drive"])(
     "rejects unsupported returned service %s",
     async (service) => {
       mocks.completeConnect.mockResolvedValue({ ...connected(), service });
@@ -133,7 +124,7 @@ describe("GoogleOAuthReturnPage", () => {
     },
   );
   it("rejects popup service mismatch without changing destination", async () => {
-    mocks.readAttempt.mockReturnValue(attempt());
+    mocks.readAttempt.mockReturnValue(attempt("drive"));
     render(<GoogleOAuthReturnPage />);
     await waitFor(() =>
       expect(mocks.settle).toHaveBeenCalledWith(

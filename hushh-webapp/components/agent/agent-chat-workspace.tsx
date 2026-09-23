@@ -5836,6 +5836,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             <ConnectorsPanel
               open={isHistoryDrawerOpen && drawerMode === "connections"}
               onBack={() => setDrawerMode("chats")}
+              onClose={() => {
+                setIsHistoryDrawerOpen(false);
+                setDrawerMode("chats");
+              }}
               onAvailableChange={setConnectionsAvailable}
               onExternalModalChange={setConnectorExternalModalOpen}
               onPrepareRecovery={prepareDriveChatRecovery}

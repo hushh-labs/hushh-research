@@ -427,6 +427,7 @@ jobs:
           UAT_GMAIL_CHAT_READS: ${{ vars.GMAIL_CHAT_READS_UAT || 'false' }}
           UAT_GOOGLE_DRIVE_CHAT_READS: ${{ vars.GOOGLE_DRIVE_CHAT_READS_UAT || 'false' }}
           UAT_CONNECTOR_INTERNAL_OWNER_COHORT: ${{ vars.CONNECTOR_INTERNAL_OWNER_COHORT_UAT || '' }}
+          UAT_CONNECTOR_ALL_USERS: ${{ vars.CONNECTOR_UAT_ALL_USERS_UAT || 'false' }}
         run: |
           set -euo pipefail
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/sync_backend_runtime_secrets.py \
@@ -459,6 +460,7 @@ jobs:
             --gmail-chat-reads "$UAT_GMAIL_CHAT_READS" \
             --google-drive-chat-reads "$UAT_GOOGLE_DRIVE_CHAT_READS" \
             --connector-internal-owner-cohort "$UAT_CONNECTOR_INTERNAL_OWNER_COHORT" \
+            --connector-uat-all-users "$UAT_CONNECTOR_ALL_USERS" \
             --one-location-read-only-state-enabled "${{ steps.one_location_read_only_rollout.outputs.enabled }}" \
             --consent-center-summary-v2-enabled "${{ vars.CONSENT_CENTER_SUMMARY_V2_ENABLED || 'true' }}" \
             --db-bulk-batching-enabled "${{ vars.DB_BULK_BATCHING_ENABLED || 'false' }}" \
