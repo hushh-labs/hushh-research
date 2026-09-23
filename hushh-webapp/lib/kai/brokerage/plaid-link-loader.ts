@@ -1,8 +1,6 @@
 "use client";
 
-import { Capacitor } from "@capacitor/core";
-
-import { HushhPlaidLink } from "@/lib/capacitor/plaid-link";
+import { HushhPlaidLink, isNativePlaidLinkAvailable } from "@/lib/capacitor/plaid-link";
 import { markNativePlaidLinkOpened } from "@/lib/kai/brokerage/native-plaid-session";
 
 declare global {
@@ -30,10 +28,11 @@ let nativePlaidLink: PlaidLinkStatic | null = null;
 const PLAID_LINK_LOAD_TIMEOUT_MS = 15_000;
 
 /**
- * On the native shell, Plaid's own SDK (LinkKit on iOS) behind the same
- * `create(config).open()` shape the page already uses, so a bank's OAuth leg
- * and its return into the app are the SDK's, not the WebView's. Where the
- * native plugin is absent (Android, for now) the web SDK loads as before.
+ * On the native shell, Plaid's own SDK (LinkKit on iOS, the Link SDK on
+ * Android) behind the same `create(config).open()` shape the page already
+ * uses, so a bank's OAuth leg and its return into the app are the SDK's, not
+ * the WebView's. Where the native plugin is absent or reports the device
+ * unsupported, the web SDK loads as before.
  */
 function createNativePlaidLink(): PlaidLinkStatic {
   return {
@@ -91,7 +90,7 @@ export async function loadPlaidLink(): Promise<PlaidLinkStatic> {
   if (typeof window === "undefined") {
     throw new Error("Plaid Link is only available in the browser.");
   }
-  if (Capacitor.isNativePlatform() && Capacitor.isPluginAvailable("HushhPlaidLink")) {
+  if (await isNativePlaidLinkAvailable()) {
     nativePlaidLink ??= createNativePlaidLink();
     return nativePlaidLink;
   }

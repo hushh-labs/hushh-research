@@ -1,6 +1,7 @@
 "use client";
 
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { resolvePlaidLinkPlatform, type PlaidLinkPlatform } from "@/lib/capacitor/plaid-link";
 import { ApiService } from "@/lib/services/api-service";
 import { AuthService } from "@/lib/services/auth-service";
 import type {
@@ -62,6 +63,19 @@ export interface PlaidFundedTradeIntentCreateResponse {
 const PLAID_STATUS_CACHE_TTL_MS = 15_000;
 const DEFAULT_FUNDING_TERMS_VERSION =
   String(process.env.NEXT_PUBLIC_KAI_FUNDING_TERMS_VERSION || "").trim() || "v1";
+
+/**
+ * Plaid's Android SDK authenticates the app by package name and rejects a
+ * redirect URI beside it, so an Android-native token never carries one. Web
+ * Link and iOS LinkKit keep the https redirect URI.
+ */
+function linkTokenRedirectUri(
+  platform: PlaidLinkPlatform,
+  redirectUri: string | undefined,
+): string | null {
+  if (platform === "android") return null;
+  return redirectUri || null;
+}
 
 async function buildPlaidAuthHeaders(vaultOwnerToken?: string | null): Promise<Record<string, string>> {
   const token = String(vaultOwnerToken || "").trim();
@@ -210,10 +224,12 @@ export class PlaidPortfolioService {
     updateMode?: boolean;
     redirectUri?: string;
     environment?: string | null;
+    platform?: PlaidLinkPlatform;
   }): Promise<PlaidLinkTokenResponse> {
     const path = params.updateMode
       ? "/api/kai/plaid/link-token/update"
       : "/api/kai/plaid/link-token";
+    const platform = params.platform ?? (await resolvePlaidLinkPlatform());
     const response = await ApiService.apiFetch(path, {
       method: "POST",
       headers: {
@@ -223,8 +239,9 @@ export class PlaidPortfolioService {
       body: JSON.stringify({
         user_id: params.userId,
         item_id: params.itemId,
-        redirect_uri: params.redirectUri || null,
+        redirect_uri: linkTokenRedirectUri(platform, params.redirectUri),
         environment: params.environment || null,
+        platform,
       }),
     });
     if (!response.ok) {
@@ -441,7 +458,9 @@ export class PlaidPortfolioService {
     vaultOwnerToken: string;
     itemId?: string;
     redirectUri?: string;
+    platform?: PlaidLinkPlatform;
   }): Promise<PlaidLinkTokenResponse> {
+    const platform = params.platform ?? (await resolvePlaidLinkPlatform());
     const response = await ApiService.apiFetch("/api/kai/plaid/funding/link-token", {
       method: "POST",
       headers: {
@@ -451,7 +470,8 @@ export class PlaidPortfolioService {
       body: JSON.stringify({
         user_id: params.userId,
         item_id: params.itemId,
-        redirect_uri: params.redirectUri || null,
+        redirect_uri: linkTokenRedirectUri(platform, params.redirectUri),
+        platform,
       }),
     });
     if (!response.ok) {
