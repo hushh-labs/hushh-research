@@ -134,9 +134,10 @@ fixed MCP endpoint. Copy/create and unknown tools fail before credential retriev
 or dispatch. Owner-authenticated Drive connection routes use this existing
 credential owner, forbid broader permissions, and expose no file access.
 Shared web completion returns the service from the stored attempt, not browser
-metadata; wrong-service callbacks require a restart. This adapter is not yet
-exposed through a Chat tool or a complete browser/native connection flow;
-its presence does not establish end-to-end availability.
+metadata; wrong-service callbacks require a restart. The six reviewed read
+tools are wired to One's authenticated typed Chat roster, but live provider
+and native-device acceptance remain unverified; source wiring alone does not
+establish end-to-end availability.
 Onward sharing and private-agent delegation still require their existing separate
 authorities. Provider file content is untrusted information, not instructions.
 
