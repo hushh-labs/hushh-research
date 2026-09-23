@@ -23,6 +23,17 @@ export const CONNECT_CONNECTIONS_SUMMARY_CHEVRON_CLASSNAME =
  */
 export const CONNECT_PAGE_CONTENT_CLASSNAME = "min-w-0";
 
+/**
+ * SwipeViews clips neighbouring panes. Give its clipping viewport an 8px
+ * guard on either side, then restore the content's original alignment inside
+ * each pane. Without this, the Circles heading and first tile sit flush with
+ * the clip edge: a sub-pixel swipe offset can trim the first letter, and the
+ * tile's hover/focus border is cut at the same edge.
+ */
+export const CONNECT_SWIPE_CLIP_GUARD_CLASSNAME =
+  "-mx-2 w-[calc(100%+1rem)]";
+export const CONNECT_SWIPE_PANE_INSET_CLASSNAME = "px-2";
+
 /** Let identities use the room a responsive row gives them instead of cutting
  * meaningful names and masked contact details behind an ellipsis. */
 export const CONNECT_WRAPPING_TEXT_CLASSNAME =

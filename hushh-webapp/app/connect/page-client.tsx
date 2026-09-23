@@ -128,6 +128,8 @@ import { ContactSourceBadge } from "@/components/connections/contact-source-badg
 import {
   CONNECT_CONNECTION_LIST_CLASSNAME,
   CONNECT_PAGE_CONTENT_CLASSNAME,
+  CONNECT_SWIPE_CLIP_GUARD_CLASSNAME,
+  CONNECT_SWIPE_PANE_INSET_CLASSNAME,
   CONNECT_WRAPPING_TEXT_CLASSNAME,
   CONNECT_WRAPPING_TITLE_ROW_CLASSNAME,
 } from "./connect-surface-layout";
@@ -2882,6 +2884,7 @@ export default function ConnectPageClient() {
                       swipeable, the way Finance and Consent are; a swipe commits the
                       same route the tab pill pushes. */}
                   <SwipeViews
+                    className={CONNECT_SWIPE_CLIP_GUARD_CLASSNAME}
                     tabSetId={CONNECT_SURFACE_TAB_DEFINITION.id}
                     activeValue={surface}
                     options={CONNECT_SURFACE_TAB_DEFINITION.tabs}
@@ -2890,7 +2893,7 @@ export default function ConnectPageClient() {
                     viewportMinHeight="fill"
                     heightMode="active"
                   >
-                    <div data-connect-surface="all">
+                    <div data-connect-surface="all" className={CONNECT_SWIPE_PANE_INSET_CLASSNAME}>
                       {tab === "nearby" ? (
                         <div className="space-y-3">
                           <div className="px-1">{directorySelector}</div>
@@ -3727,7 +3730,7 @@ export default function ConnectPageClient() {
                         </div>
                       )}
                     </div>
-                    <div data-connect-surface="circles">
+                    <div data-connect-surface="circles" className={CONNECT_SWIPE_PANE_INSET_CLASSNAME}>
                     <ConnectCirclesTab
                       onStateChange={setCirclesState}
                       currentUserId={user?.uid ?? null}

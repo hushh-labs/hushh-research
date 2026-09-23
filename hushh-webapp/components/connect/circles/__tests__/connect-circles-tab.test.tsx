@@ -353,6 +353,50 @@ describe("ConnectCirclesTab", () => {
     vi.unstubAllGlobals();
   });
 
+  it("updates the circle card count and avatar preview when a member is added", async () => {
+    vi.stubGlobal("IntersectionObserver", class {
+      private callback: IntersectionObserverCallback;
+      constructor(callback: IntersectionObserverCallback) { this.callback = callback; }
+      observe() { this.callback([{ isIntersecting: true } as IntersectionObserverEntry], this as unknown as IntersectionObserver); }
+      disconnect() {}
+      unobserve() {}
+      takeRecords() { return []; }
+    });
+    let memberCount = 2;
+    mocks.listCircles.mockImplementation(async () => [circle("family", "Family", memberCount)]);
+    mocks.listCircleMembersPage.mockImplementation(async () => ({
+      items: [
+        { userId: "owner", displayName: "Owner", photoUrl: "https://example.com/owner.png" },
+        ...(memberCount > 2
+          ? [{ userId: "asha", displayName: "Asha", photoUrl: "https://example.com/asha.png" }]
+          : []),
+      ],
+      page: 1,
+      hasMore: false,
+      totalCount: memberCount,
+    }));
+    render(<ConnectCirclesTab currentUserId="owner-user" />);
+    const card = await screen.findByTestId("connect-circle-owned");
+    await waitFor(() => expect(within(card).getByText("2 people")).toBeTruthy());
+
+    memberCount = 3;
+    act(() => {
+      window.dispatchEvent(new CustomEvent("hushh:one-location-state-changed", {
+        detail: {
+          userId: "owner-user",
+          domains: ["circles"],
+          changedAt: Date.now(),
+          notificationType: "location_circle_member_added",
+          circleId: "family",
+        },
+      }));
+    });
+
+    await waitFor(() => expect(within(card).getByText("3 people")).toBeTruthy());
+    await waitFor(() => expect(card.querySelector('[data-photo-url="https://example.com/asha.png"]')).toBeTruthy());
+    vi.unstubAllGlobals();
+  });
+
   it("renders the server's name for a Circle you do not own", async () => {
     mocks.listCircles.mockResolvedValue([
       circle("theirs", "Alice's SMS Circle", 4, "sms", "member"),

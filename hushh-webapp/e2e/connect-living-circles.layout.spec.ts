@@ -10,8 +10,13 @@ import {
   CONNECT_HERO_ACTIONS_CLASSNAME,
   CONNECT_HERO_CLASSNAME,
 } from "../components/connect/connect-living-layout";
+import {
+  CONNECT_SWIPE_CLIP_GUARD_CLASSNAME,
+  CONNECT_SWIPE_PANE_INSET_CLASSNAME,
+} from "../app/connect/connect-surface-layout";
 import { buttonVariants } from "../lib/ui/button-variants";
 import { getVariantStyles } from "../lib/morphy-ux/utils";
+import { cn } from "../lib/utils";
 
 const widths = [320, 360, 390, 430, 768, 1440] as const;
 const primaryButtonClass = `${buttonVariants({ variant: "ghost", size: "standard" })} ${getVariantStyles("blue", "fill")} gap-2`;
@@ -27,6 +32,11 @@ const fixtureClasses = [
   CONNECT_CIRCLE_TILE_CLASSNAME,
   growthCardClass,
   candidateGridClass,
+  cn("w-full min-h-0 overflow-hidden", CONNECT_SWIPE_CLIP_GUARD_CLASSNAME),
+  CONNECT_SWIPE_PANE_INSET_CLASSNAME,
+  "flex w-full min-h-0 transform-gpu",
+  "flex-[0_0_100%] min-h-0 min-w-0 max-w-full",
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
   "mx-auto w-full max-w-[50rem] space-y-4",
   "relative size-full sm:hidden",
   "relative hidden size-full sm:block",
@@ -116,6 +126,21 @@ test.beforeAll(async () => {
           ${[1, 2, 3, 4].map((i) => `<div data-test="candidate" class="flex min-w-0 items-center gap-2 rounded-[var(--app-card-radius-compact)] px-2.5 py-2" style="background:#f3f5fb">Connection ${i}</div>`).join("")}
         </div>
       </section>
+      <h2 data-test="pager-alignment">Connect</h2>
+      <div data-test="pager" class="${cn("w-full min-h-0 overflow-hidden", CONNECT_SWIPE_CLIP_GUARD_CLASSNAME)}">
+        <div data-test="pager-track" class="flex w-full min-h-0 transform-gpu">
+          <div class="flex-[0_0_100%] min-h-0 min-w-0 max-w-full"></div>
+          <div class="flex-[0_0_100%] min-h-0 min-w-0 max-w-full">
+            <div class="${CONNECT_SWIPE_PANE_INSET_CLASSNAME}">
+              <p data-test="pager-copy">Bring people together for the things you share.</p>
+              <div class="${CONNECT_CIRCLE_GRID_CLASSNAME}">
+                <button data-test="pager-first-tile" class="${CONNECT_CIRCLE_TILE_CLASSNAME}">Trusted</button>
+                <button class="${CONNECT_CIRCLE_TILE_CLASSNAME}">SMS Circle</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </main></body></html>`,
   );
   fixtureUrl = pathToFileURL(path.join(dir, "fixture.html")).href;
@@ -188,5 +213,54 @@ for (const width of widths) {
     if (width < 360) {
       expect(geometry.tiles[0].bottom).toBeLessThanOrEqual(geometry.tiles[1].top);
     }
+  });
+}
+
+for (const width of [320, 390, 1440] as const) {
+  test(`Connect swipe clipping leaves the Circles copy and focus ring intact at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto(fixtureUrl);
+    const geometry = await page.evaluate(() => {
+      const pager = document.querySelector<HTMLElement>('[data-test="pager"]')!;
+      const track = document.querySelector<HTMLElement>('[data-test="pager-track"]')!;
+      const copy = document.querySelector<HTMLElement>('[data-test="pager-copy"]')!;
+      const tile = document.querySelector<HTMLElement>('[data-test="pager-first-tile"]')!;
+      const alignment = document.querySelector<HTMLElement>('[data-test="pager-alignment"]')!;
+      const viewport = pager.getBoundingClientRect();
+      const measure = () => ({
+        copy: copy.getBoundingClientRect(),
+        tile: tile.getBoundingClientRect(),
+      });
+      track.style.transform = `translate3d(-${pager.clientWidth}px, 0, 0)`;
+      const settled = measure();
+      // A drag can render between device pixels before the final Embla snap.
+      track.style.transform = `translate3d(-${pager.clientWidth + 3}px, 0, 0)`;
+      const inMotion = measure();
+      return {
+        viewport: { left: viewport.left, right: viewport.right },
+        alignmentLeft: alignment.getBoundingClientRect().left,
+        settled: {
+          copyLeft: settled.copy.left,
+          tileLeft: settled.tile.left,
+          tileRight: settled.tile.right,
+        },
+        inMotion: {
+          copyLeft: inMotion.copy.left,
+          tileLeft: inMotion.tile.left,
+          tileRight: inMotion.tile.right,
+        },
+        pageWidth: document.documentElement.scrollWidth,
+        clientWidth: document.documentElement.clientWidth,
+      };
+    });
+    expect(geometry.settled.copyLeft).toBeCloseTo(geometry.alignmentLeft, 0);
+    expect(geometry.settled.tileLeft).toBeCloseTo(geometry.alignmentLeft, 0);
+    for (const state of [geometry.settled, geometry.inMotion]) {
+      // Two pixels for the keyboard ring, plus tolerance for raster rounding.
+      expect(state.copyLeft).toBeGreaterThanOrEqual(geometry.viewport.left + 4);
+      expect(state.tileLeft).toBeGreaterThanOrEqual(geometry.viewport.left + 4);
+      expect(state.tileRight).toBeLessThanOrEqual(geometry.viewport.right - 4);
+    }
+    expect(geometry.pageWidth).toBeLessThanOrEqual(geometry.clientWidth);
   });
 }
