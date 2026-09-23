@@ -62,7 +62,9 @@ rollback() {
   local status="$?"
   local restore_failed=0
   local actual_uri actual_audience actual_revision
-  trap - ERR
+  trap - EXIT
+  # A second cancellation must not interrupt scheduler/traffic restoration.
+  trap '' INT TERM
   if [[ "${retargeted}" == true ]]; then
     BACKEND_URL="${previous_scheduler_uri%/api/internal/drive-work/drain}" \
       OIDC_AUDIENCE="${previous_scheduler_audience}" \
@@ -101,7 +103,9 @@ rollback() {
   echo "Drive worker candidate failed; connector execution must remain disabled" >&2
   exit "${status}"
 }
-trap rollback ERR
+trap rollback EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
 gcloud --quiet run deploy "${SERVICE}" \
   --project="${PROJECT_ID}" --region="${REGION}" --platform=managed \
@@ -189,5 +193,5 @@ if [[ "${verified}" != true ]]; then
   echo "Drive scheduler produced no fresh 200 completion" >&2
   false
 fi
-trap - ERR
+trap - EXIT INT TERM
 echo "Verified private Drive worker ${candidate_revision} at ${worker_url}, SHA ${DEPLOY_SHA}; scheduler returned 200"

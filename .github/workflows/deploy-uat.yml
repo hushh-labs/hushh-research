@@ -1853,9 +1853,22 @@ jobs:
           bash deploy/gmail/setup_personal_information_request_monitor_scheduler.sh \
             | tee /tmp/uat-personal-gmail-monitor-scheduler-setup.log
 
+      - name: Capture Drive scheduler before worker rollout
+        id: capture-drive-worker-scheduler
+        if: steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud scheduler jobs describe drive-work-drain-uat \
+            --project="${{ env.GCP_PROJECT_ID }}" --location="${{ env.GCP_REGION }}" \
+            --format=json > /tmp/uat-drive-worker-pre-scheduler.json
+          python3 deploy/drive/verify_scheduler_state.py capture \
+            --snapshot /tmp/uat-drive-worker-pre-scheduler.json \
+            --github-output "$GITHUB_OUTPUT"
+
       - name: Deploy and attest private Drive worker
         id: deploy-drive-worker
-        if: steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true'
+        if: steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true' && steps.capture-drive-worker-scheduler.outcome == 'success'
         shell: bash
         env:
           IMAGE_REFERENCE: ${{ steps.build-backend-image.outputs.image_reference }}
@@ -1889,6 +1902,24 @@ jobs:
           set -euo pipefail
           bash deploy/drive/rollback_after_worker_failure.sh \
             "${{ env.FRONTEND_SERVICE }}" "${{ steps.rollback-targets.outputs.frontend_revision }}"
+
+      - name: Verify Drive scheduler after worker failure
+        id: verify-drive-worker-scheduler-rollback
+        if: always() && steps.deploy-drive-worker.outcome == 'failure' && steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        env:
+          EXPECTED_SCHEDULER_URI: ${{ steps.capture-drive-worker-scheduler.outputs.uri }}
+          EXPECTED_SCHEDULER_AUDIENCE: ${{ steps.capture-drive-worker-scheduler.outputs.audience }}
+        run: |
+          set -euo pipefail
+          gcloud scheduler jobs describe drive-work-drain-uat \
+            --project="${{ env.GCP_PROJECT_ID }}" --location="${{ env.GCP_REGION }}" \
+            --format=json > /tmp/uat-drive-worker-post-scheduler.json
+          python3 deploy/drive/verify_scheduler_state.py verify \
+            --snapshot /tmp/uat-drive-worker-post-scheduler.json \
+            --expected-uri "$EXPECTED_SCHEDULER_URI" \
+            --expected-audience "$EXPECTED_SCHEDULER_AUDIENCE" \
+            --github-output "$GITHUB_OUTPUT"
 
       - name: Resolve final Cloud Run state
         if: always()
@@ -1950,6 +1981,10 @@ jobs:
           DRIVE_WORKER_ROLLBACK_COMPLETE=true
 
           if [ "${{ steps.deploy-drive-worker.outcome }}" = "failure" ]; then
+            if [ "${{ steps.verify-drive-worker-scheduler-rollback.outcome }}" != "success" ] \
+               || [ "${{ steps.verify-drive-worker-scheduler-rollback.outputs.restored }}" != "true" ]; then
+              DRIVE_WORKER_ROLLBACK_COMPLETE=false
+            fi
             if [ "${{ steps.rollback-targets.outputs.backend_revision }}" = "" ] \
                || [ "${{ steps.rollback-backend-after-drive-worker.outcome }}" != "success" ] \
                || [ "${{ steps.final-state.outputs.backend_revision }}" != "${{ steps.rollback-targets.outputs.backend_revision }}" ]; then
@@ -2009,6 +2044,8 @@ jobs:
                   "backend_url": "${{ steps.predeploy-state.outputs.backend_url }}",
                   "frontend_revision": "${{ steps.predeploy-state.outputs.frontend_revision }}",
                   "frontend_url": "${{ steps.predeploy-state.outputs.frontend_url }}",
+                  "drive_scheduler_uri": "${{ steps.capture-drive-worker-scheduler.outputs.uri }}",
+                  "drive_scheduler_audience": "${{ steps.capture-drive-worker-scheduler.outputs.audience }}",
               },
               "current": {
                   "backend_candidate_revision": "${{ steps.candidate-state.outputs.backend_revision }}",
@@ -2048,6 +2085,7 @@ jobs:
                   "drive_worker": "${{ steps.deploy-drive-worker.outcome }}",
                   "drive_worker_backend_rollback": "${{ steps.rollback-backend-after-drive-worker.outcome }}",
                   "drive_worker_frontend_rollback": "${{ steps.rollback-frontend-after-drive-worker.outcome }}",
+                  "drive_worker_scheduler_rollback": "${{ steps.verify-drive-worker-scheduler-rollback.outcome }}",
                   "blocking_classifications": "${{ steps.classify-uat-release.outputs.blocking_classifications }}",
               },
               "rollback_targets": {

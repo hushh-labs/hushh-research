@@ -16,6 +16,7 @@ UAT_WORKFLOW = ROOT / ".github" / "workflows" / "deploy-uat.yml"
 PRODUCTION_WORKFLOW = ROOT / ".github" / "workflows" / "deploy-production.yml"
 WORKER_RELEASE = ROOT / "deploy" / "drive" / "deploy_worker_service.sh"
 WORKER_ROLLBACK = ROOT / "deploy" / "drive" / "rollback_after_worker_failure.sh"
+SCHEDULER_STATE = ROOT / "deploy" / "drive" / "verify_scheduler_state.py"
 
 
 def test_scheduler_targets_only_the_bounded_oidc_drain_and_never_mutates_runtime_iam():
@@ -144,6 +145,9 @@ def test_worker_promotion_is_post_gate_attested_and_recoverable():
     assert 'retargeted=true\nBACKEND_URL="${worker_url}"' in release
     assert "actual_uri" in release and "actual_audience" in release
     assert "actual_revision" in release and "restore_failed" in release
+    assert "trap rollback EXIT" in release
+    assert "trap 'exit 130' INT" in release
+    assert "trap 'exit 143' TERM" in release
     assert "account-deletion-contract" in rollback
     assert "Refusing rollback from ambiguous serving traffic" in rollback
     assert "Late UAT rollback did not restore" in rollback
@@ -155,10 +159,161 @@ def test_worker_promotion_is_post_gate_attested_and_recoverable():
     assert workflow.index("id: rollback-backend-after-drive-worker") < workflow.index(
         "id: final-state"
     )
+    assert workflow.index("id: capture-drive-worker-scheduler") < workflow.index(
+        "id: deploy-drive-worker"
+    )
+    assert workflow.index("id: verify-drive-worker-scheduler-rollback") < workflow.index(
+        "id: final-state"
+    )
     assert "drive_worker_failure_rollback_complete" in workflow
+    scheduler_rollback_clause = workflow.split(
+        'if [ "${{ steps.verify-drive-worker-scheduler-rollback.outcome }}"', 1
+    )[1].split("fi", 1)[0]
+    assert "steps.verify-drive-worker-scheduler-rollback.outputs.restored" in (
+        scheduler_rollback_clause
+    )
+    assert "DRIVE_WORKER_ROLLBACK_COMPLETE=false" in scheduler_rollback_clause
+    assert (
+        '"drive_worker_failure_rollback_complete": os.environ["DRIVE_WORKER_ROLLBACK_COMPLETE"]'
+        in workflow
+    )
     assert "backend_sha" in workflow and "frontend_sha" in workflow
     assert 'if [ "$STATUS" != "healthy" ]; then' in workflow
     assert "_CLOUD_RUN_MEMORY=4Gi" in workflow
+
+
+def _scheduler_snapshot(uri: str, audience: str) -> dict[str, object]:
+    return {
+        "httpTarget": {
+            "uri": uri,
+            "oidcToken": {
+                "audience": audience,
+                "serviceAccountEmail": (
+                    "drive-work-drain-sched@hushh-pda-uat.iam.gserviceaccount.com"
+                ),
+            },
+        }
+    }
+
+
+def test_scheduler_capture_and_exact_rollback_verification(tmp_path: Path):
+    uri = "https://api.uat.hushh.ai/api/internal/drive-work/drain"
+    audience = "https://api.uat.hushh.ai"
+    snapshot = tmp_path / "scheduler.json"
+    output = tmp_path / "github-output"
+    snapshot.write_text(json.dumps(_scheduler_snapshot(uri, audience)), encoding="utf-8")
+
+    capture = subprocess.run(  # noqa: S603 - fixed repository-owned script
+        [
+            "python3",
+            str(SCHEDULER_STATE),
+            "capture",
+            "--snapshot",
+            str(snapshot),
+            "--github-output",
+            str(output),
+        ],
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+    assert capture.returncode == 0, capture.stderr
+    assert output.read_text(encoding="utf-8") == f"uri={uri}\naudience={audience}\n"
+
+    verify = subprocess.run(  # noqa: S603 - fixed repository-owned script
+        [
+            "python3",
+            str(SCHEDULER_STATE),
+            "verify",
+            "--snapshot",
+            str(snapshot),
+            "--expected-uri",
+            uri,
+            "--expected-audience",
+            audience,
+            "--github-output",
+            str(output),
+        ],
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+    assert verify.returncode == 0, verify.stderr
+    assert output.read_text(encoding="utf-8").endswith("restored=true\n")
+
+    snapshot.write_text(
+        json.dumps(
+            _scheduler_snapshot(
+                "https://consent-protocol-drive-worker-abc.a.run.app/api/internal/drive-work/drain",
+                audience,
+            )
+        ),
+        encoding="utf-8",
+    )
+    mismatch = subprocess.run(  # noqa: S603 - fixed repository-owned script
+        [
+            "python3",
+            str(SCHEDULER_STATE),
+            "verify",
+            "--snapshot",
+            str(snapshot),
+            "--expected-uri",
+            uri,
+            "--expected-audience",
+            audience,
+            "--github-output",
+            str(output),
+        ],
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+    assert mismatch.returncode != 0
+    assert "did not return to pre-worker state" in mismatch.stderr
+    assert output.read_text(encoding="utf-8").count("restored=true") == 1
+
+
+@pytest.mark.parametrize(
+    "snapshot",
+    [
+        _scheduler_snapshot(
+            "https://api.uat.hushh.ai/api/internal/drive-work/drain",
+            "https://api.uat.hushh.ai\nother=value",
+        ),
+        _scheduler_snapshot(
+            "https://api.uat.hushh.ai/api/internal/drive-work/drain?redirect=1",
+            "https://api.uat.hushh.ai",
+        ),
+        {
+            "httpTarget": {
+                "uri": "https://api.uat.hushh.ai/api/internal/drive-work/drain",
+                "oidcToken": {"audience": "https://api.uat.hushh.ai"},
+            }
+        },
+    ],
+)
+def test_scheduler_capture_rejects_malformed_or_wrong_identity(
+    tmp_path: Path, snapshot: dict[str, object]
+):
+    snapshot_path = tmp_path / "scheduler.json"
+    output = tmp_path / "github-output"
+    snapshot_path.write_text(json.dumps(snapshot), encoding="utf-8")
+    result = subprocess.run(  # noqa: S603 - fixed repository-owned script
+        [
+            "python3",
+            str(SCHEDULER_STATE),
+            "capture",
+            "--snapshot",
+            str(snapshot_path),
+            "--github-output",
+            str(output),
+        ],
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+    assert result.returncode != 0
+    assert not output.exists()
 
 
 @pytest.mark.parametrize(
@@ -168,6 +323,7 @@ def test_worker_promotion_is_post_gate_attested_and_recoverable():
         ("existing", True, True),
         ("ambiguous", False, False),
         ("list_error", False, False),
+        ("cancel_during_deploy", False, True),
     ],
 )
 def test_worker_deploy_traffic_flags_match_service_state(
@@ -184,6 +340,7 @@ def test_worker_deploy_traffic_flags_match_service_state(
         """#!/usr/bin/env python3
 import json
 import os
+import signal
 import sys
 
 args = sys.argv[1:]
@@ -194,7 +351,7 @@ state = os.environ["MOCK_WORKER_STATE"]
 if command[:3] == ["run", "services", "list"]:
     if state == "list_error":
         sys.exit(77)
-    names = ["consent-protocol-drive-worker"] if state != "absent" else []
+    names = ["consent-protocol-drive-worker"] if state in ("existing", "ambiguous") else []
     print(json.dumps([{"metadata": {"name": name}} for name in names]))
 elif command[:3] == ["run", "services", "describe"]:
     traffic = ([{"revisionName": "worker-previous-00001", "percent": 100}]
@@ -208,6 +365,9 @@ elif command[:3] == ["scheduler", "jobs", "describe"]:
     else:
         sys.exit(78)
 elif command[:2] == ["run", "deploy"]:
+    if state == "cancel_during_deploy":
+        os.kill(os.getppid(), signal.SIGTERM)
+        sys.exit(0)
     sys.exit(79)
 else:
     sys.exit(80)
@@ -254,3 +414,6 @@ else:
         assert "--container=clamav" in deploy
     elif worker_state == "ambiguous":
         assert "no unambiguous serving revision" in result.stderr
+    if worker_state == "cancel_during_deploy":
+        assert result.returncode == 143
+        assert "Drive worker candidate failed" in result.stderr
