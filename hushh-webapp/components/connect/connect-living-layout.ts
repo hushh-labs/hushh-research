@@ -9,7 +9,7 @@ export const CONNECT_HERO_ACTIONS_CLASSNAME =
   "mt-5 flex flex-col items-stretch justify-center gap-2.5 min-[440px]:flex-row min-[440px]:items-center";
 
 export const CONNECT_CIRCLE_GRID_CLASSNAME =
-  "grid grid-cols-1 gap-2.5 min-[360px]:grid-cols-2 sm:grid-cols-3 sm:gap-3";
+  "grid grid-cols-1 gap-3 sm:grid-cols-2";
 
 export const CONNECT_CIRCLE_TILE_CLASSNAME =
-  "press-scale group flex min-h-[12rem] min-w-0 flex-col items-center justify-center gap-2.5 rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-3 py-5 text-center transition-colors hover:border-[color:var(--app-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] motion-reduce:transition-none";
+  "press-scale group flex min-h-[10rem] min-w-0 flex-col items-start rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-4 text-left transition-[background-color,border-color,transform] hover:border-[color:var(--app-accent)] hover:bg-[color:var(--app-card-surface-compact)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] motion-reduce:transition-none";

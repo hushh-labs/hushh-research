@@ -479,12 +479,12 @@ describe("Connect — People", () => {
     render(<ConnectPageClient />);
 
     expect(await screen.findByText("Bring your people closer")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Find your first connection" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Add connection" })).toBeTruthy();
     expect(screen.getByRole("textbox", { name: "Search people" })).toBeTruthy();
     fireEvent.click(screen.getByText("How Connect works"));
     expect(screen.getByText(/send a connection request/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Explore circles" }));
-    expect(mocks.routerPush).toHaveBeenCalledWith("/one/connect?tab=circles", {
+    fireEvent.click(screen.getByRole("button", { name: "Create circle" }));
+    expect(mocks.routerPush).toHaveBeenCalledWith("/one/connect?tab=circles&action=create-circle", {
       scroll: false,
     });
   });

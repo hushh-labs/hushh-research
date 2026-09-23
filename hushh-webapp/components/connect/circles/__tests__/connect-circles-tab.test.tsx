@@ -292,11 +292,8 @@ describe("ConnectCirclesTab", () => {
     // Red, round and filled -- the identity, not a tinted utility well.
     expect(disc.className).toContain("bg-[color:var(--app-destructive)]");
     expect(disc.className).toContain("rounded-full");
-    // 28px, because these rows are `density="compact"` and that is the size of
-    // the icon well beside them. Location's list draws the same disc at 36px,
-    // which is the size of ITS rows -- dropping that one in here would make
-    // the SMS row taller than its neighbours and push it past the compact
-    // separator's 58px inset.
+    // The 28px status mark stays secondary to the 40px member photos; it does
+    // not compete with their identity or make the preview taller.
     expect(disc.className).toContain("h-7");
     expect(disc.className).toContain("w-7");
 
@@ -347,10 +344,22 @@ describe("ConnectCirclesTab", () => {
     await waitFor(() => expect(card.querySelectorAll("[data-photo-url]")).toHaveLength(3));
     expect(card.querySelector('[data-photo-url="https://example.com/asha.png"]')).toBeTruthy();
     expect(within(card).getByText("+4")).toBeTruthy();
+    expect(card.className).toContain("items-start");
+    expect(within(card).getByTestId("connect-circle-cluster").className).toContain("h-11");
+    expect(within(card).getByTestId("connect-circle-cluster").className).not.toContain("size-28");
     expect(mocks.listCircleMembersPage).toHaveBeenCalledWith(expect.objectContaining({
       circleId: "family", page: 1, limit: 4,
     }));
     vi.unstubAllGlobals();
+  });
+
+  it("gives an owner-only circle a compact empty preview without implying members", async () => {
+    mocks.listCircles.mockResolvedValue([circle("solo", "Workshop", 1)]);
+    render(<ConnectCirclesTab />);
+    const card = await screen.findByTestId("connect-circle-owned");
+    expect(within(card).getByText("No members yet")).toBeTruthy();
+    expect(within(card).getByTestId("connect-circle-cluster").querySelector("svg")).toBeTruthy();
+    expect(card.querySelector("[data-photo-url]")).toBeNull();
   });
 
   it("updates the circle card count and avatar preview when a member is added", async () => {

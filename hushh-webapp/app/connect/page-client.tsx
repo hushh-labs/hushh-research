@@ -2927,8 +2927,8 @@ export default function ConnectPageClient() {
                                   preventScroll: true,
                                 });
                               }}
-                              onExploreCircles={() =>
-                                router.push(CONNECT_CIRCLES_LIST_HREF, {
+                              onCreateCircle={() =>
+                                router.push(`${CONNECT_CIRCLES_LIST_HREF}&${CONNECT_CIRCLE_ACTION_PARAM}=create-circle`, {
                                   scroll: false,
                                 })
                               }

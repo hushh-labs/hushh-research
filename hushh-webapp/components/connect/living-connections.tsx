@@ -18,7 +18,7 @@ type LivingConnectionsProps = {
   loading: boolean;
   error: boolean;
   onFindPeople: () => void;
-  onExploreCircles: () => void;
+  onCreateCircle: () => void;
   onOpenPerson: (personRef: string) => void;
   onRetry: () => void;
 };
@@ -32,7 +32,7 @@ export function LivingConnections({
   loading,
   error,
   onFindPeople,
-  onExploreCircles,
+  onCreateCircle,
   onOpenPerson,
   onRetry,
 }: LivingConnectionsProps) {
@@ -99,22 +99,18 @@ export function LivingConnections({
             className="gap-2"
           >
             <UserPlus aria-hidden="true" className="size-4" />
-            {error && totalCount === 0
-              ? "Try again"
-              : isEmpty
-                ? "Find your first connection"
-                : "Find people"}
+            {error && totalCount === 0 ? "Try again" : "Add connection"}
           </Button>
           <Button
             type="button"
-            variant="none"
+            variant="blue"
             effect="fade"
             size="standard"
-            onClick={onExploreCircles}
+            onClick={onCreateCircle}
             className="gap-2"
           >
             <UsersRound aria-hidden="true" className="size-4" />
-            Explore circles
+            Create circle
           </Button>
         </div>
         <details className="mx-auto mt-4 max-w-[30rem] text-left text-[color:var(--app-secondary-label)]">

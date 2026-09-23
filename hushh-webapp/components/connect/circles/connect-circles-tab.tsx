@@ -10,10 +10,11 @@ import {
 } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { toast } from "sonner";
-import { KeyRound, Plus, ShieldCheck, UsersRound } from "@/components/icons";
+import { ChevronRight, KeyRound, Plus, ShieldCheck, UsersRound } from "@/components/icons";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import { SurfaceCard, SurfaceCardContent, SurfaceCardHeader } from "@/components/app-ui/surfaces";
 import { SectionTitle, RowDescription } from "@/components/app-ui/typography";
 import { Button } from "@/lib/morphy-ux/button";
 import {
@@ -170,47 +171,46 @@ function CircleCluster({
   }, [circle.id, circle.memberCount, reloadToken, vaultOwnerToken, visible]);
   const shown = members.slice(0, circle.memberCount > 4 ? 3 : 4);
   const remaining = Math.max(0, circle.memberCount - shown.length);
-  const slots = shown.length + (remaining && shown.length ? 1 : 0);
   return (
     <span
       ref={nodeRef}
       aria-hidden="true"
       data-testid="connect-circle-cluster"
-      className="relative flex size-28 shrink-0 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-secondary-fill)]"
+      className="flex h-11 min-w-0 items-center"
     >
-      <span className="flex size-12 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] text-[color:var(--app-primary-label)]">
-        {kind === "sms" ? (
-          <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-[color:var(--app-destructive)] text-[color:var(--app-destructive-fg)]">
-            <SmsTextIcon className="text-[8px]" />
-          </span>
-        ) : kind === "trusted" ? (
-          <ShieldCheck className="size-5" />
-        ) : (
-          <UsersRound className="size-5" />
-        )}
-      </span>
-      {shown.map((member, index) => (
-        <span
-          key={member.userId}
-          className="absolute z-10 rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-card-surface-default-solid)] shadow-sm"
-          style={{
-            left: `${50 + Math.cos(-Math.PI / 2 + index * 2 * Math.PI / slots) * 39}%`,
-            top: `${50 + Math.sin(-Math.PI / 2 + index * 2 * Math.PI / slots) * 39}%`,
-            transform: "translate(-50%, -50%)",
-          }}
-        >
-          <ConnectionPersonAvatar size="compact" photoUrl={member.photoUrl} label={member.displayName} />
+      {shown.length ? (
+        <span className="flex items-center -space-x-2">
+          {shown.map((member) => (
+            <span
+              key={member.userId}
+              className="relative inline-flex size-11 shrink-0 items-center justify-center rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-card-surface-default-solid)]"
+            >
+              <ConnectionPersonAvatar size="list" photoUrl={member.photoUrl} label={member.displayName} />
+            </span>
+          ))}
+          {remaining > 0 ? (
+            <span className="relative inline-flex size-11 shrink-0 items-center justify-center rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-secondary-fill)] text-xs font-semibold text-[color:var(--app-primary-label)]">
+              +{remaining}
+            </span>
+          ) : null}
         </span>
-      ))}
-      {remaining && shown.length ? (
-        <span
-          className="absolute z-10 flex size-8 items-center justify-center rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-card-surface-default-solid)] text-[10px] font-semibold text-[color:var(--app-primary-label)] shadow-sm"
-          style={{
-            left: `${50 + Math.cos(-Math.PI / 2 + (slots - 1) * 2 * Math.PI / slots) * 39}%`,
-            top: `${50 + Math.sin(-Math.PI / 2 + (slots - 1) * 2 * Math.PI / slots) * 39}%`,
-            transform: "translate(-50%, -50%)",
-          }}
-        >+{remaining}</span>
+      ) : (
+        <span className="inline-flex size-11 shrink-0 items-center justify-center rounded-full border border-dashed border-[color:var(--app-card-border-standard)] bg-[color:var(--app-secondary-fill)] text-[color:var(--app-secondary-label)]">
+          {circle.memberCount <= 1 && circle.role === "owner" && kind !== "trusted" ? (
+            <Plus className="size-5" />
+          ) : (
+            <UsersRound className="size-5" />
+          )}
+        </span>
+      )}
+      {kind === "sms" ? (
+        <span className="ml-2 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-destructive)] text-[color:var(--app-destructive-fg)]">
+          <SmsTextIcon className="text-[8px]" />
+        </span>
+      ) : kind === "trusted" ? (
+        <span className="ml-2 inline-flex size-7 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-secondary-fill)] text-[color:var(--app-secondary-label)]">
+          <ShieldCheck className="size-4" />
+        </span>
       ) : null}
     </span>
   );
@@ -796,11 +796,14 @@ export function ConnectCirclesTab({
         data-testid={testId}
         aria-label={`Open ${title} circle, ${circleRowDescription(circle)}`}
       >
-        <CircleCluster circle={circle} vaultOwnerToken={vaultOwnerToken ?? ""} reloadToken={reloadToken + refreshToken} />
-        <span className="ui-text-card-title max-w-full [overflow-wrap:anywhere] text-[color:var(--app-primary-label)]">
+        <span className="flex w-full min-w-0 items-start justify-between gap-3">
+          <CircleCluster circle={circle} vaultOwnerToken={vaultOwnerToken ?? ""} reloadToken={reloadToken + refreshToken} />
+          <ChevronRight aria-hidden="true" className="mt-2 size-5 shrink-0 text-[color:var(--app-secondary-label)] transition-transform group-hover:translate-x-0.5 motion-reduce:transition-none" />
+        </span>
+        <span className="ui-text-card-title mt-4 max-w-full [overflow-wrap:anywhere] text-[color:var(--app-primary-label)]">
           {title}
         </span>
-        <span className="ui-text-row-description max-w-full text-[color:var(--app-secondary-label)]">
+        <span className="ui-text-row-description mt-1 max-w-full text-[color:var(--app-secondary-label)]">
           {circleRowDescription(circle)}
         </span>
       </button>
@@ -883,24 +886,32 @@ export function ConnectCirclesTab({
             </section>
           ) : null}
           {owned.length ? (
-            <section data-testid="connect-circle-group-owned" className="space-y-3">
-              <div className="space-y-1">
-                <SectionTitle as="h2">Your circles</SectionTitle>
-                <RowDescription>
-                  Bring people together for the things you share.
-                </RowDescription>
-              </div>
-              <div className={CONNECT_CIRCLE_GRID_CLASSNAME}>
-                {owned.map(renderCircleRow)}
-              </div>
+            <section data-testid="connect-circle-group-owned">
+              <SurfaceCard>
+                <SurfaceCardHeader className="space-y-1 pb-4">
+                  <SectionTitle as="h2">Your circles</SectionTitle>
+                  <RowDescription>Bring people together for the things you share.</RowDescription>
+                </SurfaceCardHeader>
+                <SurfaceCardContent>
+                  <div className={CONNECT_CIRCLE_GRID_CLASSNAME}>
+                    {owned.map(renderCircleRow)}
+                  </div>
+                </SurfaceCardContent>
+              </SurfaceCard>
             </section>
           ) : null}
           {joined.length ? (
-            <section data-testid="connect-circle-group-joined" className="space-y-3">
-              <SectionTitle as="h2">Joined circles</SectionTitle>
-              <div className={CONNECT_CIRCLE_GRID_CLASSNAME}>
-                {joined.map(renderCircleRow)}
-              </div>
+            <section data-testid="connect-circle-group-joined">
+              <SurfaceCard>
+                <SurfaceCardHeader className="pb-4">
+                  <SectionTitle as="h2">Joined circles</SectionTitle>
+                </SurfaceCardHeader>
+                <SurfaceCardContent>
+                  <div className={CONNECT_CIRCLE_GRID_CLASSNAME}>
+                    {joined.map(renderCircleRow)}
+                  </div>
+                </SurfaceCardContent>
+              </SurfaceCard>
             </section>
           ) : null}
         </>

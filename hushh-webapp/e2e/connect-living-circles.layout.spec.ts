@@ -20,7 +20,7 @@ import { cn } from "../lib/utils";
 
 const widths = [320, 360, 390, 430, 768, 1440] as const;
 const primaryButtonClass = `${buttonVariants({ variant: "ghost", size: "standard" })} ${getVariantStyles("blue", "fill")} gap-2`;
-const secondaryButtonClass = `${buttonVariants({ variant: "ghost", size: "standard" })} ${getVariantStyles("none", "fade")} gap-2`;
+const secondaryButtonClass = `${buttonVariants({ variant: "ghost", size: "standard" })} ${getVariantStyles("blue", "fade")} gap-2`;
 const orbitClass = "relative mx-auto size-[14rem] sm:size-[17rem]";
 const growthCardClass = "overflow-hidden rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-6 sm:px-6";
 const candidateGridClass = "mt-4 grid grid-cols-1 gap-2 min-[430px]:grid-cols-2";
@@ -42,10 +42,15 @@ const fixtureClasses = [
   "relative hidden size-full sm:block",
   "absolute left-1/2 top-1/2 size-16 -translate-x-1/2 -translate-y-1/2 rounded-full",
   "absolute z-10 size-10 -translate-x-1/2 -translate-y-1/2 rounded-full",
-  "flex size-28 items-center justify-center rounded-full",
+  "flex w-full min-w-0 items-start justify-between gap-3",
+  "flex h-11 min-w-0 items-center",
+  "flex items-center -space-x-2",
+  "relative inline-flex size-11 shrink-0 items-center justify-center rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-card-surface-default-solid)]",
+  "ml-2 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full",
+  "rounded-[var(--app-card-radius-standard)] bg-[color:var(--app-card-surface-default-solid)] px-[var(--surface-card-content-px)] py-4",
+  "ui-text-card-title mt-4 max-w-full [overflow-wrap:anywhere] text-[color:var(--app-primary-label)]",
+  "ui-text-row-description mt-1 max-w-full text-[color:var(--app-secondary-label)]",
   "flex min-w-0 items-center gap-2 rounded-[var(--app-card-radius-compact)] px-2.5 py-2",
-  "ui-text-card-title max-w-full [overflow-wrap:anywhere]",
-  "ui-text-row-description max-w-full",
   primaryButtonClass,
   secondaryButtonClass,
   "size-4",
@@ -113,12 +118,15 @@ test.beforeAll(async () => {
         <h2>Bring your people closer</h2>
         <p>Connect with someone you trust, then create shared circles together.</p>
         <div data-test="actions" class="${CONNECT_HERO_ACTIONS_CLASSNAME}">
-          <button class="${primaryButtonClass}"><span class="size-4" aria-hidden="true"></span>Find your first connection</button>
-          <button class="${secondaryButtonClass}"><span class="size-4" aria-hidden="true"></span>Explore circles</button>
+          <button class="${primaryButtonClass}"><span class="size-4" aria-hidden="true"></span>Add connection</button>
+          <button class="${secondaryButtonClass}"><span class="size-4" aria-hidden="true"></span>Create circle</button>
         </div>
       </section>
-      <section data-test="grid" class="${CONNECT_CIRCLE_GRID_CLASSNAME}">
-        ${[1, 2, 3].map((i) => `<button data-test="tile" class="${CONNECT_CIRCLE_TILE_CLASSNAME}"><span class="flex size-28 items-center justify-center rounded-full">${i}</span><span class="ui-text-card-title max-w-full [overflow-wrap:anywhere]">${i === 2 ? "Superlongunbrokencirclenameforfriendsandfamily" : "A very long circle name that needs room to wrap"}</span><span class="ui-text-row-description max-w-full">17 people</span></button>`).join("")}
+      <section class="rounded-[var(--app-card-radius-standard)] bg-[color:var(--app-card-surface-default-solid)] px-[var(--surface-card-content-px)] py-4">
+        <h2>Your circles</h2>
+        <div data-test="grid" class="${CONNECT_CIRCLE_GRID_CLASSNAME}">
+        ${[1, 2, 3].map((i) => `<button data-test="tile" class="${CONNECT_CIRCLE_TILE_CLASSNAME}"><span class="flex w-full min-w-0 items-start justify-between gap-3"><span data-test="circle-preview" class="flex h-11 min-w-0 items-center"><span class="flex items-center -space-x-2">${[1, 2, 3, 4].map(() => `<span data-test="circle-avatar" class="relative inline-flex size-11 shrink-0 items-center justify-center rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-card-surface-default-solid)]"></span>`).join("")}</span>${i === 1 ? '<span class="ml-2 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full" style="background:#ec3c40;color:white;font-size:8px">SMS</span>' : ""}</span><span aria-hidden="true">›</span></span><span class="ui-text-card-title mt-4 max-w-full [overflow-wrap:anywhere] text-[color:var(--app-primary-label)]">${i === 2 ? "Superlongunbrokencirclenameforfriendsandfamily" : "A very long circle name that needs room to wrap"}</span><span class="ui-text-row-description mt-1 max-w-full text-[color:var(--app-secondary-label)]">17 people</span></button>`).join("")}
+        </div>
       </section>
       <section data-test="growth" class="${growthCardClass}">
         ${orbitMarkup()}
@@ -157,6 +165,8 @@ for (const width of widths) {
       const actions = rect(document.querySelector('[data-test="actions"]')!);
       const grid = rect(document.querySelector('[data-test="grid"]')!);
       const tiles = Array.from(document.querySelectorAll('[data-test="tile"]')).map(rect);
+      const previews = Array.from(document.querySelectorAll('[data-test="circle-preview"]')).map(rect);
+      const avatars = Array.from(document.querySelectorAll('[data-test="circle-avatar"]')).map(rect);
       const buttons = Array.from(document.querySelectorAll('[data-test="actions"] button')).map(rect);
       const visibleOrbits = Array.from(document.querySelectorAll('[data-test="orbit"]')).map((orbit) => {
         const layout = Array.from(orbit.children).find((child) => getComputedStyle(child).display !== "none")!;
@@ -176,6 +186,8 @@ for (const width of widths) {
         actions: { top: actions.top },
         grid: { left: grid.left, right: grid.right, top: grid.top },
         tiles: tiles.map((r) => ({ left: r.left, right: r.right, top: r.top, bottom: r.bottom })),
+        previews: previews.map((r) => ({ left: r.left, right: r.right })),
+        avatars: avatars.map((r) => ({ left: r.left, right: r.right })),
         buttons: buttons.map((r) => ({ left: r.left, right: r.right, top: r.top, bottom: r.bottom })),
         orbits: visibleOrbits.map(({ bounds, center, nodes }) => ({
           bounds: { left: bounds.left, right: bounds.right, top: bounds.top, bottom: bounds.bottom },
@@ -192,6 +204,15 @@ for (const width of widths) {
     for (const tile of geometry.tiles) {
       expect(tile.left).toBeGreaterThanOrEqual(geometry.grid.left - 1);
       expect(tile.right).toBeLessThanOrEqual(geometry.grid.right + 1);
+    }
+    for (let index = 0; index < geometry.previews.length; index += 1) {
+      expect(geometry.previews[index].left).toBeGreaterThanOrEqual(geometry.tiles[index].left);
+      expect(geometry.previews[index].right).toBeLessThanOrEqual(geometry.tiles[index].right);
+    }
+    for (let index = 0; index < geometry.avatars.length; index += 1) {
+      const tile = geometry.tiles[Math.floor(index / 4)];
+      expect(geometry.avatars[index].left).toBeGreaterThanOrEqual(tile.left);
+      expect(geometry.avatars[index].right).toBeLessThanOrEqual(tile.right);
     }
     for (const orbit of geometry.orbits) {
       expect(orbit.nodes).toHaveLength(width < 640 ? 4 : 6);
@@ -210,8 +231,10 @@ for (const width of widths) {
     const [first, second] = geometry.buttons;
     expect(first && second).toBeTruthy();
     expect(first!.right <= second!.left || first!.bottom <= second!.top).toBe(true);
-    if (width < 360) {
+    if (width < 640) {
       expect(geometry.tiles[0].bottom).toBeLessThanOrEqual(geometry.tiles[1].top);
+    } else {
+      expect(geometry.tiles[0].top).toBeCloseTo(geometry.tiles[1].top, 0);
     }
   });
 }
