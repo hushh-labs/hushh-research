@@ -20,6 +20,7 @@ PATH = "/api/internal/drive-work/drain"
 def client(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "test")
     monkeypatch.setenv("DRIVE_WORK_DRAIN_ENABLED", "true")
+    monkeypatch.setenv("DRIVE_WORKER_MODE", "true")
     monkeypatch.setenv("DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID", PROJECT)
     monkeypatch.setenv("DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL", SERVICE_ACCOUNT)
     monkeypatch.setenv("DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE", AUDIENCE)
@@ -52,6 +53,17 @@ def test_route_is_default_off_and_never_attempts_oidc_when_disabled(client, monk
     assert response.status_code == 404
     assert response.json()["detail"]["code"] == "DRIVE_WORK_DRAIN_DISABLED"
     assert "no-store" in response.headers["Cache-Control"]
+    verifier.assert_not_called()
+
+
+def test_main_api_without_worker_mode_cannot_drain(client, monkeypatch):
+    monkeypatch.delenv("DRIVE_WORKER_MODE")
+    verifier = Mock()
+    monkeypatch.setattr(routes, "_verify_drive_work_drain_oidc_token", verifier)
+
+    response = client.post(PATH, headers=_authorized_headers())
+
+    assert response.status_code == 404
     verifier.assert_not_called()
 
 
@@ -124,6 +136,22 @@ def test_route_runs_fixed_bounded_coordinator_and_returns_only_aggregate_status(
     client, monkeypatch
 ):
     monkeypatch.setattr(routes, "_verify_drive_work_drain_oidc_token", lambda *_: _claims())
+    purge = AsyncMock(
+        return_value={
+            "oauth_scrubbed": 2,
+            "native_picker_scrubbed": 1,
+            "oauth_deleted": 0,
+            "native_picker_deleted": 1,
+            "picker_sessions_deleted": 1,
+            "private_email": "must-not-leak@example.invalid",
+        }
+    )
+
+    class Retention:
+        def purge_batch(self):
+            return purge()
+
+    monkeypatch.setattr(routes, "ConnectorAttemptRetention", Retention)
     run = AsyncMock(
         return_value={
             "schema_version": "drive.work_drain.v1",
@@ -146,6 +174,13 @@ def test_route_runs_fixed_bounded_coordinator_and_returns_only_aggregate_status(
     assert response.status_code == 200
     assert response.json() == {
         "ok": True,
+        "retention": {
+            "oauth_scrubbed": 2,
+            "native_picker_scrubbed": 1,
+            "oauth_deleted": 0,
+            "native_picker_deleted": 1,
+            "picker_sessions_deleted": 1,
+        },
         "schema_version": "drive.work_drain.v1",
         "workers": {
             "documents": {"ready": 1},
@@ -156,4 +191,30 @@ def test_route_runs_fixed_bounded_coordinator_and_returns_only_aggregate_status(
     }
     assert "no-store" in response.headers["Cache-Control"]
     assert "private_request_id" not in response.text
-    run.assert_awaited_once_with(max_jobs_per_worker=4, deadline_seconds=90)
+    assert "must-not-leak" not in response.text
+    purge.assert_awaited_once_with()
+    run.assert_awaited_once_with(max_jobs_per_worker=4, deadline_seconds=175)
+
+
+def test_retention_failure_fails_closed_before_provider_work(client, monkeypatch):
+    monkeypatch.setattr(routes, "_verify_drive_work_drain_oidc_token", lambda *_: _claims())
+    run = AsyncMock()
+
+    class Retention:
+        async def purge_batch(self):
+            raise RuntimeError("private candidate names and owner identity")
+
+    class Drain:
+        def run(self, **kwargs):
+            return run(**kwargs)
+
+    monkeypatch.setattr(routes, "ConnectorAttemptRetention", Retention)
+    monkeypatch.setattr(routes, "DriveWorkDrain", Drain)
+
+    response = client.post(PATH, headers=_authorized_headers())
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "DRIVE_WORK_DRAIN_UNAVAILABLE"
+    assert "private candidate" not in response.text
+    assert "no-store" in response.headers["Cache-Control"]
+    run.assert_not_awaited()

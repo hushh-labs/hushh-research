@@ -13,6 +13,7 @@ import os
 import struct
 import sys
 from dataclasses import asdict
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Protocol
 from weakref import WeakKeyDictionary
@@ -23,7 +24,11 @@ from hushh_mcp.services.document_index_service import (
 )
 from hushh_mcp.services.drive_document_embedding import PROFILE, prepare_payload
 from hushh_mcp.services.drive_document_parser import MAX_TEXT_BYTES, ParsedText
-from hushh_mcp.services.embedding_client_leaf import EmbeddingClient
+from hushh_mcp.services.embedding_client_leaf import (
+    BAKED_MODEL_DIR,
+    BAKED_MODEL_DIR_ENV,
+    EmbeddingClient,
+)
 from hushh_mcp.services.google_drive_adapter import CONTENT_LIMIT, DriveReadError
 
 PARSE_CODES = frozenset(
@@ -68,6 +73,7 @@ async def _private_process(
             "HF_HUB_OFFLINE": "1",
             "TRANSFORMERS_OFFLINE": "1",
             "HF_HUB_DISABLE_TELEMETRY": "1",
+            BAKED_MODEL_DIR_ENV: BAKED_MODEL_DIR,
             "TOKENIZERS_PARALLELISM": "false",
         },
     )
@@ -121,9 +127,48 @@ class Scanner(Protocol):
 class ClamAvScanner:
     """Fixed same-instance scanner, in-memory INSTREAM; unavailable fails closed."""
 
+    MAX_SIGNATURE_AGE = timedelta(days=7)
+    EICAR = b"X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
+
+    async def _require_fresh_signatures(self) -> None:
+        writer = None
+        try:
+            async with asyncio.timeout(3):
+                reader, writer = await asyncio.open_connection("127.0.0.1", 3310, limit=1024)
+                writer.write(b"zVERSION\x00")
+                await writer.drain()
+                response = (await reader.readuntil(b"\x00")).decode("ascii").strip("\x00\r\n ")
+            engine, revision, database_time = response.split("/", 2)
+            if not engine.startswith("ClamAV ") or not revision.isdecimal():
+                raise ValueError("invalid scanner version")
+            built_at = datetime.strptime(database_time, "%a %b %d %H:%M:%S %Y").replace(tzinfo=UTC)
+            age = datetime.now(UTC) - built_at
+            if not -timedelta(days=1) <= age <= self.MAX_SIGNATURE_AGE:
+                raise ValueError("stale scanner signatures")
+        except Exception:
+            raise DriveReadError("scanner_unavailable", retryable=True) from None
+        finally:
+            if writer is not None:
+                writer.close()
+                try:
+                    await writer.wait_closed()
+                except OSError:
+                    pass
+
+    async def check_ready(self) -> None:
+        """Prove both recent signatures and real EICAR detection at startup."""
+        try:
+            await self.scan(self.EICAR)
+        except DriveReadError as error:
+            if str(error) == "unsafe_document":
+                return
+            raise
+        raise DriveReadError("scanner_unavailable", retryable=True)
+
     async def scan(self, content: bytes) -> None:
         if not content or len(content) > CONTENT_LIMIT:
             raise DriveReadError("file_too_large")
+        await self._require_fresh_signatures()
         writer = None
         try:
             async with asyncio.timeout(10):

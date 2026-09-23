@@ -20,7 +20,13 @@ from hushh_mcp.services.drive_share_notification_worker import DriveShareNotific
 from hushh_mcp.services.drive_suggestion_worker import DriveSuggestionWorker
 
 MAX_JOBS_PER_WORKER = 4
-MAX_WORKER_SECONDS = 25
+STAGE_MAX_SECONDS = {
+    "documents": 95,
+    "suggestions": 20,
+    "permissions": 20,
+    "notifications": 20,
+}
+RESERVED_SECONDS_PER_LATER_STAGE = 15
 MAX_OUTCOME_COUNT = 100
 
 _WORKER_ALLOWED_OUTCOMES = {
@@ -126,7 +132,7 @@ class DriveWorkDrain:
         self,
         *,
         max_jobs_per_worker: int = MAX_JOBS_PER_WORKER,
-        deadline_seconds: int = 90,
+        deadline_seconds: int = 175,
     ) -> dict[str, Any]:
         if (
             type(max_jobs_per_worker) is not int
@@ -138,23 +144,20 @@ class DriveWorkDrain:
 
         deadline = asyncio.get_running_loop().time() + deadline_seconds
         summaries: dict[str, dict[str, int]] = {}
-        # A full request can never give a later worker more time merely
-        # because an earlier one returned quickly. This keeps a small 20s
-        # drain fair (five seconds per stage) as well as globally bounded.
-        fair_budget = max(1, deadline_seconds // len(self._workers))
         for index, (name, worker) in enumerate(self._workers):
             remaining = deadline - asyncio.get_running_loop().time()
-            workers_left = len(self._workers) - index
+            later_stages = len(self._workers) - index - 1
             if remaining < 1:
                 summaries[name] = {"deadline": 1}
                 continue
-            # Reserve time for every later worker. Each worker has its own
-            # timeout as well, so a slow provider cannot turn one HTTP sweep
-            # into an unbounded process or starve notification dispatch.
+            # Cold local model loading, scanning and bounded parsing can exceed
+            # the old 25-second fair share. Reserve a fixed minimum for each
+            # downstream stage while allowing one document attempt up to its
+            # 90-second ingestion lease. Every stage remains independently
+            # capped and the whole HTTP request has a hard deadline.
             budget = min(
-                MAX_WORKER_SECONDS,
-                fair_budget,
-                max(1, int(remaining // workers_left)),
+                STAGE_MAX_SECONDS[name],
+                max(1, int(remaining) - later_stages * RESERVED_SECONDS_PER_LATER_STAGE),
             )
             try:
                 async with asyncio.timeout(budget):

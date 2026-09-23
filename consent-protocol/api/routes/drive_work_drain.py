@@ -13,6 +13,10 @@ from google.auth.exceptions import TransportError
 from google.auth.transport.requests import Request as GoogleAuthRequest
 from google.oauth2 import id_token as google_id_token
 
+from hushh_mcp.services.connector_attempt_retention import (
+    ConnectorAttemptRetention,
+    safe_retention_result,
+)
 from hushh_mcp.services.drive_work_drain import DriveWorkDrain, safe_work_drain_result
 
 router = APIRouter(prefix="/api/internal/drive-work", tags=["internal-drive-work"])
@@ -31,7 +35,7 @@ _UAT_SCHEDULER_AUDIENCES = frozenset(
     }
 )
 _MAX_JOBS_PER_WORKER = 4
-_DRAIN_DEADLINE_SECONDS = 90
+_DRAIN_DEADLINE_SECONDS = 175
 
 
 def _drain_enabled() -> bool:
@@ -40,6 +44,7 @@ def _drain_enabled() -> bool:
     return (
         environment in {"uat", "test", "local", "development"}
         and str(os.getenv("DRIVE_WORK_DRAIN_ENABLED") or "").strip().lower() == "true"
+        and str(os.getenv("DRIVE_WORKER_MODE") or "").strip().lower() == "true"
     )
 
 
@@ -158,9 +163,10 @@ async def drain_drive_work(
     response: Response,
     _authorized: None = Depends(_require_scheduler_oidc),
 ) -> dict[str, Any]:
-    """Run one small Drive sweep and return no content, identities, or URLs."""
+    """Purge expired authorization material, then run one small Drive sweep."""
     response.headers.update(NO_STORE)
     try:
+        retention = safe_retention_result(await ConnectorAttemptRetention().purge_batch())
         result = await DriveWorkDrain().run(
             max_jobs_per_worker=_MAX_JOBS_PER_WORKER,
             deadline_seconds=_DRAIN_DEADLINE_SECONDS,
@@ -177,4 +183,4 @@ async def drain_drive_work(
     # DriveWorkDrain itself strips worker schemas, exception text, identities,
     # document details, and push targets. Scheduler dispatch is not person or
     # device delivery evidence; it is merely one bounded work attempt.
-    return {"ok": True, **safe_work_drain_result(result)}
+    return {"ok": True, "retention": retention, **safe_work_drain_result(result)}

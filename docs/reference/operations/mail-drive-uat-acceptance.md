@@ -357,3 +357,29 @@ Owner consent, cohort values, registry policy and applied migrations remain unve
 not proven absent. Callback sink exclusions, a restricted Picker key, native artifacts and
 isolated processor capacity also remain unproven. Recheck current state before rollout;
 these observations do not authorize a production deployment or substitute for acceptance.
+
+## Post-merge UAT delivery record (2026-09-23)
+
+This is a later observation than the preflight above; it does not close the unchecked
+acceptance items. PR [#6967](https://github.com/hushh-labs/hushh-research/pull/6967)
+merged at `04d80bb07d17946ff8260033b2a01dd467796957`. Its own Main Post-Merge Smoke Gate
+[succeeded](https://github.com/hushh-labs/hushh-research/actions/runs/35812159104), and the
+immutable-SHA UAT [deployment](https://github.com/hushh-labs/hushh-research/actions/runs/35812326471)
+completed successfully. Backend `consent-protocol-01343-pag` and web
+`hushh-webapp-00886-z5n` each serve that SHA at 100% traffic; the backend health endpoint
+and web root responded successfully. Their image digests were
+`sha256:69494f74b4f6a3093fdaf825de74899ccbc70bd806da6e664f4905f1fc4dbadf` and
+`sha256:2a4fce17aa85b0f811a9d4aab38fe598c975462e21ee290d08299c4c2f4d6fc3`,
+respectively. The fixed UAT Drive REST registry was activated and
+read-only rechecked with policy hash `7d82cda74ab72a36d5b39d211a6991df456e247f894cde25b6e54c0256383da4`.
+The OIDC-protected `drive-work-drain-uat` scheduler is enabled every two minutes, and one
+explicit invocation returned HTTP 200.
+
+These checks establish deployment and dispatch, not document-processing success or
+end-to-end A/B sharing. The serving backend has one 1 GiB container, no ClamAV daemon,
+and no baked offline embedding model. Document indexing remains fail-closed; all connector
+feature flags and the internal-owner cohort remain off. The governed UAT runtime sync also
+defaults those flags to off on each deployment. A separately verified processor runtime,
+durable named-cohort rollout configuration, authenticated synthetic A/B consent, and native
+device acceptance are required before claiming the journey works. GCP administration does
+not replace A's and B's Google file grants or a registered notification device.

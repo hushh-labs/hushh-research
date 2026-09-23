@@ -135,6 +135,8 @@ function Fixture() {
             onBack={() => setMode("chats")}
             onAvailableChange={setAvailable}
             onExternalModalChange={setExternal}
+            onPrepareRecovery={async () => "unavailable"}
+            onClearRecovery={async () => undefined}
           />
         }
       />

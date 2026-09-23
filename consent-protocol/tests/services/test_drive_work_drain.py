@@ -70,6 +70,21 @@ async def test_drain_continues_later_stages_after_one_worker_fails_without_error
 
 
 @pytest.mark.asyncio
+async def test_document_stage_gets_a_real_processing_budget_without_starving_later_work():
+    workers = [_worker({"outcomes": {"idle": 1}}) for _ in range(4)]
+    await DriveWorkDrain(
+        document_worker=workers[0],
+        suggestion_worker=workers[1],
+        permission_worker=workers[2],
+        notification_worker=workers[3],
+    ).run(deadline_seconds=175)
+
+    budgets = [worker.run.await_args.kwargs["deadline_seconds"] for worker in workers]
+    assert budgets[0] == 95
+    assert budgets[1:] == [20, 20, 20]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "kwargs",
     [

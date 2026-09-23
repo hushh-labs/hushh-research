@@ -24,6 +24,7 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 import { APP_FRONTEND_ORIGIN } from "@/lib/config";
+import { markDriveChatRecoveryReturned } from "@/lib/agent/drive-oauth-chat-recovery";
 
 export const NATIVE_CONNECTOR_RETURN_EVENT = "hushh:native-connector-return";
 export const NATIVE_DRIVE_PICKER_RETURN_EVENT =
@@ -194,6 +195,10 @@ export function useDeepLinkReturn(): void {
           const key = `${connectorReturn.attemptId}:${connectorReturn.outcome}`;
           if (latestConnectorReturn === key || disposed) return;
           latestConnectorReturn = key;
+          markDriveChatRecoveryReturned({
+            attemptId: connectorReturn.attemptId,
+            reason: "native_oauth",
+          });
           window.dispatchEvent(
             new CustomEvent<NativeConnectorReturn>(
               NATIVE_CONNECTOR_RETURN_EVENT,
@@ -209,6 +214,10 @@ export function useDeepLinkReturn(): void {
           const key = `${pickerReturn.attemptId}:${pickerReturn.outcome}`;
           if (latestPickerReturn === key || disposed) return;
           latestPickerReturn = key;
+          markDriveChatRecoveryReturned({
+            attemptId: pickerReturn.attemptId,
+            reason: "native_picker",
+          });
           window.dispatchEvent(
             new CustomEvent<NativeDrivePickerReturn>(
               NATIVE_DRIVE_PICKER_RETURN_EVENT,

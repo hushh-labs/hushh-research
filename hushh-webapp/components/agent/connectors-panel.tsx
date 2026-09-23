@@ -46,12 +46,18 @@ import {
   type PickedDriveFile,
 } from "@/lib/services/google-drive-picker-service";
 import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
+import type { DriveChatRecoveryReason } from "@/lib/agent/drive-oauth-chat-recovery";
 
 type Props = {
   open: boolean;
   onBack: () => void;
   onAvailableChange: (available: boolean) => void;
   onExternalModalChange: (open: boolean) => void;
+  onPrepareRecovery: (input: {
+    attemptId: string;
+    reason: DriveChatRecoveryReason;
+  }) => Promise<"ready" | "busy" | "unavailable">;
+  onClearRecovery: () => Promise<void>;
 };
 const touch = "min-h-11 min-w-11 whitespace-normal";
 const labels: Record<string, string> = {
@@ -125,6 +131,8 @@ function OwnerConnectorsPanel({
   onBack,
   onAvailableChange,
   onExternalModalChange,
+  onPrepareRecovery,
+  onClearRecovery,
 }: Props) {
   const { user } = useAuth();
   const { vaultOwnerToken } = useVault();
@@ -537,12 +545,31 @@ function OwnerConnectorsPanel({
         ) {
           throw new Error("invalid_start");
         }
-        const result = await HushhAuth.connectDrive({
-          authorizeUrl: start.authorizeUrl,
+        const readiness = await onPrepareRecovery({
           attemptId: start.attemptId,
-          expiresAt,
-          expectedUserId: user.uid,
+          reason: "native_oauth",
         });
+        if (readiness !== "ready") {
+          setDriveMessage(readiness === "busy"
+            ? "Finish the current chat action before connecting Drive."
+            : "Your draft could not be saved safely. Try again.");
+          return;
+        }
+        let returned = false;
+        let result: Awaited<ReturnType<typeof HushhAuth.connectDrive>>;
+        try {
+          result = await HushhAuth.connectDrive({
+            authorizeUrl: start.authorizeUrl,
+            attemptId: start.attemptId,
+            expiresAt,
+            expectedUserId: user.uid,
+          });
+          returned = true;
+        } finally {
+          // A killed WebView never runs this cleanup; its encrypted one-use
+          // capsule is then available after the owner's next vault unlock.
+          if (returned && isEffectCurrent()) await onClearRecovery();
+        }
         if (!isEffectCurrent()) return;
         if (result.attemptId !== start.attemptId) {
           // A stale custom-scheme return must not terminate a newer native
@@ -584,9 +611,41 @@ function OwnerConnectorsPanel({
     }
     const popup = openDriveOAuthPopup();
     if (!popup) {
-      setDriveMessage(
-        "Allow popups, then retry. Your chat and draft stay here.",
-      );
+      void runDrive(async (token, signal) => {
+        const start = await ExternalConnectorService.startOAuthConnect({
+          vaultOwnerToken: token,
+          connectorId: "google_drive",
+          redirectUri: `${window.location.origin}${ROUTES.PROFILE_CONNECTOR_OAUTH_RETURN}`,
+          flow: "web",
+        });
+        if (signal.aborted || !start.attemptId || start.connectorId !== "google_drive") return;
+        const authorizeUrl = new URL(start.authorizeUrl);
+        if (
+          authorizeUrl.protocol !== "https:" ||
+          authorizeUrl.hostname !== "accounts.google.com" ||
+          authorizeUrl.pathname !== "/o/oauth2/v2/auth"
+        ) throw new Error("invalid_drive_authorize_url");
+        const readiness = await onPrepareRecovery({
+          attemptId: start.attemptId,
+          reason: "web_full_page",
+        });
+        if (readiness !== "ready") {
+          setDriveMessage(readiness === "busy"
+            ? "Finish the current chat action or allow popups before connecting Drive."
+            : "Your draft could not be saved safely. Allow popups or try again.");
+          return;
+        }
+        if (signal.aborted) {
+          await onClearRecovery();
+          return;
+        }
+        try {
+          window.location.assign(authorizeUrl.href);
+        } catch {
+          await onClearRecovery();
+          throw new Error("drive_navigation_failed");
+        }
+      });
       return;
     }
     void runDrive(async (token, signal) => {
@@ -686,12 +745,29 @@ function OwnerConnectorsPanel({
         ) {
           throw new Error("invalid_picker_start");
         }
-        const result = await HushhAuth.pickDriveFiles({
-          authorizeUrl: start.authorizeUrl,
+        const readiness = await onPrepareRecovery({
           attemptId: start.attemptId,
-          expiresAt,
-          expectedUserId: user.uid,
+          reason: "native_picker",
         });
+        if (readiness !== "ready") {
+          setDriveMessage(readiness === "busy"
+            ? "Finish the current chat action before choosing Drive files."
+            : "Your draft could not be saved safely. Try again.");
+          return;
+        }
+        let returned = false;
+        let result: Awaited<ReturnType<typeof HushhAuth.pickDriveFiles>>;
+        try {
+          result = await HushhAuth.pickDriveFiles({
+            authorizeUrl: start.authorizeUrl,
+            attemptId: start.attemptId,
+            expiresAt,
+            expectedUserId: user.uid,
+          });
+          returned = true;
+        } finally {
+          if (returned && isEffectCurrent()) await onClearRecovery();
+        }
         if (!isEffectCurrent()) return;
         if (result.attemptId !== start.attemptId) {
           // A stale custom-scheme result never gets to select documents. Query
