@@ -179,6 +179,7 @@ env "$ENABLE_VAR=true" \
     TEST_RUNNER_HUSHH_PERF_REPS="$REPS" \
     TEST_RUNNER_HUSHH_PERF_ATTACHED_SECTION="${PERF_SECTION:-all}" \
     TEST_RUNNER_HUSHH_PERF_EXPERIMENT="${PERF_EXPERIMENT:-}" \
+    TEST_RUNNER_HUSHH_PLAID_START_INDEX="${PLAID_START_INDEX:-0}" \
     TEST_RUNNER_HUSHH_PERF_ROUTES="$PERF_ROUTE_LIST" \
     TEST_RUNNER_HUSHH_UI_TEST_REVIEWER_UID="$REVIEWER_UID" \
     TEST_RUNNER_HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE="${HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE:-$REVIEWER_VAULT_PASSPHRASE}" \
@@ -199,7 +200,7 @@ fi
 # Session walks keep their screenshot bursts: export the image attachments
 # only (typed strings live in the activity log, never in attachments), then
 # the bundle goes as always.
-if [[ "${PERF_SECTION:-}" == "session" && -d "$RESULT_BUNDLE" ]]; then
+if [[ ( "${PERF_SECTION:-}" == "session" || "${PERF_SECTION:-}" == "plaid-vault" ) && -d "$RESULT_BUNDLE" ]]; then
   mkdir -p "$OUT_DIR/bursts"
   xcrun xcresulttool export attachments --path "$RESULT_BUNDLE" --output-path "$OUT_DIR/bursts" >/dev/null 2>&1 || true
   find "$OUT_DIR/bursts" -type f ! -iname '*.png' ! -iname '*.jpg' ! -iname '*.jpeg' ! -name 'manifest.json' -delete 2>/dev/null || true

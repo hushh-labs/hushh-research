@@ -505,7 +505,7 @@ function OwnerConnectorsPanel({
         );
         if (recovered && !signal.aborted)
           setDriveMessage(
-            "Review the selected files, then add them to your private One library.",
+            "Review the selected files, then add them to your One file list.",
           );
       },
       { clearMessage: false },
@@ -1148,7 +1148,7 @@ function OwnerConnectorsPanel({
                   aria-label="Confirm selected files"
                 >
                   <p className="text-sm">
-                    Add these files to your private One library? Google access
+                    Add these files to your One file list? Google access
                     is not the same as sharing with another person.
                   </p>
                   <ul className="space-y-2 text-sm">
@@ -1170,8 +1170,10 @@ function OwnerConnectorsPanel({
                         }
                       />
                       <span>
-                        Allow One to process these files while Hushh is closed
-                        and prepare suggestions for requests. Sharing still
+                        Allow Hushh to process these files on its servers, even
+                        when the app is closed. Relevant excerpts may be sent
+                        to Gemini to prepare suggestions. The encrypted file
+                        index is held by Hushh, not your vault. Sharing still
                         needs your approval.
                       </span>
                     </label>
@@ -1277,9 +1279,12 @@ function OwnerConnectorsPanel({
                             }}
                           />
                           <span>
-                            Process this file while Hushh is closed. Prepare
-                            suggestions, never share without approval. Turning
-                            this off keeps the existing private index.
+                            Allow Hushh to process this file on its servers,
+                            even when the app is closed. Relevant excerpts may
+                            be sent to Gemini. The encrypted index is held by
+                            Hushh, not your vault. Turning this off stops new
+                            processing but keeps the index until you remove
+                            the file. Sharing still needs your approval.
                           </span>
                         </label>
                       )}

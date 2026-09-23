@@ -353,7 +353,9 @@ test("background processing needs explicit consent and can be paused without rem
     await page.getByRole("button", { name: "Pick synthetic file" }).click();
   };
   await selectFile();
-  const consent = page.getByRole("checkbox", { name: /Allow One to process these files/ });
+  const consent = page.getByRole("checkbox", { name: /Allow Hushh to process these files on its servers/ });
+  await expect(page.getByText(/Relevant excerpts may be sent to Gemini to prepare suggestions/)).toBeVisible();
+  await expect(page.getByText(/encrypted file index is held by Hushh, not your vault/)).toBeVisible();
   await expect(consent).not.toBeChecked();
   await consent.check();
   expect(writes).toHaveLength(0);
@@ -365,6 +367,7 @@ test("background processing needs explicit consent and can be paused without rem
   await page.getByRole("button", { name: "Add selected files" }).click();
   const processing = page.getByRole("checkbox", { name: /^Background processing for / });
   await expect(processing).toBeChecked();
+  await expect(page.getByText(/Turning this off stops new processing but keeps the index until you remove the file/)).toBeVisible();
   expect(writes[0].body.processingConsent).toBe("selected-files-background-v1");
   await expect(page.getByRole("button", { name: /^Sync .+ now$/ })).toBeVisible();
   await processing.click();
