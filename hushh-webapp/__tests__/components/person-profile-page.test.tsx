@@ -393,6 +393,20 @@ describe("PersonProfilePage native profile route", () => {
     ).toBeTruthy();
   });
 
+  it("reviews a Professional group as one root request, not one request per child", async () => {
+    mocks.user = { uid: "viewer", getIdToken: vi.fn().mockResolvedValue("viewer-token") };
+    mocks.getViewer.mockResolvedValue(viewerProfile({
+      requestableScopes: [
+        { scopeRef: "opaque-professional-root", label: "Professional Domain", description: null, domain: "professional", sensitivity: "standard", wildcard: true, pathSegments: [] },
+        { scopeRef: "opaque-professional-role", label: "Professional role", description: null, domain: "professional", sensitivity: "standard", wildcard: false, pathSegments: ["role"] },
+      ],
+    }));
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+
+    fireEvent.click(await screen.findByTestId("person-profile-scope-group-toggle-professional"));
+    expect(screen.getByRole("button", { name: "Review request (1)" })).toBeInTheDocument();
+  });
+
   it("does not open an unusable review dialog while the vault token is still loading", async () => {
     mocks.user = {
       uid: "viewer",

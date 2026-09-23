@@ -5,6 +5,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { usePersonInformationRequest } from "@/lib/consent/use-person-information-request";
 import { isCurrentPersonExport } from "@/lib/consent/person-export-binding";
+import { selectedRequestScopes, toggleRequestScopes } from "@/lib/consent/request-scope-selection";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { projectGrantPayload } from "@/lib/consent/project-grant-payload";
 import { DecryptedRecordContent } from "@/components/connections/decrypted-grant-card";
@@ -225,7 +226,8 @@ function ScopeDiscoveryView({
   const authorityScopes = profile?.requestableScopes || [];
   const displayScopes = profile?.requestableScopes || experience.scopes;
   const grantedIds = new Set(profile?.grants.map(grant => grant.scopeRef) || []);
-  const selectedScopes = authorityScopes.filter(scope => selectedIds.has(scope.scopeRef) && !grantedIds.has(scope.scopeRef));
+  const selectedScopes = selectedRequestScopes(authorityScopes, selectedIds)
+    .filter(scope => !grantedIds.has(scope.scopeRef));
   const total = profile?.scopeCatalog?.totalCount
     ?? experience.scopeCatalog?.totalCount
     ?? displayScopes.length;
@@ -278,12 +280,8 @@ function ScopeDiscoveryView({
               onToggleMany: (ids, select) => {
                 setSent(false);
                 setSelectedIds(currentIds => {
-                  const next = new Set(currentIds);
-                  ids.forEach(id => {
-                    if (select && authorityScopes.some(scope => scope.scopeRef === id) && !grantedIds.has(id)) next.add(id);
-                    else next.delete(id);
-                  });
-                  return next;
+                  const allowedIds = ids.filter(id => authorityScopes.some(scope => scope.scopeRef === id) && !grantedIds.has(id));
+                  return toggleRequestScopes(authorityScopes, currentIds, allowedIds, select);
                 });
               },
             } : undefined}

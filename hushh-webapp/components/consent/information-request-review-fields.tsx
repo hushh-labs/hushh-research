@@ -23,8 +23,11 @@ export function InformationRequestReviewFields({
   return <div className="space-y-3">
     <SectionCard title="What you are asking for">
       <div className="space-y-2">
-        {scopes.map(scope => <div key={scope.scopeRef} className="flex items-center justify-between gap-3 text-sm">
-          <span>{scope.label || "Selected information"}</span>
+        {scopes.map(scope => <div key={scope.scopeRef} className="flex items-start justify-between gap-3 text-sm">
+          <span>
+            <span className="block">{scope.label || "Selected information"}</span>
+            {scope.wildcard ? <span className="block text-xs text-muted-foreground">This includes all available information in this area, not just one detail.</span> : null}
+          </span>
           <StatusPill tone="neutral">{scope.sensitivity || "Standard"}</StatusPill>
         </div>)}
       </div>
