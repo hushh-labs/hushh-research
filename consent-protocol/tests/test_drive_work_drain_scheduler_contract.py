@@ -395,11 +395,20 @@ def test_scheduler_capture_rejects_malformed_or_wrong_identity(
         ("cancel_during_deploy", False, True),
     ],
 )
+@pytest.mark.parametrize(
+    ("release_run_id", "expected_tag"),
+    [
+        ("12345", "d-9ix"),
+        ("18446744073709551615", "d-3w5e11264sgsf"),
+    ],
+)
 def test_worker_deploy_traffic_flags_match_service_state(
     tmp_path: Path,
     worker_state: str,
     expect_no_traffic: bool,
     expect_deploy: bool,
+    release_run_id: str,
+    expected_tag: str,
 ):
     """Exercise the real release script with a non-mutating gcloud stand-in."""
     fake_bin = tmp_path / "bin"
@@ -457,7 +466,7 @@ else:
                 "consent-protocol-runtime@hushh-pda-uat.iam.gserviceaccount.com"
             ),
             "CLOUDSQL_INSTANCE": "hushh-pda-uat:us-central1:hushh-uat-pg",
-            "RELEASE_RUN_ID": "12345",
+            "RELEASE_RUN_ID": release_run_id,
         }
     )
     result = subprocess.run(  # noqa: S603 - fixed repository-owned shell helper
@@ -478,7 +487,8 @@ else:
         assert ("--no-traffic" in deploy) is expect_no_traffic
         assert "--ingress=internal" in deploy
         assert "--no-allow-unauthenticated" in deploy
-        assert "--tag=drive-candidate-12345" in deploy
+        assert f"--tag={expected_tag}" in deploy
+        assert len("consent-protocol-drive-worker") + 1 + len(expected_tag) <= 46
         assert "--container=drive-worker" in deploy
         assert "--container=clamav" in deploy
     elif worker_state == "ambiguous":
