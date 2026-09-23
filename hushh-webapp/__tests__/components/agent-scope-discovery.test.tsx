@@ -169,6 +169,63 @@ describe("current-authority inline Chat catalog", () => {
     expect(screen.queryByText("Access granted")).not.toBeInTheDocument();
   });
 
+  it("rejects a different bundle even for the same person", async () => {
+    const restored: InformationRequestReviewExperience = {
+      type: "one.information_request_review.v1",
+      personName: "Synthetic Recipient",
+      purpose: "Review a request.",
+      durationLabel: "2 days",
+      direction: "outgoing",
+      phase: "submitted",
+      subjectRef: person,
+      bundleId: "bundle_12345678",
+      requestId: null,
+      status: "pending",
+      fields: [{ label: "Professional role", domain: "Professional", sensitivity: "standard" }],
+    };
+    mocks.getInformationRequest.mockResolvedValue({
+      bundleId: "bundle_22345678",
+      personRef: person,
+      purpose: restored.purpose,
+      durationSeconds: 172800,
+      cancelled: false,
+      items: [{ requestId: "request_12345678", scopeRef: "scope-1", label: "Professional role", sensitivity: "standard", status: "granted" }],
+    });
+
+    render(<AgentStructuredExperienceView experience={restored} />);
+    expect(await screen.findByText(/Current status unavailable/)).toBeInTheDocument();
+    expect(screen.queryByText("Access granted")).not.toBeInTheDocument();
+  });
+
+  it("takes current field labels and states from the authorized bundle, not a saved label", async () => {
+    const restored: InformationRequestReviewExperience = {
+      type: "one.information_request_review.v1",
+      personName: "Synthetic Recipient",
+      purpose: "Review a request.",
+      durationLabel: "2 days",
+      direction: "outgoing",
+      phase: "submitted",
+      subjectRef: person,
+      bundleId: "bundle_12345678",
+      requestId: null,
+      status: "pending",
+      fields: [{ label: "Stale label", domain: "Professional", sensitivity: "standard" }],
+    };
+    mocks.getInformationRequest.mockResolvedValue({
+      bundleId: restored.bundleId,
+      personRef: person,
+      purpose: restored.purpose,
+      durationSeconds: 172800,
+      cancelled: false,
+      items: [{ requestId: "request_12345678", scopeRef: "scope-1", label: "Current label", sensitivity: "standard", status: "granted" }],
+    });
+
+    render(<AgentStructuredExperienceView experience={restored} />);
+    expect(await screen.findByText("Current label")).toBeInTheDocument();
+    expect(screen.queryByText("Stale label")).toBeNull();
+    expect(screen.getByText("Access granted")).toBeInTheDocument();
+  });
+
   it("does not refresh current status for an unbound historical card", async () => {
     const historical: InformationRequestReviewExperience = {
       type: "one.information_request_review.v1",

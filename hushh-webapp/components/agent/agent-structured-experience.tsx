@@ -356,7 +356,7 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
       // authority lookup resolves a different person, reject it without
       // rendering any of its status and settle the card into a recoverable
       // state instead of leaving the reader on an endless "Checking...".
-      if (experience.subjectRef && bundle.personRef !== experience.subjectRef) {
+      if (!experience.subjectRef || bundle.personRef !== experience.subjectRef || bundle.bundleId !== experience.bundleId) {
         setRefreshState("unavailable");
         return;
       }
@@ -369,22 +369,16 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
       const status = statuses.every((itemStatus) => itemStatus === firstStatus)
         ? firstStatus
         : "mixed" as const;
-      const byRequestId = new Map(bundle.items.map((item) => [item.requestId, item]));
-      const byLabel = new Map<string, typeof bundle.items>();
-      for (const item of bundle.items) {
-        const matches = byLabel.get(item.label) || [];
-        matches.push(item);
-        byLabel.set(item.label, matches);
-      }
-      const fields = experience.fields.map((field) => {
-        if (field.requestId) {
-          const item = byRequestId.get(field.requestId);
-          return item ? { ...field, status: item.status } : field;
-        }
-        const matches = byLabel.get(field.label);
-        const item = matches?.shift();
-        return item ? { ...field, status: item.status } : field;
-      });
+      // The bundle is the role-authorized source of truth. A restored card's
+      // labels are display hints, never keys for assigning a current status.
+      const byRequestId = new Map(experience.fields.filter((field) => field.requestId).map((field) => [field.requestId, field]));
+      const fields = bundle.items.map((item) => ({
+        label: item.label,
+        domain: byRequestId.get(item.requestId)?.domain || "Information",
+        sensitivity: byRequestId.get(item.requestId)?.sensitivity || "standard" as const,
+        requestId: item.requestId,
+        status: item.status,
+      }));
       setCurrent({ status, fields });
       setRefreshState("loaded");
     }).catch(() => {
