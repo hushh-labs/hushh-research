@@ -643,6 +643,31 @@ describe("PersonProfilePage request catalog tools", () => {
     }
   });
 
+  it("does not decrypt a late export after the vault locks", async () => {
+    const { PersonProfileService } = await import("@/lib/services/person-profile-service");
+    const { OneKycClientZkService } = await import("@/lib/services/one-kyc-client-zk-service");
+    mockCurrentGrant("req-late", "bundle-late");
+    (OneKycClientZkService.readStoredConnector as ReturnType<typeof vi.fn>).mockResolvedValue({ connector_key_id: "ck_1" });
+    let resolveExports!: (value: unknown[]) => void;
+    (PersonProfileService.getInformationRequestExports as ReturnType<typeof vi.fn>)
+      .mockReturnValue(new Promise(done => { resolveExports = done; }));
+    mocks.getViewer.mockResolvedValue(viewerProfile({
+      grants: [{
+        bundleId: "bundle-late", scopeRef: "scope-0", label: "Synthetic detail", domain: "Professional",
+        requestId: "req-late", issuedAt: null, expiresAt: null, status: "granted",
+        encryptedExportAvailable: true, exportRevision: 1,
+      }],
+      requestHistory: [],
+    }));
+    const view = render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    await waitFor(() => expect(PersonProfileService.getInformationRequestExports).toHaveBeenCalled());
+    mocks.isVaultUnlocked = false;
+    view.rerender(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    await act(async () => resolveExports([]));
+    expect(OneKycClientZkService.decryptScopedExport).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("person-profile-grant-value")).not.toBeInTheDocument();
+  });
+
   it("unwraps the domain envelope before rendering an encrypted grant", async () => {
     const { PersonProfileService } = await import("@/lib/services/person-profile-service");
     const { OneKycClientZkService } = await import("@/lib/services/one-kyc-client-zk-service");

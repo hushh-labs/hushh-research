@@ -550,6 +550,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
           PersonProfileService.getInformationRequest({ bundleId, vaultOwnerToken }),
           "The request status took too long to check. Try again.",
         );
+        if (generation !== requestGeneration.current) return;
         const item = bundle.items.find((entry) => entry.requestId === requestId);
         if (bundle.bundleId !== bundleId || bundle.personRef !== resolvedPersonRef || item?.status !== "granted") {
           throw new Error("This access is no longer available.");
@@ -564,6 +565,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
           }),
           "The receiving device took too long to open. Try again.",
         );
+        if (generation !== requestGeneration.current) return;
         if (!connector) throw new Error("The receiving device is unavailable.");
         const exports = await withGrantDecryptTimeout(
           PersonProfileService.getInformationRequestExports({
@@ -572,6 +574,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
           }),
           "The shared information took too long to load. Try opening this again.",
         );
+        if (generation !== requestGeneration.current) return;
         const exact = exports.find((item) => item.requestId === requestId);
         if (!exact || !isCurrentPersonExport({ item, scopeRef: exact.scopeRef, exportPackage: exact.encryptedExport, nowMs: Date.now() })) {
           throw new Error("This shared information is not available right now.");
@@ -589,7 +592,9 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
           }),
           "The shared information took too long to open. Try again.",
         );
+        if (generation !== requestGeneration.current) return;
         const latest = await PersonProfileService.getInformationRequest({ bundleId, vaultOwnerToken });
+        if (generation !== requestGeneration.current) return;
         if (latest.bundleId !== bundleId || latest.personRef !== resolvedPersonRef
           || !latest.items.some((entry) => entry.requestId === requestId && entry.status === "granted")) {
           throw new Error("This access changed while opening information.");
