@@ -252,6 +252,7 @@ tests/test_location_command_routes.py
 tests/test_location_command_workflow.py
 tests/test_one_location_named_circle_routes.py
 tests/test_location_requested_workflow_authority.py
+tests/test_pkm_connected_source_sync_receipt.py
 tests/test_location_workflow_compatibility.py
 tests/services/test_location_command_postgres.py
 tests/services/test_location_command_finalize_postgres.py

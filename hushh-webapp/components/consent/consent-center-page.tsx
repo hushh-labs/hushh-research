@@ -400,7 +400,9 @@ const LIFECYCLE_EVENT_LABELS: Record<string, string> = {
 };
 
 export function formatLifecycleEventLabel(event: ConsentTrailEvent) {
-  const action = String(event.action || "").trim().toUpperCase();
+  const action = String(event.action || "")
+    .trim()
+    .toUpperCase();
   const named = LIFECYCLE_EVENT_LABELS[action];
   if (named) return named;
   const value = String(event.action || event.status || "Consent event")
@@ -782,6 +784,67 @@ function ConsentEntryRow({
       }
       className={selected ? "bg-accent-surface" : undefined}
     />
+  );
+}
+
+function ConsentBundleRow({
+  entry,
+  selectedId,
+  selectedBundleId,
+  onSelectItem,
+}: {
+  entry: ConsentCenterEntry;
+  selectedId: string | null;
+  selectedBundleId: string | null;
+  onSelectItem: (entry: ConsentCenterEntry) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const items = entry.bundle_items || [];
+  const openedByLink =
+    selectedBundleId === entry.bundle_id ||
+    items.some((item) => item.request_id === selectedId);
+  useEffect(() => {
+    if (openedByLink) setExpanded(true);
+  }, [openedByLink]);
+  const isExpanded = expanded;
+  const pendingCount = items.filter((item) => item.status === "pending").length;
+  const summary = entry.bundle_complete
+    ? `${items.length} items · ${pendingCount} awaiting review`
+    : "Request is still being prepared";
+  const toggleLabel = isExpanded
+    ? "Hide"
+    : entry.bundle_complete
+      ? "Review"
+      : "Details";
+
+  return (
+    <div data-testid="consent-bundle-row">
+      <SettingsRow
+        leading={<ConsentCounterpartAvatar entry={entry} />}
+        title={resolveCounterpartLabel(entry)}
+        description={summary}
+        trailing={
+          <Badge className={badgeClassName(entry.status)}>{toggleLabel}</Badge>
+        }
+        onClick={() => setExpanded((value) => !value)}
+        ariaLabel={`${toggleLabel} ${items.length} information items from ${resolveCounterpartLabel(entry)}`}
+      />
+      {isExpanded ? (
+        <SettingsGroup embedded separatorInset>
+          {items.map((item) => (
+            <SettingsRow
+              key={item.request_id}
+              title={item.label}
+              description={formatStatus(item.status)}
+              trailing={item.entry ? "Review" : undefined}
+              chevron={Boolean(item.entry)}
+              onClick={item.entry ? () => onSelectItem(item.entry!) : undefined}
+              testId="consent-bundle-item"
+            />
+          ))}
+        </SettingsGroup>
+      ) : null}
+    </div>
   );
 }
 
@@ -1537,6 +1600,7 @@ function ConsentSurfaceListSection({
   items,
   selectedEntry,
   selectedId,
+  selectedBundleId,
   onSelectEntry,
   pagination,
 }: {
@@ -1545,6 +1609,7 @@ function ConsentSurfaceListSection({
   items: ConsentCenterEntry[];
   selectedEntry: ConsentCenterEntry | null;
   selectedId: string | null;
+  selectedBundleId?: string | null;
   onSelectEntry: (entry: ConsentCenterEntry) => void;
   pagination: {
     page: number;
@@ -1567,35 +1632,46 @@ function ConsentSurfaceListSection({
         {!loading && items.length === 0 ? (
           <SettingsRow title={emptyMessage} />
         ) : null}
-        {items.map((entry, index) => (
-          <ConsentEntryRow
-            key={`${entry.kind}-${entry.id}-${entry.request_id || "no-request"}-${index}`}
-            entry={entry}
-            selected={
-              // Bug: when nothing is selected, selectedEntry is null,
-              // so selectedEntry?.id and selectedEntry?.request_id are
-              // both undefined. Entries without their own request_id
-              // (e.g. one_location_grant rows) also have
-              // entry.request_id === undefined, so
-              // "undefined === undefined" was true and falsely
-              // highlighted that row as selected on every render -
-              // this is the row that appeared to randomly "jump" to
-              // a different entry on every tab switch. Require a
-              // real selectedEntry (or a matching selectedId) before
-              // comparing ids at all.
-              Boolean(
-                selectedEntry &&
-                (selectedEntry.id === entry.id ||
-                  (selectedEntry.request_id &&
-                    selectedEntry.request_id === entry.request_id)),
-              ) ||
-              Boolean(
-                selectedId && consentEntryMatchesSelectedId(entry, selectedId),
-              )
-            }
-            onSelect={() => onSelectEntry(entry)}
-          />
-        ))}
+        {items.map((entry, index) =>
+          entry.bundle_items ? (
+            <ConsentBundleRow
+              key={entry.id}
+              entry={entry}
+              selectedId={selectedId}
+              selectedBundleId={selectedBundleId || null}
+              onSelectItem={onSelectEntry}
+            />
+          ) : (
+            <ConsentEntryRow
+              key={`${entry.kind}-${entry.id}-${entry.request_id || "no-request"}-${index}`}
+              entry={entry}
+              selected={
+                // Bug: when nothing is selected, selectedEntry is null,
+                // so selectedEntry?.id and selectedEntry?.request_id are
+                // both undefined. Entries without their own request_id
+                // (e.g. one_location_grant rows) also have
+                // entry.request_id === undefined, so
+                // "undefined === undefined" was true and falsely
+                // highlighted that row as selected on every render -
+                // this is the row that appeared to randomly "jump" to
+                // a different entry on every tab switch. Require a
+                // real selectedEntry (or a matching selectedId) before
+                // comparing ids at all.
+                Boolean(
+                  selectedEntry &&
+                  (selectedEntry.id === entry.id ||
+                    (selectedEntry.request_id &&
+                      selectedEntry.request_id === entry.request_id)),
+                ) ||
+                Boolean(
+                  selectedId &&
+                  consentEntryMatchesSelectedId(entry, selectedId),
+                )
+              }
+              onSelect={() => onSelectEntry(entry)}
+            />
+          ),
+        )}
       </div>
       {pagination ? (
         <div className="shrink-0">
@@ -1695,8 +1771,6 @@ export function ConsentCenterPage() {
   // transition so the navigation never blocks the close animation.
   const [panelCloseRequested, setPanelCloseRequested] = useState(false);
   const [, startPanelUrlSync] = useTransition();
-  const isPanelOpen =
-    Boolean(selectedId || selectedBundleId) && !panelCloseRequested;
   const routeQuery = searchParams.get("q") || "";
   const [searchValue, setSearchValue] = useState(routeQuery);
   const deferredQuery = useDeferredValue(searchValue.trim());
@@ -2439,7 +2513,15 @@ export function ConsentCenterPage() {
     if (!items.length) return null;
     if (selectedId) {
       return (
-        items.find((item) => consentEntryMatchesSelectedId(item, selectedId)) ??
+        items
+          .flatMap((item) =>
+            item.bundle_items
+              ? item.bundle_items.flatMap((bundleItem) =>
+                  bundleItem.entry ? [bundleItem.entry] : [],
+                )
+              : [item],
+          )
+          .find((item) => consentEntryMatchesSelectedId(item, selectedId)) ??
         null
       );
     }
@@ -2447,8 +2529,10 @@ export function ConsentCenterPage() {
     // matching bundle entry so backend-generated bundle URLs land somewhere.
     if (selectedBundleId) {
       return (
-        items.find((item) =>
-          consentEntryMatchesBundleId(item, selectedBundleId),
+        items.find(
+          (item) =>
+            !item.bundle_items &&
+            consentEntryMatchesBundleId(item, selectedBundleId),
         ) ?? null
       );
     }
@@ -2530,6 +2614,8 @@ export function ConsentCenterPage() {
     }
     return selectedEntryFromList;
   }, [selectedEntryFromList, selectedId, selectedLookupEntry]);
+  const isPanelOpen =
+    Boolean(selectedId || selectedEntry) && !panelCloseRequested;
   const selectedRequestMissing = Boolean(
     selectedId &&
     selectedPendingLookupResource.data?.missing_request_ids?.includes(
@@ -2966,6 +3052,7 @@ export function ConsentCenterPage() {
                       items={pendingItems}
                       selectedEntry={selectedEntry}
                       selectedId={selectedId}
+                      selectedBundleId={selectedBundleId}
                       onSelectEntry={(entry) =>
                         setParam({ requestId: entry.request_id || entry.id })
                       }

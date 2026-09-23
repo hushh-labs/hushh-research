@@ -293,7 +293,10 @@ export class PkmWriteCoordinator {
     domain: string;
     vaultKey?: string | null;
     vaultOwnerToken?: string | null;
-    confirmation: PkmUserConfirmation | import("@/lib/personal-knowledge-model/mutation-plan").PkmRequestedWorkflowAuthorization;
+    confirmation:
+      | PkmUserConfirmation
+      | import("@/lib/personal-knowledge-model/mutation-plan").PkmRequestedWorkflowAuthorization
+      | import("@/lib/personal-knowledge-model/mutation-plan").PkmConnectedSourceSyncAuthorization;
     idempotencyScope?: string;
     locationFinalizeAuthorization?: LocationPkmFinalizeAuthorizationV1;
     beforeEffect?: () => Promise<void>;
@@ -314,6 +317,10 @@ export class PkmWriteCoordinator {
             domain: params.domain,
             vaultKey: params.vaultKey,
             vaultOwnerToken: params.vaultOwnerToken,
+            // A background refresh of a linked source never triggers a memory
+            // upgrade on the owner's behalf.
+            allowImplicitUpgrade:
+              params.confirmation.authorizationMode !== "owner_connected_source_sync",
           });
           upgradedInSession = upgrade.upgraded;
         }

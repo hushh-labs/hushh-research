@@ -270,6 +270,7 @@ async function loadNetworkResource(
   if (params.vaultKey && params.vaultOwnerToken) {
     let projectedFinancial = nextFinancial ?? {};
     let shouldPersist = false;
+    let syncedProvider: "plaid" | "statement_import" = "statement_import";
 
     if (loadedPlaidStatus?.configured && isPlaidMirrorStale(projectedFinancial, loadedPlaidStatus)) {
       projectedFinancial = upsertPlaidSource(
@@ -279,6 +280,7 @@ async function loadNetworkResource(
         nowIso
       );
       shouldPersist = true;
+      syncedProvider = "plaid";
     }
 
     if (desiredSource === "plaid" && getStoredActiveSource(projectedFinancial) !== "plaid") {
@@ -286,6 +288,7 @@ async function loadNetworkResource(
       if (plaidActivated) {
         projectedFinancial = plaidActivated;
         shouldPersist = true;
+        syncedProvider = "plaid";
       }
     }
 
@@ -310,10 +313,13 @@ async function loadNetworkResource(
         domain: "financial",
         vaultKey: params.vaultKey,
         vaultOwnerToken: params.vaultOwnerToken,
+        // Refreshing a connected source is authorized by the connection the
+        // owner made, not by a review of this write; the receipt says so.
         confirmation: {
-          confirmedByUser: true,
+          authorizationMode: "owner_connected_source_sync",
           surface: "web",
-          source: "kai_financial_resource_user_action",
+          source: "kai_financial_resource_connected_source_sync",
+          connectedSourceProvider: syncedProvider,
         },
         build: () => ({
           domainData: projectedFinancial,
