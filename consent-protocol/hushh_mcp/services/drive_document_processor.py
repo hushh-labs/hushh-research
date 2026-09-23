@@ -75,6 +75,12 @@ async def _private_process(
             "HF_HUB_DISABLE_TELEMETRY": "1",
             BAKED_MODEL_DIR_ENV: BAKED_MODEL_DIR,
             "TOKENIZERS_PARALLELISM": "false",
+            # Do not let native math libraries infer more threads than this
+            # deliberately small, CPU-limited private child can sustain.
+            "OMP_NUM_THREADS": "1",
+            "MKL_NUM_THREADS": "1",
+            "OPENBLAS_NUM_THREADS": "1",
+            "NUMEXPR_NUM_THREADS": "1",
         },
     )
 
@@ -259,12 +265,15 @@ class IsolatedDocumentEmbedding:
     async def query(self, query: str) -> tuple[float, ...]:
         if not query.strip() or len(query.encode()) > 2048:
             raise DriveReadError("invalid_argument")
-        async with asyncio.timeout(50), _embedding_admission():
+        # The pinned E5 model was measured at ~71s from a cold start on the
+        # UAT worker's 2-CPU/4-GiB allocation. Admission and child execution
+        # remain bounded independently; downstream jobs own larger leases.
+        async with asyncio.timeout(105), _embedding_admission():
             result = await _private_process(
                 "embedding",
                 "query",
                 json.dumps({"query": query}).encode(),
-                timeout=45,
+                timeout=100,
                 limit=16384,
             )
         if result.get("error") == "invalid_argument":
@@ -288,7 +297,7 @@ class IsolatedDocumentEmbedding:
             "embedding",
             "embed",
             json.dumps(asdict(parsed)).encode(),
-            timeout=45,
+            timeout=100,
             limit=4 * 1024 * 1024,
         )
         return _prepared(result)

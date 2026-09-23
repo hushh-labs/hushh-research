@@ -99,14 +99,18 @@ class DriveSuggestionService:
         if job is None:
             return "not_claimed"
         try:
-            async with asyncio.timeout(100):
+            async with asyncio.timeout(160):
                 reader = self._reader(job)
                 query = job["purpose"]["purpose"]
                 if len(query.encode()) > 2048:
                     raise DriveSharingError("narrow_selection_required")
                 retrieved = await reader.search(query=query)
                 if not retrieved["untrusted_external_content"]:
-                    await self.store.fail_preparation(job, code="no_ready_files")
+                    await self.store.fail_preparation(
+                        job,
+                        code="no_ready_files",
+                        retryable=await self.store.indexing_pending(job),
+                    )
                     return "no_ready_files"
                 await reader.require_current()
                 await self.store.require_preparation_current(job)

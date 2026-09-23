@@ -1,11 +1,10 @@
-"""One bounded operational sweep for the opt-in Drive-sharing workflow.
+"""One bounded, fixed-stage sweep for the opt-in Drive-sharing workflow.
 
-The work is deliberately sequenced rather than run as an in-process background
-task: document indexing can make a source available to suggestions, suggestions
-can produce a review, permission work can settle a prior approval, and the
-metadata-only outbox can notify a participant of any durable event.  Every
-individual worker remains the authority for its own leases and rollout checks.
-This coordinator only gives an authenticated scheduler a small, finite sweep.
+Separate scheduler jobs invoke document, suggestion, and sharing stages. Only
+the selected stage runs in a request; the sharing stage sequences permission
+work before notification. Each worker remains the authority for its own leases
+and rollout checks. This coordinator only gives an authenticated scheduler a
+small, finite sweep.
 """
 
 from __future__ import annotations
@@ -19,14 +18,24 @@ from hushh_mcp.services.drive_permission_worker import DrivePermissionWorker
 from hushh_mcp.services.drive_share_notification_worker import DriveShareNotificationWorker
 from hushh_mcp.services.drive_suggestion_worker import DriveSuggestionWorker
 
-MAX_JOBS_PER_WORKER = 4
-STAGE_MAX_SECONDS = {
-    "documents": 95,
-    "suggestions": 20,
-    "permissions": 20,
-    "notifications": 20,
+MAX_JOBS_PER_WORKER = 1
+STAGE_WORKERS = {
+    "documents": frozenset({"documents"}),
+    "suggestions": frozenset({"suggestions"}),
+    "sharing": frozenset({"permissions", "notifications"}),
 }
-RESERVED_SECONDS_PER_LATER_STAGE = 15
+STAGE_MAX_SECONDS = {
+    "documents": 180,
+    "suggestions": 175,
+    "permissions": 80,
+    "notifications": 45,
+}
+STAGE_MIN_SECONDS = {
+    "documents": 160,
+    "suggestions": 150,
+    "permissions": 75,
+    "notifications": 35,
+}
 MAX_OUTCOME_COUNT = 100
 
 _WORKER_ALLOWED_OUTCOMES = {
@@ -40,10 +49,19 @@ _WORKER_ALLOWED_OUTCOMES = {
             "not_ready",
             "disabled",
             "deadline",
+            "deferred",
         }
     ),
     "suggestions": frozenset(
-        {"not_claimed", "no_ready_files", "review_ready", "unavailable", "disabled", "deadline"}
+        {
+            "not_claimed",
+            "no_ready_files",
+            "review_ready",
+            "unavailable",
+            "disabled",
+            "deadline",
+            "deferred",
+        }
     ),
     "permissions": frozenset(
         {
@@ -59,6 +77,7 @@ _WORKER_ALLOWED_OUTCOMES = {
             "unavailable",
             "disabled",
             "deadline",
+            "deferred",
         }
     ),
     "notifications": frozenset(
@@ -71,6 +90,7 @@ _WORKER_ALLOWED_OUTCOMES = {
             "unavailable",
             "disabled",
             "deadline",
+            "deferred",
         }
     ),
 }
@@ -111,6 +131,10 @@ def safe_work_drain_result(result: object) -> dict[str, Any]:
 class DriveWorkDrain:
     """Coordinate finite Drive jobs without broadening any worker authority."""
 
+    @staticmethod
+    def _now() -> float:
+        return asyncio.get_running_loop().time()
+
     def __init__(
         self,
         *,
@@ -119,8 +143,8 @@ class DriveWorkDrain:
         permission_worker: DrivePermissionWorker | None = None,
         notification_worker: DriveShareNotificationWorker | None = None,
     ) -> None:
-        # Dependency order is intentional. Do not parallelize a single sweep:
-        # later stages are allowed to observe durable outcomes of earlier ones.
+        # Sharing permissions precede notifications in the same stage. Other
+        # stages run on their own fixed scheduler jobs, never in this request.
         self._workers = (
             ("documents", document_worker or DriveDocumentWorker()),
             ("suggestions", suggestion_worker or DriveSuggestionWorker()),
@@ -131,40 +155,39 @@ class DriveWorkDrain:
     async def run(
         self,
         *,
+        stage: str = "documents",
         max_jobs_per_worker: int = MAX_JOBS_PER_WORKER,
-        deadline_seconds: int = 175,
+        deadline_seconds: int = 205,
     ) -> dict[str, Any]:
         if (
-            type(max_jobs_per_worker) is not int
-            or not 1 <= max_jobs_per_worker <= MAX_JOBS_PER_WORKER
+            type(stage) is not str
+            or stage not in STAGE_WORKERS
+            or type(max_jobs_per_worker) is not int
+            or max_jobs_per_worker != MAX_JOBS_PER_WORKER
             or type(deadline_seconds) is not int
-            or not 20 <= deadline_seconds <= 180
+            or not 20 <= deadline_seconds <= 205
         ):
             raise ValueError("invalid Drive work drain bounds")
 
-        deadline = asyncio.get_running_loop().time() + deadline_seconds
+        deadline = self._now() + deadline_seconds
         summaries: dict[str, dict[str, int]] = {}
-        for index, (name, worker) in enumerate(self._workers):
-            remaining = deadline - asyncio.get_running_loop().time()
-            later_stages = len(self._workers) - index - 1
-            if remaining < 1:
+        for name, worker in self._workers:
+            if name not in STAGE_WORKERS[stage]:
+                summaries[name] = {"deferred": 1}
+                continue
+            remaining = deadline - self._now()
+            budget = min(STAGE_MAX_SECONDS[name], int(remaining))
+            if budget < STAGE_MIN_SECONDS[name]:
                 summaries[name] = {"deadline": 1}
                 continue
-            # Cold local model loading, scanning and bounded parsing can exceed
-            # the old 25-second fair share. Reserve a fixed minimum for each
-            # downstream stage while allowing one document attempt up to its
-            # 90-second ingestion lease. Every stage remains independently
-            # capped and the whole HTTP request has a hard deadline.
-            budget = min(
-                STAGE_MAX_SECONDS[name],
-                max(1, int(remaining) - later_stages * RESERVED_SECONDS_PER_LATER_STAGE),
-            )
             try:
                 async with asyncio.timeout(budget):
                     result = await worker.run(
                         max_jobs=max_jobs_per_worker,
                         deadline_seconds=budget,
                     )
+            except TimeoutError:
+                summaries[name] = {"deadline": 1}
             except Exception:  # noqa: BLE001 - status stays aggregate-only.
                 summaries[name] = {"unavailable": 1}
             else:

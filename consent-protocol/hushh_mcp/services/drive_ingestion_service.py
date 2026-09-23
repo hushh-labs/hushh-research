@@ -71,7 +71,7 @@ class DriveIngestionService:
         try:
             # Less than the DB-clock lease. Cancellation/crash leaves a durable
             # reclaimable job; no late publish can acquire a replacement lease.
-            async with asyncio.timeout(90):
+            async with asyncio.timeout(170):
                 content = await self._fetch(job)
                 if content is None:
                     return {"status": "unchanged"}

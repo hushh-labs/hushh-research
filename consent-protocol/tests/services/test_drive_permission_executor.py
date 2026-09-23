@@ -277,6 +277,21 @@ async def test_known_stale_file_invalidates_remaining_batch(permission_setup):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("queued_minutes", [10, 45])
+async def test_queued_grant_still_has_authority_within_two_hours(permission_setup, queued_minutes):
+    store, executor, adapter, ids = permission_setup
+    with store.db.engine.begin() as connection:
+        connection.execute(
+            text(
+                "UPDATE drive_share_permission_operations SET created_at=clock_timestamp()-(:minutes * INTERVAL '1 minute') WHERE operation_id=:id"
+            ),
+            {"id": ids[0], "minutes": queued_minutes},
+        )
+    assert await executor.grant(user_id="owner", operation_id=ids[0]) == "succeeded"
+    adapter.create_reader.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_expired_never_dispatched_claim_is_released(permission_setup):
     store, executor, adapter, ids = permission_setup
     assert await store.claim_grant(user_id="owner", operation_id=ids[0])
@@ -284,7 +299,7 @@ async def test_expired_never_dispatched_claim_is_released(permission_setup):
         connection.execute(
             text("""
             UPDATE drive_share_permission_operations SET lease_expires_at=clock_timestamp()-INTERVAL '1 second',
-              created_at=clock_timestamp()-INTERVAL '10 minutes' WHERE operation_id=:id
+              created_at=clock_timestamp()-INTERVAL '121 minutes' WHERE operation_id=:id
         """),
             {"id": ids[0]},
         )
@@ -332,7 +347,7 @@ async def test_retiring_last_expired_grant_finishes_request_and_notifies_once(pe
     with store.db.engine.begin() as connection:
         connection.execute(
             text(
-                "UPDATE drive_share_permission_operations SET created_at=clock_timestamp()-INTERVAL '10 minutes'"
+                "UPDATE drive_share_permission_operations SET created_at=clock_timestamp()-INTERVAL '121 minutes'"
             )
         )
     for identifier in ids:

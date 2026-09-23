@@ -27,6 +27,7 @@ from hushh_mcp.services.drive_document_processor import (
     IsolatedDocumentParser,
     LocalDocumentProcessor,
     PrivateDocumentEmbedding,
+    _private_process,
 )
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 
@@ -69,6 +70,38 @@ def test_real_pdf_and_docx_text_extraction():
         b'<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Private statement</w:t></w:r></w:p></w:body></w:document>'
     )
     assert parse_document(content, DOCX).pages == ("Private statement",)
+
+
+@pytest.mark.asyncio
+async def test_private_embedding_child_caps_native_threads_and_drops_parent_environment(
+    monkeypatch,
+):
+    import asyncio
+
+    monkeypatch.setenv("GOOGLE_APPLICATION_CREDENTIALS", "synthetic-secret-path")
+    process = SimpleNamespace(
+        stdin=SimpleNamespace(write=lambda _: None, drain=AsyncMock(), close=lambda: None),
+        stdout=SimpleNamespace(read=AsyncMock(side_effect=[b"{}", b""])),
+        returncode=0,
+        wait=AsyncMock(),
+    )
+    create = AsyncMock(return_value=process)
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", create)
+
+    assert await _private_process("embedding", "query", b"{}", timeout=45, limit=64) == {}
+    child_env = create.await_args.kwargs["env"]
+    assert {
+        name: child_env[name]
+        for name in (
+            "OMP_NUM_THREADS",
+            "MKL_NUM_THREADS",
+            "OPENBLAS_NUM_THREADS",
+            "NUMEXPR_NUM_THREADS",
+        )
+    } == dict.fromkeys(
+        ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS", "NUMEXPR_NUM_THREADS"), "1"
+    )
+    assert "GOOGLE_APPLICATION_CREDENTIALS" not in child_env
 
 
 def test_private_children_do_not_reload_dotenv_credentials(tmp_path):

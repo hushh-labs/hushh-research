@@ -170,7 +170,7 @@ _intro_capabilities = {
 # in error or disconnect. Measured 2026-09-14 on localhost with the latency
 # driver (agent-chat-migration-baseline).
 _MAX_CONCURRENT_EXECUTIONS = 64
-_EXECUTION_TIMEOUT_SECONDS = 120
+_EXECUTION_TIMEOUT_SECONDS = 200
 
 _agent = TimedADKAgent.from_app(
     _app,

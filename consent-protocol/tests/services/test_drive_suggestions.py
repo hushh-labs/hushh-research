@@ -109,6 +109,56 @@ async def test_connection_selection_without_background_consent_does_not_invoke_m
 
 
 @pytest.mark.asyncio
+async def test_consented_file_still_indexing_does_not_publish_empty_review(suggestions):
+    service, request_id, document = suggestions
+    with service.store.db.engine.begin() as connection:
+        connection.execute(
+            text("""
+                UPDATE connected_documents SET active_version=NULL,status='queued'
+                WHERE user_id='owner' AND document_id=CAST(:document AS uuid)
+            """),
+            {"document": document},
+        )
+
+    assert await service.run_one(user_id="owner", request_id=request_id) == "no_ready_files"
+    service.interpreter.assert_not_awaited()
+    request_row = next(
+        row
+        for row in rows(service.store, "drive_share_requests")
+        if str(row["request_id"]) == request_id
+    )
+    assert request_row["status"] == "pending"
+    assert request_row["preparation_error_code"] == "no_ready_files"
+    assert not rows(service.store, "drive_share_reviews")
+
+
+@pytest.mark.asyncio
+async def test_stale_file_with_previous_index_defers_empty_review(suggestions):
+    service, request_id, document = suggestions
+    with service.store.db.engine.begin() as connection:
+        connection.execute(
+            text("""
+                UPDATE connected_documents SET status='stale'
+                WHERE user_id='owner' AND document_id=CAST(:document AS uuid)
+            """),
+            {"document": document},
+        )
+    document_row = rows(service.store, "connected_documents")[0]
+    assert document_row["active_version"] is not None
+
+    assert await service.run_one(user_id="owner", request_id=request_id) == "no_ready_files"
+    service.interpreter.assert_not_awaited()
+    request_row = next(
+        row
+        for row in rows(service.store, "drive_share_requests")
+        if str(row["request_id"]) == request_id
+    )
+    assert request_row["status"] == "pending"
+    assert request_row["preparation_error_code"] == "no_ready_files"
+    assert not rows(service.store, "drive_share_reviews")
+
+
+@pytest.mark.asyncio
 async def test_pause_during_model_call_cannot_publish_review(suggestions):
     service, request_id, document = suggestions
     original = service.interpreter.side_effect
