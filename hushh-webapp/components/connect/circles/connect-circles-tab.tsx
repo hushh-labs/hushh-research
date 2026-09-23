@@ -13,6 +13,8 @@ import { toast } from "sonner";
 import { KeyRound, Plus, ShieldCheck, UsersRound } from "@/components/icons";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import { SectionTitle, RowDescription } from "@/components/app-ui/typography";
+import { Button } from "@/lib/morphy-ux/button";
 import {
   CircleDetailFlow,
   CreateCircleFlow,
@@ -20,6 +22,10 @@ import {
 } from "@/components/one-location/redesign/circles/named-circle-flows";
 import { SmsTextIcon } from "@/components/one-location/redesign/sms-text-icon";
 import { createConnectCircleActions } from "@/components/connect/circles/connect-circle-actions";
+import {
+  CONNECT_CIRCLE_GRID_CLASSNAME,
+  CONNECT_CIRCLE_TILE_CLASSNAME,
+} from "@/components/connect/connect-living-layout";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { CIRCLE_JOIN_CODE_PARAM } from "@/lib/one-location/circle-join-url";
 import {
@@ -105,6 +111,45 @@ const SYSTEM_CIRCLE_COPY = {
 >;
 
 type SystemCircleKind = "trusted" | "sms";
+
+/** The summary contains counts, not member identities; these dots represent seats. */
+function CircleCluster({
+  circle,
+}: {
+  circle: OneLocationCircleSummary;
+}) {
+  const kind = systemKindOf(circle);
+  const visibleSeats = Math.min(Math.max(circle.memberCount, 0), 4);
+  return (
+    <span
+      aria-hidden="true"
+      data-testid="connect-circle-cluster"
+      className="relative flex size-24 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-secondary-fill)] sm:size-28"
+    >
+      <span className="flex size-12 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] text-[color:var(--app-primary-label)]">
+        {kind === "sms" ? (
+          <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-[color:var(--app-destructive)] text-[color:var(--app-destructive-fg)]">
+            <SmsTextIcon className="text-[8px]" />
+          </span>
+        ) : kind === "trusted" ? (
+          <ShieldCheck className="size-5" />
+        ) : (
+          <UsersRound className="size-5" />
+        )}
+      </span>
+      {Array.from({ length: visibleSeats }, (_, index) => (
+        <span
+          key={index}
+          className="absolute size-3 rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-accent)]"
+          style={{
+            left: ["45%", "80%", "45%", "10%"][index],
+            top: ["4%", "45%", "82%", "45%"][index],
+          }}
+        />
+      ))}
+    </span>
+  );
+}
 
 function isSystemCircleKind(value: string | null): value is SystemCircleKind {
   return value === "trusted" || value === "sms";
@@ -331,6 +376,14 @@ export function ConnectCirclesTab({
   }, [circles.length, error, loading, onStateChange]);
 
   const { owned, joined } = useMemo(() => orderCircles(circles), [circles]);
+  const showingStarter =
+    vaultOwnerToken !== null &&
+    !loading &&
+    !error &&
+    joined.length === 0 &&
+    owned.every(
+      (circle) => systemKindOf(circle) !== null && circle.memberCount <= 1,
+    );
 
   const actions = useMemo(
     () =>
@@ -656,60 +709,35 @@ export function ConnectCirclesTab({
 
   const renderCircleRow = (circle: OneLocationCircleSummary) => {
     const kind = systemKindOf(circle);
-    const isSmsCircle = kind === "sms";
     const testId = kind
       ? `connect-circle-${kind}`
       : circle.role === "owner"
         ? "connect-circle-owned"
         : "connect-circle-joined";
+    const title =
+      isSystemCircleKind(kind) &&
+      circle.role === "owner" &&
+      circle.name === SYSTEM_CIRCLE_COPY[kind].title
+        ? SYSTEM_CIRCLE_COPY[kind].title
+        : circle.name;
 
     return (
-      <SettingsRow
+      <button
         key={circle.id}
-        icon={
-          kind === "trusted"
-            ? ShieldCheck
-            : isSmsCircle
-              ? undefined
-              : UsersRound
-        }
-        leading={
-          isSmsCircle ? (
-            <span
-              aria-hidden="true"
-              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-destructive)] text-[color:var(--app-destructive-fg)]"
-            >
-              <SmsTextIcon className="text-[8px]" />
-            </span>
-          ) : undefined
-        }
-        iconTone="indigo"
-        // The product name only for the Circle that is yours. An SMS Circle
-        // shows up in the list of everyone on it, and the server deliberately
-        // renames the ones you do not own -- "Alice's SMS Circle" -- because
-        // three friends' rosters would otherwise be three identical rows
-        // reading "SMS Circle". Overwriting that name here threw the
-        // disambiguation away.
-        // The product's name only while it is still the product's.
-        //
-        // An owner may rename their SMS Circle -- the server treats that as
-        // their decision and heals only the default -- so overriding the title
-        // here unconditionally meant the rename succeeded, persisted, showed
-        // on Location, and was silently discarded on this list. Once the stored
-        // name differs from the default it is theirs, and it wins.
-        title={
-          isSystemCircleKind(kind) &&
-          circle.role === "owner" &&
-          circle.name === SYSTEM_CIRCLE_COPY[kind].title
-            ? SYSTEM_CIRCLE_COPY[kind].title
-            : circle.name
-        }
-        description={circleRowDescription(circle)}
-        density="compact"
-        chevron
+        type="button"
+        className={CONNECT_CIRCLE_TILE_CLASSNAME}
         onClick={() => openCircle(circle.id)}
-        testId={testId}
-      />
+        data-testid={testId}
+        aria-label={`Open ${title} circle, ${circleRowDescription(circle)}`}
+      >
+        <CircleCluster circle={circle} />
+        <span className="ui-text-card-title max-w-full [overflow-wrap:anywhere] text-[color:var(--app-primary-label)]">
+          {title}
+        </span>
+        <span className="ui-text-row-description max-w-full text-[color:var(--app-secondary-label)]">
+          {circleRowDescription(circle)}
+        </span>
+      </button>
     );
   };
 
@@ -755,21 +783,59 @@ export function ConnectCirclesTab({
         </SettingsGroup>
       ) : (
         <>
-          <SettingsGroup
-            title="Your circles"
-            separatorInset
-            testId="connect-circle-group-owned"
-          >
-            {owned.map(renderCircleRow)}
-          </SettingsGroup>
-          {joined.length ? (
-            <SettingsGroup
-              title="Joined circles"
-              separatorInset
-              testId="connect-circle-group-joined"
+          {showingStarter ? (
+            <section
+              data-testid="connect-circle-starter"
+              className="rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-5 py-7 text-center sm:px-8"
             >
-              {joined.map(renderCircleRow)}
-            </SettingsGroup>
+              <span aria-hidden="true" className="relative mx-auto flex size-28 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-secondary-fill)]">
+                <span className="flex size-14 items-center justify-center rounded-full bg-[color:var(--app-card-surface-default-solid)] text-[color:var(--app-accent)]">
+                  <UsersRound className="size-7" />
+                </span>
+                <span className="absolute -left-1 top-5 size-5 rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-accent)]" />
+                <span className="absolute -right-1 top-5 size-5 rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-accent)]" />
+                <span className="absolute bottom-0 left-1/2 size-5 -translate-x-1/2 rounded-full border-2 border-[color:var(--app-card-surface-default-solid)] bg-[color:var(--app-accent)]" />
+              </span>
+              <h2 className="ui-text-major-section-title mt-5 text-[color:var(--app-primary-label)]">
+                A circle starts with your people
+              </h2>
+              <p className="ui-text-page-subtitle mx-auto mt-1 max-w-md text-[color:var(--app-secondary-label)]">
+                Make a space for family, friends, or any group you choose. Invite people when you're ready.
+              </p>
+              <div className="mt-5 flex flex-col justify-center gap-2.5 min-[440px]:flex-row">
+                <Button type="button" variant="blue" effect="fill" size="standard" showRipple={false} onClick={() => go({ action: "create-circle" })} data-testid="connect-circle-create">
+                  <Plus aria-hidden="true" className="mr-1.5 size-4" />
+                  New circle
+                </Button>
+                <Button type="button" variant="none" effect="fade" size="standard" showRipple={false} onClick={() => router.push(`${ROUTES.CONNECT}?tab=all`, { scroll: false })}>
+                  Find people
+                </Button>
+              </div>
+              <Button type="button" variant="none" effect="fade" size="compact" showRipple={false} className="mt-2" onClick={() => go({ action: "join-circle" })} data-testid="connect-circle-join">
+                Have a code? Join a circle
+              </Button>
+            </section>
+          ) : null}
+          {owned.length ? (
+            <section data-testid="connect-circle-group-owned" className="space-y-3">
+              <div className="space-y-1">
+                <SectionTitle as="h2">Your circles</SectionTitle>
+                <RowDescription>
+                  Bring people together for the things you share.
+                </RowDescription>
+              </div>
+              <div className={CONNECT_CIRCLE_GRID_CLASSNAME}>
+                {owned.map(renderCircleRow)}
+              </div>
+            </section>
+          ) : null}
+          {joined.length ? (
+            <section data-testid="connect-circle-group-joined" className="space-y-3">
+              <SectionTitle as="h2">Joined circles</SectionTitle>
+              <div className={CONNECT_CIRCLE_GRID_CLASSNAME}>
+                {joined.map(renderCircleRow)}
+              </div>
+            </section>
           ) : null}
         </>
       )}
@@ -777,7 +843,7 @@ export function ConnectCirclesTab({
       {/* Its own group, below the list, so it does not move as the list grows
           -- and 56px rows rather than the 16px header links Location uses,
           which shift with the heading when it wraps. */}
-      {vaultOwnerToken ? (
+      {vaultOwnerToken && !loading && !showingStarter ? (
         <SettingsGroup separatorInset>
           <SettingsRow
             icon={Plus}

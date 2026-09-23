@@ -300,13 +300,11 @@ describe("ConnectCirclesTab", () => {
     expect(disc.className).toContain("h-7");
     expect(disc.className).toContain("w-7");
 
-    // The indigo utility well is gone from this row, and only this row.
+    // The SMS identity remains distinct within the new circle tile layout.
     expect(smsRow.querySelector('[data-slot="settings-row-icon"]')).toBeNull();
-    const trustedIcon = screen
-      .getByTestId("connect-circle-trusted")
-      .querySelector('[data-slot="settings-row-icon"]');
-    expect(trustedIcon).not.toBeNull();
-    expect(trustedIcon).toHaveAttribute("data-icon-tone", "indigo");
+    const trusted = screen.getByTestId("connect-circle-trusted");
+    expect(within(trusted).getByTestId("connect-circle-cluster")).toBeTruthy();
+    expect(trusted.querySelector("svg")).not.toBeNull();
   });
 
   it("marks every SMS Circle on the list, not only the one you own", async () => {
@@ -347,13 +345,27 @@ describe("ConnectCirclesTab", () => {
     expect(view.container.textContent).not.toMatch(/\bFriends\b/);
   });
 
-  it("offers both ways to get another one, in their own group", async () => {
+  it("gives a new member clear create and join paths", async () => {
     render(<ConnectCirclesTab />);
 
-    // Zero named Circles is never an empty screen: the two ways forward sit
-    // below whatever list there is, so they do not move as it grows.
+    expect(await screen.findByTestId("connect-circle-starter")).toBeTruthy();
     expect(await screen.findByTestId("connect-circle-create")).toBeTruthy();
     expect(screen.getByTestId("connect-circle-join")).toBeTruthy();
+    expect(screen.getByText("Find people")).toBeTruthy();
+  });
+
+  it("keeps the starter alongside empty product circles, without inventing member photos", async () => {
+    mocks.listCircles.mockResolvedValue([
+      circle("trusted", "Trusted", 1, "trusted"),
+      circle("sms", "SMS Circle", 1, "sms"),
+    ]);
+
+    render(<ConnectCirclesTab />);
+
+    expect(await screen.findByTestId("connect-circle-starter")).toBeTruthy();
+    expect(screen.getByTestId("connect-circle-trusted")).toBeTruthy();
+    expect(screen.getByTestId("connect-circle-sms")).toBeTruthy();
+    expect(screen.queryByRole("img", { name: /member/i })).toBeNull();
   });
 
   it("names the real next step when there is no vault yet", async () => {
@@ -483,7 +495,7 @@ describe("ConnectCirclesTab", () => {
   it("keeps New circle and Join with code on Connect", async () => {
     render(<ConnectCirclesTab />);
 
-    (await screen.findByText("New circle")).click();
+    fireEvent.click(await screen.findByTestId("connect-circle-create"));
     await waitFor(() => expect(mocks.routerPush).toHaveBeenCalled());
     const createHref = String(mocks.routerPush.mock.calls[0][0]);
     expect(createHref).toContain("/one/connect");
@@ -491,7 +503,7 @@ describe("ConnectCirclesTab", () => {
     expect(createHref).not.toContain("/one/location");
 
     mocks.routerPush.mockClear();
-    screen.getByText("Join with code").click();
+    fireEvent.click(screen.getByTestId("connect-circle-join"));
     await waitFor(() => expect(mocks.routerPush).toHaveBeenCalled());
     const joinHref = String(mocks.routerPush.mock.calls[0][0]);
     expect(joinHref).toContain("/one/connect");
@@ -499,19 +511,13 @@ describe("ConnectCirclesTab", () => {
     expect(joinHref).not.toContain("/one/location");
   });
 
-  it("keeps circle navigation copy compact on narrow screens", async () => {
+  it("stacks starter actions on narrow screens", async () => {
     render(<ConnectCirclesTab />);
 
-    const createDescription = await screen.findByText(
-      "Create a group for your connections.",
-    );
-    const joinDescription = screen.getByText(
-      "Enter a shared 12-character code.",
-    );
-    for (const description of [createDescription, joinDescription]) {
-      expect(description.className).toContain("truncate");
-      expect(description.className).toContain("whitespace-nowrap");
-    }
+    const starter = await screen.findByTestId("connect-circle-starter");
+    const actions = within(starter).getByText("New circle").parentElement?.parentElement;
+    expect(actions?.className).toContain("flex-col");
+    expect(actions?.className).toContain("min-[440px]:flex-row");
   });
 
   it("names the tab explicitly on every navigation", async () => {

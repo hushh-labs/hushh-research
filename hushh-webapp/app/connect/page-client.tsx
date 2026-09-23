@@ -31,6 +31,7 @@ import {
   SettingsRow,
 } from "@/components/app-ui/settings-ui";
 import { ConnectCirclesTab } from "@/components/connect/circles/connect-circles-tab";
+import { LivingConnections } from "@/components/connect/living-connections";
 import { SurfaceStack } from "@/components/app-ui/surfaces";
 import { buildInviteToOneShare } from "@/lib/connect/invite-to-one";
 import {
@@ -76,6 +77,7 @@ import {
   CONNECT_SEARCH_QUERY_PARAM,
   CONNECT_REVIEW_PERSON_PARAM,
   CONNECT_SURFACE_PARAM,
+  CONNECT_CIRCLES_LIST_HREF,
   connectCircleTaskTitle,
   isFocusedConnectCircleTask,
   readConnectCircleAction,
@@ -2896,6 +2898,47 @@ export default function ConnectPageClient() {
                         </div>
                       ) : (
                         <div className="space-y-3 sm:space-y-4">
+                          {tab === "people" ? (
+                            <LivingConnections
+                              ownerName={
+                                user?.displayName ||
+                                user?.email ||
+                                "You"
+                              }
+                              ownerPhotoUrl={user?.photoURL ?? null}
+                              connections={sortedConnections}
+                              totalCount={connectionsTotalCount}
+                              loading={
+                                !connectionsRefreshError &&
+                                ((!connectionsLoaded ||
+                                  connectionsRefreshingFirstPage) &&
+                                  sortedConnections.length === 0)
+                              }
+                              error={connectionsRefreshError}
+                              onFindPeople={() => {
+                                searchInputRef.current?.scrollIntoView({
+                                  behavior: "smooth",
+                                  block: "center",
+                                });
+                                searchInputRef.current?.focus({
+                                  preventScroll: true,
+                                });
+                              }}
+                              onExploreCircles={() =>
+                                router.push(CONNECT_CIRCLES_LIST_HREF, {
+                                  scroll: false,
+                                })
+                              }
+                              onOpenPerson={(personRef) =>
+                                router.push(
+                                  buildPersonProfileRoute(personRef, {
+                                    from: ROUTES.CONNECT,
+                                  }),
+                                )
+                              }
+                              onRetry={handleRefreshConnections}
+                            />
+                          ) : null}
                           <SettingsGroup
                             titleControl={
                               <Button

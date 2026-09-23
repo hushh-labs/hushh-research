@@ -475,6 +475,20 @@ describe("P0 connection reconciliation", () => {
 });
 
 describe("Connect — People", () => {
+  it("welcomes a new member without hiding the real people directory", async () => {
+    render(<ConnectPageClient />);
+
+    expect(await screen.findByText("Bring your people closer")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Find your first connection" })).toBeTruthy();
+    expect(screen.getByRole("textbox", { name: "Search people" })).toBeTruthy();
+    fireEvent.click(screen.getByText("How Connect works"));
+    expect(screen.getByText(/send a connection request/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Explore circles" }));
+    expect(mocks.routerPush).toHaveBeenCalledWith("/one/connect?tab=circles", {
+      scroll: false,
+    });
+  });
+
   it("places one directory selector below connections and keeps every directory reachable", async () => {
     render(<ConnectPageClient />);
     await screen.findByText("Person 0");
