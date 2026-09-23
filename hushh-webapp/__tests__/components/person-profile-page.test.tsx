@@ -393,18 +393,41 @@ describe("PersonProfilePage native profile route", () => {
     ).toBeTruthy();
   });
 
-  it("reviews a Professional group as one root request, not one request per child", async () => {
+  it("sends one eligible Professional root request instead of twelve child requests", async () => {
+    const { PersonProfileService } = await import("@/lib/services/person-profile-service");
+    const { OneKycClientZkService } = await import("@/lib/services/one-kyc-client-zk-service");
     mocks.user = { uid: "viewer", getIdToken: vi.fn().mockResolvedValue("viewer-token") };
+    mocks.vaultKey = "synthetic-vault-key";
+    mocks.vaultOwnerToken = "synthetic-owner-token";
+    (OneKycClientZkService.ensureConnector as ReturnType<typeof vi.fn>).mockResolvedValue({ connector_key_id: "synthetic-connector" });
+    (PersonProfileService.createInformationRequest as ReturnType<typeof vi.fn>).mockResolvedValue({ bundleId: "synthetic-bundle" });
     mocks.getViewer.mockResolvedValue(viewerProfile({
       requestableScopes: [
         { scopeRef: "opaque-professional-root", label: "Professional Domain", description: null, domain: "professional", sensitivity: "standard", wildcard: true, pathSegments: [] },
-        { scopeRef: "opaque-professional-role", label: "Professional role", description: null, domain: "professional", sensitivity: "standard", wildcard: false, pathSegments: ["role"] },
+        ...Array.from({ length: 12 }, (_, index) => ({
+          scopeRef: `opaque-professional-child-${index}`,
+          label: `Professional detail ${index + 1}`,
+          description: null,
+          domain: "professional",
+          sensitivity: "standard",
+          wildcard: false,
+          pathSegments: ["details", `item_${index + 1}`],
+        })),
       ],
     }));
     render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
 
     fireEvent.click(await screen.findByTestId("person-profile-scope-group-toggle-professional"));
-    expect(screen.getByRole("button", { name: "Review request (1)" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Review request (1)" }));
+    expect(screen.getByText("This includes all available information in this area, not just one detail.")).toBeInTheDocument();
+    fireEvent.change(screen.getByTestId("person-profile-purpose"), { target: { value: "Review synthetic professional information" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send request" }));
+    await waitFor(() => expect(PersonProfileService.createInformationRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        personRef: "actual-public-ref",
+        scopeRefs: ["opaque-professional-root"],
+      }),
+    ));
   });
 
   it("does not open an unusable review dialog while the vault token is still loading", async () => {

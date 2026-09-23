@@ -85,6 +85,7 @@ class AttachedRenderPerfTest {
             if (section == "all" || section == "kai") kaiSection()
             if (section == "all" || section == "location") locationSection()
             if (section == "hold") holdSection()
+            if (section == "plaid-vault") plaidVaultSection()
         } finally {
             clearProbePreferences()
             publishExports()
@@ -203,6 +204,292 @@ class AttachedRenderPerfTest {
         val until = System.currentTimeMillis() + minutes * 60_000
         while (System.currentTimeMillis() < until) settle(5_000)
         log("PERF_DONE route=session")
+    }
+
+    /**
+     * Plaid SANDBOX only (Plaid's public test login). Links banks through the
+     * native Android SDK so each token is sealed in the owner's vault, and
+     * keeps the connections (founder decision 2026-09-23). Refresh on unlock
+     * of connections sealed on another device shows in the backend log. Never
+     * run against a production Plaid key: the credential screens are captured.
+     */
+    private fun plaidVaultSection() {
+        if (!launchAttached(null)) return
+        log("PERF_APP_READY route=plaid-vault")
+        val banks = (args.getString("plaidBanks") ?: "Platypus OAuth Bank,First Gingham Credit Union")
+            .split(",").map { it.trim() }.filter { it.isNotEmpty() }
+        settle(4_000)
+        var connected = 0
+        for ((index, bank) in banks.withIndex()) {
+            if (!openPortfolioSource(index)) { log("PLAID_MISSING index=$index step=portfolio_source"); shot("$index-no-source"); break }
+            if (index == 0) shot("sources")
+            if (!tapConnectRow()) { log("PLAID_MISSING index=$index step=connect_row"); shot("$index-no-connect"); break }
+            if (linkBank(index, bank)) {
+                connected += 1
+                log("PLAID_CONNECTED index=$index bank=$bank")
+            } else {
+                closePlaid()
+            }
+        }
+        log("PLAID_DONE connected=$connected")
+        shot("final")
+        log("PERF_DONE route=plaid-vault")
+    }
+
+    private fun textObject(text: String, contains: Boolean = false, timeoutMs: Long = 0): UiObject2? {
+        val selector = if (contains) By.textContains(text) else By.text(text)
+        val found = if (timeoutMs > 0) device.wait(Until.findObject(selector), timeoutMs) else device.findObject(selector)
+        return found ?: if (contains) device.findObject(By.descContains(text)) else device.findObject(By.desc(text))
+    }
+
+    private fun tapText(text: String, contains: Boolean = false, timeoutMs: Long = 6_000): Boolean {
+        val node = textObject(text, contains, timeoutMs) ?: return false
+        return try { tapObject(node); true } catch (_: StaleObjectException) { false }
+    }
+
+    /** One > Finance > Portfolio > Portfolio source, retrying the tab the way the iOS lane does. */
+    private fun openPortfolioSource(index: Int): Boolean {
+        if (textObject("Portfolio source", contains = true) != null) return tapText("Portfolio source", contains = true)
+        repeat(4) {
+            tapNav("One")
+            settle(2_000)
+            if (textObject("Finance") != null || textObject("Finance,", contains = true) != null) return@repeat
+        }
+        if (!tapText("Finance")) tapText("Finance,", contains = true)
+        settle(2_500)
+        tapText("Portfolio")
+        settle(2_500)
+        if (index == 0) shot("portfolio")
+        return tapText("Portfolio source", contains = true, timeoutMs = 12_000)
+    }
+
+    /** The connect row reads "Connect a bank or brokerage" or, once linked, "Manage connections". */
+    private fun tapConnectRow(): Boolean {
+        repeat(6) {
+            settle(1_500)
+            val row = textObject("Connect a bank or brokerage", contains = true) ?: textObject("Manage connections", contains = true)
+            if (row != null) {
+                tapObject(row)
+                settle(3_000)
+                if (textObject("Continue without phone number", contains = true, 8_000) != null ||
+                    device.findObject(By.clazz("android.widget.EditText")) != null) return true
+            }
+        }
+        return false
+    }
+
+    /**
+     * Types with real key events and checks the result; UIAutomator loses
+     * keystrokes while the keyboard comes up, exactly as XCUITest did on iOS
+     * (First Gingham: a 7-character password and "Incorrect credentials").
+     */
+    private fun typeChecked(field: UiObject2, value: String, secret: Boolean): Boolean {
+        repeat(3) {
+            try { tapObject(field) } catch (_: StaleObjectException) { return false }
+            settle(600)
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_MOVE_END)
+            repeat(24) { instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DEL) }
+            instrumentation.sendStringSync(value)
+            settle(400)
+            val typed = try { field.text.orEmpty() } catch (_: StaleObjectException) { "" }
+            if (typed == value || (secret && typed.length == value.length)) return true
+            log("PLAID_STEP retype length=${typed.length}")
+        }
+        return false
+    }
+
+    private fun linkBank(index: Int, bank: String): Boolean {
+        tapText("Continue without phone number", contains = true, timeoutMs = 8_000)
+        settle(2_000)
+        val search = device.wait(Until.findObject(By.clazz("android.widget.EditText")), 15_000)
+        if (search == null) { log("PLAID_MISSING index=$index step=search"); shot("$index-no-search"); return false }
+        tapObject(search)
+        settle(500)
+        instrumentation.sendStringSync(bank)
+        settle(3_000)
+        shot("$index-results")
+        // The first result row that names the bank. Plaid's Android view can
+        // expose a row as one merged label ("First Gingham Credit Union
+        // www.plaid.com/"), and the search box itself holds the bank's name, so
+        // match by containment and skip editable fields. Run 5 matched nothing.
+        val searchBottom = try { search.visibleBounds.bottom } catch (_: StaleObjectException) { y(0.25f) }
+        val result = (device.findObjects(By.textContains(bank)) + device.findObjects(By.descContains(bank)))
+            .filter { it.className != "android.widget.EditText" && it.visibleBounds.top > searchBottom }
+            .minByOrNull { it.visibleBounds.top }
+        if (result != null) {
+            tapObject(result)
+        } else {
+            // Fallback: the first row sits just below the search box.
+            log("PLAID_STEP result_by_position")
+            tapAt(x(0.5f), searchBottom + (y(0.07f)))
+        }
+        settle(3_000)
+        // "N associated institutions": take the plain one (not "- Trusted Auth").
+        if (textObject("associated institutions", contains = true, 2_000) != null) {
+            val plain = (device.findObjects(By.textContains(bank)) + device.findObjects(By.descContains(bank)))
+                .filter { node ->
+                    val label = (node.text ?: node.contentDescription ?: "")
+                    !label.contains("Trusted", ignoreCase = true) && node.visibleBounds.top > y(0.18f)
+                }
+                .minByOrNull { it.visibleBounds.top }
+            if (plain != null) {
+                tapObject(plain)
+            } else {
+                // Run 7: neither lookup saw the card; the first one sits here.
+                log("PLAID_STEP associated_by_position")
+                tapAt(x(0.5f), y(0.246f))
+            }
+            settle(3_000)
+        }
+        if (bank.contains("OAuth", ignoreCase = true)) {
+            // Platypus OAuth always opens a two-card chooser whose text this
+            // screen does not expose (runs 6-8); take the first, plain card.
+            if (textObject("Continue", contains = true) == null) {
+                log("PLAID_STEP oauth_chooser_by_position")
+                tapAt(x(0.5f), y(0.246f))
+                settle(3_000)
+            }
+            return finishOAuth(index)
+        }
+        val fields = device.wait(Until.findObjects(By.clazz("android.widget.EditText")), 15_000).orEmpty()
+        if (fields.size < 2) { log("PLAID_MISSING index=$index step=credentials"); shot("$index-no-credentials"); return false }
+        val (user, pass) = fields[0] to fields[1]
+        if (!typeChecked(user, "user_good", secret = false) || !typeChecked(pass, "pass_good", secret = true)) {
+            log("PLAID_MISSING index=$index step=typing"); shot("$index-no-typing"); return false
+        }
+        device.pressBack() // keyboard down; Link keeps its page
+        settle(800)
+        if (textObject("Your accounts", contains = true, 3_000) == null) tapText("Submit", timeoutMs = 5_000)
+        return finishAccounts(index)
+    }
+
+    /**
+     * Sandbox OAuth: Plaid hands off to the bank's page in the browser, and the
+     * bank must hand back to this app. Plaid's own screens run inside this
+     * app's process, so "our package in front" proves nothing by itself (run 6
+     * logged a return while Link sat on its institution chooser); the return
+     * counts only after the front package left the app and came back.
+     */
+    private fun finishOAuth(index: Int): Boolean {
+        shot("$index-oauth-start")
+        // Plaid's hand-off pane names the bank on its button ("Continue to ...").
+        if (!tapText("Continue", contains = true, timeoutMs = 10_000)) {
+            // The hand-off pane's primary button sits at the bottom.
+            log("PLAID_STEP oauth_continue_by_position")
+            tapAt(x(0.5f), y(0.905f))
+        }
+        var leftApp = false
+        val leaveDeadline = System.currentTimeMillis() + 20_000
+        while (!leftApp && System.currentTimeMillis() < leaveDeadline) {
+            leftApp = device.currentPackageName != pkg
+            if (!leftApp) settle(500)
+        }
+        log("PLAID_STEP oauth_left_app=$leftApp front=${device.currentPackageName}")
+        settle(3_000)
+        shot("$index-oauth-bank")
+        if (!leftApp) return false
+        // The sandbox bank's own sign-in page (run 9: in Edge, fields empty).
+        // Another app's window: the instrumentation cannot type into it, so
+        // keys go through the shell like every tap in this lane. Plaid's
+        // public sandbox login only.
+        val fields = device.findObjects(By.clazz("android.widget.EditText").pkg(device.currentPackageName ?: ""))
+            .sortedBy { it.visibleBounds.top }
+        val userPoint = fields.getOrNull(0)?.visibleCenter?.let { it.x to it.y } ?: (x(0.5f) to y(0.325f))
+        val passPoint = fields.getOrNull(1)?.visibleCenter?.let { it.x to it.y } ?: (x(0.5f) to y(0.40f))
+        tapAt(userPoint.first, userPoint.second); settle(600); shellInput("text user_good"); settle(400)
+        tapAt(passPoint.first, passPoint.second); settle(600); shellInput("text pass_good"); settle(400)
+        // Never Back here: in a browser tab Back closes the tab and lands on
+        // Link's "Return to institution" pane, which run 10 briefly mistook
+        // for the bank handing back. Sign in sits above the keyboard.
+        shot("$index-oauth-filled")
+        if (!tapText("Sign in", timeoutMs = 3_000)) tapAt(x(0.5f), y(0.502f))
+        settle(4_000)
+        // Then a consent step or two before the bank hands back.
+        for (step in 0 until 4) {
+            if (device.currentPackageName == pkg) break
+            for (label in listOf("Sign in", "Log in", "Submit", "Continue", "Authorize", "Allow", "Approve")) {
+                if (tapText(label, timeoutMs = 1_500)) { settle(3_000); break }
+            }
+            shot("$index-oauth-step-$step")
+        }
+        val inApp = device.wait(Until.hasObject(By.pkg(pkg).depth(0)), 30_000) && device.currentPackageName == pkg
+        // Back in the app is not the bank handing back: Link's "Return to
+        // institution" pane means the person came back without finishing.
+        val abandoned = inApp && textObject("Return to institution", contains = true, 3_000) != null
+        log("PLAID_STEP oauth_returned=${inApp && !abandoned} abandoned=$abandoned front=${device.currentPackageName}")
+        if (!inApp || abandoned) { shot("$index-oauth-stuck"); return false }
+        return finishAccounts(index)
+    }
+
+    /**
+     * Android's password manager (Edge autofill on this phone) covers Link with
+     * "Save username and password?" right after the login; run 7 stopped there
+     * with First Gingham already on its accounts screen. Declines it; no
+     * device setting is changed.
+     */
+    private fun dismissAutofill() {
+        for (label in listOf("No thanks", "Not now", "Never")) {
+            if (tapText(label, timeoutMs = 1_500)) { settle(1_000); return }
+        }
+    }
+
+    /** Link's Continue sits under a long account list; scroll until it shows. */
+    private fun findContinue(timeoutMs: Long): UiObject2? {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            dismissAutofill()
+            textObject("Continue")?.let { return it }
+            if (textObject("Your accounts", contains = true) != null || textObject("Incorrect credentials", contains = true) != null) {
+                if (textObject("Incorrect credentials", contains = true) != null) return null
+                flick(0.75f, 0.35f)
+                settle(1_000)
+            } else {
+                settle(1_500)
+            }
+        }
+        return null
+    }
+
+    private fun finishAccounts(index: Int): Boolean {
+        val cont = findContinue(45_000)
+        if (cont == null || textObject("Incorrect credentials", contains = true) != null) {
+            log("PLAID_MISSING index=$index step=login"); shot("$index-no-login"); return false
+        }
+        shot("$index-accounts")
+        tapObject(cont)
+        settle(3_000)
+        tapText("Finish without saving", contains = true, timeoutMs = 30_000)
+        // Back in the app, then time for the exchange, the pages and the seal.
+        var backInApp = false
+        repeat(30) {
+            if (!backInApp && device.currentPackageName == pkg && textObject("Portfolio source", contains = true) != null) backInApp = true
+            if (!backInApp) settle(1_000)
+        }
+        settle(20_000)
+        shot("$index-after")
+        if (!backInApp) log("PLAID_MISSING index=$index step=return_to_app")
+        return backInApp
+    }
+
+    /** Leaves Link through its own close control; Back only steps between Link's screens. */
+    private fun closePlaid() {
+        for (attempt in 0 until 4) {
+            if (device.currentPackageName == pkg && textObject("Portfolio source", contains = true) != null) return
+            if (device.currentPackageName != pkg) { device.pressBack(); settle(1_500); continue }
+            val close = device.findObject(By.desc("Close")) ?: device.findObject(By.descContains("close"))
+            if (close != null) tapObject(close) else tapAt(x(0.93f), y(0.07f))
+            settle(1_500)
+            for (label in listOf("Yes, exit", "Exit", "Leave", "Yes")) if (tapText(label, timeoutMs = 1_000)) break
+            settle(1_500)
+        }
+    }
+
+    /** Checkpoint screenshots, published with the probe exports. Sandbox screens only. */
+    private fun shot(name: String) {
+        settle(800)
+        exportDir.mkdirs()
+        device.takeScreenshot(File(exportDir, "plaid-$name.png"))
+        log("PLAID_STEP $name")
     }
 
     /** Threads and X on the same phone, same flick, HWUI numbers only. */
@@ -603,7 +890,11 @@ class AttachedRenderPerfTest {
         for (file in files) {
             val values = ContentValues().apply {
                 put(MediaStore.MediaColumns.DISPLAY_NAME, file.name)
-                put(MediaStore.MediaColumns.MIME_TYPE, if (file.name.endsWith(".json")) "application/json" else "text/plain")
+                put(MediaStore.MediaColumns.MIME_TYPE, when {
+                    file.name.endsWith(".json") -> "application/json"
+                    file.name.endsWith(".png") -> "image/png"
+                    else -> "text/plain"
+                })
                 put(MediaStore.MediaColumns.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/hushh-perf")
             }
             val uri = resolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: continue
