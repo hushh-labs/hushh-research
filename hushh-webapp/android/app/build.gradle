@@ -120,7 +120,13 @@ dependencies {
 
     // OkHttp for Cloud API calls
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
-    
+
+    // Plaid Link native SDK (HushhPlaidLink plugin): owns a bank's OAuth leg
+    // and the return into the app, which web Link in the WebView cannot.
+    // Pinned exactly; the manifest overrides its minSdk and the plugin
+    // reports unavailable below API 26 so the page falls back to web Link.
+    implementation 'com.plaid.link:sdk-core:6.2.2'
+
     testImplementation "junit:junit:$junitVersion"
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"

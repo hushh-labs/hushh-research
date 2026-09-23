@@ -36,9 +36,9 @@ const iosMicrophoneCapturePath = path.join(
 const webOnlyPlugins = new Set(["HushhDatabase", "HushhAgent"]);
 // App Shortcuts are an Apple system surface, not an Android route-parity lane.
 // The TypeScript adapter returns unsupported/no pending invocation elsewhere.
-// Plaid's native Link SDK is wired on iOS first (the OAuth-bank return is
-// the SDK's); Android keeps the web Link SDK until its SDK lands.
-const iosOnlyPlugins = new Set(["HushhPlaidLink"]);
+// (HushhPlaidLink is implemented on both platforms: LinkKit on iOS, Plaid's
+// Link SDK on Android, so it is held to full parity like every other plugin.)
+const iosOnlyPlugins = new Set();
 const appleInvocationMethods = new Set([
   "getPendingInvocation", "claimInvocation", "reportInvocationProgress", "completeInvocation",
   "getPendingActionInvocation", "claimActionInvocation", "completeActionInvocation", "reportActionInvocationProgress",
