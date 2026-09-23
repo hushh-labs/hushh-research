@@ -657,6 +657,12 @@ jobs:
       # ubuntu-latest no longer guarantees command-line tools on PATH. Install
       # them explicitly before the compile-only lane invokes sdkmanager.
       - uses: android-actions/setup-android@v3
+        with:
+          # Google's legacy `tools` SDK package no longer exists. The action
+          # otherwise tries to install it by default and exits before Gradle
+          # can compile the native bridge. We install platform-tools here and
+          # the exact platform/build-tools below with sdkmanager.
+          packages: platform-tools
 
       - uses: actions/setup-node@v6
         with:
