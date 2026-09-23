@@ -147,8 +147,10 @@ export/upload, or version/build validation):
     what blocks "Add for Review"), waits for the uploaded build to reach `processingState=VALID`, and
     **attaches** it. It is skipped entirely on `--dry-run`. When `submit_for_review=true`, it also
     creates/reuses a review submission, adds this version, and marks it submitted (**irreversible**).
-15. **Upload artifacts + job summary.** `.ipa`, dSYMs, and `xcodebuild` logs are archived; the
-    summary reports SHA, version, build number, backend (`UAT (hushh-pda-uat)`), and mode.
+15. **Upload redacted evidence + job summary.** GitHub Actions archives only a
+    small outcome receipt; it never archives the signed `.ipa`, dSYMs, or raw
+    `xcodebuild` logs. The summary reports SHA, version, build number, backend
+    (`UAT (hushh-pda-uat)`), and mode.
 
 ## Required secrets and permissions
 

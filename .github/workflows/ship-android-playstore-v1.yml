@@ -33,6 +33,7 @@ name: Ship Android to Google Play Store
 permissions:
   contents: read
   checks: read
+  id-token: write
 
 env:
   GCP_PROJECT_ID: hushh-pda-uat
@@ -129,12 +130,24 @@ jobs:
         with:
           node-version: "22"
 
-      - name: Authenticate to GCP (Secret Manager)
-        id: gcp-auth
-        continue-on-error: true
+      - name: Validate UAT workload identity configuration
+        shell: bash
+        env:
+          WIF_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          DEPLOY_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          test -n "$WIF_PROVIDER" || { echo "Missing UAT workload identity provider." >&2; exit 1; }
+          test -n "$DEPLOY_SERVICE_ACCOUNT" || { echo "Missing UAT deployment service account." >&2; exit 1; }
+
+      - name: Authenticate to GCP with UAT workload identity
         uses: google-github-actions/auth@v2
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY_UAT }}
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          create_credentials_file: true
+          export_environment_variables: true
 
       - name: Set up gcloud CLI
         uses: google-github-actions/setup-gcloud@v2
@@ -333,11 +346,26 @@ jobs:
           cd hushh-webapp/android
           ./gradlew bundleRelease --stacktrace
 
-      - name: Publish .aab as workflow artifact
+      - name: Preserve signed AAB in private UAT bucket
+        id: private_artifact
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ steps.resolve.outputs.sha }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/upload-private-native-artifact.py \
+            --file hushh-webapp/android/app/build/outputs/bundle/release/app-release.aab \
+            --source-sha "$RELEASE_SHA" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --platform android-playstore \
+            --receipt "$RUNNER_TEMP/private-native-artifact-receipt.json"
+
+      - name: Upload redacted private AAB receipt
         uses: actions/upload-artifact@v4
         with:
-          name: hushh-one-android-release-aab-${{ steps.resolve.outputs.sha }}
-          path: hushh-webapp/android/app/build/outputs/bundle/release/app-release.aab
+          name: hushh-one-android-private-receipt-${{ steps.resolve.outputs.sha }}
+          path: ${{ runner.temp }}/private-native-artifact-receipt.json
           retention-days: 14
           if-no-files-found: error
 
@@ -358,6 +386,7 @@ jobs:
           DRY_RUN: ${{ inputs.dry_run }}
           VERSION_CODE: ${{ steps.versioning.outputs.next_version_code }}
           RELEASE_SHA: ${{ steps.resolve.outputs.sha }}
+          PRIVATE_ARTIFACT_OUTCOME: ${{ steps.private_artifact.outcome }}
         run: |
           set -euo pipefail
           {
@@ -366,6 +395,6 @@ jobs:
             printf -- '- **Version Code**: `%s`\n' "$VERSION_CODE"
             printf -- '- **Package Name**: `%s`\n' "$ANDROID_PACKAGE_NAME"
             printf -- '- **Dry Run**: `%s`\n' "$DRY_RUN"
-            printf -- '- **Artifact**: `hushh-one-android-release-aab-%s` (14 days)\n' "$RELEASE_SHA"
+            printf -- '- **Private UAT AAB**: `%s` (14-day bucket retention; receipt only in Actions)\n' "$PRIVATE_ARTIFACT_OUTCOME"
             printf -- '- **Play Console**: [Google Play Console Releases](https://play.google.com/console)\n'
           } >> "$GITHUB_STEP_SUMMARY"
