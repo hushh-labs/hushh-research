@@ -332,6 +332,16 @@ class GmailDeliveryService:
     async def _resolve_attachment(
         self, *, user_id: str, file_id: str, revision: str | None, sha256: str | None
     ) -> tuple[DriveBlobDescriptor, bytes, str, str]:
+        # UAT's Drive connector grants access only to Picker-selected files.
+        # The older attachment resolver uses a separate account-wide grant,
+        # so it cannot serve a UAT attachment until it is migrated to the
+        # selected-document authority. Plain reviewed Gmail sends continue.
+        if os.getenv("ENVIRONMENT", "").strip().lower() == "uat":
+            raise GmailDeliveryError(
+                "DRIVE_ATTACHMENT_UNAVAILABLE",
+                "Drive attachments are temporarily unavailable. Send without the attachment.",
+                status_code=403,
+            )
         try:
             identity_before = await self.drive_blobs.grant_identity(
                 authenticated_owner_user_id=user_id

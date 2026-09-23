@@ -420,7 +420,11 @@ async def test_execute_expired_action_cannot_transition_to_sending(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_execute_sends_rfc_message_as_gmail_me_without_a_from_header(monkeypatch):
+@pytest.mark.parametrize("environment", ["test", "uat"])
+async def test_execute_sends_rfc_message_as_gmail_me_without_a_from_header(
+    monkeypatch, environment
+):
+    monkeypatch.setenv("ENVIRONMENT", environment)
     module = _signing_key(monkeypatch)
     gmail = _Gmail()
     gmail.get_send_access_token = AsyncMock(return_value="canonical-connector-token")
@@ -479,6 +483,50 @@ async def test_execute_sends_rfc_message_as_gmail_me_without_a_from_header(monke
     )
     assert "To: recipient@example.com" in rendered
     assert "From:" not in rendered
+
+
+@pytest.mark.asyncio
+async def test_uat_rejects_legacy_drive_attachment_before_provider_or_action(monkeypatch):
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    drive = _drive()
+    gmail = _Gmail()
+    service = GmailDeliveryService(gmail_service=gmail, drive_blobs=drive)
+
+    with pytest.raises(GmailDeliveryError) as error:
+        await service.prepare(
+            user_id="owner",
+            draft_payload={**_envelope(), "drive_attachment": _attachment_ref()},
+            idempotency_key="client-request-id-123",
+        )
+    assert error.value.code == "DRIVE_ATTACHMENT_UNAVAILABLE"
+    drive.grant_identity.assert_not_awaited()
+    drive.resolve.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_uat_rejects_pending_legacy_attachment_send_before_claim(monkeypatch):
+    module = _signing_key(monkeypatch)
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    drive = _drive()
+    gmail = _Gmail()
+    gmail.get_send_access_token = AsyncMock(return_value="unused")
+    service = GmailDeliveryService(gmail_service=gmail, drive_blobs=drive)
+    conn = _ActionConn([_prepared_attachment_row(service)])
+    monkeypatch.setattr(
+        module, "get_pool", lambda: __import__("asyncio").sleep(0, result=_Pool(conn))
+    )
+
+    with pytest.raises(GmailDeliveryError) as error:
+        await service.execute(
+            user_id="owner",
+            action_id="action",
+            draft_payload={**_envelope(), "attachment_token": _attachment_token(service)},
+        )
+    assert error.value.code == "DRIVE_ATTACHMENT_UNAVAILABLE"
+    assert not any("SET state = 'sending'" in query for query, _ in conn.calls)
+    drive.grant_identity.assert_not_awaited()
+    drive.resolve.assert_not_awaited()
+    gmail.get_send_access_token.assert_not_awaited()
 
 
 @pytest.mark.asyncio
