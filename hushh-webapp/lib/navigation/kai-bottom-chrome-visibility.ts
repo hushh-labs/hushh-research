@@ -33,7 +33,52 @@ let scrollListenerAttached = false;
 let activeScrollTarget: Window | HTMLElement | null = null;
 let scrollRootObserver: MutationObserver | null = null;
 let scrollRootRefreshFrame: number | null = null;
-const handleScroll = () => onScroll(readActiveScrollY());
+// A person's scroll moves the chrome; the app's own scrolling does not. Chat
+// scrolls itself to the latest message after it paints, and that alone hid
+// the tab bar and slid the composer down on every entry (Galaxy S24 Ultra,
+// 2026-09-22). Momentum keeps a flick scrolling after the finger lifts, so an
+// input counts for a while.
+const USER_SCROLL_INPUT_WINDOW_MS = 2500;
+const USER_SCROLL_INPUT_EVENTS = [
+  "touchstart",
+  "touchmove",
+  "pointerdown",
+  "wheel",
+  "keydown",
+] as const;
+let lastUserScrollInputAt = Number.NEGATIVE_INFINITY;
+let userInputListenersAttached = false;
+const markUserScrollInput = () => {
+  lastUserScrollInputAt = performance.now();
+};
+const handleScroll = () => {
+  const y = readActiveScrollY();
+  const fromPerson =
+    performance.now() - lastUserScrollInputAt <= USER_SCROLL_INPUT_WINDOW_MS;
+  // Reaching the top always brings the chrome back, whoever scrolled.
+  if (!fromPerson && y > MIN_SCROLL_Y_FOR_SHOW) {
+    // Follow the position so the next real gesture measures from here.
+    if (state.initialized) state.lastY = y;
+    return;
+  }
+  onScroll(y);
+};
+
+function attachUserInputListeners() {
+  if (userInputListenersAttached || typeof window === "undefined") return;
+  for (const type of USER_SCROLL_INPUT_EVENTS) {
+    window.addEventListener(type, markUserScrollInput, { capture: true, passive: true });
+  }
+  userInputListenersAttached = true;
+}
+
+function detachUserInputListeners() {
+  if (!userInputListenersAttached || typeof window === "undefined") return;
+  for (const type of USER_SCROLL_INPUT_EVENTS) {
+    window.removeEventListener(type, markUserScrollInput, { capture: true });
+  }
+  userInputListenersAttached = false;
+}
 
 const state: VisibilityState = {
   progress: 0,
@@ -182,6 +227,7 @@ function attachScrollListener() {
   activeScrollTarget = target;
   target.addEventListener("scroll", handleScroll, { passive: true });
   scrollListenerAttached = true;
+  attachUserInputListeners();
   // Follow the live root's parent so the next replacement is still seen.
   if (scrollRootObserver) observeScrollRoot();
 
@@ -252,6 +298,7 @@ function detachScrollListener() {
   scrollListenerAttached = false;
   activeScrollTarget = null;
   stopObservingScrollRoot();
+  detachUserInputListeners();
 }
 
 export function resetKaiBottomChromeVisibility(): void {
@@ -262,6 +309,9 @@ export function resetKaiBottomChromeVisibility(): void {
   state.lastY = readActiveScrollY();
   state.direction = 0;
   state.directionalDistance = 0;
+  // A new scroll root is a new page: the tap that opened it is not a scroll
+  // on it, so the page's own first scroll cannot hide the chrome.
+  lastUserScrollInputAt = Number.NEGATIVE_INFINITY;
   emit();
 }
 

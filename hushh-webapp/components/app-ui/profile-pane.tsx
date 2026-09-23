@@ -84,14 +84,18 @@ export const ProfilePane = memo(function ProfilePane({ open, onOpenChange }: Pro
                 onClick={() =>
                   popProfilePaneLocation(pathname, searchParams)
                 }
-                className="-ml-2 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+                className="-ml-3 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
               >
                 <ArrowLeft className="h-5 w-5" />
               </button>
             ) : null}
             <SheetTitle className="truncate">{title}</SheetTitle>
           </div>
-          <SheetDescription>
+          {/* On a panel the page opens with its own description, so the
+           * generic line stays for assistive tech only (two subtitles, one
+           * line apart, read as clutter). The arrow's glyph sits on the
+           * content column, as the close button's edge does on the right. */}
+          <SheetDescription className={canGoBack ? "sr-only" : undefined}>
             {canGoBack
               ? "Profile settings"
               : "Your account, preferences, and privacy controls."}

@@ -58,8 +58,11 @@ import { transcriptStatusLine } from "./voice-transcript";
  */
 const FOCUS_PENDING_EVENT = "one-voice:focus-pending";
 
+// The same column as the tab bar under it and every card above it (16 px
+// gutters). At 1.5rem the dock ran 4 px wider than the tab bar on each side,
+// two stacked pills of different widths.
 const DOCK_WIDTH_SLOT =
-  "max-w-[min(calc(100vw-1.5rem),var(--app-agent-bar-max-width))]";
+  "max-w-[min(calc(100vw-2rem),var(--app-agent-bar-max-width))]";
 const DOCK_WIDTH_FIXED = "max-w-[min(calc(100vw-2rem),34rem)]";
 
 /** Native only: the OS microphone settings screen. Web has no such door. */

@@ -207,6 +207,10 @@ export function ProfileStackNavigator({
                   <PageHeader
                     title={entry.title}
                     description={entry.description}
+                    // The sheet header (pane) or the bar's crumb (route)
+                    // already names this screen; drawn again it read
+                    // "Your account" then "Account" one line apart.
+                    titleVisuallyHidden
                     testId="profile-stack-page-header"
                   />
                   <SettingsPresentationProvider

@@ -204,11 +204,19 @@ export function PageHeader({
   leading,
   accent = "default",
   titleRole = "page",
+  titleVisuallyHidden = false,
   className,
   testId = "page-header",
 }: {
   eyebrow?: string;
   title: ReactNode;
+  /**
+   * Keep the heading for assistive tech and page structure but do not draw
+   * it, for a surface whose shell already names it on screen (Finance: the
+   * bar says "Finance" and the tab says "Market"; a visible "Market" H1 under
+   * the "Market" tab slid away with every swipe).
+   */
+  titleVisuallyHidden?: boolean;
   description?: ReactNode;
   actions?: ReactNode;
   actionsInlineMobile?: boolean;
@@ -269,7 +277,9 @@ export function PageHeader({
                   {eyebrow}
                 </SectionLabel>
               ) : null}
-              <TitleComponent>{title}</TitleComponent>
+              <TitleComponent className={titleVisuallyHidden ? "sr-only" : undefined}>
+                {title}
+              </TitleComponent>
               {description && !descriptionFullWidth ? (
                 <PageSubtitle
                   as="div"

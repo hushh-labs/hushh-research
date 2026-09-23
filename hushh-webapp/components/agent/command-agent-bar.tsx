@@ -106,7 +106,7 @@ export function CommandAgentBar({
           : undefined
       }
     >
-      <div className="pointer-events-none w-full max-w-[min(calc(100vw-1.5rem),var(--app-agent-bar-max-width))]">
+      <div className="pointer-events-none w-full max-w-[min(calc(100vw-2rem),var(--app-agent-bar-max-width))]">
         <LocationCommandCard />
         {working && view.transcript && !collapsed ? (
           <p
@@ -127,7 +127,7 @@ export function CommandAgentBar({
         className={cn(
           "bottom-chrome-surface pointer-events-auto relative flex w-full items-center overflow-hidden rounded-full transition-opacity motion-reduce:transition-none",
           layout === "slot"
-            ? "max-w-[min(calc(100vw-1.5rem),var(--app-agent-bar-max-width))]"
+            ? "max-w-[min(calc(100vw-2rem),var(--app-agent-bar-max-width))]"
             : "max-w-[min(calc(100vw-2rem),34rem)]",
           cancelArmed && "text-destructive",
         )}
