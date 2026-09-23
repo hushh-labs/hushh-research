@@ -26,7 +26,6 @@ def _admit_schema(monkeypatch, tool: str, schema: dict | None = None) -> None:
 
 def test_read_tool_set_cannot_expand_without_explicit_review():
     assert GOOGLE_DRIVE_READ_TOOLS == {
-        "download_file_content",
         "get_file_metadata",
         "get_file_permissions",
         "list_recent_files",
@@ -130,6 +129,7 @@ async def test_external_dynamic_reference_is_never_resolved(monkeypatch):
 @pytest.mark.parametrize(
     "tool",
     [
+        "download_file_content",
         "copy_file",
         "create_file",
         "delete_file",

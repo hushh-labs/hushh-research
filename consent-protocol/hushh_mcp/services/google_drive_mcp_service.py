@@ -31,7 +31,6 @@ GOOGLE_DRIVE_MCP_ENDPOINT = "https://drivemcp.googleapis.com/mcp/v1"
 # other permissions, so OAuth read scopes alone are not execution policy.
 GOOGLE_DRIVE_READ_TOOLS = frozenset(
     {
-        "download_file_content",
         "get_file_metadata",
         "get_file_permissions",
         "list_recent_files",
