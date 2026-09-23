@@ -50,7 +50,11 @@ EXPECTED_DENY_RULES = {
     ),
     (
         frozenset({"principalSet://goog/group/developers@hushh.ai"}),
-        frozenset(),
+        frozenset(
+            {
+                "principal://iam.googleapis.com/projects/-/serviceAccounts/claude-code-gcp-operator@hussh-developer-platform.iam.gserviceaccount.com"
+            }
+        ),
         frozenset({"storage.googleapis.com/objects.*"}),
     ),
 }

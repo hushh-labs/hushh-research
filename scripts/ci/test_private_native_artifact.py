@@ -145,6 +145,11 @@ class PolicyTests(unittest.TestCase):
             "storage.googleapis.com/objects.get"
         ]
         cases.append(weak_developer_rule)
+        missing_operator_exception = copy.deepcopy(DENY_LIVE)
+        missing_operator_exception["rules"][1]["denyRule"].pop(
+            "exceptionPrincipals"
+        )
+        cases.append(missing_operator_exception)
         conditional_rule = copy.deepcopy(DENY_LIVE)
         conditional_rule["rules"][0]["denialCondition"] = {"expression": "false"}
         cases.append(conditional_rule)
@@ -161,6 +166,10 @@ class PolicyTests(unittest.TestCase):
         tampered_source["rules"][0]["denyRule"]["exceptionPrincipals"].append(
             "principal://goog/subject/unauthorized@example.test"
         )
+        with self.assertRaises(artifact.ArtifactPolicyError):
+            artifact.validate_deny_policy(tampered_source, tampered_source)
+        tampered_source = copy.deepcopy(DENY_SOURCE)
+        tampered_source["rules"][1]["denyRule"]["exceptionPrincipals"] = []
         with self.assertRaises(artifact.ArtifactPolicyError):
             artifact.validate_deny_policy(tampered_source, tampered_source)
 
