@@ -18,6 +18,10 @@ import {
   upsertPlaidSource,
 } from "@/lib/kai/brokerage/financial-sources";
 import { PlaidPortfolioService } from "@/lib/kai/brokerage/plaid-portfolio-service";
+import {
+  buildVaultPlaidStatus,
+  refreshVaultConnections,
+} from "@/lib/kai/plaid-vault/vault-sync";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import {
   hasPortfolioHoldings,
@@ -256,18 +260,38 @@ async function loadNetworkResource(
     : await loadFinancialContext(params);
 
   let nextFinancial = financialContext.financial;
+  // Connections sealed in the person's vault are invisible to the server by
+  // design; when they exist, memory is the only source of the Plaid status.
+  const vaultPlaidStatus = buildVaultPlaidStatus(nextFinancial, params.userId);
+  const effectivePlaidStatus = vaultPlaidStatus ?? loadedPlaidStatus;
   const storedActiveSource =
-    loadedPlaidStatus?.source_preference ?? getStoredActiveSource(nextFinancial);
+    effectivePlaidStatus?.source_preference ?? getStoredActiveSource(nextFinancial);
   const hasSavedStatementSnapshot = Boolean(getActiveStatementSnapshotId(nextFinancial));
   const desiredSource: PortfolioSource =
     storedActiveSource === "plaid" ||
     (!hasSavedStatementSnapshot &&
-      hasPortfolioHoldings(loadedPlaidStatus?.aggregate?.portfolio_data))
+      hasPortfolioHoldings(effectivePlaidStatus?.aggregate?.portfolio_data))
       ? "plaid"
       : "statement";
   const nowIso = new Date().toISOString();
 
-  if (params.vaultKey && params.vaultOwnerToken) {
+  if (vaultPlaidStatus && params.vaultKey && params.vaultOwnerToken) {
+    // Refresh on unlock, off the render path: the screens render what memory
+    // holds now, and re-render once the refreshed memory is saved.
+    const refreshParams = params;
+    void refreshVaultConnections({
+      userId: params.userId,
+      vaultKey: params.vaultKey,
+      vaultOwnerToken: params.vaultOwnerToken,
+      financial: nextFinancial,
+    })
+      .then((outcome) => {
+        if (outcome.saved) void refreshDerivedMarketCaches(refreshParams);
+      })
+      .catch(() => undefined);
+  }
+
+  if (!vaultPlaidStatus && params.vaultKey && params.vaultOwnerToken) {
     let projectedFinancial = nextFinancial ?? {};
     let shouldPersist = false;
     let syncedProvider: "plaid" | "statement_import" = "statement_import";
@@ -334,7 +358,7 @@ async function loadNetworkResource(
   const resource = buildResource({
     userId: params.userId,
     financialDomain: nextFinancial,
-    plaidStatus: loadedPlaidStatus,
+    plaidStatus: effectivePlaidStatus,
     initialStatementPortfolio: params.initialStatementPortfolio,
     cacheTier: "network",
     source: "network",
@@ -378,7 +402,7 @@ export class KaiFinancialResourceService {
     const resource = buildResource({
       userId: params.userId,
       financialDomain: params.financialDomain,
-      plaidStatus: null,
+      plaidStatus: buildVaultPlaidStatus(params.financialDomain, params.userId),
       initialStatementPortfolio: params.initialStatementPortfolio,
       cacheTier: params.cacheTier ?? "memory",
       source: params.source ?? "cache",

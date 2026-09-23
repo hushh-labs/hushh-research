@@ -148,6 +148,8 @@ export interface PlaidTransactionsSnapshot {
   modified: PlaidTx[];
   removed: { transaction_id: string }[];
   next_cursor: string;
+  /** More pages remain after this snapshot's page cap; follow with next_cursor. */
+  has_more?: boolean;
   pages: number;
 }
 

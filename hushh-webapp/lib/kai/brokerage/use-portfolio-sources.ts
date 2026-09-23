@@ -40,6 +40,7 @@ import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { trackGrowthFunnelStepCompleted } from "@/lib/observability/growth";
 import { UnlockWarmOrchestrator } from "@/lib/services/unlock-warm-orchestrator";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
+import { loadFinancialForVault, refreshVaultConnections } from "@/lib/kai/plaid-vault/vault-sync";
 
 interface UsePortfolioSourcesParams {
   userId: string | null | undefined;
@@ -799,6 +800,25 @@ export function usePortfolioSources({
       if (!userId || !vaultOwnerToken) {
         throw new Error("Vault owner token missing.");
       }
+      if (plaidStatus?.custody === "vault") {
+        // Sealed connections refresh on the device through the relay.
+        const outcome = await refreshVaultConnections({
+          userId,
+          vaultKey,
+          vaultOwnerToken,
+          financial: await loadFinancialForVault({ userId, vaultKey, vaultOwnerToken }),
+          force: true,
+        });
+        await reload();
+        if (!outcome.saved && (outcome.failed > 0 || outcome.refreshed > 0)) {
+          throw new Error("Could not refresh your connected accounts.");
+        }
+        return {
+          status: "noop",
+          runIds: [],
+          taskId: null,
+        } satisfies PlaidRefreshActionResult;
+      }
       const runningRunIds = collectRunningRunIds(plaidStatus, itemId);
       if (runningRunIds.length > 0) {
         return {
@@ -842,7 +862,7 @@ export function usePortfolioSources({
         taskId,
       } satisfies PlaidRefreshActionResult;
     },
-    [plaidStatus, refreshTracking?.taskId, reload, userId, vaultOwnerToken]
+    [plaidStatus, refreshTracking?.taskId, reload, userId, vaultKey, vaultOwnerToken]
   );
 
   const cancelPlaidRefresh = useCallback(

@@ -115,6 +115,12 @@ export interface PlaidPortfolioStatusResponse {
   source_preference: PortfolioSource | string;
   items: PlaidItemSummary[];
   aggregate: PlaidAggregateStatus;
+  /**
+   * Where the connections' Plaid tokens live. "vault": sealed in the person's
+   * encrypted memory (the status was built on the device). Absent or
+   * "server": the legacy server-held flow.
+   */
+  custody?: "vault" | "server";
 }
 
 export interface PlaidFundingTransferRef {

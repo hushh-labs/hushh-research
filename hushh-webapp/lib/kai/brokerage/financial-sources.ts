@@ -2,6 +2,7 @@
 
 import type { PortfolioData } from "@/components/kai/types/portfolio";
 import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
+import { toPortfolioData as toVaultPortfolioData } from "@/lib/kai/plaid-vault/projection";
 
 import type {
   PlaidItemSummary,
@@ -199,6 +200,12 @@ export function getStatementPortfolio(financial: AnyObj | null | undefined): Por
 }
 
 export function getPlaidPortfolio(financial: AnyObj | null | undefined): PortfolioData | null {
+  // Connections sealed in the vault carry their own holdings in memory.
+  const connections = asRecord(financial?.connections_v1);
+  if (connections && Object.keys(connections).length > 0) {
+    const vaultPortfolio = toVaultPortfolioData(financial ?? {});
+    if (vaultPortfolio && hasHoldings(vaultPortfolio)) return vaultPortfolio;
+  }
   const v7Portfolio = buildFinancialCoreV7Portfolio(financial);
   if (v7Portfolio && getActiveSource(financial) === "plaid") return v7Portfolio;
   const plaidSource = getPlaidSource(financial);
