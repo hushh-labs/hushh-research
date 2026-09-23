@@ -102,9 +102,11 @@ def checkpoint_fixture():
         "segments": [{"source_text": "synthetic"}],
         "has_more_candidates": False,
     }
+    records["agent_financial_guard"]["value"] = {"routing_decision": "non_financial_or_ephemeral"}
     records["agent_memory_intent"]["value"] = deepcopy(intent)
     records["agent_memory_merge"]["value"] = deepcopy(merge)
     response = {
+        "routing_decision": "non_financial_or_ephemeral",
         "intent_frame": intent,
         "merge_decision": merge,
         "preview_cards": [{}],
@@ -161,6 +163,33 @@ def test_checkpoint_only_accepts_exact_single_segment_final_timeout():
     assert continuation.checkpoint(message="synthetic", response=response, trace=[]) is None
 
 
+def test_merge_timeout_retains_only_validated_pre_merge_decisions():
+    records, response, _ = checkpoint_fixture()
+    del records["agent_memory_merge"]
+    response.update(
+        merge_used_fallback=True,
+        error="memory_merge_agent_fallback; pkm_structure_agent_fallback",
+    )
+    trace = [
+        {"agent_id": "agent_memory_merge", "status": "timeout"},
+        {"agent_id": "agent_pkm_structure", "status": "budget_exhausted"},
+    ]
+    continuation = PreviewContinuation(
+        run=AsyncMock(), resolve_model=lambda *_: "test", records=records
+    )
+    checkpoint = continuation.checkpoint(message="synthetic", response=response, trace=trace)
+    assert checkpoint == records
+    assert "agent_memory_merge" not in checkpoint
+
+    response["routing_decision"] = "financial_core"
+    assert continuation.checkpoint(message="synthetic", response=response, trace=trace) is None
+    response["routing_decision"] = "non_financial_or_ephemeral"
+    response["error"] = "memory_merge_agent_fallback; memory_intent_agent_fallback"
+    assert continuation.checkpoint(message="synthetic", response=response, trace=trace) is None
+    response["error"] = "memory_merge_agent_fallback; pkm_structure_agent_fallback"
+    assert continuation.checkpoint(message="synthetic", response=response, trace=trace[:1]) is None
+
+
 @pytest.mark.parametrize(
     "defect",
     [
@@ -201,7 +230,18 @@ def test_checkpoint_rejects_fallback_meaning_and_incomplete_prefix(defect):
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "changed",
-    [None, "owner", "credential", "message", "state", "trace", "success", "expired", "unbound"],
+    [
+        None,
+        "owner",
+        "credential",
+        "message",
+        "state",
+        "trace",
+        "success",
+        "merge_timeout",
+        "expired",
+        "unbound",
+    ],
 )
 async def test_real_preview_retry_reuses_only_same_request_validated_prefix(monkeypatch, changed):
     from hushh_mcp.services import pkm_agent_lab_service as module
@@ -248,7 +288,21 @@ async def test_real_preview_retry_reuses_only_same_request_validated_prefix(monk
     async def run(**kwargs):
         agent = kwargs["manifest"].id
         calls.append(agent)
-        if changed == "success" and len(calls) == 6:
+        if changed == "merge_timeout" and agent == "agent_memory_merge" and calls.count(agent) == 1:
+            kwargs["execution_trace"].append(
+                {"agent_id": agent, "status": "timeout", "attempts": 1, "latency_ms": 1}
+            )
+            return None
+        if (
+            changed in {"success", "merge_timeout"}
+            and agent == "agent_pkm_structure"
+            and (
+                changed == "success"
+                and len(calls) == 6
+                or changed == "merge_timeout"
+                and len(calls) == 7
+            )
+        ):
             return {
                 "candidate_payload": {"profile": {"synthetic": {"project": "Cedar Lantern"}}},
                 "structure_decision": {
@@ -271,7 +325,13 @@ async def test_real_preview_retry_reuses_only_same_request_validated_prefix(monk
         kwargs["execution_trace"].append(
             {
                 "agent_id": agent,
-                "status": "timeout" if agent == "agent_pkm_structure" else "success",
+                "status": (
+                    "budget_exhausted"
+                    if changed == "merge_timeout" and agent == "agent_pkm_structure"
+                    else "timeout"
+                    if agent == "agent_pkm_structure"
+                    else "success"
+                ),
                 "attempts": 1,
                 "latency_ms": 1,
                 "error_type": "",
@@ -289,7 +349,11 @@ async def test_real_preview_retry_reuses_only_same_request_validated_prefix(monk
     if changed == "unbound":
         request["continuation_scope"] = None
     first = await service.generate_structure_preview(**request)
-    assert first["error"] == "pkm_structure_agent_fallback"
+    assert first["error"] == (
+        "memory_merge_agent_fallback; pkm_structure_agent_fallback"
+        if changed == "merge_timeout"
+        else "pkm_structure_agent_fallback"
+    )
     assert len(calls) == 5
     assert len(module._PREVIEW_CACHE) == (0 if changed == "unbound" else 1)
     expiry = next(iter(module._PREVIEW_CACHE.values()))[0] if module._PREVIEW_CACHE else None
@@ -307,7 +371,9 @@ async def test_real_preview_retry_reuses_only_same_request_validated_prefix(monk
         key = next(iter(module._PREVIEW_CACHE))
         module._PREVIEW_CACHE[key] = (0, module._PREVIEW_CACHE[key][1])
     second = await service.generate_structure_preview(**request)
-    assert len(calls) == (6 if changed in {None, "success"} else 10)
+    assert len(calls) == (
+        7 if changed == "merge_timeout" else 6 if changed in {None, "success"} else 10
+    )
     assert "__validated_preparation_prefix" not in second
     if changed is None:
         assert next(iter(module._PREVIEW_CACHE.values()))[0] == expiry
@@ -319,4 +385,13 @@ async def test_real_preview_retry_reuses_only_same_request_validated_prefix(monk
         assert second["error"] is None
         assert second["candidate_payload"]["profile"]["synthetic"]["project"] == "Cedar Lantern"
         assert "__validated_preparation_prefix" not in next(iter(module._PREVIEW_CACHE.values()))[1]
+    if changed == "merge_timeout":
+        assert calls[-2:] == ["agent_memory_merge", "agent_pkm_structure"]
+        assert [row["status"] for row in second["performance"]["agent_execution"][:3]] == [
+            "reused",
+            "reused",
+            "reused",
+        ]
+        assert second["used_fallback"] is False
+        assert second["error"] is None
     module._PREVIEW_CACHE.clear()

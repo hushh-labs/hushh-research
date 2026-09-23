@@ -336,8 +336,19 @@ jobs:
           bash scripts/env/use_profile.sh uat
           cd hushh-webapp
           npm run sync:native-firebase-configs
-          npm run cap:build
-          npm run cap:sync:android
+          # Keep the export and Capacitor sync in Android's isolated native
+          # output directory. `cap:build` uses the iOS native wrapper for
+          # iOS runtime-contract attestation, so invoking it here without an
+          # Android environment leaves NEXT_DIST_DIR unset before Next starts.
+          # The Android wrapper is the canonical path used by the performance
+          # lane and ensures both build and sync consume the same export.
+          NATIVE_EXPORT=".next-native-android"
+          node ./scripts/native/with-android-native-env.mjs \
+            npx cross-env CAPACITOR_BUILD=true NEXT_DIST_DIR="$NATIVE_EXPORT" \
+            next build --webpack --debug-build-paths "app/**/page.tsx,!app/api/**"
+          node ./scripts/native/with-android-native-env.mjs \
+            npx cross-env CAPACITOR_PLATFORM=android NEXT_DIST_DIR="$NATIVE_EXPORT" \
+            npx cap sync android
 
       - name: Compile Android App Bundle (.aab)
         shell: bash
