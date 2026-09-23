@@ -15,6 +15,9 @@ const state = vi.hoisted(() => ({
   list: vi.fn(),
   push: vi.fn(),
 }));
+vi.mock("@/components/agent/drive-connector-card", () => ({
+  DriveConnectorCard: () => <div>Google Drive</div>,
+}));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: state.push }) }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: state.user }) }));
 vi.mock("@/lib/vault/vault-context", () => ({
@@ -62,8 +65,8 @@ vi.mock("@/components/ui/dialog", () => {
 import { ConnectorsPanel } from "@/components/agent/connectors-panel";
 
 const drive = {
-  connectorId: "google_drive",
-  displayName: "Google Drive",
+  connectorId: "example_docs",
+  displayName: "Example Docs",
   description: "Read selected files",
   authStyle: "oauth",
   status: "not_connected",
@@ -78,10 +81,11 @@ describe("supported connector catalog", () => {
   });
   afterEach(cleanup);
 
-  it("shows registered Drive and Gmail, without roadmap placeholders or false Calendar status", async () => {
+  it("shows supported connections and registered tools without roadmap placeholders", async () => {
     state.list.mockResolvedValue([drive]);
     render(<ConnectorsPanel open onOpenChange={vi.fn()} />);
-    expect(await screen.findByText("Google Drive")).toBeInTheDocument();
+    expect(await screen.findByText("Example Docs")).toBeInTheDocument();
+    expect(screen.getByText("Google Drive")).toBeInTheDocument();
     expect(screen.getByText("Gmail")).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: "Manage Calendar" }),
@@ -101,10 +105,20 @@ describe("supported connector catalog", () => {
     }
   });
 
-  it("does not invent Drive when the registry is empty", async () => {
+  it("shows the built-in Drive connection even when the external registry is empty", async () => {
     render(<ConnectorsPanel open onOpenChange={vi.fn()} />);
     await screen.findByText("Gmail");
-    expect(screen.queryByText("Google Drive")).not.toBeInTheDocument();
+    expect(screen.getByText("Google Drive")).toBeInTheDocument();
+  });
+
+  it("does not offer a second generic OAuth flow for reserved Google Drive", async () => {
+    state.list.mockResolvedValue([
+      { ...drive, connectorId: "google_drive", displayName: "Duplicate Drive" },
+    ]);
+    render(<ConnectorsPanel open onOpenChange={vi.fn()} />);
+    await screen.findByText("Gmail");
+    expect(screen.getAllByText("Google Drive")).toHaveLength(1);
+    expect(screen.queryByText("Duplicate Drive")).not.toBeInTheDocument();
   });
 
   it.each([
@@ -138,7 +152,7 @@ describe("supported connector catalog", () => {
     view.rerender(<ConnectorsPanel open onOpenChange={onOpenChange} />);
     await waitFor(() => expect(state.list).toHaveBeenCalledTimes(2));
     await act(async () => finish([drive]));
-    expect(screen.queryByText("Google Drive")).not.toBeInTheDocument();
+    expect(screen.queryByText("Example Docs")).not.toBeInTheDocument();
     expect(state.list).toHaveBeenLastCalledWith("rotated-synthetic-token");
   });
 
@@ -157,7 +171,7 @@ describe("supported connector catalog", () => {
     view.rerender(<ConnectorsPanel open onOpenChange={onOpenChange} />);
     await waitFor(() => expect(state.list).toHaveBeenCalledTimes(2));
     await act(async () => finish([drive]));
-    expect(screen.queryByText("Google Drive")).not.toBeInTheDocument();
+    expect(screen.queryByText("Example Docs")).not.toBeInTheDocument();
   });
 
   it("discards an old owner's delayed catalog after owner changes", async () => {
@@ -175,15 +189,15 @@ describe("supported connector catalog", () => {
     view.rerender(<ConnectorsPanel open onOpenChange={vi.fn()} />);
     await act(async () => finish([drive]));
     await screen.findByText("Gmail");
-    expect(screen.queryByText("Google Drive")).not.toBeInTheDocument();
+    expect(screen.queryByText("Example Docs")).not.toBeInTheDocument();
   });
 
   it("hides protected catalog immediately on vault lock", async () => {
     state.list.mockResolvedValue([drive]);
     const view = render(<ConnectorsPanel open onOpenChange={vi.fn()} />);
-    await screen.findByText("Google Drive");
+    await screen.findByText("Example Docs");
     state.token = null;
     view.rerender(<ConnectorsPanel open onOpenChange={vi.fn()} />);
-    expect(screen.queryByText("Google Drive")).not.toBeInTheDocument();
+    expect(screen.queryByText("Example Docs")).not.toBeInTheDocument();
   });
 });

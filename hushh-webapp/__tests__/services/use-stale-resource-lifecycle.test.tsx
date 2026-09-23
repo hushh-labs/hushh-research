@@ -32,6 +32,39 @@ function getCache() {
 // ---------------------------------------------------------------------------
 
 describe("useStaleResource lifecycle", () => {
+  it("does not join an obsolete lifecycle-bound request when a surface remounts", async () => {
+    let rejectOld!: (error: Error) => void;
+    const oldLoad = vi.fn(
+      () =>
+        new Promise<string>((_, reject) => {
+          rejectOld = reject;
+        }),
+    );
+    const first = renderHook(() =>
+      useStaleResource({
+        cacheKey: "remount-key",
+        requestScope: "mount-one",
+        load: oldLoad,
+      }),
+    );
+    await waitFor(() => expect(oldLoad).toHaveBeenCalledOnce());
+    first.unmount();
+    const freshLoad = vi.fn(async () => "current");
+    const second = renderHook(() =>
+      useStaleResource({
+        cacheKey: "remount-key",
+        requestScope: "mount-two",
+        load: freshLoad,
+      }),
+    );
+    await waitFor(() => expect(second.result.current.data).toBe("current"));
+    await act(async () =>
+      rejectOld(new DOMException("Obsolete", "AbortError")),
+    );
+    expect(second.result.current.error).toBeNull();
+    expect(freshLoad).toHaveBeenCalledOnce();
+    second.unmount();
+  });
   beforeEach(() => {
     getCache().clear();
     vi.clearAllMocks();

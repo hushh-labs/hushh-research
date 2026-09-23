@@ -213,7 +213,8 @@ class CacheService {
         key.startsWith(`ria_workspace_${userId}_`) ||
         key.startsWith(`marketplace_rias_`) ||
         key.startsWith(`marketplace_investors_`) ||
-        key.startsWith(`connected_systems_${userId}_`)
+        key.startsWith(`connected_systems_${userId}_`) ||
+        key.startsWith(`google_connection_${userId}_`)
       ) {
         keysToDelete.add(key);
       }
@@ -274,6 +275,8 @@ class CacheService {
 
 // Cache key constants for consistency
 export const CACHE_KEYS = {
+  GOOGLE_CONNECTION: (userId: string, service: "drive" | "calendar", generation: number, vaultEpoch: number, revision: number) =>
+    `google_connection_${userId}_${service}_${generation}_${vaultEpoch}_${revision}`,
   PKM_METADATA: (userId: string) => `pkm_metadata_${userId}`,
   PKM_BLOB: (userId: string) => `pkm_blob_${userId}`,
   PKM_DECRYPTED_BLOB: (userId: string) => `pkm_decrypted_blob_${userId}`,

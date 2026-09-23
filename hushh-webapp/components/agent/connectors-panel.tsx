@@ -29,6 +29,7 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
+import { DriveConnectorCard } from "@/components/agent/drive-connector-card";
 import { useAuth } from "@/hooks/use-auth";
 import { ROUTES } from "@/lib/navigation/routes";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
@@ -60,7 +61,7 @@ export function ConnectorsPanel({
     catalog &&
     catalog.ownerId === user?.uid &&
     catalog.token === vaultOwnerToken
-      ? catalog.items
+      ? catalog.items.filter((item) => item.connectorId !== "google_drive")
       : [];
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -198,6 +199,11 @@ export function ConnectorsPanel({
           </SheetHeader>
 
           <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
+            <DriveConnectorCard
+              user={user}
+              enabled={open && Boolean(vaultOwnerToken)}
+              onUnlock={() => setShowUnlock(true)}
+            />
             {error ? (
               <p className="mb-3 text-sm text-[color:var(--app-destructive)]">
                 {error}
