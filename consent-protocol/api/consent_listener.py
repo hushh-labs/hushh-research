@@ -523,8 +523,9 @@ async def _notify_information_requester(data: Dict[str, Any]) -> None:
                 "request_id": request_id,
             },
         )
-        row = (result.data or [None])[0]
-        requester_user_id = str((row or {}).get("requester_user_id") or "").strip()
+        rows = result.data or []
+        row = rows[0] if rows else {}
+        requester_user_id = str(row.get("requester_user_id") or "").strip()
         if not requester_user_id or requester_user_id == subject_user_id:
             return
         await _dispatch_notification_for_user(
