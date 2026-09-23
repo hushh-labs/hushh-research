@@ -10,6 +10,7 @@ const client = vi.hoisted(() => ({
 const coordinator = vi.hoisted(() => ({ saveMergedDomain: vi.fn() }));
 const domainResource = vi.hoisted(() => ({ prepareDomainWriteContext: vi.fn() }));
 const linkLoader = vi.hoisted(() => ({ loadPlaidLink: vi.fn() }));
+const pendingSeal = vi.hoisted(() => ({ recordPendingSeal: vi.fn(), clearPendingSeal: vi.fn() }));
 const nativeRuntime = vi.hoisted(() => ({
   isNativePlatform: vi.fn(() => false),
   get: vi.fn(),
@@ -24,6 +25,7 @@ vi.mock("@/lib/kai/brokerage/plaid-redirect-uri", () => ({
   resolvePlaidRedirectUri: () => "https://uat.one.hushh.ai/one/kai/plaid/oauth/return",
 }));
 vi.mock("@/lib/kai/brokerage/plaid-link-loader", () => linkLoader);
+vi.mock("@/lib/kai/plaid-vault/pending-seal", () => pendingSeal);
 vi.mock("@/lib/pkm/pkm-domain-resource", () => ({ PkmDomainResourceService: domainResource }));
 
 import {
@@ -344,5 +346,58 @@ describe("relinking a connection that needs a new login", () => {
 
     expect(result.status).toBe("blocked");
     expect(client.createVaultLinkToken).not.toHaveBeenCalled();
+  });
+});
+
+describe("the orphan guard around a seal", () => {
+  it("records the token right after the exchange and clears it once saved", async () => {
+    saveRunsBuild();
+    await sealVaultPlaidConnection({
+      userId: "owner",
+      vaultKey: "vk",
+      vaultOwnerToken: "vot",
+      publicToken: "public-sandbox-abc",
+      surface: "ios",
+    });
+
+    expect(pendingSeal.recordPendingSeal).toHaveBeenCalledWith({
+      userId: "owner",
+      vaultKey: "vk",
+      itemId: "item_1",
+      accessToken: ACCESS_TOKEN,
+    });
+    expect(pendingSeal.clearPendingSeal).toHaveBeenCalledWith({ userId: "owner", vaultKey: "vk", itemId: "item_1" });
+  });
+
+  it("disconnects and clears when the save throws", async () => {
+    coordinator.saveMergedDomain.mockRejectedValueOnce(new Error("network"));
+    await expect(
+      sealVaultPlaidConnection({
+        userId: "owner",
+        vaultKey: "vk",
+        vaultOwnerToken: "vot",
+        publicToken: "public-sandbox-abc",
+        surface: "web",
+      }),
+    ).rejects.toThrow("network");
+
+    expect(client.removeVaultItem).toHaveBeenCalledWith({ vaultOwnerToken: "vot", accessToken: ACCESS_TOKEN });
+    expect(pendingSeal.clearPendingSeal).toHaveBeenCalled();
+  });
+
+  it("keeps the record for the next unlock when the disconnect also fails", async () => {
+    coordinator.saveMergedDomain.mockResolvedValueOnce({ success: false, message: "conflict" });
+    client.removeVaultItem.mockRejectedValueOnce(new Error("offline"));
+    await expect(
+      sealVaultPlaidConnection({
+        userId: "owner",
+        vaultKey: "vk",
+        vaultOwnerToken: "vot",
+        publicToken: "public-sandbox-abc",
+        surface: "web",
+      }),
+    ).rejects.toThrow();
+
+    expect(pendingSeal.clearPendingSeal).not.toHaveBeenCalled();
   });
 });

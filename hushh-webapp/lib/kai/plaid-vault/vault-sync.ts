@@ -23,6 +23,7 @@ import { Preferences } from "@capacitor/preferences";
 import { resolvePlaidLinkPlatform } from "@/lib/capacitor/plaid-link";
 import { loadPlaidLink } from "@/lib/kai/brokerage/plaid-link-loader";
 import { resolvePlaidRedirectUri } from "@/lib/kai/brokerage/plaid-redirect-uri";
+import { clearPendingSeal, recordPendingSeal } from "@/lib/kai/plaid-vault/pending-seal";
 import {
   buildFinancialDomainSummary,
   getActiveStatementSnapshotId,
@@ -232,16 +233,26 @@ export async function sealVaultPlaidConnection(params: {
 }): Promise<SealedVaultConnection> {
   const { userId, vaultKey, vaultOwnerToken } = params;
   const exchanged = await exchangeVaultPublicToken({ vaultOwnerToken, publicToken: params.publicToken });
+  // From here until the save lands the token exists only in this process:
+  // record it (encrypted) so a killed app cannot leave an orphaned Item.
+  await recordPendingSeal({ userId, vaultKey, itemId: exchanged.item_id, accessToken: exchanged.access_token });
+  const rollBack = async () => {
+    const removed = await removeVaultItem({ vaultOwnerToken, accessToken: exchanged.access_token })
+      .then(() => true)
+      .catch(() => false);
+    // A failed removal stays recorded so the next unlock retries it.
+    if (removed) await clearPendingSeal({ userId, vaultKey, itemId: exchanged.item_id });
+  };
   let pages: PlaidVaultSnapshot[];
   try {
     pages = await readSnapshotPages({ vaultOwnerToken, accessToken: exchanged.access_token, cursor: null });
   } catch (error) {
-    await removeVaultItem({ vaultOwnerToken, accessToken: exchanged.access_token }).catch(() => undefined);
+    await rollBack();
     throw error;
   }
   const now = new Date().toISOString();
   let saved: FinancialDomain | null = null;
-  const result = await PkmWriteCoordinator.saveMergedDomain({
+  const save = () => PkmWriteCoordinator.saveMergedDomain({
     userId,
     domain: "financial",
     vaultKey,
@@ -273,10 +284,18 @@ export async function sealVaultPlaidConnection(params: {
       };
     },
   });
+  let result: Awaited<ReturnType<typeof save>>;
+  try {
+    result = await save();
+  } catch (error) {
+    await rollBack();
+    throw error;
+  }
   if (!result.success || !saved) {
-    await removeVaultItem({ vaultOwnerToken, accessToken: exchanged.access_token }).catch(() => undefined);
+    await rollBack();
     throw new Error(result.message || "Could not save the bank connection.");
   }
+  await clearPendingSeal({ userId, vaultKey, itemId: exchanged.item_id });
   const financial = saved as FinancialDomain;
   return {
     itemId: exchanged.item_id,
