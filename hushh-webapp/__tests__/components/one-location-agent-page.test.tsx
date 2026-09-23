@@ -3975,7 +3975,7 @@ describe("OneLocationAgentPage", () => {
     expect(document.body).toHaveStyle({ pointerEvents: "none" });
     expect(actionsDialog).toHaveStyle({ pointerEvents: "auto" });
     expect(document.querySelector('[data-slot="dialog-overlay"]')).toHaveClass(
-      "backdrop-blur-[12px]",
+      "[backdrop-filter:var(--app-scrim-filter)]",
     );
 
     fireEvent.click(

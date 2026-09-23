@@ -43,7 +43,7 @@ function DialogOverlay({
       className={cn(
         // The blur/scrim lives on the Radix overlay itself so it shares the
         // open/close lifecycle and fades OUT on close instead of snapping.
-        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 duration-150 ease-out fixed inset-0 z-(--z-dialog-overlay) touch-none bg-black/24 backdrop-blur-[12px] [-webkit-backdrop-filter:blur(12px)]",
+        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 duration-150 ease-out fixed inset-0 z-(--z-dialog-overlay) touch-none bg-[color:var(--app-scrim-color)] [backdrop-filter:var(--app-scrim-filter)] [-webkit-backdrop-filter:var(--app-scrim-filter)]",
         className
       )}
       {...props}

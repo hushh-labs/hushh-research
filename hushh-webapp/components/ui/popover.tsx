@@ -52,7 +52,7 @@ function PopoverContent({
           <div
             data-slot="popover-scrim"
             aria-hidden
-            className="fixed inset-0 z-(--z-transient-scrim) touch-none bg-black/22 backdrop-blur-[8px] [-webkit-backdrop-filter:blur(8px)]"
+            className="fixed inset-0 z-(--z-transient-scrim) touch-none bg-[color:var(--app-scrim-color)] [backdrop-filter:var(--app-scrim-filter)] [-webkit-backdrop-filter:var(--app-scrim-filter)]"
           />
         ) : null}
         <PopoverPrimitive.Content

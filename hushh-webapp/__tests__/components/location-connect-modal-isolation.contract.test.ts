@@ -82,14 +82,20 @@ describe("Location and Connect blocking surfaces", () => {
     expect(source).toContain("showOverlay={false}");
   });
 
-  it("uses the shared blurred scrim for every blocking primitive", () => {
+  it("uses the shared scrim for every blocking primitive", () => {
+    // One scrim, defined once in globals.css (blur on desktop, a plain dim on
+    // touch screens); no primitive restates the values.
     for (const primitive of [
       "components/ui/dialog.tsx",
       "components/ui/sheet.tsx",
       "components/ui/drawer.tsx",
       "components/ui/alert-dialog.tsx",
+      "components/ui/popover.tsx",
     ]) {
-      expect(sourceOf(primitive)).toContain("backdrop-blur-[12px]");
+      const source = sourceOf(primitive);
+      expect(source).toContain("bg-[color:var(--app-scrim-color)]");
+      expect(source).toContain("[backdrop-filter:var(--app-scrim-filter)]");
+      expect(source).not.toMatch(/backdrop-blur-\[\d+px\]/);
     }
   });
 });
