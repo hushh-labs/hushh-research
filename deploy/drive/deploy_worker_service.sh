@@ -34,7 +34,27 @@ service_exists="$(gcloud run services list \
   --project="${PROJECT_ID}" --region="${REGION}" --format=json \
   | SERVICE_NAME="${SERVICE}" python3 -c 'import json,os,sys; rows=json.load(sys.stdin); assert isinstance(rows,list); print("true" if any((row.get("metadata") or {}).get("name")==os.environ["SERVICE_NAME"] for row in rows) else "false")')"
 previous_revision=""
-traffic_flags=(--tag="drive-candidate-${RELEASE_RUN_ID}")
+# Cloud Run limits service name + '-' + traffic tag to 46 characters. Base36
+# preserves the full numeric GitHub run ID without a collision-prone truncation.
+traffic_tag="$(python3 - "${SERVICE}" "${RELEASE_RUN_ID}" <<'PY'
+import sys
+
+service, raw_run_id = sys.argv[1:]
+run_id = int(raw_run_id)
+if not 0 < run_id <= 2**64 - 1:
+    raise SystemExit("Drive worker release run ID is outside the supported 64-bit range")
+alphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
+encoded = ""
+while run_id:
+    run_id, digit = divmod(run_id, 36)
+    encoded = alphabet[digit] + encoded
+tag = f"d-{encoded}"
+if len(service) + 1 + len(tag) > 46:
+    raise SystemExit("Drive worker traffic tag exceeds the Cloud Run 46-character limit")
+print(tag)
+PY
+)"
+traffic_flags=(--tag="${traffic_tag}")
 if [[ "${service_exists}" == true ]]; then
   previous_revision="$(gcloud run services describe "${SERVICE}" \
     --project="${PROJECT_ID}" --region="${REGION}" --format=json \
