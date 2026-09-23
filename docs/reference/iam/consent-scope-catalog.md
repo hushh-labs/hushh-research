@@ -121,6 +121,17 @@ scalar leaf that is now a container requires new review rather than sharing its
 subtree. Canonical spelling may resolve to one original key, never to an
 ambiguous collision or a semantically similar field.
 
+### Consumer selection of broad scopes
+
+Profile and Chat may offer a domain or branch wildcard only when the current
+catalog returned that exact eligible scope. Selecting the whole branch is one
+request for that wildcard, not additional requests for every covered child.
+Selecting a narrower child off removes any selected wildcard that would still
+include it. Coverage is determined from server-supplied domain, hierarchy and
+wildcard metadata, never from opaque reference text or a display label. Review
+must call out that a wildcard covers the whole eligible area; approval and
+encrypted export still recheck current manifest exposure.
+
 ## Template Catalog (V1)
 
 | Template ID | Actor Direction | Scope Set | Default Duration |
