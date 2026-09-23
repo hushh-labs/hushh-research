@@ -1,10 +1,20 @@
 """One's bounded heads consume authored instructions without broadening tools."""
 
+from types import SimpleNamespace
+
 import pytest
 from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.google_search_tool import GoogleSearchTool
 
 from hushh_mcp.one_adk import agent_tree
+
+
+def test_one_chat_receives_authored_cross_connector_semantic_policy():
+    authored = str(agent_tree._ONE_MANIFEST.system_instruction)
+    composed = agent_tree._one_runtime_instruction(SimpleNamespace(state={}))
+    assert "When a request spans connected services" in authored
+    assert authored.strip() in composed
+    assert "A connection or a read grant is not permission" in composed
 
 
 @pytest.mark.parametrize("child_id", ["one_intro", "google_search"])
