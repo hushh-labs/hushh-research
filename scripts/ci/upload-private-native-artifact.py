@@ -1,0 +1,248 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: Apache-2.0
+# SPDX-FileCopyrightText: 2026 Hushh
+
+"""Preserve one signed UAT native build in a policy-checked private bucket.
+
+The GitHub Actions artifact store is visible to readers of the public repo.
+This helper never uploads an IPA/AAB there and emits only a non-secret receipt.
+"""
+
+from __future__ import annotations
+
+import argparse
+import base64
+import hashlib
+import json
+import os
+import re
+import subprocess
+import sys
+import zipfile
+from pathlib import Path
+from typing import Any
+
+BUCKET = "hushh-pda-uat-native-artifacts"
+SHA_RE = re.compile(r"[0-9a-f]{40}\Z")
+PLATFORMS = {
+    "ios-testflight": (".ipa", "app.ipa"),
+    "android-playstore": (".aab", "app.aab"),
+}
+
+
+class ArtifactPolicyError(ValueError):
+    """The artifact or destination did not satisfy the release policy."""
+
+
+def _run_gcloud(*arguments: str) -> str:
+    command = ["gcloud", "--quiet", "storage", *arguments]
+    environment = os.environ.copy()
+    # Composite uploads omit the provider MD5 needed for post-upload proof.
+    environment["CLOUDSDK_STORAGE_PARALLEL_COMPOSITE_UPLOAD_ENABLED"] = "false"
+    try:
+        completed = subprocess.run(
+            command,
+            check=True,
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=environment,
+        )
+    except subprocess.CalledProcessError as exc:
+        # gcloud output can contain account identifiers and request details.
+        raise ArtifactPolicyError(f"Cloud Storage {arguments[0]} failed") from exc
+    return completed.stdout
+
+
+def _gcloud_json(*arguments: str) -> dict[str, Any]:
+    try:
+        data = json.loads(_run_gcloud(*arguments, "--format=json"))
+    except json.JSONDecodeError as exc:
+        raise ArtifactPolicyError("Cloud Storage returned invalid JSON") from exc
+    if not isinstance(data, dict):
+        raise ArtifactPolicyError("Cloud Storage returned an invalid object")
+    return data
+
+
+def validate_bucket(description: dict[str, Any], iam_policy: dict[str, Any]) -> None:
+    if description.get("name") != BUCKET:
+        raise ArtifactPolicyError("unexpected artifact bucket")
+    if description.get("public_access_prevention") != "enforced":
+        raise ArtifactPolicyError("bucket public access prevention is not enforced")
+    if description.get("uniform_bucket_level_access") is not True:
+        raise ArtifactPolicyError("bucket uniform access is not enabled")
+
+    lifecycle = description.get("lifecycle_config", {})
+    rules = lifecycle.get("rule", []) if isinstance(lifecycle, dict) else []
+    if not any(
+        isinstance(rule, dict)
+        and rule.get("action") == {"type": "Delete"}
+        and rule.get("condition") == {"age": 14}
+        for rule in rules
+    ):
+        raise ArtifactPolicyError("bucket lacks the exact 14-day deletion rule")
+
+    for binding in iam_policy.get("bindings", []):
+        members = binding.get("members", []) if isinstance(binding, dict) else []
+        if any(
+            member in {"allUsers", "allAuthenticatedUsers"}
+            or member.startswith("projectViewer:")
+            for member in members
+        ):
+            raise ArtifactPolicyError(
+                "bucket grants public or project-wide viewer access"
+            )
+
+
+def validate_binary(path: Path, platform: str) -> None:
+    expected_ext = PLATFORMS[platform][0]
+    if path.is_symlink() or not path.is_file() or path.suffix != expected_ext:
+        raise ArtifactPolicyError("expected one regular signed native build file")
+    if path.stat().st_size <= 0 or path.stat().st_size > 4 * 1024**3:
+        raise ArtifactPolicyError("native build size is outside the allowed range")
+    try:
+        with zipfile.ZipFile(path) as archive:
+            names = archive.namelist()
+            forbidden = any(
+                (basename := name.rsplit("/", 1)[-1].lower()).startswith(".env")
+                or basename.endswith((".p8", ".p12", ".jks", ".key"))
+                or "service-account" in basename
+                for name in names
+            )
+            if forbidden:
+                raise ArtifactPolicyError("native build contains a protected file")
+            if platform == "ios-testflight":
+                valid = any(
+                    name.startswith("Payload/") and name.endswith(".app/Info.plist")
+                    for name in names
+                )
+            else:
+                valid = (
+                    "BundleConfig.pb" in names
+                    and "base/manifest/AndroidManifest.xml" in names
+                )
+    except (OSError, zipfile.BadZipFile) as exc:
+        raise ArtifactPolicyError("native build is not a readable archive") from exc
+    if not valid:
+        raise ArtifactPolicyError(
+            "native build archive has the wrong platform structure"
+        )
+
+
+def _digests(path: Path) -> tuple[str, str]:
+    sha256 = hashlib.sha256()
+    md5 = hashlib.md5(usedforsecurity=False)
+    with path.open("rb") as build:
+        for chunk in iter(lambda: build.read(1024 * 1024), b""):
+            sha256.update(chunk)
+            md5.update(chunk)
+    return sha256.hexdigest(), base64.b64encode(md5.digest()).decode("ascii")
+
+
+def object_name(sha: str, run_id: str, attempt: str, platform: str) -> str:
+    if not SHA_RE.fullmatch(sha):
+        raise ArtifactPolicyError("source SHA must be a full lowercase commit hash")
+    if not re.fullmatch(r"[0-9]+", run_id) or int(run_id) < 1:
+        raise ArtifactPolicyError("invalid GitHub run ID")
+    if not re.fullmatch(r"[0-9]+", attempt) or int(attempt) < 1:
+        raise ArtifactPolicyError("invalid GitHub run attempt")
+    if platform not in PLATFORMS:
+        raise ArtifactPolicyError("unsupported UAT native artifact platform")
+    return f"native/{sha}/run-{run_id}-attempt-{attempt}/{platform}/{PLATFORMS[platform][1]}"
+
+
+def validate_uploaded_object(
+    metadata: dict[str, Any], *, name: str, size: int, sha256: str, md5_base64: str
+) -> int:
+    if metadata.get("name") != name or metadata.get("bucket") != BUCKET:
+        raise ArtifactPolicyError(
+            "uploaded object identity differs from requested object"
+        )
+    try:
+        generation = int(metadata.get("generation", 0))
+        remote_size = int(metadata.get("size", -1))
+    except (TypeError, ValueError) as exc:
+        raise ArtifactPolicyError("uploaded object metadata is invalid") from exc
+    if generation < 1 or remote_size != size:
+        raise ArtifactPolicyError("uploaded object generation or size mismatch")
+    if metadata.get("md5_hash") != md5_base64:
+        raise ArtifactPolicyError("uploaded object MD5 mismatch")
+    custom_metadata = metadata.get("metadata")
+    if not isinstance(custom_metadata, dict) or custom_metadata.get("sha256") != sha256:
+        raise ArtifactPolicyError("uploaded object SHA-256 metadata mismatch")
+    return generation
+
+
+def upload(
+    path: Path, sha: str, run_id: str, attempt: str, platform: str
+) -> dict[str, Any]:
+    name = object_name(sha, run_id, attempt, platform)
+    validate_binary(path, platform)
+    validate_bucket(
+        _gcloud_json("buckets", "describe", f"gs://{BUCKET}"),
+        _gcloud_json("buckets", "get-iam-policy", f"gs://{BUCKET}"),
+    )
+    digest, md5_base64 = _digests(path)
+    destination = f"gs://{BUCKET}/{name}"
+    _run_gcloud(
+        "cp",
+        str(path),
+        destination,
+        "--if-generation-match=0",
+        f"--content-md5={md5_base64}",
+        "--content-type=application/octet-stream",
+        "--cache-control=no-store",
+        f"--custom-metadata=sha256={digest},source_sha={sha}",
+    )
+    generation = validate_uploaded_object(
+        _gcloud_json("objects", "describe", destination),
+        name=name,
+        size=path.stat().st_size,
+        sha256=digest,
+        md5_base64=md5_base64,
+    )
+    validate_bucket(
+        _gcloud_json("buckets", "describe", f"gs://{BUCKET}"),
+        _gcloud_json("buckets", "get-iam-policy", f"gs://{BUCKET}"),
+    )
+    return {
+        "source_sha": sha,
+        "platform": platform,
+        "sha256": digest,
+        "generation": generation,
+        "size_bytes": path.stat().st_size,
+        "live_retention_days": 14,
+        "private_object": destination,
+    }
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--file", required=True, type=Path)
+    parser.add_argument("--source-sha", required=True)
+    parser.add_argument("--run-id", required=True)
+    parser.add_argument("--run-attempt", required=True)
+    parser.add_argument("--platform", choices=sorted(PLATFORMS), required=True)
+    parser.add_argument("--receipt", required=True, type=Path)
+    args = parser.parse_args()
+    try:
+        receipt = upload(
+            args.file, args.source_sha, args.run_id, args.run_attempt, args.platform
+        )
+        with os.fdopen(
+            os.open(args.receipt, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w"
+        ) as output:
+            json.dump(receipt, output, sort_keys=True)
+            output.write("\n")
+    except (ArtifactPolicyError, OSError) as exc:
+        print(f"Private native artifact preservation failed: {exc}", file=sys.stderr)
+        return 1
+    print(
+        f"Private {receipt['platform']} artifact verified for {receipt['source_sha']} "
+        f"at generation {receipt['generation']}."
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

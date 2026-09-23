@@ -143,7 +143,11 @@ authority contract.
    release; the default is `false` because the full suite already runs in
    change-aware CI.
 6. Use `dry_run: true` only when you want a signed archive without uploading.
-   It follows the same `require_hardware` choice.
+   It follows the same `require_hardware` choice. The signed IPA is retained for
+   14 live days in the private `hushh-pda-uat-native-artifacts` bucket, after the
+   workflow verifies bucket privacy and upload integrity. GitHub Actions keeps
+   only a redacted receipt, not the IPA. The bucket also has a separate 7-day
+   private soft-delete recovery window after lifecycle deletion.
 
 The run summary reports the source SHA, the physical capture p95 when that lane
 was requested (otherwise `not requested`), build number, and whether external
