@@ -18,6 +18,8 @@
  */
 
 import type { PlaidAccountSummary, PlaidItemSummary, PlaidPortfolioStatusResponse } from "@/lib/kai/brokerage/portfolio-sources";
+import { Capacitor } from "@capacitor/core";
+import { Preferences } from "@capacitor/preferences";
 import { resolvePlaidLinkPlatform } from "@/lib/capacitor/plaid-link";
 import { loadPlaidLink } from "@/lib/kai/brokerage/plaid-link-loader";
 import { resolvePlaidRedirectUri } from "@/lib/kai/brokerage/plaid-redirect-uri";
@@ -64,6 +66,36 @@ const VAULT_REPLACE_FINANCIAL = {
 } as const;
 
 export type VaultSurface = "web" | "ios" | "android";
+
+/** One launch only: XCTest supplies this through NSArgumentDomain, never persisted by product code. */
+export const PLAID_SANDBOX_PROOF_PREFERENCE_KEY = "hushh_plaid_sandbox_proof";
+
+export function isPlaidSandboxProofBuild(): boolean {
+  return process.env.NEXT_PUBLIC_PLAID_SANDBOX_PROOF === "true";
+}
+
+async function plaidSandboxProofRequestedForLaunch(): Promise<boolean> {
+  if (!Capacitor.isNativePlatform()) return false;
+  try {
+    return (await Preferences.get({ key: PLAID_SANDBOX_PROOF_PREFERENCE_KEY })).value === "1";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A proof Link token can exist only when the immutable WebView build and the
+ * single native test launch both opt in. A UAT bundle with the launch flag—or
+ * a local proof bundle opened normally—fails before any backend request.
+ */
+export async function requirePlaidSandboxProofMarker(): Promise<boolean> {
+  const builtForProof = isPlaidSandboxProofBuild();
+  const requestedForLaunch = await plaidSandboxProofRequestedForLaunch();
+  if (builtForProof !== requestedForLaunch) {
+    throw new Error("Plaid sandbox proof requires the matching local build and native launch marker.");
+  }
+  return builtForProof;
+}
 
 export function vaultConnections(financial: AnyRecord | null | undefined): Record<string, ConnectionRecord> {
   const raw = (financial as FinancialDomain | null | undefined)?.connections_v1;
@@ -133,11 +165,13 @@ export async function createVaultLink(params: {
   vaultOwnerToken: string;
 }): Promise<{ linkToken: string; platform: VaultSurface }> {
   const platform = await resolvePlaidLinkPlatform();
+  const sandboxProof = await requirePlaidSandboxProofMarker();
   const link = await createVaultLinkToken({
     vaultOwnerToken: params.vaultOwnerToken,
     request: {
       platform,
       redirect_uri: platform === "android" ? null : resolvePlaidRedirectUri(),
+      ...(sandboxProof ? { sandbox_proof: true } : {}),
     },
   });
   return { linkToken: link.link_token, platform: surfaceFor(platform) };
