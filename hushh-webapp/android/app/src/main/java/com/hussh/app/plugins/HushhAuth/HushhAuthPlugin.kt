@@ -610,11 +610,11 @@ class HushhAuthPlugin : Plugin() {
         ) return null
         val attemptIds = uri.getQueryParameters("attemptId")
         val outcomes = uri.getQueryParameters("outcome")
-        val attemptId = attemptIds.singleOrNull()
-        val outcome = outcomes.singleOrNull()
-        if (attemptId == null || !isOpaqueDriveAttemptId(attemptId) ||
-            outcome !in setOf("ready", "cancelled", "failed")
-        ) return null
+        val attemptId = attemptIds.singleOrNull() ?: return null
+        val outcome = outcomes.singleOrNull() ?: return null
+        if (!isOpaqueDriveAttemptId(attemptId) || outcome !in setOf("ready", "cancelled", "failed")) {
+            return null
+        }
         return attemptId to outcome
     }
 
