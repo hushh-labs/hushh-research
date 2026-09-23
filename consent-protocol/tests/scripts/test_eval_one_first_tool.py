@@ -179,6 +179,9 @@ def test_production_instruction_preserves_identity_and_disables_reads_under_empt
     assert "Preserve the selected recipient and selection handle" in text
     assert "identify its exact file ID" in text
     assert "Never infer an ID from a similar filename" in text
+    assert '"X approved; can I see it now?": call list_information_shared_with_me' in text
+    assert "Open outgoing requests cannot establish a grant" in text
+    assert "do not send the person to Profile automatically" in text
 
 
 # ---------------------------------------------------------------------------
