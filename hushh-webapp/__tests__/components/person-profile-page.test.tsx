@@ -847,6 +847,70 @@ describe("PersonProfilePage request catalog tools", () => {
     });
     render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
     fireEvent.click(await screen.findByRole("button", { name: "Details for Employment status" }));
-    expect(await screen.findByTestId("person-profile-bundle-details")).toHaveTextContent("Employment status · 1 week");
+    expect(await screen.findByTestId("person-profile-bundle-details")).toHaveTextContent("Employment status (pending) · 1 week");
+  });
+
+  it("groups a multi-field request into one history row with one action", async () => {
+    mocks.getViewer.mockResolvedValue(viewerProfile({
+      requestHistory: Array.from({ length: 12 }, (_, index) => ({
+        bundleId: "bundle-professional",
+        requestId: `request-${index}`,
+        scopeRef: `scope-${index}`,
+        label: `Professional detail ${index + 1}`,
+        sensitivity: "standard",
+        purpose: "Review professional information",
+        durationSeconds: 7 * 24 * 3600,
+        createdAt: null,
+        expiresAt: null,
+        status: "granted",
+      })),
+    }));
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+
+    expect(await screen.findByText("Request for 12 information items")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Details for 12 information items" })).toHaveLength(1);
+    expect(screen.queryByText("Professional detail 2")).toBeNull();
+  });
+
+  it("pages request bundles instead of growing the history indefinitely", async () => {
+    mocks.getViewer.mockResolvedValue(viewerProfile({
+      requestHistory: Array.from({ length: 9 }, (_, index) => ({
+        bundleId: `bundle-${index}`,
+        requestId: `request-${index}`,
+        scopeRef: `scope-${index}`,
+        label: `History item ${index + 1}`,
+        sensitivity: "standard",
+        purpose: "Checking history",
+        durationSeconds: 3600,
+        createdAt: null,
+        expiresAt: null,
+        status: "granted",
+      })),
+    }));
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+
+    expect(await screen.findByText("History item 1")).toBeInTheDocument();
+    expect(screen.queryByText("History item 9")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByText("History item 9")).toBeInTheDocument();
+    expect(screen.queryByText("History item 1")).toBeNull();
+  });
+
+  it("does not display details returned for another person", async () => {
+    const { toast } = await import("sonner");
+    mocks.getViewer.mockResolvedValue(viewerProfile({
+      requestHistory: [{
+        bundleId: "bundle-1", requestId: "request-1", scopeRef: "scope-1",
+        label: "Employment status", sensitivity: "standard", purpose: "Checking references",
+        durationSeconds: 3600, createdAt: null, expiresAt: null, status: "pending",
+      }],
+    }));
+    mocks.getInformationRequest.mockResolvedValue({
+      personRef: "another-person", bundleId: "bundle-1", items: [],
+    });
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Details for Employment status" }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    expect(screen.queryByTestId("person-profile-bundle-details")).toBeNull();
   });
 });

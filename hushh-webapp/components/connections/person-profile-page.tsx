@@ -47,6 +47,7 @@ import {
   type PublicPersonProfile,
   type ViewerPersonProfile,
   type InformationRequestBundle,
+  type PersonInformationRequestHistory,
 } from "@/lib/services/person-profile-service";
 import {
   resolvePersonRefFromProfilePathname,
@@ -123,11 +124,31 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     viewerProfileState.personRef === resolvedPersonRef && viewerProfileState.viewerUid === user?.uid
       ? viewerProfileState.profile
       : null;
+  const historyGroups = useMemo(() => {
+    const groups = new Map<string, { first: PersonInformationRequestHistory; items: PersonInformationRequestHistory[] }>();
+    for (const item of viewerProfile?.requestHistory ?? []) {
+      const key = item.bundleId || item.requestId;
+      const group = groups.get(key);
+      if (group) group.items.push(item);
+      else groups.set(key, { first: item, items: [item] });
+    }
+    return [...groups.entries()].map(([bundleId, group]) => ({ bundleId, ...group }));
+  }, [viewerProfile?.requestHistory]);
+  const [historyPage, setHistoryPage] = useState(1);
+  const historyPageCount = Math.max(1, Math.ceil(historyGroups.length / 8));
+  const visibleHistoryPage = Math.min(historyPage, historyPageCount);
+  const visibleHistoryGroups = historyGroups.slice((visibleHistoryPage - 1) * 8, visibleHistoryPage * 8);
   const [selectedScopeRefs, setSelectedScopeRefs] = useState<Set<string>>(new Set());
   const [reviewOpen, setReviewOpen] = useState(false);
   const [purpose, setPurpose] = useState("");
   const [durationHours, setDurationHours] = useState<number>(DEFAULT_REQUEST_DURATION_HOURS);
-  const [bundleDetails, setBundleDetails] = useState<Record<string, InformationRequestBundle>>({});
+  const [bundleDetailsState, setBundleDetailsState] = useState<{
+    personRef: string;
+    viewerUid: string | null;
+    details: Record<string, InformationRequestBundle>;
+  }>({ personRef: resolvedPersonRef, viewerUid: user?.uid ?? null, details: {} });
+  const bundleDetails = bundleDetailsState.personRef === resolvedPersonRef
+    && bundleDetailsState.viewerUid === user?.uid ? bundleDetailsState.details : {};
   const [loadingBundleId, setLoadingBundleId] = useState<string | null>(null);
   const searchParams = useSearchParams();
   // /connect and the agent's discovery card land here with ?request=1: bring
@@ -242,7 +263,8 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     setReviewOpen(false);
     setPurpose("");
     setDurationHours(DEFAULT_REQUEST_DURATION_HOURS);
-    setBundleDetails({});
+    setBundleDetailsState({ personRef: resolvedPersonRef, viewerUid: user?.uid ?? null, details: {} });
+    setHistoryPage(1);
     setDecryptedByRequest({});
     setDecryptedRevisionByRequest({});
     setDecryptFailedByRequest({});
@@ -379,7 +401,17 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     setLoadingBundleId(bundleId);
     try {
       const bundle = await PersonProfileService.getInformationRequest({ bundleId, vaultOwnerToken });
-      setBundleDetails((current) => ({ ...current, [bundleId]: bundle }));
+      if (bundle.personRef !== resolvedPersonRef || bundle.bundleId !== bundleId) {
+        throw new Error("Request details did not match this person.");
+      }
+      setBundleDetailsState((current) => ({
+        personRef: resolvedPersonRef,
+        viewerUid: user?.uid ?? null,
+        details: {
+          ...(current.personRef === resolvedPersonRef && current.viewerUid === user?.uid ? current.details : {}),
+          [bundleId]: bundle,
+        },
+      }));
     } catch (reason) {
       toast.error(oneLocationErrorMessage(reason, "Request details are unavailable right now."));
     } finally {
@@ -699,7 +731,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
           sections: [
             { id: "shared", title: "Shared with you", summary: `${viewerProfile.grants.length} active grants` },
             { id: "requestable", title: "Available to request", summary: `${viewerProfile.scopeCatalog?.totalCount ?? viewerProfile.requestableScopes.length} things you can ask for` },
-            { id: "history", title: "Request history", summary: `${viewerProfile.requestHistory.length} request records` },
+            { id: "history", title: "Request history", summary: `${historyGroups.length} ${historyGroups.length === 1 ? "request" : "requests"}` },
           ],
           actions: surfaceActions,
           availableActions: surfaceActions.flatMap((action) => action.actionId ? [action.actionId] : []),
@@ -1130,58 +1162,74 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
             <section aria-labelledby="request-history" className="space-y-3">
               <PageHeader
                 title="Request history"
-                description="A viewer-relative record of requests to this person and their current consent state."
+                description="Requests you sent to this person and their current status."
               />
-              {viewerProfile.requestHistory.length ? (
+              {historyGroups.length ? (
                 <SectionCard>
                   <div className="divide-y divide-border/60">
-                    {viewerProfile.requestHistory.map((item) => (
-                      <div key={item.requestId} className="flex flex-wrap items-start justify-between gap-4 py-3 first:pt-0 last:pb-0">
-                        <div>
-                          <p className="text-sm font-semibold">{item.label}</p>
-                          <p className="mt-1 text-sm text-muted-foreground">{item.purpose}</p>
-                          {item.createdAt ? (
-                            <p className="mt-1 text-xs text-muted-foreground">
-                              {new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(item.createdAt))}
+                    {visibleHistoryGroups.map(({ bundleId, first, items }) => {
+                      const statuses = new Set(items.map((item) => item.status));
+                      const grantedCount = items.filter((item) => item.status === "granted").length;
+                      const statusLabel = statuses.size === 1 ? first.status : `${grantedCount} of ${items.length} granted`;
+                      const details = bundleDetails[bundleId];
+                      return (
+                        <div key={bundleId} className="flex flex-wrap items-start justify-between gap-3 py-3 first:pt-0 last:pb-0">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-semibold">{items.length === 1 ? first.label : `Request for ${items.length} information items`}</p>
+                            <p className="mt-1 text-sm text-muted-foreground">{first.purpose}</p>
+                            {first.createdAt ? (
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(first.createdAt))}
+                              </p>
+                            ) : null}
+                          </div>
+                          <div className="flex shrink-0 flex-wrap items-center gap-2">
+                            <StatusPill tone={grantedCount === items.length ? "ready" : "neutral"}>
+                              {statusLabel}
+                            </StatusPill>
+                            {!details ? (
+                              <Button
+                                type="button"
+                                variant="none"
+                                effect="fade"
+                                disabled={loadingBundleId === bundleId}
+                                onClick={() => void loadBundleDetails(bundleId)}
+                                aria-label={`Details for ${items.length === 1 ? first.label : `${items.length} information items`}`}
+                              >
+                                {loadingBundleId === bundleId ? "Loading…" : "Details"}
+                              </Button>
+                            ) : null}
+                            {items.some((item) => item.status === "pending") ? (
+                              <Button
+                                type="button"
+                                variant="none"
+                                effect="fade"
+                                disabled={cancellingBundleId === bundleId}
+                                onClick={() => void cancelInformationRequest(bundleId)}
+                              >
+                                {cancellingBundleId === bundleId ? "Withdrawing…" : "Withdraw pending"}
+                              </Button>
+                            ) : null}
+                          </div>
+                          {details ? (
+                            <p className="max-h-40 w-full overflow-y-auto text-xs text-muted-foreground" data-testid="person-profile-bundle-details">
+                              {details.items.map((entry) => `${entry.label} (${entry.status})`).join(", ")}
+                              {" · "}
+                              {requestDurationLabel(Math.round(details.durationSeconds / 3600))}
+                              {details.cancelled ? " · cancelled" : ""}
                             </p>
                           ) : null}
                         </div>
-                        <StatusPill tone={item.status === "granted" ? "ready" : "neutral"}>
-                          {item.status}
-                        </StatusPill>
-                        {bundleDetails[item.bundleId] ? (
-                          <p className="basis-full text-xs text-muted-foreground" data-testid="person-profile-bundle-details">
-                            {bundleDetails[item.bundleId]!.items.map((entry) => entry.label).join(", ")}
-                            {" · "}
-                            {requestDurationLabel(Math.round(bundleDetails[item.bundleId]!.durationSeconds / 3600))}
-                            {bundleDetails[item.bundleId]!.cancelled ? " · cancelled" : ""}
-                          </p>
-                        ) : (
-                          <Button
-                            type="button"
-                            variant="none"
-                            effect="fade"
-                            disabled={loadingBundleId === item.bundleId}
-                            onClick={() => void loadBundleDetails(item.bundleId)}
-                            aria-label={`Details for ${item.label}`}
-                          >
-                            {loadingBundleId === item.bundleId ? "Loading…" : "Details"}
-                          </Button>
-                        )}
-                        {item.status === "pending" ? (
-                          <Button
-                            type="button"
-                            variant="none"
-                            effect="fade"
-                            disabled={cancellingBundleId === item.bundleId}
-                            onClick={() => void cancelInformationRequest(item.bundleId)}
-                          >
-                            {cancellingBundleId === item.bundleId ? "Cancelling…" : "Cancel"}
-                          </Button>
-                        ) : null}
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
+                  {historyGroups.length > 8 ? (
+                    <div className="mt-3 flex items-center justify-between gap-3 border-t border-border/60 pt-3 text-sm">
+                      <Button type="button" variant="none" effect="fade" disabled={visibleHistoryPage <= 1} onClick={() => setHistoryPage((page) => Math.max(1, page - 1))}>Previous</Button>
+                      <span className="text-muted-foreground">{visibleHistoryPage} of {historyPageCount}</span>
+                      <Button type="button" variant="none" effect="fade" disabled={visibleHistoryPage >= historyPageCount} onClick={() => setHistoryPage((page) => Math.min(historyPageCount, page + 1))}>Next</Button>
+                    </div>
+                  ) : null}
                 </SectionCard>
               ) : (
                 <SectionCard>
