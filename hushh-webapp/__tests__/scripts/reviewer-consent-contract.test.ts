@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { spawnSync } from "node:child_process";
+import { createHash, webcrypto } from "node:crypto";
 import path from "node:path";
 import {
   assertRequestDraft, assertRequestState, assertStreamProof,
-  createDraftAdmission, safeFailureCode, matchesExpectedJson, assertConfirmationReview, assertAllStreamProofs,
+  createDraftAdmission, safeFailureCode, matchesExpectedJson, matchesExpectedJsonDigest, assertConfirmationReview, assertAllStreamProofs,
   matchesOwnerBinding, assertGrantTiming, createFixtureMutationAdmission, createFixtureReviewGate,
 } from "../../../.codex/skills/reviewer-app-testing/scripts/consent-rehearsal-contract.mjs";
 import { installConsentStreamProbe } from "../../../.codex/skills/reviewer-app-testing/scripts/consent-rehearsal-stream-probe.mjs";
@@ -35,6 +36,11 @@ describe("Profile rehearsal startup safety", () => {
       REVIEWER_PERSON_REF: "synthetic-person", REVIEWER_CONSENT_SCOPE_REF: "synthetic-scope", REVIEWER_EXPECTED_PAYLOAD_JSON: "{}" }, "EXACT_SYNTHETIC_PAYLOAD_REQUIRED"],
     [{ REVIEWER_ALLOW_SHARED_MUTATIONS: "true", REVIEWER_UID: "synthetic-owner", REVIEWER_COUNTERPART_UID: "synthetic-requester",
       REVIEWER_PERSON_REF: "synthetic-person", REVIEWER_CONSENT_SCOPE_REF: "synthetic-scope", REVIEWER_EXPECTED_PAYLOAD_JSON: "invalid-private-sentinel" }, "REHEARSAL_UNEXPECTED_FAILURE"],
+    [{ REVIEWER_ALLOW_SHARED_MUTATIONS: "true", REVIEWER_UID: "synthetic-owner", REVIEWER_COUNTERPART_UID: "synthetic-requester",
+      REVIEWER_PERSON_REF: "synthetic-person", REVIEWER_CONSENT_SCOPE_REF: "synthetic-scope", REVIEWER_EXPECTED_PAYLOAD_SHA256: "invalid" }, "EXACT_SYNTHETIC_PAYLOAD_REQUIRED"],
+    [{ REVIEWER_ALLOW_SHARED_MUTATIONS: "true", REVIEWER_UID: "synthetic-owner", REVIEWER_COUNTERPART_UID: "synthetic-requester",
+      REVIEWER_PERSON_REF: "synthetic-person", REVIEWER_CONSENT_SCOPE_REF: "synthetic-scope", REVIEWER_EXPECTED_PAYLOAD_JSON: '{"role":"synthetic"}',
+      REVIEWER_EXPECTED_PAYLOAD_SHA256: "a".repeat(64) }, "EXACT_SYNTHETIC_PAYLOAD_REQUIRED"],
   ])("fails closed before authentication and emits only safe diagnostics", (env, code) => {
     const script = path.resolve(process.cwd(), "../.codex/skills/reviewer-app-testing/scripts/verify-reviewer-consent-profile.mjs");
     const result = spawnSync(process.execPath, [script], {
@@ -149,6 +155,25 @@ describe("consent rehearsal evidence", () => {
     expect(matchesExpectedJson(node, expected)).toBe(false);
     node.textContent = "malformed";
     expect(matchesExpectedJson(node, expected)).toBe(false);
+  });
+  it("compares owner-source digests without exporting decrypted values from the browser", async () => {
+    vi.stubGlobal("crypto", webcrypto);
+    try {
+      const node = document.createElement("pre");
+      const digest = createHash("sha256").update('{"profile":{"active":true,"role":"synthetic"}}').digest("hex");
+      node.textContent = '{"profile":{"role":"synthetic","active":true}}';
+      expect(await matchesExpectedJsonDigest(node, digest)).toBe(true);
+      for (const value of [
+        '{"profile":{"role":"synthetic","active":true,"privateSibling":"excluded"}}',
+        '{"profile":{"role":"synthetic extra","active":true}}',
+        '{"profile":{"role":"synthetic","active":"true"}}',
+        "malformed",
+      ]) {
+        node.textContent = value;
+        expect(await matchesExpectedJsonDigest(node, digest)).toBe(false);
+      }
+      expect(await matchesExpectedJsonDigest(node, "invalid")).toBe(false);
+    } finally { vi.unstubAllGlobals(); }
   });
   it("pins one confirmed draft across concurrent submissions and retries", () => {
     const admit = createDraftAdmission(expected);
