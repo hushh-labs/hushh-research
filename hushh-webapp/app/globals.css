@@ -1209,13 +1209,17 @@ textarea {
   }
 }
 
+/* Matte dark (founder direction, 2026-09-22): the canvas sits just off pure
+ * black and every surface steps up from it, so cards separate by tone rather
+ * than by a hairline on an OLED void. Canvas #0e0e10, cards #17171a,
+ * secondary #1e1e22, elevated/muted #222226. */
 .dark {
-  --app-screen-background: #000000;
-  --app-grouped-background: #000000;
+  --app-screen-background: #0e0e10;
+  --app-grouped-background: #0e0e10;
   --one-launcher-background: var(--background);
-  --app-primary-surface: #0a0a0c;
-  --app-secondary-surface: #121215;
-  --app-elevated-surface: #141418;
+  --app-primary-surface: #17171a;
+  --app-secondary-surface: #1e1e22;
+  --app-elevated-surface: #222226;
   --app-label: #f5f5f7;
   --app-secondary-label: rgba(235, 235, 245, 0.72);
   --app-section-label: rgba(235, 235, 245, 0.72);
@@ -1281,12 +1285,12 @@ textarea {
   --app-people-fg: #ffffff;
 
   --app-focus-ring: rgba(10, 132, 255, 0.3);
-  --app-glass-surface: rgba(10, 10, 13, 0.88);
+  --app-glass-surface: rgba(24, 24, 28, 0.9);
   --app-glass-border: rgba(84, 84, 88, 0.65);
   --app-glass-shadow: 0 12px 32px -24px rgba(0, 0, 0, 0.85);
   /* Dark Profile aliases — same rule as the light block above. */
-  --ios-account-screen-background: var(--background, #000000);
-  --ios-account-card-background: var(--app-card-surface-default-solid, #0a0a0c);
+  --ios-account-screen-background: var(--background, #0e0e10);
+  --ios-account-card-background: var(--app-card-surface-default-solid, #17171a);
   --ios-account-label: var(--foreground, #ffffff);
   --ios-account-secondary-label: var(--muted-foreground, #98989d);
   --ios-account-tertiary-label: #636366;
@@ -1305,7 +1309,7 @@ textarea {
   --ios-account-accent: var(--app-accent, #0a84ff);
   --ios-account-destructive: var(--app-destructive, #ff453a);
   --ios-account-on-accent: #ffffff;
-  --ios-account-nav-material-background: rgba(10, 10, 13, 0.9);
+  --ios-account-nav-material-background: rgba(24, 24, 28, 0.9);
   --ios-account-nav-material-border: rgba(84, 84, 88, 0.65);
 }
 
@@ -3993,17 +3997,17 @@ body:has([data-testid="one-location-onboarding"])
   --app-accent-hero-mid: #007aff;
   --app-accent-hero-to: #4a9eff;
 
-  --background: #000000;
+  --background: #0e0e10;
   --foreground: #f5f5f7;
-  --card: #0a0a0c;
+  --card: #17171a;
   --card-foreground: #f5f5f7;
-  --popover: #0a0a0c;
+  --popover: #17171a;
   --popover-foreground: #f5f5f7;
   --primary: #f5f5f7;
   --primary-foreground: #000000;
-  --secondary: #141418;
+  --secondary: #222226;
   --secondary-foreground: #f5f5f7;
-  --muted: #141418;
+  --muted: #222226;
   --muted-foreground: rgba(235, 235, 245, 0.72);
   --accent: var(--app-accent);
   --accent-foreground: var(--app-accent-fg);

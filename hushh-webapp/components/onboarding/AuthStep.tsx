@@ -994,7 +994,7 @@ export function AuthStep({
 
   return (
     <main
-      className={cn("relative w-full overflow-hidden bg-white dark:bg-[#000000]", lightStyles.shell)}
+      className={cn("relative w-full overflow-hidden bg-white dark:bg-background", lightStyles.shell)}
       style={{
         height: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
         minHeight: "calc(100svh - var(--app-scroll-bottom-pad, 0px))",
