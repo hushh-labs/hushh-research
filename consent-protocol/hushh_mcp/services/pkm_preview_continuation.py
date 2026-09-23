@@ -92,8 +92,12 @@ class PreviewContinuation:
 
     def checkpoint(self, *, message: str, response: dict, trace: list[dict]) -> dict | None:
         recorded = set(self.records)
+        intent_pending = recorded == {
+            "agent_memory_segmentation",
+            "agent_financial_guard",
+        }
         merge_pending = recorded == PREFIX_AGENTS - {"agent_memory_merge"}
-        if not merge_pending and recorded != PREFIX_AGENTS:
+        if not intent_pending and not merge_pending and recorded != PREFIX_AGENTS:
             return None
         segmentation = self.records["agent_memory_segmentation"]["value"]
         segments = segmentation.get("segments")
@@ -109,6 +113,31 @@ class PreviewContinuation:
             "routing_decision"
         ):
             return None
+        if intent_pending:
+            # A timed-out intent has no validated meaning to retain. Reuse only
+            # the exact segmentation and guard; ask intent and every later
+            # agent again with a fresh preview budget on the next bound retry.
+            errors = str(response.get("error") or "").split("; ")
+            if (
+                response.get("used_fallback") is not True
+                or response.get("intent_used_fallback") is not True
+                or "memory_intent_agent_fallback" not in errors
+                or any(
+                    error in errors
+                    for error in (
+                        "memory_segmentation_agent_fallback",
+                        "financial_guard_agent_fallback",
+                    )
+                )
+                or len(response.get("preview_cards") or []) != 1
+                or not any(
+                    row.get("agent_id") == "agent_memory_intent"
+                    and row.get("status") in {"timeout", "budget_exhausted"}
+                    for row in trace
+                )
+            ):
+                return None
+            return deepcopy(self.records)
         # Schema-valid empty fields can still inherit fallback meaning during
         # normalization. Do not retain those as successful model decisions.
         intent = self.records["agent_memory_intent"]["value"]
