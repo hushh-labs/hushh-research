@@ -1,18 +1,16 @@
-"""One bounded operational sweep for the opt-in Drive-sharing workflow.
+"""One bounded, fixed-stage sweep for the opt-in Drive-sharing workflow.
 
-The work is deliberately sequenced rather than run as an in-process background
-task: document indexing can make a source available to suggestions, suggestions
-can produce a review, permission work can settle a prior approval, and the
-metadata-only outbox can notify a participant of any durable event.  Every
-individual worker remains the authority for its own leases and rollout checks.
-This coordinator only gives an authenticated scheduler a small, finite sweep.
+Separate scheduler jobs invoke document, suggestion, and sharing stages. Only
+the selected stage runs in a request; the sharing stage sequences permission
+work before notification. Each worker remains the authority for its own leases
+and rollout checks. This coordinator only gives an authenticated scheduler a
+small, finite sweep.
 """
 
 from __future__ import annotations
 
 import asyncio
 from collections.abc import Mapping
-from datetime import UTC, datetime
 from typing import Any
 
 from hushh_mcp.services.drive_document_worker import DriveDocumentWorker
@@ -20,8 +18,12 @@ from hushh_mcp.services.drive_permission_worker import DrivePermissionWorker
 from hushh_mcp.services.drive_share_notification_worker import DriveShareNotificationWorker
 from hushh_mcp.services.drive_suggestion_worker import DriveSuggestionWorker
 
-MAX_JOBS_PER_WORKER = 4
-MAX_HEAVY_JOBS_PER_SWEEP = 2
+MAX_JOBS_PER_WORKER = 1
+STAGE_WORKERS = {
+    "documents": frozenset({"documents"}),
+    "suggestions": frozenset({"suggestions"}),
+    "sharing": frozenset({"permissions", "notifications"}),
+}
 STAGE_MAX_SECONDS = {
     "documents": 180,
     "suggestions": 175,
@@ -94,15 +96,6 @@ _WORKER_ALLOWED_OUTCOMES = {
 }
 
 
-def _sweep_phase(now: datetime | None = None) -> int:
-    """Give each stage a turn across the existing two-minute scheduler ticks.
-
-    A continuous document backlog must not prevent suggestions or grants from
-    ever running. A fast earlier stage may still let later work run in its tick.
-    """
-    return int((now or datetime.now(UTC)).timestamp() // 120) % 3
-
-
 def _safe_outcomes(name: str, result: object) -> dict[str, int]:
     """Return only bounded aggregate status counts at the HTTP boundary."""
     if not isinstance(result, Mapping):
@@ -150,8 +143,8 @@ class DriveWorkDrain:
         permission_worker: DrivePermissionWorker | None = None,
         notification_worker: DriveShareNotificationWorker | None = None,
     ) -> None:
-        # Dependency order is intentional. Do not parallelize a single sweep:
-        # later stages are allowed to observe durable outcomes of earlier ones.
+        # Sharing permissions precede notifications in the same stage. Other
+        # stages run on their own fixed scheduler jobs, never in this request.
         self._workers = (
             ("documents", document_worker or DriveDocumentWorker()),
             ("suggestions", suggestion_worker or DriveSuggestionWorker()),
@@ -162,24 +155,24 @@ class DriveWorkDrain:
     async def run(
         self,
         *,
+        stage: str = "documents",
         max_jobs_per_worker: int = MAX_JOBS_PER_WORKER,
         deadline_seconds: int = 205,
     ) -> dict[str, Any]:
         if (
-            type(max_jobs_per_worker) is not int
-            or not 1 <= max_jobs_per_worker <= MAX_JOBS_PER_WORKER
+            type(stage) is not str
+            or stage not in STAGE_WORKERS
+            or type(max_jobs_per_worker) is not int
+            or max_jobs_per_worker != MAX_JOBS_PER_WORKER
             or type(deadline_seconds) is not int
             or not 20 <= deadline_seconds <= 205
         ):
             raise ValueError("invalid Drive work drain bounds")
 
         deadline = self._now() + deadline_seconds
-        phase = _sweep_phase()
         summaries: dict[str, dict[str, int]] = {}
         for name, worker in self._workers:
-            if (phase == 1 and name == "documents") or (
-                phase == 2 and name in {"documents", "suggestions"}
-            ):
+            if name not in STAGE_WORKERS[stage]:
                 summaries[name] = {"deferred": 1}
                 continue
             remaining = deadline - self._now()
@@ -190,11 +183,7 @@ class DriveWorkDrain:
             try:
                 async with asyncio.timeout(budget):
                     result = await worker.run(
-                        max_jobs=(
-                            min(max_jobs_per_worker, MAX_HEAVY_JOBS_PER_SWEEP)
-                            if name in {"documents", "suggestions"}
-                            else max_jobs_per_worker
-                        ),
+                        max_jobs=max_jobs_per_worker,
                         deadline_seconds=budget,
                     )
             except TimeoutError:

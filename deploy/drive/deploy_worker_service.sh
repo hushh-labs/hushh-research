@@ -7,7 +7,7 @@ set -euo pipefail
 readonly PROJECT_ID="hushh-pda-uat"
 readonly REGION="us-central1"
 readonly SERVICE="consent-protocol-drive-worker"
-readonly SCHEDULER_JOB="drive-work-drain-uat"
+readonly SCHEDULER_STATE_HELPER="deploy/drive/work_drain_scheduler_snapshot.py"
 readonly SCHEDULER_AUDIENCE="https://api.uat.hushh.ai"
 readonly SCHEDULER_ID="drive-work-drain-sched@hushh-pda-uat.iam.gserviceaccount.com"
 readonly CLAMAV_IMAGE="clamav/clamav@sha256:0e31ce089574268aefa0b543767d66b70240ab51ed49eec53e07f18d5629d817"
@@ -74,40 +74,44 @@ if [[ "${service_exists}" == true ]]; then
       ;;
   esac
 fi
-previous_scheduler_uri="$(gcloud scheduler jobs describe "${SCHEDULER_JOB}" \
-  --project="${PROJECT_ID}" --location="${REGION}" \
-  --format='value(httpTarget.uri)' 2>/dev/null || true)"
-previous_scheduler_audience="$(gcloud scheduler jobs describe "${SCHEDULER_JOB}" \
-  --project="${PROJECT_ID}" --location="${REGION}" \
-  --format='value(httpTarget.oidcToken.audience)' 2>/dev/null || true)"
-if [[ "${previous_scheduler_uri}" != https://*/api/internal/drive-work/drain \
-  || "${previous_scheduler_audience}" != https://* ]]; then
-  echo "Existing Drive scheduler target is missing or malformed" >&2
+prior_worker_url=""
+if [[ "${service_exists}" == true ]]; then
+  prior_worker_url="$(gcloud run services describe "${SERVICE}" \
+    --project="${PROJECT_ID}" --region="${REGION}" \
+    --format='value(status.url)')"
+fi
+scheduler_snapshot="$(mktemp)"
+capture_args=(capture --snapshot "${scheduler_snapshot}")
+if [[ -n "${prior_worker_url}" ]]; then
+  capture_args+=(--worker-origin "${prior_worker_url}")
+fi
+if ! python3 "${SCHEDULER_STATE_HELPER}" "${capture_args[@]}"; then
+  rm -f "${scheduler_snapshot}"
+  echo "Drive scheduler pre-release state is unavailable; refusing worker release" >&2
   exit 1
 fi
 promoted=false
 retargeted=false
+worker_url=""
 rollback() {
   local status="$?"
   local restore_failed=0
-  local actual_uri actual_audience actual_revision
+  local actual_revision
   trap - EXIT
   # A second cancellation must not interrupt scheduler/traffic restoration.
   trap '' INT TERM
   if [[ "${retargeted}" == true ]]; then
-    BACKEND_URL="${previous_scheduler_uri%/api/internal/drive-work/drain}" \
-      OIDC_AUDIENCE="${previous_scheduler_audience}" \
-      bash deploy/drive/setup_work_drain_scheduler.sh >&2 || restore_failed=1
-    actual_uri="$(gcloud scheduler jobs describe "${SCHEDULER_JOB}" \
-      --project="${PROJECT_ID}" --location="${REGION}" \
-      --format='value(httpTarget.uri)' 2>/dev/null)" || restore_failed=1
-    actual_audience="$(gcloud scheduler jobs describe "${SCHEDULER_JOB}" \
-      --project="${PROJECT_ID}" --location="${REGION}" \
-      --format='value(httpTarget.oidcToken.audience)' 2>/dev/null)" || restore_failed=1
-    if [[ "${actual_uri}" != "${previous_scheduler_uri}" \
-      || "${actual_audience}" != "${previous_scheduler_audience}" ]]; then
-      echo "Drive scheduler restoration could not be verified" >&2
+    if ! python3 "${SCHEDULER_STATE_HELPER}" restore \
+      --snapshot "${scheduler_snapshot}" --worker-origin "${worker_url}" >&2; then
       restore_failed=1
+      echo "Drive scheduler restoration could not be verified" >&2
+      # A failed restore can leave one or more jobs pointed at a new worker.
+      # Disable those fixed jobs and revoke only this worker invoker grant.
+      python3 "${SCHEDULER_STATE_HELPER}" quarantine >&2 || restore_failed=1
+      gcloud run services remove-iam-policy-binding "${SERVICE}" \
+        --project="${PROJECT_ID}" --region="${REGION}" \
+        --member="serviceAccount:${SCHEDULER_ID}" \
+        --role=roles/run.invoker --quiet >/dev/null 2>&1 || restore_failed=1
     fi
   fi
   if [[ "${promoted}" == true && -n "${previous_revision}" ]]; then
@@ -129,6 +133,7 @@ rollback() {
   if [[ "${restore_failed}" != 0 ]]; then
     echo "CRITICAL: Drive worker rollback is incomplete; investigate scheduler and traffic before enabling connectors" >&2
   fi
+  rm -f "${scheduler_snapshot}"
   echo "Drive worker candidate failed; connector execution must remain disabled" >&2
   exit "${status}"
 }
@@ -200,27 +205,40 @@ if [[ "${worker_url}" != https://*.run.app ]]; then
   false
 fi
 retargeted=true
-BACKEND_URL="${worker_url}" OIDC_AUDIENCE="${SCHEDULER_AUDIENCE}" \
-  bash deploy/drive/setup_work_drain_scheduler.sh
-
-triggered_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-gcloud scheduler jobs run "${SCHEDULER_JOB}" \
-  --project="${PROJECT_ID}" --location="${REGION}" --quiet
-verified=false
-for _attempt in $(seq 1 12); do
-  if gcloud logging read \
-    "resource.type=cloud_scheduler_job AND resource.labels.job_id=${SCHEDULER_JOB} AND timestamp>=${triggered_at}" \
-    --project="${PROJECT_ID}" --freshness=10m --limit=20 --format=json \
-    | python3 -c 'import json,sys; rows=json.load(sys.stdin); sys.exit(0 if any("URL_CRAWLED. Original HTTP response code number = 200" in json.dumps(row) for row in rows) else 1)'
-  then
-    verified=true
-    break
-  fi
-  sleep 5
+for fixed_job in drive-work-drain-uat drive-work-suggestions-uat drive-work-sharing-uat; do
+  case "${fixed_job}" in
+    drive-work-drain-uat) fixed_stage=documents; fixed_cron='*/4 * * * *' ;;
+    drive-work-suggestions-uat) fixed_stage=suggestions; fixed_cron='2-59/4 * * * *' ;;
+    drive-work-sharing-uat) fixed_stage=sharing; fixed_cron='* * * * *' ;;
+  esac
+  JOB_NAME="${fixed_job}" STAGE="${fixed_stage}" CRON="${fixed_cron}" \
+    BACKEND_URL="${worker_url}" OIDC_AUDIENCE="${SCHEDULER_AUDIENCE}" \
+    bash deploy/drive/setup_work_drain_scheduler.sh
 done
-if [[ "${verified}" != true ]]; then
-  echo "Drive scheduler produced no fresh 200 completion" >&2
-  false
-fi
+
+for fixed_job in drive-work-drain-uat drive-work-suggestions-uat drive-work-sharing-uat; do
+  triggered_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+  gcloud scheduler jobs run "${fixed_job}" \
+    --project="${PROJECT_ID}" --location="${REGION}" --quiet
+  verified=false
+  # Scheduler and Cloud Run each allow a 240-second attempt; wait through the
+  # full bounded execution plus log-delivery margin before declaring failure.
+  for _attempt in $(seq 1 55); do
+    if gcloud logging read \
+      "resource.type=cloud_scheduler_job AND resource.labels.job_id=${fixed_job} AND timestamp>=${triggered_at}" \
+      --project="${PROJECT_ID}" --freshness=10m --limit=20 --format=json \
+      | python3 -c 'import json,sys; rows=json.load(sys.stdin); sys.exit(0 if any("URL_CRAWLED. Original HTTP response code number = 200" in json.dumps(row) for row in rows) else 1)'
+    then
+      verified=true
+      break
+    fi
+    sleep 5
+  done
+  if [[ "${verified}" != true ]]; then
+    echo "Drive scheduler ${fixed_job} produced no fresh 200 completion" >&2
+    false
+  fi
+done
 trap - EXIT INT TERM
-echo "Verified private Drive worker ${candidate_revision} at ${worker_url}, SHA ${DEPLOY_SHA}; scheduler returned 200"
+rm -f "${scheduler_snapshot}"
+echo "Verified private Drive worker ${candidate_revision} at ${worker_url}, SHA ${DEPLOY_SHA}; all three schedulers returned 200"

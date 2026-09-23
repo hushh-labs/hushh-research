@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 import re
 from typing import Any, cast
@@ -34,8 +35,10 @@ _UAT_SCHEDULER_AUDIENCES = frozenset(
         "https://consent-protocol-f2gsa4kfsq-uc.a.run.app",
     }
 )
-_MAX_JOBS_PER_WORKER = 4
+_MAX_JOBS_PER_WORKER = 1
 _DRAIN_DEADLINE_SECONDS = 205
+_DRAIN_STAGES = frozenset({"documents", "suggestions", "sharing"})
+_MAX_DRAIN_BODY_BYTES = 64
 
 
 def _drain_enabled() -> bool:
@@ -160,14 +163,40 @@ async def _require_scheduler_oidc(request: Request) -> None:
 
 @router.post("/drain")
 async def drain_drive_work(
+    request: Request,
     response: Response,
     _authorized: None = Depends(_require_scheduler_oidc),
 ) -> dict[str, Any]:
-    """Purge expired authorization material, then run one small Drive sweep."""
+    """Run only the fixed stage named by the authenticated scheduler job."""
     response.headers.update(NO_STORE)
+    raw = bytearray()
+    async for chunk in request.stream():
+        raw.extend(chunk)
+        if len(raw) > _MAX_DRAIN_BODY_BYTES:
+            break
+    try:
+        payload = json.loads(raw)
+        # The previous scheduler sends {}. Keep that one legacy shape mapped
+        # to documents, so rollback to its exact prior target remains safe.
+        stage = "documents" if payload == {} else payload["stage"]
+        if (
+            not isinstance(payload, dict)
+            or (payload and set(payload) != {"stage"})
+            or type(stage) is not str
+            or stage not in _DRAIN_STAGES
+            or len(raw) > _MAX_DRAIN_BODY_BYTES
+        ):
+            raise ValueError("invalid stage")
+    except (ValueError, KeyError, TypeError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"code": "DRIVE_WORK_DRAIN_INVALID_STAGE", "message": "Invalid work stage."},
+            headers=NO_STORE,
+        ) from None
     try:
         retention = safe_retention_result(await ConnectorAttemptRetention().purge_batch())
         result = await DriveWorkDrain().run(
+            stage=stage,
             max_jobs_per_worker=_MAX_JOBS_PER_WORKER,
             deadline_seconds=_DRAIN_DEADLINE_SECONDS,
         )

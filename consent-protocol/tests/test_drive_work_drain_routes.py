@@ -48,7 +48,7 @@ def test_route_is_default_off_and_never_attempts_oidc_when_disabled(client, monk
     verifier = Mock()
     monkeypatch.setattr(routes, "_verify_drive_work_drain_oidc_token", verifier)
 
-    response = client.post(PATH, headers=_authorized_headers())
+    response = client.post(PATH, headers=_authorized_headers(), json={})
 
     assert response.status_code == 404
     assert response.json()["detail"]["code"] == "DRIVE_WORK_DRAIN_DISABLED"
@@ -169,7 +169,7 @@ def test_route_runs_fixed_bounded_coordinator_and_returns_only_aggregate_status(
             return run(**kwargs)
 
     monkeypatch.setattr(routes, "DriveWorkDrain", Drain)
-    response = client.post(PATH, headers=_authorized_headers())
+    response = client.post(PATH, headers=_authorized_headers(), json={})
 
     assert response.status_code == 200
     assert response.json() == {
@@ -193,7 +193,69 @@ def test_route_runs_fixed_bounded_coordinator_and_returns_only_aggregate_status(
     assert "private_request_id" not in response.text
     assert "must-not-leak" not in response.text
     purge.assert_awaited_once_with()
-    run.assert_awaited_once_with(max_jobs_per_worker=4, deadline_seconds=205)
+    run.assert_awaited_once_with(stage="documents", max_jobs_per_worker=1, deadline_seconds=205)
+
+
+@pytest.mark.parametrize("stage", ["documents", "suggestions", "sharing"])
+def test_route_accepts_only_fixed_authorized_stages(client, monkeypatch, stage):
+    monkeypatch.setattr(routes, "_verify_drive_work_drain_oidc_token", lambda *_: _claims())
+    monkeypatch.setattr(
+        routes,
+        "ConnectorAttemptRetention",
+        lambda: type(
+            "Retention",
+            (),
+            {
+                "purge_batch": AsyncMock(
+                    return_value={
+                        "oauth_scrubbed": 0,
+                        "native_picker_scrubbed": 0,
+                        "oauth_deleted": 0,
+                        "native_picker_deleted": 0,
+                        "picker_sessions_deleted": 0,
+                    }
+                )
+            },
+        )(),
+    )
+    run = AsyncMock(return_value={"workers": {}})
+    monkeypatch.setattr(routes, "DriveWorkDrain", lambda: type("Drain", (), {"run": run})())
+
+    response = client.post(PATH, headers=_authorized_headers(), json={"stage": stage})
+
+    assert response.status_code == 200
+    run.assert_awaited_once_with(stage=stage, max_jobs_per_worker=1, deadline_seconds=205)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"stage": "all"},
+        {"stage": "sharing", "limit": 100},
+        {"stage": 1},
+        {"stage": True},
+        [],
+        "documents",
+        {"stage": "documents", "padding": "x" * 100},
+    ],
+)
+def test_route_rejects_unknown_or_amplifying_stage_body_before_work(client, monkeypatch, payload):
+    monkeypatch.setattr(routes, "_verify_drive_work_drain_oidc_token", lambda *_: _claims())
+    purge = AsyncMock()
+    run = AsyncMock()
+    monkeypatch.setattr(
+        routes,
+        "ConnectorAttemptRetention",
+        lambda: type("Retention", (), {"purge_batch": purge})(),
+    )
+    monkeypatch.setattr(routes, "DriveWorkDrain", lambda: type("Drain", (), {"run": run})())
+
+    response = client.post(PATH, headers=_authorized_headers(), json=payload)
+
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "DRIVE_WORK_DRAIN_INVALID_STAGE"
+    purge.assert_not_awaited()
+    run.assert_not_awaited()
 
 
 def test_retention_failure_fails_closed_before_provider_work(client, monkeypatch):
@@ -211,7 +273,7 @@ def test_retention_failure_fails_closed_before_provider_work(client, monkeypatch
     monkeypatch.setattr(routes, "ConnectorAttemptRetention", Retention)
     monkeypatch.setattr(routes, "DriveWorkDrain", Drain)
 
-    response = client.post(PATH, headers=_authorized_headers())
+    response = client.post(PATH, headers=_authorized_headers(), json={})
 
     assert response.status_code == 503
     assert response.json()["detail"]["code"] == "DRIVE_WORK_DRAIN_UNAVAILABLE"

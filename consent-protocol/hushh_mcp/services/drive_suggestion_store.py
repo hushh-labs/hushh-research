@@ -119,7 +119,6 @@ class DriveSuggestionStore(DriveSharingProjectionStore):
                     SELECT 1 FROM connected_documents
                     WHERE user_id=:user AND connection_generation=:generation
                       AND processing_enabled AND processing_disclosure_version=:disclosure
-                      AND active_version IS NULL
                       AND status IN ('queued','fetching','parsing','indexing','failed_retryable','stale')
                     LIMIT 1
                     """),
