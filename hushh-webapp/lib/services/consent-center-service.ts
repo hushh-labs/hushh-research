@@ -14,12 +14,7 @@ export type ConsentCenterActor = "investor" | "ria";
 type ConsentCenterCacheActor = ConsentCenterActor | "one";
 export type ConsentCenterMode = "consents" | "connections";
 export type ConsentCenterView =
-  | "incoming"
-  | "outgoing"
-  | "active"
-  | "history"
-  | "invites"
-  | "developer";
+  "incoming" | "outgoing" | "active" | "history" | "invites" | "developer";
 
 export interface ConsentCenterEntry {
   id: string;
@@ -46,6 +41,15 @@ export interface ConsentCenterEntry {
   counterpart_image_url?: string | null;
   counterpart_website_url?: string | null;
   request_id?: string | null;
+  /** Owner-scoped presentation group; decisions still use each item's entry. */
+  bundle_id?: string | null;
+  bundle_complete?: boolean;
+  bundle_items?: Array<{
+    request_id: string;
+    label: string;
+    status: string;
+    entry?: ConsentCenterEntry | null;
+  }>;
   chain_key?: string | null;
   chain_request_count?: number | null;
   chain_request_ids?: string[] | null;
@@ -547,7 +551,9 @@ export class ConsentCenterService {
         .catch(() => ({}))) as ConsentCenterPageSummary & ErrorPayload;
       if (!response.ok) {
         throw new Error(
-          payload.detail || payload.error || `Request failed: ${response.status}`,
+          payload.detail ||
+            payload.error ||
+            `Request failed: ${response.status}`,
         );
       }
       cache.set(cacheKey, payload, CACHE_TTL.MEDIUM);
@@ -565,10 +571,11 @@ export class ConsentCenterService {
     // known summary instantly instead of blocking on a cold backend call.
     // The fresh fetch then runs in the background to update both tiers.
     if (!options.force) {
-      const stored = await DeviceResourceCacheService.read<ConsentCenterPageSummary>({
-        userId: options.userId,
-        resourceKey: deviceResourceKey,
-      });
+      const stored =
+        await DeviceResourceCacheService.read<ConsentCenterPageSummary>({
+          userId: options.userId,
+          resourceKey: deviceResourceKey,
+        });
       if (stored) {
         cache.set(cacheKey, stored, CACHE_TTL.MEDIUM);
         void this.refreshSummaryInBackground(cacheKey, fetchFresh);

@@ -180,6 +180,31 @@ from attempting its legacy issuance before returning the incompatible response.
 | DELETE | `/api/notifications/unregister`                       | Unregister FCM tokens (logout)                                                                                                                                  |
 | POST   | `/api/kai/consent/grant`                              | Grant consent for Kai scopes                                                                                                                                    |
 
+### One Person Request History
+
+`GET /api/one/people/{person_ref}/request-history` requires the authenticated
+Firebase user. It reads only bundles that user requested from the active person
+profile named by `person_ref`; the profile URL alone grants no access. A self
+profile or missing/inactive profile returns `404`. Responses are
+`private, no-store`.
+
+Query parameters: `limit` defaults to 20 and must be 1–50; `cursor` is an opaque
+continuation value from `nextCursor`. Invalid or cross-person cursors return
+`400`; out-of-range limits return `422`. Results order by bundle creation time
+descending, then bundle UUID descending, so tied timestamps remain stable.
+Each response has `bundles` and `nextCursor` (`null` at the end). A bundle has
+`bundleId`, `purpose`, `durationSeconds`, `createdAt`, `cancelled`, and
+`itemCount`. The count covers all stored items in that bundle, including bundles
+with more than 100 items. This is request correlation metadata, not consent or
+grant authority; individual grant status remains governed by the consent ledger.
+Concurrent inserts can appear ahead of an existing cursor and require a fresh
+first-page read to see them. The existing `GET /api/one/people/{person_ref}`
+`requestHistory` field remains unchanged for current callers.
+Active `grants` in that viewer profile include a viewer/subject-bound `bundleId`
+when the grant belongs to a person request. Clients use it to fetch current
+bundle status and encrypted exports even after the recent `requestHistory`
+projection is truncated; it is a locator, not decryption authority.
+
 ### One Runtime Configuration
 
 | Method | Path                               | Auth            | Description                                                                                                                                                                                                                                                                                                               |
@@ -322,10 +347,57 @@ or failure and become unusable after ten minutes; a subsequent Calendar mutation
 purges expired plans. Event data is not persisted as PKM or a Calendar cache in
 this first release.
 
+The shared Google credential boundary verifies provider subject before refresh
+reuse, rejects account replacement while connected, and requires fresh credentials
+after disconnection. Cached tokens and grants are read in one snapshot; refresh
+writes compare original credentials. Starts and disconnects serialize per owner;
+callback publication verifies the start-bound generation and atomically stores
+credentials, permission and terminal attempt expiry. Native starts also return
+an opaque `state`, which completion must echo. It remains memory-only on the
+client; missing/legacy state requires restarting the connection, with no unfenced
+fallback. Deploy matching native/web assets with the backend. Real provider
+revocation/reauthorization ordering is not proven by local transaction tests.
+The internal Drive MCP adapter admits an explicit read-only tool set through
+that same credential owner. Drive connection-management routes exist, but do not
+expose private file reads, agent dispatch or onward sharing. Their browser/native
+UI caller is present; authenticated end-to-end acceptance remains separate work.
+The shared callback returns `service` from the consumed server-side attempt.
+The frontend callback uses it to route Calendar/setup or Drive/connections, checks
+popup service identity, and keeps a single in-memory completion promise across
+Strict Mode effects. Owner-generation and lifecycle checks reach the transport's
+final dispatch guard. Timeout reports an uncertain outcome; it no longer infers
+success from an already-connected Calendar grant. Unknown services and provider
+errors produce fixed safe recovery messages. Calendar's completion endpoint
+remains a compatibility facade over the same owner.
+
+The existing `HushhAuth` native bridge declares `connectDrive({serverClientId})`
+on iOS/Android and a native-only rejection on web. Native SDK requests add only
+`drive.readonly`, return a single-use server code and do not replace Firebase
+identity. The sidebar caller retains the exact backend-issued attempt state,
+checks owner/vault/lifecycle authority at dispatch, and uses the same service
+transport on web and native. Browser completion requires the matching popup
+acknowledgement followed by current connected status; closing the popup cancels
+pending initiation, never infers success. Status stays in the shared memory cache,
+partitioned by owner generation, vault epoch and connection mutation revision.
+Lifecycle-bound pending reads are not joined by a newly mounted sidebar.
+Disconnect requires confirmation; failures show authored recovery messages, not
+provider exception text. The reserved `google_drive` row uses this Google grant
+owner rather than a second generic OAuth flow. Real provider/device acceptance
+remains open; a static export or native compile is not sign-in proof.
+
 | Method | Path                                  | Authorization      | Description                                                                                                         |
 | ------ | ------------------------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| POST | `/api/one/google/connect/complete` | Firebase Bearer | Complete the owner-bound Google attempt; return connection status and authoritative service. No caller-supplied service is accepted. |
+| POST | `/api/one/drive/connect/start` | Firebase Bearer | Start read-only Drive authorization using the existing configured Google callback and PKCE. |
+| POST | `/api/one/drive/connect/complete` | Firebase Bearer | Complete only a Drive attempt; wrong-service attempts are consumed and rejected before provider exchange. |
+| POST | `/api/one/drive/connect/native/start` | Firebase Bearer | Create an owner-bound read-only Drive attempt and return public client settings plus opaque state. |
+| POST | `/api/one/drive/connect/native/complete` | Firebase Bearer | Exchange a native Drive code only with its owner-bound state; broader permissions are rejected. |
+| GET | `/api/one/drive/status/{user_id}` | Firebase Bearer | Read only the authenticated owner's connection status, never files. |
+| POST | `/api/one/drive/disconnect` | Firebase Bearer | Disable Drive locally without disabling sibling Google service grants. |
 | POST   | `/api/one/calendar/connect/start`     | Firebase Bearer    | Start incremental Google Calendar read or manage authorization; returns only an OAuth authorization URL and expiry. |
 | POST   | `/api/one/calendar/connect/complete`  | Firebase Bearer    | Redeem a one-time, PKCE-bound OAuth callback and persist the encrypted provider credential and Calendar grant.      |
+| POST   | `/api/one/calendar/connect/native/start` | Firebase Bearer | Create an owner-bound, generation-fenced native attempt; return public client settings and opaque state. |
+| POST   | `/api/one/calendar/connect/native/complete` | Firebase Bearer | Exchange the native code only with the matching state, owner, service and permission; missing state is rejected. |
 | GET    | `/api/one/calendar/status/{user_id}`  | Firebase Bearer    | Return non-sensitive Calendar connection and permission state.                                                      |
 | POST   | `/api/one/calendar/disconnect`        | Firebase Bearer    | Disable Calendar locally and delete pending actions without revoking sibling Google services.                       |
 | POST   | `/api/one/calendar/events`            | VAULT_OWNER Bearer | Read bounded primary-calendar events in a supplied ISO-8601 time range.                                             |
@@ -568,6 +640,18 @@ RIA relationship bundle note:
 | GET    | `/api/pkm/scopes/{user_id}`                                              | Get available PKM scope handles for the user                                                                                                          |
 | POST   | `/api/pkm/get-context`                                                   | Get user context for analysis                                                                                                                         |
 
+Memory proposal retries remain explicit, independently vault-owner-authorized
+requests. For an exact single-segment proposal whose final structure stage timed
+out, the existing bounded, process-memory preview cache can retain schema-valid
+earlier stage outputs that survived normalization without substituted semantic
+fields. Reuse is bound to owner, credential digest, complete request context,
+effective model/contracts and runtime policy. The failed stage runs fresh within
+the unchanged request budget; current sharing impact is always recalculated.
+Repeated failures do not extend the original cache expiry. Internal continuation
+records are not returned to clients or persisted; sanitized stage telemetry marks
+reuse separately from a new model invocation. This is preparation only, never
+write or sharing authorization.
+
 #### Connected Systems
 
 Connected Systems are registry-driven. Safe registry listing is signed-in;
@@ -741,6 +825,17 @@ Operational note:
 
 - webhook URLs are supplied to Plaid during Link token creation via backend configuration, not dashboard allowlisting
 - if `PLAID_WEBHOOK_URL` changes after Items exist, existing Items need a one-time `/item/webhook/update` maintenance pass
+
+#### Kai Plaid Vault Passthrough (zero-knowledge)
+
+Stateless Plaid calls on behalf of the owner's device. The access token is returned to the device and sealed in the owner's vault; the server stores nothing, registers no webhook, and logs no bodies. All routes require `VAULT_OWNER` and answer `Cache-Control: no-store`. Contract: [../kai/plaid-vault-passthrough.md](../kai/plaid-vault-passthrough.md).
+
+| Method | Path                                | Description                                                                                  |
+| ------ | ----------------------------------- | -------------------------------------------------------------------------------------------- |
+| POST   | `/api/kai/plaid/vault/link-token`   | Create a Link token (no webhook, opaque `client_user_id`, platform-aware redirect)           |
+| POST   | `/api/kai/plaid/vault/exchange`     | Exchange `public_token` and return the access token plus Item and institution metadata       |
+| POST   | `/api/kai/plaid/vault/snapshot`     | Fetch accounts, holdings, and a cursor-based transactions sync; re-link needs return 200     |
+| POST   | `/api/kai/plaid/vault/remove`       | Revoke the Item at Plaid (idempotent)                                                        |
 
 #### Kai Support Messaging
 

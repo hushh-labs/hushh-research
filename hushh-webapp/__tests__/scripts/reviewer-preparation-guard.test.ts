@@ -47,6 +47,50 @@ describe("reviewer preparation-only authority", () => {
   });
   beforeEach(() => vi.stubEnv("REVIEWER_ALLOW_SHARED_MUTATIONS", "false"));
   afterEach(() => vi.unstubAllEnvs());
+  it.each([
+    ["http://localhost:3001/api/one/information-requests", true, true],
+    ["http://localhost:3001/api/pkm/store-domain", false, false],
+    ["https://elsewhere.example/api/one/information-requests", true, false],
+  ])("keeps an explicit mutation run bounded before navigation (%s)", async (url, admitted, allowed) => {
+    vi.stubEnv("REVIEWER_ALLOW_SHARED_MUTATIONS", "true");
+    let handler!: (route: unknown) => Promise<void>;
+    const admitMutation = vi.fn(() => admitted);
+    const guard = await installReadOnlyMutationGuard({ route: vi.fn(async (_glob, callback) => { handler = callback; }) }, {
+      appOrigin: "http://localhost:3001", admitMutation,
+    });
+    const route = { request: () => ({ url: () => url, method: () => "POST" }), continue: vi.fn(), fulfill: vi.fn() };
+    await handler(route);
+    expect(guard.policy).toBe("bounded_mutation");
+    expect(route.continue).toHaveBeenCalledTimes(allowed ? 1 : 0);
+    expect(route.fulfill).toHaveBeenCalledTimes(allowed ? 0 : 1);
+    if (allowed) expect(() => guard.assertNoBlockedMutation()).not.toThrow();
+    else expect(() => guard.assertNoBlockedMutation()).toThrow("blocked");
+    if (url.startsWith("https://elsewhere")) expect(admitMutation).not.toHaveBeenCalled();
+  });
+  it("does not let a callback authorize writes in a read-only run", async () => {
+    let handler!: (route: unknown) => Promise<void>;
+    const admitMutation = vi.fn(() => true);
+    const guard = await installReadOnlyMutationGuard({ route: vi.fn(async (_glob, callback) => { handler = callback; }) }, {
+      appOrigin: "http://localhost:3001", admitMutation,
+    });
+    const route = { request: () => ({ url: () => "http://localhost:3001/api/pkm/store-domain", method: () => "POST" }), continue: vi.fn(), fulfill: vi.fn() };
+    await handler(route);
+    expect(admitMutation).not.toHaveBeenCalled();
+    expect(() => guard.assertNoBlockedMutation()).toThrow("blocked");
+  });
+  it("retains a failed admission without leaking its body or private error", async () => {
+    vi.stubEnv("REVIEWER_ALLOW_SHARED_MUTATIONS", "true");
+    let handler!: (route: unknown) => Promise<void>;
+    const guard = await installReadOnlyMutationGuard({ route: vi.fn(async (_glob, callback) => { handler = callback; }) }, {
+      appOrigin: "http://localhost:3001", admitMutation: () => { throw new Error("private-sentinel"); },
+    });
+    const route = { request: () => ({ url: () => "http://localhost:3001/api/consent/pending/approve", method: () => "POST" }), continue: vi.fn(), fulfill: vi.fn() };
+    await handler(route);
+    expect(route.continue).not.toHaveBeenCalled();
+    expect(JSON.stringify(route.fulfill.mock.calls)).not.toContain("private-sentinel");
+    expect(() => guard.assertNoBlockedMutation()).toThrow("blocked");
+    try { guard.assertNoBlockedMutation(); } catch (error) { expect(String(error)).not.toContain("private-sentinel"); }
+  });
   it("awaits guard installation before returning", async () => {
     let release!: () => void;
     const pending = new Promise<void>((resolve) => {
@@ -71,6 +115,7 @@ describe("reviewer preparation-only authority", () => {
 
   it.each([
     ["http://localhost:3001/api/pkm/memory/proposals", "POST", true, true],
+    ["http://localhost:3001/api/vault/bootstrap-state", "DELETE", false, false],
     ["http://localhost:3001/api/pkm/memory/proposals", "POST", false, false],
     ["http://localhost:3001/api/pkm/memory/proposals", "DELETE", true, false],
     ["https://elsewhere.example/api/pkm/memory/proposals", "POST", true, false],
@@ -110,6 +155,7 @@ describe("reviewer preparation-only authority", () => {
   it.each([
     ["preparation_only", true],
     ["read_only", true],
+    ["bounded_mutation", true],
     ["mutation_authorized", false],
   ])("skips background writes only for the non-mutating bridge policy (%s)", (policy, expected) => {
     const target = window as unknown as {

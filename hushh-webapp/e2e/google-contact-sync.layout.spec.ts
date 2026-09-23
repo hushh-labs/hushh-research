@@ -57,7 +57,9 @@ test.beforeAll(async () => {
         },
       },
     ],
-    oxc: { jsx: { runtime: "automatic" } },
+    // The fixture bundles production React below. Keep JSX on its production
+    // entrypoint too; jsxDEV is absent there and can fail browser startup.
+    oxc: { jsx: { runtime: "automatic", development: false } },
     resolve: {
       alias: [
         {

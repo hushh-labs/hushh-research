@@ -26,6 +26,7 @@ export type RequestablePersonScope = {
 };
 
 export type PersonGrant = {
+  bundleId?: string | null;
   scopeRef: string | null;
   label: string;
   domain: string | null;
@@ -92,6 +93,18 @@ export type PersonInformationRequestHistory = {
     | "cancelled";
 };
 
+export type PersonRequestHistoryPage = {
+  bundles: Array<{
+    bundleId: string;
+    purpose: string;
+    durationSeconds: number;
+    createdAt: string;
+    cancelled: boolean;
+    itemCount: number;
+  }>;
+  nextCursor: string | null;
+};
+
 export type InformationRequestBundle = {
   personRef: string;
   bundleId: string;
@@ -125,6 +138,22 @@ async function jsonOrThrow<T>(response: Response): Promise<T> {
 }
 
 export class PersonProfileService {
+  static async getRequestHistory(input: {
+    personRef: string;
+    idToken: string;
+    cursor?: string;
+    limit?: number;
+  }): Promise<PersonRequestHistoryPage> {
+    const query = new URLSearchParams({ limit: String(input.limit ?? 8) });
+    if (input.cursor) query.set("cursor", input.cursor);
+    return jsonOrThrow<PersonRequestHistoryPage>(
+      await ApiService.apiFetch(
+        `/api/one/people/${encodeURIComponent(input.personRef)}/request-history?${query}`,
+        { cache: "no-store", headers: { Authorization: `Bearer ${input.idToken}` } },
+      ),
+    );
+  }
+
   static async getInformationRequestExports(input: {
     bundleId: string;
     vaultOwnerToken: string;

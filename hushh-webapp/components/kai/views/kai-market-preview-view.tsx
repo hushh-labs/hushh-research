@@ -2232,7 +2232,9 @@ export function KaiMarketPreviewView() {
           workspace="market"
           title="Market"
           description="Track the market and your watchlist."
-          actionsInlineMobile
+          // Not inline on phones: with the title no longer drawn, an inline
+          // status took the right half and wrapped the description after
+          // three words. It reads as its own line under the description.
           actions={
             marketStatus ? (
               <span

@@ -5,6 +5,7 @@ Personal Knowledge Model API routes.
 Canonical API surface for PKM.
 """
 
+import hashlib
 import logging
 import os
 import time
@@ -438,6 +439,12 @@ async def _generate_pkm_memory_proposals(
             current_manifests=request.current_manifests,
             simulated_state=request.simulated_state,
             memory_profile=request.memory_profile,
+            # Opaque binding only: no raw token enters the preview cache. A
+            # new vault-owner credential cannot resume an earlier credential's
+            # preparation; authorization and sharing impact still run afresh.
+            continuation_scope=hashlib.sha256(token_data["token"].encode()).hexdigest()
+            if isinstance(token_data.get("token"), str) and token_data["token"]
+            else None,
         )
     except Exception:
         logger.exception(

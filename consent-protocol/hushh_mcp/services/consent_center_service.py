@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
+import time
 from typing import Any, cast
 
 from starlette.concurrency import run_in_threadpool
 
+from db.db_client import get_db
 from hushh_mcp.consent.scope_helpers import get_scope_description
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.connections_service import ConnectionsService
@@ -428,6 +431,9 @@ class ConsentCenterService:
                         event.get("request_id"),
                     ]
                 )
+        for item in list(entry.get("bundle_items") or []):
+            if isinstance(item, dict):
+                haystacks.extend((item.get("label"), item.get("status")))
         return any(needle in str(value or "").lower() for value in haystacks)
 
     async def _resolve_owned_user_identifiers(self, normalized_user_id: str) -> list[str]:
@@ -786,6 +792,141 @@ class ConsentCenterService:
                 "approval_timeout_minutes": item.get("approvalTimeoutMinutes"),
             },
         }
+
+    async def _present_pending_bundles(
+        self, user_id: str, entries: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
+        """One owner-facing review per person request; ledger state stays per item."""
+        bundled: dict[str, list[dict[str, Any]]] = {}
+        ordinary: list[dict[str, Any]] = []
+        for entry in entries:
+            metadata = self._metadata(entry.get("metadata"))
+            bundle_id = str(metadata.get("bundle_id") or "").strip()
+            if (
+                entry.get("kind") == "incoming_request"
+                and metadata.get("request_source") == "one_person_profile"
+                and bundle_id
+            ):
+                bundled.setdefault(bundle_id, []).append(entry)
+            else:
+                ordinary.append(entry)
+        ordinary = self._collapse_consent_chains(ordinary)
+        if not bundled:
+            return ordinary
+
+        def load_items() -> list[dict[str, Any]]:
+            return [
+                dict(row)
+                for row in (
+                    get_db()
+                    .execute_raw(
+                        """SELECT bundle.bundle_id, bundle.requester_principal,
+                                  item.request_id, item.scope, item.label
+                           FROM one_information_request_bundles bundle
+                           JOIN one_information_request_items item
+                             ON item.bundle_id = bundle.bundle_id
+                           WHERE bundle.subject_user_id = :owner
+                             AND bundle.bundle_id::TEXT IN (
+                               SELECT value FROM jsonb_array_elements_text(
+                                 CAST(:bundle_ids AS JSONB)))
+                           ORDER BY bundle.created_at DESC, item.created_at, item.request_id""",
+                        {"owner": user_id, "bundle_ids": json.dumps(list(bundled))},
+                    )
+                    .data
+                    or []
+                )
+            ]
+
+        rows = await asyncio.to_thread(load_items)
+        rows_by_bundle: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            rows_by_bundle.setdefault(str(row["bundle_id"]), []).append(row)
+        request_ids = [str(row["request_id"]) for row in rows]
+        status_loader = getattr(self._consent_db, "get_request_statuses", None)
+        if callable(status_loader):
+            statuses = await status_loader(user_id, request_ids)
+        else:
+            statuses = {
+                request_id: await self._consent_db.get_request_status(user_id, request_id)
+                for request_id in request_ids
+            }
+        now_ms = int(time.time() * 1000)
+        groups: list[dict[str, Any]] = []
+        for bundle_id, pending_entries in bundled.items():
+            source_rows = rows_by_bundle.get(bundle_id, [])
+            # An absent correlation record cannot prove bundle membership.
+            if not source_rows:
+                ordinary.extend(pending_entries)
+                continue
+            pending_by_id = {str(entry.get("request_id") or ""): entry for entry in pending_entries}
+            head = pending_entries[0]
+            expected = int(self._metadata(head.get("metadata")).get("bundle_scope_count") or 0)
+            complete = expected > 0 and len(source_rows) == expected
+            projected_items: list[dict[str, Any]] = []
+            for row in source_rows:
+                request_id = str(row["request_id"])
+                status = statuses.get(request_id) or {}
+                metadata = self._metadata(status.get("metadata"))
+                valid = (
+                    str(status.get("user_id") or user_id) == user_id
+                    and str(status.get("agent_id") or "") == str(row["requester_principal"])
+                    and str(status.get("scope") or "") == str(row["scope"])
+                    and str(metadata.get("bundle_id") or "") == bundle_id
+                )
+                action = str(status.get("action") or "") if valid else ""
+                expires_at = status.get("expires_at") or status.get("poll_timeout_at")
+                expired = bool(
+                    expires_at is not None
+                    and int(expires_at) <= now_ms
+                    and action in {"REQUESTED", "CONSENT_GRANTED"}
+                )
+                state = (
+                    "expired"
+                    if expired
+                    else {
+                        "REQUESTED": "pending",
+                        "CONSENT_GRANTED": "granted",
+                        "CONSENT_DENIED": "denied",
+                        "CANCELLED": "cancelled",
+                        "REVOKED": "revoked",
+                        "TIMEOUT": "expired",
+                    }.get(action, "unavailable")
+                )
+                projected_items.append(
+                    {
+                        "request_id": request_id,
+                        "label": str(row.get("label") or "Information"),
+                        "status": state,
+                        "entry": None,
+                    }
+                )
+            complete = complete and all(item["status"] != "unavailable" for item in projected_items)
+            if complete:
+                for item in projected_items:
+                    if item["status"] == "pending":
+                        item["entry"] = pending_by_id.get(item["request_id"])
+            groups.append(
+                {
+                    **head,
+                    "id": f"bundle:{bundle_id}",
+                    "action": None,
+                    "request_id": None,
+                    "request_url": None,
+                    "scope": None,
+                    "scope_description": f"{expected or len(source_rows)} information items",
+                    "status": "pending" if complete else "preparing",
+                    "allowed_next_action": None,
+                    "metadata": {
+                        "bundle_id": bundle_id,
+                        "bundle_scope_count": expected,
+                        "request_source": "one_person_profile",
+                    },
+                    "bundle_id": bundle_id,
+                    "bundle_complete": complete,
+                    "bundle_items": projected_items,
+                }
+            )
+        return self._sort_entries([*ordinary, *groups])
 
     def _normalize_active(self, item: dict[str, Any]) -> dict[str, Any]:
         agent_id = str(item.get("developer") or item.get("agent_id") or "")
@@ -1486,16 +1627,13 @@ class ConsentCenterService:
                     location_count += len(marketplace_buckets["history"])
             if surface == "pending":
                 connection_count = await self._incoming_connection_request_count(user_id)
+                pending_entries = self._filter_mode_entries(
+                    await self._load_investor_pending_entries(user_id),
+                    actor=normalized_actor,
+                    mode=normalized_mode,
+                )
                 return (
-                    len(
-                        self._collapse_consent_chains(
-                            self._filter_mode_entries(
-                                await self._load_investor_pending_entries(user_id),
-                                actor=normalized_actor,
-                                mode=normalized_mode,
-                            )
-                        )
-                    )
+                    len(await self._present_pending_bundles(user_id, pending_entries))
                     + location_count
                     + connection_count
                 )
@@ -1851,12 +1989,11 @@ class ConsentCenterService:
 
             pending_count = (
                 len(
-                    self._collapse_consent_chains(
+                    await self._present_pending_bundles(
+                        user_id,
                         self._filter_mode_entries(
-                            pending_entries,
-                            actor=normalized_actor,
-                            mode=normalized_mode,
-                        )
+                            pending_entries, actor=normalized_actor, mode=normalized_mode
+                        ),
                     )
                 )
                 + contributor_count("pending")
@@ -2007,6 +2144,8 @@ class ConsentCenterService:
             entries = (
                 self._group_history_identifier_trails(entries)
                 if normalized_surface == "previous"
+                else await self._present_pending_bundles(user_id, entries)
+                if normalized_surface == "pending"
                 else self._collapse_consent_chains(entries)
             )
             location_buckets = (

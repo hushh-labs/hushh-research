@@ -35,6 +35,10 @@ class PlaidLinkTokenRequest(BaseModel):
     # effect on a local backend (ENVIRONMENT=development) with a matching
     # PLAID_LOCAL_PRODUCTION_SECRET configured; ignored everywhere else.
     environment: Optional[str] = Field(default=None, max_length=32)
+    # The Link runtime that will open the token. "android" is Plaid's native
+    # Android SDK: the token carries android_package_name and no redirect_uri.
+    # Clients that omit it get today's web/iOS behaviour.
+    platform: Literal["web", "ios", "android"] = "web"
 
 
 class PlaidPublicTokenExchangeRequest(BaseModel):
@@ -290,6 +294,7 @@ async def create_plaid_link_token(
             item_id=payload.item_id,
             redirect_uri=payload.redirect_uri,
             environment=payload.environment,
+            platform=payload.platform,
         )
     except Exception as exc:
         logger.exception("kai.plaid.link_token_failed user_id=%s", payload.user_id)
@@ -316,6 +321,7 @@ async def create_plaid_update_link_token(
             item_id=request.item_id,
             redirect_uri=request.redirect_uri,
             environment=request.environment,
+            platform=request.platform,
         )
     except Exception as exc:
         logger.exception("kai.plaid.update_link_token_failed user_id=%s", request.user_id)
@@ -358,6 +364,7 @@ async def create_plaid_funding_link_token(
             user_id=request.user_id,
             item_id=request.item_id,
             redirect_uri=request.redirect_uri,
+            platform=request.platform,
         )
     except Exception as exc:
         _raise_logged_http_exception("kai.plaid.funding_link_token_failed", request.user_id, exc)

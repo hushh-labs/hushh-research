@@ -3,6 +3,9 @@ import XCTest
 
 final class AppUITests: XCTestCase {
     private var vaultUnlockSubmitted = false
+    /// The session walk captures the vault gate with its keyboard up, before
+    /// anything is typed (a stop the host screenshots).
+    private var perfGateStop = false
     private var activeUiFlowRunId = ""
 
     struct RouteCase {
@@ -1153,6 +1156,29 @@ final class AppUITests: XCTestCase {
     /// Release build this is the certifying run the charter names.
     /// Opt-in: HUSHH_ENABLE_PERF_ATTACHED=true. HUSHH_PERF_ATTACHED_SECTION
     /// = feed | chat | kai | location | all (default all).
+    /// Signs the reviewer into the app's data container and leaves the
+    /// session there (-UITestResetAppState false). The Release truth lane
+    /// cannot sign anyone in, by design, so after a sign-out (a /logout
+    /// route, an expired session) this Debug-only step restores it and the
+    /// Release app installed over it keeps the session.
+    /// Driver: scripts/perf/ios-reviewer-signin.sh.
+    func testReviewerSignInForTruthLane() throws {
+        let route = RouteCase(
+            name: "truth-lane-sign-in",
+            initialRoute: "/login?redirect=%2Fone%2Ffeed",
+            expectedMarker: "native-route-feed",
+            expectedRoute: "/one/feed",
+            expectedRoutePrefix: nil,
+            autoReviewerLogin: true,
+            expectedAuth: "authenticated",
+            allowedDataStates: ["loaded"]
+        )
+        let app = launchApp(route)
+        defer { app.terminate() }
+        _ = try waitForSatisfiedStatus(app, route: route, timeout: 150)
+        NSLog("PERF_REVIEWER_SIGNED_IN route=/one/feed")
+    }
+
     func testRenderPerformanceCardAttached() throws {
         let environment = ProcessInfo.processInfo.environment
         guard environment["HUSHH_ENABLE_PERF_ATTACHED"] == "true" else {
@@ -1173,7 +1199,7 @@ final class AppUITests: XCTestCase {
         NSLog("PERF_LANE certifies=\(release) simulator=false test_mode=false")
         #endif
 
-        func launchAttached(route: String?) throws -> (XCUIApplication, XCUIElement) {
+        func launchAttached(route: String?, shellOptional: Bool = false, failHard: Bool = true, unlockTimeout: TimeInterval = 240) throws -> (XCUIApplication, XCUIElement) {
             let app = XCUIApplication()
             var arguments = ["-CapacitorStorage.hushh_perf_probe", "1"]
             if let route {
@@ -1190,7 +1216,7 @@ final class AppUITests: XCTestCase {
             app.launch()
             let webView = app.webViews.firstMatch
             XCTAssertTrue(webView.waitForExistence(timeout: 30), "WebView unavailable")
-            try perfUnlockVault(app, passphrase: passphrase, timeout: 240)
+            try perfUnlockVault(app, passphrase: passphrase, timeout: unlockTimeout, shellOptional: shellOptional, failHard: failHard)
             return (app, webView)
         }
 
@@ -1344,6 +1370,211 @@ final class AppUITests: XCTestCase {
             }
         }
 
+        // Every route the inventory says the phone must serve, one launch each.
+        //
+        // The other sections above drive gestures on a handful of surfaces
+        // that were chosen by hand, which is how coverage rots: a route added
+        // later is invisible here by default. This section takes its list from
+        // the shell (which reads native-route-inventory.json), so the set can
+        // only ever be as stale as the inventory itself.
+        //
+        // One launch per route, settle, then an idle window. That is enough to
+        // find the route that costs 300 ms to paint or never settles at all;
+        // gesture work on a named surface still belongs in its own section.
+        // One launch, one unlock, then the app walked the way a person uses
+        // it: every stop is reached by a tap from the one before, never by a
+        // launch into a route, so the session, its caches and its vault key
+        // carry through. Each stop logs PERF_STOP and holds still while the
+        // card captures the phone's screen from the Mac, for the pixel review
+        // (layout under the keyboard, clipping, alignment, copy). Read-only:
+        // nothing is sent, approved or removed.
+        if section == "session" {
+            perfGateStop = true
+            let (app, webView) = try launchAttached(route: nil)
+            perfGateStop = false
+            perfSettle(3)
+            NSLog("PERF_APP_READY route=session")
+            func stop(_ name: String, settle: TimeInterval = 2.5) {
+                perfSettle(settle)
+                NSLog("PERF_STOP name=\(name)")
+                perfSettle(2.5)
+            }
+            func tapLabel(_ label: String, contains: Bool = false) -> Bool {
+                let format = contains ? "label CONTAINS[c] %@" : "label == %@"
+                let element = app.webViews.descendants(matching: .any)
+                    .matching(NSPredicate(format: format, label)).firstMatch
+                guard element.waitForExistence(timeout: 4) else {
+                    NSLog("PERF_SKIPPED name=session-tap reason=label_not_found label=\(label)")
+                    return false
+                }
+                if element.isHittable {
+                    element.tap()
+                } else {
+                    element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+                }
+                return true
+            }
+            // The header's back arrow, found by where it sits (top left)
+            // rather than by its label, which is a breadcrumb that changes
+            // per screen ("Go back", "Back to Location", ...).
+            func tapHeaderBack() -> Bool {
+                let buttons = app.webViews.buttons.allElementsBoundByIndex
+                for button in buttons where button.exists {
+                    let frame = button.frame
+                    if frame.minX < 80 && frame.midY < 170 && frame.width < 90 && button.isHittable {
+                        button.tap()
+                        return true
+                    }
+                }
+                NSLog("PERF_SKIPPED name=session-back reason=header_back_not_found")
+                return false
+            }
+            // Back to the tab bar from wherever the last tap landed (a
+            // full-screen page such as Advisor's setup has none).
+            func returnToTab(_ label: String) {
+                for _ in 0..<3 {
+                    let bar = app.webViews.descendants(matching: .any)
+                        .matching(NSPredicate(format: "label == %@", label))
+                    if bar.count > 0 && bar.allElementsBoundByIndex.contains(where: { $0.frame.midY > 700 }) { break }
+                    if !tapHeaderBack() { break }
+                    perfSettle(1.2)
+                }
+                perfTapNav(app, label: label)
+            }
+            // Rapid in-test screenshots right after a tap, kept as attachments
+            // the card exports (the Mac cannot screen-record this iPhone). Each
+            // carries its capture time so the sequence can be timed.
+            func burst(_ name: String, count: Int = 10) {
+                for index in 0..<count {
+                    let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+                    attachment.name = String(
+                        format: "burst-%@-%02d-%lld", name, index,
+                        Int64(Date().timeIntervalSince1970 * 1000)
+                    )
+                    attachment.lifetime = .keepAlways
+                    add(attachment)
+                }
+            }
+            func dismissKeyboard() {
+                // A tap on the content above the keyboard, as a person does.
+                webView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.22)).tap()
+                perfSettle(1.0)
+            }
+
+            stop("landing", settle: 1)
+
+            perfTapNav(app, label: "Chat")
+            burst("to-chat")
+            stop("chat")
+            if tapLabel("Message One") {
+                stop("chat-keyboard", settle: 1.5)
+                // A long draft must move into the expanded editor on its own,
+                // with every character kept. Typed, never sent, then deleted.
+                let composer = app.webViews.descendants(matching: .any)
+                    .matching(NSPredicate(format: "label == %@", "Message One")).firstMatch
+                let draft = (1...6).map { "draft line number \($0) for the expand check only. " }.joined()
+                composer.typeText(draft)
+                stop("composer-long-draft", settle: 1.0)
+                let expanded = app.webViews.descendants(matching: .any)
+                    .matching(NSPredicate(format: "label == %@", "Expanded message One")).firstMatch
+                NSLog("PERF_COMPOSER expanded=\(expanded.exists ? 1 : 0)")
+                let editor = expanded.exists ? expanded : composer
+                editor.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: draft.count + 10))
+                stop("composer-cleared", settle: 0.8)
+                dismissKeyboard()
+            }
+            // One rating round trip: like, then unlike, so nothing is left.
+            if tapLabel("Like response") {
+                stop("rated-like", settle: 3.0)
+                _ = tapLabel("Like response")
+                stop("rated-cleared", settle: 2.0)
+            }
+
+            perfTapNav(app, label: "One")
+            stop("one")
+            for (agent, tabs) in [
+                ("Finance", ["Portfolio", "Analysis"]),
+                ("Wallet", []), ("Location", []), ("Advisor", []), ("Mail", []),
+                ("Calendar", []), ("KYC", []), ("Memory", []), ("Consent", []),
+            ] {
+                guard tapLabel(agent) || tapLabel("\(agent),", contains: true) else { continue }
+                stop("agent-\(agent.lowercased())")
+                for tab in tabs where tapLabel(tab) {
+                    stop("agent-\(agent.lowercased())-\(tab.lowercased())")
+                }
+                returnToTab("One")
+                perfSettle(1.5)
+            }
+
+            returnToTab("Connect")
+            burst("to-connect")
+            stop("connect")
+            if tapLabel("Circles") { stop("connect-circles") }
+
+            returnToTab("Feed")
+            burst("to-feed")
+            stop("feed")
+
+            returnToTab("Search")
+            stop("search-keyboard", settle: 1.5)
+            dismissKeyboard()
+
+            returnToTab("One")
+            perfSettle(1.5)
+            if tapLabel("Open Profile") {
+                stop("profile-pane")
+                for row in ["Your account", "Appearance & preferences", "Security & privacy", "Trusted devices", "Help & feedback"] {
+                    guard tapLabel(row) else { continue }
+                    stop("profile-\(row.lowercased().replacingOccurrences(of: " & ", with: "-").replacingOccurrences(of: " ", with: "-"))")
+                    // Back to the pane the way a person would: the header arrow.
+                    if !tapHeaderBack() { _ = tapLabel("Open Profile") }
+                    perfSettle(1.5)
+                }
+            }
+            NSLog("PERF_DONE route=session")
+            app.terminate()
+        }
+
+        if section == "routes" {
+            let list = (environment["HUSHH_PERF_ROUTES"] ?? "")
+                .split(separator: ",")
+                .map { $0.trimmingCharacters(in: .whitespaces) }
+                .filter { !$0.isEmpty }
+            if list.isEmpty {
+                NSLog("PERF_SKIPPED name=routes reason=no_route_list")
+            }
+            for (index, route) in list.enumerated() {
+                let app: XCUIApplication
+                do {
+                    (app, _) = try launchAttached(route: route, shellOptional: true, failHard: false, unlockTimeout: 90)
+                } catch is PerfSignedOut {
+                    // Every later launch would land on the same screen: stop
+                    // here rather than record the whole list as unreachable.
+                    NSLog("PERF_SWEEP_ABORTED reason=signed-out route=\(route) remaining=\(list.count - index)")
+                    XCUIApplication().terminate()
+                    XCTFail("The app is signed out, so no route can be measured. Restore the reviewer session with scripts/perf/ios-reviewer-signin.sh, then rerun.")
+                    break
+                } catch let unreachable as PerfRouteUnreachable {
+                    NSLog("PERF_ROUTE_UNREACHABLE route=\(route) reason=\(unreachable.reason)")
+                    XCUIApplication().terminate()
+                    continue
+                }
+                NSLog("PERF_APP_READY route=\(route)")
+                // The probe keys its idle bucket on the route it settled on,
+                // so a redirect (locked vault, missing prerequisite) is
+                // recorded under where it actually landed, not where we aimed.
+                let settled = app.webViews.firstMatch.waitForExistence(timeout: 20)
+                if !settled {
+                    NSLog("PERF_ROUTE_UNREACHABLE route=\(route)")
+                    app.terminate()
+                    continue
+                }
+                Thread.sleep(forTimeInterval: 6)
+                NSLog("PERF_DONE route=\(route)")
+                app.terminate()
+            }
+        }
+
         // Connecting a bank through Plaid Link on the phone, step by step,
         // with a marker per screen for captures. It only proceeds past the
         // institution list when Link is plainly in sandbox (the test bank is
@@ -1480,7 +1711,30 @@ final class AppUITests: XCTestCase {
     /// is the default, type the passphrase, tap Unlock, wait for the signed-in
     /// bottom bar. With no passphrase configured (or a sign-in screen) it waits
     /// for the person holding the phone. The passphrase is never logged.
-    private func perfUnlockVault(_ app: XCUIApplication, passphrase: String, timeout: TimeInterval) throws {
+    /// Thrown instead of an XCTFail when a caller sweeping many routes wants
+    /// to record one unreachable route and carry on.
+    struct PerfRouteUnreachable: Error { let reason: String }
+
+    /// Thrown to a sweeping caller when the launch sits on the sign-in
+    /// screen: the Release truth lane has no automated sign-in (test mode is
+    /// Debug-only by design), so nothing after it can be measured either.
+    struct PerfSignedOut: Error {}
+
+    /// `shellOptional`: the bottom bar's "One" tab is the usual sign that the
+    /// app is signed in and unlocked, but a route that hides the shell (an
+    /// import flow, a full-screen setup step) never shows it, and waiting for
+    /// it there only burns the timeout. With this set, a submitted passphrase
+    /// whose field has stayed gone for four seconds, with no mismatch banner,
+    /// also counts, which is the signal the Android lane uses for the same
+    /// reason. `failHard: false` throws PerfRouteUnreachable instead of
+    /// failing the whole test.
+    private func perfUnlockVault(
+        _ app: XCUIApplication,
+        passphrase: String,
+        timeout: TimeInterval,
+        shellOptional: Bool = false,
+        failHard: Bool = true
+    ) throws {
         // The clock starts when the passphrase field is on screen: a cold
         // launch can spend two minutes behind the system passkey sheet first.
         var deadline = Date().addingTimeInterval(timeout)
@@ -1488,9 +1742,42 @@ final class AppUITests: XCTestCase {
         var attempts = 0
         var announced = false
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        var fieldGoneSince: Date?
+        var signInScreenSince: Date?
         while Date() < deadline {
             if perfLabelExists(app, "One") {
                 return
+            }
+            if !failHard {
+                let signIn = app.webViews.buttons.matching(NSPredicate(
+                    format: "label CONTAINS[c] %@ OR label CONTAINS[c] %@", "Continue with Apple", "Continue with Google"
+                )).firstMatch
+                if signIn.exists {
+                    let since = signInScreenSince ?? Date()
+                    signInScreenSince = since
+                    if Date().timeIntervalSince(since) >= 5 {
+                        NSLog("PERF_UNLOCK signed_out=true")
+                        throw PerfSignedOut()
+                    }
+                } else {
+                    signInScreenSince = nil
+                }
+            }
+            if shellOptional && attempts > 0 {
+                let gateField = app.webViews.secureTextFields.matching(NSPredicate(format: "label == %@ OR placeholderValue == %@", "Vault passphrase", "Enter passphrase")).firstMatch
+                let rejected = app.webViews.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] %@", "did not match")).firstMatch.exists
+                if !gateField.exists && !rejected {
+                    if let since = fieldGoneSince {
+                        if Date().timeIntervalSince(since) >= 4 {
+                            NSLog("PERF_UNLOCK ready=field-gone")
+                            return
+                        }
+                    } else {
+                        fieldGoneSince = Date()
+                    }
+                } else {
+                    fieldGoneSince = nil
+                }
             }
             // The vault gate opens the passkey flow at launch; with no passkey
             // on this phone iOS shows its "Scan QR Code" sheet over the app and
@@ -1525,6 +1812,12 @@ final class AppUITests: XCTestCase {
                 NSLog("PERF_UNLOCK method=passphrase attempt=\(attempts + 1)")
                 field.tap()
                 perfSettle(0.4)
+                if perfGateStop && attempts == 0 {
+                    // Empty field, keyboard up: what a person sees first.
+                    perfSettle(1.2)
+                    NSLog("PERF_STOP name=gate-keyboard")
+                    perfSettle(2.5)
+                }
                 if attempts > 0 {
                     field.press(forDuration: 1.0)
                     let selectAll = app.menuItems.matching(NSPredicate(format: "label == %@", "Select All")).firstMatch
@@ -1557,6 +1850,9 @@ final class AppUITests: XCTestCase {
                 announced = true
             }
             perfSettle(1.0)
+        }
+        if !failHard {
+            throw PerfRouteUnreachable(reason: "not signed in and unlocked within \(Int(timeout)) s")
         }
         XCTFail("The app was not signed in and unlocked within \(Int(timeout)) s.")
         throw XCTSkip("unlock timeout")
@@ -1760,8 +2056,19 @@ final class AppUITests: XCTestCase {
             NSLog("PERF_SKIPPED name=nav-tap reason=label_not_found label=\(label)")
             return
         }
-        // The bottom bar is the last match on screen.
-        let element = candidates.element(boundBy: count - 1)
+        // The bottom bar is the lowest match on screen. "Last in the tree"
+        // picked the header's One/Puppy toggle on Chat, where "One" is also
+        // the title, so a walk that tapped the One tab stayed on Chat.
+        var element = candidates.element(boundBy: count - 1)
+        var lowest = -CGFloat.greatestFiniteMagnitude
+        for index in 0..<count {
+            let candidate = candidates.element(boundBy: index)
+            let frame = candidate.frame
+            if !frame.isEmpty && frame.midY > lowest {
+                lowest = frame.midY
+                element = candidate
+            }
+        }
         if element.isHittable {
             element.tap()
         } else {

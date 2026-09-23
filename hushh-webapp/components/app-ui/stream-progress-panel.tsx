@@ -287,7 +287,11 @@ export function AppStreamPanel({
           <div
             role="status"
             aria-live="polite"
-            className="inline-flex items-center gap-2 rounded-full bg-accent-surface px-3 py-2 text-sm text-muted-foreground"
+            // A plain line, not a pill: the panel is already the container, and
+            // a filled pill inside it read as a box in a box. Same padding and
+            // line height as the answer below, so the answer takes its place
+            // without the row jumping.
+            className="flex items-center gap-2 px-1 text-sm leading-6 text-muted-foreground"
           >
             <Loader2 className="h-4 w-4 animate-spin text-accent-strong motion-reduce:animate-none" aria-hidden="true" />
             <span>{responsePendingLabel}</span>

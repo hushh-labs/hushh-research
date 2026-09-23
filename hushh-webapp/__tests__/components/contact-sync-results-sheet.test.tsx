@@ -105,7 +105,7 @@ describe("ContactSyncResultsSheet", () => {
 
       const sheet = screen.getByRole("dialog", { name: "Contact sync results" });
       const overlay = document.querySelector('[data-slot="sheet-overlay"]');
-      expect(overlay).toHaveClass("backdrop-blur-[12px]");
+      expect(overlay).toHaveClass("[backdrop-filter:var(--app-scrim-filter)]");
       if (takeover) {
         expect(sheet).toHaveClass("z-[9101]");
         expect(overlay).toHaveClass("z-[9100]");

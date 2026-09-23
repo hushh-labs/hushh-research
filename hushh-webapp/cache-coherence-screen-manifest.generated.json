@@ -1518,7 +1518,7 @@
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
-        "cache_service": false,
+        "cache_service": true,
         "use_stale_resource": false,
         "device_cache": false,
         "secure_cache": false,
@@ -1530,9 +1530,7 @@
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": [
-        "no local cache primitive detected in page/contract source"
-      ]
+      "findings": []
     },
     {
       "route": "/one/connect/settings",
@@ -5548,11 +5546,13 @@
         "resource_wrapper": false,
         "direct_fetch": false,
         "api_service": false,
-        "hushh_loader": false,
+        "hushh_loader": true,
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": []
+      "findings": [
+        "loader detected; verify warm cache path avoids blocking loader"
+      ]
     },
     {
       "route": "/r/[slug]",
@@ -6325,5 +6325,5 @@
       ]
     }
   ],
-  "content_sha256": "3b6211001ac129445cc67967c5c2a63189b3c173bade580ff404ef84439e9028"
+  "content_sha256": "ab76f64c81b4ed20cc377b9d9f78e7d51fd4db7d9045e46d37942100786c8a8e"
 }

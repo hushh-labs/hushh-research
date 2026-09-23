@@ -67,8 +67,23 @@ export type PkmRequestedWorkflowAuthorization = {
   workflowAuthority: LocationRequestedWorkflowAuthority;
 };
 
+/**
+ * A refresh of information from a financial source the owner connected
+ * themselves (a Plaid link, or a statement they imported). The connection is the authority; no per-write review is
+ * claimed, so audits never record a background sync as the owner's click.
+ * Financial domain only, and it never deletes.
+ */
+export type PkmConnectedSourceSyncAuthorization = {
+  authorizationMode: "owner_connected_source_sync";
+  confirmedByUser?: never;
+  surface: "web" | "ios" | "android";
+  source: string;
+  connectedSourceProvider: "plaid" | "statement_import";
+};
+
 export type PkmWriteAuthorization =
   | PkmUserConfirmation
+  | PkmConnectedSourceSyncAuthorization
   | PkmOwnerAutoSaveAuthorization
   | PkmProductDefaultAutoSaveAuthorization
   | PkmRequestedWorkflowAuthorization;
@@ -132,8 +147,10 @@ export type PkmMutationPlanV2 = {
       | "owner_confirmed"
       | "owner_auto_save_policy"
       | "owner_requested_workflow"
-      | "product_default_auto_save_policy";
+      | "product_default_auto_save_policy"
+      | "owner_connected_source_sync";
     workflow_authority?: LocationRequestedWorkflowAuthority;
+    connected_source_provider?: "plaid" | "statement_import";
     auto_save_policy_version?: 1;
     auto_save_policy_enabled_at?: string;
     product_default_effective_at?: string;
@@ -233,10 +250,19 @@ export async function buildConfirmedPkmMutationPlanV2(params: {
     ? params.confirmation
     : null;
   const automatic = automaticAuthorization !== null;
-  const ownerConfirmation = automatic || workflowAuthorization
+  const connectedSourceSync =
+    params.confirmation.authorizationMode === "owner_connected_source_sync"
+      ? params.confirmation
+      : null;
+  const ownerConfirmation = automatic || workflowAuthorization || connectedSourceSync
     ? null
     : params.confirmation as PkmUserConfirmation;
-  if (!automatic && !workflowAuthorization && params.confirmation.confirmedByUser !== true) {
+  if (
+    !automatic &&
+    !workflowAuthorization &&
+    !connectedSourceSync &&
+    params.confirmation.confirmedByUser !== true
+  ) {
     throw new Error("PKM mutation requires explicit owner confirmation.");
   }
 
@@ -252,6 +278,9 @@ export async function buildConfirmedPkmMutationPlanV2(params: {
   const sourceHandle = registryHandle(params.currentManifest, scope) || generatedHandle;
   const targetHandle = registryHandle(params.targetManifest, scope) || sourceHandle;
   const operation = params.operation || (params.currentManifest ? "update" : "create");
+  if (connectedSourceSync && (domain !== "financial" || operation === "delete")) {
+    throw new Error("A connected-source sync can only refresh financial information.");
+  }
   if (automatic && operation === "delete") {
     throw new Error("Automatic PKM saving cannot delete saved information.");
   }
@@ -265,7 +294,7 @@ export async function buildConfirmedPkmMutationPlanV2(params: {
     ? `pkm_plan_${uuidv5(params.idempotencyScope, "76f0e762-c176-5947-a680-7011af78b71f").replaceAll("-", "")}`
     : opaqueId("plan");
   const sharingImpact = ownerConfirmation?.sharingImpact;
-  const confirmedAt = automatic
+  const confirmedAt = automatic || connectedSourceSync
     ? new Date().toISOString()
     : ownerConfirmation?.confirmedAt || new Date().toISOString();
   const authorizationReceipt = automaticAuthorization
@@ -278,7 +307,12 @@ export async function buildConfirmedPkmMutationPlanV2(params: {
       }
     : workflowAuthorization
       ? { authorization_mode: "owner_requested_workflow" as const, workflow_authority: workflowAuthorization.workflowAuthority }
-      : { authorization_mode: "owner_confirmed" as const };
+      : connectedSourceSync
+        ? {
+            authorization_mode: "owner_connected_source_sync" as const,
+            connected_source_provider: connectedSourceSync.connectedSourceProvider,
+          }
+        : { authorization_mode: "owner_confirmed" as const };
 
   return {
     version: 2,
@@ -293,7 +327,9 @@ export async function buildConfirmedPkmMutationPlanV2(params: {
     confidence: Math.max(0, Math.min(1, params.confidence ?? 1)),
     explanation:
       params.explanation ||
-      (workflowAuthorization
+      (connectedSourceSync
+        ? `Refreshed ${titleize(domain)} / ${titleize(scope)} from a financial connection the owner linked (${connectedSourceSync.connectedSourceProvider}); no per-write review is claimed.`
+        : workflowAuthorization
         ? "The owner requested Location setup, including saving the current place privately."
         : automatic
         ? params.confirmation.authorizationMode === "product_default_auto_save_policy"

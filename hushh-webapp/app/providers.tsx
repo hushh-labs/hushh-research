@@ -33,6 +33,7 @@ import {
   type RootShellMirror,
 } from "@/lib/navigation/root-shell-mirror";
 import { useDeepLinkReturn } from "@/lib/navigation/use-deep-link-return";
+import { useAndroidBack } from "@/lib/navigation/android-back";
 import { ConsentNotificationProvider } from "@/components/consent/notification-provider";
 import { GlobalVoiceActionHandlers } from "@/components/agent/global-voice-action-handlers";
 import { ProfileIdentityVoiceRefresh } from "@/components/profile/profile-identity-voice-refresh";
@@ -813,6 +814,7 @@ export function Providers({ children }: ProvidersProps) {
   // Mounted here, above the shell, so an OAuth return lands wherever the person
   // is rather than depending on which screen happened to be open.
   useDeepLinkReturn();
+  useAndroidBack();
 
   return (
     <>

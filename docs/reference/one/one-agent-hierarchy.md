@@ -1,6 +1,6 @@
 # One Agent Hierarchy
 
-Location commands use the restricted semantic Location package and the shared action authority described in [One Voice Runtime Architecture](./one-voice-runtime-architecture.md). Gemini Live is retired. The diagram below describes the retained text-agent hierarchy.
+Location commands use the restricted semantic Location package and the shared action authority described in [One Voice Runtime Architecture](./one-voice-runtime-architecture.md). The old `/api/one/adk/*` Live path is retired; `/api/one/voice/*` remains a flag-gated Live adapter. The diagram below describes the retained text-agent hierarchy.
 
 ## Visual Map
 
@@ -78,6 +78,15 @@ This page is current-state implementation truth. It does not rename runtime iden
 | Information Marketplace | standalone product surface | Separate consent-first Marketplace routes and APIs remain available; its conversational specialist is the Memory Agent | Admitted to One's typed specialist roster; route-specific marketplace pages remain separate |
 | World Model agents | `agent_memory_intent`, `agent_memory_segmentation`, `agent_memory_merge`, `agent_pkm_structure` | Semantic memory shaping | Must stay under vault/PKM consent and redaction boundaries |
 | Hermes-local product leaf | Source Library Steward | Query, virtual organization, revision-pinned file management, synchronization, and mounted-target sharing | Exact local `hussh_one_sources` tools only; no terminal, generic filesystem, credentials, vault keys, provider APIs, shared memory, or delegation |
+
+The PKM Structure manifest owns its instructions in both managed and direct-client
+execution. New domain/path names may organize user-supplied facts under the
+upstream intent/merge contract; they do not authorize fabrication, persistence,
+or sharing. Structure response examples use the authored response contract version
+1. The existing normalization step separately upgrades the persisted domain
+contract to `DYNAMIC_DOMAIN_CONTRACT_VERSION`; these are not competing versions
+of the same boundary. Prompt alignment alone does not prove extraction quality or
+resolve a provider timeout.
 
 `agent_one` and `agent_orchestrator` are not two product heads. The orchestrator path is a compatibility implementation namespace for One.
 
@@ -159,9 +168,9 @@ PKM capability boundary or claims provider ACL administration.
 
 ## Execution Stack
 
-1. Talk to One submits a bounded transcription to `/api/one/agent-chat/proposals`; typed Agent Chat retains its existing text path. Both use current scoped app state.
-2. Voice: One's root `LlmAgent` in `hushh_mcp/one_adk/agent_tree.py` decides conversation vs tool call inside ADK's flow. Its tools are `google_search`, the allowlist-governed `open_screen`, the Finance `AgentTool` (whose subagents are RIA and Investor), and dispatch-backed specialist turn functions. Gmail is intentionally absent. Chat: the delegation gate in `agent_chat.py` routes wired specialists through the same dispatch.
-3. Specialist turn tools build an `A2ATask` from governed session state (user id + consent token from the `app_context` frame) and fail closed without it.
+1. Talk to One submits a bounded transcription to `/api/one/agent-chat/proposals`, where the restricted Location brain assesses commands. Typed Agent Chat uses the text ADK root in `hushh_mcp/one_adk/agent_tree.py`; both receive bounded current app state.
+2. The text root selects its declared tools and specialists within the ADK turn. The maintained `/api/one/voice/*` Live adapter has a separate flag and transport contract; the retired `/api/one/adk/*` path does not execute. See [One Voice Runtime Architecture](./one-voice-runtime-architecture.md) for those entrypoints.
+3. Delegated specialist turns build an `A2ATask` from governed session state (user id + consent token from the `app_context` frame) and fail closed without it.
 4. A2A entry points validate the caller token against `SPECIALIST_A2A_SCOPE_MAP`.
 5. Tools expose callable surfaces and re-check their own scope.
 6. Operons hold business logic. Pure operons avoid side effects; impure operons validate consent before network, LLM, or storage work.

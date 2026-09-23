@@ -8,9 +8,13 @@ consent authorities; possession of a profile URL grants nothing.
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
+import json
 import time
+from datetime import datetime, timezone
 from typing import Any
+from uuid import UUID
 
 from db.db_client import get_db
 from hushh_mcp.services.connections_service import ConnectionsService
@@ -19,6 +23,52 @@ from hushh_mcp.services.consent_db import ConsentDBService
 
 class PersonProfileNotFoundError(LookupError):
     pass
+
+
+def _history_cursor(created_at: datetime | str, bundle_id: str, person_ref: str) -> str:
+    timestamp = datetime.fromisoformat(str(created_at).replace("Z", "+00:00"))
+    if timestamp.tzinfo is None:
+        raise ValueError("Bundle timestamp must include a timezone.")
+    payload = {
+        "v": 1,
+        "createdAt": timestamp.astimezone(timezone.utc).isoformat(),
+        "bundleId": str(UUID(str(bundle_id))),
+        "personRef": person_ref,
+    }
+    return (
+        base64.urlsafe_b64encode(json.dumps(payload, separators=(",", ":")).encode())
+        .decode()
+        .rstrip("=")
+    )
+
+
+def _parse_history_cursor(cursor: str, person_ref: str) -> tuple[datetime, str]:
+    if not cursor or len(cursor) > 512:
+        raise ValueError("Invalid request history cursor.")
+    try:
+        encoded = cursor.encode("ascii")
+        decoded = base64.b64decode(
+            encoded + b"=" * (-len(encoded) % 4), altchars=b"-_", validate=True
+        )
+        payload = json.loads(decoded)
+        if not isinstance(payload, dict) or set(payload) != {
+            "v",
+            "createdAt",
+            "bundleId",
+            "personRef",
+        }:
+            raise ValueError
+        if type(payload["v"]) is not int or payload["v"] != 1 or payload["personRef"] != person_ref:
+            raise ValueError
+        timestamp = datetime.fromisoformat(payload["createdAt"])
+        if timestamp.tzinfo is None:
+            raise ValueError
+        bundle_id = str(UUID(payload["bundleId"]))
+        if bundle_id != payload["bundleId"]:
+            raise ValueError
+        return timestamp, bundle_id
+    except (UnicodeError, ValueError, TypeError, KeyError, OverflowError) as exc:
+        raise ValueError("Invalid request history cursor.") from exc
 
 
 def requester_principal(public_person_ref: str) -> str:
@@ -177,6 +227,76 @@ class PersonProfileService:
         """Return the viewer-relative relationship without exposing internal IDs to clients."""
         return self._relationship(viewer_user_id, subject_user_id)
 
+    async def get_request_history_page(
+        self,
+        *,
+        viewer_user_id: str,
+        public_person_ref: str,
+        limit: int = 20,
+        cursor: str | None = None,
+    ) -> dict[str, Any]:
+        """List complete outgoing bundle summaries for one viewer and subject."""
+        if not 1 <= limit <= 50:
+            raise ValueError("Request history limit must be between 1 and 50.")
+        position = _parse_history_cursor(cursor, public_person_ref) if cursor is not None else None
+        row = await asyncio.to_thread(self._profile_row, public_person_ref)
+        subject_user_id = str(row.get("user_id") or "")
+        if not subject_user_id or subject_user_id == viewer_user_id:
+            raise PersonProfileNotFoundError("Person profile was not found.")
+
+        params: dict[str, Any] = {
+            "viewer": viewer_user_id,
+            "subject": subject_user_id,
+            "fetch_limit": limit + 1,
+        }
+        history_sql = """
+            SELECT bundle.bundle_id, bundle.purpose, bundle.duration_seconds,
+                   bundle.created_at, bundle.cancelled_at,
+                   (SELECT COUNT(*) FROM one_information_request_items item
+                    WHERE item.bundle_id = bundle.bundle_id) AS item_count
+            FROM one_information_request_bundles bundle
+            WHERE bundle.requester_user_id = :viewer
+              AND bundle.subject_user_id = :subject
+            ORDER BY bundle.created_at DESC, bundle.bundle_id DESC
+            LIMIT :fetch_limit
+        """
+        if position is not None:
+            params["cursor_created_at"], params["cursor_bundle_id"] = position
+            history_sql = """
+                SELECT bundle.bundle_id, bundle.purpose, bundle.duration_seconds,
+                       bundle.created_at, bundle.cancelled_at,
+                       (SELECT COUNT(*) FROM one_information_request_items item
+                        WHERE item.bundle_id = bundle.bundle_id) AS item_count
+                FROM one_information_request_bundles bundle
+                WHERE bundle.requester_user_id = :viewer
+                  AND bundle.subject_user_id = :subject
+                  AND (bundle.created_at, bundle.bundle_id) <
+                    (CAST(:cursor_created_at AS TIMESTAMPTZ), CAST(:cursor_bundle_id AS UUID))
+                ORDER BY bundle.created_at DESC, bundle.bundle_id DESC
+                LIMIT :fetch_limit
+            """
+        rows = await asyncio.to_thread(lambda: get_db().execute_raw(history_sql, params).data or [])
+        page = rows[:limit]
+        next_cursor = (
+            _history_cursor(page[-1]["created_at"], str(page[-1]["bundle_id"]), public_person_ref)
+            if len(rows) > limit
+            else None
+        )
+        return {
+            "bundles": [
+                {
+                    "bundleId": str(item["bundle_id"]),
+                    "purpose": item["purpose"],
+                    "durationSeconds": item["duration_seconds"],
+                    "createdAt": str(item["created_at"]),
+                    "cancelled": item.get("cancelled_at") is not None,
+                    "itemCount": int(item["item_count"]),
+                }
+                for item in page
+            ],
+            "nextCursor": next_cursor,
+        }
+
     def _requestable_scope_entries(
         self, viewer_user_id: str, subject_user_id: str
     ) -> list[dict[str, Any]]:
@@ -307,6 +427,39 @@ class PersonProfileService:
             export_revisions = await self._consent_db.get_active_token_export_revisions(
                 [str(grant.get("token_id") or "") for grant in active]
             )
+            active_request_ids = [
+                str(grant["request_id"]) for grant in active if grant.get("request_id")
+            ]
+            bundle_rows = (
+                await asyncio.to_thread(
+                    lambda: (
+                        get_db()
+                        .execute_raw(
+                            """
+                        SELECT item.request_id, bundle.bundle_id
+                        FROM one_information_request_items item
+                        JOIN one_information_request_bundles bundle
+                          ON bundle.bundle_id = item.bundle_id
+                        WHERE item.request_id = ANY(:request_ids)
+                          AND bundle.requester_user_id = :viewer
+                          AND bundle.subject_user_id = :subject
+                        """,
+                            {
+                                "request_ids": active_request_ids,
+                                "viewer": viewer_user_id,
+                                "subject": subject_user_id,
+                            },
+                        )
+                        .data
+                        or []
+                    )
+                )
+                if active_request_ids
+                else []
+            )
+            bundle_by_request = {
+                str(item["request_id"]): str(item["bundle_id"]) for item in bundle_rows
+            }
             for grant in active:
                 scope_projection = scope_by_name.get(str(grant.get("scope") or ""))
                 token_id = str(grant.get("token_id") or "")
@@ -316,6 +469,7 @@ class PersonProfileService:
                         "label": (scope_projection or {}).get("label") or "Shared information",
                         "domain": (scope_projection or {}).get("domain"),
                         "requestId": grant.get("request_id"),
+                        "bundleId": bundle_by_request.get(str(grant.get("request_id") or "")),
                         "issuedAt": grant.get("issued_at"),
                         "expiresAt": grant.get("expires_at"),
                         "status": "granted",

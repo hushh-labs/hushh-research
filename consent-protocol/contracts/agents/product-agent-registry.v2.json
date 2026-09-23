@@ -3627,9 +3627,22 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "24c1f472ae7e050ed6bc7bf7a58532f089edb0f214a9f0ed19e7ad8c472422a3",
+      "system_instruction_sha256": "4582373bb0c2f56cfe4938d57dc0070eebab9ce78d900a196c3f3e053f41c6fb",
       "telemetry_namespace": "agent.one",
-      "tools": [],
+      "tools": [
+        {
+          "description": "Discover the current official Google Drive MCP read capabilities and exact input schemas in authenticated Chat.",
+          "name": "discover_google_drive_tools",
+          "py_func": "hushh_mcp.one_adk.drive_tools.discover_google_drive_tools",
+          "required_scope": "vault.owner"
+        },
+        {
+          "description": "Read one item from the owner's connected Google Drive through a reviewed MCP operation; no file mutation or sending.",
+          "name": "read_google_drive",
+          "py_func": "hushh_mcp.one_adk.drive_tools.read_google_drive",
+          "required_scope": "vault.owner"
+        }
+      ],
       "ui_type": "chat",
       "version": "0.1.0"
     },
@@ -3939,6 +3952,11 @@
         },
         {
           "description": null,
+          "name": "primary_json_path",
+          "type": "string"
+        },
+        {
+          "description": null,
           "name": "validation_hints",
           "type": "array"
         }
@@ -3985,7 +4003,7 @@
         "voice": false,
         "web": false
       },
-      "system_instruction_sha256": "af8d048bb4938add9dee6f32ff544da77f9fedd8b7c77bc7b03b6db7ab58836e",
+      "system_instruction_sha256": "9bd60df3cd12acccccbc159a024f5803020e7079a8c5fd607e7303fb927f0c29",
       "telemetry_namespace": "agent.unclassified",
       "tools": [],
       "ui_type": "chat",

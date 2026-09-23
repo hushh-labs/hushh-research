@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode, TextareaHTMLAttributes } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   vaultKey: null as string | null,
   vaultOwnerToken: null as string | null,
   getInformationRequest: vi.fn(),
+  getRequestHistory: vi.fn(),
   getPublic: vi.fn(),
   getViewer: vi.fn(),
   push: vi.fn(),
@@ -56,6 +57,7 @@ vi.mock("@/lib/services/person-profile-service", () => ({
     getInformationRequestExports: vi.fn(),
     cancelInformationRequest: vi.fn(),
     getInformationRequest: mocks.getInformationRequest,
+    getRequestHistory: mocks.getRequestHistory,
   },
 }));
 
@@ -63,8 +65,28 @@ vi.mock("@/lib/services/one-kyc-client-zk-service", () => ({
   OneKycClientZkService: {
     decryptScopedExport: vi.fn(),
     ensureConnector: vi.fn(),
+    readStoredConnector: vi.fn(),
   },
 }));
+
+function mockCurrentGrant(requestId: string, bundleId: string, scopeRef = "scope-0") {
+  mocks.getInformationRequest.mockResolvedValue({
+    bundleId, personRef: "actual-public-ref", purpose: "Synthetic review", durationSeconds: 86400,
+    cancelled: false,
+    items: [{ requestId, scopeRef, label: "Synthetic detail", sensitivity: "standard", status: "granted" }],
+  });
+  return {
+    requestId, scopeRef,
+    encryptedExport: {
+      request_id: requestId, scope: "attr.professional.synthetic", export_revision: 1,
+      export_envelope: { version: 2, export_id: "synthetic-export", aad: {
+        version: 2, app_id: "agent_one", grant_id: requestId, export_id: "synthetic-export",
+        revision: 1, machine_scope: "attr.professional.synthetic", payload_algorithm: "AES-256-GCM",
+        expires_at_ms: Date.now() + 3_600_000,
+      } },
+    },
+  };
+}
 
 vi.mock("@/components/app-ui/app-page-shell", () => ({
   AppPageShell: ({ children }: { children: ReactNode }) => <main>{children}</main>,
@@ -189,6 +211,7 @@ describe("PersonProfilePage native profile route", () => {
       verifiedRole: null,
     });
     mocks.getViewer.mockResolvedValue(null);
+    mocks.getRequestHistory.mockRejectedValue(new Error("History service unavailable in legacy fixture"));
     mocks.pathname = "/people/actual-public-ref";
     mocks.native = true;
     mocks.platform = "ios";
@@ -446,6 +469,7 @@ describe("PersonProfilePage request catalog tools", () => {
       verifiedRole: null,
     });
     mocks.getViewer.mockResolvedValue(viewerProfile({ requestableScopes: manyScopes(9) }));
+    mocks.getRequestHistory.mockRejectedValue(new Error("History service unavailable in legacy fixture"));
     mocks.pathname = "/people/actual-public-ref";
     mocks.native = false;
     mocks.platform = "web";
@@ -559,9 +583,9 @@ describe("PersonProfilePage request catalog tools", () => {
     const { PersonProfileService } = await import("@/lib/services/person-profile-service");
     const { OneKycClientZkService } = await import("@/lib/services/one-kyc-client-zk-service");
     const { toast } = await import("sonner");
-    (OneKycClientZkService.ensureConnector as ReturnType<typeof vi.fn>).mockResolvedValue({ connector_key_id: "ck_1" });
+    (OneKycClientZkService.readStoredConnector as ReturnType<typeof vi.fn>).mockResolvedValue({ connector_key_id: "ck_1" });
     (PersonProfileService.getInformationRequestExports as ReturnType<typeof vi.fn>).mockResolvedValue([
-      { requestId: "req-grant", encryptedExport: { sealed: true } },
+      mockCurrentGrant("req-grant", "bundle-grant"),
     ]);
     (OneKycClientZkService.decryptScopedExport as ReturnType<typeof vi.fn>).mockResolvedValue({ city: "Pune" });
     const writeText = vi.fn().mockResolvedValue(undefined);
@@ -604,6 +628,8 @@ describe("PersonProfilePage request catalog tools", () => {
 
       const value = await screen.findByTestId("person-profile-grant-value");
       expect(value).toHaveTextContent("Pune");
+      expect(screen.getByText(/End-to-end encrypted information shared with your account/)).toBeInTheDocument();
+      expect(screen.queryByText("Zero-knowledge verified")).toBeNull();
 
       fireEvent.click(screen.getByRole("button", { name: "Copy" }));
       expect(writeText).toHaveBeenCalledWith(JSON.stringify({ city: "Pune" }, null, 2));
@@ -618,12 +644,37 @@ describe("PersonProfilePage request catalog tools", () => {
     }
   });
 
+  it("does not decrypt a late export after the vault locks", async () => {
+    const { PersonProfileService } = await import("@/lib/services/person-profile-service");
+    const { OneKycClientZkService } = await import("@/lib/services/one-kyc-client-zk-service");
+    mockCurrentGrant("req-late", "bundle-late");
+    (OneKycClientZkService.readStoredConnector as ReturnType<typeof vi.fn>).mockResolvedValue({ connector_key_id: "ck_1" });
+    let resolveExports!: (value: unknown[]) => void;
+    (PersonProfileService.getInformationRequestExports as ReturnType<typeof vi.fn>)
+      .mockReturnValue(new Promise(done => { resolveExports = done; }));
+    mocks.getViewer.mockResolvedValue(viewerProfile({
+      grants: [{
+        bundleId: "bundle-late", scopeRef: "scope-0", label: "Synthetic detail", domain: "Professional",
+        requestId: "req-late", issuedAt: null, expiresAt: null, status: "granted",
+        encryptedExportAvailable: true, exportRevision: 1,
+      }],
+      requestHistory: [],
+    }));
+    const view = render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    await waitFor(() => expect(PersonProfileService.getInformationRequestExports).toHaveBeenCalled());
+    mocks.isVaultUnlocked = false;
+    view.rerender(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    await act(async () => resolveExports([]));
+    expect(OneKycClientZkService.decryptScopedExport).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("person-profile-grant-value")).not.toBeInTheDocument();
+  });
+
   it("unwraps the domain envelope before rendering an encrypted grant", async () => {
     const { PersonProfileService } = await import("@/lib/services/person-profile-service");
     const { OneKycClientZkService } = await import("@/lib/services/one-kyc-client-zk-service");
-    (OneKycClientZkService.ensureConnector as ReturnType<typeof vi.fn>).mockResolvedValue({ connector_key_id: "ck_1" });
+    (OneKycClientZkService.readStoredConnector as ReturnType<typeof vi.fn>).mockResolvedValue({ connector_key_id: "ck_1" });
     (PersonProfileService.getInformationRequestExports as ReturnType<typeof vi.fn>).mockResolvedValue([
-      { requestId: "req-domain", encryptedExport: { sealed: true } },
+      mockCurrentGrant("req-domain", "bundle-domain"),
     ]);
     (OneKycClientZkService.decryptScopedExport as ReturnType<typeof vi.fn>).mockResolvedValue({
       professional: { summary: "Synthetic approved detail" },
@@ -664,12 +715,35 @@ describe("PersonProfilePage request catalog tools", () => {
     );
   });
 
+  it("opens an old active grant from its bound bundle even after recent history is truncated", async () => {
+    const { PersonProfileService } = await import("@/lib/services/person-profile-service");
+    const { OneKycClientZkService } = await import("@/lib/services/one-kyc-client-zk-service");
+    (OneKycClientZkService.readStoredConnector as ReturnType<typeof vi.fn>).mockResolvedValue({ connector_key_id: "ck_1" });
+    (PersonProfileService.getInformationRequestExports as ReturnType<typeof vi.fn>).mockResolvedValue([
+      mockCurrentGrant("req-old", "bundle-old"),
+    ]);
+    (OneKycClientZkService.decryptScopedExport as ReturnType<typeof vi.fn>).mockResolvedValue({
+      professional: { role: "Synthetic reviewer" },
+    });
+    mocks.getViewer.mockResolvedValue(viewerProfile({
+      grants: [{ bundleId: "bundle-old", scopeRef: "scope-0", label: "Professional role", domain: "Professional",
+        requestId: "req-old", issuedAt: null, expiresAt: null, status: "granted", encryptedExportAvailable: true, exportRevision: 1 }],
+      requestHistory: [],
+    }));
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    expect(await screen.findByTestId("person-profile-grant-value")).toHaveTextContent("Synthetic reviewer");
+    expect(PersonProfileService.getInformationRequestExports).toHaveBeenCalledWith({ bundleId: "bundle-old", vaultOwnerToken: "owner-token" });
+    mocks.getViewer.mockResolvedValue(viewerProfile({ grants: [], requestHistory: [] }));
+    act(() => window.dispatchEvent(new Event("consent-state-changed")));
+    await waitFor(() => expect(screen.queryByTestId("person-profile-grant-value")).toBeNull());
+  });
+
   it("keeps nested approved summaries visible in an encrypted grant", async () => {
     const { PersonProfileService } = await import("@/lib/services/person-profile-service");
     const { OneKycClientZkService } = await import("@/lib/services/one-kyc-client-zk-service");
-    (OneKycClientZkService.ensureConnector as ReturnType<typeof vi.fn>).mockResolvedValue({ connector_key_id: "ck_1" });
+    (OneKycClientZkService.readStoredConnector as ReturnType<typeof vi.fn>).mockResolvedValue({ connector_key_id: "ck_1" });
     (PersonProfileService.getInformationRequestExports as ReturnType<typeof vi.fn>).mockResolvedValue([
-      { requestId: "req-nested", encryptedExport: { sealed: true } },
+      mockCurrentGrant("req-nested", "bundle-nested"),
     ]);
     (OneKycClientZkService.decryptScopedExport as ReturnType<typeof vi.fn>).mockResolvedValue({
       professional: { profile: { summary: "Synthetic nested detail" } },
@@ -714,7 +788,8 @@ describe("PersonProfilePage request catalog tools", () => {
     const { PersonProfileService } = await import("@/lib/services/person-profile-service");
     const { OneKycClientZkService } = await import("@/lib/services/one-kyc-client-zk-service");
     const { toast } = await import("sonner");
-    (OneKycClientZkService.ensureConnector as ReturnType<typeof vi.fn>).mockResolvedValue({ connector_key_id: "ck_1" });
+    (OneKycClientZkService.readStoredConnector as ReturnType<typeof vi.fn>).mockResolvedValue({ connector_key_id: "ck_1" });
+    mockCurrentGrant("req-grant-fail", "bundle-grant");
     (PersonProfileService.getInformationRequestExports as ReturnType<typeof vi.fn>).mockRejectedValue(
       new Error("psycopg2.errors.UndefinedColumn: column consent_exports.sealed does not exist"),
     );
@@ -771,7 +846,8 @@ describe("PersonProfilePage request catalog tools", () => {
     };
     mocks.vaultKey = "vault-key";
     mocks.vaultOwnerToken = "owner-token";
-    (OneKycClientZkService.ensureConnector as ReturnType<typeof vi.fn>).mockResolvedValue({ connector_key_id: "ck_1" });
+    (OneKycClientZkService.readStoredConnector as ReturnType<typeof vi.fn>).mockResolvedValue({ connector_key_id: "ck_1" });
+    mockCurrentGrant("req-grant-fail", "bundle-grant");
     (PersonProfileService.getInformationRequestExports as ReturnType<typeof vi.fn>).mockRejectedValue(
       new Error("psycopg2.errors.SerializationFailure: temporary export failure"),
     );
@@ -848,6 +924,86 @@ describe("PersonProfilePage request catalog tools", () => {
     });
     render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
     fireEvent.click(await screen.findByRole("button", { name: "Details for Employment status" }));
-    expect(await screen.findByTestId("person-profile-bundle-details")).toHaveTextContent("Employment status · 1 week");
+    expect(await screen.findByTestId("person-profile-bundle-details")).toHaveTextContent("Employment status (pending) · 1 week");
+  });
+
+  it("groups a multi-field request into one history row with one action", async () => {
+    mocks.getViewer.mockResolvedValue(viewerProfile({
+      requestHistory: Array.from({ length: 12 }, (_, index) => ({
+        bundleId: "bundle-professional",
+        requestId: `request-${index}`,
+        scopeRef: `scope-${index}`,
+        label: `Professional detail ${index + 1}`,
+        sensitivity: "standard",
+        purpose: "Review professional information",
+        durationSeconds: 7 * 24 * 3600,
+        createdAt: null,
+        expiresAt: null,
+        status: "granted",
+      })),
+    }));
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+
+    expect(await screen.findByText("Request for 12 information items")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Details for 12 information items" })).toHaveLength(1);
+    expect(screen.queryByText("Professional detail 2")).toBeNull();
+  });
+
+  it("pages request bundles instead of growing the history indefinitely", async () => {
+    mocks.getViewer.mockResolvedValue(viewerProfile({
+      requestHistory: Array.from({ length: 9 }, (_, index) => ({
+        bundleId: `bundle-${index}`,
+        requestId: `request-${index}`,
+        scopeRef: `scope-${index}`,
+        label: `History item ${index + 1}`,
+        sensitivity: "standard",
+        purpose: "Checking history",
+        durationSeconds: 3600,
+        createdAt: null,
+        expiresAt: null,
+        status: "granted",
+      })),
+    }));
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+
+    expect(await screen.findByText("History item 1")).toBeInTheDocument();
+    expect(screen.queryByText("History item 9")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(screen.getByText("History item 9")).toBeInTheDocument();
+    expect(screen.queryByText("History item 1")).toBeNull();
+  });
+
+  it("uses server bundle pages so a large request is never truncated into smaller history rows", async () => {
+    mocks.getViewer.mockResolvedValue(viewerProfile({ requestHistory: [] }));
+    mocks.getRequestHistory.mockImplementation(async ({ cursor }: { cursor?: string }) => cursor
+      ? { bundles: [{ bundleId: "older", purpose: "Older request", durationSeconds: 3600, createdAt: "2026-09-19T10:00:00+00:00", cancelled: false, itemCount: 2 }], nextCursor: null }
+      : { bundles: [{ bundleId: "large", purpose: "Professional review", durationSeconds: 3600, createdAt: "2026-09-20T10:00:00+00:00", cancelled: false, itemCount: 150 }], nextCursor: "next-page" });
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    expect(await screen.findByText("Request for 150 information items")).toBeInTheDocument();
+    expect(screen.getByText("Check status")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(await screen.findByText("Request for 2 information items")).toBeInTheDocument();
+    expect(screen.queryByText("Request for 150 information items")).toBeNull();
+    expect(mocks.getRequestHistory).toHaveBeenLastCalledWith({
+      personRef: "actual-public-ref", idToken: "id-token", cursor: "next-page", limit: 8,
+    });
+  });
+
+  it("does not display details returned for another person", async () => {
+    const { toast } = await import("sonner");
+    mocks.getViewer.mockResolvedValue(viewerProfile({
+      requestHistory: [{
+        bundleId: "bundle-1", requestId: "request-1", scopeRef: "scope-1",
+        label: "Employment status", sensitivity: "standard", purpose: "Checking references",
+        durationSeconds: 3600, createdAt: null, expiresAt: null, status: "pending",
+      }],
+    }));
+    mocks.getInformationRequest.mockResolvedValue({
+      personRef: "another-person", bundleId: "bundle-1", items: [],
+    });
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Details for Employment status" }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalled());
+    expect(screen.queryByTestId("person-profile-bundle-details")).toBeNull();
   });
 });

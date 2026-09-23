@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  bootRateHz,
   FrameAccumulator,
   frameBudgetMs,
   nominalHz,
@@ -15,6 +16,32 @@ describe("frame-stats", () => {
     expect(nominalHz(29)).toBe(30);
     expect(nominalHz(0)).toBe(60);
     expect(nominalHz(Number.NaN)).toBe(60);
+  });
+
+  it("knows the 80 Hz panel mode", () => {
+    expect(nominalHz(79.6)).toBe(80);
+    expect(nominalHz(85)).toBe(80);
+    expect(nominalHz(88)).toBe(90);
+    expect(frameBudgetMs(80)).toBe(12.5);
+  });
+
+  it("reads the display's rate from the median boot interval, not the mean", () => {
+    // A 120 Hz panel whose boot drops frames: 100 intervals on the 8.33 ms
+    // cadence and 10 of 25 ms (two frames dropped each). The mean reads
+    // ~102 Hz, the S24 Ultra's boot reading, which snapped to 90; the median
+    // stays on the cadence.
+    const intervals = [...Array.from({ length: 100 }, () => 8.33), ...Array.from({ length: 10 }, () => 25)];
+    const mean = (intervals.length / intervals.reduce((a, b) => a + b, 0)) * 1000;
+    expect(nominalHz(mean)).toBe(90);
+    expect(nominalHz(bootRateHz(intervals)!)).toBe(120);
+    // A 60 Hz boot with a 300 ms stall still reads 60.
+    expect(nominalHz(bootRateHz([...Array.from({ length: 40 }, () => 16.7), 300])!)).toBe(60);
+  });
+
+  it("does not trust a boot sample that is too short or empty", () => {
+    expect(bootRateHz([])).toBeNull();
+    expect(bootRateHz([8.3, 8.3, 8.3])).toBeNull();
+    expect(bootRateHz(Array.from({ length: 20 }, () => Number.NaN))).toBeNull();
   });
 
   it("derives the per-frame budget from the nominal rate", () => {

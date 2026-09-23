@@ -31,6 +31,11 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
 2. Investor and RIA route trees enforce actor gates.
 3. Marketplace tabs render expected public-card data.
 4. Consent request/approve/deny/revoke flows complete end-to-end.
+   For person-to-person requests, verify that only the stored bundle requester
+   receives the metadata-only resolution update, and that a matching unlocked
+   Chat card rereads authority before browser-local encrypted readback. Wrong
+   bundle, revoked grant, locked vault, and unavailable export must not reveal
+   values; notification delivery must not become approval or read authority.
 5. Schema-missing compatibility:
    `GET /api/iam/persona` returns investor-safe `200`,
    `/api/ria/*` and `/api/marketplace/*` return `503 IAM_SCHEMA_NOT_READY`.
@@ -85,6 +90,31 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
     during a pending scan still exposes the named results in the Location hub.
 
 ## Security and Privacy Checks
+
+- Google connection completion rejects a different active provider subject before
+  refresh-token reuse; disconnected accounts require fresh credentials. Cached
+  tokens and grants come from one snapshot; refresh writes compare the original
+  credential generation. A declined service permission creates no grant.
+- Atomic provider/grant publication and an attempt-bound generation fence reject
+  stale same-account callbacks after disconnect/reconnect. The opt-in disposable
+  PostgreSQL suite proves competing publication, rollback, both start/disconnect
+  orderings, in-flight cancellation, stale refresh failures and expiry after lock
+  waits. Native owner/state/permission and web PKCE are tested without provider
+  calls. Real provider/native acceptance and remote revoke ordering remain separate.
+- Drive MCP read adapters require the Drive service grant, pin Google's official
+  endpoint, and reject copy/create and unknown tools even when the cumulative
+  Google token has broader privileges. Chat/native authenticated read acceptance
+  remains separate from these source-level checks.
+- Drive connection routes require authenticated owner matching and read-only
+  permissions; native completion requires bound state. Shared browser completion
+  derives service from its consumed attempt. Wrong-service completion consumes
+  the attempt without provider exchange; unexpected diagnostics are sanitized.
+- Google callback UI admits only the server-confirmed service, checks popup
+  service identity, and never infers a timed-out completion from a prior grant.
+  Real transport tests reject unmount, owner switch and A-to-B-to-A before
+  dispatch. Native Drive SDK requests return only a code; callers still need
+  the backend attempt state and current owner authority. Compilation and source
+  contract checks do not establish provider/native acceptance.
 
 1. No private data leakage in public surfaces.
 2. Audit records include actor/scope/duration metadata.

@@ -11,6 +11,11 @@ export function useAuth() {
 export function useVault() {
   return { vaultOwnerToken: "synthetic-owner" };
 }
+export function useRouter() {
+  return {
+    push: (href: string) => window.history.pushState({}, "", href),
+  };
+}
 export const HushhAuth = {
   connectGmail: async () => ({ serverAuthCode: "synthetic-code" }),
 };

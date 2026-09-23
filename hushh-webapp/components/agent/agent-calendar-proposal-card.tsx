@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, CalendarClock } from "lucide-react";
+import { AlertTriangle, CalendarClock } from "@/components/icons";
 
 import { Button } from "@/components/ui/button";
 

@@ -23,7 +23,8 @@
 # Knobs: HUSHH_PERF_REPS (default 3), HUSHH_PERF_TIER (default
 # android-flagship-2024; redacted, never a device name), PERF_OUT_DIR
 # (default tmp/perf/android-<timestamp>), PERF_SKIP_BUILD=1 (reuse the last
-# web export, sync and APK), PERF_SECTION=feed|kai|location|all,
+# web export, sync and APK), PERF_SECTION=feed|kai|location|all|hold (hold: one launch, one unlock, then the app stays
+# unlocked in front for PERF_HOLD_MINUTES, default 20, as one continuous session),
 # PERF_THIRD_PARTY=1 (also flick Threads and X, gfxinfo only), ADB.
 #
 # The passphrase comes from the env resolver (REVIEWER_VAULT_PASSPHRASE) and
@@ -66,8 +67,18 @@ if [[ -z "${ANDROID_SERIAL:-}" ]]; then
   fi
   export ANDROID_SERIAL="${DEVICES[1]}"
 fi
-if [[ "$("$ADB" -s "$ANDROID_SERIAL" get-state 2>/dev/null || true)" != "device" ]]; then
-  echo "Android device $ANDROID_SERIAL is not ready (adb get-state)." >&2
+# A USB link re-enumerates for a second or two now and then (the transport id
+# changes and get-state briefly fails); one failed probe used to end the run.
+ready=0
+for _ in {1..15}; do
+  if [[ "$("$ADB" -s "$ANDROID_SERIAL" get-state 2>/dev/null || true)" == "device" ]]; then
+    ready=1
+    break
+  fi
+  sleep 2
+done
+if [[ "$ready" != "1" ]]; then
+  echo "Android device $ANDROID_SERIAL is not ready after 30 s (adb get-state)." >&2
   exit 1
 fi
 
@@ -160,7 +171,13 @@ fi
 
 # ---- install (replace in place; -d allows a lower versionCode than the phone's) ----
 "$ADB" -s "$ANDROID_SERIAL" shell am force-stop "$BUNDLE_ID" >/dev/null 2>&1 || true
-if ! "$ADB" -s "$ANDROID_SERIAL" install -r -t -d "$APK" > "$OUT_DIR/install.log" 2>&1; then
+# PERF_SKIP_INSTALL=1 keeps what is on the phone: over wireless adb a
+# streamed install of an unchanged APK has hung for minutes at a time, and a
+# killed client can still finish on the phone later and replace the test
+# package under a running instrumentation (seen as a framework NPE).
+if [[ "${PERF_SKIP_INSTALL:-0}" == "1" ]]; then
+  echo "install skipped (PERF_SKIP_INSTALL=1)" > "$OUT_DIR/install.log"
+elif ! "$ADB" -s "$ANDROID_SERIAL" install -r -t -d "$APK" > "$OUT_DIR/install.log" 2>&1; then
   if grep -q "INSTALL_FAILED_UPDATE_INCOMPATIBLE" "$OUT_DIR/install.log" && [[ "${PERF_ALLOW_REINSTALL:-0}" == "1" ]]; then
     "$ADB" -s "$ANDROID_SERIAL" uninstall "$BUNDLE_ID" >> "$OUT_DIR/install.log" 2>&1 || true
     "$ADB" -s "$ANDROID_SERIAL" install -r -t -d "$APK" >> "$OUT_DIR/install.log" 2>&1 || { echo "install failed; see $OUT_DIR/install.log" >&2; exit 1; }
@@ -169,11 +186,18 @@ if ! "$ADB" -s "$ANDROID_SERIAL" install -r -t -d "$APK" > "$OUT_DIR/install.log
     exit 1
   fi
 fi
-if [[ "$ATTACHED" == "1" ]]; then
+if [[ "$ATTACHED" == "1" && "${PERF_SKIP_INSTALL:-0}" != "1" ]]; then
   "$ADB" -s "$ANDROID_SERIAL" install -r -t -d "$TEST_APK" >> "$OUT_DIR/install.log" 2>&1 || { echo "test APK install failed; see $OUT_DIR/install.log" >&2; exit 1; }
 fi
 
 # ---- run ----
+# An instrumentation outlives the adb client that started it: stopping a card
+# on the Mac leaves the test (a 30-minute hold, say) running on the phone, and
+# the next card's instrumentation then tears it down mid-run, which reads as
+# "Process crashed" with a framework NullPointerException in
+# WindowTokenClient. End whatever is left before starting.
+"$ADB" -s "$ANDROID_SERIAL" shell am force-stop "$BUNDLE_ID" >/dev/null 2>&1 || true
+sleep 1
 RUN_START_MS="$(( $(date +%s) * 1000 - 5000 ))"
 "$ADB" -s "$ANDROID_SERIAL" logcat -c >/dev/null 2>&1 || true
 set +e
@@ -186,13 +210,44 @@ if [[ "$ATTACHED" == "1" ]]; then
   "$ADB" -s "$ANDROID_SERIAL" logcat -c >/dev/null 2>&1 || true
   "$ADB" -s "$ANDROID_SERIAL" logcat -v raw -s HUSHH_PERF:I > "$OUT_DIR/logcat.log" 2>&1 &
   LOGCAT_PID=$!
-  # The passphrase is quoted for the device shell by a script, never echoed.
-  "$ADB" -s "$ANDROID_SERIAL" shell am instrument -w -r \
-    -e passphrase "$(python3 -c 'import shlex,sys; print(shlex.quote(sys.argv[1]))' "$REVIEWER_VAULT_PASSPHRASE")" \
-    -e reps "$REPS" -e section "$SECTION" -e thirdParty "${PERF_THIRD_PARTY:-0}" \
-    -e class com.hussh.app.AttachedRenderPerfTest \
-    com.hussh.app.test/androidx.test.runner.AndroidJUnitRunner > "$OUT_DIR/instrument.log" 2>&1
-  TEST_STATUS=$?
+  # The first instrumentation after the app package changes can die in the
+  # framework before our code runs: "Process crashed", a NullPointerException
+  # in WindowTokenClient.onConfigurationChanged, no app frames (seen after
+  # every new install on a Galaxy S24 Ultra, Android 16). A person's first
+  # launch after the same update does not crash, so this is the test process,
+  # not the app. That exact signature gets one retry; anything else fails.
+  # The passphrase never goes on a command line: `am instrument -e` put it in
+  # the argv of processes on both the Mac and the phone, where any process
+  # listing shows it (seen 2026-09-22). It travels over stdin into a
+  # shell-owned, owner-only file; the test reads it through the shell identity
+  # and deletes it at once, and the card deletes it again after the run.
+  # (printf is a shell builtin, so no process on the Mac carries it either.)
+  PASSPHRASE_DEVICE_FILE=/data/local/tmp/hushh-perf-passphrase
+  for attempt in 1 2; do
+    # Written per attempt: a first attempt may already have consumed it.
+    printf '%s' "$REVIEWER_VAULT_PASSPHRASE" \
+      | "$ADB" -s "$ANDROID_SERIAL" shell "umask 077; cat > $PASSPHRASE_DEVICE_FILE"
+    # Only the file's path is on the command line (see PASSPHRASE_DEVICE_FILE).
+    "$ADB" -s "$ANDROID_SERIAL" shell am instrument -w -r \
+      -e passphraseFile "$PASSPHRASE_DEVICE_FILE" \
+      -e reps "$REPS" -e section "$SECTION" -e thirdParty "${PERF_THIRD_PARTY:-0}" \
+      -e holdMinutes "${PERF_HOLD_MINUTES:-20}" \
+      -e class com.hussh.app.AttachedRenderPerfTest \
+      com.hussh.app.test/androidx.test.runner.AndroidJUnitRunner > "$OUT_DIR/instrument.log" 2>&1
+    TEST_STATUS=$?
+    if [[ "$attempt" == "1" ]] \
+      && grep -q "shortMsg=Process crashed" "$OUT_DIR/instrument.log" \
+      && grep -q "WindowTokenClient.onConfigurationChanged" "$OUT_DIR/instrument.log" \
+      && ! grep -q "at com.hussh.app" "$OUT_DIR/instrument.log"; then
+      mv "$OUT_DIR/instrument.log" "$OUT_DIR/instrument-attempt1.log"
+      echo "instrumentation died in the framework before the test ran (WindowTokenClient NPE); retrying once"
+      "$ADB" -s "$ANDROID_SERIAL" shell am force-stop "$BUNDLE_ID" >/dev/null 2>&1 || true
+      sleep 2
+      continue
+    fi
+    break
+  done
+  "$ADB" -s "$ANDROID_SERIAL" shell rm -f "$PASSPHRASE_DEVICE_FILE" >/dev/null 2>&1 || true
   sleep 1
   kill "$LOGCAT_PID" 2>/dev/null || true
   # The phone's own log buffer keeps every line the test logged; clear it.

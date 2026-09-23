@@ -1,5 +1,11 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <!-- Plaid's Link SDK declares a higher minSdk than the app. The app keeps
+         installing on API 24; HushhPlaidLinkPlugin reports unavailable below
+         API 26 (Plaid's documented minimum) and never touches the SDK there,
+         so the page falls back to web Link on those devices. -->
+    <uses-sdk tools:overrideLibrary="com.plaid.link" />
     <queries>
         <intent>
             <action android:name="android.intent.action.SENDTO" />

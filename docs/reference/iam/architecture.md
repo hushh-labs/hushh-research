@@ -95,8 +95,60 @@ A single authenticated account may hold both `investor` and `ria` personas. Runt
    request-accepted and contact-sync relationships are evaluated identically by
    owner-configured relationship rules. A connection alone grants no private
    information or live-location capability.
+7. A resolved person-to-person information request emits a requester-bound,
+   metadata-only update after the owner's consent event. The requester is
+   resolved from the stored bundle and exact request item, never from the
+   notification payload. Chat may use this update to reread current status and
+   open an approved encrypted export in the unlocked browser; the update itself
+   contains no shared values and grants no read authority. A silent push or SSE
+   delivery is best effort, so revisit still rechecks the authoritative bundle.
 
 ## Ecosystem Contract Mapping
+
+### Google provider account binding
+
+The shared Google connection owns one verified provider subject per Hussh owner.
+OAuth completion verifies that subject before reusing a refresh token. While a
+connection remains active or needs reauthorization, selecting another Google
+account fails closed; disconnect its services before changing accounts. A
+disconnected connection requires a fresh refresh token. Cached-token admission
+reads the provider credential and service grant in one SQL snapshot. Refresh
+writes compare the original credential and subject plus the current service
+grant. These checks do not make OAuth permission a consent grant.
+
+Web and native connection starts capture a generation inside the encrypted
+attempt under the same owner transaction lock used by disconnect. Publication
+rechecks that generation, the claimed attempt and its current expiry, then writes
+provider credentials, the service grant and terminal attempt expiry atomically.
+Every authorization encrypts a fresh refresh envelope; normal access-token
+refresh does not change that generation. Disconnect expires even consumed,
+in-flight attempts for the selected service while preserving sibling grants.
+Late refresh failures cannot mark a newer authorization as needing reconnection.
+Attempt creation and expiry use wall-clock time after lock acquisition, not a
+transaction-start timestamp that may predate a wait.
+
+Native start returns an owner-bound opaque `state`, carried in memory to native
+completion. Matching frontend/backend versions are required; missing state,
+legacy unversioned attempts and web/native interchange fail closed and require a
+fresh connection attempt. Provider calls occur outside database locks. The
+existing last-service Google revoke remains best effort and may race a fresh
+provider grant; local transaction tests do not prove provider-side ordering.
+
+The source-level Drive MCP adapter uses this same credential owner and a
+`drive.readonly` service grant. Because Google tokens may accumulate permissions,
+the adapter additionally admits only six explicitly named read tools at Google's
+fixed MCP endpoint. Copy/create and unknown tools fail before credential retrieval
+or dispatch. Owner-authenticated Drive connection routes use this existing
+credential owner, forbid broader permissions, and expose no file access.
+Shared web completion returns the service from the stored attempt, not browser
+metadata; wrong-service callbacks require a restart. The six reviewed read
+tools are wired to One's authenticated typed Chat roster, but live provider
+and native-device acceptance remain unverified; source wiring alone does not
+establish end-to-end availability.
+Onward sharing and private-agent delegation still require their existing separate
+authorities. Provider file content is untrusted information, not instructions.
+
+### Runtime mapping
 
 1. Agents: consume only consent-approved data slices.
 2. Operons: perform business logic only after scope check in calling path.

@@ -111,6 +111,8 @@ export default function TrustedDevicesPage() {
       <AppPageHeaderRegion>
         <PageHeader
           title="Trusted devices"
+          // The pane's top bar already names this screen; one title per screen.
+          titleVisuallyHidden
           description="Computers connected as an extension of your private agent."
           accent="neutral"
         />

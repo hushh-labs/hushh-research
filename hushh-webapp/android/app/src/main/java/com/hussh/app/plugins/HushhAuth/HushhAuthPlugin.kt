@@ -66,6 +66,7 @@ class HushhAuthPlugin : Plugin() {
     private var pendingCall: PluginCall? = null
     private var pendingGmailConnectCall: PluginCall? = null
     private var pendingCalendarConnectCall: PluginCall? = null
+    private var pendingDriveConnectCall: PluginCall? = null
     private lateinit var signInLauncher: ActivityResultLauncher<Intent>
     private lateinit var gmailConnectLauncher: ActivityResultLauncher<Intent>
     private lateinit var calendarConnectLauncher: ActivityResultLauncher<Intent>

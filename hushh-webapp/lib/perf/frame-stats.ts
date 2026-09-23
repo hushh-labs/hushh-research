@@ -80,7 +80,9 @@ export class FrameAccumulator {
   }
 }
 
-const NOMINAL_RATES = [30, 60, 90, 120] as const;
+// 80 is a real panel mode (the Galaxy S24 Ultra offers 120/80/60); without
+// it an 80 Hz reading snapped to 90 and judged frames against 11.1 ms.
+const NOMINAL_RATES = [30, 60, 80, 90, 120] as const;
 export type NominalHz = (typeof NOMINAL_RATES)[number];
 
 /** Snap a measured requestAnimationFrame rate to the display rate it is running at. */
@@ -96,6 +98,24 @@ export function nominalHz(rawHz: number): NominalHz {
     }
   }
   return best;
+}
+
+/**
+ * The display's rate from the frame intervals seen at boot: 1000 / median.
+ * The mean (frames over elapsed time) is what boot work drags down, since
+ * every dropped frame lengthens the elapsed time; a phone with a 120 Hz
+ * panel read 102 that way and got a 90 Hz budget. A dropped frame is one
+ * long interval among many on the display's cadence, so the median stays
+ * put until half the frames drop. Null with too few intervals to trust.
+ */
+export function bootRateHz(intervalsMs: readonly number[]): number | null {
+  const usable = intervalsMs.filter((v) => Number.isFinite(v) && v > 0);
+  if (usable.length < 10) return null;
+  const sorted = [...usable].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  const upper = sorted[mid] ?? 0;
+  const median = sorted.length % 2 ? upper : ((sorted[mid - 1] ?? upper) + upper) / 2;
+  return 1000 / median;
 }
 
 export function frameBudgetMs(hz: NominalHz): number {

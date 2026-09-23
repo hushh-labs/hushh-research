@@ -28,6 +28,7 @@ import json
 import time
 import uuid
 from dataclasses import dataclass, field
+from types import SimpleNamespace
 from typing import Any
 
 import httpx
@@ -184,6 +185,13 @@ class _Ledger(_FakeConsentDBService):
             return None
         latest = max(rows, key=lambda event: event["issued_at"])
         return {**latest, "bundle_id": (latest.get("metadata") or {}).get("bundle_id")}
+
+    async def get_request_statuses(self, user_id: str, request_ids: list[str]):
+        return {
+            request_id: status
+            for request_id in request_ids
+            if (status := await self.get_request_status(user_id, request_id)) is not None
+        }
 
     async def get_audit_log(self, user_id, page=1, limit=50, *, user_ids=None):
         result = await super().get_audit_log(user_id, page=page, limit=limit, user_ids=user_ids)
@@ -396,6 +404,26 @@ def world(monkeypatch: pytest.MonkeyPatch) -> _World:
     monkeypatch.setattr(consent_center_service, "ActorIdentityService", _Identity)
     monkeypatch.setattr(consent_center_service, "RIAIAMService", _NoOpRIAIAMService)
     monkeypatch.setattr(consent_center_service, "ConnectionsService", _Connections)
+
+    class _OwnerBundleDb:
+        def execute_raw(self, sql: str, params: dict[str, Any]):
+            assert "bundle.subject_user_id = :owner" in sql
+            bundle_ids = set(json.loads(params["bundle_ids"]))
+            rows = [
+                {
+                    "bundle_id": bundle_id,
+                    "requester_principal": bundle["requester_principal"],
+                    "request_id": item["request_id"],
+                    "scope": item["scope"],
+                    "label": item["label"],
+                }
+                for bundle_id, bundle in built.bundles.items()
+                if bundle_id in bundle_ids and bundle["subject_user_id"] == params["owner"]
+                for item in built.items[bundle_id]
+            ]
+            return SimpleNamespace(data=rows)
+
+    monkeypatch.setattr(consent_center_service, "get_db", lambda: _OwnerBundleDb())
     monkeypatch.setenv("ONE_LOCATION_CONSENT_CENTER_ENABLED", "0")
     monkeypatch.setenv("MARKETPLACE_CONSENT_CENTER_ENABLED", "0")
     monkeypatch.setattr(information_requests, "_service", lambda: _RequestService(built))
@@ -664,25 +692,139 @@ async def test_request_creates_pending_for_owner_and_replay_is_idempotent(client
 
     # The owner's pending surface names the person, never the storage scope.
     pending = await _owner_center(client, "pending")
-    assert len(pending) == 2
-    for entry in pending:
-        assert entry["status"] == "pending"
-        assert entry["counterpart_type"] == "person"
-        assert entry["counterpart_label"] == REQUESTER_LABEL
-        assert entry["reason"] == PURPOSE
-        assert entry["metadata"]["bundle_id"] == created["bundleId"]
-        for shown in (entry["counterpart_label"], entry["scope_description"], entry["reason"]):
-            assert "attr." not in str(shown)
-    assert {entry["scope_description"] for entry in pending} == {
+    assert len(pending) == 1
+    group = pending[0]
+    assert group["bundle_id"] == created["bundleId"]
+    assert group["bundle_complete"] is True
+    assert group["action"] is None
+    assert group["request_id"] is None
+    assert group["request_url"] is None
+    assert group["allowed_next_action"] is None
+    assert group["counterpart_label"] == REQUESTER_LABEL
+    assert group["reason"] == PURPOSE
+    assert [item["status"] for item in group["bundle_items"]] == ["pending", "pending"]
+    assert {item["entry"]["scope_description"] for item in group["bundle_items"]} == {
         "Name used on official records",
         "Current job title",
     }
+    assert "attr." not in group["scope_description"]
 
     # The projection the private agent reads aloud carries no scope at all.
     spoken = await ConsentLifecycleService(consent_db=world.ledger).list_pending_incoming(OWNER)
-    assert len(spoken) == 2
+    assert len(spoken) == 1
     assert {row["requesterLabel"] for row in spoken} == {REQUESTER_LABEL}
     assert "attr." not in json.dumps(spoken)
+
+
+@pytest.mark.asyncio
+async def test_twelve_item_bundle_pages_as_one_review_with_mixed_item_states(
+    client, world, monkeypatch: pytest.MonkeyPatch
+):
+    extra_refs = [f"psr_professional_{index}" for index in range(10)]
+    for index, ref in enumerate(extra_refs):
+        monkeypatch.setitem(
+            _CATALOGUE,
+            ref,
+            {
+                "scopeRef": ref,
+                "scope": f"attr.professional.detail_{index}",
+                "label": f"Professional detail {index + 1}",
+                "description": f"Professional detail {index + 1}",
+                "sensitivity": "standard",
+            },
+        )
+    created = await _create_request(
+        client,
+        scope_refs=["psr_legal_name", "psr_job_title", *extra_refs],
+        duration_hours=24,
+        idempotency_key="professional-review-twelve-items",
+    )
+    assert len(_events(world, "REQUESTED")) == 12
+    request_ids = [item["requestId"] for item in created["items"]]
+    approved = await _approve(
+        client,
+        world,
+        request_ids[0],
+        plaintext={"identity": {"legal_name": "Alex Morgan"}},
+        duration_hours=24,
+    )
+    assert approved.status_code == 200
+    assert (await _deny(client, request_ids[1]))["status"] == "denied"
+
+    _acting_user.set(OWNER)
+    response = await client.get(
+        "/api/consent/center/list", params={"surface": "pending", "limit": 1}
+    )
+    assert response.status_code == 200, response.text
+    page = response.json()
+    assert page["total"] == 1
+    assert page["has_more"] is False
+    assert len(page["items"]) == 1
+    group = page["items"][0]
+    assert group["bundle_id"] == created["bundleId"]
+    assert group["bundle_complete"] is True
+    assert len(group["bundle_items"]) == 12
+    assert [item["status"] for item in group["bundle_items"][:3]] == [
+        "granted",
+        "denied",
+        "pending",
+    ]
+    assert group["bundle_items"][0]["entry"] is None
+    assert group["bundle_items"][1]["entry"] is None
+    assert group["bundle_items"][2]["entry"]["request_id"] == request_ids[2]
+    matching = await client.get(
+        "/api/consent/center/list",
+        params={"surface": "pending", "query": "Professional detail 10", "limit": 1},
+    )
+    assert matching.status_code == 200
+    assert matching.json()["total"] == 1
+    assert matching.json()["items"][0]["bundle_id"] == created["bundleId"]
+    second_page = await client.get(
+        "/api/consent/center/list", params={"surface": "pending", "page": 2, "limit": 1}
+    )
+    assert second_page.json()["total"] == 1
+    assert second_page.json()["items"] == []
+    summary = await client.get("/api/consent/center/summary")
+    assert summary.status_code == 200, summary.text
+    assert summary.json()["counts"]["pending"] == 1
+    monkeypatch.setenv("CONSENT_CENTER_SUMMARY_V2_ENABLED", "0")
+    legacy_summary = await client.get("/api/consent/center/summary")
+    assert legacy_summary.status_code == 200
+    assert legacy_summary.json()["counts"]["pending"] == 1
+
+    _acting_user.set(REQUESTER)
+    other_owner = await client.get(
+        "/api/consent/center/list", params={"surface": "pending", "limit": 1}
+    )
+    assert other_owner.status_code == 200
+    assert all(item.get("bundle_id") != created["bundleId"] for item in other_owner.json()["items"])
+
+
+@pytest.mark.asyncio
+async def test_incomplete_bundle_projection_blocks_item_review(client, world):
+    created = await _create_request(
+        client,
+        scope_refs=["psr_legal_name", "psr_job_title"],
+        duration_hours=24,
+        idempotency_key="partially-written-owner-bundle",
+    )
+    missing_request_id = created["items"][1]["requestId"]
+    world.ledger.events = [
+        event for event in world.ledger.events if event.get("request_id") != missing_request_id
+    ]
+
+    _acting_user.set(OWNER)
+    response = await client.get("/api/consent/center/list", params={"surface": "pending"})
+    assert response.status_code == 200, response.text
+    group = response.json()["items"][0]
+    assert group["bundle_id"] == created["bundleId"]
+    assert group["bundle_complete"] is False
+    assert group["status"] == "preparing"
+    assert [item["status"] for item in group["bundle_items"]] == [
+        "pending",
+        "unavailable",
+    ]
+    assert all(item["entry"] is None for item in group["bundle_items"])
 
 
 @pytest.mark.asyncio
@@ -944,7 +1086,7 @@ async def test_requester_cancel_records_cancelled_and_empties_the_owner_queue(cl
     )
     bundle_id = created["bundleId"]
     request_ids = [item["requestId"] for item in created["items"]]
-    assert len(await _owner_center(client, "pending")) == 2
+    assert len(await _owner_center(client, "pending")) == 1
 
     cancelled = await _cancel(client, bundle_id)
     assert cancelled["cancelled"] is True
@@ -1056,7 +1198,9 @@ async def test_audit_trail_shows_every_decision_to_the_owner(client, world):
 
     # The still-open request is the only thing waiting on the owner.
     pending = await _owner_center(client, "pending")
-    assert [entry["request_id"] for entry in pending] == [waiting_id]
+    assert [item["request_id"] for entry in pending for item in entry["bundle_items"]] == [
+        waiting_id
+    ]
 
     # The handshake timeline with this requester tells the same story.
     _acting_user.set(OWNER)

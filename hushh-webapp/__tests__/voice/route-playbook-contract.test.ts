@@ -19,14 +19,18 @@ describe("One route voice playbooks", () => {
 
     expect(authoredRoutes).toEqual(physicalRoutes);
     expect(new Set(authoredRoutes).size).toBe(authoredRoutes.length);
+    const screenMismatches: string[] = [];
     for (const entry of APP_ROUTE_LAYOUT_CONTRACT) {
       expect(entry.voicePlaybook.playbookId).toMatch(/^route\./);
       expect(entry.voicePlaybook.purpose.length).toBeGreaterThan(0);
-      expect(entry.voicePlaybook.screen).toBe(
-        deriveVoiceRouteScreen(entry.route, undefined, {
-          authenticated: true,
-        }).screen,
-      );
+      const derivedScreen = deriveVoiceRouteScreen(entry.route, undefined, {
+        authenticated: true,
+      }).screen;
+      if (entry.voicePlaybook.screen !== derivedScreen) {
+        screenMismatches.push(
+          `${entry.route}: authored=${entry.voicePlaybook.screen} derived=${derivedScreen}`,
+        );
+      }
       expect(entry.voicePlaybook.completionBoundary.length).toBeGreaterThan(0);
       expect(Array.isArray(entry.interactionLayerPolicy.allowedFamilies)).toBe(true);
       if (entry.voicePlaybook.proactivity === "on_entry") {
@@ -34,6 +38,7 @@ describe("One route voice playbooks", () => {
         expect(entry.voicePlaybook.primaryActionId).toBeTruthy();
       }
     }
+    expect(screenMismatches).toEqual([]);
     expect(resolveAppRouteLayout("/login").interactionLayerPolicy.allowedFamilies).toEqual([
       "legal_document",
     ]);

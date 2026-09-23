@@ -1080,7 +1080,12 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                   }}
                 >
                   {topShellBreadcrumb && !topShellBreadcrumb.hideBack ? (
-                    <div className="pointer-events-auto flex h-11 w-11 items-center justify-center">
+                    // The arrow's glyph sits on the content column (16 px),
+                    // where the page title and every card below start; the
+                    // 44 px target reaches toward the screen edge. Centred in
+                    // its box it read 30 px in, while the avatar opposite
+                    // sits at 16 (Galaxy S24 Ultra, 2026-09-22).
+                    <div className="pointer-events-auto -ml-3.5 flex h-11 w-11 items-center justify-center">
                       <ShellActionSurface
                         variant="icon"
                         aria-label={topShellBreadcrumb.backLabel ?? "Go back"}

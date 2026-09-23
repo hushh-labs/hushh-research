@@ -21,6 +21,7 @@ import {
   FrameAccumulator,
   frameBudgetMs,
   nominalHz,
+  bootRateHz,
   type FrameWindowStats,
   type NominalHz,
 } from "./frame-stats";
@@ -261,7 +262,8 @@ export type ProbeExport = {
   device_memory_gb: number | null;
   reduced_motion: boolean;
   supported_entry_types: string[];
-  raf_hz: { raw: number; nominal: NominalHz; budget_ms: number; samples: number };
+  /** raw: 1000 / median boot interval (the display's cadence); mean: frames / elapsed, kept for comparison. */
+  raf_hz: { raw: number; mean?: number; nominal: NominalHz; budget_ms: number; samples: number };
   hud: boolean;
   windows: ProbeWindowReport[];
   idle_by_route: Array<FrameWindowStats & { route: string; duration_ms: number; commits: CommitSummary }>;
@@ -382,10 +384,12 @@ export function startFramePacingProbe(options: { hud: boolean; experiments?: str
   let routeVariant = normalizeVariant(window.location.search);
   let scenario: string | null = null;
   let budgetMs = frameBudgetMs(60);
-  let rafHz = { raw: 0, nominal: 60 as NominalHz, budget_ms: budgetMs, samples: 0 };
+  let rafHz = { raw: 0, mean: 0, nominal: 60 as NominalHz, budget_ms: budgetMs, samples: 0 };
   let booting = true;
   let bootFrames = 0;
   let bootStart = 0;
+  let bootLast = 0;
+  const bootIntervals: number[] = [];
 
   let current: ProbeWindow | null = null;
   let nextWindowId = 1;
@@ -541,13 +545,17 @@ export function startFramePacingProbe(options: { hud: boolean; experiments?: str
     if (booting) {
       if (bootStart === 0) {
         bootStart = now;
+        bootLast = now;
       } else {
         bootFrames += 1;
+        bootIntervals.push(now - bootLast);
+        bootLast = now;
         if (now - bootStart >= BOOT_PROBE_MS) {
-          const raw = (bootFrames / (now - bootStart)) * 1000;
+          const mean = (bootFrames / (now - bootStart)) * 1000;
+          const raw = bootRateHz(bootIntervals) ?? mean;
           const nominal = nominalHz(raw);
           budgetMs = frameBudgetMs(nominal);
-          rafHz = { raw: round(raw), nominal, budget_ms: budgetMs, samples: bootFrames };
+          rafHz = { raw: round(raw), mean: round(mean), nominal, budget_ms: budgetMs, samples: bootFrames };
           booting = false;
           updateStatus();
         }

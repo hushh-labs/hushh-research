@@ -32,6 +32,13 @@ export type PathDescriptor = {
   source_agent?: string | null;
 };
 
+export class PkmMetadataReviewRequired extends Error {
+  constructor() {
+    super("Memory metadata needs review before saving.");
+    this.name = "PkmMetadataReviewRequired";
+  }
+}
+
 export type StructureDecision = {
   action: "match_existing_domain" | "create_domain" | "extend_domain";
   target_domain: string;
@@ -193,6 +200,26 @@ const BLOCKED_EXTERNAL_PATH_PARTS = new Set([
   "workflow_state",
 ]);
 
+/**
+ * The sealed Plaid tiers (see `lib/kai/plaid-vault/types.ts`). Private to the
+ * owner, never offered for sharing (the shareable tier is `summary`), so the
+ * manifest declares each as one opaque node and does not walk inside it.
+ *
+ * Walked field by field they grew with the records: one bank's 264
+ * transactions declared 3,349 paths, and even collapsed they cost ~190 of the
+ * 1000 `json_paths` a domain may declare. A real account already spent 821 on
+ * statements and the older Plaid copy, so the sealed connect write died with a
+ * 422 (iPhone proof, run 13). Nothing reads a path below these roots.
+ */
+const VAULT_PRIVATE_BRANCHES = new Set([
+  "connections_v1",
+  "accounts_v1",
+  "holdings_v1",
+  "securities_v1",
+  "transactions_v1",
+  "derived_v1",
+]);
+
 /** Segments the walk invents; they were never keys the owner wrote. */
 const SYNTHETIC_SEGMENTS = new Set(["_items", ENTITY_COLLECTION_SEGMENT]);
 
@@ -202,6 +229,7 @@ function isExternalizablePath(
   value: unknown,
 ): boolean {
   if (pathType !== "leaf") return false;
+  if (VAULT_PRIVATE_BRANCHES.has(path.split(".")[0] ?? "")) return false;
 
   // A value nobody ever set is not information about anybody.
   //
@@ -284,7 +312,10 @@ function walkValue(
    * which is why the label has to be authored here and not at any of the five
    * places downstream that used to try.
    */
-  displayPath: string[]
+  displayPath: string[],
+  metadataPaths?: Map<string, { path: string; defaultLabel: string }>,
+  concretePath: string[] = path,
+  concreteDisplayPath: string[] = displayPath
 ): void {
   if (value === undefined) {
     return;
@@ -292,6 +323,9 @@ function walkValue(
 
   const pathKey = joinPath(path);
   if (pathKey) {
+    metadataPaths?.set(joinPath(concretePath), {
+      path: pathKey, defaultLabel: titleizePath(joinPath(concreteDisplayPath)),
+    });
     const rawSegment = displayPath[displayPath.length - 1] ?? "";
     const isArray = Array.isArray(value);
     const isObject =
@@ -347,10 +381,14 @@ function walkValue(
     }
   }
 
+  if (path.length === 1 && VAULT_PRIVATE_BRANCHES.has(path[0] ?? "")) {
+    return;
+  }
+
   if (Array.isArray(value)) {
     for (const item of value) {
       if (item !== undefined) {
-        walkValue(item, [...path, "_items"], descriptors, [...displayPath, "_items"]);
+        walkValue(item, [...path, "_items"], descriptors, [...displayPath, "_items"], metadataPaths, [...concretePath, "_items"], [...concreteDisplayPath, "_items"]);
       }
     }
     return;
@@ -382,14 +420,14 @@ function walkValue(
       if (isAnalysisHistoryMap && !Array.isArray(childValue)) {
         const normalizedKey = normalizePathSegment(rawKey);
         if (normalizedKey) {
-          walkValue(childValue, [...path, normalizedKey], descriptors, [...displayPath, rawKey]);
+          walkValue(childValue, [...path, normalizedKey], descriptors, [...displayPath, rawKey], metadataPaths, [...concretePath, normalizedKey], [...concreteDisplayPath, rawKey]);
         }
         continue;
       }
       walkValue(childValue, [...path, ENTITY_COLLECTION_SEGMENT], descriptors, [
         ...displayPath,
         ENTITY_COLLECTION_SEGMENT,
-      ]);
+      ], metadataPaths, [...concretePath, normalizePathSegment(rawKey)], [...concreteDisplayPath, rawKey]);
     }
     return;
   }
@@ -399,7 +437,7 @@ function walkValue(
       continue;
     }
     // rawKey, not normalizedKey: this is the moment the spelling still exists.
-    walkValue(childValue, [...path, normalizedKey], descriptors, [...displayPath, rawKey]);
+    walkValue(childValue, [...path, normalizedKey], descriptors, [...displayPath, rawKey], metadataPaths, [...concretePath, normalizedKey], [...concreteDisplayPath, rawKey]);
   }
 }
 
@@ -407,13 +445,77 @@ export function buildPersonalKnowledgeModelStructureArtifacts(params: {
   domain: string;
   domainData: Record<string, unknown>;
   previousManifest?: DomainManifest | null;
+  /** Oldest first; metadata only, never path/exposure authority. */
+  semanticManifests?: DomainManifest[];
+  semanticDecision?: Record<string, unknown>;
 }): {
   structureDecision: StructureDecision;
   manifest: DomainManifest;
 } {
   const normalizedDomain = normalizePathSegment(params.domain) || "general";
   const descriptors = new Map<string, PathDescriptor>();
-  walkValue(params.domainData, [], descriptors, []);
+  const metadataPaths = new Map<string, { path: string; defaultLabel: string }>();
+  walkValue(params.domainData, [], descriptors, [], metadataPaths);
+
+  const resolveMetadataPath = (path: string) => descriptors.get(path)
+    ?? descriptors.get(metadataPaths.get(path)?.path || "");
+  // Apply revisions at the source path before combining collection members.
+  const sensitivityBySource = new Map<string, { target: PathDescriptor; label: string }>();
+  const applyMetadata = (
+    target: PathDescriptor, field: "consent_label" | "sensitivity_label",
+    value: unknown, seen: Map<string, string>,
+  ) => {
+    if (typeof value !== "string" || !value.trim()) return;
+    const key = `${target.json_path}:${field}`;
+    const label = value.trim();
+    if (seen.has(key) && seen.get(key) !== label) {
+      // Different entity assessments cannot be represented by one collection
+      // label. Preserve the draft for review instead of selecting the last one.
+      throw new PkmMetadataReviewRequired();
+    }
+    seen.set(key, label);
+    target[field] = label;
+  };
+
+  for (const manifest of params.semanticManifests || []) {
+    if (manifest.domain !== normalizedDomain) continue;
+    const seen = new Map<string, string>();
+    for (const source of manifest.paths) {
+      const target = resolveMetadataPath(source.json_path);
+      if (!target || target.path_type !== source.path_type) continue;
+      for (const field of ["consent_label", "sensitivity_label"] as const) {
+        const value = source[field];
+        if (field === "consent_label" && target.json_path !== source.json_path
+          && typeof value === "string" && value.trim()) {
+          if (value.trim() !== metadataPaths.get(source.json_path)?.defaultLabel) {
+            throw new PkmMetadataReviewRequired();
+          }
+          // A concrete default title is not a collection label. Preserve the
+          // canonical collection title without publishing an entity identifier.
+          continue;
+        }
+        if (field === "sensitivity_label") {
+          if (typeof value === "string" && value.trim()) {
+            sensitivityBySource.set(source.json_path, { target, label: value.trim() });
+          }
+        } else applyMetadata(target, field, value, seen);
+      }
+    }
+  }
+  const decision = params.semanticDecision;
+  const labels = decision?.target_domain === normalizedDomain ? decision.sensitivity_labels : null;
+  if (labels && typeof labels === "object" && !Array.isArray(labels)) {
+    for (const [path, label] of Object.entries(labels)) {
+      const target = resolveMetadataPath(path);
+      if (target && typeof label === "string" && label.trim()) {
+        sensitivityBySource.set(path, { target, label: label.trim() });
+      }
+    }
+  }
+  const sensitivitySeen = new Map<string, string>();
+  for (const { target, label } of sensitivityBySource.values()) {
+    applyMetadata(target, "sensitivity_label", label, sensitivitySeen);
+  }
 
   const paths = [...descriptors.values()].sort((a, b) =>
     a.json_path.localeCompare(b.json_path)

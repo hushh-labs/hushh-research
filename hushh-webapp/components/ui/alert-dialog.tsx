@@ -58,7 +58,7 @@ function AlertDialogOverlay({
       data-slot="alert-dialog-overlay"
       className={cn(
         // Blur/scrim rides the Radix overlay lifecycle so it fades OUT on close.
-        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 duration-150 ease-out fixed inset-0 z-(--z-dialog-overlay) bg-black/24 backdrop-blur-[12px] [-webkit-backdrop-filter:blur(12px)]",
+        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 duration-150 ease-out fixed inset-0 z-(--z-dialog-overlay) bg-[color:var(--app-scrim-color)] [backdrop-filter:var(--app-scrim-filter)] [-webkit-backdrop-filter:var(--app-scrim-filter)]",
         className
       )}
       {...props}

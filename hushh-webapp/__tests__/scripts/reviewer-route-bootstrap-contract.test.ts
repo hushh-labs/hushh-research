@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
+import { shouldRetryReviewerBootstrap } from "../../../.codex/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs";
 
 const scripts = [
   "../../scripts/testing/verify-signed-in-routes.mjs",
@@ -9,6 +10,10 @@ const scripts = [
 ];
 
 describe("reviewer route bootstrap contract", () => {
+  it("does not repeat a terminal reviewer authentication or vault failure", () => {
+    expect(shouldRetryReviewerBootstrap({ code: "REVIEWER_TERMINAL_BOOTSTRAP" })).toBe(false);
+    expect(shouldRetryReviewerBootstrap({ code: "TRANSIENT_NAVIGATION_ERROR" })).toBe(true);
+  });
   it.each(scripts)(
     "uses the owning route's bootstrap contract in %s",
     (relativePath) => {

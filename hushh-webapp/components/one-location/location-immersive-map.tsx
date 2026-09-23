@@ -113,6 +113,7 @@ import type {
 } from "@/lib/one-location/types";
 import { getPlatform, isNative } from "@/lib/capacitor/platform";
 import { ROUTES } from "@/lib/navigation/routes";
+import { pushAndroidBackHandler } from "@/lib/navigation/android-back";
 import {
   isLocationMapDemoAvailable,
   isLocationMapDemoEnabled,
@@ -2748,21 +2749,17 @@ export function LocationImmersiveMap({
     }, 1_200);
   }, [router]);
 
+  // Back goes through the app-wide owner (lib/navigation/android-back.ts),
+  // which closes an open sheet first; this screen only claims what is left.
   useEffect(() => {
     if (!isNative() || getPlatform() !== "android") return;
-    let listener: { remove: () => Promise<void> } | undefined;
-    void CapacitorApp.addListener("backButton", () => {
+    return pushAndroidBackHandler(() => {
       if (nearbyCheckInOpen) {
         closeNearbyCheckIn();
         return;
       }
       closeMap();
-    }).then((handle) => {
-      listener = handle;
     });
-    return () => {
-      void listener?.remove();
-    };
   }, [closeMap, closeNearbyCheckIn, nearbyCheckInOpen]);
 
   const toggleDemoPeople = useCallback(() => {

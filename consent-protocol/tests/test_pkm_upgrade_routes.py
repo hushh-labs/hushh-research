@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import threading
 from datetime import datetime, timezone
 
@@ -780,8 +781,17 @@ def test_memory_proposal_failure_is_not_a_successful_empty_review(
 
 
 def test_memory_proposals_are_enriched_with_current_sharing_impact(monkeypatch):
+    calls = []
+    impacts = []
+
     class _FakeAgentLabService:
         async def generate_structure_preview(self, **_kwargs):
+            calls.append(_kwargs)
+            assert (
+                _kwargs["continuation_scope"]
+                == hashlib.sha256(b"synthetic-owner-token").hexdigest()
+            )
+            assert "synthetic-owner-token" not in str(_kwargs)
             return {
                 "agent_id": "pkm_structure",
                 "agent_name": "PKM Structure",
@@ -809,6 +819,7 @@ def test_memory_proposals_are_enriched_with_current_sharing_impact(monkeypatch):
 
     class _FakePkmService:
         async def get_mutation_sharing_impact(self, **kwargs):
+            impacts.append(kwargs)
             assert kwargs == {
                 "user_id": "user_123",
                 "domain": "financial",
@@ -825,7 +836,10 @@ def test_memory_proposals_are_enriched_with_current_sharing_impact(monkeypatch):
 
     app = FastAPI()
     app.include_router(pkm.router)
-    app.dependency_overrides[pkm.require_vault_owner_token] = lambda: {"user_id": "user_123"}
+    app.dependency_overrides[pkm.require_vault_owner_token] = lambda: {
+        "user_id": "user_123",
+        "token": "synthetic-owner-token",
+    }
     monkeypatch.setattr(pkm, "get_pkm_agent_lab_service", lambda: _FakeAgentLabService())
     monkeypatch.setattr(pkm, "get_pkm_service", lambda: _FakePkmService())
 
@@ -842,6 +856,19 @@ def test_memory_proposals_are_enriched_with_current_sharing_impact(monkeypatch):
     ]
     assert payload["performance"]["sharing_impact_calls"] == 1
     assert payload["performance"]["sharing_impact_cache_hits"] == 0
+
+    repeated = TestClient(app).post(
+        "/api/pkm/memory/proposals",
+        json={"user_id": "user_123", "message": "Save AAPL in my portfolio"},
+    )
+    assert repeated.status_code == 200
+    assert len(calls) == len(impacts) == 2
+    wrong_owner = TestClient(app).post(
+        "/api/pkm/memory/proposals",
+        json={"user_id": "other-owner", "message": "Synthetic memory"},
+    )
+    assert wrong_owner.status_code == 403
+    assert len(calls) == len(impacts) == 2
 
     monkeypatch.setenv("ENVIRONMENT", "uat")
     lab_response = TestClient(app).post(

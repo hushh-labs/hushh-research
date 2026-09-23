@@ -119,6 +119,11 @@ export interface HushhAuthPlugin {
     serverAuthCode: string;
   }>;
 
+  /** Read-only Drive consent; never changes the app's Firebase identity. */
+  connectDrive(options: {
+    serverClientId: string;
+  }): Promise<{ serverAuthCode: string }>;
+
   /**
    * Opens the server-authored Drive authorization URL in a native browser
    * surface. The backend receives the provider callback and the bridge returns

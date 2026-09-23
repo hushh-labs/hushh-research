@@ -1334,6 +1334,36 @@ class AccountService:
             requested_target=requested_target,
         )
 
+    async def _disconnect_plaid_before_erasure(self, user_id: str, results: dict) -> None:
+        """Disconnect the person's banks at Plaid before their rows are deleted.
+
+        Deleting only our rows left every connection live at Plaid. Runs before
+        the database transaction and never raises: erasure proceeds even when
+        Plaid is unreachable, and the outcome is recorded in the results.
+        """
+        disconnected = True
+        try:
+            from hushh_mcp.services.plaid_portfolio_service import PlaidPortfolioService
+
+            portfolio = await PlaidPortfolioService().disconnect_all_items_for_erasure(
+                user_id=user_id
+            )
+            disconnected = disconnected and portfolio["failed"] == 0
+        except Exception as exc:  # noqa: BLE001 - erasure must not stop here
+            disconnected = False
+            logger.warning("account.erasure_plaid_disconnect_failed error=%s", type(exc).__name__)
+        try:
+            from hushh_mcp.services.broker_funding_service import BrokerFundingService
+
+            funding = await BrokerFundingService().disconnect_all_funding_items_for_erasure(
+                user_id=user_id
+            )
+            disconnected = disconnected and funding["failed"] == 0
+        except Exception as exc:  # noqa: BLE001 - erasure must not stop here
+            disconnected = False
+            logger.warning("account.erasure_funding_disconnect_failed error=%s", type(exc).__name__)
+        results["plaid_disconnected_at_plaid"] = disconnected
+
     @staticmethod
     def _clear_external_connector_data(conn, user_id, results, *, permanent):
         from hushh_mcp.services.drive_sharing_retention import erase_drive_account_in_transaction
@@ -1611,6 +1641,7 @@ class AccountService:
         """
         logger.warning("♻️ ACCOUNT RESET requested for %s", user_id)
         results: dict[str, bool] = {}
+        await self._disconnect_plaid_before_erasure(user_id, results)
         try:
             with get_db_connection() as conn:
                 params = {"user_id": user_id}
@@ -1827,6 +1858,7 @@ class AccountService:
             "account_deletion_tombstone": False,
         }
 
+        await self._disconnect_plaid_before_erasure(user_id, results)
         try:
             with get_db_connection() as conn:
                 params = {"user_id": user_id}
@@ -2322,6 +2354,7 @@ class AccountService:
             "runtime_persona_state": False,
         }
 
+        await self._disconnect_plaid_before_erasure(user_id, results)
         try:
             with get_db_connection() as conn:
                 params = {"user_id": user_id}

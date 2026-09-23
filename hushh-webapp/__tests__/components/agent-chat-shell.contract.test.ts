@@ -10,6 +10,13 @@ function read(relativePath: string) {
 }
 
 describe("private-agent chat shell contract", () => {
+  it("exposes connections from chat history in the shared drawer", () => {
+    const workspace = read("components/agent/agent-chat-workspace.tsx");
+    expect(workspace).toContain('setDrawerMode("connections")');
+    expect(workspace).toContain("<AgentConnectionsDrawer");
+    expect(workspace).toContain("<ConnectorsPanel");
+    expect(workspace).toContain('onBack={() => setDrawerMode("chats")}');
+  });
   it("keeps the floating frame singular and lets the workspace reach its edges", () => {
     const workspace = read("components/agent/agent-chat-workspace.tsx");
     const providers = read("app/providers.tsx");
@@ -29,7 +36,7 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain("ShellActionSurface");
     expect(workspace).toContain('"motion-step-enter flex w-full items-start gap-2"');
     expect(workspace).not.toContain("animate-in fade-in slide-in-from-bottom-1");
-    expect(workspace).toContain('data-testid="agent-chat-composer"');
+    expect(workspace).toContain('"agent-chat-composer"');
     expect(workspace).toContain("bottom-chrome-surface min-h-14 rounded-[var(--app-input-radius)]");
     expect(history).toContain("bg-[linear-gradient(180deg");
     expect(history).not.toContain('"border-r border-border/70');
@@ -64,7 +71,10 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain("px-0 py-2.5");
     expect(workspace).toContain("rounded-[var(--app-input-radius)]");
     expect(workspace).not.toContain("agent-chat-composer\"\n                      className=\"flex min-h-16 items-end gap-2 rounded-2xl border");
-    expect(workspace).toContain('className="flex shrink-0 items-center gap-1.5"');
+    expect(workspace).toContain('"flex shrink-0 items-center gap-1.5"');
+    // One text box serves both sizes: two separate ones were swapped when a
+    // long draft auto-expanded and keystrokes in that frame were lost.
+    expect(workspace.match(/ref=\{composerTextareaRef\}/g) ?? []).toHaveLength(1);
     expect(workspace).toContain("max-h-28");
     expect(workspace).toContain("sm:max-h-36");
     expect(workspace).toContain("h-[min(38dvh,18rem)]");

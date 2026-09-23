@@ -41,6 +41,7 @@ import {
 } from "@/lib/agent/agent-pkm-memory";
 import { prepareNaturalLanguagePkm } from "@/lib/pkm/pkm-natural-language-ingestion";
 import { createAgentPkmCaptureGuard, isAgentPkmProcessingReady } from "@/lib/agent/agent-pkm-capture-runtime";
+import { useReviewerPkmProof } from "@/lib/testing/use-reviewer-pkm-proof";
 import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
 import {
   DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY,
@@ -127,6 +128,8 @@ export function PkmNaturalPanel({
   const router = useRouter();
   const { user, loading: authLoading, sessionVerificationRequired } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken, tokenExpiresAt } = useVault();
+  useReviewerPkmProof({ userId: user?.uid ?? null, authLoading, sessionVerificationRequired,
+    isVaultUnlocked, vaultKey, vaultOwnerToken, tokenExpiresAt });
   const captureReadinessRef = useRef({ authLoading, sessionVerificationRequired, isVaultUnlocked, vaultOwnerToken, tokenExpiresAt });
   captureReadinessRef.current = { authLoading, sessionVerificationRequired, isVaultUnlocked, vaultOwnerToken, tokenExpiresAt };
   const pkmChangeRevision = usePkmDomainChangeRevision(user?.uid);

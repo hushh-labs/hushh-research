@@ -64,12 +64,8 @@ import {
   type PortfolioSource,
 } from "@/lib/kai/brokerage/portfolio-sources";
 import { loadPlaidLink } from "@/lib/kai/brokerage/plaid-link-loader";
-import {
-  clearPlaidOAuthResumeSession,
-  savePlaidOAuthResumeSession,
-} from "@/lib/kai/brokerage/plaid-oauth-session";
-import { resolvePlaidRedirectUri } from "@/lib/kai/brokerage/plaid-redirect-uri";
-import { PlaidPortfolioService } from "@/lib/kai/brokerage/plaid-portfolio-service";
+import { createVaultLink, sealVaultPlaidConnection } from "@/lib/kai/plaid-vault/vault-sync";
+import { clearPlaidOAuthResumeSession } from "@/lib/kai/brokerage/plaid-oauth-session";
 import {
   KAI_AUXILIARY_STEP_TIMEOUT_MS,
   runKaiStepWithTimeout,
@@ -3397,15 +3393,14 @@ export function KaiFlow({
       setIsConnectingPlaid(true);
       try {
         let shouldSettleSetupSource = false;
-        const redirectUri = resolvePlaidRedirectUri();
-        const linkToken = await PlaidPortfolioService.createLinkToken({
-          userId,
+        // The connection is sealed in the person's vault: Hussh's server only
+        // relays Plaid calls and stores nothing (founder decision 2026-09-23).
+        const vaultLink = await createVaultLink({
           vaultOwnerToken: effectiveVaultOwnerToken,
-          redirectUri,
-          environment,
-        });
+        }).catch(() => null);
+        const linkToken = { link_token: vaultLink?.linkToken ?? null };
 
-        if (!linkToken.configured || !linkToken.link_token) {
+        if (!vaultLink || !linkToken.link_token) {
           if (mode === "import") {
             toast.info(
               "Bank linking is not available right now. You can link it later.",
@@ -3448,19 +3443,6 @@ export function KaiFlow({
             // workspace. Do not mutate setup journey state, but do allow Plaid.
           }
         }
-        if (linkToken.resume_session_id) {
-          savePlaidOAuthResumeSession({
-            version: 1,
-            userId,
-            resumeSessionId: linkToken.resume_session_id,
-            returnPath: shouldSettleSetupSource
-              ? ROUTES.ONE_SETUP_FINANCE_IMPORT
-              : ROUTES.KAI_DASHBOARD,
-            startedAt: new Date().toISOString(),
-            ...(onboardingAttemptId ? { onboardingAttemptId } : {}),
-          });
-        }
-
         const Plaid = await loadPlaidLink();
         await new Promise<void>((resolve, reject) => {
           let settled = false;
@@ -3472,23 +3454,19 @@ export function KaiFlow({
 
           const handler = Plaid.create({
             token: linkToken.link_token,
-            onSuccess: (
-              publicToken: string,
-              metadata: Record<string, unknown>,
-            ) => {
-              void PlaidPortfolioService.exchangePublicToken({
+            onSuccess: (publicToken: string) => {
+              void sealVaultPlaidConnection({
                 userId,
-                publicToken,
+                vaultKey,
                 vaultOwnerToken: effectiveVaultOwnerToken,
-                metadata,
-                resumeSessionId: linkToken.resume_session_id || null,
-                environment: linkToken.environment || environment || null,
+                publicToken,
+                surface: vaultLink.platform,
               })
-                .then((status) => {
+                .then(({ status }) => {
                   clearPlaidOAuthResumeSession();
                   setPlaidStatus(status);
                   const plaidPortfolio =
-                    status.aggregate?.portfolio_data || null;
+                    status?.aggregate?.portfolio_data || null;
                   setFlowData((current) => ({
                     ...current,
                     hasFinancialData:
@@ -3512,7 +3490,7 @@ export function KaiFlow({
                   toast.success("Brokerage connected with Plaid.");
                   if (!vaultKey || !effectiveVaultOwnerToken) {
                     setPendingPlaidConnection(true);
-                    setPendingPlaidEnvironment(linkToken.environment || environment || null);
+                    setPendingPlaidEnvironment(environment ?? null);
                     setResumePlaidAfterVault(false);
                     setVaultDialogOpen(true);
                     toast.info(

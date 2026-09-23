@@ -115,7 +115,8 @@ async def test_compare_and_swap_retry_preserves_live_guard_without_persisting_it
         state={STATE_EXTERNAL_READ: "read-turn", STATE_EXECUTION_SURFACE: "typed_chat"},
     )
     durable = Session(id="thread", app_name="one", user_id="owner", state={"concurrent": 1})
-    service._revisions[("one", "owner", "thread")] = 1
+    service._set_revision(session, 1)
+    service._set_revision(durable, 2)
     monkeypatch.setattr(
         service,
         "_execute",

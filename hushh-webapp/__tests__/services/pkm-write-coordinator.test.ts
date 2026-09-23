@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { PkmMetadataReviewRequired } from "@/lib/personal-knowledge-model/manifest";
 
 /* ---------- mocks (before any real imports) ---------- */
 
@@ -571,6 +572,20 @@ describe("PkmWriteCoordinator", () => {
   });
 
   describe("backend write throws", () => {
+    it("keeps metadata conflicts actionable without dispatching or suggesting vault setup", async () => {
+      stubNoUpgradeNeeded();
+      stubWriteContext();
+      const result = await PkmWriteCoordinator.saveMergedDomain({
+        ...BASE_PARAMS,
+        build: async () => { throw new PkmMetadataReviewRequired(); },
+      });
+      expect(result.success).toBe(false);
+      expect(result.message).toMatch(/review and prepare it again/i);
+      expect(result.message).toMatch(/nothing was saved/i);
+      expect(result.message).not.toMatch(/vault is set up/i);
+      expect(pkmStoreMergedDomainWithPreparedBlobMock).not.toHaveBeenCalled();
+      expect(pkmStorePreparedDomainMock).not.toHaveBeenCalled();
+    });
     it("converts a thrown storeDomainData 500 into a graceful failed result instead of propagating", async () => {
       stubNoUpgradeNeeded();
       stubWriteContext();

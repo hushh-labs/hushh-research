@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import android.util.Log
+import android.view.KeyEvent
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
@@ -47,10 +48,25 @@ class AttachedRenderPerfTest {
     private val args = InstrumentationRegistry.getArguments()
     private val reps = (args.getString("reps")?.toIntOrNull() ?: 3).coerceAtLeast(1)
     private val section = args.getString("section") ?: "all"
-    private val passphrase = args.getString("passphrase").orEmpty().trim()
+    private val passphrase = readPassphrase()
     private val thirdParty = args.getString("thirdParty") == "1"
     private val pkg = "com.hussh.app"
     private val exportDir = File(target.filesDir, "hushh-perf")
+
+    /**
+     * The card hands the passphrase over as a shell-owned, owner-only file so
+     * it is never in any process's argv; read it as the shell and delete it.
+     * The `passphrase` argument stays as a fallback for manual runs.
+     */
+    private fun readPassphrase(): String {
+        val file = args.getString("passphraseFile").orEmpty()
+        if (file.startsWith("/data/local/tmp/") && !file.contains("..")) {
+            val value = device.executeShellCommand("cat $file").trim()
+            device.executeShellCommand("rm -f $file")
+            return value
+        }
+        return args.getString("passphrase").orEmpty().trim()
+    }
 
     @Test
     fun renderPerformanceCardAttached() {
@@ -68,6 +84,7 @@ class AttachedRenderPerfTest {
             if (section == "all" || section == "feed") feedSection()
             if (section == "all" || section == "kai") kaiSection()
             if (section == "all" || section == "location") locationSection()
+            if (section == "hold") holdSection()
         } finally {
             clearProbePreferences()
             publishExports()
@@ -111,9 +128,9 @@ class AttachedRenderPerfTest {
             if (close != null) tapObject(close) else device.pressBack()
             settle(1_500)
             group("profile-pane-open-dismiss") {
-                device.findObject(By.desc("Open Profile"))?.let { tapObject(it) }
+                device.wait(Until.findObject(By.desc("Open Profile")), 2_000)?.let { tapObject(it) }
                 settle(1_500)
-                val c = device.findObject(By.desc("Close Profile"))
+                val c = device.wait(Until.findObject(By.desc("Close Profile")), 2_000)
                 if (c != null) tapObject(c) else device.pressBack()
                 settle(1_200)
             }
@@ -171,17 +188,38 @@ class AttachedRenderPerfTest {
         finishLaunch("/one/location")
     }
 
+    /**
+     * One launch, one unlock, then the app stays in front and unlocked for
+     * `holdMinutes` (default 20) as a single continuous session: the way a
+     * person uses it, walked by hand or by adb taps from the host with a
+     * screenshot at every stop. No route is injected, so the app lands where
+     * it normally would, and nothing here relaunches it or unlocks it again.
+     */
+    private fun holdSection() {
+        if (!launchAttached(null)) return
+        log("PERF_APP_READY route=session")
+        val minutes = (args.getString("holdMinutes")?.toLongOrNull() ?: 20L).coerceIn(1L, 60L)
+        log("PERF_HOLD minutes=$minutes")
+        val until = System.currentTimeMillis() + minutes * 60_000
+        while (System.currentTimeMillis() < until) settle(5_000)
+        log("PERF_DONE route=session")
+    }
+
     /** Threads and X on the same phone, same flick, HWUI numbers only. */
     private fun thirdPartyFeedFlick(name: String, otherPkg: String) {
-        val intent = target.packageManager.getLaunchIntentForPackage(otherPkg)
-        if (intent == null) {
+        // Through the shell, not our own PackageManager: since Android 11 an
+        // app sees only the packages its manifest declares in <queries>, and
+        // ours declares an SMS intent only, so Threads and X read as "not
+        // installed" to the app while sitting on the phone. The shell is not
+        // subject to package visibility.
+        val installed = device.executeShellCommand("pm path $otherPkg").contains("package:")
+        if (!installed) {
             log("PERF_SKIPPED name=$name-feed-flick reason=not_installed")
             return
         }
         device.executeShellCommand("am force-stop $otherPkg")
         settle(800)
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        target.startActivity(intent)
+        device.executeShellCommand("monkey -p $otherPkg -c android.intent.category.LAUNCHER 1")
         if (!device.wait(Until.hasObject(By.pkg(otherPkg).depth(0)), 30_000)) {
             log("PERF_SKIPPED name=$name-feed-flick reason=did_not_launch")
             return
@@ -211,20 +249,22 @@ class AttachedRenderPerfTest {
      * them; a non-debuggable build leaves the seeded keys alone, see
      * PerfProbeLaunchPolicy), then unlocks the vault with the passphrase.
      */
-    private fun launchAttached(route: String): Boolean {
+    private fun launchAttached(route: String?): Boolean {
         // The instrumentation runs inside the app's own process, so the app is
         // never force-stopped here; CLEAR_TASK destroys the previous activity
-        // (and its WebView, and its probe run) and a fresh one boots.
-        target.getSharedPreferences(PerfProbeLaunchPolicy.PREFERENCES_GROUP, Context.MODE_PRIVATE)
+        // (and its WebView, and its probe run) and a fresh one boots. A null
+        // route injects none: the app opens where it normally would.
+        val prefs = target.getSharedPreferences(PerfProbeLaunchPolicy.PREFERENCES_GROUP, Context.MODE_PRIVATE)
             .edit()
             .putString(PerfProbeLaunchPolicy.PROBE_PREFERENCE_KEY, "1")
-            .putString(PerfProbeLaunchPolicy.ROUTE_PREFERENCE_KEY, route)
-            .commit()
+        if (route != null) prefs.putString(PerfProbeLaunchPolicy.ROUTE_PREFERENCE_KEY, route)
+        else prefs.remove(PerfProbeLaunchPolicy.ROUTE_PREFERENCE_KEY)
+        prefs.commit()
         val intent = Intent(Intent.ACTION_MAIN)
             .setClassName(pkg, "$pkg.MainActivity")
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
             .putExtra(PerfProbeLaunchPolicy.PROBE_EXTRA, true)
-            .putExtra(PerfProbeLaunchPolicy.ROUTE_EXTRA, route)
+        if (route != null) intent.putExtra(PerfProbeLaunchPolicy.ROUTE_EXTRA, route)
         target.startActivity(intent)
         // The gate's passkey attempt can put Android's Credential Manager in
         // front before the app's own window is visible to UIAutomator.
@@ -257,9 +297,18 @@ class AttachedRenderPerfTest {
 
     /**
      * Passphrase method only: reveal the field if a quick method is the
-     * default, type the passphrase, tap Unlock, wait for the signed-in bottom
-     * bar. With no passphrase configured (or a sign-in screen) it waits for
-     * the person holding the phone. The passphrase is never logged.
+     * default, type the passphrase, tap Unlock, then wait for positive proof:
+     * the signed-in bottom bar on screen and the gate gone, held for three
+     * seconds. With no passphrase configured (or a sign-in screen) it waits
+     * for the person holding the phone. The passphrase is never logged.
+     *
+     * Every earlier "unlocked" on this phone was false (2026-09-22): the
+     * gate's input exposes neither its label nor its hint to UIAutomator, so
+     * "the labelled field has been gone four seconds" held from the first
+     * poll, and UiObject2.setText filled the field without an input event,
+     * so React kept Unlock disabled. The whole card then measured the lock
+     * screen: every probe window was a tap on ~300 DOM nodes, where the
+     * unlocked feed is scroll windows on ~700. Proof now has to be positive.
      */
     private fun unlockVault(timeoutMs: Long): Boolean {
         // The clock starts when the field is on screen (a cold boot can take a
@@ -270,29 +319,26 @@ class AttachedRenderPerfTest {
         var announced = false
         var snapshotLogged = false
         var typedAt = 0L
-        var fieldGoneSince = 0L
+        var submits = 0
+        var unlockedSince = 0L
         while (System.currentTimeMillis() < deadline) {
-            if (signedInBarPresent()) return true
+            // A cold boot can paint the shell for a moment before the gate
+            // mounts over it, so one sighting of the bar is not an unlock.
+            if (signedInBarPresent() && !gateUp()) {
+                if (unlockedSince == 0L) unlockedSince = System.currentTimeMillis()
+                if (System.currentTimeMillis() - unlockedSince >= 3_000) {
+                    log("PERF_UNLOCK verified=shell attempts=$attempts")
+                    return true
+                }
+                settle(300)
+                continue
+            }
+            unlockedSince = 0L
             // The gate starts the passkey flow at launch; with no passkey on
             // this phone Android's Credential Manager covers the app with a
             // "No available sign-in" sheet. Cancel it and use the passphrase.
             if (dismissCredentialManager()) continue
-            var field = findPassphraseField()
-            // After the unlock the gate unmounts and UIAutomator's view of the
-            // page can go stale (no tab buttons visible to it although the
-            // shell is up); the field staying gone for four seconds with the
-            // app in front and no mismatch banner is the unlock.
-            if (attempts > 0 && field == null && device.currentPackageName == pkg &&
-                device.findObject(By.textContains("did not match")) == null
-            ) {
-                if (fieldGoneSince == 0L) fieldGoneSince = System.currentTimeMillis()
-                if (System.currentTimeMillis() - fieldGoneSince >= 4_000) {
-                    log("PERF_UNLOCK verified=field-gone")
-                    return true
-                }
-            } else {
-                fieldGoneSince = 0L
-            }
+            var field = if (gateUp()) findPassphraseField() else null
             if (field == null && attempts == 0 && passphrase.isNotEmpty()) {
                 // "Passphrase" is the escape link on the biometric / passkey step.
                 device.findObject(By.text("Passphrase").clazz("android.widget.Button"))?.let {
@@ -308,32 +354,46 @@ class AttachedRenderPerfTest {
                     deadline = System.currentTimeMillis() + timeoutMs
                 }
                 log("PERF_UNLOCK method=passphrase attempt=${attempts + 1}")
-                field.click()
+                try {
+                    tapObject(field)
+                } catch (_: StaleObjectException) {
+                    continue
+                }
                 settle(400)
-                if (attempts > 0) field.clear()
-                field.text = passphrase
+                if (attempts > 0) clearFocusedField()
+                // Real key events, so the page's input handlers run. The
+                // instrumentation shares the app's process, so this injects
+                // into our own window without a shell command line.
+                instrumentation.sendStringSync(passphrase)
                 settle(300)
-                // The page re-renders on input; the node handle can go stale.
                 val typedLength = try { field.text?.length ?: -1 } catch (_: StaleObjectException) { -2 }
                 if (typedLength >= 0 && typedLength != passphrase.length) log("PERF_UNLOCK typed_mismatch expected=${passphrase.length} got=$typedLength")
-                val unlock = device.findObject(By.text("Unlock"))
-                try {
-                    if (unlock != null) tapObject(unlock) else device.pressEnter()
-                } catch (_: StaleObjectException) {
-                    device.pressEnter()
-                }
+                submitUnlock()
                 attempts += 1
                 typedAt = System.currentTimeMillis()
+                submits = 1
+                settle(2_000)
+                continue
+            }
+            // Typed, gate still up, no mismatch banner: the submit did not
+            // land (observed: the button enabled a beat after the check, and
+            // the Enter fallback does not submit the form). Press it again.
+            if (attempts > 0 && !mismatch && submits < 3 && gateUp() &&
+                System.currentTimeMillis() - typedAt > 8_000 * submits
+            ) {
+                log("PERF_UNLOCK resubmit=${submits + 1}")
+                submitUnlock()
+                submits += 1
                 settle(2_000)
                 continue
             }
             if (attempts > 0 && !snapshotLogged && System.currentTimeMillis() - typedAt > 20_000) {
-                // What UIAutomator can see while the signed-in bar stays unfound:
-                // counts and the tab labels only. Never node texts: the page
-                // exposes the passphrase field's value through accessibility.
+                // What UIAutomator can see while the unlock stays unproven:
+                // counts and flags only. Never node texts: the page exposes
+                // the passphrase field's value through accessibility.
                 val radios = device.findObjects(By.clazz("android.widget.RadioButton")).size
                 val webViews = device.findObjects(By.clazz("android.webkit.WebView")).size
-                log("PERF_TREE pkg=${device.currentPackageName} webviews=$webViews radios=$radios records=${activityRecordCount()}")
+                log("PERF_TREE pkg=${device.currentPackageName} webviews=$webViews radios=$radios gate=${gateUp()} records=${activityRecordCount()}")
                 snapshotLogged = true
             }
             if (!announced) {
@@ -342,8 +402,36 @@ class AttachedRenderPerfTest {
             }
             settle(1_000)
         }
-        log("PERF_SKIPPED name=launch reason=unlock_timeout")
+        log("PERF_SKIPPED name=launch reason=unlock_timeout gate=${gateUp()}")
         return false
+    }
+
+    /**
+     * Presses Unlock once React has enabled it (it enables on the input
+     * event, a beat after the last key). The tap goes through the shell like
+     * every other tap in this lane; Enter is the fallback when the button
+     * never enables, and it does not submit this form, so the caller
+     * resubmits while the gate stays up.
+     */
+    private fun submitUnlock() {
+        val unlock = device.wait(Until.findObject(By.text("Unlock").clazz("android.widget.Button").enabled(true)), 3_000)
+        try {
+            if (unlock != null) tapObject(unlock) else instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_ENTER)
+        } catch (_: StaleObjectException) {
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_ENTER)
+        }
+        log("PERF_UNLOCK submitted=${if (unlock != null) "button" else "enter"}")
+    }
+
+    /** The vault gate is on screen: its heading, or its enabled-or-not Unlock button. */
+    private fun gateUp(): Boolean =
+        device.hasObject(By.text("Unlock One")) ||
+            device.hasObject(By.text("Unlock").clazz("android.widget.Button"))
+
+    /** Empties the focused field with key events (setText would skip the page's handlers). */
+    private fun clearFocusedField() {
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_MOVE_END)
+        repeat(passphrase.length + 8) { instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_DEL) }
     }
 
     /** Cancels the system passkey sheet when it is in front; true when it was. */
@@ -356,6 +444,13 @@ class AttachedRenderPerfTest {
         return true
     }
 
+    /**
+     * The gate's passphrase input. Chromium exposes neither its aria-label
+     * nor its placeholder to UIAutomator here (both read empty in a tree
+     * dump), so the label lookups are kept for builds that do and the
+     * app's own EditText is the answer on this one; callers only look while
+     * gateUp() holds, so the agent bar's input is never mistaken for it.
+     */
     private fun findPassphraseField(): UiObject2? =
         device.findObject(By.desc("Vault passphrase"))
             ?: device.findObject(By.hint("Enter passphrase"))

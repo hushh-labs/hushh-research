@@ -1,5 +1,6 @@
 "use client";
 
+import { Capacitor } from "@capacitor/core";
 import {
   Fragment,
   FormEvent,
@@ -170,7 +171,7 @@ import {
   requestAgentConversationStop,
 } from "@/lib/agent/agent-voice-settings";
 import {
-  onScroll as onKaiBottomChromeScroll,
+  onContentScroll as onKaiBottomChromeScroll,
   snapKaiBottomChromeVisible,
 } from "@/lib/navigation/kai-bottom-chrome-visibility";
 import {
@@ -259,6 +260,12 @@ import { GmailInformationRequestsService } from "@/lib/services/gmail-informatio
 
 type AgentMessage = {
   id: string;
+  /**
+   * The server's id for this answer (ADK event id), set when the run's closing
+   * snapshot arrives. Ratings key on this, so a thumbs given during the live
+   * turn matches the same reply after a reload and joins to its turn.
+   */
+  serverMessageId?: string;
   role: "user" | "assistant";
   text: string;
   timestamp: string;
@@ -447,11 +454,17 @@ function getConsentRequiredPayload(
 
 function getGmailEmailDraftPayload(
   event: AgentChatToolEvent | null,
-): { instruction: string } | null {
+): { instruction: string; driveFileId: string | null } | null {
   if (!event || event.raw.toolName !== "open_gmail_email_draft") return null;
   const instruction =
     typeof event.slots.request === "string" ? event.slots.request.trim() : "";
-  return instruction ? { instruction } : null;
+  const driveFileId =
+    typeof event.slots.drive_file_id === "string"
+      ? event.slots.drive_file_id.trim()
+      : "";
+  return instruction
+    ? { instruction, driveFileId: driveFileId && driveFileId.length <= 256 ? driveFileId : null }
+    : null;
 }
 
 /** Metadata-only context for a Gmail KYC handoff. Gmail content never enters chat. */
@@ -867,6 +880,20 @@ export async function resolvePendingConsentCardTargets(input: {
   const requestIds = pendingConsentCardRequestIds(input.item);
   if (!input.userId.trim() || !input.vaultOwnerToken?.trim()) {
     throw new Error("Unlock your vault first.");
+  }
+  // Notifications can arrive one item at a time. Never decide a partially
+  // hydrated bundle and then label the whole request approved or denied.
+  if (
+    input.item.bundleId &&
+    typeof input.item.bundleScopeCount === "number" &&
+    input.item.bundleScopeCount > requestIds.length
+  ) {
+    throw new Error("This request is still loading. Review all its fields before deciding.");
+  }
+  // The owner-scoped lookup currently admits 25 IDs, while creation admits
+  // up to 50. Failing closed prevents a truncated batch from being decided.
+  if (requestIds.length > 25) {
+    throw new Error("This request has too many fields for an inline decision.");
   }
   const result = await ConsentCenterService.lookupPendingRequests({
     userId: input.userId,
@@ -2544,16 +2571,35 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     textarea.style.height = "0px";
     const nextHeight = textarea.scrollHeight;
     if (!input.trim()) setComposerExpanded(false);
-    // The expanded writing surface owns its fixed, spacious height. The compact
-    // pill grows only to its CSS ceiling and then scrolls internally.
+    // The compact pill grows to its CSS ceiling; text that outgrows it moves
+    // into the expanded writing surface (the same place the expand button
+    // opens) instead of scrolling inside the pill, which drew a scrollbar
+    // beside the expand icon (founder report, 2026-09-22).
+    const compactCeiling = Number.parseFloat(
+      window.getComputedStyle(textarea).maxHeight,
+    );
+    if (
+      !composerExpanded &&
+      Number.isFinite(compactCeiling) &&
+      nextHeight > compactCeiling + 1
+    ) {
+      setComposerExpanded(true);
+      return;
+    }
+    // The expanded writing surface owns its fixed, spacious height.
     textarea.style.height = composerExpanded ? "" : `${nextHeight}px`;
   }, [composerExpanded, input, voiceActive]);
 
   useEffect(() => {
     if (!composerExpanded) return;
-    const frame = window.requestAnimationFrame(() =>
-      composerTextareaRef.current?.focus(),
-    );
+    const frame = window.requestAnimationFrame(() => {
+      const textarea = composerTextareaRef.current;
+      if (!textarea) return;
+      textarea.focus();
+      // Keep typing where the person was: at the end of what they wrote.
+      const end = textarea.value.length;
+      textarea.setSelectionRange(end, end);
+    });
     return () => window.cancelAnimationFrame(frame);
   }, [composerExpanded]);
 
@@ -2961,7 +3007,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         return true;
       }
       setEmailDraftInstruction(payload.instruction);
-      setEmailDraftInitialValue(null);
+      setEmailDraftInitialValue(payload.driveFileId
+        ? { to: "", cc: "", bcc: "", subject: "", body: "", driveFileId: payload.driveFileId }
+        : null);
       setEmailDraftAutoDraft(true);
       setEmailDraftAnchorMessageId(assistantMessageId);
       setEmailDraftOpen(true);
@@ -4682,6 +4730,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             setIsChatLoading(false);
             setIsStreaming(false);
           },
+          onServerMessageId: (serverMessageId) => {
+            updateMessage(assistantMessageId, (message) => ({
+              ...message,
+              serverMessageId,
+            }));
+          },
           onComplete: ({ conversationId: nextConversationId }) => {
             if (streamAbortController.signal.aborted) return;
             flushAssistantDelta();
@@ -4880,6 +4934,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             updateMessage(assistantMessageId, (message) => ({
               ...message,
               sources,
+            }));
+          },
+          onServerMessageId: (serverMessageId) => {
+            updateMessage(assistantMessageId, (message) => ({
+              ...message,
+              serverMessageId,
             }));
           },
           onComplete: ({ conversationId: nextConversationId }) => {
@@ -6128,8 +6188,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       userAvatarUrl={userAvatarUrl}
                       userInitials={userInitials}
                       retryDisabled={isChatLoading || isStreaming}
-                      rating={messageRatings[message.id] ?? null}
-                      onRate={(next) => handleRateMessage(message.id, next)}
+                      rating={messageRatings[message.serverMessageId ?? message.id] ?? null}
+                      onRate={(next) =>
+                        handleRateMessage(message.serverMessageId ?? message.id, next)
+                      }
                       onRetry={
                         message.id === latestRetryableAssistantId
                           ? () => handleRetryAssistantResponse(message.id)
@@ -6209,9 +6271,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                               ),
                           }));
                         } catch (error) {
-                          console.error("Chat consent approve failed:", error);
                           addErrorMessage(
-                            "Could not approve that request. Try again.",
+                            error instanceof Error && error.message.startsWith("This request")
+                              ? error.message
+                              : "Could not approve that request. Try again.",
                           );
                         } finally {
                           setSpecialistBusyItemId(null);
@@ -6256,9 +6319,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                               ),
                           }));
                         } catch (error) {
-                          console.error("Chat consent deny failed:", error);
                           addErrorMessage(
-                            "Could not decline that request. Try again.",
+                            error instanceof Error && error.message.startsWith("This request")
+                              ? error.message
+                              : "Could not decline that request. Try again.",
                           );
                         } finally {
                           setSpecialistBusyItemId(null);
@@ -7130,22 +7194,50 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       </Button>
                     </div>
                   ) : null}
-                  {composerExpanded ? (
-                    <div
-                      data-testid="agent-chat-composer-expanded"
-                      className={cn(
-                        "relative mb-2 overflow-hidden rounded-[24px]",
-                        isCanonicalChatRoute
+                  {/* One composer, two sizes. The compact pill and the expanded
+                   * editor used to be separate text boxes in separate trees, so
+                   * React swapped one for the other when a long draft auto-
+                   * expanded, and keystrokes landing in that frame were lost
+                   * ("number 3 fopand" on a Galaxy S24 Ultra, 2026-09-22). The
+                   * text box now stays the same element; only its size, the
+                   * corner control and the labels change. */}
+                  <div
+                    data-testid={composerExpanded ? "agent-chat-composer-expanded" : "agent-chat-composer"}
+                    className={cn(
+                      composerExpanded
+                        ? "relative mb-2 overflow-hidden rounded-[24px]"
+                        : "flex min-h-14 items-center gap-2 overflow-hidden rounded-[var(--app-input-radius)] border-[1.5px] border-black/10 px-4 transition-[border-color,box-shadow,background-color] dark:border-white/15 focus-within:border-[color:var(--app-accent)] focus-within:ring-4 focus-within:ring-[color:var(--app-accent-ring)]",
+                      composerExpanded
+                        ? isCanonicalChatRoute
                           ? "bottom-chrome-surface"
-                          : "bg-foreground/[0.045] shadow-[0_18px_55px_-42px_rgba(0,0,0,0.55)] ring-1 ring-inset ring-foreground/[0.045]",
-                      )}
+                          : "bg-foreground/[0.045] shadow-[0_18px_55px_-42px_rgba(0,0,0,0.55)] ring-1 ring-inset ring-foreground/[0.045]"
+                        : isCanonicalChatRoute
+                          ? "bottom-chrome-surface min-h-14 rounded-[var(--app-input-radius)]"
+                          : "bg-foreground/[0.045] shadow-[0_18px_55px_-42px_rgba(0,0,0,0.55)]",
+                    )}
+                  >
+                    <div
+                      className={
+                        composerExpanded
+                          ? "relative"
+                          : "relative flex min-h-0 min-w-0 flex-1 items-center"
+                      }
                     >
                       <textarea
                         ref={composerTextareaRef}
-                        data-testid="agent-chat-composer-expanded-textarea"
-                        aria-label="Expanded message One"
+                        data-testid={
+                          composerExpanded
+                            ? "agent-chat-composer-expanded-textarea"
+                            : "agent-chat-composer-textarea"
+                        }
+                        aria-label={composerExpanded ? "Expanded message One" : "Message One"}
                         value={input}
                         onChange={(event) => setInput(event.target.value)}
+                        onFocus={() => {
+                          if (isCanonicalChatRoute) {
+                            snapKaiBottomChromeVisible();
+                          }
+                        }}
                         onPaste={handleComposerPaste}
                         onKeyDown={(event) => {
                           if (
@@ -7157,7 +7249,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           }
                           event.preventDefault();
                           if (canSend) {
-                            event.currentTarget.form?.requestSubmit();
+                            const composer = event.currentTarget;
+                            composer.form?.requestSubmit();
+                            // On a phone, sending puts the keyboard away so
+                            // the reply has the screen (founder report,
+                            // 2026-09-22: Enter left it up). The desktop
+                            // keeps focus for the next message.
+                            if (Capacitor.isNativePlatform()) composer.blur();
                           }
                         }}
                         disabled={
@@ -7171,102 +7269,56 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                             ? "Preparing your reply to the selected Mail request…"
                             : gmailKycMissingLabels.length > 0
                             ? `Reply with: ${gmailKycMissingLabels.join(", ")}`
-                            : "Write a longer message..."
+                            : composerExpanded
+                            ? "Write a longer message..."
+                            : "Message One..."
                         }
-                        className="block h-[min(38dvh,18rem)] w-full resize-none overscroll-contain overflow-y-auto bg-transparent px-4 pb-14 pr-32 pt-4 text-[16px] leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60 sm:h-[min(48dvh,30rem)] sm:px-5 sm:pb-16 sm:pr-36 sm:pt-5 sm:text-sm break-words [overflow-wrap:anywhere] [word-break:break-word]"
+                        rows={1}
+                        className={
+                          composerExpanded
+                            ? "block h-[min(38dvh,18rem)] w-full resize-none overscroll-contain overflow-y-auto bg-transparent px-4 pb-14 pr-32 pt-4 text-[16px] leading-6 text-foreground caret-[color:var(--app-accent)] outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60 sm:h-[min(48dvh,30rem)] sm:px-5 sm:pb-16 sm:pr-36 sm:pt-5 sm:text-sm break-words [overflow-wrap:anywhere] [word-break:break-word]"
+                            : "h-auto max-h-28 min-h-0 min-w-0 flex-1 resize-none overscroll-contain overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden border-0 bg-transparent px-0 py-2.5 text-[15px] leading-snug text-foreground caret-[color:var(--app-accent)] outline-none shadow-none focus-visible:border-transparent focus-visible:ring-0 placeholder:text-muted-foreground/60 disabled:cursor-not-allowed disabled:opacity-60 sm:max-h-36 sm:text-sm break-words [overflow-wrap:anywhere] [word-break:break-word]"
+                        }
                       />
                       <Button
                         type="button"
                         variant="ghost"
                         size="icon"
-                        className="absolute right-2 top-2 h-8 w-8 rounded-lg text-muted-foreground"
-                        aria-label="Collapse message editor"
-                        title="Collapse"
-                        onClick={collapseComposer}
+                        data-testid={composerExpanded ? undefined : "agent-chat-composer-expand"}
+                        className={
+                          composerExpanded
+                            ? "absolute right-2 top-2 h-8 w-8 rounded-lg text-muted-foreground"
+                            : "h-8 w-8 shrink-0 rounded-lg text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+                        }
+                        aria-label={composerExpanded ? "Collapse message editor" : "Expand message editor"}
+                        title={composerExpanded ? "Collapse" : "Expand"}
+                        disabled={
+                          composerExpanded
+                            ? false
+                            : !input.trim() ||
+                              isVoiceConnecting ||
+                              emailDraftOpen ||
+                              isGmailKycSaving
+                        }
+                        onClick={composerExpanded ? collapseComposer : () => setComposerExpanded(true)}
                       >
-                        <Minimize2 className="h-4 w-4" />
-                      </Button>
-                      <div className="absolute bottom-3 right-3 flex items-center gap-2 sm:bottom-4 sm:right-4">
-                        {composerActionRail}
-                      </div>
-                    </div>
-                  ) : null}
-                  {!composerExpanded ? (
-                    <div
-                      data-testid="agent-chat-composer"
-                      className={cn(
-                        "flex min-h-14 items-center gap-2 overflow-hidden rounded-[var(--app-input-radius)] border-[1.5px] border-black/10 px-4 transition-[border-color,box-shadow,background-color] dark:border-white/15 focus-within:border-[color:var(--app-accent)] focus-within:ring-4 focus-within:ring-[color:var(--app-accent-ring)]",
-                        isCanonicalChatRoute
-                          ? "bottom-chrome-surface min-h-14 rounded-[var(--app-input-radius)]"
-                          : "bg-foreground/[0.045] shadow-[0_18px_55px_-42px_rgba(0,0,0,0.55)]",
-                      )}
-                    >
-                      <div className="relative flex min-h-0 min-w-0 flex-1 items-center">
-                        <textarea
-                          ref={composerTextareaRef}
-                          data-testid="agent-chat-composer-textarea"
-                          aria-label="Message One"
-                          value={input}
-                          onChange={(event) => setInput(event.target.value)}
-                          onFocus={() => {
-                            if (isCanonicalChatRoute) {
-                              snapKaiBottomChromeVisible();
-                            }
-                          }}
-                          onPaste={handleComposerPaste}
-                          onKeyDown={(event) => {
-                            if (
-                              event.key !== "Enter" ||
-                              event.shiftKey ||
-                              event.nativeEvent.isComposing
-                            ) {
-                              return;
-                            }
-                            event.preventDefault();
-                            if (canSend) {
-                              event.currentTarget.form?.requestSubmit();
-                            }
-                          }}
-                          disabled={
-                            recoveryInspectionPending ||
-                            isVoiceConnecting ||
-                            emailDraftOpen ||
-                            isGmailKycSaving
-                          }
-                          placeholder={
-                            isGmailKycSaving && gmailKycReplyRequest
-                              ? "Preparing your reply to the selected Mail request…"
-                              : gmailKycMissingLabels.length > 0
-                              ? `Reply with: ${gmailKycMissingLabels.join(", ")}`
-                              : "Message One..."
-                          }
-                          rows={1}
-                          className="h-auto max-h-28 min-h-0 min-w-0 flex-1 resize-none overscroll-contain overflow-y-auto border-0 bg-transparent px-0 py-2.5 text-[15px] leading-snug text-foreground caret-[color:var(--app-accent)] outline-none shadow-none focus-visible:border-transparent focus-visible:ring-0 placeholder:text-muted-foreground/60 disabled:cursor-not-allowed disabled:opacity-60 sm:max-h-36 sm:text-sm break-words [overflow-wrap:anywhere] [word-break:break-word]"
-                        />
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          data-testid="agent-chat-composer-expand"
-                          className="h-8 w-8 shrink-0 rounded-lg text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
-                          aria-label="Expand message editor"
-                          title="Expand"
-                          disabled={
-                            !input.trim() ||
-                            isVoiceConnecting ||
-                            emailDraftOpen ||
-                            isGmailKycSaving
-                          }
-                          onClick={() => setComposerExpanded(true)}
-                        >
+                        {composerExpanded ? (
+                          <Minimize2 className="h-4 w-4" />
+                        ) : (
                           <Maximize2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-1.5">
-                        {composerActionRail}
-                      </div>
+                        )}
+                      </Button>
                     </div>
-                  ) : null}
+                    <div
+                      className={
+                        composerExpanded
+                          ? "absolute bottom-3 right-3 flex items-center gap-2 sm:bottom-4 sm:right-4"
+                          : "flex shrink-0 items-center gap-1.5"
+                      }
+                    >
+                      {composerActionRail}
+                    </div>
+                  </div>
                 </>
               )}
             </div>

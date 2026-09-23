@@ -624,4 +624,30 @@ describe("connection-request Feed-first foreground policy", () => {
       }),
     );
   });
+
+  it("treats a person-request grant push as a requester-only refresh doorbell", async () => {
+    await renderProvider();
+    const wrongAccount = {
+      data: { type: "information_request_updated", user_id: "another-user", bundle_id: "bundle-1", action: "CONSENT_GRANTED" },
+      accepted: false,
+    };
+    act(() => window.dispatchEvent(new CustomEvent("fcm-message", { detail: wrongAccount })));
+    expect(wrongAccount.accepted).toBe(false);
+    expect(mocks.onConsentMutated).not.toHaveBeenCalled();
+
+    const currentAccount = {
+      notification: { data: { type: "information_request_updated", user_id: "recipient-user", bundle_id: "bundle-1", request_id: "request-1", action: "CONSENT_GRANTED", message_id: "event-1" } },
+      accepted: false,
+    };
+    act(() => window.dispatchEvent(new CustomEvent("fcm-message", { detail: currentAccount })));
+    expect(currentAccount.accepted).toBe(true);
+    expect(mocks.onConsentMutated).toHaveBeenCalledWith("recipient-user");
+    expect(mocks.dispatchConsentStateChanged).toHaveBeenCalledWith({
+      source: "information_request_updated", bundleId: "bundle-1", requestId: "request-1", action: "CONSENT_GRANTED", messageId: "event-1",
+    });
+    act(() => window.dispatchEvent(new CustomEvent("fcm-message", { detail: currentAccount })));
+    expect(mocks.dispatchConsentStateChanged).toHaveBeenCalledTimes(1);
+    expect(mocks.dispatchFeedStateChanged).not.toHaveBeenCalled();
+    expect(screen.getByTestId("pending-count")).toHaveTextContent("0");
+  });
 });

@@ -66,9 +66,10 @@ function requestPathname(request) {
 export async function installReadOnlyMutationGuard(context, {
   appOrigin,
   allowMemoryPreparation = false,
+  admitMutation = null,
 } = {}) {
   const blockedMutations = [];
-  if (process.env.REVIEWER_ALLOW_SHARED_MUTATIONS === "true") {
+  if (process.env.REVIEWER_ALLOW_SHARED_MUTATIONS === "true" && !admitMutation) {
     return {
       assertNoBlockedMutation() {},
       policy: "explicit_mutation_authorized",
@@ -90,13 +91,27 @@ export async function installReadOnlyMutationGuard(context, {
       new URL(request.url()).origin === appOrigin;
     if (
       !["POST", "PUT", "PATCH", "DELETE"].includes(method) ||
-      READ_ONLY_SAFE_POST_PATHS.has(pathname) ||
+      (method === "POST" && READ_ONLY_SAFE_POST_PATHS.has(pathname)
+        && (!admitMutation || new URL(request.url()).origin === appOrigin)) ||
       memoryPreparation ||
       preparationBootstrap ||
       AUTH_ONLY_HOSTS.has(requestHostname(request))
     ) {
       await route.continue();
       return;
+    }
+
+    // A bounded rehearsal installs this policy before any page navigation,
+    // including bootstrap retries and fresh contexts. Authorization is still
+    // required; a callback cannot upgrade a read-only run.
+    if (admitMutation && process.env.REVIEWER_ALLOW_SHARED_MUTATIONS === "true"
+      && new URL(request.url()).origin === appOrigin) {
+      try {
+        if (await admitMutation(request) === true) {
+          await route.continue();
+          return;
+        }
+      } catch { /* Refusal is retained below without request bodies or errors. */ }
     }
 
     blockedMutations.push(`${method} ${pathname || "(unknown path)"}`);
@@ -117,7 +132,7 @@ export async function installReadOnlyMutationGuard(context, {
         `Read-only reviewer rehearsal blocked state-changing request(s): ${blockedMutations.join(", ")}. Fix the app's test/read-only posture or use an isolated fixture with explicit mutation authority.`,
       );
     },
-    policy: allowMemoryPreparation ? "preparation_only" : "read_only",
+    policy: admitMutation ? "bounded_mutation" : allowMemoryPreparation ? "preparation_only" : "read_only",
   };
 }
 
@@ -129,6 +144,10 @@ async function waitForValue(readValue, label, timeoutMs) {
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
   throw new Error(`Timed out waiting for ${label}.`);
+}
+
+export function shouldRetryReviewerBootstrap(error) {
+  return error?.code !== "REVIEWER_TERMINAL_BOOTSTRAP";
 }
 
 /** A loaded route beacon can describe anonymous or locked UI, not admission. */
@@ -146,6 +165,7 @@ export async function createReviewerSessionHarness({
   appOrigin = "https://uat.one.hushh.ai",
   timeoutMs = 360_000,
   allowMemoryPreparation = false,
+  admitMutation = null,
   reviewerIdentity = /** @type {{ reviewerUid: string, reviewerVaultPassphrase: string } | null} */ (null),
 }) {
   const webDir = path.join(repoRoot, "hushh-webapp");
@@ -174,7 +194,7 @@ export async function createReviewerSessionHarness({
 
   async function installBridge(page, { includePassphrase = true } = {}) {
     const reviewerMutationPolicy = process.env.REVIEWER_ALLOW_SHARED_MUTATIONS === "true"
-      ? "mutation_authorized"
+      ? admitMutation ? "bounded_mutation" : "mutation_authorized"
       : allowMemoryPreparation
         ? "preparation_only"
         : "read_only";
@@ -295,9 +315,11 @@ export async function createReviewerSessionHarness({
       const bootstrap = await safeBootstrapState();
       if (bootstrap.state === "vault_unlocked" && bootstrap.userMatches) return;
       if (terminalFailures.has(bootstrap.state)) {
-        throw new Error(
+        const error = new Error(
           `Reviewer vault bootstrap failed (state=${bootstrap.state}, error_class=${bootstrap.errorClass || "unknown"}, path=${bootstrap.path}, user_match=${bootstrap.userMatches}).`
         );
+        error.code = "REVIEWER_TERMINAL_BOOTSTRAP";
+        throw error;
       }
 
       if (!reviewerLoginSubmitted && await reviewerButton.isVisible().catch(() => false)) {
@@ -365,7 +387,7 @@ export async function createReviewerSessionHarness({
       const page = await context.newPage();
       page.setDefaultTimeout(attemptTimeoutMs);
       page.setDefaultNavigationTimeout(attemptTimeoutMs);
-      const readOnlyGuard = await installReadOnlyMutationGuard(context, { appOrigin: normalizedOrigin, allowMemoryPreparation });
+      const readOnlyGuard = await installReadOnlyMutationGuard(context, { appOrigin: normalizedOrigin, allowMemoryPreparation, admitMutation });
       const capture = attachMemoryOnlyCapture(page);
       await installBridge(page);
       try {
@@ -391,6 +413,7 @@ export async function createReviewerSessionHarness({
       } catch (error) {
         lastError = error;
         await context.close().catch(() => undefined);
+        if (!shouldRetryReviewerBootstrap(error)) throw error;
       }
     }
 
@@ -411,7 +434,7 @@ export async function createReviewerSessionHarness({
     const challengeTimeoutMs = Math.min(timeoutMs, 60_000);
     page.setDefaultTimeout(challengeTimeoutMs);
     page.setDefaultNavigationTimeout(challengeTimeoutMs);
-    const readOnlyGuard = await installReadOnlyMutationGuard(context, { appOrigin: normalizedOrigin, allowMemoryPreparation });
+    const readOnlyGuard = await installReadOnlyMutationGuard(context, { appOrigin: normalizedOrigin, allowMemoryPreparation, admitMutation });
     const capture = attachMemoryOnlyCapture(page);
     try {
       // Authenticate the canonical reviewer through the test bridge, but do

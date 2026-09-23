@@ -94,12 +94,27 @@ export class HushhAuthWeb implements HushhAuthPlugin {
     );
   }
 
-  async connectDrive(_options: {
+  connectDrive(_options: {
+    serverClientId: string;
+  }): Promise<{ serverAuthCode: string }>;
+  connectDrive(_options: {
     authorizeUrl: string;
     attemptId: string;
     expiresAt: number;
     expectedUserId: string;
   }): Promise<{
+    attemptId: string;
+    outcome: "ready" | "cancelled" | "failed";
+  }>;
+  async connectDrive(_options: {
+    serverClientId?: string;
+    authorizeUrl?: string;
+    attemptId?: string;
+    expiresAt?: number;
+    expectedUserId?: string;
+  }): Promise<{
+    serverAuthCode: string;
+  } | {
     attemptId: string;
     outcome: "ready" | "cancelled" | "failed";
   }> {

@@ -75,8 +75,8 @@ describe("GmailVerificationOnboarding", () => {
       </GmailVerificationOnboarding>,
     );
 
-    await screen.findByRole("button", { name: "Save KYC details" });
-    fireEvent.click(screen.getByRole("button", { name: "Save KYC details" }));
+    await screen.findByRole("button", { name: "Save KYC profile" });
+    fireEvent.click(screen.getByRole("button", { name: "Save KYC profile" }));
 
     expect(screen.getByText("KYC workspace")).toBeInTheDocument();
     expect(onDetailsChange).toHaveBeenCalledWith("");
@@ -145,8 +145,8 @@ describe("GmailVerificationOnboarding", () => {
       </GmailVerificationOnboarding>,
     );
 
-    await screen.findByRole("button", { name: "Save KYC details" });
-    fireEvent.click(screen.getByRole("button", { name: "Save KYC details" }));
+    await screen.findByRole("button", { name: "Save KYC profile" });
+    fireEvent.click(screen.getByRole("button", { name: "Save KYC profile" }));
 
     expect(screen.getByText("KYC workspace")).toBeInTheDocument();
     await waitFor(() => {

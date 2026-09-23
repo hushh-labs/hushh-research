@@ -944,6 +944,42 @@ class TestGmailEmailDraftDirective:
         }
 
     @pytest.mark.asyncio
+    async def test_drive_file_selection_is_only_a_reviewable_draft_hint(self):
+        state = {STATE_USER_ID: "u1"}
+
+        result = await open_gmail_email_draft(
+            "Send the selected file to Pat",
+            _tool_context(state),
+            drive_file_id="drive-file-1",
+        )
+
+        assert result["status"] == "draft_opened"
+        assert state[f"{STATE_PENDING_DIRECTIVE}:gmail_email_draft"]["payload"] == {
+            "kind": "gmail_email_draft",
+            "instruction": "Send the selected file to Pat",
+            "drive_file_id": "drive-file-1",
+        }
+
+    def test_drive_file_selection_is_available_to_the_model_tool(self):
+        from google.adk.tools import FunctionTool
+
+        declaration = FunctionTool(open_gmail_email_draft)._get_declaration()
+        parameters = declaration.parameters_json_schema
+        assert "drive_file_id" in parameters["properties"]
+        assert "drive_file_id" not in parameters["required"]
+
+    @pytest.mark.asyncio
+    async def test_rejects_oversized_drive_file_selection(self):
+        state = {STATE_USER_ID: "u1"}
+        result = await open_gmail_email_draft(
+            "Send the selected file",
+            _tool_context(state),
+            drive_file_id="x" * 257,
+        )
+        assert result["status"] == "invalid_file_selection"
+        assert f"{STATE_PENDING_DIRECTIVE}:gmail_email_draft" not in state
+
+    @pytest.mark.asyncio
     async def test_requires_authenticated_user_before_opening_draft(self):
         state: dict = {}
 

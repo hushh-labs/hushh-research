@@ -868,6 +868,30 @@ class BrokerFundingService:
             },
         )
 
+    async def disconnect_all_funding_items_for_erasure(self, *, user_id: str) -> dict[str, int]:
+        """Disconnect every funding Plaid item at Plaid before erasure deletes it.
+
+        Same contract as the portfolio store: best effort per item, counts only,
+        never blocks the erasure, never logs a token.
+        """
+        counts = {"attempted": 0, "removed": 0, "failed": 0}
+        for row in self._list_funding_item_rows(user_id=user_id):
+            if str(row.get("status") or "active").lower() == "removed":
+                continue
+            counts["attempted"] += 1
+            try:
+                access_token = self._decrypt_secret(
+                    ciphertext=str(row.get("access_token_ciphertext") or ""),
+                    iv=str(row.get("access_token_iv") or ""),
+                    tag=str(row.get("access_token_tag") or ""),
+                )
+                await self._plaid_post("/item/remove", {"access_token": access_token})
+                counts["removed"] += 1
+            except Exception as exc:  # noqa: BLE001 - erasure must not stop here
+                counts["failed"] += 1
+                logger.warning("funding.erasure_item_remove_failed error=%s", type(exc).__name__)
+        return counts
+
     def _fetch_funding_item_row(self, *, user_id: str, item_id: str) -> dict[str, Any] | None:
         result = self.db.execute_raw(
             """
@@ -1302,6 +1326,7 @@ class BrokerFundingService:
         user_id: str,
         item_id: str | None = None,
         redirect_uri: str | None = None,
+        platform: str | None = None,
     ) -> dict[str, Any]:
         if not self.plaid_config.configured:
             return {
@@ -1329,9 +1354,12 @@ class BrokerFundingService:
         if self.plaid_config.webhook_url:
             payload["webhook"] = self.plaid_config.webhook_url
 
-        resolved_redirect_uri = self.plaid_config.resolve_redirect_uri(redirect_uri)
-        if resolved_redirect_uri:
-            payload["redirect_uri"] = resolved_redirect_uri
+        # Android's native Link SDK takes android_package_name, never redirect_uri.
+        resolved_redirect_uri = self.plaid_config.apply_link_platform(
+            payload,
+            platform=platform,
+            requested_redirect_uri=redirect_uri,
+        )
 
         mode = "create"
         cleaned_item_id = _clean_text(item_id)

@@ -64,3 +64,80 @@ def test_delivery_rejects_firebase_vault_owner_mismatch_without_caller_user_id()
 
     assert response.status_code == 403
     assert response.json()["detail"]["code"] == "GMAIL_DELIVERY_USER_MISMATCH"
+
+
+def test_prepare_accepts_one_drive_reference_and_returns_reviewable_descriptor():
+    descriptor = {
+        "revision": "revision-1",
+        "sha256": "a" * 64,
+        "filename": "note.txt",
+        "mime_type": "text/plain",
+        "size": 12,
+        "source_account_label": "owner@example.com",
+    }
+    service = MagicMock()
+    service.prepare = AsyncMock(
+        return_value={
+            "action_id": "action",
+            "state": "prepared",
+            "drive_attachment": descriptor,
+            "attachment_token": "opaque-token",
+        }
+    )
+    with patch.object(module, "get_gmail_delivery_service", return_value=service):
+        response = TestClient(_app()).post(
+            "/api/one/email/prepare",
+            json={
+                **_envelope(),
+                "idempotency_key": "x" * 16,
+                "drive_attachment": {"file_id": "drive-file-1"},
+            },
+        )
+    assert response.status_code == 200
+    assert response.json()["drive_attachment"] == descriptor
+    assert response.json()["attachment_token"] == "opaque-token"
+    assert "file_id" not in response.json()["drive_attachment"]
+    assert service.prepare.await_args.kwargs["draft_payload"]["drive_attachment"] == {
+        "file_id": "drive-file-1",
+    }
+    service.execute.assert_not_called()
+
+
+def test_send_passes_opaque_attachment_token_to_owner_service():
+    token = "opaque-token" * 4
+    service = MagicMock()
+    service.execute = AsyncMock(return_value={"action_id": "action", "state": "sent"})
+    with patch.object(module, "get_gmail_delivery_service", return_value=service):
+        response = TestClient(_app()).post(
+            "/api/one/email/send",
+            json={**_envelope(), "action_id": "action", "attachment_token": token},
+        )
+    assert response.status_code == 200
+    assert service.execute.await_args.kwargs["user_id"] == "firebase-user"
+    assert service.execute.await_args.kwargs["draft_payload"]["attachment_token"] == token
+
+
+def test_route_rejects_multiple_attachments_and_caller_supplied_bytes():
+    client = TestClient(_app())
+    for payload in (
+        {"drive_attachment": [{"file_id": "a", "revision": "r"}]},
+        {"attachments": [{"file_id": "a", "revision": "r"}]},
+        {"drive_attachment": {"file_id": "a", "revision": "r", "content": "raw"}},
+    ):
+        response = client.post(
+            "/api/one/email/prepare",
+            json={**_envelope(), "idempotency_key": "x" * 16, **payload},
+        )
+        assert response.status_code == 422
+
+
+def test_send_rejects_file_reference_instead_of_opaque_token():
+    response = TestClient(_app()).post(
+        "/api/one/email/send",
+        json={
+            **_envelope(),
+            "action_id": "action",
+            "drive_attachment": {"file_id": "drive-file-1", "revision": "revision-1"},
+        },
+    )
+    assert response.status_code == 422

@@ -33,6 +33,7 @@ import {
   type OneLocationStateDomain,
 } from "@/lib/one-location/one-location-state-events";
 import { dispatchAgentChatHistoryInvalidated } from "@/lib/agent/agent-chat-history-events";
+import { advanceGoogleConnectionEpoch } from "@/lib/cache/google-connection-epoch";
 
 type DomainSummaryPatch = Record<string, unknown>;
 
@@ -594,6 +595,11 @@ export class CacheSyncService {
     this.onKaiMarketContextChanged(userId);
   }
 
+  static onGoogleConnectionMutated(userId: string): void {
+    advanceGoogleConnectionEpoch(userId);
+    CacheService.getInstance().invalidatePattern(`google_connection_${userId}_`);
+  }
+
   static onVaultStateChanged(
     userId: string,
     options?: {
@@ -601,6 +607,7 @@ export class CacheSyncService {
     },
   ): void {
     const cache = CacheService.getInstance();
+    this.onGoogleConnectionMutated(userId);
     // This invalidates any in-flight Location load before it can republish a
     // server snapshot after the vault security boundary changes.
     OneLocationStateResource.discard(userId);

@@ -38,10 +38,15 @@ mistake for good engineering.
    model-supplied paths would describe a payload that no longer exists. Recording them
    would be a lie about what was written, not deference.
 
-   **Still open:** the frontend manifest overwrites an agent-supplied `consent_label`
-   with a title-cased path and re-derives sensitivity, returning `null` for all 47
-   leaves of a real document including a loan balance, immigration goals, a full name
-   and a home address. That half of the measurement has not been fixed.
+   **Current source correction, acceptance still open:** the frontend manifest
+   now walks final paths and overlays reviewed `consent_label` and
+   `sensitivity_label` metadata from semantic manifests and the structure
+   decision (`hushh-webapp/lib/personal-knowledge-model/manifest.ts`,
+   `780f96d33`). Path-derived labels remain defaults when no authored metadata
+   exists. This closes the specific unconditional overwrite in source, but the
+   long-paragraph reviewer acceptance and three-account encrypted-save proof
+   remain separate gates; the historical 47-leaf measurement is not a current
+   runtime certification.
 
 3. **Skips.** The stage is routed around so the model is never asked. A skip must be
    recorded in the execution trace and drift flags. Until 2026-09-11 every skip site
@@ -91,12 +96,30 @@ These paths must derive meaning through ADK/A2A agent stages:
   judgement wherever it is computed.
 - PKM structure planning
 - future generalized user-memory interpretation
+- One's composition of connected-service capabilities for a natural-language
+  request. One chooses which available tools to call and in what order from
+  its authored instruction and current tool catalog. Host code must not infer
+  the person's intent from connector names or create pairwise semantic routers
+  such as a fixed Drive-to-Gmail workflow. A typed tool adapter may validate
+  arguments, pin an endpoint, enforce owner/connection authority, and refuse
+  unsupported or unsafe operations. A read result never grants a subsequent
+  outward action: that action needs its own reviewed recipient, payload and
+  explicit confirmation through the owning service.
 
 Required shape:
 
 - manifest-backed prompt
 - exact structured output
 - deterministic post-validation
+
+For One and its specialists, `AgentManifestV2` is the authored semantic layer;
+generated registries and runtime prompt composition must carry that instruction
+without creating a competing decision-maker. Runtime additions may state current
+route facts, available tools, authorized context, and bounded presentation rules.
+When those additions introduce durable semantic policy, reconcile them back to
+the owning manifest and test the composed instruction so prompt copies do not
+drift. This does not move consent, cryptography, or action authorization into a
+prompt: those remain enforced in code.
 
 ## Deterministic support paths
 

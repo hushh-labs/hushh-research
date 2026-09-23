@@ -27,6 +27,7 @@ vi.mock("@/lib/firebase/config", () => ({
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { ApiService } from "@/lib/services/api-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { buildPersonalKnowledgeModelStructureArtifacts } from "@/lib/personal-knowledge-model/manifest";
 
 function stringify(value: unknown): string {
   return JSON.stringify(value);
@@ -42,6 +43,64 @@ describe("PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob", () =
       iv: "iv-1",
       tag: "tag-1",
     });
+  });
+
+  it.each(["prepared", "merged"] as const)("retains reviewed semantic metadata in the %s writer", async (writer) => {
+    const previous = buildPersonalKnowledgeModelStructureArtifacts({
+      domain: "professional", domainData: { role: "synthetic", sibling: "retained" },
+    }).manifest;
+    previous.paths.find(path => path.json_path === "sibling")!.consent_label = "Reviewed sibling";
+    const reviewed = buildPersonalKnowledgeModelStructureArtifacts({
+      domain: "professional", domainData: { role: "updated" },
+    }).manifest;
+    reviewed.paths[0]!.consent_label = "Reviewed role";
+    reviewed.paths[0]!.sensitivity_label = "confidential";
+    // The older merged entrypoint accepts an optional complete manifest rather
+    // than a partial reviewed preview. Without one, retain previous metadata.
+    previous.paths.find(path => path.json_path === "role")!.consent_label = "Reviewed role";
+    previous.paths.find(path => path.json_path === "role")!.sensitivity_label = "restricted";
+    vi.spyOn(PersonalKnowledgeModelService, "getDomainManifest").mockResolvedValue(previous);
+    const store = vi.spyOn(PersonalKnowledgeModelService, "storeDomainData").mockResolvedValue({ success: true });
+    const save = writer === "prepared"
+      ? PersonalKnowledgeModelService.storePreparedDomainWithPreparedBlob.bind(PersonalKnowledgeModelService)
+      : PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob.bind(PersonalKnowledgeModelService);
+    await save({
+      userId: "synthetic-owner", vaultKey: "synthetic-key", domain: "professional",
+      baseFullBlob: { professional: { role: "old", sibling: "retained" } },
+      domainData: { role: "updated", sibling: "retained" }, summary: {},
+      mergeDecision: { merge_mode: "replace_domain", target_domain: "professional" },
+      manifest: writer === "prepared" ? reviewed : undefined,
+      structureDecision: { target_domain: "professional", sensitivity_labels: { role: "restricted", removed: "restricted" } },
+      cacheFullBlob: false,
+    });
+    const saved = store.mock.calls[0]![0];
+    expect(saved.manifest?.paths).toEqual(expect.arrayContaining([
+      expect.objectContaining({ json_path: "role", consent_label: "Reviewed role", sensitivity_label: "restricted" }),
+      expect.objectContaining({ json_path: "sibling", consent_label: "Reviewed sibling" }),
+    ]));
+    expect(saved.manifest?.paths.some(path => path.json_path === "removed")).toBe(false);
+    expect(saved.structureDecision?.sensitivity_labels).toMatchObject({ role: "restricted" });
+    expect(saved.domainData).toEqual({ role: "updated", sibling: "retained" });
+  });
+
+  it.each(["prepared", "merged"] as const)("does not build an unused conflicting fallback in the %s writer", async (writer) => {
+    const domainData = { preferences: { entities: { synthetic: { summary: "synthetic" } } } };
+    const supplied = buildPersonalKnowledgeModelStructureArtifacts({ domain: "professional", domainData });
+    const previous = { ...supplied.manifest, paths: [{
+      json_path: "preferences.entities.synthetic.summary", path_type: "leaf" as const,
+      exposure_eligibility: false, consent_label: "Old custom concrete label",
+    }] };
+    vi.spyOn(PersonalKnowledgeModelService, "getDomainManifest").mockResolvedValue(previous);
+    const store = vi.spyOn(PersonalKnowledgeModelService, "storeDomainData").mockResolvedValue({ success: true });
+    const save = writer === "prepared"
+      ? PersonalKnowledgeModelService.storePreparedDomainWithPreparedBlob.bind(PersonalKnowledgeModelService)
+      : PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob.bind(PersonalKnowledgeModelService);
+    await save({
+      userId: "synthetic-owner", vaultKey: "synthetic-key", domain: "professional",
+      domainData, baseFullBlob: {}, summary: {}, manifest: supplied.manifest,
+      structureDecision: supplied.structureDecision, cacheFullBlob: false,
+    });
+    expect(store.mock.calls[0]![0].manifest).toBe(supplied.manifest);
   });
 
   it.each([false, true])("blocks final dispatch if the session changes during encryption (native=%s)", async (native) => {

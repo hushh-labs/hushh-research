@@ -1298,6 +1298,7 @@ export function ConsentNotificationProvider({
                 payload.type === "connection_removed";
               const preservesDomainType =
                 preservesConnectionType ||
+                payload.type === "information_request_updated" ||
                 String(payload.type || "").startsWith("location_");
               const type = preservesDomainType
                 ? payload.type
@@ -1697,6 +1698,22 @@ export function ConsentNotificationProvider({
             eventId: String(data.message_id || "").trim() || undefined,
           },
         );
+        return;
+      }
+
+      if (msgType === "information_request_updated") {
+        // A requester-only doorbell, not a new Feed item or grant authority.
+        // The matching Chat card rereads current status before local decrypt.
+        if (user?.uid && data.user_id === user.uid && data.bundle_id) {
+          CacheSyncService.onConsentMutated(user.uid);
+          dispatchConsentStateChanged({
+            source: "information_request_updated",
+            bundleId: data.bundle_id,
+            requestId: data.request_id,
+            action: data.action,
+            messageId: data.message_id,
+          });
+        }
         return;
       }
 

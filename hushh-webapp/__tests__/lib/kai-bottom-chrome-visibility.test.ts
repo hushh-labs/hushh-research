@@ -189,6 +189,7 @@ describe("kai bottom chrome visibility singleton", () => {
     );
 
     act(() => {
+      window.dispatchEvent(new Event("touchmove"));
       firstRoot.scrollTop = 0;
       firstRoot.dispatchEvent(new Event("scroll"));
       firstRoot.scrollTop = 160;
@@ -206,12 +207,77 @@ describe("kai bottom chrome visibility singleton", () => {
     expect(result.current.progress).toBeLessThan(0.1);
 
     act(() => {
+      window.dispatchEvent(new Event("touchmove"));
       secondRoot.scrollTop = 120;
       secondRoot.dispatchEvent(new Event("scroll"));
     });
     flushAnimation();
     expect(result.current.progress).toBeGreaterThan(0.9);
 
+    unmount();
+  });
+
+  // Chat scrolls itself to the latest message after it paints; that hid the
+  // tab bar and slid the composer down on every entry (Galaxy S24 Ultra).
+  it("keeps the chrome where it is when the app scrolls on its own", () => {
+    const root = mountScrollRoot();
+    const { result, unmount } = renderHook(() => useKaiBottomChromeVisibility(true));
+    act(() => {
+      root.scrollTop = 0;
+      root.dispatchEvent(new Event("scroll"));
+      root.scrollTop = 900;
+      root.dispatchEvent(new Event("scroll"));
+    });
+    flushAnimation();
+    expect(result.current.progress).toBeLessThan(0.1);
+
+    // The next real gesture measures from where the app left the list.
+    act(() => {
+      window.dispatchEvent(new Event("touchmove"));
+      root.scrollTop = 1060;
+      root.dispatchEvent(new Event("scroll"));
+    });
+    flushAnimation();
+    expect(result.current.progress).toBeGreaterThan(0.9);
+    unmount();
+  });
+
+  it("does not count a tap as a scroll", () => {
+    const root = mountScrollRoot();
+    const { result, unmount } = renderHook(() => useKaiBottomChromeVisibility(true));
+    act(() => {
+      window.dispatchEvent(new Event("touchstart"));
+      window.dispatchEvent(new Event("pointerdown"));
+      root.scrollTop = 0;
+      root.dispatchEvent(new Event("scroll"));
+      root.scrollTop = 900;
+      root.dispatchEvent(new Event("scroll"));
+    });
+    flushAnimation();
+    expect(result.current.progress).toBeLessThan(0.1);
+    unmount();
+  });
+
+  it("brings the chrome back at the top, whoever scrolled there", () => {
+    const root = mountScrollRoot();
+    const { result, unmount } = renderHook(() => useKaiBottomChromeVisibility(true));
+    act(() => {
+      window.dispatchEvent(new Event("touchmove"));
+      root.scrollTop = 0;
+      root.dispatchEvent(new Event("scroll"));
+      root.scrollTop = 200;
+      root.dispatchEvent(new Event("scroll"));
+    });
+    flushAnimation();
+    expect(result.current.progress).toBeGreaterThan(0.9);
+
+    vi.advanceTimersByTime(5_000);
+    act(() => {
+      root.scrollTop = 0;
+      root.dispatchEvent(new Event("scroll"));
+    });
+    flushAnimation();
+    expect(result.current.progress).toBeLessThan(0.1);
     unmount();
   });
 });

@@ -28,6 +28,8 @@ flowchart TD
   root --> n7
   n9["Mobile Kai Parity Map"]
   root --> n9
+  n14["Plaid Vault Passthrough"]
+  root --> n14
 ```
 
 Kai-specific architecture, runtime, rollout, and audit references live here.
@@ -56,6 +58,7 @@ Brand and compatibility rule: [../operations/brand-and-compatibility-contract.md
 - [../one/one-voice-runtime-architecture.md](../one/one-voice-runtime-architecture.md): current One Voice foundation: shared FSM, redacted context snapshot, provider-adapter seam, and `/api/one/voice/*` wrappers over the Kai-era compatibility runtime.
 - [../one/one-voice-action-coverage-audit.md](../one/one-voice-action-coverage-audit.md): current audit of what One Voice can actually trigger and where screen/button/action coverage is incomplete.
 - [kai-brokerage-connectivity-architecture.md](./kai-brokerage-connectivity-architecture.md): brokerage and import architecture.
+- [plaid-vault-passthrough.md](./plaid-vault-passthrough.md): zero-knowledge Plaid passthrough (`/api/kai/plaid/vault/*`); the access token lives in the owner's vault and the server stores nothing.
 - [kai-accuracy-contract.md](./kai-accuracy-contract.md): accuracy and output expectations.
 - [kai-route-audit-matrix.md](./kai-route-audit-matrix.md): route-level audit map.
 - [kai-runtime-smoke-checklist.md](./kai-runtime-smoke-checklist.md): runtime smoke checklist.

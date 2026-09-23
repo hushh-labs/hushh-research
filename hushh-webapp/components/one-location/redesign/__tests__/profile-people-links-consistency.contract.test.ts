@@ -74,8 +74,8 @@ describe("Profile, Location People, and Location Links consistency contract", ()
     // canonical page gutters, so the tab content should fill that same shell.
     expect(source).toContain('<div className="w-full space-y-4 sm:space-y-5">');
     expect(source).toContain("PUBLIC_LINK_CONTROLS_CLASSNAME");
-    expect(source).toContain("equalWidthButtons");
-    expect(ctaLayout).toContain("w-full space-y-3 sm:max-w-[280px]");
+    expect(ctaLayout).toContain("DURATION_EQUAL_BUTTONS_GROUP_CLASSNAME");
+    expect(ctaLayout).toContain("w-full space-y-3 sm:max-w-[320px]");
     expect(ctaLayout).toContain("h-11 min-h-11 w-fit min-w-[9rem]");
   });
 
@@ -102,13 +102,13 @@ describe("Profile, Location People, and Location Links consistency contract", ()
 
     expect(source).toContain("title={PROFILE_LABELS.referrals}");
     expect(source).toContain("title={PROFILE_LABELS.developerTools}");
-    expect(source).toMatch(/icon=\{UserRound\}\s+iconTone="blue"/);
-    expect(source).toMatch(/icon=\{SlidersHorizontal\}\s+iconTone="purple"/);
-    expect(source).toMatch(/icon=\{ShieldCheck\}\s+iconTone="green"/);
-    expect(source).toMatch(/icon=\{Laptop\}\s+iconTone="indigo"/);
-    expect(source).toMatch(/icon=\{Users\}\s+iconTone="orange"/);
-    expect(source).toMatch(/icon=\{MessageCircleQuestion\}\s+iconTone="blue"/);
-    expect(source).toMatch(/icon=\{CodeXml\}\s+iconTone="purple"/);
+    expect(source).toMatch(/icon=\{AccountProfileIcon\}\s+iconTone="capability"/);
+    expect(source).toMatch(/icon=\{PreferencesProfileIcon\}\s+iconTone="capability"/);
+    expect(source).toMatch(/icon=\{SecurityProfileIcon\}\s+iconTone="capability"/);
+    expect(source).toMatch(/icon=\{DevicesProfileIcon\}\s+iconTone="capability"/);
+    expect(source).toMatch(/icon=\{RiaAgentIcon\}\s+iconTone="capability"/);
+    expect(source).toMatch(/icon=\{SupportProfileIcon\}\s+iconTone="capability"/);
+    expect(source).toMatch(/icon=\{DeveloperToolsProfileIcon\}\s+iconTone="capability"/);
     expect(source).toContain('tone="destructive"');
   });
 

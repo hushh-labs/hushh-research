@@ -3704,7 +3704,7 @@ function ProfilePageContent({
                 }}
                 options={SUPPORT_INTENT_OPTIONS}
                 disabled={sendingSupportMessage}
-                className="min-h-11 [&_[data-state=active]]:!border-[color:var(--app-accent)] [&_[data-state=active]]:!bg-[color:var(--app-accent)] [&_[data-state=active]]:!text-white [&_[data-state=active]]:!shadow-none [&_[data-ui-contract=required-title]]:whitespace-normal"
+                className="min-h-11 [&_[data-ui-contract=required-title]]:whitespace-normal"
               />
             </div>
             <p id="support-intent-description" className="sr-only">

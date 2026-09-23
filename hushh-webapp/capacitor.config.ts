@@ -66,7 +66,7 @@ const config: CapacitorConfig = {
     // the fixed chat overlay (header rises under the status bar, composer slides
     // under the keyboard). Turning it off removes that drift at its root.
     scrollEnabled: false,
-    backgroundColor: "#0a0a0a",
+    backgroundColor: "#0e0e10",
     scheme: "App",
   },
 

@@ -20,9 +20,25 @@ from typing import Any, cast
 from ag_ui.core import BaseEvent, EventType, RunAgentInput
 from ag_ui_adk import ADKAgent
 
+from hushh_mcp.one_adk.drive_result_privacy import redact_drive_wire_event
 from hushh_mcp.one_adk.output_privacy import public_event
 
 logger = logging.getLogger(__name__)
+
+
+class _NoModelTextPreview(logging.Filter):
+    """The installed AG-UI adapter logs model text previews at INFO."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.getMessage().startswith("[ADK_EVENT]"):
+            record.msg = "[ADK_EVENT] content=[redacted]"
+            record.args = ()
+        return True
+
+
+_bridge_logger = logging.getLogger("ag_ui_adk.adk_agent")
+if not any(isinstance(item, _NoModelTextPreview) for item in _bridge_logger.filters):
+    _bridge_logger.addFilter(_NoModelTextPreview())
 
 HEAD_ONE = "one"
 HEAD_INTRO = "intro"
@@ -139,8 +155,13 @@ class TimedADKAgent(ADKAgent):
     async def run(self, input: RunAgentInput) -> AsyncGenerator[BaseEvent, None]:
         timing = TurnTiming(head=self.head, run=run_label(input), started_at=time.perf_counter())
         interrupted = False
+        private_call_ids: set[str] = set()
         try:
             async for event in super().run(input):
+                if self.head == HEAD_ONE:
+                    event = redact_drive_wire_event(event, private_call_ids)
+                    if event is None:
+                        continue
                 timing.observe(event)
                 projected = public_event(event) if self.head in (HEAD_ONE, HEAD_INTRO) else event
                 if projected is not None:

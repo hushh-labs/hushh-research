@@ -25,6 +25,7 @@ import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
 import { KaiFinancialResourceService } from "@/lib/kai/kai-financial-resource";
 import { toDurationBucket, trackEvent } from "@/lib/observability/client";
 import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
+import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 
 export type UnlockWarmResult = {
   onboardingSynced: boolean;
@@ -225,6 +226,7 @@ export class UnlockWarmOrchestrator {
     vaultOwnerToken: string;
     vaultKey: string;
   }): void {
+    if (shouldSkipReviewerBackgroundWritesForAutomation()) return;
     if (this.locationKeyBootstrappedByUser.has(params.userId)) return;
     this.locationKeyBootstrappedByUser.add(params.userId);
     void bootstrapCurrentUserLocationRecipientKey({
@@ -253,6 +255,7 @@ export class UnlockWarmOrchestrator {
     userId: string;
     vaultOwnerToken: string;
   }): void {
+    if (shouldSkipReviewerBackgroundWritesForAutomation()) return;
     if (this.marketplaceKeyBootstrappedByUser.has(params.userId)) return;
     this.marketplaceKeyBootstrappedByUser.add(params.userId);
     void bootstrapCurrentUserMarketplaceRecipientKey({
@@ -280,6 +283,7 @@ export class UnlockWarmOrchestrator {
     vaultKey: string;
     vaultOwnerToken: string;
   }): void {
+    if (shouldSkipReviewerBackgroundWritesForAutomation()) return;
     if (this.marketplaceDeliverySweptByUser.has(params.userId)) return;
     this.marketplaceDeliverySweptByUser.add(params.userId);
     void runMarketplaceDeliverySweep({
@@ -301,6 +305,7 @@ export class UnlockWarmOrchestrator {
     vaultKey: string;
     vaultOwnerToken: string;
   }): void {
+    if (shouldSkipReviewerBackgroundWritesForAutomation()) return;
     void ConsentExportRefreshOrchestrator.ensureRunning({
       userId: params.userId,
       vaultKey: params.vaultKey,
@@ -502,7 +507,8 @@ export class UnlockWarmOrchestrator {
       let prewarmedFinancialDomain: Record<string, unknown> | null = null;
       let financialHydrated = false;
 
-      const syncPromise = shouldWarmMetadata
+      const skipBackgroundWrites = shouldSkipReviewerBackgroundWritesForAutomation();
+      const syncPromise = shouldWarmMetadata && !skipBackgroundWrites
         ? KaiProfileSyncService.syncPendingToVault({
             userId: params.userId,
             vaultKey: params.vaultKey,
@@ -510,7 +516,7 @@ export class UnlockWarmOrchestrator {
           })
         : Promise.resolve({
             synced: false,
-            reason: "skipped_for_route",
+            reason: skipBackgroundWrites ? "skipped_for_reviewer_policy" : "skipped_for_route",
           } as const);
 
       if (shouldWarmFinancial || shouldHydrateFinancialCacheOnly) {

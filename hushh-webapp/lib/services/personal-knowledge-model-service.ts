@@ -3198,10 +3198,15 @@ export class PersonalKnowledgeModelService {
       domainData: params.domainData,
       mergeDecision: params.mergeDecision,
     });
-    const structureArtifacts = buildPersonalKnowledgeModelStructureArtifacts({
+    const structureArtifacts = params.manifest?.structure_decision
+      ? { manifest: params.manifest, structureDecision: params.manifest.structure_decision }
+      : buildPersonalKnowledgeModelStructureArtifacts({
       domain: params.domain,
       domainData: merged.domainData,
       previousManifest,
+      semanticManifests: previousManifest
+        && (!previousManifest.user_id || previousManifest.user_id === params.userId)
+        ? [previousManifest] : [],
     });
     const nextManifest = params.manifest || structureArtifacts.manifest;
     const nextStructureDecision =
@@ -3356,12 +3361,19 @@ export class PersonalKnowledgeModelService {
       domainData: params.domainData,
       mergeDecision: params.mergeDecision,
     });
-    const fallbackArtifacts = buildPersonalKnowledgeModelStructureArtifacts({
+    const useCallerArtifacts = !params.mergeDecision;
+    const fallbackArtifacts = useCallerArtifacts && params.manifest && params.structureDecision
+      ? { manifest: params.manifest, structureDecision: params.structureDecision }
+      : buildPersonalKnowledgeModelStructureArtifacts({
       domain: params.domain,
       domainData: merged.domainData,
       previousManifest,
+      semanticManifests: [previousManifest, params.manifest].filter(
+        (manifest): manifest is DomainManifest => manifest != null
+          && (!manifest.user_id || manifest.user_id === params.userId)
+      ),
+      semanticDecision: params.structureDecision,
     });
-    const useCallerArtifacts = !params.mergeDecision;
     const manifest =
       useCallerArtifacts && params.manifest ? params.manifest : fallbackArtifacts.manifest;
     const structureDecision =

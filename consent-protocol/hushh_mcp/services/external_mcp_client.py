@@ -189,12 +189,10 @@ async def call_tool(
         raise ExternalMcpTimeoutError() from error
     except Exception as error:
         status = _http_status_from_error(error)
-        logger.exception(
-            "external_mcp_client.call_tool_failed tool=%s endpoint_configured=%s status=%s",
-            name,
-            bool(endpoint),
-            status,
-        )
+        # Provider/SDK exceptions can contain authorization headers, arguments,
+        # URLs, and returned document text. Never retain their traceback or
+        # model-supplied tool name in application diagnostics.
+        logger.warning("external_mcp_client.call_tool_failed status=%s", status)
         if status in {401, 403}:
             raise ExternalMcpAuthError() from error
         raise ExternalMcpError(

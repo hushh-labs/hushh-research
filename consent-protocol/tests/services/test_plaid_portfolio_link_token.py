@@ -27,7 +27,7 @@ class _RecordingDb:
         return _FakeDbResult()
 
 
-def _configured_service() -> PlaidPortfolioService:
+def _configured_service(redirect_uri: str | None = None) -> PlaidPortfolioService:
     service = PlaidPortfolioService()
     service._runtime_config = PlaidRuntimeConfig(
         environment="production",
@@ -40,12 +40,75 @@ def _configured_service() -> PlaidPortfolioService:
         webhook_url=None,
         frontend_url="https://one.hushh.ai",
         redirect_path="/one/kai/plaid/oauth/return",
-        redirect_uri=None,
+        redirect_uri=redirect_uri,
         tx_history_days=730,
         manual_entry_enabled=False,
         crypto_wallet_enabled=False,
     )
     return service
+
+
+_REDIRECT_URI = "https://one.hushh.ai/one/kai/plaid/oauth/return"
+
+
+def _record_link_token_calls(monkeypatch, service: PlaidPortfolioService):
+    payloads: list[dict[str, Any]] = []
+    sessions: list[dict[str, Any]] = []
+
+    async def _fake_post(
+        path: str,
+        payload: dict[str, Any],
+        *,
+        environment: str | None = None,
+    ) -> dict[str, Any]:
+        assert path == "/link/token/create"
+        payloads.append(payload)
+        return {"link_token": "link-test", "expiration": "2026-07-20T00:00:00Z"}
+
+    def _fake_create_link_session(**kwargs: Any) -> dict[str, Any]:
+        sessions.append(kwargs)
+        return {"resume_session_id": "resume-123"}
+
+    monkeypatch.setattr(service, "_post", _fake_post)
+    monkeypatch.setattr(service, "_create_link_session", _fake_create_link_session)
+    return payloads, sessions
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("platform_kwargs", [{}, {"platform": "web"}, {"platform": "ios"}])
+async def test_link_token_web_and_ios_keep_redirect_uri(monkeypatch, platform_kwargs):
+    service = _configured_service(redirect_uri=_REDIRECT_URI)
+    payloads, sessions = _record_link_token_calls(monkeypatch, service)
+
+    result = await service.create_link_token(user_id="user-123", **platform_kwargs)
+
+    payload = payloads[0]
+    assert payload["redirect_uri"] == _REDIRECT_URI
+    assert "android_package_name" not in payload
+    assert result["redirect_uri"] == _REDIRECT_URI
+    assert result["resume_session_id"] == "resume-123"
+    assert len(sessions) == 1
+
+
+@pytest.mark.asyncio
+async def test_link_token_android_sends_package_name_without_redirect_uri(monkeypatch):
+    service = _configured_service(redirect_uri=_REDIRECT_URI)
+    payloads, sessions = _record_link_token_calls(monkeypatch, service)
+
+    result = await service.create_link_token(
+        user_id="user-123",
+        redirect_uri=_REDIRECT_URI,
+        platform="android",
+    )
+
+    payload = payloads[0]
+    assert payload["android_package_name"] == "com.hussh.app"
+    assert "redirect_uri" not in payload
+    assert result["link_token"] == "link-test"
+    assert result["redirect_uri"] is None
+    # The native SDK owns the OAuth return, so no web resume session is minted.
+    assert result["resume_session_id"] is None
+    assert sessions == []
 
 
 @pytest.mark.asyncio

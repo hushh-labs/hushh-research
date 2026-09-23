@@ -120,14 +120,66 @@ RUN_START_MS="$(( $(date +%s) * 1000 ))"
 # result bundle, which would put the passphrase on disk. The bundle goes to a
 # path this run owns and is removed as soon as the test exits; the bundles
 # xcodebuild also drops under DerivedData/Logs/Test for this run go with it.
+# PERF_SECTION=routes walks the route inventory rather than a list written by
+# hand in the test. Coverage then rots only if the inventory does, and the
+# inventory is already a governed artifact (native static parity checks it).
+# PERF_ROUTES overrides the selection for a narrower sweep.
+PERF_ROUTE_LIST="${PERF_ROUTES:-}"
+if [ "${PERF_SECTION:-}" = "routes" ] && [ -z "$PERF_ROUTE_LIST" ]; then
+  # Absolute path: the card has already cd'd into ios/App by this point.
+  PERF_ROUTE_LIST="$(WEB_DIR="$WEB_DIR" node -e '
+    const inv = require(require("path").join(process.env.WEB_DIR, "native-route-inventory.json"));
+    const routes = inv.routes
+      .filter((r) => String(r.classification || "").startsWith("native-required"))
+      // Signed-in surfaces only. A signed-out route (/logout) ends the
+      // reviewer session for every launch after it, which turned the first
+      // sweep back half into a wall of false "unreachable" results; OAuth
+      // callback routes need a provider round-trip to mean anything.
+      .filter((r) => r.expectedAuth === "authenticated" && r.autoReviewerLogin === true)
+      .filter((r) => !String(r.classification || "").endsWith("-callback"))
+      .map((r) => r.route)
+      // A route carrying a path parameter needs a real id to mean anything;
+      // the sweep measures the static surfaces and says so.
+      .filter((r) => !r.includes("[") && !r.includes(":"));
+    process.stdout.write(routes.join(","));
+  ')"
+  echo "perf routes: $(printf %s "$PERF_ROUTE_LIST" | awk -F, "{print NF}") native-required routes"
+fi
+
 RESULT_BUNDLE="$OUT_DIR/run.xcresult"
 rm -rf "$RESULT_BUNDLE"
 touch "$OUT_DIR/.run-start"
+
+# PERF_SECTION=session walks the app in one launch and marks each stop with
+# PERF_STOP; the phone's screen is captured from the Mac at every mark, for a
+# pixel review of each screen next to its frame numbers. The gate is captured
+# with its keyboard up before anything is typed.
+SHOT_PID=""
+if [[ "${PERF_SECTION:-}" == "session" && -n "${IOS_DEVICE_ID:-}" ]]; then
+  mkdir -p "$OUT_DIR/shots"
+  : > "$OUT_DIR/test.log"
+  (
+    n=0
+    tail -n +1 -F "$OUT_DIR/test.log" 2>/dev/null | while IFS= read -r line; do
+      case "$line" in
+        *"PERF_STOP name="*)
+          n=$((n + 1))
+          # xcodebuild ends its lines with a carriage return; keep it out of the file name.
+          name="${line##*PERF_STOP name=}"; name="${name%% *}"; name="${name//$'\r'/}"
+          xcrun devicectl device capture screenshot --device "$IOS_DEVICE_ID" \
+            --destination "$OUT_DIR/shots/$(printf %02d "$n")-$name.png" -q >/dev/null 2>&1 || true
+          ;;
+      esac
+    done
+  ) &
+  SHOT_PID=$!
+fi
 set +e
 env "$ENABLE_VAR=true" \
     TEST_RUNNER_HUSHH_PERF_REPS="$REPS" \
     TEST_RUNNER_HUSHH_PERF_ATTACHED_SECTION="${PERF_SECTION:-all}" \
     TEST_RUNNER_HUSHH_PERF_EXPERIMENT="${PERF_EXPERIMENT:-}" \
+    TEST_RUNNER_HUSHH_PERF_ROUTES="$PERF_ROUTE_LIST" \
     TEST_RUNNER_HUSHH_UI_TEST_REVIEWER_UID="$REVIEWER_UID" \
     TEST_RUNNER_HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE="${HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE:-$REVIEWER_VAULT_PASSPHRASE}" \
     TEST_RUNNER_REVIEWER_UID="$REVIEWER_UID" \
@@ -138,6 +190,21 @@ env "$ENABLE_VAR=true" \
     -only-testing:"AppUITests/AppUITests/$TEST_NAME" test-without-building > "$OUT_DIR/test.log" 2>&1
 TEST_STATUS=$?
 set -e
+if [[ -n "$SHOT_PID" ]]; then
+  sleep 3
+  pkill -P "$SHOT_PID" 2>/dev/null || true
+  kill "$SHOT_PID" 2>/dev/null || true
+  echo "session shots: $(ls "$OUT_DIR/shots" 2>/dev/null | wc -l | tr -d ' ') in $OUT_DIR/shots"
+fi
+# Session walks keep their screenshot bursts: export the image attachments
+# only (typed strings live in the activity log, never in attachments), then
+# the bundle goes as always.
+if [[ "${PERF_SECTION:-}" == "session" && -d "$RESULT_BUNDLE" ]]; then
+  mkdir -p "$OUT_DIR/bursts"
+  xcrun xcresulttool export attachments --path "$RESULT_BUNDLE" --output-path "$OUT_DIR/bursts" >/dev/null 2>&1 || true
+  find "$OUT_DIR/bursts" -type f ! -iname '*.png' ! -iname '*.jpg' ! -iname '*.jpeg' ! -name 'manifest.json' -delete 2>/dev/null || true
+  echo "session bursts: $(find "$OUT_DIR/bursts" -type f -iname '*.png' -o -type f -iname '*.jp*g' | wc -l | tr -d ' ') in $OUT_DIR/bursts"
+fi
 rm -rf "$RESULT_BUNDLE"
 find "$DERIVED/Logs/Test" -maxdepth 1 -name '*.xcresult' -newer "$OUT_DIR/.run-start" -print0 2>/dev/null | xargs -0 rm -rf 2>/dev/null || true
 cd "$WEB_DIR"

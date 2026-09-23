@@ -81,6 +81,7 @@ import {
   buildFinancialDomainSummary,
   removePlaidSource,
 } from "@/lib/kai/brokerage/financial-sources";
+import { connectVaultPlaid, disconnectAllVaultPlaid } from "@/lib/kai/plaid-vault/vault-sync";
 import { usePortfolioSources } from "@/lib/kai/brokerage/use-portfolio-sources";
 import { PortfolioSourceSwitcher } from "@/components/kai/portfolio-source-switcher";
 import { loadPlaidLink } from "@/lib/kai/brokerage/plaid-link-loader";
@@ -833,6 +834,31 @@ export function DashboardMasterView({
         return;
       }
 
+      if (!itemId) {
+        // New connections are sealed in the person's vault: the token and
+        // every record go into their encrypted financial memory, never to
+        // Hussh's servers (founder decision 2026-09-23).
+        setIsLinkingPlaid(true);
+        try {
+          const result = await connectVaultPlaid({ userId, vaultKey, vaultOwnerToken });
+          if (result.status === "connected") {
+            toast.success(
+              result.institutionName
+                ? `${result.institutionName} connected.`
+                : "Bank connected with Plaid.",
+            );
+            void reload();
+          } else if (result.status === "blocked") {
+            toast.error(result.reason);
+          }
+        } catch {
+          toast.error("Could not connect that bank.");
+        } finally {
+          setIsLinkingPlaid(false);
+        }
+        return;
+      }
+
       setIsLinkingPlaid(true);
       try {
         const redirectUri = resolvePlaidRedirectUri();
@@ -940,7 +966,7 @@ export function DashboardMasterView({
         setIsLinkingPlaid(false);
       }
     },
-    [reload, userId, vaultOwnerToken],
+    [reload, userId, vaultKey, vaultOwnerToken],
   );
 
   const sortedHoldingsDraft = useMemo(
@@ -1369,6 +1395,17 @@ export function DashboardMasterView({
     try {
       const nowIso = new Date().toISOString();
 
+      if (activeSource === "plaid" && plaidStatus?.custody === "vault") {
+        const { failed } = await disconnectAllVaultPlaid({ userId, vaultKey, vaultOwnerToken });
+        if (failed > 0) {
+          throw new Error("Some Plaid connections could not be disconnected.");
+        }
+        CacheSyncService.onPkmDomainCleared(userId, "financial");
+        setDeleteImportedDialogOpen(false);
+        toast.success("Plaid connections disconnected and removed.");
+        return;
+      }
+
       if (activeSource === "plaid") {
         if (activePlaidItemIds.length === 0) {
           toast.info("There is no Plaid portfolio to delete.");
@@ -1612,6 +1649,7 @@ export function DashboardMasterView({
     changeActiveSource,
     hasPlaidConnections,
     onReupload,
+    plaidStatus?.custody,
     reload,
     statementEditablePortfolio,
     userId,

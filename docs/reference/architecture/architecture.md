@@ -184,13 +184,14 @@ This is the literal platform meaning behind Human Secure Socket Host: infrastruc
 - What exists today:
   - Kai runtime references, agent-development contract, and generated action gateway work
   - ADK-backed surfaces and A2A-compatible delegation entry points
+  - strict `AgentManifestV2` YAML and generated `contracts/agents/product-agent-registry.v2.json`
   - debate-oriented financial analysis scaffolding
 - What is missing for full-scale architecture:
-  - formal agent registry and capability registry
-  - execution budget and fallback policy
-  - a more explicit memory and delegation contract
+  - complete owner-bound official A2A Task lifecycle acceptance; the opt-in adapter currently admits fresh messages only
+  - measured cross-surface evaluation, runtime budgets, and rollback acceptance for each new agent
+  - private-pod memory and delegation parity beyond this shared runtime
 - Next build path:
-  - define governable agent infrastructure instead of leaving agents as mostly implicit runtime features
+  - extend the manifest-owned registry and prove each remaining runtime boundary before promotion
 
 ## 6. Experience and Interaction Layer
 

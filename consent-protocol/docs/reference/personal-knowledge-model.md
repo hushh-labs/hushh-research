@@ -101,6 +101,28 @@ flowchart TB
 
 ## Canonical tables
 
+Structure-preview manifests preserve nonempty sensitivity labels from the adopted
+structure decision for paths that survive payload normalization. The structural
+walk still owns actual paths and segments; it must not overwrite the agent's
+sensitivity assessment. Scope sensitivity tiers are derived after those labels
+are applied. A label alone never enables exposure or grants consent.
+
+The browser prepared-domain writer rebuilds structure from the full merged
+payload, retaining valid consent labels and sensitivity from same-domain,
+surviving, same-type manifest paths. Previous metadata precedes the reviewed
+manifest; the current structure decision's sensitivity takes precedence for the
+same source path, before aggregation into collection paths. Partial sibling
+updates cannot supersede a different sibling or a prior collection assessment.
+Conflicting collection assessments and custom concrete labels that cannot
+represent the collection require review before persistence. Concrete default
+titles retain the collection's canonical title rather than an entity identifier.
+The older merged-domain writer preserves previous metadata when rebuilding;
+complete caller artifacts bypass unused fallback generation in both writers.
+Metadata overlays do not copy scope handles, exposure flags, or missing paths.
+An explicitly different manifest owner is excluded. This source contract still
+requires separate encrypted-save/readback acceptance; preview tests alone do
+not certify it.
+
 - `pkm_index`
   Sanitized discovery/readable-summary projection. It can carry coarse summaries,
   counters, freshness, and capability flags, but it is not raw PKM and is not the

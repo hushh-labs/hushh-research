@@ -75,6 +75,7 @@ vi.mock("@/lib/utils/request-timeouts", () => ({
 // ---------------------------------------------------------------------------
 
 import { ApiService } from "@/lib/services/api-service";
+import { GoogleConnectionService } from "@/lib/services/google-connection-service";
 import { AuthService } from "@/lib/services/auth-service";
 import { REQUEST_TIMESTAMP_HEADER } from "@/lib/observability/request-id";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
@@ -151,6 +152,45 @@ describe("ApiService.apiFetch", () => {
     })).rejects.toMatchObject({ name: "AbortError" });
     expect(beforeDispatch).toHaveBeenCalledOnce();
     expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it.each(["unmount", "owner", "owner-round-trip"])("blocks Google completion at real transport dispatch after %s", async (change) => {
+    publishValidatedAuthSessionOwner("synthetic-owner");
+    let mounted = true;
+    vi.mocked(trackRequestStart).mockImplementationOnce(() => {
+      if (change === "unmount") mounted = false;
+      else {
+        publishValidatedAuthSessionOwner("synthetic-other");
+        if (change === "owner-round-trip") publishValidatedAuthSessionOwner("synthetic-owner");
+      }
+    });
+    await expect(GoogleConnectionService.completeConnect({
+      idToken: makeUnsignedToken({ sub: "synthetic-owner" }), userId: "synthetic-owner",
+      code: "synthetic-code", state: "synthetic-state", isEffectCurrent: () => mounted,
+    })).rejects.toMatchObject({ name: "AbortError" });
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(capacitorMocks.request).not.toHaveBeenCalled();
+  });
+
+  it("completes Google callbacks without sending presentation authority", async () => {
+    publishValidatedAuthSessionOwner("synthetic-owner");
+    mockFetch.mockResolvedValueOnce(jsonResponse({ connected: true, status: "connected", service: "drive" }));
+    const result = await GoogleConnectionService.completeConnect({
+      idToken: makeUnsignedToken({ sub: "synthetic-owner" }), userId: "synthetic-owner",
+      code: "synthetic-code", state: "synthetic-state", isEffectCurrent: () => true,
+    });
+    expect(result.service).toBe("drive");
+    expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toEqual({ user_id: "synthetic-owner", code: "synthetic-code", state: "synthetic-state" });
+    expect(mockFetch.mock.calls[0][1]).not.toHaveProperty("isEffectCurrent");
+  });
+
+  it.each([undefined, "unknown"])("refuses unverifiable Google callback service %s", async (service) => {
+    publishValidatedAuthSessionOwner("synthetic-owner");
+    mockFetch.mockResolvedValueOnce(jsonResponse({ connected: true, status: "connected", service }));
+    await expect(GoogleConnectionService.completeConnect({
+      idToken: makeUnsignedToken({ sub: "synthetic-owner" }), userId: "synthetic-owner",
+      code: "synthetic-code", state: "synthetic-state", isEffectCurrent: () => true,
+    })).rejects.toThrow("could not be verified");
   });
 
   it("does not send an application effect guard over the transport", async () => {

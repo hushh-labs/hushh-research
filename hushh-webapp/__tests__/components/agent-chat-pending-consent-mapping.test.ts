@@ -192,7 +192,7 @@ describe("pending consent card targets", () => {
   it("revalidates a single-request card and uses fresh metadata", async () => {
     lookupPendingRequests.mockResolvedValue({ items: [{ ...lookupItem,
       metadata: { connector_public_key: "pk_fresh" } }], missing_request_ids: [] });
-    const card = pendingConsentLookupItemToCardItem(lookupItem)!;
+    const card = { ...pendingConsentLookupItemToCardItem(lookupItem)!, bundleId: null };
     const targets = await resolvePendingConsentCardTargets({
       userId: "user_1",
       vaultOwnerToken: "owner-token",
@@ -213,13 +213,13 @@ describe("pending consent card targets", () => {
   it("returns no targets for a missing single request", async () => {
     lookupPendingRequests.mockResolvedValue({items: [], missing_request_ids: ["req_123"]});
     await expect(resolvePendingConsentCardTargets({ userId: "user_1", vaultOwnerToken: "owner-token",
-      item: pendingConsentLookupItemToCardItem(lookupItem)! })).resolves.toEqual([]);
+      item: { ...pendingConsentLookupItemToCardItem(lookupItem)!, bundleId: null } })).resolves.toEqual([]);
   });
 
   it("propagates lookup failure without stale fallback", async () => {
     lookupPendingRequests.mockRejectedValue(new Error("Unavailable"));
     await expect(resolvePendingConsentCardTargets({ userId: "user_1", vaultOwnerToken: "owner-token",
-      item: pendingConsentLookupItemToCardItem(lookupItem)! })).rejects.toThrow("Unavailable");
+      item: { ...pendingConsentLookupItemToCardItem(lookupItem)!, bundleId: null } })).rejects.toThrow("Unavailable");
   });
 
   it.each(["approved", "denied", "cancelled", "expired", "revoked", "unavailable"] as const)(
@@ -252,6 +252,14 @@ describe("pending consent card targets", () => {
       "pk_test_base64",
       "pk_second",
     ]);
+  });
+
+  it("does not decide a bundle from only the first arriving notification", async () => {
+    const first = pendingConsentLookupItemToCardItem(lookupItem)!;
+    await expect(resolvePendingConsentCardTargets({
+      userId: "user_1", vaultOwnerToken: "owner-token", item: first,
+    })).rejects.toThrow("still loading");
+    expect(lookupPendingRequests).not.toHaveBeenCalled();
   });
 
   it("acts only on the requests still pending, so a retry is safe", async () => {

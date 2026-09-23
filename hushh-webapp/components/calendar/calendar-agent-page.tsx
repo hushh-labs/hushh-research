@@ -234,6 +234,7 @@ export function CalendarAgentPage({
           userId: user.uid,
           accessLevel,
           serverAuthCode: nativeResult.serverAuthCode,
+          state: start.state,
         });
         setStatus(completed);
         if (!completed.connected) {
@@ -316,7 +317,9 @@ export function CalendarAgentPage({
       : status?.status === "needs_reauth"
         ? "Reconnect needed"
         : "Not connected";
-  const permissionLabel = "View availability and manage meetings with One.";
+  const permissionLabel = needsSchedulingReconnect
+    ? "View events and availability with One."
+    : "View availability and manage meetings with One.";
   const connectLabel =
     status?.status === "needs_reauth"
       ? "Reconnect Calendar"
@@ -396,16 +399,23 @@ export function CalendarAgentPage({
                   <AskOneButton
                     disabled={busy}
                     onClick={() => {
-                      if (needsSchedulingReconnect) {
-                        void connect("manage");
-                      } else {
-                        openChat("Summarize my calendar events and help me plan meetings");
-                      }
+                      openChat("Summarize my calendar events and help me plan meetings");
                     }}
                     className="sm:w-full"
                   >
                     Try Calendar Agent with One
                   </AskOneButton>
+                  {needsSchedulingReconnect ? (
+                    <Button
+                      type="button"
+                      variant="none"
+                      effect="fade"
+                      disabled={busy}
+                      onClick={() => void connect("manage")}
+                    >
+                      Enable scheduling
+                    </Button>
+                  ) : null}
                   <button
                     type="button"
                     className="text-xs font-medium text-muted-foreground transition-colors hover:text-destructive focus-visible:outline-none"
@@ -421,7 +431,7 @@ export function CalendarAgentPage({
                 <div className="flex flex-col items-center justify-center text-center space-y-3 w-full">
                   <Button
                     disabled={busy}
-                    onClick={() => void connect("manage")}
+                    onClick={() => void connect("read")}
                     className="w-full justify-center h-11 text-base font-semibold shadow-sm"
                     data-voice-control-id="open_calendar_connector"
                     data-voice-action-id={
@@ -443,7 +453,7 @@ export function CalendarAgentPage({
               <div className="flex flex-col items-center gap-2 border-t border-border/60 pt-4">
                 <Button
                   disabled={busy}
-                  onClick={() => void connect("manage")}
+                  onClick={() => void connect("read")}
                   className="w-full justify-center"
                   data-voice-control-id="open_calendar_connector"
                   data-voice-action-id={
