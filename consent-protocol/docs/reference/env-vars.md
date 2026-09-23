@@ -108,40 +108,17 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 | `HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET` | `api/routes/account.py` | Production test only | Required HMAC key for production stateless phone challenge IDs; production never falls back to `APP_SIGNING_KEY` or the OTP. |
 | `ROOT_PATH` | `server.py` | No | FastAPI root path for reverse proxy. |
 | `GOOGLE_GENAI_USE_VERTEXAI` | Cloud Run env | Yes (hosted) | Set `true` with `HUSHH_GENAI_AUTH_MODE=vertex_adc`; API-key fallback is prohibited. |
-| `PLAID_ENV` / `PLAID_ENVIRONMENT` | `hushh_mcp/services/plaid_portfolio_service.py` | No | Plaid environment. Defaults to `sandbox`. |
-| `PLAID_CLIENT_ID` | `hushh_mcp/services/plaid_portfolio_service.py` | If Plaid enabled | Plaid client ID. |
-| `PLAID_SECRET` | `hushh_mcp/services/plaid_portfolio_service.py` | If Plaid enabled | Plaid secret for the selected environment. |
-| `PLAID_CLIENT_NAME` | `hushh_mcp/services/plaid_portfolio_service.py` | No | Link display name. Defaults to `Hushh Kai`. |
-| `PLAID_COUNTRY_CODES` | `hushh_mcp/services/plaid_portfolio_service.py` | No | Comma-separated country codes, default `US`. |
-| `PLAID_WEBHOOK_URL` | `hushh_mcp/services/plaid_portfolio_service.py` | Recommended | Public webhook URL for `/api/kai/plaid/webhook`. Localhost must use a tunnel. Plaid webhook URLs are provided during Link token creation; they are not dashboard-allowlisted. |
-| `PLAID_REDIRECT_PATH` | `hushh_mcp/services/plaid_portfolio_service.py` | Recommended for OAuth | Relative callback path used with `APP_FRONTEND_ORIGIN`. Default: `/kai/plaid/oauth/return`. |
-| `PLAID_REDIRECT_URI` / `PLAID_OAUTH_REDIRECT_URI` | `hushh_mcp/services/plaid_portfolio_service.py` | Optional override | Full allowlisted redirect URI, including path. Use only when overriding `APP_FRONTEND_ORIGIN + PLAID_REDIRECT_PATH`. |
-| `PLAID_ACCESS_TOKEN_KEY` | `hushh_mcp/services/plaid_portfolio_service.py` | Recommended | Encryption key for stored Plaid access tokens. Keep the same value anywhere that must read/write the same Plaid item records, especially `local` and UAT when they share a DB. If omitted, backend derives a fallback key from Plaid credentials. |
-| `PLAID_TX_HISTORY_DAYS` | `hushh_mcp/services/plaid_portfolio_service.py` | No | Investment transaction lookback window. Default `730`. |
-| `PLAID_WEBHOOK_VERIFICATION_ENABLED` | `hushh_mcp/services/broker_funding_service.py` | Recommended | Enables Plaid webhook JWT signature verification (default `true`). |
-| `PLAID_WEBHOOK_MAX_SKEW_SECONDS` | `hushh_mcp/services/broker_funding_service.py` | No | Max allowed clock skew for Plaid webhook `iat` claim. Default `300`. |
-| `ALPACA_ENV` / `ALPACA_BROKER_ENV` | `hushh_mcp/integrations/alpaca/config.py` | No | Alpaca Broker environment. Defaults to `sandbox`. |
-| `ALPACA_BROKER_BASE_URL` / `BROKER_API_BASE` | `hushh_mcp/integrations/alpaca/config.py` | Optional | Override Alpaca Broker API base URL. |
-| `ALPACA_BROKER_AUTH_TOKEN` / `BROKER_TOKEN` / `ALPACA_AUTH_TOKEN` | `hushh_mcp/integrations/alpaca/config.py` | Optional | Pre-built Authorization header token (Basic or Bearer). |
-| `ALPACA_BROKER_KEY_ID` / `APCA_API_KEY_ID` / `ALPACA_API_KEY` | `hushh_mcp/integrations/alpaca/config.py` | If Alpaca enabled | Alpaca API key ID for Basic auth generation. |
-| `ALPACA_BROKER_SECRET` / `APCA_API_SECRET_KEY` / `ALPACA_API_SECRET` | `hushh_mcp/integrations/alpaca/config.py` | If Alpaca enabled | Alpaca API secret for Basic auth generation. |
-| `ALPACA_DEFAULT_ACCOUNT_ID` | `hushh_mcp/integrations/alpaca/config.py` | Recommended | Default Alpaca account ID for funding when user-specific mapping is absent. |
-| `ALPACA_CONNECT_CLIENT_ID` | `hushh_mcp/services/broker_funding_service.py` | If Alpaca OAuth connect enabled | Alpaca OAuth app client ID for user login flow. |
-| `ALPACA_CONNECT_CLIENT_SECRET` | `hushh_mcp/services/broker_funding_service.py` | If Alpaca OAuth connect enabled | Alpaca OAuth app client secret. |
-| `ALPACA_CONNECT_REDIRECT_URI` / `ALPACA_OAUTH_REDIRECT_URI` | `hushh_mcp/services/broker_funding_service.py` | Optional override | Full allowlisted HTTPS callback URI. Use only when overriding `APP_FRONTEND_ORIGIN + ALPACA_CONNECT_REDIRECT_PATH`. |
-| `ALPACA_CONNECT_REDIRECT_PATH` | `hushh_mcp/services/broker_funding_service.py` | No | Relative callback path used with `APP_FRONTEND_ORIGIN` (same pattern as `PLAID_REDIRECT_PATH`). Default: `/kai/alpaca/oauth/return`. |
-| `ALPACA_CONNECT_AUTHORIZE_URL` | `hushh_mcp/services/broker_funding_service.py` | No | Override OAuth authorize endpoint. Default `https://app.alpaca.markets/oauth/authorize`. |
-| `ALPACA_CONNECT_TOKEN_URL` | `hushh_mcp/services/broker_funding_service.py` | No | Override OAuth token endpoint. Default `https://api.alpaca.markets/oauth/token`. |
-| `ALPACA_CONNECT_ACCOUNT_URL` | `hushh_mcp/services/broker_funding_service.py` | No | OAuth Bearer account profile endpoint. Default `https://api.alpaca.markets/v2/account`. |
-| `ALPACA_CONNECT_SCOPES` | `hushh_mcp/services/broker_funding_service.py` | No | Space-delimited OAuth scopes for authorize URL. Default `account:write trading`. |
-| `ALPACA_CONNECT_ENV` | `hushh_mcp/services/broker_funding_service.py` | No | Authorize URL env hint (`paper` or `live`). Defaults by Alpaca runtime env. |
-| `ALPACA_CONNECT_STATE_TTL_SECONDS` | `hushh_mcp/services/broker_funding_service.py` | No | OAuth state/session TTL in seconds. Default `900`. |
-| `FUNDING_SECRET_ENCRYPTION_KEY` | `hushh_mcp/services/broker_funding_service.py` | Recommended | Encryption key for stored Plaid access tokens and processor tokens in funding tables. |
-| `FUNDING_ACH_RELATIONSHIP_POLL_SECONDS` | `hushh_mcp/services/broker_funding_service.py` | No | Max seconds to poll Alpaca ACH relationship approval. Default `15`. |
-| `FUNDING_ACH_RELATIONSHIP_POLL_INTERVAL_SECONDS` | `hushh_mcp/services/broker_funding_service.py` | No | Poll interval for ACH approval status. Default `2`. |
-| `FUNDING_TRANSFER_MAX_INCOMING_USD` | `hushh_mcp/services/broker_funding_service.py` | No | Max allowed incoming funding transfer amount. Default `250000`. |
-| `FUNDING_TRANSFER_MAX_OUTGOING_USD` | `hushh_mcp/services/broker_funding_service.py` | No | Max allowed outgoing funding transfer amount. Default `250000`. |
-| `FUNDING_STALE_PENDING_SECONDS` | `hushh_mcp/services/broker_funding_service.py` | No | Reconciliation stale-pending threshold. Default `172800` (48h). |
+| `PLAID_ENV` / `PLAID_ENVIRONMENT` | `hushh_mcp/integrations/plaid/config.py` | No | Plaid environment. Defaults to `sandbox`. |
+| `PLAID_CLIENT_ID` | `hushh_mcp/integrations/plaid/config.py` | If Plaid enabled | Plaid client ID. |
+| `PLAID_SECRET` | `hushh_mcp/integrations/plaid/config.py` | If Plaid enabled | Plaid secret for the selected environment. |
+| `PLAID_CLIENT_NAME` | `hushh_mcp/integrations/plaid/config.py` | No | Link display name. Defaults to `Hushh Kai`. |
+| `PLAID_COUNTRY_CODES` | `hushh_mcp/integrations/plaid/config.py` | No | Comma-separated country codes, default `US`. |
+| `PLAID_REDIRECT_PATH` | `hushh_mcp/integrations/plaid/config.py` | Recommended for OAuth | Relative callback path used with `APP_FRONTEND_ORIGIN`. Default: `/kai/plaid/oauth/return`. |
+| `PLAID_REDIRECT_URI` / `PLAID_OAUTH_REDIRECT_URI` | `hushh_mcp/integrations/plaid/config.py` | Optional override | Full allowlisted redirect URI, including path. Use only when overriding `APP_FRONTEND_ORIGIN + PLAID_REDIRECT_PATH`. |
+| `PLAID_PRIMARY_PRODUCTS` / `PLAID_REQUIRED_IF_SUPPORTED_PRODUCTS` / `PLAID_ADDITIONAL_CONSENTED_PRODUCTS` | `hushh_mcp/integrations/plaid/products.py` | No | Link product sets for the vault pass-through. Defaults `transactions` / `investments` / `identity`. |
+| `PLAID_WEBHOOK_URL` | `hushh_mcp/integrations/plaid/config.py` | No | Still parsed, but unused: the vault pass-through (`api/routes/kai/plaid_vault.py`) creates Link tokens without a webhook and the old `/api/kai/plaid/webhook` route is removed. |
+| `PLAID_ACCESS_TOKEN_KEY` | `hushh_mcp/runtime_settings.py` | Retirement only | Decrypts the remaining server-held portfolio tokens for `consent-protocol/scripts/ops/plaid_server_custody_retire.py`. Remove once that script has run everywhere and migration 239 has dropped the tables. |
+| `FUNDING_SECRET_ENCRYPTION_KEY` | `hushh_mcp/runtime_settings.py` | Retirement only | Same, for the retired funding tables. When unset, the script derives the old fallback key from the Plaid and `ALPACA_*` credentials exactly as the removed funding service did. |
 
 ---
 

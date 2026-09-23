@@ -40,7 +40,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from api.middleware import require_vault_owner_token
 from hushh_mcp.integrations.plaid import PlaidApiError, PlaidHttpClient, PlaidRuntimeConfig
-from hushh_mcp.services.plaid_portfolio_service import _link_token_product_sets
+from hushh_mcp.integrations.plaid.products import _link_token_product_sets
 
 logger = logging.getLogger(__name__)
 
@@ -134,6 +134,12 @@ class VaultLinkTokenRequest(_StrictModel):
     # A non-secret marker used only by the local Plaid Sandbox proof.  It is
     # deliberately opt-in so ordinary clients retain their existing contract.
     sandbox_proof: bool = False
+    # Update mode (relink after "login required"): the device passes the token
+    # it holds sealed; Plaid returns a Link token bound to that Item.  Used for
+    # this one call only, never stored or logged.
+    access_token: str | None = Field(
+        default=None, min_length=8, max_length=256, pattern=_OPAQUE_ID_PATTERN
+    )
 
 
 class VaultExchangeRequest(_StrictModel):
@@ -356,14 +362,18 @@ async def create_vault_link_token(
                     "message": "The redirect URI is not allowed.",
                 },
             ) from exc
-        primary, required_if_supported, additional_consented = _link_token_product_sets()
-        link_payload["products"] = primary
-        if required_if_supported:
-            link_payload["required_if_supported_products"] = required_if_supported
-        if additional_consented:
-            link_payload["additional_consented_products"] = additional_consented
-        if "investments" in primary:
-            link_payload["account_filters"] = {"investment": {"account_subtypes": ["all"]}}
+        if payload.access_token:
+            # Update mode carries the Item; Plaid rejects a product list here.
+            link_payload["access_token"] = payload.access_token
+        else:
+            primary, required_if_supported, additional_consented = _link_token_product_sets()
+            link_payload["products"] = primary
+            if required_if_supported:
+                link_payload["required_if_supported_products"] = required_if_supported
+            if additional_consented:
+                link_payload["additional_consented_products"] = additional_consented
+            if "investments" in primary:
+                link_payload["account_filters"] = {"investment": {"account_subtypes": ["all"]}}
         # Deliberately no "webhook": refresh is device-driven on unlock.
         link_payload.pop("webhook", None)
 

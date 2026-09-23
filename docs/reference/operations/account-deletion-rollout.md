@@ -67,7 +67,7 @@ inspection-only, and the local reviewer mirror must use in-place root upserts.
 This rollout closes the cross-device lifecycle bug; it does not by itself
 settle every legal-retention decision. Existing retention policies continue to
 govern append-only or regulated evidence such as
-`fabric_receipts`, `kai_funding_*`, `consent_audit`,
+`fabric_receipts`, `consent_audit`,
 `consent_audit_receipts`, and
 `internal_access_events`, and the UAT-only `hushh_tech_link_events` identity
 ledger. Their documented retention/redaction policy, rather than an incidental

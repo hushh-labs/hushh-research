@@ -84,13 +84,12 @@ lock.
 
 The reviewed identity `ON DELETE SET NULL` inventory is intentionally small:
 `ria_client_invites.target_investor_user_id`,
-`ria_client_invites.accepted_by_user_id`,
-`kai_funding_reconciliation_runs.user_id`, `one_kyc_workflows.user_id`, and
-`one_referral_attributions.bound_user_id`. Full deletion removes these rows
-before either account root; the trigger's tombstone-visible `SET NULL` branch
-also preserves legacy/root-driven cascades. Reviewed runtime assignments bind
-previously-null referral/OAuth subjects, while Plaid conflict updates repeat
-the same owning UID. A new ownership-transfer or identity-detach workflow must
+`ria_client_invites.accepted_by_user_id`, `one_kyc_workflows.user_id`, and
+`one_referral_attributions.bound_user_id`. (`kai_funding_reconciliation_runs.user_id`
+from migration 038 was retired with its table by migration 239.) Full deletion
+removes these rows before either account root; the trigger's tombstone-visible
+`SET NULL` branch also preserves legacy/root-driven cascades. Reviewed runtime
+assignments bind previously-null referral/OAuth subjects. A new ownership-transfer or identity-detach workflow must
 not ship by relying on the generic trigger: update this inventory and design an
 explicit deletion-safe transfer protocol first.
 

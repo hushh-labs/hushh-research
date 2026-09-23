@@ -28,7 +28,7 @@ bounded lengths, opaque-token character set).
 
 | Method | Path | Request | Response |
 |---|---|---|---|
-| POST | `/api/kai/plaid/vault/link-token` | `{platform: "web"\|"ios"\|"android", redirect_uri?: string\|null, sandbox_proof?: boolean}` | `{link_token, expiration}` |
+| POST | `/api/kai/plaid/vault/link-token` | `{platform: "web"\|"ios"\|"android", redirect_uri?: string\|null, sandbox_proof?: boolean, access_token?: string}` | `{link_token, expiration}` |
 | POST | `/api/kai/plaid/vault/exchange` | `{public_token}` | `{access_token, item_id, institution: {id, name}\|null, products, consented_products}` |
 | POST | `/api/kai/plaid/vault/snapshot` | `{access_token, transactions_cursor?: string\|null}` | see below |
 | POST | `/api/kai/plaid/vault/remove` | `{access_token}` | `{removed: true}` |
@@ -60,6 +60,9 @@ bounded lengths, opaque-token character set).
 - `/remove` is idempotent: `ITEM_NOT_FOUND` counts as removed.
 - Plaid `client_user_id` is `hv1_` + HMAC-SHA256 of the user id under `APP_SIGNING_KEY`:
   stable per person, never the raw id or an email.
+- `access_token` on `/link-token` asks for **update mode** (relink a sealed connection that
+  needs a new login): the token is sent to Plaid with no products, and is never stored or
+  logged.
 - The link token carries no `webhook`, and `apply_link_platform` handles
   `android_package_name` versus `redirect_uri`.
 - `sandbox_proof` is an opt-in, non-secret local-test marker. The server
@@ -90,10 +93,62 @@ bounded lengths, opaque-token character set).
 Tests: `consent-protocol/tests/test_plaid_vault_routes.py` (Plaid is never called; UAT's Plaid
 is production).
 
-## Still legacy
+## Device behaviour
 
-The server-stored flow in `consent-protocol/api/routes/kai/plaid.py` and
-`plaid_portfolio_service.py` (encrypted access tokens in server storage, webhook-driven
-refresh, funding and transfer routes) is unchanged and still serves existing clients. Moving
-the device onto this passthrough, migrating existing Items, and retiring the server-stored
-investment flow are separate follow-ups.
+Owner: `hushh-webapp/lib/kai/plaid-vault/vault-sync.ts`.
+
+- **Connect** (`connectVaultPlaid`, `sealVaultPlaidConnection`): open Link, exchange, read the
+  first snapshot, then one owner-confirmed `replace_domain` write through
+  `PkmWriteCoordinator`. If the read or the write fails, the Item is removed at Plaid.
+- **Orphan guard** (`hushh-webapp/lib/kai/plaid-vault/pending-seal.ts`): between the exchange
+  and the save, the token is recorded in the vault-key-encrypted device cache
+  (`plaid_vault_pending_seals_v1`, 30-day TTL) and cleared once the save lands. On the next
+  unlock, `UnlockWarmOrchestrator` disconnects any record whose Item is not in
+  `connections_v1`. It fails closed: with no vault read, nothing is disconnected.
+- **Refresh on unlock**: once per vault session, single-flight per person.
+- **Relink** (`relinkVaultPlaid`): update-mode link token from the sealed token, then a forced
+  refresh. Nothing new is sealed, because the access token does not change.
+- **Web OAuth return**: on the web an OAuth bank takes the whole page away. Before Link opens,
+  `rememberVaultOAuthReturn` stores `{linkToken, redirectUri, returnPath, onboardingAttemptId?,
+  relinkItemId?}` in tab session storage (30 minutes, single use; never an access token).
+  `/one/kai/plaid/oauth/return` sits behind the vault unlock screen and calls
+  `completeVaultOAuthReturn`, which re-opens Link with `receivedRedirectUri` (the minted https
+  URI plus the bank's query) and then seals, or refreshes for a relink. Native shells keep
+  Link in their own process and skip this.
+
+## Server-held custody retired
+
+The server-stored flow (`api/routes/kai/plaid.py`, `plaid_portfolio_service.py`,
+`broker_funding_service.py`, the `/api/kai/plaid/webhook` route, and the Alpaca funding
+path) is deleted. Account erasure no longer calls Plaid from the server. Instead, before
+deleting or resetting an account, the device revokes every sealed connection (and any
+unsaved link) at Plaid (`revokeVaultBanksBeforeErasure` in
+`hushh-webapp/lib/flows/delete-account.ts`); if one cannot be revoked, nothing is erased.
+Without the vault key nothing can be revoked. That is inherent to zero-knowledge custody
+and is an accepted risk.
+
+Retirement order per environment:
+
+1. Dry run: `python3 consent-protocol/scripts/ops/plaid_server_custody_retire.py`. It prints
+   counts only: live Items per table, which Plaid environment each live token belongs to,
+   regulated funding record counts, the Plaid client environment, the database target and
+   its `database_fingerprint`.
+2. `... --execute --confirm-env <ENVIRONMENT> --confirm-db <database_fingerprint>`:
+   - refuses before any access if either confirmation differs, or if a uat/production run
+     is not using production Plaid;
+   - calls Plaid `/item/remove` for every live Item whose token matches the client's Plaid
+     environment, then deletes its rows;
+   - never sends or deletes a token from another environment (`environment_mismatch_kept`);
+   - `INVALID_ACCESS_TOKEN` counts as already gone only in the matching environment;
+   - a funding Item referenced by regulated records (transfers, trade intents) is revoked
+     and marked `removed`, never deleted.
+
+   Idempotent; prints counts and Plaid `error_code` counts only.
+3. Migration `239_drop_server_plaid_custody.sql` drops `kai_plaid_*`,
+   `kai_portfolio_source_preferences`, and every `kai_funding_*` table. Every deploy lane
+   applies it automatically, so it guards itself: it **aborts** (and fails the deploy) while
+   any Item is still live, or while regulated funding records exist. Those records need an
+   export and an explicit retention decision first.
+
+People re-link through this passthrough. `PLAID_ACCESS_TOKEN_KEY` and
+`FUNDING_SECRET_ENCRYPTION_KEY` remain only for step 2 and can be removed afterwards.

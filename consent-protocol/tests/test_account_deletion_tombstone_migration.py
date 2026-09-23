@@ -283,9 +283,11 @@ def test_identity_set_null_fk_inventory_is_explicitly_reviewed():
     }
 
     account_service = (ROOT / "hushh_mcp/services/account_service.py").read_text(encoding="utf-8")
+    # kai_funding_reconciliation_runs (038) is still observed above because the
+    # historical migration remains, but migration 239 drops the table, so
+    # account erasure no longer deletes from it.
     for cleanup_table in (
         "ria_client_invites",
-        "kai_funding_reconciliation_runs",
         "one_kyc_workflows",
         "one_referral_attributions",
     ):
