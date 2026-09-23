@@ -126,9 +126,12 @@ it does not replace the outstanding live Gemini parity, latency, or final chat a
 ### Phase G routing decisions
 
 Calendar remains on One's existing deterministic toolset. The measured Gemini 3.7
-first-tool gate was **1/4** for the Calendar family, below the migration precondition;
-no `ask_calendar_agent` child was introduced. Re-run the comparable family fixture
-before reconsidering that boundary. KYC's four bounded drafting and extraction calls
+first-tool gate was **1/4** for the Calendar family in the older saved run, which
+triggered the decision not to introduce an `ask_calendar_agent` child. The newer
+fresh 52/52 run passes all eight families, including Calendar, but first-tool
+accuracy alone does not prove completed tool execution or end-to-end chat parity.
+Keep Calendar on the existing toolset until those later gates are measured for a
+candidate child. KYC's four bounded drafting and extraction calls
 are now manifest-owned single-turn genes, with the current service contracts and
 unit fakes preserved for deterministic tests.
 

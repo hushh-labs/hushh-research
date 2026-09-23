@@ -66,7 +66,21 @@ class EncryptedAdkSessionService(BaseSessionService):
 
     def __init__(self) -> None:
         self._cipher = AgentChatService()
-        self._revisions: dict[tuple[str, str, str], int] = {}
+
+    @staticmethod
+    def _set_revision(session: Session, revision: int) -> None:
+        # The revision belongs to this snapshot, not the session identity. A
+        # service-wide cache lets a stale snapshot reuse another writer's new
+        # revision and silently replace its events. Pydantic excludes private
+        # attributes from the encrypted session document.
+        object.__setattr__(session, "_hushh_revision", revision)
+
+    @staticmethod
+    def _revision(session: Session) -> int:
+        revision = getattr(session, "_hushh_revision", None)
+        if not isinstance(revision, int):
+            raise RuntimeError("Encrypted ADK session was not loaded from storage.")
+        return revision
 
     async def _execute(self, sql: str, params: dict[str, Any]):
         try:
@@ -140,7 +154,7 @@ class EncryptedAdkSessionService(BaseSessionService):
             if existing is None:
                 raise RuntimeError("Encrypted ADK session reservation failed.")
             return existing
-        self._revisions[(app_name, user_id, session.id)] = int(result.data[0]["revision"])
+        self._set_revision(session, int(result.data[0]["revision"]))
         return session
 
     async def get_session(
@@ -161,9 +175,24 @@ class EncryptedAdkSessionService(BaseSessionService):
             return None
         row = dict(result.data[0])
         session = self._decode(row)
-        if config and config.num_recent_events is not None:
-            session.events = session.events[-config.num_recent_events :]
-        self._revisions[(app_name, user_id, session_id)] = int(row["revision"])
+        full_event_count = len(session.events)
+        if config:
+            if config.num_recent_events is not None:
+                session.events = (
+                    session.events[-config.num_recent_events :]
+                    if config.num_recent_events > 0
+                    else []
+                )
+            if config.after_timestamp:
+                session.events = [
+                    event for event in session.events if event.timestamp >= config.after_timestamp
+                ]
+        # A filtered snapshot can be read by ADK, but must recover its full
+        # history before an append replaces the encrypted session document.
+        object.__setattr__(
+            session, "_hushh_partial_history", len(session.events) < full_event_count
+        )
+        self._set_revision(session, int(row["revision"]))
         return session
 
     async def list_sessions(
@@ -177,7 +206,12 @@ class EncryptedAdkSessionService(BaseSessionService):
                ORDER BY updated_at DESC LIMIT 100""",
             {"app": app_name, "user": user_id},
         )
-        sessions = [self._decode(dict(row)) for row in (result.data or [])]
+        sessions = []
+        for result_row in result.data or []:
+            row = dict(result_row)
+            session = self._decode(row)
+            self._set_revision(session, int(row["revision"]))
+            sessions.append(session)
         return ListSessionsResponse(sessions=sessions)
 
     async def delete_session(self, *, app_name: str, user_id: str, session_id: str) -> None:
@@ -185,7 +219,6 @@ class EncryptedAdkSessionService(BaseSessionService):
             "DELETE FROM one_adk_sessions WHERE app_name = :app AND user_id = :user AND session_id = :session",
             {"app": app_name, "user": user_id, "session": session_id},
         )
-        self._revisions.pop((app_name, user_id, session_id), None)
 
     async def set_title(
         self, *, app_name: str, user_id: str, session_id: str, title: str
@@ -193,8 +226,7 @@ class EncryptedAdkSessionService(BaseSessionService):
         session = await self.get_session(app_name=app_name, user_id=user_id, session_id=session_id)
         if session is None:
             return None
-        key = (app_name, user_id, session_id)
-        revision = self._revisions[key]
+        revision = self._revision(session)
         session.state["hussh:thread_title"] = title.strip()[:160]
         session.last_update_time = time.time()
         encoded = self._encode(session)
@@ -215,24 +247,30 @@ class EncryptedAdkSessionService(BaseSessionService):
         )
         if not result.data:
             raise RuntimeError("Conversation changed while its title was being updated.")
-        self._revisions[key] = int(result.data[0]["revision"])
+        self._set_revision(session, int(result.data[0]["revision"]))
         return session
 
     async def append_event(self, session: Session, event: Event) -> Event:
-        persisted_event = await super().append_event(session, event)
+        if not event.partial:
+            self._revision(session)
         if event.partial:
-            return persisted_event
+            return event
+        if getattr(session, "_hushh_partial_history", False):
+            latest = await self.get_session(
+                app_name=session.app_name, user_id=session.user_id, session_id=session.id
+            )
+            if latest is None:
+                raise RuntimeError("Encrypted ADK session disappeared.")
+            persisted_event = await super().append_event(latest, event)
+            session.state = latest.state
+            session.events = latest.events
+            self._set_revision(session, self._revision(latest))
+            object.__setattr__(session, "_hushh_partial_history", False)
+        else:
+            persisted_event = await super().append_event(session, event)
         session.last_update_time = time.time()
-        key = (session.app_name, session.user_id, session.id)
         for _attempt in range(3):
-            revision = self._revisions.get(key)
-            if revision is None:
-                current = await self.get_session(
-                    app_name=session.app_name, user_id=session.user_id, session_id=session.id
-                )
-                if current is None:
-                    raise RuntimeError("Encrypted ADK session disappeared.")
-                revision = self._revisions[key]
+            revision = self._revision(session)
             encoded = self._encode(session)
             result = await self._execute(
                 """UPDATE one_adk_sessions SET payload_ciphertext = :ciphertext,
@@ -250,7 +288,7 @@ class EncryptedAdkSessionService(BaseSessionService):
                 },
             )
             if result.data:
-                self._revisions[key] = int(result.data[0]["revision"])
+                self._set_revision(session, int(result.data[0]["revision"]))
                 return persisted_event
             latest = await self.get_session(
                 app_name=session.app_name, user_id=session.user_id, session_id=session.id
@@ -261,6 +299,7 @@ class EncryptedAdkSessionService(BaseSessionService):
             session.state = latest.state
             session.events = latest.events
             session.last_update_time = time.time()
+            self._set_revision(session, self._revision(latest))
         raise RuntimeError("Encrypted ADK session changed concurrently; retry the run.")
 
 

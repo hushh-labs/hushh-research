@@ -1,8 +1,10 @@
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 from google.adk.events import Event, EventActions
 from google.adk.sessions import Session
+from google.adk.sessions.base_session_service import GetSessionConfig
 from google.genai import types
 from pydantic import ConfigDict
 from pydantic_core import PydanticSerializationError
@@ -181,3 +183,100 @@ def test_unrelated_serialization_failure_is_not_repaired(monkeypatch):
     session = Session(id="thread", app_name="one", user_id="owner", state={"invalid": object()})
     with pytest.raises(PydanticSerializationError, match="unknown type"):
         EncryptedAdkSessionService()._encode(session)
+
+
+@pytest.mark.asyncio
+async def test_overlapping_snapshots_preserve_both_committed_events(monkeypatch):
+    service = EncryptedAdkSessionService()
+    row = None
+
+    def encode(session):
+        return {
+            "ciphertext": session.model_dump_json(by_alias=True),
+            "iv": "",
+            "tag": "",
+            "algorithm": "fixture",
+        }
+
+    monkeypatch.setattr(service, "_encode", encode)
+    monkeypatch.setattr(
+        service, "_decode", lambda stored: Session.model_validate_json(stored["payload_ciphertext"])
+    )
+
+    async def execute(sql, params):
+        nonlocal row
+        if "INSERT INTO one_adk_sessions" in sql:
+            row = {
+                "revision": 1,
+                **{
+                    f"payload_{key}": value
+                    for key, value in params.items()
+                    if key in {"ciphertext", "iv", "tag", "algorithm"}
+                },
+            }
+            return SimpleNamespace(data=[{"revision": 1}])
+        if "SELECT payload_ciphertext" in sql:
+            return SimpleNamespace(data=[dict(row)] if row else [])
+        if "UPDATE one_adk_sessions" in sql:
+            if row is None or row["revision"] != params["revision"]:
+                return SimpleNamespace(data=[])
+            row = {
+                "revision": row["revision"] + 1,
+                **{
+                    f"payload_{key}": value
+                    for key, value in params.items()
+                    if key in {"ciphertext", "iv", "tag", "algorithm"}
+                },
+            }
+            return SimpleNamespace(data=[{"revision": row["revision"]}])
+        raise AssertionError("Unexpected SQL")
+
+    monkeypatch.setattr(service, "_execute", execute)
+    await service.create_session(app_name="one", user_id="owner", session_id="thread")
+    first = await service.get_session(app_name="one", user_id="owner", session_id="thread")
+    second = await service.get_session(app_name="one", user_id="owner", session_id="thread")
+    assert first is not None and second is not None
+
+    await service.append_event(first, Event(author="first", timestamp=1.0))
+    await service.append_event(second, Event(author="second", timestamp=2.0))
+
+    recent = await service.get_session(
+        app_name="one",
+        user_id="owner",
+        session_id="thread",
+        config=GetSessionConfig(num_recent_events=1),
+    )
+    assert recent is not None
+    assert [event.author for event in recent.events] == ["second"]
+    await service.append_event(recent, Event(author="third", timestamp=3.0))
+
+    since = await service.get_session(
+        app_name="one",
+        user_id="owner",
+        session_id="thread",
+        config=GetSessionConfig(after_timestamp=2.5),
+    )
+    assert since is not None
+    assert [event.author for event in since.events] == ["third"]
+    await service.append_event(since, Event(author="fourth", timestamp=4.0))
+
+    none = await service.get_session(
+        app_name="one",
+        user_id="owner",
+        session_id="thread",
+        config=GetSessionConfig(num_recent_events=0),
+    )
+    assert none is not None and none.events == []
+    await service.append_event(none, Event(author="fifth", timestamp=5.0))
+
+    persisted = await service.get_session(app_name="one", user_id="owner", session_id="thread")
+    assert persisted is not None
+    assert [event.author for event in persisted.events] == [
+        "first",
+        "second",
+        "third",
+        "fourth",
+        "fifth",
+    ]
+    assert "_hushh_revision" not in persisted.model_dump_json()
+    assert "_hushh_partial_history" not in persisted.model_dump_json()
