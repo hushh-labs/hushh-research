@@ -1388,6 +1388,255 @@ final class AppUITests: XCTestCase {
         // card captures the phone's screen from the Mac, for the pixel review
         // (layout under the keyboard, clipping, alignment, copy). Read-only:
         // nothing is sent, approved or removed.
+        // Plaid vault proof (sandbox only, local backend): connect six sandbox
+        // banks through Plaid's native screens, each sealed into the person's
+        // financial memory. Needs a build pointed at a backend holding the
+        // Plaid SANDBOX key. Sandbox logins only (user_good / pass_good); the
+        // connections are kept on purpose (founder decision 2026-09-23).
+        if section == "plaid-vault" {
+            perfGateStop = true
+            let (app, _) = try launchAttached(route: nil)
+            perfGateStop = false
+            perfSettle(3)
+            NSLog("PERF_APP_READY route=plaid-vault")
+            // This build talks to a backend on the local network, so iOS asks
+            // once for Local Network access; the prompt belongs to SpringBoard.
+            func allowLocalNetworkIfAsked() {
+                let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+                let allow = springboard.buttons["Allow"]
+                if allow.waitForExistence(timeout: 3) {
+                    allow.tap()
+                    NSLog("PLAID_STEP local_network_allowed")
+                    perfSettle(3)
+                }
+            }
+            allowLocalNetworkIfAsked()
+            // The launch helper treats any "One" label as unlocked, which can
+            // be true for a moment before the vault gate settles (or while a
+            // system prompt covers it). Unlock here if the gate is up.
+            func unlockIfGated() {
+                let field = app.secureTextFields.firstMatch
+                guard field.waitForExistence(timeout: 8), !passphrase.isEmpty else { return }
+                NSLog("PLAID_STEP gate_visible_unlocking")
+                field.tap()
+                perfSettle(0.5)
+                field.typeText(passphrase)
+                perfSettle(0.6)
+                let unlock = app.buttons["Unlock"]
+                if unlock.waitForExistence(timeout: 4) && unlock.isEnabled { unlock.tap() }
+                for _ in 0..<90 {
+                    if !app.secureTextFields.firstMatch.exists { break }
+                    perfSettle(1)
+                }
+                perfSettle(4)
+                NSLog("PLAID_STEP gate_cleared=\(!app.secureTextFields.firstMatch.exists)")
+            }
+            unlockIfGated()
+            func element(_ label: String, contains: Bool = false) -> XCUIElement {
+                let format = contains ? "label CONTAINS[c] %@" : "label == %@"
+                return app.descendants(matching: .any)
+                    .matching(NSPredicate(format: format, label)).firstMatch
+            }
+            func tapFirst(_ label: String, contains: Bool = false, timeout: TimeInterval = 6) -> Bool {
+                let found = element(label, contains: contains)
+                guard found.waitForExistence(timeout: timeout) else { return false }
+                if found.isHittable {
+                    found.tap()
+                } else {
+                    found.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+                }
+                return true
+            }
+            func checkpoint(_ name: String) {
+                perfSettle(1.0)
+                let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+                shot.name = "plaid-\(name)"
+                shot.lifetime = .keepAlways
+                add(shot)
+                NSLog("PLAID_STEP \(name)")
+            }
+            // XCUITest can drop keystrokes while the keyboard is still coming
+            // up (First Gingham got a 7-character "pass_good" and Plaid said
+            // "Incorrect credentials"). A secure field reports one bullet per
+            // character, so check the length and retype until it matches.
+            func typeVerified(_ field: XCUIElement, _ text: String, secure: Bool) -> Bool {
+                for _ in 0..<3 {
+                    // Once revealed, the secure field is gone; the check above
+                    // already had its chance on the plain one.
+                    guard field.exists else { return false }
+                    field.tap()
+                    perfSettle(0.6)
+                    let current = (field.value as? String) ?? ""
+                    let placeholder = field.placeholderValue ?? ""
+                    if !current.isEmpty && current != placeholder && current != field.label {
+                        field.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: current.count + 2))
+                    }
+                    field.typeText(text)
+                    // Reveal a secure field so the check reads the real text;
+                    // deleting inside a secure field is not reliable on iOS.
+                    if secure {
+                        let reveal = app.buttons.matching(NSPredicate(format: "label CONTAINS[c] %@ OR label CONTAINS[c] %@", "show", "reveal")).firstMatch
+                        if reveal.exists && reveal.isHittable { reveal.tap(); perfSettle(0.5) }
+                        let plain = app.textFields["Password"]
+                        if plain.exists {
+                            if ((plain.value as? String) ?? "") == text { return true }
+                            plain.tap()
+                            plain.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: 24))
+                            plain.typeText(text)
+                            if ((plain.value as? String) ?? "") == text { return true }
+                        }
+                    }
+                    let typed = (field.value as? String) ?? ""
+                    if secure ? typed.count == text.count : typed == text { return true }
+                    NSLog("PLAID_STEP retype length=\(typed.count)")
+                }
+                return false
+            }
+            // Leave Link without connecting, so the next bank starts clean.
+            func closeLink() {
+                for _ in 0..<3 {
+                    let close = app.buttons.matching(NSPredicate(format: "label ==[c] %@ OR label ==[c] %@", "Close", "Exit")).firstMatch
+                    if close.exists { close.tap(); perfSettle(1.5) }
+                    for label in ["Yes, exit", "Exit", "Leave"] where element(label).exists { element(label).tap(); perfSettle(1.5) }
+                    if element("Portfolio source", contains: true).exists { return }
+                }
+            }
+            func dismissKeyboardIfShown() {
+                for key in ["Done", "done", "Return", "return", "Go", "go"] {
+                    let button = app.keyboards.buttons[key]
+                    if button.exists && button.isHittable { button.tap(); return }
+                }
+            }
+
+            allowLocalNetworkIfAsked()
+            // The app can reopen on Chat while it is still settling, and a
+            // single tap on the One tab then lands nowhere; retry until the
+            // Finance entry is on screen.
+            for _ in 0..<4 {
+                perfTapNav(app, label: "One")
+                perfSettle(2)
+                if element("Finance").exists || element("Finance,", contains: true).exists { break }
+            }
+            if !tapFirst("Finance") { _ = tapFirst("Finance,", contains: true) }
+            perfSettle(2.5)
+            _ = tapFirst("Portfolio")
+            perfSettle(2.5)
+            checkpoint("portfolio")
+
+            let banks = [
+                "First Platypus Bank", "First Platypus Bank", "First Gingham Credit Union",
+                "Tattersall Federal Credit Union", "Tartan Bank", "Houndstooth Bank",
+            ]
+            // Resume after banks already sealed on this account, so a rerun
+            // adds the missing ones instead of duplicating kept connections.
+            let startIndex = Int(ProcessInfo.processInfo.environment["HUSHH_PLAID_START_INDEX"] ?? "") ?? 0
+            var connected = 0
+            bankLoop: for (index, bank) in banks.enumerated() where index >= startIndex {
+                guard tapFirst("Portfolio source", contains: true, timeout: 12) else {
+                    NSLog("PLAID_MISSING index=\(index) step=portfolio_source"); checkpoint("\(index)-no-source"); break
+                }
+                perfSettle(1.5)
+                // The row exposes its title and description as one label. It is
+                // disabled while the previous connection finishes, so tap until
+                // Plaid actually opens.
+                let skipPhone = element("Continue without phone number")
+                var plaidOpened = false
+                for _ in 0..<6 {
+                    if !tapFirst("Connect a bank or brokerage", contains: true, timeout: 4)
+                        && !tapFirst("Manage connections", contains: true, timeout: 4) {
+                        perfSettle(3); continue
+                    }
+                    if skipPhone.waitForExistence(timeout: 20) || app.searchFields.firstMatch.exists {
+                        plaidOpened = true; break
+                    }
+                    perfSettle(3)
+                }
+                guard plaidOpened else {
+                    NSLog("PLAID_MISSING index=\(index) step=connect_row"); checkpoint("\(index)-no-connect"); break
+                }
+                if skipPhone.exists { skipPhone.tap() }
+                perfSettle(2)
+                let search = app.searchFields.firstMatch.waitForExistence(timeout: 8)
+                    ? app.searchFields.firstMatch : app.textFields.firstMatch
+                guard search.waitForExistence(timeout: 10) else {
+                    NSLog("PLAID_MISSING index=\(index) step=search"); checkpoint("\(index)-no-search"); break
+                }
+                search.tap()
+                search.typeText(bank)
+                perfSettle(3)
+                checkpoint("\(index)-results")
+                let result = app.descendants(matching: .any)
+                    .matching(NSPredicate(format: "label BEGINSWITH %@", bank)).allElementsBoundByIndex
+                    .first { $0.elementType != .searchField && $0.elementType != .textField && $0.isHittable && $0.frame.minY > search.frame.maxY }
+                guard let result else {
+                    NSLog("PLAID_MISSING index=\(index) step=result"); break
+                }
+                result.tap()
+                perfSettle(3)
+                // Some banks list associated institutions first; take the plain one.
+                let username = app.textFields["Username"]
+                if !username.waitForExistence(timeout: 4) {
+                    let plain = app.descendants(matching: .any)
+                        .matching(NSPredicate(format: "label == %@", bank)).allElementsBoundByIndex
+                        .first { $0.isHittable && $0.frame.minY > 180 }
+                    plain?.tap()
+                    perfSettle(3)
+                }
+                guard username.waitForExistence(timeout: 15) else {
+                    NSLog("PLAID_MISSING index=\(index) step=username"); checkpoint("\(index)-no-username"); break
+                }
+                let password = app.secureTextFields["Password"]
+                guard typeVerified(username, "user_good", secure: false),
+                      password.waitForExistence(timeout: 5),
+                      typeVerified(password, "pass_good", secure: true) else {
+                    NSLog("PLAID_MISSING index=\(index) step=credentials"); checkpoint("\(index)-no-credentials")
+                    closeLink(); continue bankLoop
+                }
+                dismissKeyboardIfShown()
+                perfSettle(0.8)
+                // The keyboard's return key often submits the login itself, in
+                // which case Plaid is already on the accounts screen.
+                if !element("Your accounts").waitForExistence(timeout: 3) && !tapFirst("Submit", timeout: 5)
+                    && !element("Continue").exists {
+                    NSLog("PLAID_MISSING index=\(index) step=submit"); checkpoint("\(index)-no-submit"); break
+                }
+                // Account selection (all selected by default), then Continue.
+                // No accounts screen means Link did not log in: that bank is
+                // not connected, whatever happens next.
+                let continueButton = element("Continue")
+                guard continueButton.waitForExistence(timeout: 45), !element("Incorrect credentials").exists else {
+                    NSLog("PLAID_MISSING index=\(index) step=login"); checkpoint("\(index)-no-login")
+                    closeLink(); continue bankLoop
+                }
+                checkpoint("\(index)-accounts")
+                continueButton.tap()
+                let finish = element("Finish without saving")
+                if finish.waitForExistence(timeout: 30) { finish.tap() }
+                // Back in the app: the connection is exchanged and sealed.
+                var backInApp = false
+                for _ in 0..<30 {
+                    if app.webViews.firstMatch.exists && element("Portfolio source", contains: true).exists {
+                        backInApp = true; break
+                    }
+                    perfSettle(1)
+                }
+                perfSettle(6)
+                checkpoint("\(index)-after")
+                guard backInApp else {
+                    NSLog("PLAID_MISSING index=\(index) step=return_to_app"); break bankLoop
+                }
+                // The exchange, the transaction pages and the sealed write run
+                // after Link closes. Ending the test inside that window kills
+                // the app mid-seal (Houndstooth, run 16), so give it time.
+                perfSettle(20)
+                connected += 1
+                NSLog("PLAID_CONNECTED index=\(index) bank=\(bank)")
+            }
+            NSLog("PLAID_DONE connected=\(connected)")
+            checkpoint("final")
+            return
+        }
+
         if section == "session" {
             perfGateStop = true
             let (app, webView) = try launchAttached(route: nil)
