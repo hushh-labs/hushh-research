@@ -826,6 +826,17 @@ Operational note:
 - webhook URLs are supplied to Plaid during Link token creation via backend configuration, not dashboard allowlisting
 - if `PLAID_WEBHOOK_URL` changes after Items exist, existing Items need a one-time `/item/webhook/update` maintenance pass
 
+#### Kai Plaid Vault Passthrough (zero-knowledge)
+
+Stateless Plaid calls on behalf of the owner's device. The access token is returned to the device and sealed in the owner's vault; the server stores nothing, registers no webhook, and logs no bodies. All routes require `VAULT_OWNER` and answer `Cache-Control: no-store`. Contract: [../kai/plaid-vault-passthrough.md](../kai/plaid-vault-passthrough.md).
+
+| Method | Path                                | Description                                                                                  |
+| ------ | ----------------------------------- | -------------------------------------------------------------------------------------------- |
+| POST   | `/api/kai/plaid/vault/link-token`   | Create a Link token (no webhook, opaque `client_user_id`, platform-aware redirect)           |
+| POST   | `/api/kai/plaid/vault/exchange`     | Exchange `public_token` and return the access token plus Item and institution metadata       |
+| POST   | `/api/kai/plaid/vault/snapshot`     | Fetch accounts, holdings, and a cursor-based transactions sync; re-link needs return 200     |
+| POST   | `/api/kai/plaid/vault/remove`       | Revoke the Item at Plaid (idempotent)                                                        |
+
 #### Kai Support Messaging
 
 | Method | Path                       | Description                                                                                                         |
