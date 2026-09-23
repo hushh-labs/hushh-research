@@ -27,9 +27,24 @@ if [[ ! "${IMAGE_REFERENCE}" =~ ^gcr\.io/hushh-pda-uat/consent-protocol@sha256:[
   exit 1
 fi
 
-previous_revision="$(gcloud run services describe "${SERVICE}" \
-  --project="${PROJECT_ID}" --region="${REGION}" --format=json 2>/dev/null \
-  | python3 -c 'import json,sys; data=json.load(sys.stdin); traffic=(data.get("status") or {}).get("traffic") or []; serving=[item.get("revisionName") for item in traffic if item.get("percent")==100]; print(serving[0] if len(serving)==1 else "")' 2>/dev/null || true)"
+# An existing service needs a known rollback revision before deploying an
+# unserved candidate. Cloud Run does not accept --no-traffic on first creation;
+# that first revision is private and the scheduler still points at the API.
+service_exists="$(gcloud run services list \
+  --project="${PROJECT_ID}" --region="${REGION}" --format=json \
+  | SERVICE_NAME="${SERVICE}" python3 -c 'import json,os,sys; rows=json.load(sys.stdin); assert isinstance(rows,list); print("true" if any((row.get("metadata") or {}).get("name")==os.environ["SERVICE_NAME"] for row in rows) else "false")')"
+previous_revision=""
+traffic_flags=(--tag="drive-candidate-${RELEASE_RUN_ID}")
+if [[ "${service_exists}" == true ]]; then
+  previous_revision="$(gcloud run services describe "${SERVICE}" \
+    --project="${PROJECT_ID}" --region="${REGION}" --format=json \
+    | python3 -c 'import json,sys; data=json.load(sys.stdin); traffic=(data.get("status") or {}).get("traffic") or []; serving=[item.get("revisionName") for item in traffic if item.get("percent")==100]; print(serving[0] if len(serving)==1 else "")')"
+  if [[ -z "${previous_revision}" ]]; then
+    echo "Existing Drive worker has no unambiguous serving revision; refusing release" >&2
+    exit 1
+  fi
+  traffic_flags=(--no-traffic "${traffic_flags[@]}")
+fi
 previous_scheduler_uri="$(gcloud scheduler jobs describe "${SCHEDULER_JOB}" \
   --project="${PROJECT_ID}" --location="${REGION}" \
   --format='value(httpTarget.uri)' 2>/dev/null || true)"
@@ -95,7 +110,7 @@ gcloud --quiet run deploy "${SERVICE}" \
   --add-custom-audiences="${SCHEDULER_AUDIENCE}" \
   --add-cloudsql-instances="${CLOUDSQL_INSTANCE}" \
   --concurrency=1 --timeout=240 --max-instances=1 --min-instances=0 \
-  --max=1 --min=0 --no-traffic --tag="drive-candidate-${RELEASE_RUN_ID}" \
+  --max=1 --min=0 "${traffic_flags[@]}" \
   --labels="managed-by=hushh-github-actions,deploy-env=uat,deploy-sha=${DEPLOY_SHA},github-run-id=${RELEASE_RUN_ID}" \
   --container=drive-worker \
   --image="${IMAGE_REFERENCE}" --port=8080 --cpu=2 --memory=4Gi \

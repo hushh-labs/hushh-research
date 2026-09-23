@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPT = ROOT / "deploy" / "drive" / "setup_work_drain_scheduler.sh"
@@ -136,6 +139,7 @@ def test_worker_promotion_is_post_gate_attested_and_recoverable():
     assert "--startup-probe=tcpSocket.port=3310" in release
     assert "--max-instances=1 --min-instances=0" in release
     assert "--timeout=240" in release
+    assert 'traffic_flags=(--no-traffic "${traffic_flags[@]}")' in release
     assert "promoted=true\ngcloud run services update-traffic" in release
     assert 'retargeted=true\nBACKEND_URL="${worker_url}"' in release
     assert "actual_uri" in release and "actual_audience" in release
@@ -155,3 +159,98 @@ def test_worker_promotion_is_post_gate_attested_and_recoverable():
     assert "backend_sha" in workflow and "frontend_sha" in workflow
     assert 'if [ "$STATUS" != "healthy" ]; then' in workflow
     assert "_CLOUD_RUN_MEMORY=4Gi" in workflow
+
+
+@pytest.mark.parametrize(
+    ("worker_state", "expect_no_traffic", "expect_deploy"),
+    [
+        ("absent", False, True),
+        ("existing", True, True),
+        ("ambiguous", False, False),
+        ("list_error", False, False),
+    ],
+)
+def test_worker_deploy_traffic_flags_match_service_state(
+    tmp_path: Path,
+    worker_state: str,
+    expect_no_traffic: bool,
+    expect_deploy: bool,
+):
+    """Exercise the real release script with a non-mutating gcloud stand-in."""
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    fake_gcloud = fake_bin / "gcloud"
+    fake_gcloud.write_text(
+        """#!/usr/bin/env python3
+import json
+import os
+import sys
+
+args = sys.argv[1:]
+with open(os.environ["MOCK_GCLOUD_CALLS"], "a", encoding="utf-8") as log:
+    log.write(json.dumps(args) + "\\n")
+command = [arg for arg in args if arg != "--quiet"]
+state = os.environ["MOCK_WORKER_STATE"]
+if command[:3] == ["run", "services", "list"]:
+    if state == "list_error":
+        sys.exit(77)
+    names = ["consent-protocol-drive-worker"] if state != "absent" else []
+    print(json.dumps([{"metadata": {"name": name}} for name in names]))
+elif command[:3] == ["run", "services", "describe"]:
+    traffic = ([{"revisionName": "worker-previous-00001", "percent": 100}]
+               if state == "existing" else [])
+    print(json.dumps({"status": {"traffic": traffic}}))
+elif command[:3] == ["scheduler", "jobs", "describe"]:
+    if "--format=value(httpTarget.uri)" in command:
+        print("https://api.uat.hushh.ai/api/internal/drive-work/drain")
+    elif "--format=value(httpTarget.oidcToken.audience)" in command:
+        print("https://api.uat.hushh.ai")
+    else:
+        sys.exit(78)
+elif command[:2] == ["run", "deploy"]:
+    sys.exit(79)
+else:
+    sys.exit(80)
+""",
+        encoding="utf-8",
+    )
+    fake_gcloud.chmod(0o755)
+    call_log = tmp_path / "gcloud-calls.jsonl"
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "PATH": f"{fake_bin}:{environment['PATH']}",
+            "MOCK_GCLOUD_CALLS": str(call_log),
+            "MOCK_WORKER_STATE": worker_state,
+            "IMAGE_REFERENCE": "gcr.io/hushh-pda-uat/consent-protocol@sha256:" + "a" * 64,
+            "DEPLOY_SHA": "b" * 40,
+            "RUNTIME_SERVICE_ACCOUNT": (
+                "consent-protocol-runtime@hushh-pda-uat.iam.gserviceaccount.com"
+            ),
+            "CLOUDSQL_INSTANCE": "hushh-pda-uat:us-central1:hushh-uat-pg",
+            "RELEASE_RUN_ID": "12345",
+        }
+    )
+    result = subprocess.run(  # noqa: S603 - fixed repository-owned shell helper
+        ["bash", str(WORKER_RELEASE)],
+        cwd=ROOT,
+        env=environment,
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+    calls = [json.loads(line) for line in call_log.read_text(encoding="utf-8").splitlines()]
+    deploys = [call for call in calls if call[:3] == ["--quiet", "run", "deploy"]]
+
+    assert result.returncode != 0  # The fake deploy intentionally stops before any GCP write.
+    assert len(deploys) == int(expect_deploy), result.stderr
+    if expect_deploy:
+        deploy = deploys[0]
+        assert ("--no-traffic" in deploy) is expect_no_traffic
+        assert "--ingress=internal" in deploy
+        assert "--no-allow-unauthenticated" in deploy
+        assert "--tag=drive-candidate-12345" in deploy
+        assert "--container=drive-worker" in deploy
+        assert "--container=clamav" in deploy
+    elif worker_state == "ambiguous":
+        assert "no unambiguous serving revision" in result.stderr
