@@ -57,6 +57,7 @@ import base64
 import json
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 args = [arg for arg in sys.argv[1:] if arg != "--quiet"]
@@ -165,8 +166,26 @@ elif args[:3] == ["scheduler", "jobs", "run"]:
     state.setdefault("triggered", []).append(args[3])
     save()
 elif args[:2] == ["logging", "read"]:
-    job = next((name for name in jobs if "resource.labels.job_id=" + name in args[2]), "")
-    if job in state.get("triggered", []):
+    query = args[2]
+    timestamp_term = next((term.strip() for term in query.split(" AND ")
+                           if term.strip().startswith("timestamp>=")), "")
+    job = next((name for name in jobs
+                if 'resource.labels.job_id="' + name + '"' in query), "")
+    timestamp_value = timestamp_term.removeprefix("timestamp>=")
+    try:
+        timestamp_valid = (timestamp_value.startswith('"')
+                           and timestamp_value.endswith('"')
+                           and datetime.strptime(timestamp_value[1:-1],
+                                                 "%Y-%m-%dT%H:%M:%SZ").strftime(
+                               "%Y-%m-%dT%H:%M:%SZ") == timestamp_value[1:-1])
+    except ValueError:
+        timestamp_valid = False
+    if not timestamp_valid or not job or "--format=json" not in args:
+        print("invalid Cloud Logging filter or output format", file=sys.stderr)
+        sys.exit(76)
+    if job == os.environ.get("MOCK_MISSING_LOG_JOB"):
+        print("[]")
+    elif job in state.get("triggered", []):
         url = jobs[job]["httpTarget"]["uri"]
         if job == os.environ.get("MOCK_FAIL_LOG_JOB"):
             # A stale success against the old API must not attest the worker.
@@ -202,6 +221,65 @@ count_path.write_text(str(count))
 if count == 2 and os.environ.get("MOCK_TERMINATE_AFTER_SETUP", "true") == "true":
     os.kill(os.getppid(), signal.SIGTERM)
 """
+
+
+@pytest.mark.parametrize(
+    ("quoted_job", "timestamp_value", "json_output", "valid"),
+    [
+        (True, '"2026-09-23T00:00:00Z"', True, True),
+        (True, "2026-09-23T00:00:00Z", True, False),
+        (True, '"not-a-time"', True, False),
+        (False, '"2026-09-23T00:00:00Z"', True, False),
+        (True, '"2026-09-23T00:00:00Z"', False, False),
+    ],
+)
+def test_mock_cloud_logging_requires_quoted_filter_and_json(
+    tmp_path: Path,
+    quoted_job: bool,
+    timestamp_value: str,
+    json_output: bool,
+    valid: bool,
+):
+    fake_gcloud = tmp_path / "gcloud"
+    fake_gcloud.write_text(FAKE_GCLOUD, encoding="utf-8")
+    fake_gcloud.chmod(0o755)
+    job_name = "drive-work-drain-uat"
+    state_path = tmp_path / "scheduler.json"
+    state_path.write_text(
+        json.dumps(
+            {
+                "jobs": {job_name: _job(job_name, None, "*/2 * * * *", "120s")},
+                "mutations": 0,
+                "triggered": [job_name],
+            }
+        ),
+        encoding="utf-8",
+    )
+    job_value = f'"{job_name}"' if quoted_job else job_name
+    query = (
+        'resource.type="cloud_scheduler_job" AND '
+        f"resource.labels.job_id={job_value} AND timestamp>={timestamp_value}"
+    )
+    environment = os.environ.copy()
+    environment["MOCK_SCHEDULER_STATE"] = str(state_path)
+    result = subprocess.run(  # noqa: S603 - repository-owned test fixture
+        [
+            str(fake_gcloud),
+            "logging",
+            "read",
+            query,
+            "--format=json" if json_output else "--format=text",
+        ],
+        env=environment,
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+    if valid:
+        assert result.returncode == 0, result.stderr
+        assert json.loads(result.stdout)[0]["jsonPayload"]["jobName"].endswith(job_name)
+    else:
+        assert result.returncode == 76
 
 
 @pytest.mark.parametrize("existing_new_jobs", [False, True])
@@ -272,10 +350,10 @@ def test_term_after_partial_retarget_restores_exact_job_set_or_quarantines(
         assert "CRITICAL: Drive worker rollback is incomplete" in output
 
 
-@pytest.mark.parametrize("missing_sharing_200", [False, True])
+@pytest.mark.parametrize("log_failure", ["none", "wrong_url", "missing"])
 @pytest.mark.parametrize("wrong_scanner_child", [False, True])
 def test_success_requires_all_three_fixed_stage_jobs_and_fresh_200_logs(
-    tmp_path: Path, missing_sharing_200: bool, wrong_scanner_child: bool
+    tmp_path: Path, log_failure: str, wrong_scanner_child: bool
 ):
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
@@ -300,7 +378,8 @@ def test_success_requires_all_three_fixed_stage_jobs_and_fresh_200_logs(
             "MOCK_SCHEDULER_STATE": str(state_path),
             "MOCK_SETUP_COUNT": str(setup_count),
             "MOCK_TERMINATE_AFTER_SETUP": "false",
-            "MOCK_FAIL_LOG_JOB": "drive-work-sharing-uat" if missing_sharing_200 else "",
+            "MOCK_FAIL_LOG_JOB": "drive-work-sharing-uat" if log_failure == "wrong_url" else "",
+            "MOCK_MISSING_LOG_JOB": "drive-work-sharing-uat" if log_failure == "missing" else "",
             "MOCK_WORKER_ORIGIN": WORKER_ORIGIN,
             "MOCK_CLAMAV_IMAGE": (
                 WRONG_SCANNER_IMAGE if wrong_scanner_child else SCANNER_AMD64_IMAGE
@@ -337,7 +416,7 @@ def test_success_requires_all_three_fixed_stage_jobs_and_fresh_200_logs(
         "drive-work-suggestions-uat",
         "drive-work-sharing-uat",
     ]
-    if missing_sharing_200:
+    if log_failure != "none":
         assert result.returncode != 0
         assert "drive-work-sharing-uat produced no fresh 200" in output
         assert state["jobs"] == {"drive-work-drain-uat": original_document}
