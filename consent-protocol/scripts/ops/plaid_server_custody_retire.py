@@ -17,7 +17,10 @@ Execute (both confirmations must match what the dry run printed):
 Safety rails, all checked before any database or Plaid access:
 - ENVIRONMENT must equal --confirm-env, and the database target's fingerprint
   must equal --confirm-db (so a UAT label cannot run against production).
-- On uat and production the Plaid client must be production Plaid.
+
+A run only touches tokens minted in the Plaid client's own environment, so an
+environment's rows can need one pass per Plaid environment (for example a
+production pass for real links and a sandbox pass for test leftovers).
 
 Per row: a token minted in a different Plaid environment than the client is
 never sent and never deleted (counted as environment_mismatch). ITEM_NOT_FOUND
@@ -81,7 +84,6 @@ REGULATED_FUNDING_TABLES = (
 )
 
 _TOKEN_ENVIRONMENTS = ("sandbox", "development", "production")
-_PRODUCTION_PLAID_REQUIRED = frozenset({"uat", "production"})
 
 _ALPACA_BASE_URLS = {
     "sandbox": "https://broker-api.sandbox.alpaca.markets",
@@ -470,11 +472,6 @@ async def run(
             raise RetirementRefused(
                 "--confirm-db must equal the database_fingerprint the dry run printed "
                 f"for this target ({target['fingerprint']})."
-            )
-        if environment in _PRODUCTION_PLAID_REQUIRED and plaid_config.environment != "production":
-            raise RetirementRefused(
-                f"ENVIRONMENT {environment!r} holds production Plaid Items, but the Plaid "
-                f"client is {plaid_config.environment!r}. Set PLAID_ENV=production."
             )
         if plaid_post is None and not plaid_config.configured:
             raise RetirementRefused("Plaid is not configured (PLAID_CLIENT_ID / PLAID_SECRET).")

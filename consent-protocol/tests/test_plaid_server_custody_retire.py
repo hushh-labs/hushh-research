@@ -279,16 +279,20 @@ def test_execute_refuses_a_database_other_than_the_one_confirmed(confirm_db):
     assert plaid.calls == []
 
 
-def test_execute_refuses_non_production_plaid_on_uat(monkeypatch):
+def test_a_sandbox_pass_touches_only_sandbox_tokens(monkeypatch):
     monkeypatch.setenv("PLAID_ENV", "sandbox")
     clear_runtime_settings_caches()
     db, plaid = FakeDb(), FakePlaid()
-    with pytest.raises(retire.RetirementRefused, match="PLAID_ENV=production"):
-        asyncio.run(
-            retire.run(execute=True, confirm_env="uat", confirm_db=_fp(), db=db, plaid_post=plaid)
-        )
-    assert db.statements == []
-    assert plaid.calls == []
+    report = asyncio.run(
+        retire.run(execute=True, confirm_env="uat", confirm_db=_fp(), db=db, plaid_post=plaid)
+    )
+
+    # Only the sandbox leftover was sent; every production token stays untouched.
+    assert [token for _, token, _ in plaid.calls] == [SANDBOX_TOKEN]
+    portfolio = report["results"]["kai_plaid_items"]
+    assert portfolio["environment_mismatch_kept"] == 3
+    remaining = {row["item_id"] for row in db.tables["kai_plaid_items"]}
+    assert remaining == {ITEM_IDS[0], ITEM_IDS[1], ITEM_IDS[2]}
 
 
 def test_main_returns_refused_exit_code_on_env_mismatch(capsys, monkeypatch):

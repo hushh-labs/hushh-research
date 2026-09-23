@@ -7,12 +7,13 @@ Canonical visual owner: [Kai Index](README.md). Use that map for the top-down sy
 
 ## Why
 
-Founder decision, 2026-09-23: a person's Plaid access token is sealed in **their** vault,
-end to end (BYOK). Hussh never stores it or any readable financial information. Hussh keeps
-only its own Plaid client secret, so the server calls Plaid on behalf of the device,
-statelessly, and forgets the result as soon as the response is sent.
+The vault-backed flow seals a person's Plaid access token and financial snapshot in **their**
+vault after the device receives each response. The backend transiently handles access tokens
+and readable Plaid responses in process memory to make the provider calls; this route does not
+persist those payloads. This describes the vault route only. Existing server-held records
+remain until the per-environment retirement procedure and migration are complete.
 
-- No server registry of connections: no `item_id` rows, no resume-session rows.
+- No persistent server registry for connections created through this vault route.
 - No webhooks: the device refreshes when the person unlocks the app.
 - Raw records land in the owner's vault under the financial branches `connections_v1`,
   `accounts_v1`, `holdings_v1`, `securities_v1`, `transactions_v1` and `derived_v1`. Those
@@ -75,20 +76,24 @@ bounded lengths, opaque-token character set).
   exact local WebView export. Unmarked clients retain the normal Link-token
   flow.
 
-## Guarantees
+## Route guarantees and limits
 
 - **Auth:** every endpoint requires the `VAULT_OWNER` consent token through
   `require_vault_owner_token` (the same dependency the consent-gated Kai routes use).
   Missing or invalid tokens get 401; a token with another scope is refused.
-- **No storage:** the module has no database import and never calls
-  `get_plaid_portfolio_service()`; a test patches `get_db` to raise and exercises every endpoint.
+- **No persistent route storage:** the module has no database import and never calls
+  `get_plaid_portfolio_service()`; a test patches `get_db` to raise and exercises every
+  endpoint. This does not mean the backend never processes readable tokens or records, and it
+  does not describe pre-existing server-held data.
 - **No body logging:** failure logs carry only the route name, Plaid `error_code`,
   `error_type` and HTTP status. The shared observability middleware logs route template,
   status and latency only. Error responses carry a code and a fixed safe message, never
   Plaid's payload.
-- **No caching:** every response, including auth failures and validation errors, carries
-  `Cache-Control: no-store`. Validation errors are re-rendered without the rejected `input`,
-  so a malformed token is never echoed back.
+- **Backend cache policy:** every backend response, including auth failures and validation
+  errors, carries `Cache-Control: no-store`. The generic Next Kai proxy currently rebuilds
+  JSON responses; browser-facing propagation still needs a route-level check. Validation
+  errors are re-rendered without the rejected `input`, so a malformed token is never echoed
+  back.
 
 Tests: `consent-protocol/tests/test_plaid_vault_routes.py` (Plaid is never called; UAT's Plaid
 is production).
@@ -116,16 +121,17 @@ Owner: `hushh-webapp/lib/kai/plaid-vault/vault-sync.ts`.
   URI plus the bank's query) and then seals, or refreshes for a relink. Native shells keep
   Link in their own process and skip this.
 
-## Server-held custody retired
+## Legacy server custody retirement status
 
-The server-stored flow (`api/routes/kai/plaid.py`, `plaid_portfolio_service.py`,
-`broker_funding_service.py`, the `/api/kai/plaid/webhook` route, and the Alpaca funding
-path) is deleted. Account erasure no longer calls Plaid from the server. Instead, before
-deleting or resetting an account, the device revokes every sealed connection (and any
+The audited working tree removes the previous server-stored routes and services. At the audit
+revision these source and migration edits are uncommitted, so this is not evidence that any
+environment has applied them. Existing encrypted database rows and Plaid Items remain until
+the retirement script succeeds for that environment and migration 239 is confirmed applied.
+
+Before deleting or resetting an account, the device revokes each sealed connection (and any
 unsaved link) at Plaid (`revokeVaultBanksBeforeErasure` in
-`hushh-webapp/lib/flows/delete-account.ts`); if one cannot be revoked, nothing is erased.
-Without the vault key nothing can be revoked. That is inherent to zero-knowledge custody
-and is an accepted risk.
+`hushh-webapp/lib/flows/delete-account.ts`); if one cannot be revoked, deletion stops. Since
+the connection token is sealed to the owner's vault, this cleanup requires an unlocked device.
 
 Retirement order per environment:
 
@@ -134,8 +140,10 @@ Retirement order per environment:
    regulated funding record counts, the Plaid client environment, the database target and
    its `database_fingerprint`.
 2. `... --execute --confirm-env <ENVIRONMENT> --confirm-db <database_fingerprint>`:
-   - refuses before any access if either confirmation differs, or if a uat/production run
-     is not using production Plaid;
+   - refuses before any access if either confirmation differs;
+   - touches only tokens minted in the Plaid client's environment, so an environment can
+     need one pass per Plaid environment (production for real links, sandbox for test
+     leftovers);
    - calls Plaid `/item/remove` for every live Item whose token matches the client's Plaid
      environment, then deletes its rows;
    - never sends or deletes a token from another environment (`environment_mismatch_kept`);
@@ -144,11 +152,12 @@ Retirement order per environment:
      and marked `removed`, never deleted.
 
    Idempotent; prints counts and Plaid `error_code` counts only.
-3. Migration `239_drop_server_plaid_custody.sql` drops `kai_plaid_*`,
-   `kai_portfolio_source_preferences`, and every `kai_funding_*` table. Every deploy lane
-   applies it automatically, so it guards itself: it **aborts** (and fails the deploy) while
-   any Item is still live, or while regulated funding records exist. Those records need an
-   export and an explicit retention decision first.
+3. Migration `239_drop_server_plaid_custody.sql` in the working tree drops `kai_plaid_*`,
+   `kai_portfolio_source_preferences`, and every `kai_funding_*` table. Confirm it is included
+   in the target lane and verify its migration ledger after deployment. It **aborts** while
+   any Item is still live or regulated funding records exist. Those records need an export and
+   an explicit retention decision first.
 
 People re-link through this passthrough. `PLAID_ACCESS_TOKEN_KEY` and
-`FUNDING_SECRET_ENCRYPTION_KEY` remain only for step 2 and can be removed afterwards.
+`FUNDING_SECRET_ENCRYPTION_KEY` remain until retirement and migration are verified in every
+environment that still holds legacy rows.
