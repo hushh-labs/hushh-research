@@ -553,6 +553,7 @@ export const Navbar = ({
               size="default"
               layout="stacked"
               hitArea="segment"
+              ripple={false}
               value={activeNav}
               options={navOptions}
               onValueChange={navigateTo}

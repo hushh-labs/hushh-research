@@ -34,6 +34,13 @@ type SegmentedPillProps = {
   layout?: SegmentedPillLayout;
   slotCount?: number;
   hitArea?: "segment" | "content";
+  /**
+   * Material ripple on press (default on). Tab bars pass false: the ripple
+   * waits out a ~150 ms touch delay before it shows, then holds for 225 ms,
+   * so on the bottom bar the grey bubble arrived after the icon had already
+   * switched and lingered (measured on a Galaxy S24 Ultra, 2026-09-22).
+   */
+  ripple?: boolean;
   className?: string;
   ariaLabel?: string;
 };
@@ -100,6 +107,7 @@ export const SegmentedPill = React.forwardRef<
       layout = "inline",
       slotCount,
       hitArea = "segment",
+      ripple = true,
       className,
       ariaLabel = "Segmented selector",
     },
@@ -239,12 +247,14 @@ export const SegmentedPill = React.forwardRef<
               >
                 {option.label}
               </span>
-              <MaterialRipple
-                variant={isAccent ? "link" : "none"}
-                effect={isAccent ? "glass" : "fade"}
-                disabled={isDisabled}
-                className="z-0"
-              />
+              {ripple ? (
+                <MaterialRipple
+                  variant={isAccent ? "link" : "none"}
+                  effect={isAccent ? "glass" : "fade"}
+                  disabled={isDisabled}
+                  className="z-0"
+                />
+              ) : null}
             </button>
           );
 
