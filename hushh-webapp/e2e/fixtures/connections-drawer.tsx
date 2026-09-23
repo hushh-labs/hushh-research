@@ -138,6 +138,7 @@ function Fixture() {
           <ConnectorsPanel
             open={open && mode === "connections"}
             onBack={() => setMode("chats")}
+            onClose={() => { setOpen(false); setMode("chats"); }}
             onAvailableChange={setAvailable}
             onExternalModalChange={setExternal}
             onPrepareRecovery={async (request) => {

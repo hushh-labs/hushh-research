@@ -27,6 +27,7 @@ const state = vi.hoisted(() => ({
   nativePickerConfirm: vi.fn(),
   nativePickerCancel: vi.fn(),
   nativePickerCallback: vi.fn(),
+  disconnectMail: vi.fn(),
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
 vi.mock("@capacitor/core", () => ({
@@ -49,6 +50,7 @@ vi.mock("@/lib/capacitor", () => ({
 vi.mock("@/lib/profile/gmail-connector-store", () => ({
   useGmailConnectorStatus: () => ({
     status: { connected: true, google_email: "mail@example.invalid" },
+    disconnectGmail: state.disconnectMail,
   }),
 }));
 vi.mock("@/lib/services/gmail-receipts-service", () => ({
@@ -104,6 +106,12 @@ const props = () => ({
   onClearRecovery: vi.fn().mockResolvedValue(undefined),
 });
 
+async function openDriveDetail() {
+  await screen.findByRole("button", { name: "Google Drive", exact: true });
+  fireEvent.click(screen.getByRole("button", { name: "Google Drive", exact: true }));
+  await screen.findByRole("button", { name: "Back to connectors" });
+}
+
 function runAnimationFramesImmediately() {
   const request = window.requestAnimationFrame;
   const cancel = window.cancelAnimationFrame;
@@ -118,7 +126,7 @@ function runAnimationFramesImmediately() {
   };
 }
 
-describe("Connections owner and mutation fences", () => {
+describe("Connectors owner and mutation fences", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     state.uid = "owner-a";
@@ -144,6 +152,7 @@ describe("Connections owner and mutation fences", () => {
     state.nativePickerConfirm.mockReset();
     state.nativePickerCancel.mockReset();
     state.nativePickerCallback.mockReset();
+    state.disconnectMail.mockResolvedValue({ connected: false });
     state.nativePending.mockResolvedValue(null);
     state.nativeFinalize.mockResolvedValue({
       connectorId: "google_drive",
@@ -160,6 +169,16 @@ describe("Connections owner and mutation fences", () => {
     );
   });
   afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+  it("does not carry a Mail disconnect confirmation into Drive details", async () => {
+    render(<ConnectorsPanel {...props()} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Gmail", exact: true }));
+    fireEvent.click(screen.getByRole("button", { name: "Disconnect Mail" }));
+    expect(screen.getByRole("button", { name: "Confirm", exact: true })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Back to connectors" }));
+    await openDriveDetail();
+    expect(screen.queryByRole("button", { name: "Confirm", exact: true })).not.toBeInTheDocument();
+    expect(state.disconnectMail).not.toHaveBeenCalled();
+  });
   it.each([
     ["busy", "Finish the current chat action or allow popups before connecting Drive."],
     ["unavailable", "Your draft could not be saved safely. Allow popups or try again."],
@@ -181,6 +200,7 @@ describe("Connections owner and mutation fences", () => {
     const p = props();
     p.onPrepareRecovery.mockResolvedValue(readiness);
     render(<ConnectorsPanel {...p} />);
+    await openDriveDetail();
     fireEvent.click(await screen.findByRole("button", { name: "Connect Drive" }));
     await screen.findByText(message);
     expect(p.onPrepareRecovery).toHaveBeenCalledWith({
@@ -200,6 +220,7 @@ describe("Connections owner and mutation fences", () => {
       )
       .mockResolvedValue([]);
     render(<ConnectorsPanel {...props()} />);
+    await openDriveDetail();
     await screen.findByText("Synthetic file");
     fireEvent.click(screen.getByRole("button", { name: "Retry Drive" }));
     await waitFor(() => expect(stale).toBeTypeOf("function"));
@@ -243,6 +264,7 @@ describe("Connections owner and mutation fences", () => {
     result.features.google_drive_connection = false;
     state.overview.mockResolvedValue(result);
     render(<ConnectorsPanel {...props()} />);
+    await openDriveDetail();
     expect(
       await screen.findByRole("button", { name: "Choose files" }),
     ).toBeEnabled();
@@ -262,6 +284,7 @@ describe("Connections owner and mutation fences", () => {
       .mockImplementationOnce(() => new Promise(() => {}));
     const p = props();
     const view = render(<ConnectorsPanel {...p} />);
+    await openDriveDetail();
     fireEvent.click(
       await screen.findByRole("button", { name: "Choose files" }),
     );
@@ -269,6 +292,7 @@ describe("Connections owner and mutation fences", () => {
     state.uid = "owner-b";
     state.token = "vault-b";
     view.rerender(<ConnectorsPanel {...p} />);
+    await openDriveDetail();
     fireEvent.click(
       await screen.findByRole("button", { name: "Choose files" }),
     );
@@ -290,6 +314,7 @@ describe("Connections owner and mutation fences", () => {
     );
     const p = props();
     const view = render(<ConnectorsPanel {...p} />);
+    await openDriveDetail();
     fireEvent.click(
       await screen.findByRole("button", { name: "Choose files" }),
     );
@@ -333,6 +358,7 @@ describe("Connections owner and mutation fences", () => {
     );
     const p = props();
     const view = render(<ConnectorsPanel {...p} />);
+    await openDriveDetail();
     const connect = await screen.findByRole("button", {
       name: "Connect Drive",
     });
@@ -369,6 +395,7 @@ describe("Connections owner and mutation fences", () => {
     const p = props();
     render(<ConnectorsPanel {...p} />);
     expect(await screen.findByText("drive@example.invalid")).toBeVisible();
+    await openDriveDetail();
     expect(screen.getByRole("button", { name: "Choose files" })).toBeEnabled();
 
     state.nativePending.mockResolvedValue({
@@ -497,6 +524,7 @@ describe("Connections owner and mutation fences", () => {
       outcome: "cancelled",
     });
     render(<ConnectorsPanel {...props()} />);
+    await openDriveDetail();
     fireEvent.click(
       await screen.findByRole("button", { name: "Choose files" }),
     );
@@ -568,6 +596,7 @@ describe("Connections owner and mutation fences", () => {
       outcome: "cancelled",
     });
     render(<ConnectorsPanel {...props()} />);
+    await openDriveDetail();
     const connect = await screen.findByRole("button", {
       name: "Connect Drive",
     });

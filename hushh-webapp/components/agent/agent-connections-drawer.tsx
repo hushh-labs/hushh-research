@@ -67,7 +67,7 @@ export function AgentConnectionsDrawer({
     const frame = requestAnimationFrame(() => {
       if (mode === "chats")
         drawer.current
-          ?.querySelector<HTMLElement>('[aria-label="Open Connections"]')
+          ?.querySelector<HTMLElement>('[aria-label="Open Connectors"]')
           ?.focus();
       else focused()[0]?.focus();
     });
@@ -119,7 +119,8 @@ export function AgentConnectionsDrawer({
       <div
         aria-hidden="true"
         className={cn(
-          "fixed inset-0 z-[520] bg-black/35 transition-opacity duration-150 motion-reduce:transition-none dark:bg-black/55",
+          "fixed inset-0 bg-black/35 transition-opacity duration-150 motion-reduce:transition-none dark:bg-black/55",
+          mode === "connections" ? "z-[550]" : "z-[520]",
           open ? "opacity-100" : "pointer-events-none opacity-0",
         )}
         onClick={() => {
@@ -130,13 +131,16 @@ export function AgentConnectionsDrawer({
         ref={drawer}
         role="dialog"
         aria-modal={externalModalOpen ? undefined : true}
-        aria-label={mode === "chats" ? "Agent chat history" : "Connections"}
+        aria-label={mode === "chats" ? "Agent chat history" : "Connectors"}
         aria-hidden={!open || externalModalOpen}
         inert={!open || externalModalOpen}
         onKeyDown={keyDown}
         className={cn(
-          "absolute bottom-0 left-0 top-[var(--agent-chat-header-height)] z-[530] w-[min(88vw,320px)] transform transition-transform duration-150 motion-reduce:transition-none ease-out",
-          open ? "translate-x-0" : "-translate-x-full",
+          "absolute bottom-0 transform transition-transform duration-150 motion-reduce:transition-none ease-out",
+          mode === "connections"
+            ? "right-0 top-0 z-[560] w-[min(100vw,560px)]"
+            : "left-0 top-[var(--agent-chat-header-height)] z-[530] w-[min(88vw,320px)]",
+          open ? "translate-x-0" : mode === "connections" ? "translate-x-full" : "-translate-x-full",
         )}
       >
         <div
