@@ -1053,7 +1053,10 @@ export function AuthStep({
           data-auth-signin-clusters
         >
           <div className={cn("flex w-full flex-col items-center gap-3", lightStyles.hero)}>
-            <span className={lightStyles.brandMark} aria-hidden="true">🤫</span>
+            <span className={lightStyles.brandMark} aria-hidden="true">
+              <span className={lightStyles.brandGlow} />
+              <span className={lightStyles.brandEmoji}>🤫</span>
+            </span>
 
             <h1
               role="heading"
