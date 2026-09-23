@@ -29,11 +29,6 @@ name: Ship Android to Google Play Store
         description: "Optional release notes / summary of changes"
         required: false
         type: string
-  push:
-    branches:
-      - main
-    paths:
-      - .github/workflows/ship-android-playstore-v1.yml
 
 permissions:
   contents: read
@@ -79,6 +74,12 @@ jobs:
       - name: Resolve release SHA
         id: resolve
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          REQUIRED_BRANCH: main
+          REQUIRE_CI_SUCCESS: "1"
+          REQUIRED_CHECK_NAME: Main Post-Merge Smoke Gate
         run: |
           set -euo pipefail
           REQUESTED="${{ github.event.inputs.sha }}"
@@ -88,8 +89,25 @@ jobs:
           else
             SHA="${REQUESTED}"
           fi
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "A full 40-character main SHA is required." >&2
+            exit 1
+          }
+          bash scripts/ci/require-deploy-sha-on-main.sh "$SHA"
           echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
           echo "Resolved release SHA: ${SHA}"
+
+      - name: Check out exact release SHA
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ steps.resolve.outputs.sha }}
+
+      - name: Assert source SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${{ steps.resolve.outputs.sha }}"
 
       - name: Setup Java 21 (Temurin)
         uses: actions/setup-java@v4
@@ -190,25 +208,29 @@ jobs:
 
       - name: Hydrate Android Release Keystore
         shell: bash
+        env:
+          RELEASE_KEYSTORE_B64: ${{ steps.gcp-secrets.outputs.KEYSTORE_B64 || secrets.ANDROID_RELEASE_KEYSTORE_B64 }}
+          RELEASE_KEYSTORE_PASSWORD: ${{ steps.gcp-secrets.outputs.KEYSTORE_PASS || secrets.ANDROID_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ steps.gcp-secrets.outputs.KEY_ALIAS || secrets.ANDROID_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ steps.gcp-secrets.outputs.KEY_PASS || secrets.ANDROID_KEY_PASSWORD }}
         run: |
           set -euo pipefail
           KEYSTORE_DIR="${RUNNER_TEMP}/keystore"
           mkdir -p "${KEYSTORE_DIR}"
           KEYSTORE_PATH="${KEYSTORE_DIR}/release-upload-key.jks"
 
-          # Fall back to GitHub secret if GCP Secret Manager secret was not fetched
-          RAW_B64="${{ steps.gcp-secrets.outputs.KEYSTORE_B64 || secrets.ANDROID_RELEASE_KEYSTORE_B64 }}"
-
-          if [ -n "${RAW_B64}" ]; then
-            echo "${RAW_B64}" | base64 -d > "${KEYSTORE_PATH}"
-            echo "ANDROID_KEYSTORE_PATH=${KEYSTORE_PATH}" >> "$GITHUB_ENV"
-            echo "ANDROID_KEYSTORE_PASSWORD=${{ steps.gcp-secrets.outputs.KEYSTORE_PASS || secrets.ANDROID_KEYSTORE_PASSWORD }}" >> "$GITHUB_ENV"
-            echo "ANDROID_KEY_ALIAS=${{ steps.gcp-secrets.outputs.KEY_ALIAS || secrets.ANDROID_KEY_ALIAS }}" >> "$GITHUB_ENV"
-            echo "ANDROID_KEY_PASSWORD=${{ steps.gcp-secrets.outputs.KEY_PASS || secrets.ANDROID_KEY_PASSWORD }}" >> "$GITHUB_ENV"
-            echo "Release keystore hydrated successfully."
-          else
-            echo "WARNING: No release keystore provided. Build will produce unsigned/debug AAB."
+          if [ -z "$RELEASE_KEYSTORE_B64" ] || [ -z "$RELEASE_KEYSTORE_PASSWORD" ] || [ -z "$RELEASE_KEY_ALIAS" ]; then
+            echo "Missing release signing material; refusing to publish an unsigned AAB artifact." >&2
+            exit 1
           fi
+          printf '%s' "$RELEASE_KEYSTORE_B64" | base64 -d > "$KEYSTORE_PATH"
+          {
+            printf 'ANDROID_KEYSTORE_PATH=%s\n' "$KEYSTORE_PATH"
+            printf 'ANDROID_KEYSTORE_PASSWORD=%s\n' "$RELEASE_KEYSTORE_PASSWORD"
+            printf 'ANDROID_KEY_ALIAS=%s\n' "$RELEASE_KEY_ALIAS"
+            printf 'ANDROID_KEY_PASSWORD=%s\n' "${RELEASE_KEY_PASSWORD:-$RELEASE_KEYSTORE_PASSWORD}"
+          } >> "$GITHUB_ENV"
+          echo "Release keystore hydrated successfully."
 
       - name: Hydrate Google Play Service Account Key
         shell: bash
@@ -274,13 +296,13 @@ jobs:
       - name: Publish .aab as workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: hushh-one-android-release-aab
+          name: hushh-one-android-release-aab-${{ steps.resolve.outputs.sha }}
           path: hushh-webapp/android/app/build/outputs/bundle/release/app-release.aab
           retention-days: 14
           if-no-files-found: error
 
       - name: Upload .aab to Google Play Console
-        if: ${{ inputs.dry_run != true }}
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run != true }}
         uses: r0adkll/upload-google-play@v1
         with:
           serviceAccountJson: ${{ env.PLAY_SERVICE_ACCOUNT_PATH }}
