@@ -144,10 +144,15 @@ authority contract.
    change-aware CI.
 6. Use `dry_run: true` only when you want a signed archive without uploading.
    It follows the same `require_hardware` choice. The signed IPA is retained for
-   14 live days in the private `hushh-pda-uat-native-artifacts` bucket, after the
+   14 live days in the dedicated `hushh-native-uat` project's private
+   `hushh-native-uat-artifacts` bucket, after the
    workflow verifies bucket privacy and upload integrity. GitHub Actions keeps
    only a redacted receipt, not the IPA. The bucket also has a separate 7-day
-   private soft-delete recovery window after lifecycle deletion.
+   private soft-delete recovery window after lifecycle deletion. The helper
+   checks the project-attached `native-uat-artifact-read` deny policy before and
+   after upload; that policy blocks inherited organization-level object reads
+   and the developers group's object mutations. Its reviewed source is
+   `deploy/storage/native-artifact-deny-policy.json`.
 
 The run summary reports the source SHA, the physical capture p95 when that lane
 was requested (otherwise `not requested`), build number, and whether external

@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import base64
+import copy
 import hashlib
 import importlib.util
 import json
@@ -35,10 +36,26 @@ BUCKET_CONFIG = {
 PRIVATE_IAM = {
     "bindings": [
         {
-            "role": "roles/storage.objectCreator",
-            "members": ["serviceAccount:ci@example.test"],
+            "role": "roles/storage.admin",
+            "members": ["serviceAccount:ci@hushh-pda-uat.iam.gserviceaccount.com"],
         }
     ]
+}
+PROJECT_IAM = {
+    "bindings": [
+        {
+            "role": "roles/owner",
+            "members": [
+                "serviceAccount:claude-code-gcp-operator@hussh-developer-platform.iam.gserviceaccount.com"
+            ],
+        }
+    ]
+}
+RAW_BUCKET = {"name": artifact.BUCKET, "projectNumber": artifact.PROJECT_NUMBER}
+DENY_SOURCE = json.loads(artifact.DENY_POLICY_FILE.read_text())
+DENY_LIVE = {
+    **DENY_SOURCE,
+    "name": "policies/cloudresourcemanager.googleapis.com%2Fprojects%2F189326466264/denypolicies/native-uat-artifact-read",
 }
 
 
@@ -46,7 +63,9 @@ class PolicyTests(unittest.TestCase):
     def test_gcloud_disables_composite_uploads_for_provider_md5(self) -> None:
         with mock.patch.object(artifact.subprocess, "run") as process:
             process.return_value.stdout = "{}"
-            artifact._run_gcloud("buckets", "describe", "gs://" + artifact.BUCKET)
+            artifact._run_gcloud(
+                "storage", "buckets", "describe", "gs://" + artifact.BUCKET
+            )
         self.assertEqual(
             process.call_args.kwargs["env"][
                 "CLOUDSDK_STORAGE_PARALLEL_COMPOSITE_UPLOAD_ENABLED"
@@ -67,11 +86,16 @@ class PolicyTests(unittest.TestCase):
                         {**BUCKET_CONFIG, field: value}, PRIVATE_IAM
                     )
 
-    def test_rejects_public_and_project_viewer_iam(self) -> None:
+    def test_rejects_non_service_account_bucket_and_project_iam(self) -> None:
         for member in (
             "allUsers",
             "allAuthenticatedUsers",
-            "projectViewer:hushh-pda-uat",
+            "projectViewer:hushh-native-uat",
+            "projectEditor:hushh-native-uat",
+            "projectOwner:hushh-native-uat",
+            "group:developers@hushh.ai",
+            "user:someone@example.test",
+            "domain:hushh.ai",
         ):
             with self.subTest(member=member):
                 with self.assertRaises(artifact.ArtifactPolicyError):
@@ -86,6 +110,59 @@ class PolicyTests(unittest.TestCase):
                             ]
                         },
                     )
+                with self.assertRaises(artifact.ArtifactPolicyError):
+                    artifact.validate_project_iam(
+                        {
+                            "bindings": [
+                                {
+                                    "role": "roles/storage.objectAdmin",
+                                    "members": [member],
+                                }
+                            ]
+                        }
+                    )
+        artifact.validate_project_iam(PROJECT_IAM)
+
+    def test_bucket_must_belong_to_dedicated_project(self) -> None:
+        artifact.validate_bucket_project(RAW_BUCKET)
+        with self.assertRaises(artifact.ArtifactPolicyError):
+            artifact.validate_bucket_project(
+                {**RAW_BUCKET, "projectNumber": "745506018753"}
+            )
+
+    def test_live_deny_policy_blocks_ancestor_reads_and_developer_mutations(
+        self,
+    ) -> None:
+        artifact.validate_deny_policy(DENY_LIVE, DENY_SOURCE)
+        cases = []
+        broad_exception = copy.deepcopy(DENY_LIVE)
+        broad_exception["rules"][0]["denyRule"]["exceptionPrincipals"].append(
+            "principalSet://goog/group/developers@hushh.ai"
+        )
+        cases.append(broad_exception)
+        weak_developer_rule = copy.deepcopy(DENY_LIVE)
+        weak_developer_rule["rules"][1]["denyRule"]["deniedPermissions"] = [
+            "storage.googleapis.com/objects.get"
+        ]
+        cases.append(weak_developer_rule)
+        conditional_rule = copy.deepcopy(DENY_LIVE)
+        conditional_rule["rules"][0]["denialCondition"] = {"expression": "false"}
+        cases.append(conditional_rule)
+        cases.append(
+            {
+                **DENY_LIVE,
+                "name": DENY_LIVE["name"].replace("189326466264", "745506018753"),
+            }
+        )
+        for candidate in cases:
+            with self.assertRaises(artifact.ArtifactPolicyError):
+                artifact.validate_deny_policy(candidate, DENY_SOURCE)
+        tampered_source = copy.deepcopy(DENY_SOURCE)
+        tampered_source["rules"][0]["denyRule"]["exceptionPrincipals"].append(
+            "principal://goog/subject/unauthorized@example.test"
+        )
+        with self.assertRaises(artifact.ArtifactPolicyError):
+            artifact.validate_deny_policy(tampered_source, tampered_source)
 
     def test_exact_sha_run_and_platform_bound_object_key(self) -> None:
         self.assertEqual(
@@ -181,22 +258,18 @@ class PolicyTests(unittest.TestCase):
                 "md5_hash": md5,
                 "metadata": {"sha256": digest},
             }
-            with mock.patch.object(
-                artifact,
-                "_gcloud_json",
-                side_effect=[
-                    BUCKET_CONFIG,
-                    PRIVATE_IAM,
-                    remote,
-                    BUCKET_CONFIG,
-                    PRIVATE_IAM,
-                ],
-            ) as describe:
+            with mock.patch.object(artifact, "validate_destination") as validate:
                 with mock.patch.object(
-                    artifact, "_run_gcloud", return_value=""
-                ) as command:
-                    receipt = artifact.upload(path, SHA, "99", "1", "ios-testflight")
-            self.assertEqual(describe.call_count, 5)
+                    artifact, "_gcloud_json", return_value=remote
+                ) as describe:
+                    with mock.patch.object(
+                        artifact, "_run_gcloud", return_value=""
+                    ) as command:
+                        receipt = artifact.upload(
+                            path, SHA, "99", "1", "ios-testflight"
+                        )
+            self.assertEqual(validate.call_count, 2)
+            self.assertEqual(describe.call_count, 1)
             self.assertEqual(command.call_count, 1)
             self.assertIn("--if-generation-match=0", command.call_args.args)
             self.assertIn(f"--content-md5={md5}", command.call_args.args)
@@ -205,13 +278,28 @@ class PolicyTests(unittest.TestCase):
 
             with mock.patch.object(
                 artifact,
-                "_gcloud_json",
-                side_effect=[{**BUCKET_CONFIG, "lifecycle_config": {}}, PRIVATE_IAM],
+                "validate_destination",
+                side_effect=artifact.ArtifactPolicyError("unsafe"),
             ):
-                with mock.patch.object(artifact, "_run_gcloud") as command:
+                with mock.patch.object(artifact, "_run_gcloud") as blocked_command:
                     with self.assertRaises(artifact.ArtifactPolicyError):
                         artifact.upload(path, SHA, "99", "1", "ios-testflight")
-                    command.assert_not_called()
+                    blocked_command.assert_not_called()
+
+    def test_destination_preflight_reads_bucket_and_project_policy(self) -> None:
+        with mock.patch.object(
+            artifact,
+            "_gcloud_json",
+            side_effect=[
+                PROJECT_IAM,
+                BUCKET_CONFIG,
+                PRIVATE_IAM,
+                RAW_BUCKET,
+                DENY_LIVE,
+            ],
+        ) as gcloud:
+            artifact.validate_destination()
+        self.assertEqual(gcloud.call_count, 5)
 
     def test_workflows_never_publish_signed_binaries_as_actions_artifacts(self) -> None:
         for filename in (

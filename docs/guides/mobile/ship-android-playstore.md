@@ -38,11 +38,13 @@ cd android && ./gradlew bundleRelease
 ```
 
 Signing reads from `ANDROID_KEYSTORE_PATH`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD` supplied by Secret Manager / GitHub secrets.
-The signed AAB is retained for 14 live days in the private
-`hushh-pda-uat-native-artifacts` bucket after bucket-policy and upload-integrity
+The signed AAB is retained for 14 live days in the dedicated `hushh-native-uat`
+project's private `hushh-native-uat-artifacts` bucket after bucket-policy and upload-integrity
 checks. GitHub Actions keeps only a redacted receipt, not the AAB. The bucket
 has a separate 7-day private soft-delete recovery window after lifecycle
-deletion. A dry run does not upload to Google Play.
+deletion. The project-attached deny policy blocks inherited organization-level
+object reads and developer-group mutations; the workflow checks it before and
+after upload. A dry run does not upload to Google Play.
 
 ## One-time setup (secret-touching — the operator does this)
 
