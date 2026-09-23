@@ -626,6 +626,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
       decryptedByRequest,
       decryptedRevisionByRequest,
       isVaultUnlocked,
+      resolvedPersonRef,
       user,
       vaultKey,
       vaultOwnerToken,
