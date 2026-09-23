@@ -3,6 +3,7 @@
 import { Capacitor } from "@capacitor/core";
 
 import { HushhPlaidLink } from "@/lib/capacitor/plaid-link";
+import { markNativePlaidLinkOpened } from "@/lib/kai/brokerage/native-plaid-session";
 
 declare global {
   interface Window {
@@ -49,6 +50,7 @@ function createNativePlaidLink(): PlaidLinkStatic {
           if (opened) return;
           opened = true;
           const token = String(config.token ?? "");
+          const markClosed = markNativePlaidLinkOpened();
           void (async () => {
             if (config.onEvent) {
               eventHandle = await HushhPlaidLink.addListener("plaidLinkEvent", (event) => {
@@ -57,6 +59,7 @@ function createNativePlaidLink(): PlaidLinkStatic {
             }
             try {
               const result = await HushhPlaidLink.open({ token });
+              markClosed();
               detach();
               if (result.exit) {
                 config.onExit?.(result.error ? { ...result.error } : null, result.metadata);
@@ -64,6 +67,7 @@ function createNativePlaidLink(): PlaidLinkStatic {
                 config.onSuccess?.(result.publicToken, result.metadata);
               }
             } catch (error) {
+              markClosed();
               detach();
               config.onExit?.(
                 { code: "NATIVE_LINK_FAILED", message: error instanceof Error ? error.message : String(error) },

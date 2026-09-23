@@ -24,6 +24,8 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 
 import { APP_FRONTEND_ORIGIN } from "@/lib/config";
+import { isNativePlaidLinkOpen } from "@/lib/kai/brokerage/native-plaid-session";
+import { ROUTES } from "@/lib/navigation/routes";
 
 function knownOrigins(): string[] {
   const configured = String(APP_FRONTEND_ORIGIN || "").trim().replace(/\/+$/, "");
@@ -34,6 +36,23 @@ function knownOrigins(): string[] {
     "https://dev.one.hushh.ai",
   ];
   return origins.filter(Boolean);
+}
+
+function isPlaidOAuthReturn(path: string): boolean {
+  const pathname = path.split(/[?#]/)[0] ?? "";
+  return (
+    pathname === ROUTES.KAI_PLAID_OAUTH_RETURN ||
+    pathname === ROUTES.LEGACY_KAI_PLAID_OAUTH_RETURN
+  );
+}
+
+/**
+ * Whether to navigate to an incoming link's path. A Plaid return that lands
+ * while the native SDK still has Link open belongs to that session, not to
+ * the router (see native-plaid-session.ts).
+ */
+export function shouldFollowDeepLink(path: string): boolean {
+  return !(isPlaidOAuthReturn(path) && isNativePlaidLinkOpen());
 }
 
 /** The in-app path to navigate to, or null when the URL is not ours to follow. */
@@ -83,7 +102,7 @@ export function useDeepLinkReturn(): void {
 
       const handle = await App.addListener("appUrlOpen", (event) => {
         const path = resolveDeepLinkPath(event.url);
-        if (path && !disposed) router.replace(path);
+        if (path && !disposed && shouldFollowDeepLink(path)) router.replace(path);
       });
       if (disposed) {
         void handle.remove();
