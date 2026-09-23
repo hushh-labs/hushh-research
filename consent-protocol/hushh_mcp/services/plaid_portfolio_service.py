@@ -839,6 +839,38 @@ class PlaidPortfolioService:
         )
         return active_source
 
+    async def disconnect_all_items_for_erasure(self, *, user_id: str) -> dict[str, int]:
+        """Tell Plaid to disconnect every live connection before the rows go.
+
+        Deleting only our rows left the bank connected at Plaid: the item kept
+        accruing access nobody could use or revoke. Best effort per item, so an
+        unreachable Plaid never blocks a person's erasure; counts only, no
+        tokens or identifiers are logged.
+        """
+        result = self.db.execute_raw(
+            """
+            SELECT access_token_ciphertext, access_token_iv, access_token_tag, plaid_env
+            FROM kai_plaid_items
+            WHERE user_id = :user_id
+              AND COALESCE(status, 'active') <> 'removed'
+            """,
+            {"user_id": user_id},
+        )
+        counts = {"attempted": 0, "removed": 0, "failed": 0}
+        for row in result.data or []:
+            counts["attempted"] += 1
+            try:
+                await self._post(
+                    "/item/remove",
+                    {"access_token": self._decrypt_access_token(row)},
+                    environment=_clean_text(row.get("plaid_env")) or None,
+                )
+                counts["removed"] += 1
+            except Exception as exc:  # noqa: BLE001 - erasure must not stop here
+                counts["failed"] += 1
+                logger.warning("plaid.erasure_item_remove_failed error=%s", type(exc).__name__)
+        return counts
+
     async def remove_item(self, *, user_id: str, item_id: str) -> dict[str, Any] | None:
         row = self._fetch_item_row(user_id=user_id, item_id=item_id)
         if row is None:
