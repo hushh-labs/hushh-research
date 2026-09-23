@@ -51,6 +51,18 @@ const MAX_SNAPSHOT_FOLLOW_UPS = 5;
 
 type AnyRecord = Record<string, unknown>;
 
+/**
+ * Every vault write builds the complete financial domain from the latest
+ * memory, so it replaces the domain. Without this the store's default merge
+ * picks the first `entities` map it finds and silently drops everything else
+ * (seen on the iPhone proof 2026-09-23: the write returned 200 and the sealed
+ * connection, accounts and summary were gone).
+ */
+const VAULT_REPLACE_FINANCIAL = {
+  merge_mode: "replace_domain",
+  target_domain: "financial",
+} as const;
+
 export type VaultSurface = "web" | "ios" | "android";
 
 export function vaultConnections(financial: AnyRecord | null | undefined): Record<string, ConnectionRecord> {
@@ -189,7 +201,11 @@ export async function sealVaultPlaidConnection(params: {
       );
       const domainData = withPlaidActive(applyPages(linked, exchanged.item_id, pages, now));
       saved = domainData;
-      return { domainData, summary: buildFinancialDomainSummary(domainData) };
+      return {
+        domainData,
+        summary: buildFinancialDomainSummary(domainData),
+        mergeDecision: VAULT_REPLACE_FINANCIAL,
+      };
     },
   });
   if (!result.success || !saved) {
@@ -326,7 +342,11 @@ export async function refreshVaultConnections(params: {
         domainData = applyPages(domainData, itemId, pages, now);
       }
       domainData = recomputeDerived(domainData, now);
-      return { domainData, summary: buildFinancialDomainSummary(domainData) };
+      return {
+        domainData,
+        summary: buildFinancialDomainSummary(domainData),
+        mergeDecision: VAULT_REPLACE_FINANCIAL,
+      };
     },
   });
   outcome.refreshed = read.length;
@@ -365,7 +385,11 @@ export async function disconnectVaultPlaid(params: {
     },
     build: (context) => {
       const domainData = removeConnection(context.currentDomainData, itemId, now);
-      return { domainData, summary: buildFinancialDomainSummary(domainData) };
+      return {
+        domainData,
+        summary: buildFinancialDomainSummary(domainData),
+        mergeDecision: VAULT_REPLACE_FINANCIAL,
+      };
     },
   });
   return result.success;

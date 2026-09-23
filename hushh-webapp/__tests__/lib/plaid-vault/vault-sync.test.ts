@@ -47,15 +47,19 @@ function snapshot(overrides: Record<string, unknown> = {}) {
 }
 
 /** Run the coordinator's build against a given current memory, like the real one. */
+const plans: Array<{ domainData: unknown; mergeDecision?: { merge_mode?: string } }> = [];
+
 function saveRunsBuild(current: Record<string, unknown> = {}) {
   coordinator.saveMergedDomain.mockImplementation(async (params: { build: (c: unknown) => unknown }) => {
-    const plan = params.build({ currentDomainData: current }) as { domainData: unknown };
+    const plan = params.build({ currentDomainData: current }) as (typeof plans)[number];
+    plans.push(plan);
     return { success: true, fullBlob: { financial: plan.domainData } };
   });
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
+  plans.length = 0;
   client.exchangeVaultPublicToken.mockResolvedValue({
     access_token: ACCESS_TOKEN,
     item_id: "item_1",
@@ -89,6 +93,9 @@ describe("sealing a new Plaid connection", () => {
     expect(status).not.toContain("cursor-1");
     expect(status).not.toContain("official_name");
     expect(sealed.status?.custody).toBe("vault");
+    // A merged write would keep only the first `entities` map it finds and
+    // drop the sealed branches; the vault write replaces the whole domain.
+    expect(plans[0]?.mergeDecision?.merge_mode).toBe("replace_domain");
     expect(client.removeVaultItem).not.toHaveBeenCalled();
   });
 
@@ -156,6 +163,7 @@ describe("refreshing on unlock", () => {
       connectedSourceProvider: "plaid",
     });
     expect(call.confirmation.confirmedByUser).toBeUndefined();
+    expect(plans[0]?.mergeDecision?.merge_mode).toBe("replace_domain");
   });
 
   it("leaves a connection refreshed moments ago alone", async () => {
