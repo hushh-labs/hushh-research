@@ -28,7 +28,7 @@ bounded lengths, opaque-token character set).
 
 | Method | Path | Request | Response |
 |---|---|---|---|
-| POST | `/api/kai/plaid/vault/link-token` | `{platform: "web"\|"ios"\|"android", redirect_uri?: string\|null}` | `{link_token, expiration}` |
+| POST | `/api/kai/plaid/vault/link-token` | `{platform: "web"\|"ios"\|"android", redirect_uri?: string\|null, sandbox_proof?: boolean}` | `{link_token, expiration}` |
 | POST | `/api/kai/plaid/vault/exchange` | `{public_token}` | `{access_token, item_id, institution: {id, name}\|null, products, consented_products}` |
 | POST | `/api/kai/plaid/vault/snapshot` | `{access_token, transactions_cursor?: string\|null}` | see below |
 | POST | `/api/kai/plaid/vault/remove` | `{access_token}` | `{removed: true}` |
@@ -62,6 +62,15 @@ bounded lengths, opaque-token character set).
   stable per person, never the raw id or an email.
 - The link token carries no `webhook`, and `apply_link_platform` handles
   `android_package_name` versus `redirect_uri`.
+- `sandbox_proof` is an opt-in, non-secret local-test marker. The server
+  accepts it only when both its resolved `PlaidRuntimeConfig` environment is
+  `sandbox` **and** the process has an explicit `local`/`test` deployment
+  identity plus `HUSHH_LOCAL_PLAID_SANDBOX_PROOF=true`. Any Cloud Run identity,
+  missing or conflicting deployment metadata, `dev`, UAT, and production
+  reject it before calling Plaid even if they use sandbox keys. The iOS proof
+  also verifies a non-secret, Next-emitted runtime attestation copied from the
+  exact local WebView export. Unmarked clients retain the normal Link-token
+  flow.
 
 ## Guarantees
 

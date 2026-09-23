@@ -29,29 +29,40 @@ cd "$(dirname "$0")/../.."
 WEB_DIR="$(pwd)"
 STAMP="$(date +%Y%m%d-%H%M%S)"
 OUT_DIR="${PERF_OUT_DIR:-$WEB_DIR/tmp/perf/$STAMP}"
-mkdir -p "$OUT_DIR/probe"
 DERIVED="${PERF_DERIVED_DATA:-/tmp/hushh-ios-dd}"
 BUNDLE_ID="com.hushh.app"
 REPS="${HUSHH_PERF_REPS:-3}"
+SECTION="${PERF_SECTION:-all}"
 
 # PERF_ATTACHED=1 is the truth lane: no reviewer bridge, no test mode. The app
 # is launched with only the probe argument and the person holding the phone
 # signs in and unlocks (then opens Finance when the log says so). With
 # PERF_CONFIGURATION=Release it is the certifying run.
 ATTACHED="${PERF_ATTACHED:-0}"
-REVIEWER_UID=""
-eval "$(node scripts/testing/export-reviewer-test-env.mjs)"
-if [[ -z "${REVIEWER_VAULT_PASSPHRASE:-}" ]]; then
-  echo "Reviewer passphrase did not resolve (REVIEWER_VAULT_PASSPHRASE)." >&2
+RESULT_BUNDLE="$OUT_DIR/run.xcresult"
+PLAID_SANDBOX_PROOF_SECTION=0
+if [[ "$SECTION" == "plaid" || "$SECTION" == "plaid-vault" ]]; then
+  PLAID_SANDBOX_PROOF_SECTION=1
+fi
+if [[ "$PLAID_SANDBOX_PROOF_SECTION" == "1" && -n "${PERF_OUT_DIR:-}" ]]; then
+  echo "PERF_OUT_DIR is not allowed for Plaid sandbox proof; its temporary artifacts must remain under tmp/perf." >&2
   exit 1
 fi
-if [[ "$ATTACHED" != "1" ]]; then
-  REVIEWER_UID="${PERF_REVIEWER_UID:-$(node scripts/perf/resolve-reviewer-uid.mjs)}"
-  if [[ -z "$REVIEWER_UID" ]]; then
-    echo "Reviewer uid did not resolve; set PERF_REVIEWER_UID or check the backend." >&2
-    exit 1
+mkdir -p "$OUT_DIR/probe"
+
+cleanup_plaid_sandbox_proof() {
+  [[ "$PLAID_SANDBOX_PROOF_SECTION" == "1" ]] || return 0
+  rm -rf "$RESULT_BUNDLE"
+  if [[ -f "$OUT_DIR/.run-start" ]]; then
+    find "$DERIVED/Logs/Test" -maxdepth 1 -name '*.xcresult' -newer "$OUT_DIR/.run-start" -print0 2>/dev/null | xargs -0 rm -rf 2>/dev/null || true
   fi
+}
+if [[ "$PLAID_SANDBOX_PROOF_SECTION" == "1" ]]; then
+  trap 'proof_status=$?; trap - EXIT; cleanup_plaid_sandbox_proof; exit "$proof_status"' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
 fi
+
 if [[ "$ATTACHED" == "1" ]]; then
   TEST_NAME="testRenderPerformanceCardAttached"
   ENABLE_VAR="TEST_RUNNER_HUSHH_ENABLE_PERF_ATTACHED"
@@ -101,6 +112,30 @@ fi
 # The webpack cache once served a stale stylesheet for a fresh bundle; the
 # export must carry every rule globals.css produces before it is measured.
 node scripts/native/verify-native-css-fresh.mjs --export "$NATIVE_EXPORT" || exit 1
+
+# A Plaid proof creates financial connections. It is deliberately unavailable
+# to the normal UAT performance card: an explicit local Simulator-only guard
+# must pass before this script even resolves reviewer credentials or builds.
+if [[ "$SECTION" == "plaid" || "$SECTION" == "plaid-vault" ]]; then
+  node scripts/perf/verify-ios-plaid-sandbox-proof.mjs \
+    --config "$WEB_DIR/ios/App/App/capacitor.config.json" \
+    --export "$NATIVE_EXPORT" \
+    --native-public "$WEB_DIR/ios/App/App/public"
+fi
+
+REVIEWER_UID=""
+eval "$(node scripts/testing/export-reviewer-test-env.mjs)"
+if [[ -z "${REVIEWER_VAULT_PASSPHRASE:-}" ]]; then
+  echo "Reviewer passphrase did not resolve (REVIEWER_VAULT_PASSPHRASE)." >&2
+  exit 1
+fi
+if [[ "$ATTACHED" != "1" ]]; then
+  REVIEWER_UID="${PERF_REVIEWER_UID:-$(node scripts/perf/resolve-reviewer-uid.mjs)}"
+  if [[ -z "$REVIEWER_UID" ]]; then
+    echo "Reviewer uid did not resolve; set PERF_REVIEWER_UID or check the backend." >&2
+    exit 1
+  fi
+fi
 echo "perf card: $DESTINATION, configuration $CONFIGURATION, tier $TIER, reps $REPS, sha $SHA"
 echo "artifacts: $OUT_DIR (raw log and probe JSON stay here; only the summary is committed)"
 
@@ -146,7 +181,6 @@ if [ "${PERF_SECTION:-}" = "routes" ] && [ -z "$PERF_ROUTE_LIST" ]; then
   echo "perf routes: $(printf %s "$PERF_ROUTE_LIST" | awk -F, "{print NF}") native-required routes"
 fi
 
-RESULT_BUNDLE="$OUT_DIR/run.xcresult"
 rm -rf "$RESULT_BUNDLE"
 touch "$OUT_DIR/.run-start"
 
@@ -177,8 +211,9 @@ fi
 set +e
 env "$ENABLE_VAR=true" \
     TEST_RUNNER_HUSHH_PERF_REPS="$REPS" \
-    TEST_RUNNER_HUSHH_PERF_ATTACHED_SECTION="${PERF_SECTION:-all}" \
+    TEST_RUNNER_HUSHH_PERF_ATTACHED_SECTION="$SECTION" \
     TEST_RUNNER_HUSHH_PERF_EXPERIMENT="${PERF_EXPERIMENT:-}" \
+    TEST_RUNNER_HUSHH_PLAID_SANDBOX_PROOF="${HUSHH_PLAID_SANDBOX_PROOF:-}" \
     TEST_RUNNER_HUSHH_PLAID_START_INDEX="${PLAID_START_INDEX:-0}" \
     TEST_RUNNER_HUSHH_PERF_ROUTES="$PERF_ROUTE_LIST" \
     TEST_RUNNER_HUSHH_UI_TEST_REVIEWER_UID="$REVIEWER_UID" \
@@ -199,8 +234,8 @@ if [[ -n "$SHOT_PID" ]]; then
 fi
 # Session walks keep their screenshot bursts: export the image attachments
 # only (typed strings live in the activity log, never in attachments), then
-# the bundle goes as always.
-if [[ ( "${PERF_SECTION:-}" == "session" || "${PERF_SECTION:-}" == "plaid-vault" ) && -d "$RESULT_BUNDLE" ]]; then
+# the bundle goes as always. Plaid proofs never retain screenshots.
+if [[ "$SECTION" == "session" && -d "$RESULT_BUNDLE" ]]; then
   mkdir -p "$OUT_DIR/bursts"
   xcrun xcresulttool export attachments --path "$RESULT_BUNDLE" --output-path "$OUT_DIR/bursts" >/dev/null 2>&1 || true
   find "$OUT_DIR/bursts" -type f ! -iname '*.png' ! -iname '*.jpg' ! -iname '*.jpeg' ! -name 'manifest.json' -delete 2>/dev/null || true

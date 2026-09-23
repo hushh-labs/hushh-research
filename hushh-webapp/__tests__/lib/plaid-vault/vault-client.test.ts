@@ -53,6 +53,19 @@ describe("plaid vault client", () => {
     expect(JSON.parse(String(apiFetch.mock.calls[0]![1].body))).toEqual({ platform: "android", redirect_uri: null });
   });
 
+  it("sends the local-proof marker only when explicitly requested", async () => {
+    apiFetch.mockResolvedValue(jsonResponse(200, { link_token: "link-sandbox-1", expiration: "x" }));
+    await createVaultLinkToken({
+      vaultOwnerToken: "HCT:owner",
+      request: { platform: "ios", redirect_uri: "https://app/cb", sandbox_proof: true },
+    });
+    expect(JSON.parse(String(apiFetch.mock.calls[0]![1].body))).toEqual({
+      platform: "ios",
+      redirect_uri: "https://app/cb",
+      sandbox_proof: true,
+    });
+  });
+
   it("exchanges exactly once, even when the exchange fails", async () => {
     apiFetch.mockResolvedValue(jsonResponse(502, { detail: "upstream failed for public-sandbox-abc" }));
     const error = await exchangeVaultPublicToken({ vaultOwnerToken: "HCT:owner", publicToken: "public-sandbox-abc" }).catch((e) => e);
