@@ -406,6 +406,14 @@ class DriveContextEnvelopeBuilder:
             )
             approval = SharingApproval.model_validate(plan["approval"])
             recipient = plan["recipient"]
+            approved_source = next(
+                (
+                    source
+                    for source in approval.sources
+                    if str(source.document_id) == str(grant["document_id"])
+                ),
+                None,
+            )
             if (
                 str(approval.request_id) != str(grant["request_id"])
                 or approval.revision != grant["review_revision"]
@@ -413,14 +421,19 @@ class DriveContextEnvelopeBuilder:
                 or approval.recipient_user_id != user_id
                 or approval.recipient_binding != grant["recipient_binding"]
                 or approval.connection_generation != grant["connection_generation"]
-                or not any(
-                    str(source.document_id) == str(grant["document_id"])
-                    for source in approval.sources
-                )
+                or approved_source is None
                 or plan["file_id"] != selected.file_id
+                or plan["source_version"] != approved_source.source_version
+                or approved_source.source_fingerprint
+                != self.document_cipher.fingerprint(grant["user_id"], plan["file_id"])
                 or recipient["user_id"] != user_id
                 or recipient["subject"] != credential["subject"]
                 or recipient["email"] != credential["accountLabel"]
+                or self.sharing_cipher.digest(
+                    "recipient",
+                    [recipient["user_id"], recipient["subject"], recipient["email"]],
+                )
+                != approval.recipient_binding
             ):
                 raise ValueError("grant binding changed")
             return GrantDependency(
