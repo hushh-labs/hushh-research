@@ -162,17 +162,44 @@ def test_worker_promotion_is_post_gate_attested_and_recoverable():
     assert workflow.index("id: capture-drive-worker-scheduler") < workflow.index(
         "id: deploy-drive-worker"
     )
+    assert workflow.index("id: promote-uat-traffic") < workflow.index("id: deploy-drive-worker")
     assert workflow.index("id: verify-drive-worker-scheduler-rollback") < workflow.index(
         "id: final-state"
     )
     assert "drive_worker_failure_rollback_complete" in workflow
+    deploy_step = workflow.split("id: deploy-drive-worker", 1)[1].split(
+        "id: rollback-backend-after-drive-worker", 1
+    )[0]
+    assert "if: always() && !cancelled()" in deploy_step
+    assert 'if [ "${{ steps.capture-drive-worker-scheduler.outcome }}" != "success" ]; then' in (
+        deploy_step
+    )
+    assert "triggering runtime rollback" in deploy_step
+    assert "exit 1" in deploy_step
+    assert "exec > >(tee /tmp/uat-drive-worker-release.log) 2>&1" in deploy_step
+    assert "exec bash deploy/drive/deploy_worker_service.sh" in deploy_step
+    for rollback_step in (
+        "rollback-backend-after-drive-worker",
+        "rollback-frontend-after-drive-worker",
+        "verify-drive-worker-scheduler-rollback",
+    ):
+        condition = workflow.split(f"id: {rollback_step}", 1)[1].split("shell: bash", 1)[0]
+        assert "steps.promote-uat-traffic.outcome != 'skipped'" in condition
+        assert "steps.classify-uat-release.outputs.release_failed != 'true'" in condition
+        assert "steps.deploy-drive-worker.outcome != 'success'" in condition
+
     scheduler_rollback_clause = workflow.split(
-        'if [ "${{ steps.verify-drive-worker-scheduler-rollback.outcome }}"', 1
-    )[1].split("fi", 1)[0]
-    assert "steps.verify-drive-worker-scheduler-rollback.outputs.restored" in (
+        'if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \\\n', 1
+    )[1].split('if [ "${{ steps.classify-uat-release.outputs.release_failed }}"', 1)[0]
+    assert 'steps.deploy-drive-worker.outcome }}" != "success"' in scheduler_rollback_clause
+    assert "DRIVE_WORKER_ROLLBACK_COMPLETE=false" in scheduler_rollback_clause
+    assert 'steps.verify-drive-worker-scheduler-rollback.outcome }}" = "success"' in (
         scheduler_rollback_clause
     )
-    assert "DRIVE_WORKER_ROLLBACK_COMPLETE=false" in scheduler_rollback_clause
+    assert 'steps.verify-drive-worker-scheduler-rollback.outputs.restored }}" = "true"' in (
+        scheduler_rollback_clause
+    )
+    assert "DRIVE_WORKER_ROLLBACK_COMPLETE=true" in scheduler_rollback_clause
     assert (
         '"drive_worker_failure_rollback_complete": os.environ["DRIVE_WORKER_ROLLBACK_COMPLETE"]'
         in workflow
@@ -272,6 +299,28 @@ def test_scheduler_capture_and_exact_rollback_verification(tmp_path: Path):
     assert "did not return to pre-worker state" in mismatch.stderr
     assert output.read_text(encoding="utf-8").count("restored=true") == 1
 
+    output.unlink()
+    no_capture = subprocess.run(  # noqa: S603 - fixed repository-owned script
+        [
+            "python3",
+            str(SCHEDULER_STATE),
+            "verify",
+            "--snapshot",
+            str(snapshot),
+            "--expected-uri",
+            "",
+            "--expected-audience",
+            "",
+            "--github-output",
+            str(output),
+        ],
+        capture_output=True,
+        check=False,
+        text=True,
+    )
+    assert no_capture.returncode != 0
+    assert not output.exists()
+
 
 @pytest.mark.parametrize(
     "snapshot",
@@ -282,6 +331,10 @@ def test_scheduler_capture_and_exact_rollback_verification(tmp_path: Path):
         ),
         _scheduler_snapshot(
             "https://api.uat.hushh.ai/api/internal/drive-work/drain?redirect=1",
+            "https://api.uat.hushh.ai",
+        ),
+        _scheduler_snapshot(
+            "https://unrelated-service-abc.a.run.app/api/internal/drive-work/drain",
             "https://api.uat.hushh.ai",
         ),
         {

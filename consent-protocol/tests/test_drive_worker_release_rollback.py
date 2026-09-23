@@ -106,6 +106,7 @@ if count == 0:
         if line.startswith("readonly CLAMAV_IMAGE=")
     )
     environment = os.environ.copy()
+    wrapper_log = tmp_path / "worker-release.log"
     environment.update(
         {
             "PATH": f"{fake_bin}:{environment['PATH']}",
@@ -114,6 +115,8 @@ if count == 0:
             "MOCK_RESTORE_SUCCEEDS": str(restore_succeeds).lower(),
             "MOCK_WORKER_URL": WORKER_URL,
             "MOCK_CLAMAV_IMAGE": clamav_image,
+            "MOCK_WRAPPER_LOG": str(wrapper_log),
+            "MOCK_WORKER_RELEASE": str(WORKER_RELEASE),
             "IMAGE_REFERENCE": "gcr.io/hushh-pda-uat/consent-protocol@sha256:" + "a" * 64,
             "DEPLOY_SHA": "b" * 40,
             "RUNTIME_SERVICE_ACCOUNT": (
@@ -124,7 +127,12 @@ if count == 0:
         }
     )
     result = subprocess.run(  # noqa: S603 - fixed repository-owned shell helper
-        ["/bin/bash", str(WORKER_RELEASE)],
+        [
+            "/bin/bash",
+            "-c",
+            'set -euo pipefail; exec > >(tee "$MOCK_WRAPPER_LOG") 2>&1; '
+            'exec /bin/bash "$MOCK_WORKER_RELEASE"',
+        ],
         cwd=ROOT,
         env=environment,
         capture_output=True,
@@ -133,13 +141,15 @@ if count == 0:
         timeout=15,
     )
 
-    assert result.returncode == 143, result.stderr
+    output = result.stdout + result.stderr
+    assert result.returncode == 143, output
     assert setup_count.read_text(encoding="utf-8") == "2"
-    assert "Drive worker candidate failed" in result.stderr
+    assert "Drive worker candidate failed" in output
+    assert "Drive worker candidate failed" in wrapper_log.read_text(encoding="utf-8")
     final_state = json.loads(state_path.read_text(encoding="utf-8"))
     if restore_succeeds:
         assert final_state == {"uri": OLD_URI, "audience": OLD_AUDIENCE}
-        assert "CRITICAL" not in result.stderr
+        assert "CRITICAL" not in output
     else:
         assert final_state["uri"] == f"{WORKER_URL}/api/internal/drive-work/drain"
-        assert "CRITICAL: Drive worker rollback is incomplete" in result.stderr
+        assert "CRITICAL: Drive worker rollback is incomplete" in output

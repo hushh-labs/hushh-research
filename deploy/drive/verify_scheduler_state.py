@@ -5,11 +5,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from pathlib import Path
 from urllib.parse import urlsplit
 
 JOB_SERVICE_ACCOUNT = "drive-work-drain-sched@hushh-pda-uat.iam.gserviceaccount.com"
 DRAIN_PATH = "/api/internal/drive-work/drain"
+WORKER_HOST = re.compile(r"consent-protocol-drive-worker-[a-z0-9-]+\.a\.run\.app\Z")
 
 
 def _https_url(value: object, *, drain_target: bool) -> str:
@@ -27,7 +29,7 @@ def _https_url(value: object, *, drain_target: bool) -> str:
         or (parsed.path != DRAIN_PATH if drain_target else parsed.path not in ("", "/"))
         or (
             parsed.hostname != "api.uat.hushh.ai"
-            and not parsed.hostname.endswith(".run.app")
+            and not WORKER_HOST.fullmatch(parsed.hostname)
         )
     ):
         raise ValueError("Drive scheduler URL is outside the reviewed UAT boundary")

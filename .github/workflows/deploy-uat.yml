@@ -928,6 +928,7 @@ jobs:
           echo "frontend_revision=${frontend_revision}" >> "$GITHUB_OUTPUT"
 
       - name: Promote deployed revisions to UAT traffic
+        id: promote-uat-traffic
         shell: bash
         run: |
           set -euo pipefail
@@ -1868,7 +1869,7 @@ jobs:
 
       - name: Deploy and attest private Drive worker
         id: deploy-drive-worker
-        if: steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true' && steps.capture-drive-worker-scheduler.outcome == 'success'
+        if: always() && !cancelled() && steps.classify-uat-release.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true'
         shell: bash
         env:
           IMAGE_REFERENCE: ${{ steps.build-backend-image.outputs.image_reference }}
@@ -1878,12 +1879,16 @@ jobs:
           RELEASE_RUN_ID: ${{ github.run_id }}
         run: |
           set -euo pipefail
-          bash deploy/drive/deploy_worker_service.sh \
-            | tee /tmp/uat-drive-worker-release.log
+          if [ "${{ steps.capture-drive-worker-scheduler.outcome }}" != "success" ]; then
+            echo "Drive scheduler pre-worker snapshot failed; triggering runtime rollback" >&2
+            exit 1
+          fi
+          exec > >(tee /tmp/uat-drive-worker-release.log) 2>&1
+          exec bash deploy/drive/deploy_worker_service.sh
 
       - name: Restore backend after Drive worker failure
         id: rollback-backend-after-drive-worker
-        if: always() && steps.deploy-drive-worker.outcome == 'failure' && steps.scope.outputs.deploy_backend == 'true' && steps.rollback-targets.outputs.backend_revision != ''
+        if: always() && steps.promote-uat-traffic.outcome != 'skipped' && steps.classify-uat-release.outputs.release_failed != 'true' && steps.deploy-drive-worker.outcome != 'success' && steps.scope.outputs.deploy_backend == 'true' && steps.rollback-targets.outputs.backend_revision != ''
         shell: bash
         env:
           PREDEPLOY_DB_GATE_OUTCOME: ${{ steps.predeploy-db-gate.outcome }}
@@ -1894,7 +1899,7 @@ jobs:
 
       - name: Restore frontend after Drive worker failure
         id: rollback-frontend-after-drive-worker
-        if: always() && steps.deploy-drive-worker.outcome == 'failure' && steps.scope.outputs.deploy_frontend == 'true' && steps.rollback-targets.outputs.frontend_revision != ''
+        if: always() && steps.promote-uat-traffic.outcome != 'skipped' && steps.classify-uat-release.outputs.release_failed != 'true' && steps.deploy-drive-worker.outcome != 'success' && steps.scope.outputs.deploy_frontend == 'true' && steps.rollback-targets.outputs.frontend_revision != ''
         shell: bash
         env:
           PREDEPLOY_DB_GATE_OUTCOME: ${{ steps.predeploy-db-gate.outcome }}
@@ -1905,7 +1910,7 @@ jobs:
 
       - name: Verify Drive scheduler after worker failure
         id: verify-drive-worker-scheduler-rollback
-        if: always() && steps.deploy-drive-worker.outcome == 'failure' && steps.scope.outputs.deploy_backend == 'true'
+        if: always() && steps.promote-uat-traffic.outcome != 'skipped' && steps.classify-uat-release.outputs.release_failed != 'true' && steps.deploy-drive-worker.outcome != 'success' && steps.scope.outputs.deploy_backend == 'true'
         shell: bash
         env:
           EXPECTED_SCHEDULER_URI: ${{ steps.capture-drive-worker-scheduler.outputs.uri }}
@@ -1980,21 +1985,22 @@ jobs:
           FRONTEND_ROLLBACK_DONE=true
           DRIVE_WORKER_ROLLBACK_COMPLETE=true
 
-          if [ "${{ steps.deploy-drive-worker.outcome }}" = "failure" ]; then
-            if [ "${{ steps.verify-drive-worker-scheduler-rollback.outcome }}" != "success" ] \
-               || [ "${{ steps.verify-drive-worker-scheduler-rollback.outputs.restored }}" != "true" ]; then
-              DRIVE_WORKER_ROLLBACK_COMPLETE=false
-            fi
-            if [ "${{ steps.rollback-targets.outputs.backend_revision }}" = "" ] \
-               || [ "${{ steps.rollback-backend-after-drive-worker.outcome }}" != "success" ] \
-               || [ "${{ steps.final-state.outputs.backend_revision }}" != "${{ steps.rollback-targets.outputs.backend_revision }}" ]; then
-              DRIVE_WORKER_ROLLBACK_COMPLETE=false
-            fi
-            if [ "${{ steps.scope.outputs.deploy_frontend }}" = "true" ] \
-               && { [ "${{ steps.rollback-targets.outputs.frontend_revision }}" = "" ] \
-                 || [ "${{ steps.rollback-frontend-after-drive-worker.outcome }}" != "success" ] \
-                 || [ "${{ steps.final-state.outputs.frontend_revision }}" != "${{ steps.rollback-targets.outputs.frontend_revision }}" ]; }; then
-              DRIVE_WORKER_ROLLBACK_COMPLETE=false
+          if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \
+             && [ "${{ steps.deploy-drive-worker.outcome }}" != "success" ]; then
+            # A skipped/cancelled worker is not a completed rollback. Only
+            # independent scheduler and serving-revision evidence can prove it.
+            DRIVE_WORKER_ROLLBACK_COMPLETE=false
+            if [ "${{ steps.verify-drive-worker-scheduler-rollback.outcome }}" = "success" ] \
+               && [ "${{ steps.verify-drive-worker-scheduler-rollback.outputs.restored }}" = "true" ] \
+               && [ "${{ steps.rollback-targets.outputs.backend_revision }}" != "" ] \
+               && [ "${{ steps.rollback-backend-after-drive-worker.outcome }}" = "success" ] \
+               && [ "${{ steps.final-state.outputs.backend_revision }}" = "${{ steps.rollback-targets.outputs.backend_revision }}" ]; then
+              if [ "${{ steps.scope.outputs.deploy_frontend }}" != "true" ] \
+                 || { [ "${{ steps.rollback-targets.outputs.frontend_revision }}" != "" ] \
+                   && [ "${{ steps.rollback-frontend-after-drive-worker.outcome }}" = "success" ] \
+                   && [ "${{ steps.final-state.outputs.frontend_revision }}" = "${{ steps.rollback-targets.outputs.frontend_revision }}" ]; }; then
+                DRIVE_WORKER_ROLLBACK_COMPLETE=true
+              fi
             fi
           fi
 
