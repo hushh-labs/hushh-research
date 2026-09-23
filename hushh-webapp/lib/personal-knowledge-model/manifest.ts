@@ -200,6 +200,32 @@ const BLOCKED_EXTERNAL_PATH_PARTS = new Set([
   "workflow_state",
 ]);
 
+/**
+ * The sealed Plaid tiers (see `lib/kai/plaid-vault/types.ts`). Each is private
+ * to the owner and never offered for sharing; the shareable tier is `summary`.
+ */
+const VAULT_PRIVATE_BRANCHES = new Set([
+  "connections_v1",
+  "accounts_v1",
+  "holdings_v1",
+  "securities_v1",
+  "transactions_v1",
+  "derived_v1",
+]);
+
+/**
+ * The tiers that are maps keyed by a record id. Walked key by key, one bank's
+ * 264 transactions declared 3,349 paths and the sealed write died with a 422
+ * against the server's 1000-path cap, so they collapse like `entities` maps.
+ */
+const VAULT_RECORD_MAP_BRANCHES = new Set([
+  "connections_v1",
+  "accounts_v1",
+  "holdings_v1",
+  "securities_v1",
+  "transactions_v1",
+]);
+
 /** Segments the walk invents; they were never keys the owner wrote. */
 const SYNTHETIC_SEGMENTS = new Set(["_items", ENTITY_COLLECTION_SEGMENT]);
 
@@ -209,6 +235,7 @@ function isExternalizablePath(
   value: unknown,
 ): boolean {
   if (pathType !== "leaf") return false;
+  if (VAULT_PRIVATE_BRANCHES.has(path.split(".")[0] ?? "")) return false;
 
   // A value nobody ever set is not information about anybody.
   //
@@ -386,7 +413,8 @@ function walkValue(
   const isAnalysisHistoryMap =
     mapKey === ANALYSIS_HISTORY_MAP_KEY &&
     Object.values(record).some((childValue) => Array.isArray(childValue));
-  if (mapKey === ENTITY_MAP_KEY || isAnalysisHistoryMap) {
+  const isVaultRecordMap = path.length === 1 && VAULT_RECORD_MAP_BRANCHES.has(mapKey ?? "");
+  if (mapKey === ENTITY_MAP_KEY || isAnalysisHistoryMap || isVaultRecordMap) {
     for (const [rawKey, childValue] of Object.entries(record)) {
       if (childValue === undefined || rawKey.trim().startsWith("_")) continue;
       // `domain_intent` is metadata on the analysis-history map, not an
