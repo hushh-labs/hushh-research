@@ -5641,7 +5641,11 @@ class PKMAgentLabService:
         async def _build_preview() -> dict[str, Any]:
             errors: list[str] = []
             continuation = PreviewContinuation(
-                run=self._run_agent_contract, resolve_model=resolve_model, records=prefix
+                run=self._run_agent_contract,
+                resolve_model=resolve_model,
+                records={
+                    key: value for key, value in (prefix or {}).items() if key != "__segments"
+                },
             )
             # These records contain only stage outcomes/timings, never model
             # values. Keep them on normal responses so failures are diagnosable
@@ -5727,6 +5731,23 @@ class PKMAgentLabService:
                 source_text = segment["source_text"]
                 if not source_text:
                     return None
+                source_key = hashlib.sha256(source_text.encode()).hexdigest()
+                multiple = total_segments_detected > 1
+                segment_trace: list[dict[str, Any]] = []
+                segment_continuation = continuation
+                if multiple:
+                    # Never share mutable agent-ID records across concurrent
+                    # candidates. Exact prompt fingerprints still gate reuse.
+                    segment_continuation = PreviewContinuation(
+                        run=self._run_agent_contract,
+                        resolve_model=resolve_model,
+                        records=(prefix or {}).get("__segments", {}).get(source_key),
+                    )
+                    segmentation_record = continuation.records.get("agent_memory_segmentation")
+                    if segmentation_record is not None:
+                        segment_continuation.records["agent_memory_segmentation"] = deepcopy(
+                            segmentation_record
+                        )
                 preview_started_at = time.perf_counter()
                 preview = await self._generate_single_structure_preview(
                     user_id=user_id,
@@ -5738,20 +5759,34 @@ class PKMAgentLabService:
                     strict_small_model=strict_small_model,
                     domain_registry_override=domain_registry_override,
                     deadline=preview_deadline,
-                    execution_trace=execution_trace,
-                    contract_runner=continuation.run,
+                    execution_trace=segment_trace if multiple else execution_trace,
+                    contract_runner=segment_continuation.run,
                 )
+                if multiple:
+                    execution_trace.extend(
+                        {**row, "candidate_index": index} for row in segment_trace
+                    )
                 preview_latency_ms = round((time.perf_counter() - preview_started_at) * 1000, 2)
                 card_id = f"card_{index:02d}"
+                card = self._build_preview_card(
+                    card_id=card_id,
+                    source_text=source_text,
+                    preview=preview,
+                    simulated_state=simulated_state,
+                )
                 return {
                     "preview": preview,
                     "latency_ms": preview_latency_ms,
-                    "card": self._build_preview_card(
-                        card_id=card_id,
-                        source_text=source_text,
-                        preview=preview,
-                        simulated_state=simulated_state,
-                    ),
+                    "card": card,
+                    "source_key": source_key,
+                    "checkpoint": segment_continuation.checkpoint(
+                        message=message,
+                        segment_source=source_text,
+                        response={**preview, "preview_cards": [card]},
+                        trace=segment_trace,
+                    )
+                    if multiple and continuation_scope and not segmentation_used_fallback
+                    else None,
                 }
 
             preview_entries = await asyncio.gather(
@@ -5929,6 +5964,22 @@ class PKMAgentLabService:
                     if continuation_scope
                     else None
                 )
+                if continuation_scope and total_segments_detected > 1 and not split_recommended:
+                    segment_prefixes = {
+                        entry["source_key"]: entry["checkpoint"]
+                        for entry in preview_entries
+                        if entry is not None and entry["checkpoint"] is not None
+                    }
+                    checkpoint = (
+                        {
+                            "agent_memory_segmentation": continuation.records[
+                                "agent_memory_segmentation"
+                            ],
+                            "__segments": segment_prefixes,
+                        }
+                        if segment_prefixes
+                        else None
+                    )
                 self._set_cached_structure_preview(
                     preview_cache_key,
                     response_payload,

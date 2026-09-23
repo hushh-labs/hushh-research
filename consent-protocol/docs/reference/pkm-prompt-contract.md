@@ -30,13 +30,16 @@ successful first candidate must not hide a later failed agent stage. Individual
 cards retain their own outcomes; aggregate diagnostics do not alter model meaning.
 
 The existing request-bound preview cache may retain an exact validated prefix for
-one source segment after a stage timeout. If Financial Guard times out, only
+each unique model-authored source segment after a stage timeout. If Financial Guard times out, only
 segmentation is reusable; the guard and every later stage run again. Changed
 owner, credential, source, context, contracts or cache expiry invalidate reuse.
 Failed or fallback decisions are never retained as successful preparation, and a
 retry does not extend the original cache lifetime or authorize a save. Multi-segment
-continuation is not supported: agent-ID-keyed records cannot safely represent
-several simultaneous candidates. These source contracts do not establish live
+preparation uses independent records and traces per exact source span, under the
+same request budget and cache binding. Ambiguous duplicate spans, invalid source
+coverage and batches requiring splitting do not admit continuation. Completed
+candidate output is not replayed as a write; normalization and review still run,
+and structure always runs fresh. These source contracts do not establish live
 provider reliability or successful encrypted-save acceptance.
 
 ## Shared PKM Data Structure Agent Kernel v2
