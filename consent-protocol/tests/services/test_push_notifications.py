@@ -1,4 +1,6 @@
-from unittest.mock import patch
+import sys
+from types import ModuleType, SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 from hushh_mcp.branding import BRAND_NAME
 from hushh_mcp.services import push_notifications as push_module
@@ -21,6 +23,48 @@ from hushh_mcp.services.requester_identity import (
     looks_technical_label,
     resolve_requester_label,
 )
+
+
+def test_opaque_push_can_exclude_the_raw_recipient_id_from_firebase_payload(monkeypatch):
+    """Drive sharing sends only an opaque request reference to Firebase."""
+    captured: dict = {}
+
+    monkeypatch.setattr("api.utils.firebase_admin.ensure_firebase_admin", lambda: (True, None))
+    monkeypatch.setattr(
+        "db.db_client.get_db",
+        lambda: SimpleNamespace(
+            execute_raw=lambda *_args, **_kwargs: SimpleNamespace(
+                data=[{"token": "opaque-device-token", "platform": "ios"}]
+            )
+        ),
+    )
+    fake_messaging = SimpleNamespace(send=MagicMock())
+    fake_firebase_admin = ModuleType("firebase_admin")
+    fake_firebase_admin.messaging = fake_messaging
+    monkeypatch.setitem(sys.modules, "firebase_admin", fake_firebase_admin)
+
+    def build_message(*_args, **kwargs):
+        captured["data"] = kwargs["data"]
+        return object()
+
+    monkeypatch.setattr("api.utils.fcm_messages.build_push_message", build_message)
+
+    sent = push_module.send_user_data_push(
+        "raw-owner-uid",
+        notification_type="document_share_request",
+        title="Document request",
+        body="Open One to review.",
+        deep_link="/one/feed",
+        notification_tag="drive-share-event:11111111-1111-4111-8111-111111111111",
+        notification_category="ONE_DOCUMENT_SHARING",
+        data={"request_id": "22222222-2222-4222-8222-222222222222"},
+        include_user_id=False,
+    )
+
+    assert sent == 1
+    assert "user_id" not in captured["data"]
+    assert "raw-owner-uid" not in str(captured["data"])
+    assert captured["data"]["request_id"] == "22222222-2222-4222-8222-222222222222"
 
 
 def test_connection_request_body_names_the_requester():

@@ -37,11 +37,14 @@ _SPECIALIST_LABELS = {
     "agent_connected_systems": "Connected Systems",
     "agent_connections": "Connections",
     "agent_email": "Email",
+    "agent_documents": "Documents",
     "agent_location": "Location",
     "agent_personal_information": "Memory",
     "agent_nav": "Consent Center",
 }
-_AUTHORITY_INGRESS_ONLY = frozenset({"agent_connected_systems", "agent_connections", "agent_email"})
+_AUTHORITY_INGRESS_ONLY = frozenset(
+    {"agent_connected_systems", "agent_connections", "agent_email", "agent_documents"}
+)
 
 
 @dataclass(frozen=True)

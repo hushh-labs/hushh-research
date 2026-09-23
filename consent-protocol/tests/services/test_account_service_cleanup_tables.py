@@ -151,6 +151,8 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
 
     assert result["success"] is True
     assert result["account_deleted"] is True
+    assert result["details"]["external_connectors"] is True
+    assert result["details"]["drive_private_data"] is True
     assert result["details"]["one_location_circle_member_invites"] is True
     assert result["details"]["connection_origins"] is True
     assert result["details"]["contact_sync_lookup_budgets"] is True
@@ -819,6 +821,8 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
     assert result["success"] is True
     assert result["account_deleted"] is False
     assert result["account_reset"] is True
+    assert result["details"]["external_connectors"] is True
+    assert result["details"]["drive_private_data"] is True
     assert result["details"]["one_location_circle_member_invites"] is True
     assert result["details"]["one_location_auto_approve_preferences"] is True
     assert result["details"]["one_location_map_preferences"] is True

@@ -1,10 +1,10 @@
 /**
  * Unified FCM Service
  * ====================
- * 
+ *
  * Single FCM implementation that works on BOTH web and native platforms.
  * Replaces the hybrid SSE+FCM approach with FCM-only architecture.
- * 
+ *
  * Features:
  * - Platform detection (web vs native)
  * - Token management (get, register, delete)
@@ -15,7 +15,15 @@
 import { Capacitor } from "@capacitor/core";
 import { ApiService } from "@/lib/services/api-service";
 import { ROUTES } from "@/lib/navigation/routes";
-import { resolveConsentNavigationTarget } from "@/lib/consent/consent-sheet-route";
+import {
+  buildConsentCenterHref,
+  resolveConsentNavigationTarget,
+} from "@/lib/consent/consent-sheet-route";
+import {
+  documentShareNotificationRequestId,
+  isDocumentShareNotificationCandidate,
+  isDocumentShareNotificationType,
+} from "@/lib/consent/document-share-consent";
 import {
   assignWindowLocation,
   requestInternalAppNavigation,
@@ -35,14 +43,114 @@ const ONE_LOCATION_SMS_OPEN_ACTION = "ONE_LOCATION_SMS_OPEN";
 const IOS_DEFAULT_NOTIFICATION_ACTION =
   "com.apple.UNNotificationDefaultActionIdentifier";
 
+/** Never render a file name, recipient, request purpose, or provider copy in a push. */
+export const DOCUMENT_SHARE_NOTIFICATION_COPY = {
+  title: "Document request",
+  body: "Open One to review.",
+} as const;
+
+function normalizedDocumentShareType(
+  data: Record<string, unknown> | undefined,
+): string {
+  return typeof data?.type === "string" ? data.type.trim().toLowerCase() : "";
+}
+
+/**
+ * A Drive-sharing transport payload is deliberately reduced before it crosses
+ * the FCM boundary. The route is derived from the reviewed UUID alone; all
+ * provider URLs and content fields are discarded.
+ */
+function sanitizeDocumentShareNotificationData(
+  data: Record<string, unknown> | undefined,
+): Record<string, string> | null {
+  // Even an unknown `document_share_*` payload must not reach logs or UI
+  // unchanged. It remains unacknowledged by the Consent provider below, but
+  // the transport boundary still reduces it to the non-sensitive type.
+  if (!isDocumentShareNotificationCandidate(data)) return null;
+
+  const safe: Record<string, string> = {
+    type: normalizedDocumentShareType(data),
+  };
+  if (!isDocumentShareNotificationType(data)) return safe;
+  const requestId = documentShareNotificationRequestId(data);
+  if (requestId) safe.request_id = requestId;
+
+  // Retain only the addressed identity for the existing signed-in-user fence.
+  // It is never rendered, logged here, or used to construct a URL.
+  const userId = typeof data?.user_id === "string" ? data.user_id.trim() : "";
+  if (userId && userId.length <= 128) safe.user_id = userId;
+  return safe;
+}
+
+function sanitizeDocumentShareNotificationDetail<T>(detail: T): T {
+  if (!detail || typeof detail !== "object" || Array.isArray(detail)) {
+    return detail;
+  }
+  const record = detail as Record<string, unknown>;
+  const data =
+    record.data &&
+    typeof record.data === "object" &&
+    !Array.isArray(record.data)
+      ? (record.data as Record<string, unknown>)
+      : record.notification &&
+          typeof record.notification === "object" &&
+          !Array.isArray(record.notification) &&
+          (record.notification as Record<string, unknown>).data &&
+          typeof (record.notification as Record<string, unknown>).data ===
+            "object" &&
+          !Array.isArray((record.notification as Record<string, unknown>).data)
+        ? ((record.notification as Record<string, unknown>).data as Record<
+            string,
+            unknown
+          >)
+        : undefined;
+  const safeData = sanitizeDocumentShareNotificationData(data);
+  if (!safeData) return detail;
+
+  const notification =
+    record.notification &&
+    typeof record.notification === "object" &&
+    !Array.isArray(record.notification)
+      ? {
+          ...(record.notification as Record<string, unknown>),
+          data: safeData,
+          ...DOCUMENT_SHARE_NOTIFICATION_COPY,
+        }
+      : record.notification;
+  return {
+    ...record,
+    data: safeData,
+    ...(notification ? { notification } : {}),
+  } as T;
+}
+
+/**
+ * Builds the only Drive-sharing click target. This intentionally does not
+ * inspect request_url, deep_link, url, file names, or any provider payload.
+ */
+export function documentShareNotificationTapTarget(
+  data: Record<string, unknown> | undefined,
+): string | null {
+  const requestId = documentShareNotificationRequestId(data);
+  if (!requestId) return null;
+  return buildConsentCenterHref("pending", {
+    requestId: `document_share_request:${requestId}`,
+  });
+}
+
 function incomingLocationShareTarget(
   data: Record<string, unknown> | undefined,
 ): string | null {
-  const type = String(data?.type || "").trim().toLowerCase();
+  const type = String(data?.type || "")
+    .trim()
+    .toLowerCase();
   // These alerts are sent only to the person receiving location access.
   // Open the list using current authorization, not stale grant/request intent.
   // Keep this allowlist aligned with notificationTapTarget in the web worker.
-  if (type === "location_share_created" || type === "location_access_approved") {
+  if (
+    type === "location_share_created" ||
+    type === "location_access_approved"
+  ) {
     return buildOneLocationWorkflowHref({ section: "shared" });
   }
   return null;
@@ -53,7 +161,13 @@ export function buildNotificationTapTarget(
 ): string {
   const locationTarget = incomingLocationShareTarget(data);
   if (locationTarget) return locationTarget;
-  if (String(data?.type || "").trim().toLowerCase() !== "consent_request") {
+  const documentShareTarget = documentShareNotificationTapTarget(data);
+  if (documentShareTarget) return documentShareTarget;
+  if (
+    String(data?.type || "")
+      .trim()
+      .toLowerCase() !== "consent_request"
+  ) {
     return ROUTES.ONE_FEED;
   }
   const params = new URLSearchParams();
@@ -73,6 +187,8 @@ function resolveNotificationClickTarget(
   // Only this known event family may bypass the existing Feed URL boundary.
   const locationTarget = incomingLocationShareTarget(data);
   if (locationTarget) return locationTarget;
+  const documentShareTarget = documentShareNotificationTapTarget(data);
+  if (documentShareTarget) return documentShareTarget;
   const href = typeof value === "string" ? value.trim() : "";
   if (!href || /[\r\n]/.test(href)) return ROUTES.ONE_FEED;
   try {
@@ -124,9 +240,7 @@ function hasValidWebMessagingConfig(app: {
   };
 }): boolean {
   return Boolean(
-    app.options?.appId &&
-      app.options?.apiKey &&
-      app.options?.messagingSenderId
+    app.options?.appId && app.options?.apiKey && app.options?.messagingSenderId,
   );
 }
 
@@ -173,7 +287,7 @@ function generateBrowserFid(): string {
 
 function browserFetch(
   input: RequestInfo | URL,
-  init?: RequestInit
+  init?: RequestInit,
 ): Promise<Response> {
   return window.fetch(input, init);
 }
@@ -194,7 +308,7 @@ function formatManualRegistrationErrorBody(body: unknown): string {
 
 async function ensureBrowserPushSubscription(
   registration: ServiceWorkerRegistration,
-  publicKey: string
+  publicKey: string,
 ): Promise<PushSubscription> {
   const existingSubscription = await registration.pushManager.getSubscription();
   if (existingSubscription) {
@@ -241,13 +355,13 @@ async function createInstallationsAuthToken(app: {
         authVersion: "FIS_v2",
         sdkVersion: "w:0.6.19",
       }),
-    }
+    },
   );
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok || !payload?.authToken?.token) {
     throw new Error(
-      `installations_create_failed:${response.status}:${payload?.error?.message ?? "unknown"}`
+      `installations_create_failed:${response.status}:${payload?.error?.message ?? "unknown"}`,
     );
   }
 
@@ -267,14 +381,17 @@ async function registerWebPushTokenManually(
   },
   registration: ServiceWorkerRegistration,
   publicKey: string,
-  usesDefaultWebPushKey: boolean
+  usesDefaultWebPushKey: boolean,
 ): Promise<string> {
   console.info("[FCM] Starting manual web push registration.", {
     usesDefaultWebPushKey,
     projectId: app.options?.projectId,
     projectNumber: app.options?.messagingSenderId,
   });
-  const subscription = await ensureBrowserPushSubscription(registration, publicKey);
+  const subscription = await ensureBrowserPushSubscription(
+    registration,
+    publicKey,
+  );
   const auth = await createInstallationsAuthToken(app);
   const projectId = app.options?.projectId;
   const projectNumber = app.options?.messagingSenderId;
@@ -289,9 +406,7 @@ async function registerWebPushTokenManually(
       endpoint: subscription.endpoint,
       auth: arrayBufferToBase64Url(subscription.getKey("auth")),
       p256dh: arrayBufferToBase64Url(subscription.getKey("p256dh")),
-      ...(usesDefaultWebPushKey
-        ? {}
-        : { applicationPubKey: publicKey }),
+      ...(usesDefaultWebPushKey ? {} : { applicationPubKey: publicKey }),
     },
   };
 
@@ -339,10 +454,11 @@ async function registerWebPushTokenManually(
 
     const errorMessage =
       body && typeof body === "object" && "error" in body
-        ? typeof (body as { error?: { message?: unknown } }).error?.message === "string"
+        ? typeof (body as { error?: { message?: unknown } }).error?.message ===
+          "string"
           ? String((body as { error?: { message?: unknown } }).error?.message)
           : formatManualRegistrationErrorBody(
-              (body as { error?: unknown }).error ?? body
+              (body as { error?: unknown }).error ?? body,
             )
         : formatManualRegistrationErrorBody(body);
 
@@ -374,8 +490,8 @@ async function clearFirebaseWebPushDatabases(): Promise<void> {
           } catch {
             resolve();
           }
-        })
-    )
+        }),
+    ),
   );
 
   console.log("[FCM] Cleared cached Firebase web push state.");
@@ -388,20 +504,23 @@ async function resolveFirebaseMessagingRegistration(): Promise<ServiceWorkerRegi
 
   try {
     const existing = await navigator.serviceWorker.getRegistration(
-      FIREBASE_MESSAGING_SW_PATH
+      FIREBASE_MESSAGING_SW_PATH,
     );
     if (existing) {
       return existing;
     }
     return await navigator.serviceWorker.register(FIREBASE_MESSAGING_SW_PATH);
   } catch (error) {
-    console.warn("[FCM] Failed to resolve Firebase messaging service worker:", error);
+    console.warn(
+      "[FCM] Failed to resolve Firebase messaging service worker:",
+      error,
+    );
     return null;
   }
 }
 
 async function clearFirebaseWebPushState(
-  registration: ServiceWorkerRegistration
+  registration: ServiceWorkerRegistration,
 ): Promise<void> {
   try {
     const subscription = await registration.pushManager.getSubscription();
@@ -419,7 +538,7 @@ async function clearFirebaseWebPushState(
 
 /**
  * Initialize FCM for current platform (web or native)
- * 
+ *
  * @param userId - User ID for backend registration
  * @param idToken - Firebase ID token for authentication
  */
@@ -502,11 +621,19 @@ function setupWebServiceWorkerBridge(): void {
       dispatchFeedStateChanged("action");
       return;
     }
+    const safeDocumentData = sanitizeDocumentShareNotificationData(
+      message.data,
+    );
+    const data = safeDocumentData ?? message.data ?? {};
     const detail = {
-      data: message.data || {},
+      data,
       notification: {
-        title: message.title || "Notification",
-        body: message.body || "",
+        title: safeDocumentData
+          ? DOCUMENT_SHARE_NOTIFICATION_COPY.title
+          : message.title || "Notification",
+        body: safeDocumentData
+          ? DOCUMENT_SHARE_NOTIFICATION_COPY.body
+          : message.body || "",
       },
       source: "service_worker",
       // The authenticated notification consumer flips this synchronously only
@@ -521,7 +648,9 @@ function setupWebServiceWorkerBridge(): void {
     // from the list the person opened to look at it.
     dispatchFeedStateChanged("arrived");
     if (message.delivery_id && detail.accepted) {
-      const source = event.source as { postMessage?: (value: unknown) => void } | null;
+      const source = event.source as {
+        postMessage?: (value: unknown) => void;
+      } | null;
       source?.postMessage?.({
         type: "hushh:fcm_push_ack",
         delivery_id: message.delivery_id,
@@ -593,16 +722,21 @@ async function initializeNativeFCM(
       userId,
       token,
       platform,
-      idToken
+      idToken,
     );
 
     if (response.ok) {
-      const payload = await response.clone().json().catch(() => null) as {
+      const payload = (await response
+        .clone()
+        .json()
+        .catch(() => null)) as {
         degraded?: unknown;
         registered?: unknown;
       } | null;
       if (payload?.degraded || payload?.registered === false) {
-        console.warn("[FCM] Web push token was not registered because notifications backend is unavailable.");
+        console.warn(
+          "[FCM] Web push token was not registered because notifications backend is unavailable.",
+        );
         return {
           status: "push_failed",
           detail: "backend_register_degraded",
@@ -674,9 +808,8 @@ async function initializeWebFCM(
     }
 
     // Get FCM token
-    const { getMessaging, getToken, onMessage } = await import(
-      "firebase/messaging"
-    );
+    const { getMessaging, getToken, onMessage } =
+      await import("firebase/messaging");
     const { app } = await import("@/lib/firebase/config");
     console.log("[FCM] Firebase messaging modules loaded.");
 
@@ -684,7 +817,7 @@ async function initializeWebFCM(
     // The Firebase Web SDK requires appId for the Installations service (used by getToken)
     if (!hasValidWebMessagingConfig(app)) {
       console.warn(
-        "[FCM] Missing required Firebase Messaging config (appId/apiKey/messagingSenderId). Skipping web FCM init."
+        "[FCM] Missing required Firebase Messaging config (appId/apiKey/messagingSenderId). Skipping web FCM init.",
       );
       return {
         status: "push_failed",
@@ -698,14 +831,11 @@ async function initializeWebFCM(
     }
 
     const registration = await navigator.serviceWorker.register(
-      FIREBASE_MESSAGING_SW_PATH
+      FIREBASE_MESSAGING_SW_PATH,
     );
     console.log("[FCM] Service worker registered:", registration.scope);
     await navigator.serviceWorker.ready;
-    console.log(
-      "[FCM] Service worker ready:",
-      registration.scope
-    );
+    console.log("[FCM] Service worker ready:", registration.scope);
 
     const messaging = getMessaging(app);
     const resolveWebToken = async (useCustomVapid: boolean) => {
@@ -729,7 +859,9 @@ async function initializeWebFCM(
       token = await resolveWebToken(true);
     } catch (primaryError) {
       const primaryErrorCode =
-        typeof primaryError === "object" && primaryError && "code" in primaryError
+        typeof primaryError === "object" &&
+        primaryError &&
+        "code" in primaryError
           ? String((primaryError as { code?: unknown }).code ?? "")
           : "";
       if (primaryErrorCode !== "messaging/token-subscribe-failed") {
@@ -738,7 +870,7 @@ async function initializeWebFCM(
 
       console.warn(
         "[FCM] Custom VAPID subscribe failed. Retrying with the project's default web push configuration.",
-        primaryError
+        primaryError,
       );
 
       try {
@@ -748,56 +880,62 @@ async function initializeWebFCM(
         try {
           token = await resolveWebToken(true);
           console.log(
-            "[FCM] Custom VAPID subscribe succeeded after clearing stale browser push state."
+            "[FCM] Custom VAPID subscribe succeeded after clearing stale browser push state.",
           );
         } catch (retryCustomError) {
           console.warn(
             "[FCM] Custom VAPID retry still failed after clearing browser push state. Falling back to the project's default web push configuration.",
-            retryCustomError
+            retryCustomError,
           );
           await clearFirebaseWebPushState(registration);
-          console.log("[FCM] Attempting token with default project web push configuration.");
+          console.log(
+            "[FCM] Attempting token with default project web push configuration.",
+          );
           token = await resolveWebToken(false);
           usedDefaultVapidFallback = true;
           console.log(
-            "[FCM] Default web push configuration succeeded after clearing stale browser push state."
+            "[FCM] Default web push configuration succeeded after clearing stale browser push state.",
           );
         }
       } catch (fallbackError) {
         console.warn(
           "[FCM] Default web push configuration also failed. Attempting manual FCM registration against the current project.",
-          fallbackError
+          fallbackError,
         );
 
         try {
-          console.log("[FCM] Attempting manual registration with configured VAPID key.");
+          console.log(
+            "[FCM] Attempting manual registration with configured VAPID key.",
+          );
           token = await registerWebPushTokenManually(
             app,
             registration,
             vapidKey,
-            false
+            false,
           );
           recoveredStalePushState = true;
           console.log(
-            "[FCM] Manual web push registration succeeded after SDK subscribe failures using the configured VAPID key."
+            "[FCM] Manual web push registration succeeded after SDK subscribe failures using the configured VAPID key.",
           );
         } catch (manualCustomError) {
           console.warn(
             "[FCM] Manual registration with the configured VAPID key failed. Retrying with the project's default web push configuration.",
-            manualCustomError
+            manualCustomError,
           );
           try {
-            console.log("[FCM] Attempting manual registration with default project web push configuration.");
+            console.log(
+              "[FCM] Attempting manual registration with default project web push configuration.",
+            );
             token = await registerWebPushTokenManually(
               app,
               registration,
               FIREBASE_DEFAULT_WEB_PUSH_PUBLIC_KEY,
-              true
+              true,
             );
             usedDefaultVapidFallback = true;
             recoveredStalePushState = true;
             console.log(
-              "[FCM] Manual web push registration succeeded with the project's default web push configuration."
+              "[FCM] Manual web push registration succeeded with the project's default web push configuration.",
             );
           } catch (manualDefaultError) {
             const detail =
@@ -806,7 +944,7 @@ async function initializeWebFCM(
                 : "manual_registration_failed";
             console.warn(
               "[FCM] Manual web push registration also failed. Check Firebase Console > Project Settings > Cloud Messaging > Web configuration for this project.",
-              manualDefaultError
+              manualDefaultError,
             );
             return {
               status: "push_failed",
@@ -830,14 +968,18 @@ async function initializeWebFCM(
       userId,
       token,
       "web",
-      idToken
+      idToken,
     );
 
     if (response.ok) {
       console.log("[FCM] ✅ Token registered with backend");
     } else {
       const detail = await response.text().catch(() => "");
-      console.error("[FCM] ❌ Failed to register token:", response.status, detail);
+      console.error(
+        "[FCM] ❌ Failed to register token:",
+        response.status,
+        detail,
+      );
       return {
         status: "push_failed",
         detail: `backend_register_${response.status}`,
@@ -847,11 +989,16 @@ async function initializeWebFCM(
     // Set up foreground message listener
     if (!webListenerConfigured) {
       onMessage(messaging, (payload) => {
-        console.log("[FCM] 📬 Foreground message received:", payload);
+        const safePayload = sanitizeDocumentShareNotificationDetail(payload);
+        if (safePayload !== payload) {
+          console.log("[FCM] 📬 Document request notification received");
+        } else {
+          console.log("[FCM] 📬 Foreground message received:", payload);
+        }
         window.dispatchEvent(
           new CustomEvent(FCM_MESSAGE_EVENT, {
-            detail: payload,
-          })
+            detail: safePayload,
+          }),
         );
         dispatchFeedStateChanged("arrived");
       });
@@ -873,10 +1020,14 @@ async function initializeWebFCM(
         ? String((error as { code?: unknown }).code ?? "")
         : "";
     const errorMessage =
-      error instanceof Error ? error.message : typeof error === "string" ? error : "";
+      error instanceof Error
+        ? error.message
+        : typeof error === "string"
+          ? error
+          : "";
     if (errorCode === "installations/request-failed") {
       console.warn(
-        "[FCM] Web push init skipped: Firebase Installations rejected config. Check Firebase web app keys, API key referrer restrictions, and VAPID key for this domain."
+        "[FCM] Web push init skipped: Firebase Installations rejected config. Check Firebase web app keys, API key referrer restrictions, and VAPID key for this domain.",
       );
       return {
         status: "push_failed",
@@ -886,7 +1037,7 @@ async function initializeWebFCM(
     if (errorCode === "messaging/token-subscribe-failed") {
       console.warn(
         "[FCM] Web push subscribe failed. Check FCM Registration API, API key restrictions, and VAPID/project alignment.",
-        errorMessage
+        errorMessage,
       );
       return {
         status: "push_failed",
@@ -906,7 +1057,7 @@ async function initializeWebFCM(
     if (isExpectedPushDenial) {
       console.warn(
         "[FCM] Web push unavailable (permission denied / unsupported). Continuing without push notifications.",
-        errorMessage || errorName
+        errorMessage || errorName,
       );
       return {
         status: "push_blocked",
@@ -931,84 +1082,100 @@ function setupNativeListeners(): Promise<void> {
   const request = (async () => {
     const listeners: Array<{ remove: () => Promise<void> }> = [];
     try {
-      const { FirebaseMessaging } = await import("@capacitor-firebase/messaging");
+      const { FirebaseMessaging } =
+        await import("@capacitor-firebase/messaging");
 
       listeners.push(
-        await FirebaseMessaging.addListener("notificationReceived", (notification) => {
-          console.log("[FCM] Foreground message received:", notification);
+        await FirebaseMessaging.addListener(
+          "notificationReceived",
+          (notification) => {
+            const safeNotification =
+              sanitizeDocumentShareNotificationDetail(notification);
+            if (safeNotification !== notification) {
+              console.log("[FCM] Document request notification received");
+            } else {
+              console.log("[FCM] Foreground message received:", notification);
+            }
 
-          window.dispatchEvent(
-            new CustomEvent(FCM_MESSAGE_EVENT, {
-              detail: notification,
-            })
-          );
-          dispatchFeedStateChanged("arrived");
-        }),
+            window.dispatchEvent(
+              new CustomEvent(FCM_MESSAGE_EVENT, {
+                detail: safeNotification,
+              }),
+            );
+            dispatchFeedStateChanged("arrived");
+          },
+        ),
       );
 
       listeners.push(
         await FirebaseMessaging.addListener(
           "notificationActionPerformed",
           (action) => {
-          console.log("[FCM] Notification tapped:", action);
+            const receivedData = action.notification.data as
+              Record<string, unknown> | undefined;
+            const safeDocumentData =
+              sanitizeDocumentShareNotificationData(receivedData);
+            const data = safeDocumentData ?? receivedData;
+            if (safeDocumentData) {
+              console.log("[FCM] Document request notification tapped");
+            } else {
+              console.log("[FCM] Notification tapped:", action);
+            }
+            const actionId = String(action.actionId || "tap").trim();
 
-          const data = action.notification.data as
-            | Record<string, unknown>
-            | undefined;
-          const actionId = String(action.actionId || "tap").trim();
+            if (actionId === "dismiss") {
+              return;
+            }
 
-          if (actionId === "dismiss") {
-            return;
-          }
-
-          // Incoming share alerts open Shared with me; other body taps enter Feed.
-          // Explicit consent action buttons retain their confirmation route.
-          if (
-            actionId === "tap" ||
-            actionId === IOS_DEFAULT_NOTIFICATION_ACTION ||
-            actionId === ""
-          ) {
-            dispatchFeedStateChanged("action");
-            requestInternalAppNavigation({
-              href: buildNotificationTapTarget(data),
-              scroll: false,
-            });
-            return;
-          }
-
-          // The explicit safety action is intentionally more direct than a
-          // routine body tap: it opens the validated live-location surface.
-          if (actionId === ONE_LOCATION_SMS_OPEN_ACTION) {
-            dispatchFeedStateChanged("action");
-            requestInternalAppNavigation({
-              href: resolveOneLocationNotificationHref(data),
-              scroll: false,
-            });
-            return;
-          }
-
-          if (
-            data &&
-            typeof data.type === "string" &&
-            data.type === "consent_request"
-          ) {
-            const target = buildNativeConsentActionTarget(data, actionId);
-            if (target.kind === "internal") {
+            // Incoming share alerts open Shared with me; other body taps enter Feed.
+            // Explicit consent action buttons retain their confirmation route.
+            if (
+              actionId === "tap" ||
+              actionId === IOS_DEFAULT_NOTIFICATION_ACTION ||
+              actionId === ""
+            ) {
+              dispatchFeedStateChanged("action");
               requestInternalAppNavigation({
-                href: target.href,
+                href: buildNotificationTapTarget(data),
                 scroll: false,
               });
-            } else {
-              assignWindowLocation(target.href || buildConsentTargetPath(data));
+              return;
             }
-          } else {
-            dispatchFeedStateChanged("action");
-            requestInternalAppNavigation({
-              href: ROUTES.ONE_FEED,
-              scroll: false,
-            });
-          }
 
+            // The explicit safety action is intentionally more direct than a
+            // routine body tap: it opens the validated live-location surface.
+            if (actionId === ONE_LOCATION_SMS_OPEN_ACTION) {
+              dispatchFeedStateChanged("action");
+              requestInternalAppNavigation({
+                href: resolveOneLocationNotificationHref(data),
+                scroll: false,
+              });
+              return;
+            }
+
+            if (
+              data &&
+              typeof data.type === "string" &&
+              data.type === "consent_request"
+            ) {
+              const target = buildNativeConsentActionTarget(data, actionId);
+              if (target.kind === "internal") {
+                requestInternalAppNavigation({
+                  href: target.href,
+                  scroll: false,
+                });
+              } else {
+                assignWindowLocation(
+                  target.href || buildConsentTargetPath(data),
+                );
+              }
+            } else {
+              dispatchFeedStateChanged("action");
+              requestInternalAppNavigation({
+                href: ROUTES.ONE_FEED,
+                scroll: false,
+              });
+            }
           },
         ),
       );
@@ -1023,7 +1190,7 @@ function setupNativeListeners(): Promise<void> {
                 lastKnownSession.userId,
                 event.token,
                 platform,
-                lastKnownSession.idToken
+                lastKnownSession.idToken,
               );
               console.log("[FCM] Refreshed token re-registered with backend");
             }
@@ -1051,7 +1218,7 @@ function setupNativeListeners(): Promise<void> {
 
 function buildNativeConsentActionTarget(
   data: Record<string, unknown> | undefined,
-  actionId: string
+  actionId: string,
 ) {
   const requestId =
     data && typeof data.request_id === "string" ? data.request_id : undefined;
@@ -1065,7 +1232,7 @@ function buildNativeConsentActionTarget(
     {
       requestId,
       bundleId,
-    }
+    },
   );
   if (baseTarget.kind !== "internal") {
     return baseTarget;
@@ -1079,7 +1246,10 @@ function buildNativeConsentActionTarget(
     nextUrl.searchParams.set("notificationAction", "approve");
   } else if (actionId === CONSENT_NOTIFICATION_ACTION_DENY) {
     nextUrl.searchParams.set("notificationAction", "deny");
-  } else if (actionId === CONSENT_NOTIFICATION_ACTION_REVIEW || actionId === "tap") {
+  } else if (
+    actionId === CONSENT_NOTIFICATION_ACTION_REVIEW ||
+    actionId === "tap"
+  ) {
     nextUrl.searchParams.set("notificationAction", "review");
   }
 
@@ -1091,7 +1261,7 @@ function buildNativeConsentActionTarget(
 }
 
 function buildConsentTargetPath(
-  data: Record<string, unknown> | undefined
+  data: Record<string, unknown> | undefined,
 ): string {
   const requestId =
     data && typeof data.request_id === "string" ? data.request_id : undefined;
@@ -1111,9 +1281,8 @@ export async function getFCMToken(): Promise<string | null> {
 
   try {
     if (isNative) {
-      const { FirebaseMessaging } = await import(
-        "@capacitor-firebase/messaging"
-      );
+      const { FirebaseMessaging } =
+        await import("@capacitor-firebase/messaging");
       const { token } = await FirebaseMessaging.getToken();
       return token;
     } else {
@@ -1123,13 +1292,15 @@ export async function getFCMToken(): Promise<string | null> {
       const { getMessaging, getToken } = await import("firebase/messaging");
       const { app } = await import("@/lib/firebase/config");
       if (!hasValidWebMessagingConfig(app)) {
-        console.warn("[FCM] Missing Firebase Messaging config. Skipping token retrieval.");
+        console.warn(
+          "[FCM] Missing Firebase Messaging config. Skipping token retrieval.",
+        );
         return null;
       }
 
       const messaging = getMessaging(app);
       const registration = await navigator.serviceWorker.register(
-        FIREBASE_MESSAGING_SW_PATH
+        FIREBASE_MESSAGING_SW_PATH,
       );
       const token = await getToken(messaging, {
         vapidKey,
@@ -1182,19 +1353,22 @@ export async function clearDeliveredConsentNotifications(options: {
       count: matches.length,
     });
   } catch (error) {
-    console.warn("[FCM] Failed to clear delivered consent notifications:", error);
+    console.warn(
+      "[FCM] Failed to clear delivered consent notifications:",
+      error,
+    );
   }
 }
 
 /**
  * Delete FCM token (for logout).
- * 
+ *
  * Removes the token from Firebase and also calls the backend to unregister
  * so no further pushes are attempted for this device.
  */
 export async function deleteFCMToken(
   userId?: string,
-  idToken?: string
+  idToken?: string,
 ): Promise<void> {
   const isNative = Capacitor.isNativePlatform();
 
@@ -1204,20 +1378,24 @@ export async function deleteFCMToken(
       try {
         await ApiService.unregisterPushToken(userId, idToken);
       } catch (backendErr) {
-        console.warn("[FCM] Backend unregister failed (non-critical):", backendErr);
+        console.warn(
+          "[FCM] Backend unregister failed (non-critical):",
+          backendErr,
+        );
       }
     }
 
     // Step 2: Clear the token/subscription from the current platform
     if (isNative) {
-      const { FirebaseMessaging } = await import(
-        "@capacitor-firebase/messaging"
-      );
+      const { FirebaseMessaging } =
+        await import("@capacitor-firebase/messaging");
       await FirebaseMessaging.deleteToken();
     } else {
       const { app } = await import("@/lib/firebase/config");
       if (!hasValidWebMessagingConfig(app)) {
-        console.warn("[FCM] Missing Firebase Messaging config. Skipping token deletion.");
+        console.warn(
+          "[FCM] Missing Firebase Messaging config. Skipping token deletion.",
+        );
         return;
       }
 

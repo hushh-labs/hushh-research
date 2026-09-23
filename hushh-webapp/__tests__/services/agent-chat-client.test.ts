@@ -67,12 +67,54 @@ vi.mock("@/lib/services/api-service", () => ({
 
 import {
   formatAgentChatErrorMessage,
+  getAgentChatHistory,
   streamAgentChat,
   streamAgentIntro,
   type SpecialistDirectiveEvent,
 } from "@/lib/services/agent-chat-client";
+import { ApiService } from "@/lib/services/api-service";
 
 describe("AG-UI Agent One client", () => {
+  it.each([
+    { toolName: "ask_email_agent", connector: "mail", sourceRef: "mail:1", kind: "metadata", label: "Mail" },
+    { toolName: "ask_documents_agent", connector: "drive", sourceRef: `document:${"a".repeat(32)}`, kind: "document", label: "Document" },
+  ])("forwards safe $connector provenance without dispatching a smuggled action or storing tool text", async ({ toolName, connector, sourceRef, kind, label }) => {
+    const onStructuredExperience = vi.fn();
+    const onToolResult = vi.fn();
+    const onToolWaiting = vi.fn();
+    const onSpecialistDirective = vi.fn();
+    mockTransport.emitEvents = (subscriber) => {
+      subscriber.onToolCallStartEvent({ event: { toolCallId: "mail-call", toolCallName: toolName } });
+      subscriber.onToolCallResultEvent({ event: { toolCallId: "mail-call", content: JSON.stringify({
+        text: "PRIVATE_TOOL_RESULT", status: "ok", structured: {
+          schema_version: "specialist_read.v1", connector, status: "ok",
+          sources: [{ source_ref: sourceRef, label, kind }],
+          truncated: false, metadata_only: connector === "mail",
+        }, directive: { action_id: "route.profile", slots: {}, execution: "frontend" },
+      }) } });
+    };
+    await streamAgentChat({ userId: "u1", message: "Read mail", vaultOwnerToken: "fixture",
+      handlers: { onStructuredExperience, onToolResult, onToolWaiting, onSpecialistDirective } });
+    expect(onStructuredExperience).toHaveBeenCalledWith(expect.objectContaining({
+      type: "one.connector_read.v1", sourceRefs: [sourceRef],
+    }), "mail-call");
+    expect(JSON.stringify(onToolResult.mock.calls)).not.toContain("PRIVATE_TOOL_RESULT");
+    expect(onToolWaiting).not.toHaveBeenCalled();
+    expect(onSpecialistDirective).not.toHaveBeenCalled();
+  });
+
+  it("restores only safe read receipts on assistant history", async () => {
+    const specialist_read = { schema_version: "specialist_read.v1", connector: "mail", status: "ok",
+      sources: [], truncated: false, metadata_only: true };
+    vi.mocked(ApiService.getAgentChatHistory).mockResolvedValueOnce(new Response(JSON.stringify({
+      messages: ["assistant", "user"].map((role) => ({ id: role, role, content: "Answer",
+        metadata: { specialist_read, provider_subject: "PRIVATE" } })),
+    })));
+    const messages = await getAgentChatHistory({ conversationId: "c1", vaultOwnerToken: "fixture" });
+    expect(messages[0].metadata?.connectorRead).toMatchObject({ type: "one.connector_read.v1", status: "ok" });
+    expect(messages[1].metadata?.connectorRead).toBeNull();
+    expect(JSON.stringify(messages)).not.toContain("PRIVATE");
+  });
   beforeEach(() => {
     mockTransport.runAgent.mockClear();
     mockTransport.outcome = "success";
@@ -193,6 +235,50 @@ describe("AG-UI Agent One client", () => {
       text: "Hello",
     });
     expect(mockTransport.runAgent.mock.calls[0]?.[1]).toMatchObject({ url: "/api/one/agent-chat" });
+  });
+
+  it.each(["full", "intro"])("drops reasoning before SDK storage in the %s tier", async (tier) => {
+    const privateMessage = { id: "r1", role: "reasoning", content: "Private reasoning" };
+    const answer = { id: "a1", role: "assistant", content: "Public answer" };
+    mockTransport.emitEvents = (subscriber) => {
+      for (const type of [
+        "REASONING_START", "REASONING_MESSAGE_START", "REASONING_MESSAGE_CONTENT",
+        "REASONING_MESSAGE_END", "REASONING_MESSAGE_CHUNK", "REASONING_END",
+        "REASONING_ENCRYPTED_VALUE",
+      ]) {
+        expect(subscriber.onEvent({ event: { type } })).toEqual({ stopPropagation: true });
+      }
+      expect(subscriber.onMessagesSnapshotEvent({ event: { messages: [privateMessage, answer] }, messages: [] }))
+        .toEqual({ messages: [answer], stopPropagation: true });
+      const activity = { id: "activity-1", role: "activity", content: { status: "working" } };
+      expect(subscriber.onMessagesSnapshotEvent({
+        event: { messages: [privateMessage, answer] }, messages: [activity, privateMessage],
+      })).toEqual({ messages: [activity, answer], stopPropagation: true });
+      expect(subscriber.onMessagesSnapshotEvent({ event: { messages: [answer] }, messages: [activity] }))
+        .toBeUndefined();
+      expect(subscriber.onEvent({ event: { type: "TOOL_CALL_RESULT" } })).toBeUndefined();
+      expect(subscriber.onReasoningMessageContentEvent).toBeUndefined();
+    };
+    const result = tier === "intro"
+      ? await streamAgentIntro({ message: "Hello" })
+      : await streamAgentChat({ userId: "u1", message: "Hello", vaultOwnerToken: "owner-token" });
+    expect(result.text).toBe("Hello");
+    expect(privateMessage.content).toBe("Private reasoning");
+  });
+
+  it("projects legacy history before messages reach UI caches", async () => {
+    vi.mocked(ApiService.getAgentChatHistory).mockResolvedValueOnce(new Response(JSON.stringify({
+      messages: [
+        { id: "r1", role: "reasoning", content: "Private reasoning" },
+        { id: "a1", conversation_id: "c1", role: "assistant", status: "complete",
+          content: "Public answer", thought: "Private reasoning", reasoning: "Private reasoning",
+          metadata: { kind: "answer", thought: "Private reasoning" } },
+      ],
+    })));
+    const messages = await getAgentChatHistory({ conversationId: "c1", vaultOwnerToken: "owner-token" });
+    expect(messages).toHaveLength(1);
+    expect(messages[0].content).toBe("Public answer");
+    expect(JSON.stringify(messages)).not.toContain("Private reasoning");
   });
 
   it("never exposes unknown AG-UI runtime errors to the transcript", () => {

@@ -70,6 +70,9 @@ async def test_single_turn_uses_none_history_and_returns_pydantic_value():
     assert result == Decision(answer="keep", score=0.9)
     assert agent.tools == []
     assert agent.include_contents == "none"
+    assert (
+        agent.generate_content_config.max_output_tokens == _manifest().performance.max_output_tokens
+    )
 
 
 @pytest.mark.asyncio

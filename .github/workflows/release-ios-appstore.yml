@@ -472,6 +472,7 @@ jobs:
           echo "OK: App.app.dSYM present and matching; every separately shipped image has symbols or a named exception."
 
       - name: Export & upload to App Store Connect
+        id: export_ipa
         shell: bash
         run: |
           set -euo pipefail
@@ -519,18 +520,39 @@ jobs:
             --whats-new "${{ github.event.inputs.whats_new }}" \
             "${SUBMIT_ARGS[@]+"${SUBMIT_ARGS[@]}"}"
 
-      - name: Upload build artifacts
+      - name: Write redacted release evidence
+        if: always()
+        shell: bash
+        env:
+          RELEASE_SHA: ${{ github.event.inputs.sha }}
+          BUILD_NUMBER: ${{ steps.build_number.outputs.next_build }}
+          DRY_RUN: ${{ github.event.inputs.dry_run }}
+          EXPORT_OUTCOME: ${{ steps.export_ipa.outcome }}
+          APPSTORE_OUTCOME: ${{ steps.appstore.outcome }}
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os, pathlib, re
+          sha = os.environ.get('RELEASE_SHA', '')
+          build = os.environ.get('BUILD_NUMBER', '')
+          receipt = {
+              'source_sha': sha if re.fullmatch(r'[0-9a-f]{40}', sha) else None,
+              'build_number': build if re.fullmatch(r'[0-9]+', build) else None,
+              'dry_run': os.environ.get('DRY_RUN') == 'true',
+              'export_outcome': os.environ.get('EXPORT_OUTCOME'),
+              'appstore_outcome': os.environ.get('APPSTORE_OUTCOME'),
+          }
+          pathlib.Path(os.environ['RUNNER_TEMP'], 'ios-appstore-release-evidence.json').write_text(json.dumps(receipt))
+          PY
+
+      - name: Upload redacted release evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ios-appstore-${{ steps.build_number.outputs.next_build }}
-          if-no-files-found: ignore
+          name: ios-appstore-redacted-evidence-${{ github.run_id }}
+          if-no-files-found: error
           retention-days: 14
-          path: |
-            ${{ runner.temp }}/export/**
-            ${{ runner.temp }}/xcodebuild-archive.log
-            ${{ runner.temp }}/xcodebuild-export.log
-            ${{ runner.temp }}/App.xcarchive/dSYMs/**
+          path: ${{ runner.temp }}/ios-appstore-release-evidence.json
 
       - name: Job summary
         if: always()

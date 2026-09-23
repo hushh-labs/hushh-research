@@ -108,6 +108,7 @@ export function buildConsentCenterHref(
     from?: string;
     actor?: ConsentCenterActor;
     managerView?: ConsentCenterManagerView;
+    requestView?: "received" | "sent";
   }
 ): string {
   const params = new URLSearchParams();
@@ -118,6 +119,7 @@ export function buildConsentCenterHref(
   if (options?.managerView) {
     params.set("view", options.managerView);
   }
+  if (options?.requestView === "sent") params.set("requestView", "sent");
   if (options?.requestId) {
     params.set(CONSENT_REQUEST_QUERY_KEY, options.requestId);
   }

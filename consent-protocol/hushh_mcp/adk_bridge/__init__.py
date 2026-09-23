@@ -5,6 +5,8 @@ chat's dispatch seam can reach them.
 """
 
 from hushh_mcp.adk_bridge.dispatch import register_specialist
+from hushh_mcp.adk_bridge.documents_agent import DocumentsAgentA2A
+from hushh_mcp.adk_bridge.email_agent import get_email_a2a
 from hushh_mcp.adk_bridge.location_agent import get_location_a2a
 from hushh_mcp.adk_bridge.nav_agent import get_nav_a2a
 from hushh_mcp.adk_bridge.personal_information_agent import get_personal_information_a2a
@@ -25,9 +27,14 @@ async def _runtime_handle(task, service):
 
 
 def _register_builtin_specialists() -> None:
-    # Email, Gmail, Connections, and Connected Systems stay unwired until their
-    # callers construct ingress-validated A2AAuthorityContext objects. A raw One
-    # invocation token must never reach their ambient user-id service methods.
+    # Mail and Nav enforce independently bound, attenuated authority on every
+    # hop. Connected Systems remains unwired; a raw One invocation token must
+    # never reach an ambient user-id service method.
+    register_specialist(
+        "agent_documents",
+        lambda task: DocumentsAgentA2A().handle(task),
+        service_handler=_with_service("hushh_mcp.adk_bridge.documents_agent", "DocumentsAgentA2A"),
+    )
     register_specialist(
         "agent_location",
         lambda task: get_location_a2a().handle(task),
@@ -35,6 +42,11 @@ def _register_builtin_specialists() -> None:
     )
     register_specialist(
         "agent_nav", lambda task: get_nav_a2a().handle(task), service_handler=_runtime_handle
+    )
+    register_specialist(
+        "agent_email",
+        lambda task: get_email_a2a().handle(task),
+        service_handler=_with_service("hushh_mcp.adk_bridge.email_agent", "EmailAgentA2A"),
     )
     register_specialist(
         "agent_personal_information",

@@ -11,7 +11,6 @@ import {
   useState,
   type ReactNode,
   type ClipboardEvent as ReactClipboardEvent,
-  type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AgentMemoryCaptureStatus } from "@/components/agent/agent-memory-capture-status";
@@ -44,6 +43,10 @@ import { requestProfilePaneOpen } from "@/lib/navigation/profile-pane";
 import { Button } from "@/components/ui/button";
 import { AgentHistorySidebar } from "@/components/agent/agent-history-sidebar";
 import { ConnectorsPanel } from "@/components/agent/connectors-panel";
+import {
+  AgentConnectionsDrawer,
+  type ConnectionsDrawerMode,
+} from "@/components/agent/agent-connections-drawer";
 import { SegmentedControl } from "@/lib/morphy-ux/ui/segmented-control";
 import {
   mergeScopeItems,
@@ -235,6 +238,13 @@ import {
   shouldCaptureLargePaste,
   type PendingTextAttachment,
 } from "@/lib/agent/large-text-attachment";
+import {
+  DRIVE_CHAT_RECOVERY_RETURN_EVENT,
+  clearDriveChatRecovery,
+  saveDriveChatRecovery,
+  takeDriveChatRecovery,
+  type DriveChatRecoveryReason,
+} from "@/lib/agent/drive-oauth-chat-recovery";
 import type { AppRuntimeState } from "@/lib/voice/voice-types";
 import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
@@ -262,7 +272,6 @@ type AgentMessage = {
   renderAsPlainAssistantMessage?: boolean;
   specialistDirective?: SpecialistDirectiveEvent | null;
   streamEvents?: AgentVisibleStreamEvent[];
-  thought?: string;
   sources?: AgentSource[];
   structuredExperience?: AgentStructuredExperience | null;
   structuredExperiences?: AgentStructuredExperienceEntry[];
@@ -1027,8 +1036,6 @@ function markConsentDirectiveItemRevoked(
     },
   };
 }
-const FOCUSABLE_SELECTOR =
-  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 function formatNow(): string {
   return new Intl.DateTimeFormat(undefined, {
@@ -1045,42 +1052,6 @@ function createGreetingMessage(): AgentMessage {
     timestamp: AGENT_GREETING_TIMESTAMP,
     status: "done",
   };
-}
-
-function getFocusableElements(container: HTMLElement | null): HTMLElement[] {
-  if (!container) return [];
-  return Array.from(
-    container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
-  ).filter(
-    (element) =>
-      !element.hasAttribute("disabled") &&
-      element.getAttribute("aria-hidden") !== "true" &&
-      element.offsetParent !== null,
-  );
-}
-
-function trapFocusWithin(
-  event: ReactKeyboardEvent,
-  container: HTMLElement | null,
-): void {
-  if (event.key !== "Tab") return;
-  const focusable = getFocusableElements(container);
-  if (focusable.length === 0) {
-    event.preventDefault();
-    return;
-  }
-  const first = focusable[0]!;
-  const last = focusable[focusable.length - 1]!;
-  const active = document.activeElement;
-  if (event.shiftKey && active === first) {
-    event.preventDefault();
-    last.focus();
-    return;
-  }
-  if (!event.shiftKey && active === last) {
-    event.preventDefault();
-    first.focus();
-  }
 }
 
 function formatAgentDisplayName(
@@ -1354,6 +1325,7 @@ function AgentThinkingDots() {
 
 function AgentBubble({
   message,
+  onOpenConnections,
   userAvatarUrl,
   userInitials = "YO",
   onRetry,
@@ -1369,6 +1341,7 @@ function AgentBubble({
   onRate,
 }: {
   message: AgentMessage;
+  onOpenConnections?: (trigger: HTMLButtonElement) => void;
   userAvatarUrl?: string | null;
   userInitials?: string;
   onRetry?: () => void;
@@ -1503,10 +1476,10 @@ function AgentBubble({
           ) : shouldRenderStreamPanel ? (
             <AgentTurnStreamPanel
               streamEvents={streamEvents}
-              thinkingText={message.thought}
               sources={message.sources}
               structuredExperience={message.structuredExperience}
               structuredExperiences={structuredExperiences}
+              onOpenConnections={onOpenConnections}
               responseText={assistantText}
               isStreaming={isStreaming}
               isError={isError}
@@ -1698,7 +1671,19 @@ export function storedMessageToAgentMessage(
         },
       ]
     : [];
-  const structuredExperiences = candidates.filter(entry => {
+  const connectorRead =
+    message.role === "assistant" ? message.metadata?.connectorRead : null;
+  const structuredExperiences = [
+    ...candidates,
+    ...(connectorRead
+      ? [
+          {
+            id: `${message.id}:connector-read`,
+            experience: connectorRead,
+          },
+        ]
+      : []),
+  ].filter(entry => {
     if (seenExperienceIds.has(entry.id)) return false;
     seenExperienceIds.add(entry.id);
     return true;
@@ -1710,6 +1695,7 @@ export function storedMessageToAgentMessage(
     id: message.id,
     role: message.role,
     text: displayText,
+    structuredExperience: connectorRead,
     timestamp:
       createdAt && !Number.isNaN(createdAt.getTime())
         ? new Intl.DateTimeFormat(undefined, {
@@ -1784,6 +1770,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // otherwise animate a long crawl down from the top).
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const oneScrollTopRef = useRef(0);
+  const [recoveryScrollTop, setRecoveryScrollTop] = useState<number | null>(null);
   // Programmatic history/anchor restoration must not be interpreted as a
   // person's scroll gesture. Chat's transcript is nested inside the app
   // shell, so this distinction is what keeps the shared bottom chrome visible
@@ -1879,13 +1866,41 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isHistoryDrawerOpen, setIsHistoryDrawerOpen] = useState(false);
-  const [connectorsPanelOpen, setConnectorsPanelOpen] = useState(false);
+  const [drawerMode, setDrawerMode] = useState<ConnectionsDrawerMode>("chats");
+  const [recoveryCheckedForUid, setRecoveryCheckedForUid] = useState<string | null>(null);
+  const pendingDriveRecoveryRef = useRef<{
+    ownerUid: string;
+    state: Awaited<ReturnType<typeof takeDriveChatRecovery>>;
+  } | null>(null);
+  const currentDraftRef = useRef({ input, attachment: longPromptAttachment });
+  currentDraftRef.current = { input, attachment: longPromptAttachment };
+  const recoveryUiRef = useRef({
+    conversationId, composerExpanded, drawerOpen: isHistoryDrawerOpen, drawerMode,
+  });
+  recoveryUiRef.current = {
+    conversationId, composerExpanded, drawerOpen: isHistoryDrawerOpen, drawerMode,
+  };
+  useEffect(() => {
+    if (!user?.uid || !vaultKey) {
+      pendingDriveRecoveryRef.current = null;
+      setRecoveryCheckedForUid(null);
+    }
+  }, [user?.uid, vaultKey]);
+  useEffect(() => {
+    const onReturn = () => setRecoveryCheckedForUid(null);
+    window.addEventListener(DRIVE_CHAT_RECOVERY_RETURN_EVENT, onReturn);
+    return () => window.removeEventListener(DRIVE_CHAT_RECOVERY_RETURN_EVENT, onReturn);
+  }, []);
+  const [connectionsAvailable, setConnectionsAvailable] = useState(false);
+  const [connectorExternalModalOpen, setConnectorExternalModalOpen] =
+    useState(false);
   useEffect(() => {
     // `?panel=connectors` is the connector OAuth-return flow's landing signal
     // -- connectors live in this sidebar panel now, not a dedicated route, so
     // completing a connect has to reopen it here instead of navigating to one.
     if (searchParams?.get("panel") !== "connectors") return;
-    setConnectorsPanelOpen(true);
+    setDrawerMode("connections");
+    setIsHistoryDrawerOpen(true);
     const next = new URLSearchParams(searchParams.toString());
     next.delete("panel");
     const query = next.toString();
@@ -1965,8 +1980,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const activeActionRun = useActiveActionRun();
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
-  const historyDrawerRef = useRef<HTMLDivElement | null>(null);
-  const historyDrawerReturnFocusRef = useRef<HTMLElement | null>(null);
+  const historyDrawerTriggerRef = useRef<HTMLButtonElement | null>(null);
   const historyLoadKeyRef = useRef<string | null>(null);
   const welcomePromptSetInitializedRef = useRef(false);
   const historyRestoreEpochRef = useRef(0);
@@ -2278,7 +2292,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // The single agent bar can always send text: with vault access it runs the
   // full agent, otherwise it runs the pre-vault informational tier. Voice and
   // vault-backed tools stay gated separately by hasChatAccess.
+  const recoveryInspectionPending = Boolean(
+    user?.uid && vaultKey && vaultOwnerToken && recoveryCheckedForUid !== user.uid,
+  );
   const canSend =
+    !recoveryInspectionPending &&
     !isVoiceConnecting &&
     !voiceActive &&
     !emailDraftOpen &&
@@ -2287,8 +2305,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     // keystroke. The submit path performs the authoritative empty check.
     (input.length > 0 || longPromptAttachment !== null);
   const canToggleVoice =
-    agentVoiceEnabled && !isVoiceConnecting && !emailDraftOpen;
+    agentVoiceEnabled && !recoveryInspectionPending && !isVoiceConnecting && !emailDraftOpen;
   const historyInteractionDisabled =
+    recoveryInspectionPending ||
     isChatLoading ||
     isToolWorking ||
     isVoiceConnecting ||
@@ -2433,6 +2452,19 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     });
   }, [beginTranscriptProgrammaticScroll, isPuppySurface]);
 
+  useLayoutEffect(() => {
+    if (recoveryScrollTop === null || isPuppySurface) return;
+    const element = transcriptRef.current;
+    if (!element) return;
+    const max = Math.max(0, element.scrollHeight - element.clientHeight);
+    const target = Math.min(recoveryScrollTop, max);
+    oneScrollTopRef.current = target;
+    transcriptUserScrollRef.current = max - target > 48;
+    beginTranscriptProgrammaticScroll(target);
+    element.scrollTo({ top: target, behavior: "instant" as ScrollBehavior });
+    setRecoveryScrollTop(null);
+  }, [beginTranscriptProgrammaticScroll, isPuppySurface, messages, recoveryScrollTop]);
+
   useEffect(() => {
     const token = getVaultOwnerToken();
     if (!conversationId || !token) {
@@ -2524,30 +2556,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     );
     return () => window.cancelAnimationFrame(frame);
   }, [composerExpanded]);
-
-  useEffect(() => {
-    if (!isHistoryDrawerOpen) return;
-    historyDrawerReturnFocusRef.current =
-      document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setIsHistoryDrawerOpen(false);
-      }
-    };
-    window.requestAnimationFrame(() => {
-      getFocusableElements(historyDrawerRef.current)[0]?.focus();
-    });
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isHistoryDrawerOpen]);
-
-  useEffect(() => {
-    if (isHistoryDrawerOpen) return;
-    historyDrawerReturnFocusRef.current?.focus();
-    historyDrawerReturnFocusRef.current = null;
-  }, [isHistoryDrawerOpen]);
 
   useEffect(() => {
     return () => {
@@ -3340,7 +3348,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   };
 
   useEffect(() => {
-    if (!hasChatAccess || !user?.uid || !vaultOwnerToken) return;
+    if (
+      !hasChatAccess ||
+      !user?.uid ||
+      !vaultOwnerToken ||
+      recoveryCheckedForUid !== user.uid
+    ) return;
     const loadKey = `${user.uid}:${vaultOwnerToken.slice(0, 12)}`;
     if (skipInitialHistoryLoadRef.current) {
       skipInitialHistoryLoadRef.current = false;
@@ -3413,10 +3426,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       cancelled = true;
       window.clearTimeout(timeoutId);
     };
-  }, [hasChatAccess, updateConversationId, user?.uid, vaultOwnerToken]);
+  }, [hasChatAccess, recoveryCheckedForUid, updateConversationId, user?.uid, vaultOwnerToken]);
 
   const restoreConversationMessages = useCallback(
-    async (nextConversationId: string, token: string) => {
+    async (
+      nextConversationId: string,
+      token: string,
+      isCurrent: () => boolean = () => true,
+    ) => {
       if (!user?.uid) return;
       clearTranscriptProgrammaticScroll();
       transcriptUserScrollRef.current = false;
@@ -3426,6 +3443,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         conversationId: nextConversationId,
         vaultOwnerToken: token,
       });
+      if (!isCurrent()) return;
       const restored = storedMessagesToAgentMessages(history);
       latestVisibleTurnIdRef.current = null;
       updateConversationId(nextConversationId);
@@ -3447,6 +3465,156 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       user?.uid,
     ],
   );
+
+  useEffect(() => {
+    if (
+      !rootChatReady ||
+      !user?.uid ||
+      !vaultKey ||
+      !vaultOwnerToken ||
+      recoveryCheckedForUid === user.uid
+    ) return;
+    let cancelled = false;
+    const ownerUid = user.uid;
+    void (async () => {
+      const existing = pendingDriveRecoveryRef.current;
+      const state = existing?.ownerUid === ownerUid
+        ? existing.state
+        : await takeDriveChatRecovery({ ownerUserId: ownerUid, vaultKey });
+      if (state) pendingDriveRecoveryRef.current = { ownerUid, state };
+      if (cancelled) return;
+      if (state) {
+        const mayRestore = () => !cancelled &&
+          currentDraftRef.current.input === "" &&
+          currentDraftRef.current.attachment === null;
+        if (!mayRestore()) {
+          pendingDriveRecoveryRef.current = null;
+          setRecoveryCheckedForUid(ownerUid);
+          return;
+        }
+        historyRestoreEpochRef.current += 1;
+        skipInitialHistoryLoadRef.current = true;
+        if (state.conversationId) {
+          try {
+            await restoreConversationMessages(
+              state.conversationId,
+              getVaultOwnerToken() || vaultOwnerToken,
+              mayRestore,
+            );
+          } catch {
+            // Preserve the draft even if the selected history is temporarily
+            // unavailable. No fabricated transcript is shown.
+            if (mayRestore()) {
+              updateConversationId(null);
+              setMessages([createGreetingMessage()]);
+            }
+          }
+        } else {
+          if (mayRestore()) {
+            updateConversationId(null);
+            setMessages([createGreetingMessage()]);
+          }
+        }
+        if (cancelled) return;
+        if (!mayRestore()) {
+          pendingDriveRecoveryRef.current = null;
+          setRecoveryCheckedForUid(ownerUid);
+          return;
+        }
+        setInput(state.input);
+        setLongPromptAttachment(state.attachment);
+        setComposerExpanded(state.composerExpanded);
+        setDrawerMode(state.drawerMode);
+        setIsHistoryDrawerOpen(state.drawerOpen);
+        setRecoveryScrollTop(state.scrollTop);
+        pendingDriveRecoveryRef.current = null;
+      }
+      if (!cancelled) setRecoveryCheckedForUid(ownerUid);
+    })().catch(() => {
+      if (!cancelled && pendingDriveRecoveryRef.current?.ownerUid !== ownerUid)
+        setRecoveryCheckedForUid(ownerUid);
+    });
+    return () => { cancelled = true; };
+  }, [
+    recoveryCheckedForUid,
+    getVaultOwnerToken,
+    restoreConversationMessages,
+    rootChatReady,
+    updateConversationId,
+    user?.uid,
+    vaultKey,
+    vaultOwnerToken,
+  ]);
+
+  const prepareDriveChatRecovery = useCallback(async (request: {
+    attemptId: string;
+    reason: DriveChatRecoveryReason;
+  }): Promise<"ready" | "busy" | "unavailable"> => {
+    if (
+      !user?.uid ||
+      !vaultKey ||
+      !hasChatAccess ||
+      isPuppySurface ||
+      historyInteractionDisabled ||
+      isPkmMemoryWorking ||
+      isLoadingHistory ||
+      activeActionRun ||
+      pendingAppAction ||
+      pendingSpecialistDirective ||
+      emailDraftOpen ||
+      isGmailKycSaving ||
+      gmailKycReplyRequest ||
+      queuedHandoffPrompt ||
+      connectorExternalModalOpen
+    ) return "busy";
+    try {
+      const state = {
+        conversationId,
+        input,
+        attachment: longPromptAttachment,
+        composerExpanded,
+        scrollTop: Math.min(10_000_000, Math.max(0, transcriptRef.current?.scrollTop ?? oneScrollTopRef.current)),
+        drawerOpen: isHistoryDrawerOpen,
+        drawerMode,
+      };
+      await saveDriveChatRecovery({
+        ownerUserId: user.uid,
+        vaultKey,
+        attemptId: request.attemptId,
+        reason: request.reason,
+        state,
+      });
+      const live = recoveryUiRef.current;
+      const draft = currentDraftRef.current;
+      if (
+        draft.input !== state.input ||
+        draft.attachment?.text !== state.attachment?.text ||
+        draft.attachment?.isExpanded !== state.attachment?.isExpanded ||
+        live.conversationId !== state.conversationId ||
+        live.composerExpanded !== state.composerExpanded ||
+        live.drawerOpen !== state.drawerOpen ||
+        live.drawerMode !== state.drawerMode ||
+        (transcriptRef.current?.scrollTop ?? oneScrollTopRef.current) !== state.scrollTop
+      ) {
+        await clearDriveChatRecovery(user.uid);
+        return "unavailable";
+      }
+      return "ready";
+    } catch {
+      return "unavailable";
+    }
+  }, [
+    activeActionRun, composerExpanded, connectorExternalModalOpen,
+    conversationId, drawerMode, emailDraftOpen, gmailKycReplyRequest,
+    hasChatAccess, historyInteractionDisabled, input,
+    isGmailKycSaving, isHistoryDrawerOpen, isLoadingHistory, isPkmMemoryWorking,
+    isPuppySurface, longPromptAttachment, pendingAppAction,
+    pendingSpecialistDirective, queuedHandoffPrompt, user?.uid, vaultKey,
+  ]);
+
+  const clearPreparedDriveChatRecovery = useCallback(async () => {
+    if (user?.uid) await clearDriveChatRecovery(user.uid);
+  }, [user?.uid]);
 
   const loadConversationList = useCallback(
     async (force = false) => {
@@ -4467,13 +4635,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             if (streamAbortController.signal.aborted) return;
             queueAssistantDelta(delta);
           },
-          onThought: (delta) => {
-            if (streamAbortController.signal.aborted) return;
-            updateMessage(assistantMessageId, (message) => ({
-              ...message,
-              thought: (message.thought ?? "") + delta,
-            }));
-          },
           onSources: (sources) => {
             if (streamAbortController.signal.aborted) return;
             updateMessage(assistantMessageId, (message) => ({
@@ -4713,13 +4874,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           onToken: (delta) => {
             if (streamAbortController.signal.aborted) return;
             queueAssistantDelta(delta);
-          },
-          onThought: (delta) => {
-            if (streamAbortController.signal.aborted) return;
-            updateMessage(assistantMessageId, (message) => ({
-              ...message,
-              thought: (message.thought ?? "") + delta,
-            }));
           },
           onSources: (sources) => {
             if (streamAbortController.signal.aborted) return;
@@ -5462,26 +5616,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const toggleHistoryDrawer = useCallback(() => {
     setIsHistoryDrawerOpen((prev) => {
       if (!prev) {
-        historyDrawerReturnFocusRef.current =
-          document.activeElement instanceof HTMLElement
-            ? document.activeElement
-            : null;
         if (!isPuppySurface) void loadConversationList().catch(() => undefined);
       }
       return !prev;
     });
   }, [isPuppySurface, loadConversationList]);
-  const handleHistoryDrawerKeyDown = useCallback(
-    (event: ReactKeyboardEvent) => {
-      if (event.key === "Escape") {
-        event.stopPropagation();
-        setIsHistoryDrawerOpen(false);
-        return;
-      }
-      trapFocusWithin(event, historyDrawerRef.current);
-    },
-    [],
-  );
   const renderHistorySidebar = (
     sidebarClassName?: string,
     onClose?: () => void,
@@ -5501,11 +5640,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       surface={agentSurface}
       onClose={onClose}
       onToggleCollapsed={toggleHistoryDrawer}
-      // MCP connections isn't ready to surface in the chat sidebar yet --
-      // omitting onOpenConnectors hides AgentHistorySidebar's button (it
-      // renders only when the prop is passed). The panel, the deep-link
-      // effect below, and the OAuth-return route stay intact so re-enabling
-      // this is a one-line change, not a re-build.
+      onOpenConnectors={
+        !isPuppySurface && connectionsAvailable
+          ? () => setDrawerMode("connections")
+          : undefined
+      }
       onCreateNew={handleSidebarCreateNewChat}
       onSelectConversation={handleSidebarSelectConversation}
       onRenameConversation={isPuppySurface ? handleRenamePuppyConversation : handleRenameConversation}
@@ -5600,36 +5739,29 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           "overflow-hidden",
         )}
       >
-        <div
-          className={cn(
-            "fixed inset-0 z-[520] bg-black/35 transition-opacity duration-150 motion-reduce:transition-none dark:bg-black/55",
-            isHistoryDrawerOpen
-              ? "opacity-100"
-              : "pointer-events-none opacity-0",
-          )}
-          aria-hidden="true"
-          onClick={() => setIsHistoryDrawerOpen(false)}
-        />
-        <div
-          ref={historyDrawerRef}
-          className={cn(
-            "absolute bottom-0 left-0 top-[var(--agent-chat-header-height)] z-[530] w-[min(88vw,320px)] transform transition-transform duration-150 motion-reduce:transition-none ease-out",
-            isHistoryDrawerOpen ? "translate-x-0" : "-translate-x-full",
-          )}
-          role="dialog"
-          aria-modal="true"
-          aria-hidden={!isHistoryDrawerOpen}
-          aria-label="Agent chat history"
-          inert={!isHistoryDrawerOpen}
-          onKeyDown={handleHistoryDrawerKeyDown}
-        >
-          {renderHistorySidebar(
+        <AgentConnectionsDrawer
+          triggerRef={historyDrawerTriggerRef}
+          open={isHistoryDrawerOpen}
+          onOpenChange={setIsHistoryDrawerOpen}
+          mode={drawerMode}
+          externalModalOpen={connectorExternalModalOpen}
+          chats={renderHistorySidebar(
             "h-full w-full",
             () => setIsHistoryDrawerOpen(false),
             false,
             "mobile",
           )}
-        </div>
+          connections={
+            <ConnectorsPanel
+              open={isHistoryDrawerOpen && drawerMode === "connections"}
+              onBack={() => setDrawerMode("chats")}
+              onAvailableChange={setConnectionsAvailable}
+              onExternalModalChange={setConnectorExternalModalOpen}
+              onPrepareRecovery={prepareDriveChatRecovery}
+              onClearRecovery={clearPreparedDriveChatRecovery}
+            />
+          }
+        />
 
         <section
           className={cn(
@@ -5645,7 +5777,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             <div className="flex min-w-0 items-center gap-3">
               <ShellActionSurface
                 variant="icon"
-                onClick={toggleHistoryDrawer}
+                ref={historyDrawerTriggerRef}
+                onClick={(event) => { historyDrawerTriggerRef.current = event.currentTarget; toggleHistoryDrawer(); }}
                 aria-label={isHistoryDrawerOpen ? "Close chat history" : "Open chat history"}
                 title={isHistoryDrawerOpen ? "Close chat history" : "Open chat history"}
                 className="relative z-[540]"
@@ -5991,6 +6124,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   ) : (
                     <AgentBubble
                       message={message}
+                      onOpenConnections={(trigger) => { historyDrawerTriggerRef.current = trigger; setDrawerMode("connections"); setIsHistoryDrawerOpen(true); }}
                       userAvatarUrl={userAvatarUrl}
                       userInitials={userInitials}
                       retryDisabled={isChatLoading || isStreaming}
@@ -6803,6 +6937,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 <AgentBubble
                   key={message.id}
                   message={message}
+                  onOpenConnections={(trigger) => { historyDrawerTriggerRef.current = trigger; setDrawerMode("connections"); setIsHistoryDrawerOpen(true); }}
                   retryDisabled={isChatLoading || isStreaming}
                 />
               ))}
@@ -7026,6 +7161,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           }
                         }}
                         disabled={
+                          recoveryInspectionPending ||
                           isVoiceConnecting ||
                           emailDraftOpen ||
                           isGmailKycSaving
@@ -7092,6 +7228,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                             }
                           }}
                           disabled={
+                            recoveryInspectionPending ||
                             isVoiceConnecting ||
                             emailDraftOpen ||
                             isGmailKycSaving
@@ -7147,10 +7284,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           onSuccess={() => setVaultDialogOpen(false)}
         />
       ) : null}
-      <ConnectorsPanel
-        open={connectorsPanelOpen}
-        onOpenChange={setConnectorsPanelOpen}
-      />
       </AgentPersonSelectionContext.Provider>
     </div>
   );

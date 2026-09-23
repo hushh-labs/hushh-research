@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from typing import Any
+from typing import Any, cast
 
 from starlette.concurrency import run_in_threadpool
 
@@ -11,6 +11,15 @@ from hushh_mcp.consent.scope_helpers import get_scope_description
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.connections_service import ConnectionsService
 from hushh_mcp.services.consent_db import ConsentDBService
+from hushh_mcp.services.drive_sharing_center_contributor import (
+    BUCKETS as DRIVE_BUCKETS,
+)
+from hushh_mcp.services.drive_sharing_center_contributor import (
+    SURFACES as DRIVE_SURFACES,
+)
+from hushh_mcp.services.drive_sharing_center_contributor import (
+    DriveSharingCenterContributor,
+)
 from hushh_mcp.services.ria_iam_service import (
     IAMSchemaNotReadyError,
     RIAIAMPolicyError,
@@ -121,6 +130,7 @@ class ConsentCenterService:
         self._ria = RIAIAMService()
         self._owned_identifier_cache: dict[str, list[str]] = {}
         self._owned_identifier_inflight: dict[str, asyncio.Task[list[str]]] = {}
+        self._drive_center = DriveSharingCenterContributor()
         self._location_center = None
         if _one_location_consent_center_enabled():
             try:
@@ -149,6 +159,55 @@ class ConsentCenterService:
                     exc,
                 )
                 self._marketplace_center = None
+
+    async def _drive_counts(self, user_id: str) -> dict[str, int]:
+        contributor = getattr(self, "_drive_center", None)
+        result = (
+            await contributor.counts(user_id) if contributor else dict.fromkeys(DRIVE_BUCKETS, 0)
+        )
+        self._drive_schema_available = bool(result.get("schema_available", False))
+        return result
+
+    async def _drive_preview(self, user_id: str) -> dict[str, Any]:
+        contributor = getattr(self, "_drive_center", None)
+        if contributor:
+            result = await contributor.preview(user_id)
+            self._drive_schema_available = result["schema_available"]
+            return cast(dict[str, Any], result)
+        return {
+            "buckets": {key: [] for key in DRIVE_BUCKETS},
+            "counts": dict.fromkeys(DRIVE_BUCKETS, 0),
+        }
+
+    async def _paginate_with_drive(
+        self, entries, *, user_id, surface, page, limit, query
+    ) -> dict[str, Any]:
+        contributor = getattr(self, "_drive_center", None)
+        if not contributor:
+            return self._paginate_entries(entries, page=page, limit=limit, query=query)
+        existing = [item for item in entries if self._match_text(item, query or "")]
+        start = (page - 1) * limit
+        drive_offset = max(0, start - len(existing))
+        # Only this window can overlap the global page, even if every existing
+        # entry sorts before (or after) every Drive entry. Counts are not capped.
+        projection = await contributor.page(
+            user_id,
+            bucket=DRIVE_SURFACES[surface],
+            query=query or "",
+            offset=drive_offset,
+            limit=start + limit - drive_offset,
+        )
+        self._drive_schema_available = projection["schema_available"]
+        merged = self._sort_display_entries([*existing, *projection["items"]])
+        local_start = start - drive_offset
+        total = len(existing) + projection["total"]
+        return {
+            "page": page,
+            "limit": limit,
+            "total": total,
+            "has_more": start + limit < total,
+            "items": merged[local_start : local_start + limit],
+        }
 
     async def _marketplace_buckets_async(self, user_id: str) -> dict[str, list[dict[str, Any]]]:
         """Information Marketplace access-request entries grouped by consent
@@ -538,6 +597,14 @@ class ConsentCenterService:
                 return 0
 
         return sorted(entries, key=_timestamp, reverse=True)
+
+    @classmethod
+    def _sort_display_entries(cls, entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        # Tie-breaking only AFTER domain chain reduction. Changing the stable
+        # event order before reduction can change the selected lifecycle state.
+        return cls._sort_entries(
+            sorted(entries, key=lambda item: str(item.get("id") or ""), reverse=True)
+        )
 
     @staticmethod
     def _is_connection_entry(entry: dict[str, Any], *, actor: str) -> bool:
@@ -1397,14 +1464,14 @@ class ConsentCenterService:
                 if normalized_mode == "consents"
                 else None
             )
-            location_count = 0
+            location_count = (await self._drive_counts(user_id))[DRIVE_SURFACES[surface]]
             if location_buckets:
                 if surface == "pending":
-                    location_count = len(location_buckets["incoming_requests"])
+                    location_count += len(location_buckets["incoming_requests"])
                 elif surface == "active":
-                    location_count = len(location_buckets["active_grants"])
+                    location_count += len(location_buckets["active_grants"])
                 else:
-                    location_count = len(location_buckets["history"])
+                    location_count += len(location_buckets["history"])
             marketplace_buckets = (
                 await self._marketplace_buckets_async(user_id)
                 if normalized_mode == "consents"
@@ -1668,16 +1735,37 @@ class ConsentCenterService:
             actor=normalized_actor,
         )
 
+        drive_counts = dict.fromkeys(DRIVE_BUCKETS, 0)
+        drive_preview_counts = dict.fromkeys(DRIVE_BUCKETS, 0)
+        if actor is None or normalized_actor != "ria":
+            drive = await self._drive_preview(user_id)
+            drive_counts = drive["counts"]
+            buckets = drive["buckets"]
+            if need_incoming:
+                incoming.extend(buckets["incoming_requests"])
+            if need_active:
+                active_entries.extend(buckets["active_grants"])
+            if need_history:
+                history_entries.extend(buckets["history"])
+            outgoing_entries.extend(buckets["outgoing_requests"])
+            drive_preview_counts = {key: len(value) for key, value in buckets.items()}
+
+        def projected_total(key: str, count: int, included: bool = True) -> int:
+            return count + drive_counts[key] - drive_preview_counts[key] if included else count
+
         return {
             "user_id": user_id,
             "persona_state": persona_state,
+            "drive_projection_available": bool(getattr(self, "_drive_schema_available", False)),
             "ria_onboarding": ria_onboarding,
             "summary": {
-                "incoming_requests": len(incoming),
-                "outgoing_requests": len(outgoing_entries),
-                "active_grants": len(active_entries),
+                "incoming_requests": projected_total(
+                    "incoming_requests", len(incoming), need_incoming
+                ),
+                "outgoing_requests": projected_total("outgoing_requests", len(outgoing_entries)),
+                "active_grants": projected_total("active_grants", len(active_entries), need_active),
                 "invites": len(invite_entries),
-                "history": len(history_entries),
+                "history": projected_total("history", len(history_entries), need_history),
                 "developer_requests": len(developer_requests),
                 "ria_roster": roster_summary,
             },
@@ -1736,14 +1824,17 @@ class ConsentCenterService:
                 pending_entries,
                 active_entries,
                 previous_entries,
-                connection_count,
+                (connection_count, drive_counts),
             ) = await asyncio.gather(
                 self._location_buckets_async(user_id),
                 self._marketplace_buckets_async(user_id),
                 self._load_investor_pending_entries(user_id),
                 self._load_investor_active_entries(user_id),
                 self._load_investor_previous_entries(user_id),
-                self._incoming_connection_request_count(user_id),
+                asyncio.gather(
+                    self._incoming_connection_request_count(user_id),
+                    self._drive_counts(user_id),
+                ),
             )
 
             def contributor_count(surface: str) -> int:
@@ -1752,7 +1843,11 @@ class ConsentCenterService:
                     "active": "active_grants",
                     "previous": "history",
                 }[surface]
-                return len(location_buckets[bucket]) + len(marketplace_buckets[bucket])
+                return (
+                    len(location_buckets[bucket])
+                    + len(marketplace_buckets[bucket])
+                    + drive_counts[bucket]
+                )
 
             pending_count = (
                 len(
@@ -1815,6 +1910,7 @@ class ConsentCenterService:
                 "active": active_count,
                 "previous": previous_count,
             },
+            "drive_projection_available": bool(getattr(self, "_drive_schema_available", False)),
         }
 
     async def list_center(
@@ -1828,6 +1924,7 @@ class ConsentCenterService:
         top: int | None = None,
         page: int = 1,
         limit: int = 20,
+        request_view: str = "received",
     ) -> dict[str, Any]:
         normalized_actor = "ria" if actor == "ria" else "investor"
         normalized_surface = surface if surface in {"pending", "active", "previous"} else "pending"
@@ -1835,6 +1932,33 @@ class ConsentCenterService:
         safe_top = max(1, min(int(top), 10)) if top is not None else None
         safe_limit = safe_top or max(1, min(limit, 100))
         safe_page = 1 if safe_top is not None else max(1, page)
+
+        if (
+            request_view == "sent"
+            and normalized_actor == "investor"
+            and normalized_mode == "consents"
+            and normalized_surface == "pending"
+        ):
+            # B's requests remain rediscoverable, including after disconnect or
+            # a rollout pause. They never enter A's Needs You / approval count.
+            paged = await self._paginate_with_drive(
+                [],
+                user_id=user_id,
+                surface="sent",
+                page=safe_page,
+                limit=safe_limit,
+                query=query,
+            )
+            return {
+                "user_id": user_id,
+                "actor": normalized_actor,
+                "surface": normalized_surface,
+                "mode": normalized_mode,
+                "request_view": "sent",
+                "query": query or "",
+                **paged,
+                "drive_projection_available": bool(getattr(self, "_drive_schema_available", False)),
+            }
 
         if normalized_mode == "connections":
             entries = await self._load_connection_entries_for_actor(
@@ -1912,8 +2036,10 @@ class ConsentCenterService:
             if normalized_mode == "consents" and normalized_surface == "pending":
                 connection_entries = await self._incoming_connection_request_entries(user_id)
                 entries = [*entries, *connection_entries]
-            paged = self._paginate_entries(
+            paged = await self._paginate_with_drive(
                 entries,
+                user_id=user_id,
+                surface=normalized_surface,
                 page=safe_page,
                 limit=safe_limit,
                 query=query,
@@ -1977,6 +2103,7 @@ class ConsentCenterService:
             "total": paged["total"],
             "has_more": paged["has_more"],
             "items": paged["items"],
+            "drive_projection_available": bool(getattr(self, "_drive_schema_available", False)),
         }
 
     # =========================================================================

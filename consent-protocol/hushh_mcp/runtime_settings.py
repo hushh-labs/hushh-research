@@ -93,6 +93,14 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "plaid_redirect_uri": "PLAID_REDIRECT_URI",
     "plaid_tx_history_days": "PLAID_TX_HISTORY_DAYS",
     "one_location_read_only_state_enabled": "ONE_LOCATION_READ_ONLY_STATE_ENABLED",
+    "connections_panel_v2": "CONNECTIONS_PANEL_V2",
+    "google_drive_connection": "GOOGLE_DRIVE_CONNECTION",
+    "google_drive_picker": "GOOGLE_DRIVE_PICKER",
+    "drive_document_indexing": "DRIVE_DOCUMENT_INDEXING",
+    "drive_document_sharing": "DRIVE_DOCUMENT_SHARING",
+    "gmail_chat_reads": "GMAIL_CHAT_READS",
+    "google_drive_chat_reads": "GOOGLE_DRIVE_CHAT_READS",
+    "connector_internal_owner_cohort": "CONNECTOR_INTERNAL_OWNER_COHORT",
     # Nearby check-in admission. Both are required to open the flow in
     # production -- the mode alone leaves it closed -- so that a half-finished
     # rollout fails safe. See `_nearby_presence_enabled` in the location routes.

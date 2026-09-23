@@ -606,10 +606,10 @@ export function AgentHistorySidebar({
                     : "rounded-[14px] hover:bg-foreground/[0.06] dark:hover:bg-white/[0.06]"
                 )}
                 onClick={onOpenConnectors}
-                aria-label="Open MCP connections"
+                aria-label="Open Connections"
               >
                 <PlugIcon className="h-4 w-4" aria-hidden="true" />
-                <span className="truncate">MCP connections</span>
+                <span className="truncate">Connections</span>
               </Button>
             ) : null}
           </div>

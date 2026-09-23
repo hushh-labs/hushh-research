@@ -16,6 +16,8 @@ from collections.abc import Hashable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, TypeVar, cast
 
+from hushh_mcp.services.embedding_client_leaf import EmbeddingClient
+
 logger = logging.getLogger(__name__)
 
 # Fusion is keyed by whatever identity the caller ranks by: `id(entry)` ints in
@@ -148,7 +150,10 @@ def _ensure_passage_vectors(
     cached = _PASSAGE_CACHE
     if cached["digest"] == digest and len(cached["vectors"]) == len(supported):
         return cast(list[list[float]], cached["vectors"])
-    vectors = get_embedding_client().embed_passages([_build_passage(entry) for entry in supported])
+    vectors = cast(
+        list[list[float]],
+        get_embedding_client().embed_passages([_build_passage(entry) for entry in supported]),
+    )
     if len(vectors) == len(supported):
         _PASSAGE_CACHE["digest"] = digest
         _PASSAGE_CACHE["vectors"] = vectors
@@ -169,55 +174,6 @@ def _catalog_digest(gateway: dict[str, Any]) -> str:
 # ---------------------------------------------------------------------------
 # Embedding client
 # ---------------------------------------------------------------------------
-
-
-class EmbeddingClient:
-    """Sentence-Transformers embedding interface backed by ``intfloat/multilingual-e5-small``."""
-
-    def __init__(
-        self,
-        *,
-        model_revision: str = "614241f622f53c4eeff9890bdc4f31cfecc418b3",
-    ) -> None:
-        self.model_revision = model_revision
-        self._model: Any = None
-
-    def _load(self) -> Any:
-        if self._model is None:
-            from sentence_transformers import SentenceTransformer
-
-            self._model = SentenceTransformer(
-                "intfloat/multilingual-e5-small",
-                revision=self.model_revision,
-            )
-        return self._model
-
-    def embed_query(self, text: str) -> list[float]:
-        model = self._load()
-        prefixed = f"query: {text}"
-        result = model.encode(prefixed, normalize_embeddings=True)
-        return cast(list[float], result.tolist())
-
-    def embed_passages(self, passages: list[str]) -> list[list[float]]:
-        if not passages:
-            return []
-        model = self._load()
-        prefixed = [f"passage: {p}" for p in passages]
-        result = model.encode(prefixed, normalize_embeddings=True)
-        return cast(list[list[float]], result.tolist())
-
-    def similarity(
-        self,
-        query_vec: list[float],
-        passage_vecs: list[list[float]],
-    ) -> list[float]:
-        if not passage_vecs:
-            return []
-        from numpy import array, dot
-
-        q = array(query_vec)
-        ps = array(passage_vecs)
-        return cast(list[float], dot(ps, q).tolist())
 
 
 _embedding_client: EmbeddingClient | None = None

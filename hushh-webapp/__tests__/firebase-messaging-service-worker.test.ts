@@ -236,6 +236,73 @@ describe("Firebase messaging service-worker lifecycle ownership", () => {
     ]);
   });
 
+  it("uses generic copy and a fixed review route for an opaque document-share push", async () => {
+    const harness = createHarness({ clientState: "none" });
+    await harness.push("document_share_review_ready", {
+      type: "document_share_review_ready",
+      request_id: "11111111-1111-4111-8111-111111111111",
+      request_url: "https://example.com/ignored",
+      deep_link: "/one/profile?ignored=true",
+      file_name: "bank-statement.pdf",
+      recipient_email: "private@example.com",
+    });
+
+    expect(harness.shown).toHaveLength(1);
+    expect(harness.shown[0]).toEqual({
+      title: "Document request",
+      options: expect.objectContaining({
+        body: "Open One to review.",
+        requireInteraction: false,
+        renotify: false,
+        silent: false,
+        vibrate: undefined,
+        data: expect.objectContaining({
+          type: "document_share_review_ready",
+          request_id: "11111111-1111-4111-8111-111111111111",
+          url: "/one/consent?tab=pending&requestId=document_share_request%3A11111111-1111-4111-8111-111111111111",
+          source_url:
+            "/one/consent?tab=pending&requestId=document_share_request%3A11111111-1111-4111-8111-111111111111",
+        }),
+      }),
+    });
+    const notificationData = harness.shown[0]?.options?.data as Record<
+      string,
+      unknown
+    >;
+    expect(notificationData.file_name).toBeUndefined();
+    expect(notificationData.recipient_email).toBeUndefined();
+    expect(notificationData.request_url).toBeUndefined();
+  });
+
+  it("redacts an unreviewed document-share event while leaving its tap fail-closed", async () => {
+    const harness = createHarness({ clientState: "none" });
+    await harness.push("document_share_future_event", {
+      type: "document_share_future_event",
+      request_id: "11111111-1111-4111-8111-111111111111",
+      file_name: "bank-statement.pdf",
+      recipient_email: "private@example.com",
+      request_url: "https://example.com/ignored",
+    });
+
+    expect(harness.shown[0]).toEqual(
+      expect.objectContaining({ title: "Document request" }),
+    );
+    const notificationData = harness.shown[0]?.options?.data as Record<
+      string,
+      unknown
+    >;
+    expect(notificationData).toEqual(
+      expect.objectContaining({
+        type: "document_share_future_event",
+        url: "/one/feed",
+      }),
+    );
+    expect(notificationData.request_id).toBeUndefined();
+    expect(notificationData.file_name).toBeUndefined();
+    expect(notificationData.recipient_email).toBeUndefined();
+    expect(notificationData.request_url).toBeUndefined();
+  });
+
   it("does not let a hidden tab suppress system presentation", async () => {
     const harness = createHarness({
       acknowledgeVisibleDelivery: true,
@@ -424,6 +491,31 @@ describe("Firebase messaging service-worker lifecycle ownership", () => {
         url: "/one/feed?notificationRequestId=request%201&notificationBundleId=bundle%261",
       }),
     );
+  });
+
+  it("opens only the canonical document review for a cold document-share tap", async () => {
+    const harness = createHarness({ clientState: "none" });
+    await harness.click({
+      type: "document_share_request",
+      request_id: "11111111-1111-4111-8111-111111111111",
+      request_url: "https://example.com/ignored",
+      deep_link: "/one/profile?ignored=true",
+    });
+
+    expect(harness.openedUrls).toEqual([
+      "/one/consent?tab=pending&requestId=document_share_request%3A11111111-1111-4111-8111-111111111111",
+    ]);
+  });
+
+  it("fails closed to Feed for a malformed document-share tap", async () => {
+    const harness = createHarness({ clientState: "none" });
+    await harness.click({
+      type: "document_share_review_ready",
+      request_id: "not-a-uuid",
+      request_url: "https://example.com/ignored",
+    });
+
+    expect(harness.openedUrls).toEqual(["/one/feed"]);
   });
 
   it.each(["location_share_created", "location_access_approved"])(

@@ -1,4 +1,5 @@
 import type { PersonScopeCatalog } from "@/lib/services/person-profile-service";
+import { parseConnectorReadReceipt, type ConnectorReadExperience } from "./connector-read-receipt";
 
 export const SCOPE_DISCOVERY_EXPERIENCE_TYPE = "one.scope_discovery.v1" as const;
 export const PERSON_SELECTION_EXPERIENCE_TYPE = "one.person_selection.v1" as const;
@@ -119,6 +120,7 @@ export type EvidenceBriefExperience = {
 
 export type AgentStructuredExperience =
   | PersonSelectionExperience
+  | ConnectorReadExperience
   | ScopeDiscoveryExperience
   | InformationRequestReviewExperience
   | KycReadinessExperience
@@ -504,6 +506,11 @@ export function parseAgentToolResultExperience(
   toolName: string,
   content: unknown,
 ): AgentStructuredExperienceWithPresentation | null {
+  if (toolName === "ask_email_agent" || toolName === "ask_documents_agent") {
+    const receipt = parseConnectorReadReceipt(unwrapToolResult(content)?.structured);
+    return receipt?.connector === (toolName === "ask_email_agent" ? "mail" : "drive")
+      ? receipt : null;
+  }
   const supportsPersonSelection =
     toolName === "discover_person_information" ||
     toolName === "propose_information_request" ||
