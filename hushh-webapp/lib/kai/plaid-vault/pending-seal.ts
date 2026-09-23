@@ -17,7 +17,7 @@
 import { removeVaultItem } from "@/lib/kai/plaid-vault/vault-client";
 import { SecureResourceCacheService } from "@/lib/services/secure-resource-cache-service";
 
-const RESOURCE_KEY = "plaid_vault_pending_seals_v1";
+const RESOURCE_KEY = "plaid_vault_pending_seals_v1"; // gitleaks:allow - cache record name, not a credential
 // Long enough to outlive a weekend away from the app; a pending link older
 // than this is still disconnected on the next unlock that reads it.
 const PENDING_TTL_MS = 30 * 24 * 60 * 60 * 1000;
