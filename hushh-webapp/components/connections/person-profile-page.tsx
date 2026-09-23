@@ -903,7 +903,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <PageHeader
                   title="Shared with you"
-                  description="Information this person has granted to your account. Values stay encrypted until you unlock your vault."
+                  description="End-to-end encrypted information shared with your account. Unlock your vault to view it."
                 />
 
                 {allGrants.length > 1 ? (

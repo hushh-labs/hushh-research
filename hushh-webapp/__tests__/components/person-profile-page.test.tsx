@@ -603,6 +603,8 @@ describe("PersonProfilePage request catalog tools", () => {
 
       const value = await screen.findByTestId("person-profile-grant-value");
       expect(value).toHaveTextContent("Pune");
+      expect(screen.getByText(/End-to-end encrypted information shared with your account/)).toBeInTheDocument();
+      expect(screen.queryByText("Zero-knowledge verified")).toBeNull();
 
       fireEvent.click(screen.getByRole("button", { name: "Copy" }));
       expect(writeText).toHaveBeenCalledWith(JSON.stringify({ city: "Pune" }, null, 2));
