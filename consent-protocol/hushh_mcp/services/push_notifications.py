@@ -29,6 +29,7 @@ def send_user_data_push(
     notification_category: str,
     data: dict[str, str] | None = None,
     show_alert: bool = True,
+    include_user_id: bool = True,
 ) -> int:
     """Send a metadata push to every device registered for ``user_id``.
 
@@ -67,13 +68,18 @@ def send_user_data_push(
 
         message_data = {
             "type": notification_type,
-            "user_id": user_id,
             "request_url": deep_link,
             "deep_link": deep_link,
             "notification_tag": notification_tag,
             "notification_category": notification_category,
             **{k: str(v) for k, v in (data or {}).items() if str(v or "").strip()},
         }
+        # Existing notification lanes retain their recipient reconciliation
+        # field. Privacy-scoped callers can opt out when their opaque message
+        # reference is sufficient and a raw account identifier must never
+        # reach Firebase or the device.
+        if include_user_id:
+            message_data["user_id"] = user_id
 
         sent = 0
         seen: set[str] = set()

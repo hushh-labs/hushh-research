@@ -51,6 +51,10 @@ import {
   CONSENT_STATE_CHANGED_EVENT,
   dispatchConsentStateChanged,
 } from "@/lib/consent/consent-events";
+import {
+  documentShareNotificationRequestId,
+  isDocumentShareNotificationCandidate,
+} from "@/lib/consent/document-share-consent";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { subscribeToRemotePkmDomainChanges } from "@/lib/pkm/pkm-domain-change-events";
 import { subscribeToRemoteOneLocationStateChanges } from "@/lib/one-location/one-location-state-events";
@@ -85,7 +89,10 @@ import { buildOneLocationNotificationPayloads } from "@/lib/one-location/notific
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { EmergencySmsNotificationToast } from "@/components/one-location/emergency-sms-notification-toast";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
-import { markPeriodicTaskRan, registerPeriodicTask } from "@/lib/perf/idle-scheduler";
+import {
+  markPeriodicTaskRan,
+  registerPeriodicTask,
+} from "@/lib/perf/idle-scheduler";
 
 // ============================================================================
 // Helpers
@@ -1628,6 +1635,18 @@ export function ConsentNotificationProvider({
         return;
       }
 
+      // Drive-sharing notifications are an intentionally closed, opaque
+      // vocabulary. A new `document_share_*` producer cannot make the client
+      // refresh consent state or select a review until it is explicitly
+      // allowlisted and carries the exact request UUID.
+      const documentShareRequestId = documentShareNotificationRequestId(data);
+      if (
+        isDocumentShareNotificationCandidate(data) &&
+        !documentShareRequestId
+      ) {
+        return;
+      }
+
       // Validate typed payloads before acknowledging them to the web service
       // worker. An ACK suppresses the OS fallback, so malformed consent data
       // must remain unaccepted instead of disappearing from every surface.
@@ -1702,6 +1721,21 @@ export function ConsentNotificationProvider({
       // presentation surface. This also covers notification families added in
       // the future even when they have no provider-specific branch yet.
       dispatchFeedStateChanged("action");
+
+      if (documentShareRequestId) {
+        // Do not render push copy or invoke a sharing action. The canonical
+        // Consent Center and its owner/Vault checks fetch the current review
+        // after a person has opened the fixed local route.
+        if (user?.uid) {
+          CacheSyncService.onConsentMutated(user.uid);
+        }
+        dispatchConsentStateChanged({
+          source: "fcm_document_share",
+          requestId: `document_share_request:${documentShareRequestId}`,
+          reconcile: true,
+        });
+        return;
+      }
 
       if (isOneLocationNotificationType(msgType)) {
         const notification = detail.notification || detail;

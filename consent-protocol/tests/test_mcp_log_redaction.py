@@ -303,3 +303,13 @@ def test_the_filter_is_installed_by_the_api_server() -> None:
     server = (Path(__file__).resolve().parents[1] / "server.py").read_text(encoding="utf-8")
 
     assert "install_sensitive_log_filter()" in server
+
+
+def test_oauth_callback_query_credentials_never_reach_application_logs():
+    from mcp_modules.log_redaction import redact_log_value
+
+    value = "GET /api/connectors/oauth/native/callback?code=synthetic-code&state=synthetic-state&scope=read"
+    safe = redact_log_value(value)
+    assert "synthetic-code" not in safe
+    assert "synthetic-state" not in safe
+    assert "scope=read" in safe

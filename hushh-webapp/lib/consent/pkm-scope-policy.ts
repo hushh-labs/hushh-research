@@ -30,6 +30,6 @@ export function isPrivatePkmExportScope(scope: string): boolean {
   if (parts[0] !== "attr" || parts[1] !== "financial") return false;
   const path = parts.slice(2).filter((part) => part !== "*");
   if (path.length === 0) return true;
-  if (PRIVATE_FINANCIAL_PREFIXES.has(path[0])) return true;
+  if (PRIVATE_FINANCIAL_PREFIXES.has(path[0] ?? "")) return true;
   return path.some((part) => PRIVATE_ARTIFACT_PARTS.has(part));
 }

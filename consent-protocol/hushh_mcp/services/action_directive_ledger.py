@@ -12,11 +12,11 @@ import hashlib
 import hmac
 import json
 import secrets
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from typing import Any, Literal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from sqlalchemy import text
 
@@ -45,6 +45,22 @@ class ActionConfirmationReceipt:
     expires_at: datetime
     confirmed_at: datetime
     trusted_activation: bool
+
+
+@dataclass(frozen=True)
+class DocumentReviewAuthority:
+    """Server-built terms from locked domain records; never a client digest."""
+
+    user_id: str = field(repr=False)
+    request_id: str
+    revision: int
+    action_contract: dict[str, Any] = field(repr=False)
+    slots: dict[str, Any] = field(repr=False)
+    resource_binding: dict[str, Any] = field(repr=False)
+
+    @property
+    def context_revision(self) -> str:
+        return f"document-review:{UUID(self.request_id)}:{self.revision}"
 
 
 def _canonical_json(value: Any) -> str:
@@ -107,6 +123,170 @@ class ActionDirectiveStore:
             _canonical_json(value).encode("utf-8"),
             hashlib.sha256,
         ).hexdigest()
+
+    def _document_transaction(self):
+        connection = self._connection
+        if connection is None or not connection.in_transaction():
+            raise ActionDirectiveAuthorityError("Document approval requires a caller transaction.")
+        return connection
+
+    def _document_params(self, authority: DocumentReviewAuthority) -> dict:
+        if (
+            not authority.user_id
+            or type(authority.revision) is not int
+            or authority.revision < 1
+            or authority.action_contract.get("action_id")
+            not in {"documents.share_originals", "documents.revoke_shared_access"}
+            or authority.action_contract.get("execution_policy") != "confirm_required"
+            or authority.action_contract.get("activation_policy") != "trusted_activation_required"
+            or not authority.slots
+            or not authority.resource_binding
+        ):
+            raise ActionDirectiveAuthorityError("Document approval terms are invalid.")
+        return {
+            "user": authority.user_id,
+            "request": str(UUID(authority.request_id)),
+            "revision": authority.revision,
+            "context": authority.context_revision,
+            "action": authority.action_contract["action_id"],
+            "contract": self._hmac(authority.action_contract),
+            "slots": self._hmac(authority.slots),
+            "binding": self._hmac(authority.resource_binding),
+        }
+
+    def _locked_document_review(
+        self, *, directive_id: str, authority: DocumentReviewAuthority, state: str
+    ) -> tuple[dict, datetime]:
+        connection = self._document_transaction()
+        params = {**self._document_params(authority), "directive": directive_id}
+        result = (
+            connection.execute(
+                text("""
+            SELECT * FROM one_action_directive_ledger
+            WHERE directive_id=:directive AND user_id=:user AND channel='document_review'
+            FOR UPDATE
+        """),
+                params,
+            )
+            .mappings()
+            .first()
+        )
+        # Separate statement AFTER the row lock; NOW() is stale in queued transactions.
+        now = connection.execute(text("SELECT clock_timestamp()")).scalar_one()
+        expected = {
+            "document_request_id": params["request"],
+            "document_request_revision": params["revision"],
+            "action_id": params["action"],
+            "context_revision": params["context"],
+            "action_contract_digest": params["contract"],
+            "slots_hmac": params["slots"],
+            "resource_binding_hmac": params["binding"],
+        }
+        if (
+            not result
+            or result["state"] != state
+            or result["expires_at"] <= now
+            or any(str(result[key]) != str(value) for key, value in expected.items())
+        ):
+            raise ActionDirectiveAuthorityError(
+                "Document approval is stale, mismatched or already used."
+            )
+        return dict(result), now
+
+    def issue_document_review_in_transaction(
+        self, authority: DocumentReviewAuthority
+    ) -> IssuedActionDirective:
+        """Caller locks connection/policy/request/sources before this metadata ledger."""
+        connection = self._document_transaction()
+        params = {
+            **self._document_params(authority),
+            "directive": f"dir_{uuid4().hex}",
+            "operation": f"document_batch_{uuid4().hex}",
+        }
+        row = (
+            connection.execute(
+                text("""
+            INSERT INTO one_action_directive_ledger (
+              directive_id,user_id,channel,document_request_id,document_request_revision,
+              action_id,context_revision,action_contract_digest,slots_hmac,resource_binding_hmac,
+              requires_confirmation,trusted_activation_required,operation_id,expires_at)
+            VALUES (:directive,:user,'document_review',:request,:revision,:action,:context,
+              :contract,:slots,:binding,TRUE,TRUE,:operation,clock_timestamp()+INTERVAL '5 minutes')
+            ON CONFLICT (user_id,document_request_id,document_request_revision,action_id)
+              WHERE channel='document_review' DO NOTHING
+            RETURNING directive_id
+        """),
+                params,
+            )
+            .mappings()
+            .first()
+        )
+        if not row:
+            row = (
+                connection.execute(
+                    text("""
+                SELECT directive_id FROM one_action_directive_ledger
+                WHERE user_id=:user AND document_request_id=:request
+                  AND document_request_revision=:revision AND action_id=:action
+                  AND channel='document_review'
+            """),
+                    params,
+                )
+                .mappings()
+                .first()
+            )
+        if not row:
+            raise ActionDirectiveAuthorityError("Document approval is unavailable.")
+        current, _ = self._locked_document_review(
+            directive_id=row["directive_id"], authority=authority, state="issued"
+        )
+        return IssuedActionDirective(
+            current["directive_id"],
+            current["action_id"],
+            current["context_revision"],
+            current["expires_at"],
+        )
+
+    def confirm_document_review_in_transaction(
+        self, *, directive_id: str, authority: DocumentReviewAuthority, trusted_activation: bool
+    ) -> ActionConfirmationReceipt:
+        if trusted_activation is not True:
+            raise ActionDirectiveAuthorityError("Explicit document review approval is required.")
+        row, now = self._locked_document_review(
+            directive_id=directive_id, authority=authority, state="issued"
+        )
+        receipt = secrets.token_urlsafe(32)
+        self._connection.execute(
+            text("""
+            UPDATE one_action_directive_ledger SET state='confirmed',confirmed_at=:now,receipt_hash=:hash
+            WHERE directive_id=:id AND channel='document_review' AND state='issued'
+        """),
+            {"now": now, "hash": hashlib.sha256(receipt.encode()).hexdigest(), "id": directive_id},
+        )
+        return ActionConfirmationReceipt(directive_id, receipt, row["expires_at"], now, True)
+
+    def claim_document_review_in_transaction(
+        self, *, directive_id: str, receipt: str, authority: DocumentReviewAuthority
+    ) -> str:
+        """Claim + caller's per-file pending inserts MUST commit in the same tx.
+
+        Returns a durable batch identifier, not a reusable provider credential.
+        No provider I/O may occur before that transaction commits.
+        """
+        row, now = self._locked_document_review(
+            directive_id=directive_id, authority=authority, state="confirmed"
+        )
+        receipt_hash = hashlib.sha256(receipt.encode()).hexdigest()
+        if not row["receipt_hash"] or not hmac.compare_digest(row["receipt_hash"], receipt_hash):
+            raise ActionDirectiveAuthorityError("Document approval receipt is invalid.")
+        self._connection.execute(
+            text("""
+            UPDATE one_action_directive_ledger SET state='consumed',consumed_at=:now
+            WHERE directive_id=:id AND channel='document_review' AND state='confirmed'
+        """),
+            {"now": now, "id": directive_id},
+        )
+        return row["operation_id"]
 
     async def command_outcome(
         self, *, user_id: str, command_id: str, step: int
@@ -443,6 +623,8 @@ class ActionDirectiveStore:
         trusted_activation_required: bool = False,
         ttl_seconds: int = 300,
     ) -> IssuedActionDirective:
+        if channel not in {"typed_chat", "voice", "command"}:
+            raise ActionDirectiveAuthorityError("Use the bound document review authority.")
         if channel == "typed_chat" and (not conversation_id or session_id):
             raise ValueError("typed_chat directives require only conversation_id")
         if channel == "voice" and (not session_id or conversation_id):
@@ -500,6 +682,7 @@ class ActionDirectiveStore:
             UPDATE one_action_directive_ledger
             SET state = 'confirmed', receipt_hash = :receipt_hash, confirmed_at = NOW()
             WHERE directive_id = :directive_id
+              AND channel <> 'document_review'
               AND user_id = :user_id
               AND action_id = :action_id
               AND context_revision = :context_revision
@@ -548,6 +731,7 @@ class ActionDirectiveStore:
             UPDATE one_action_directive_ledger
             SET state = 'consumed', consumed_at = NOW()
             WHERE directive_id = :directive_id
+              AND channel <> 'document_review'
               AND receipt_hash = :receipt_hash
               AND user_id = :user_id
               AND action_id = :action_id
@@ -588,6 +772,7 @@ class ActionDirectiveStore:
             SET state = 'settled', settlement_status = :status,
                 settlement_reason_code = :reason_code, settled_at = NOW()
             WHERE directive_id = :directive_id
+              AND channel <> 'document_review'
               AND receipt_hash = :receipt_hash
               AND user_id = :user_id
               AND action_id = :action_id
@@ -641,6 +826,7 @@ class ActionDirectiveStore:
             SET state = 'settled', settlement_status = :status,
                 settlement_reason_code = :reason_code, settled_at = NOW()
             WHERE directive_id = :directive_id
+              AND channel <> 'document_review'
               AND user_id = :user_id
               AND action_id = :action_id
               AND context_revision = :context_revision

@@ -26,6 +26,13 @@ COPY requirements.txt .
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --system --compile-bytecode -r requirements.txt
 
+# A complete, exact-revision, local E5 snapshot is a build artifact. Both the
+# request-serving API (query embeddings) and the separate document worker use
+# this same image; the child process is deliberately offline at runtime.
+COPY hushh_mcp/services/embedding_client_leaf.py hushh_mcp/services/embedding_client_leaf.py
+COPY scripts/ops/bake_drive_embedding_model.py scripts/ops/bake_drive_embedding_model.py
+RUN python -m scripts.ops.bake_drive_embedding_model
+
 # Stage 2: Production runtime
 FROM python:3.13-slim
 
@@ -38,8 +45,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Copy Python dependencies from builder
 COPY --from=builder /usr/local /usr/local
+COPY --from=builder /opt/hushh/models /opt/hushh/models
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    HUSHH_DRIVE_EMBEDDING_MODEL_DIR=/opt/hushh/models/multilingual-e5-small
 
 # Make sure scripts in .local are usable
 ENV PATH=/usr/local/bin:$PATH

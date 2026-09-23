@@ -1364,6 +1364,15 @@ class AccountService:
             logger.warning("account.erasure_funding_disconnect_failed error=%s", type(exc).__name__)
         results["plaid_disconnected_at_plaid"] = disconnected
 
+    @staticmethod
+    def _clear_external_connector_data(conn, user_id, results, *, permanent):
+        from hushh_mcp.services.drive_sharing_retention import erase_drive_account_in_transaction
+
+        lock_connection_graph_users(conn, user_ids=[user_id])
+        erase_drive_account_in_transaction(conn, user_id=user_id, permanent=permanent)
+        results["external_connectors"] = True
+        results["drive_private_data"] = True
+
     def _clear_user_data_tables(self, conn, user_id: str, results: dict[str, bool]) -> None:
         """Clear all per-user data tables EXCEPT the account spine.
 
@@ -1374,6 +1383,7 @@ class AccountService:
         One identity and vault survive a reset.
         """
         params = {"user_id": user_id}
+        self._clear_external_connector_data(conn, user_id, results, permanent=False)
         self._delete_optional_user_tables(
             conn,
             table_names=[
@@ -1874,6 +1884,7 @@ class AccountService:
                     params=params,
                     results=results,
                 )
+                self._clear_external_connector_data(conn, user_id, results, permanent=True)
                 self._delete_optional_user_tables(
                     conn,
                     table_names=[

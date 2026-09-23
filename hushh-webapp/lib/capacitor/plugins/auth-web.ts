@@ -25,6 +25,13 @@ import {
 import { auth } from "@/lib/firebase/config";
 
 export class HushhAuthWeb implements HushhAuthPlugin {
+  async reauthenticateGoogleIdentity(_options: {
+    expectedUserId: string;
+  }): Promise<{ userId: string; idToken: string }> {
+    // AuthService owns web popup/session guards; do not create a second path.
+    throw new Error("Use AuthService for web identity verification.");
+  }
+
   private currentUser: AuthUser | null = null;
   private currentIdToken: string | null = null;
   private currentAccessToken: string | null = null;
@@ -87,11 +94,49 @@ export class HushhAuthWeb implements HushhAuthPlugin {
     );
   }
 
-  async connectDrive(_options: {
+  connectDrive(_options: {
     serverClientId: string;
-  }): Promise<{ serverAuthCode: string }> {
+  }): Promise<{ serverAuthCode: string }>;
+  connectDrive(_options: {
+    authorizeUrl: string;
+    attemptId: string;
+    expiresAt: number;
+    expectedUserId: string;
+  }): Promise<{
+    attemptId: string;
+    outcome: "ready" | "cancelled" | "failed";
+  }>;
+  async connectDrive(_options: {
+    serverClientId?: string;
+    authorizeUrl?: string;
+    attemptId?: string;
+    expiresAt?: number;
+    expectedUserId?: string;
+  }): Promise<{
+    serverAuthCode: string;
+  } | {
+    attemptId: string;
+    outcome: "ready" | "cancelled" | "failed";
+  }> {
     throw new Error(
       "Native Drive consent is only available in the mobile app.",
+    );
+  }
+
+  async pickDriveFiles(_options: {
+    authorizeUrl: string;
+    attemptId: string;
+    expiresAt: number;
+    expectedUserId: string;
+  }): Promise<{
+    attemptId: string;
+    outcome: "ready" | "cancelled" | "failed";
+  }> {
+    // The web surface deliberately uses the Google Picker service instead.
+    // A native Picker callback is opaque and cannot be safely emulated with a
+    // popup or an access token in browser JavaScript.
+    throw new Error(
+      "Native Drive file selection is only available in the mobile app.",
     );
   }
 

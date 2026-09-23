@@ -1,5 +1,6 @@
 import { ApiService } from "@/lib/services/api-service";
 import { nativeStreamFetch } from "@/lib/services/native-sse-fetch";
+import { parseConnectorReadReceipt, type ConnectorReadExperience } from "@/lib/agent/connector-read-receipt";
 import { HttpAgent, type AgentSubscriber, type Tool } from "@ag-ui/client";
 import { applyPatch, type Operation } from "fast-json-patch";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
@@ -28,6 +29,7 @@ export type AgentChatMessage = {
     } | null;
     structuredExperienceId?: string | null;
     structuredExperiences?: Array<{ id: string; activityType: string; content: unknown }>;
+    connectorRead?: ConnectorReadExperience | null;
   } | null;
 };
 
@@ -84,7 +86,6 @@ export type AgentChatStreamHandlers = {
   onComplete?: (payload: { conversationId: string; model?: string }) => void;
   onInterrupt?: (payload: { conversationId: string }) => void;
   onError?: (message: string) => void;
-  onThought?: (text: string) => void;
   onSources?: (sources: AgentSource[]) => void;
   /** The optional id is the AG-UI activity/tool identity for transport dedupe. */
   onStructuredExperience?: (experience: AgentStructuredExperience, eventId?: string) => void;
@@ -113,6 +114,48 @@ export function lastAssistantMessageId(messages: unknown): string | null {
   }
   return null;
 }
+
+// Reject legacy reasoning before the SDK stores it, including replay snapshots.
+// Server continuation signatures remain server-owned and never enter this UI.
+const publicOutputSubscriber: Pick<
+  AgentSubscriber,
+  "onEvent" | "onMessagesSnapshotEvent"
+> = {
+  onEvent: ({ event }) => {
+    if (String(event.type).startsWith("REASONING_")) {
+      return { stopPropagation: true };
+    }
+    return undefined;
+  },
+  onMessagesSnapshotEvent: ({ event, messages }) => {
+    if (![...event.messages, ...messages].some((message) => message.role === "reasoning")) {
+      return undefined; // Keep the SDK's normal replay semantics untouched.
+    }
+    const incoming = event.messages
+      .filter((message) => message.role !== "reasoning")
+      .map((message) => {
+        if (message.subagentRunId !== null) return message;
+        const normalized = { ...message };
+        delete normalized.subagentRunId;
+        return normalized;
+      });
+    const byId = new Map(incoming.map((message) => [message.id, message]));
+    // Match SDK replay: retain existing activity when the snapshot omits it,
+    // preserve existing ordering, then append newly observed messages.
+    const preserveActivity = !incoming.some((message) => message.role === "activity");
+    const merged = messages.flatMap((message) => {
+      if (message.role === "reasoning") return [];
+      if (preserveActivity && message.role === "activity") return [message];
+      const replacement = byId.get(message.id);
+      return replacement ? [replacement] : [];
+    });
+    const seen = new Set(merged.map((message) => message.id));
+    return {
+      messages: [...merged, ...incoming.filter((message) => !seen.has(message.id))],
+      stopPropagation: true,
+    };
+  },
+};
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
@@ -484,6 +527,7 @@ export async function streamAgentChat(input: {
     };
   };
   const subscriber: AgentSubscriber = {
+    ...publicOutputSubscriber,
     onRunStartedEvent: () => handlers.onStart?.({ conversationId: threadId }),
     onMessagesSnapshotEvent: ({ event }) => {
       const serverMessageId = lastAssistantMessageId(event.messages);
@@ -493,19 +537,35 @@ export async function streamAgentChat(input: {
       text += event.delta;
       handlers.onToken?.(event.delta);
     },
-    onReasoningMessageContentEvent: ({ event }) => handlers.onThought?.(event.delta),
     onToolCallStartEvent: ({ event }) => {
       toolNames.set(event.toolCallId, event.toolCallName);
       handlers.onToolStart?.(toolPayload(event.toolCallId, event.toolCallName));
     },
     onToolCallEndEvent: ({ event, toolCallName, toolCallArgs }) => {
-      toolArgs.set(event.toolCallId, toolCallArgs);
+      const safeArgs = toolCallName === "ask_email_agent" || toolCallName === "ask_documents_agent"
+        ? {} : toolCallArgs;
+      toolArgs.set(event.toolCallId, safeArgs);
       handlers.onToolWaiting?.(
-        toolPayload(event.toolCallId, toolCallName, toolCallArgs),
+        toolPayload(event.toolCallId, toolCallName, safeArgs),
       );
     },
     onToolCallResultEvent: ({ event }) => {
       const toolName = toolNames.get(event.toolCallId) || "";
+      // External-read receipts are display-only, even if an invalid result attempts to
+      // smuggle a parked navigation/send directive alongside it.
+      if (toolName === "ask_email_agent" || toolName === "ask_documents_agent") {
+        const experience = parseAgentToolResultExperience(toolName, event.content);
+        const payload = toolPayload(event.toolCallId, toolName);
+        payload.execution = "server";
+        const source = toolName === "ask_email_agent" ? "Mail" : "Drive";
+        payload.message = experience ? `${source} read finished.` : `${source} could not complete that read.`;
+        payload.raw = { protocol: "ag-ui", toolName };
+        handlers.onToolResult?.(payload);
+        if (experience) {
+          handlers.onStructuredExperience?.(experience, event.toolCallId);
+        }
+        return;
+      }
       const payload = toolPayload(
         event.toolCallId,
         toolName,
@@ -735,6 +795,7 @@ export async function streamAgentIntro(input: {
   let text = "";
   let failure: Error | null = null;
   const subscriber: AgentSubscriber = {
+    ...publicOutputSubscriber,
     onRunStartedEvent: () => handlers.onStart?.({ conversationId: threadId }),
     onMessagesSnapshotEvent: ({ event }) => {
       const serverMessageId = lastAssistantMessageId(event.messages);
@@ -744,7 +805,6 @@ export async function streamAgentIntro(input: {
       text += event.delta;
       handlers.onToken?.(event.delta);
     },
-    onReasoningMessageContentEvent: ({ event }) => handlers.onThought?.(event.delta),
     onRunFinishedEvent: () => handlers.onComplete?.({ conversationId: threadId }),
     onRunErrorEvent: ({ event }) => {
       failure = new Error(formatAgentChatErrorMessage(event.message || ""));
@@ -792,8 +852,47 @@ export async function getAgentChatHistory(input: {
   if (!response.ok) {
     throw new Error(await readError(response));
   }
-  const payload = (await response.json()) as { messages?: AgentChatMessage[] };
-  return Array.isArray(payload.messages) ? payload.messages : [];
+  const payload = (await response.json()) as {
+    messages?: Array<Omit<AgentChatMessage, "metadata"> & {
+      metadata?: {
+        kind?: string;
+        display?: string;
+        structuredExperience?: {
+          activityType?: string;
+          content?: unknown;
+        } | null;
+        structuredExperienceId?: string | null;
+        structuredExperiences?: Array<{ id: string; activityType: string; content: unknown }>;
+        specialist_read?: unknown;
+      } | null;
+    }>;
+  };
+  if (!Array.isArray(payload.messages)) return [];
+  return payload.messages
+    .filter((message) => ["user", "assistant", "system", "tool"].includes(message.role))
+    .map((message) => ({
+      id: message.id,
+      conversation_id: message.conversation_id,
+      role: message.role,
+      status: message.status,
+      content: message.content,
+      model: message.model,
+      created_at: message.created_at,
+      completed_at: message.completed_at,
+      metadata: message.metadata
+        ? {
+            kind: message.metadata.kind,
+            display: message.metadata.display,
+            structuredExperience: message.metadata.structuredExperience,
+            structuredExperienceId: message.metadata.structuredExperienceId,
+            structuredExperiences: message.metadata.structuredExperiences,
+            connectorRead:
+              message.role === "assistant"
+                ? parseConnectorReadReceipt(message.metadata.specialist_read)
+                : null,
+          }
+        : message.metadata,
+    }));
 }
 
 /**

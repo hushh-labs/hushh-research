@@ -615,6 +615,7 @@ export class ConsentCenterService {
     actor?: ConsentCenterActor;
     mode?: ConsentCenterMode;
     surface: "pending" | "active" | "previous";
+    requestView?: "received" | "sent";
     q?: string;
     page?: number;
     limit?: number;
@@ -624,6 +625,8 @@ export class ConsentCenterService {
     const actor = options.actor;
     const cacheActor = consentCenterCacheActor(actor);
     const mode = options.mode || "consents";
+    const requestView = options.requestView === "sent" ? "sent" : "received";
+    const listScope = `${cacheActor}:${mode}${requestView === "sent" ? ":sent" : ""}`;
     const q = options.q || "";
     const previewTop =
       typeof options.top === "number"
@@ -634,13 +637,13 @@ export class ConsentCenterService {
     const cacheKey = previewTop
       ? CACHE_KEYS.CONSENT_CENTER_PREVIEW(
           options.userId,
-          `${cacheActor}:${mode}`,
+          listScope,
           options.surface,
           previewTop,
         )
       : CACHE_KEYS.CONSENT_CENTER_LIST(
           options.userId,
-          `${cacheActor}:${mode}`,
+          listScope,
           options.surface,
           q,
           page,
@@ -656,6 +659,7 @@ export class ConsentCenterService {
       surface: options.surface,
     });
     if (actor) query.set("actor", actor);
+    if (requestView === "sent") query.set("request_view", "sent");
     if (previewTop) {
       query.set("top", String(previewTop));
     } else {

@@ -13,6 +13,7 @@ import { InformationRequestReviewFields } from "@/components/consent/information
 import { DEFAULT_REQUEST_DURATION_HOURS } from "@/lib/agent/action-directive-summary";
 import { PersonProfileService, mergePersonScopePage, type ViewerPersonProfile } from "@/lib/services/person-profile-service";
 import { ConsentScopeNestedList } from "@/components/consent/consent-scope-nested-list";
+import { ConnectorReadReceipt } from "@/components/agent/connector-read-receipt";
 import { ConsentScopeList } from "@/components/consent/consent-scope-list";
 import {
   domainLabelFor,
@@ -44,11 +45,15 @@ export const AgentPersonSelectionContext = createContext<((handle: string, name:
 
 export function AgentStructuredExperienceView({
   experience,
+  onOpenConnections,
 }: {
   experience: AgentStructuredExperience;
+  onOpenConnections?: (trigger: HTMLButtonElement) => void;
 }) {
   const selectPerson = useContext(AgentPersonSelectionContext);
   switch (experience.type) {
+    case "one.connector_read.v1":
+      return <ConnectorReadReceipt experience={experience} onOpenConnections={onOpenConnections} />;
     case "one.person_selection.v1":
       return <ExperienceShell experienceType={experience.type} label="Choose a person" title="Who do you mean?"
         summary="Choose the right person before we check what you can ask for." icon={<UserRound className="size-5" />}>
@@ -412,7 +417,7 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
       if (!granted.length) throw new Error("No current grant");
       const connector = await OneKycClientZkService.readStoredConnector({ userId: user.uid, vaultKey, vaultOwnerToken });
       if (generation !== revealGeneration.current) return;
-      if (!connector) throw new Error("Connector unavailable");
+      if (!connector) throw new Error("Connection unavailable");
       const exports = await PersonProfileService.getInformationRequestExports({ bundleId: bundle.bundleId, vaultOwnerToken });
       if (generation !== revealGeneration.current) return;
       const values: Array<{ requestId: string; label: string; data: Record<string, unknown> }> = [];

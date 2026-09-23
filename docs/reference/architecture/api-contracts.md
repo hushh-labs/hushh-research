@@ -730,7 +730,7 @@ delete/absent lifecycle with cleanup.
 | Method | Path                                                  | Description                                                                                                                                                   |
 | ------ | ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | POST   | `/api/kai/chat`                                       | Conversational Kai endpoint                                                                                                                                   |
-| POST   | `/api/one/agent-chat`                                 | Canonical AG-UI `RunAgentInput` endpoint; emits only official run, text, reasoning, tool, state, interrupt, and terminal events; authenticated ADK sessions are encrypted at rest |
+| POST   | `/api/one/agent-chat`                                 | Canonical AG-UI `RunAgentInput` endpoint; emits official run, text, tool, state, interrupt, and terminal events, excluding provider reasoning; authenticated ADK sessions are encrypted at rest |
 | GET    | `/api/one/agent-chat/capabilities`                    | Official AG-UI capability projection for the request's authenticated or pre-vault runtime tier                                                                       |
 | GET    | `/api/one/agent-chat/conversations/{user_id}`         | List recent encrypted Agent chat conversations for the vault owner                                                                                            |
 | PATCH  | `/api/one/agent-chat/conversations/{conversation_id}` | Rename an authenticated vault owner's encrypted Agent chat conversation                                                                                       |
@@ -742,6 +742,14 @@ delete/absent lifecycle with cleanup.
 | GET    | `/api/kai/chat/conversations/{user_id}`               | List all conversations                                                                                                                                        |
 | GET    | `/api/kai/chat/initial-state/{user_id}`               | Initial chat state                                                                                                                                            |
 | POST   | `/api/kai/chat/analyze-loser`                         | Analyze a specific loser                                                                                                                                      |
+
+One's full and pre-vault heads do not publish thought summaries. Reasoning
+events and reasoning messages in replay snapshots are removed at the outbound
+boundary, and history/compatibility responses omit thought-marked text parts.
+This does not disable model reasoning or mutate provider continuation state:
+opaque thought signatures and function-call associations stay server-side.
+The client rejects legacy reasoning events before SDK message storage and uses
+deterministic activity/status text instead of a reasoning detail view.
 
 #### One Voice
 
@@ -1050,6 +1058,187 @@ If import cannot proceed, terminal events are:
 No silent success is emitted on terminal failures.
 
 ---
+
+## Personal Mail / Drive connector lifecycle (disabled draft)
+
+The Drive lifecycle extends the existing external-connector registry and credential store;
+it does not migrate Gmail/Calendar credentials or change Firebase authentication. These
+routes remain default-off and do **not** enable chat reads or indexing.
+
+| Route | Authority | Contract |
+| --- | --- | --- |
+| `GET /api/connectors` | Vault Owner | Existing catalog/status plus redacted validation/revocation state, `available`, and computed rollout flags; deactivated Drive keeps owner recovery status with `available=false`. No endpoints, scopes, raw policy, provider subject or credentials. |
+| `POST /api/connectors/google_drive/connect/oauth/start` | Vault Owner + internal cohort/connection flag | Registered `redirectUri`, optional `flow=web\|native`; returns authorization URL, opaque `attemptId`, connector and ten-minute expiry. |
+| `POST /api/connectors/oauth/complete` | Vault Owner | Existing owner completion remains compatible. Drive uses atomic single-use claims and verified Google identity/scopes. |
+| `POST /api/connectors/oauth/complete/web` | Verified Firebase identity matching an existing unexpired Vault-authorized Drive attempt | Requires `code`, signed `state` and matching opaque `attemptId` before exchange. Popup-only completion exception; no opener Vault Owner token transfer. |
+| `GET /api/connectors/oauth/native/callback` | Signed state + atomic native attempt claim | Backend code exchange; encrypted pending credentials only. Fixed `hushh://connectors/return` handoff contains only opaque attempt/outcome. Invalid state has no redirect. |
+| `GET /api/connectors/oauth/native/pending` | Original Vault Owner | Returns only the current opaque staged native `attemptId` and expiry for restart recovery. It never returns provider credentials, codes, tokens, subjects, or callback data. |
+| `POST /api/connectors/oauth/native/finalize` | Original Vault Owner | Accepts `attemptId`; checks expiry, generation, client/redirect configuration and current cohort admission before activation. |
+| `POST /api/connectors/google_drive/disconnect` | Vault Owner; remains available when rollout is off | Immediately disables local execution, invalidates attempts, clears credentials, then makes a bounded in-memory provider revocation attempt. Reports `revocationOutcome`; no background retry is promised. |
+| `POST /api/connectors/google_drive/picker/session` | Vault Owner + Picker cohort/flag | Exact registered web `origin`; verifies authenticated Drive About and fixed selected-file policy, then returns a ten-minute opaque selection session and the minimum short-lived Google access credential for the official Picker. Backend and web proxy both set `no-store`. No refresh token. |
+| `POST /api/connectors/google_drive/documents/select` | Same Vault Owner + current single-use session + explicit `confirmed=true` | At most 25 unique candidate IDs. Revalidates fixed provider metadata/policy; atomically consumes the session and inserts encrypted internal catalog references in `queued` state. Does not claim indexing completed. |
+| `POST /api/connectors/google_drive/picker/native/start` | Vault Owner + Picker cohort/flag | Requires the exact registered HTTPS callback. Starts a separate ten-minute PKCE One Picker attempt with only `drive.file`, `trigger_onepick=true`, and `allow_multiple=true`; returns an authorization URL, opaque attempt ID and expiry only. |
+| `GET /api/connectors/google_drive/picker/native/callback` | Signed state + atomic native Picker attempt claim | Fixed Google HTTPS callback accepts the provider redirect server-side. It validates exactly `drive.file`, transiently exchanges the code, validates no more than 25 picked IDs with both the callback credential and the current verified connector credential, encrypts minimal staged metadata, then redirects only to `hushh://connectors/picker-return?attemptId=…&outcome=…`. It never persists the callback token, OAuth code, selected provider IDs, or a callback-account identity claim. Invalid state has no handoff. |
+| `GET /api/connectors/google_drive/picker/native/pending` | Original Vault Owner | Returns only the current opaque attempt, expiry, owner-review display name/mime type, and opaque staging document handles. No provider IDs, codes, subjects, raw query data, or credentials. |
+| `POST /api/connectors/google_drive/picker/native/confirm` | Original Vault Owner | Accepts only an opaque attempt ID and optional explicit `selected-files-background-v1` processing consent. Rechecks generation, credential version, policy, and current stored grant before atomically consuming the shared selection session and inserting catalog entries. Omitting consent cannot enable processing. |
+| `POST /api/connectors/google_drive/picker/native/cancel` | Original Vault Owner | Idempotently removes the linked selection session and native attempt, suppressing late callback/confirmation results. |
+| `GET /api/connectors/google_drive/documents` | Vault Owner | Owner-only internal document references, names and safe states. Available after grant rejection and with execution disabled; never provider file IDs or tokens. |
+| `DELETE /api/connectors/google_drive/documents/{document_id}` | Vault Owner + explicit `confirmed=true` | Repeat-safe local removal, no Google mutation. Invalidates pending Picker sessions so in-flight selection cannot resurrect a removed source. Works without provider credentials or document decryption. |
+
+Consent enters `verifying`, **not** `connected`. The fixed REST selected-file policy and
+authenticated Drive About check precede the Picker session. A definitive refresh grant rejection yields
+`needs_reauth`; transient failures preserve the encrypted grant. Refresh uses a 30-second
+database lease and generation/version fencing. A pending revocation temporarily blocks
+reconnection so an old revoke request cannot race a new grant.
+
+The existing hosted runtime-config mechanism carries default-false `connections_panel_v2`,
+`google_drive_connection`, `google_drive_picker`, `drive_document_indexing`, `gmail_chat_reads`, and `google_drive_chat_reads` with an explicit
+internal owner cohort. This is revision-owned configuration, not an instantaneous fleet-wide
+flag service. Writes, user-facing downloads, connector voice execution and production remain
+disabled. Status, recovery callbacks and disconnect remain reachable with their required
+authority; an outstanding callback does not bypass activation eligibility.
+
+Web OAuth accepts exactly identity scopes plus `drive.file`; broad Drive and combined Gmail
+grants are rejected, including legacy cached credentials. The REST adapter has no scan or write
+operation: selected metadata, Docs/Slides text export and bounded binary/text retrieval only.
+It rejects redirects, compression, unsupported formats, shortcuts, CSE, missing/false download
+or GenAI capabilities, and changed metadata after fetch. Requiring GenAI eligibility is our
+conservative REST-index policy, not a claim that all Google REST calls require it.
+
+Migration 228 adds an encrypted source catalog under separate `DRIVE_DOCUMENT_KEY_V1`, not
+client-key PKM or OAuth credential storage. Source metadata is owner/document/generation bound;
+source IDs are owner-keyed HMAC fingerprints. Disconnect/account switch atomically deletes
+selected sources and sessions. This checkpoint stores no raw content, chunks or embeddings.
+
+The existing left drawer mounts Chats and Connections together. Mail uses the existing
+Gmail connection service; Drive uses a synchronously opened popup with exact origin/source/
+attempt/expiry settlement checks and owner-status reconciliation. The exact callback shell
+does not require an opener vault key; Firebase identity and the prior attempt authorize the
+server completion. Other management routes retain their vault gates. The official web Picker
+receives an in-memory short-lived token only, and selection needs a separate explicit owner
+confirmation. Blocked popups remain in chat; no unencrypted full-page recovery is used.
+
+Native Drive authorization and native file selection use separate fixed registered backend HTTPS
+callbacks. The One Picker path requests **only** `drive.file`; Google does not return OIDC identity
+in that flow, so it never claims to identify the callback account. Its callback credential is
+transient, validates the picked metadata only, and is discarded before the opaque
+`hushh://connectors/picker-return` handoff. iOS presents it through
+`ASWebAuthenticationSession`; Android uses Auth Tab with the documented Custom Tabs fallback.
+The app validates the fixed Google authorization origin and opaque result, keeps browser/auth
+interactions single-flight, and reconciles staged state only after the original Vault Owner is
+current. The native return never replaces chat navigation or exposes an OAuth code, state,
+provider identity, token, or selected file identifier to JavaScript.
+
+Release prerequisites still include encrypted full-page recovery, ingestion/index/search/grants,
+scheduled retention, authenticated mobile Picker acceptance, and OAuth callback ingress-log routing
+evidence. Native Picker requires the fixed registered HTTPS callback plus the Google Picker API key
+in the native shell; source-level handling does not prove either environment prerequisite.
+Application redaction covers query `code`/`state`/`picked_file_ids` and Drive file-ID paths, but
+does not sanitize platform-managed request logs.
+See [Mail + Drive UAT acceptance](../operations/mail-drive-uat-acceptance.md).
+
+### Delegated Mail metadata reads (default-off)
+
+One's existing AG-UI typed-chat route can delegate `list_needs_reply` or `search_inbox`
+through the authored Email specialist. Admission requires the internal owner cohort,
+`gmail_chat_reads`, a current Vault Owner session and a manifest-declared invocation
+capability bound to the same owner, task, call and expiry. Voice, arbitrary operations,
+client-supplied delegated results and action plans cannot enter this path. Existing
+Gmail credentials, receipt/sync routes, Calendar and reviewed sending are unchanged.
+
+The reader requests fixed Gmail metadata fields only: sender, subject, date and labels.
+It never fetches message bodies, snippets, attachments or ICS enrichment. Reads default
+to ten results (maximum 25), one page, a 20-second provider deadline and a 256 KiB
+aggregate provider-response budget. A no-tools interpreter returns a bounded answer
+and ephemeral source references. The grant is rechecked before releasing results;
+disconnect or credential changes suppress a late answer. The delegated path creates
+no separate Email conversation and persists no Email turn.
+
+Specialist results add optional `specialist_read.v1` structured data with safe status,
+source references, truncation and explicit connect/reconnect actions. The frontend
+accepts a strict display-only projection; it neither performs OAuth nor executes a
+directive from retrieved content. The existing Connections drawer opens only after a
+user presses its button. On reload, the final visible assistant answer may carry the
+same redacted receipt in `metadata.specialist_read`; preambles and user turns do not.
+
+Mail invocation tool arguments and raw responses are replaced with a redacted durable
+projection, preserving call correlation and opaque thought signatures. Normal encrypted
+assistant answers remain. One and specialist telemetry suppress content; export-time
+exception sanitization and provider HTTP tracing suppression also cover SDK failure
+paths. Tool execution closes before external Mail data enters the model and remains
+closed for the rest of that SDK invocation. A new user turn starts a new invocation.
+These controls are automated-test evidence, not authenticated provider/UAT acceptance.
+
+### Exact-file Drive sharing (default-off)
+
+All routes below use `/api/connectors/google_drive/sharing` and require a current Vault
+Owner. Responses and validation failures are private/no-store; provider payloads, file IDs,
+tokens, subjects and endpoints are not returned. Mutations derive owner/generation server-side.
+
+| Method / suffix | Authority and result |
+| --- | --- |
+| `POST /requests` | B's recent verified Google Firebase identity must match B's Vault Owner; an active A/B connection is required. Accepts an opaque client request ID, exactly one of `ownerUserId` or `ownerPersonRef`, and purpose/period. Public person references resolve server-side; no internal UID is exposed in the profile. B need not connect Drive. |
+| `GET /requests` | Participant-scoped incoming/outgoing metadata, bounded pagination; never private candidates. |
+| `GET /requests/{id}` | Participant-only generic status and server-derived `direction`. Preparation and private review remain pending to B; a deep link never grants owner review authority. |
+| `GET /requests/{id}/review` | A-only current private review; exact documents, coverage, recipient and review digest. |
+| `POST /requests/{id}/review/refresh` | A's current revision cancels unused review authority and queues preparation again. |
+| `POST /requests/{id}/approve` | A's exact revision, digest, document IDs and strict `confirmed=true`; atomically claims confirmation and records work. HTTP 202 means pending, not shared. |
+| `POST /requests/{id}/decline` | A's revision-bound decision; no provider call. |
+| `POST /requests/{id}/cancel` | B's revision-bound cancellation before approval; no provider call. |
+| `GET /requests/{id}/delivery` | Recorded per-file outcomes. B's current verified Google identity is revalidated; only successfully delivered originals have links. These are not live ACL guarantees. |
+| `POST /requests/{id}/revocation/prepare` | A's fresh review of recorded Hussh-managed direct Viewer grants under the current matching Google account. |
+| `POST /requests/{id}/revocation/confirm` | Exact revocation revision, directive, digest, grant IDs and strict confirmation; queues removal, never adopts pre-existing grants. |
+
+Background suggestions require current durable per-file processing consent and a short-lived
+request lease. The authored interpreter has no tools, owner session or permission authority.
+It may propose only observed document/source references, and every read input is checked again
+under publication locks, including when no file is suggested. Fixed finite workers process
+queued approvals; timeout outcomes reconcile with reads, never blind mutation retries.
+
+Disconnect disables One and deletes its index, not existing Google sharing. Encrypted management
+receipts remain for separate removal. Google originals remain in A's Drive and later edits remain
+visible until access is removed; unrelated inherited/group access can remain. Notification,
+native UI/recovery, deployed worker isolation and authenticated A/B acceptance are still
+release prerequisites. No production flag is enabled by these source changes.
+
+Consent Center's existing investor surfaces add metadata-only document rows with opaque
+`document_share_request:<uuid>` selection IDs, exact counts and bounded previews. Recorded
+Google outcomes, not approval acceptance, determine Active access. The additive
+`drive_projection_available` distinguishes a pre-migration deployment from an installed
+empty domain; database errors are not reported as authoritative zero. No encryption key,
+provider call or private file/recipient data enters this projection. Existing permissions
+remain discoverable when execution is disabled. The generic PKM decision handlers and
+voice controls exclude these rows. Only the private, vault-guarded review can submit exact
+approval/removal terms; status refresh never executes a decision. Those details remain in
+component memory and are dropped on lock/owner change, not stored in the consent cache.
+
+`GET /api/consent/center/list?surface=pending&request_view=sent` adds B's pending document
+requests to the existing Consent Center Requests pane. Its metadata-only page/count is
+separate from Received and Needs You; the default summary still counts incoming requests
+only. Sent remains discoverable after disconnect or a feature pause. The UI uses
+`requestView=sent`, not the legacy RIA route. Connected person profiles offer a default-off
+request form with same-current-user Google reauthentication and independent Firebase/Vault
+headers. An unchanged in-memory retry reuses its client request ID; lock clears the draft.
+Web uses Firebase popup reauthentication; native uses the additive
+`HushhAuth.reauthenticateGoogleIdentity({expectedUserId})` bridge. iOS/Android capture
+the existing native Firebase user and linked Google subject, reauthenticate that user
+without replacement sign-in, then return only `{userId,idToken}` with fresh Firebase proof.
+Interactive native auth is single-flight on the main thread. Three callback stages check
+owner/session identity, deadline and single settlement; Android retains a timed-out result
+slot until the outstanding provider callback drains. Lock/session changes suppress the JS
+result and POST. No new credential persistence, cached-token fallback or React identity
+publication is introduced. Older shells fail closed with bounded retry/update guidance.
+This identity check grants no Drive scopes, consent or file permissions.
+
+Migration 234 separates A's minimal removal receipts from B's removable private request.
+Account reset/erasure removes request narratives, reviews, B's app identity and raw ACL snapshots;
+only encrypted facts necessary for A to inspect/remove recorded Google permissions remain.
+Owner-only management entries remain discoverable after that cleanup. A's own erasure removes
+credentials, index and receipts; reset retains only revoked monotonic generation/version counters.
+An uncertain already-dispatched write leaves an ownerless keyed file fence, never an automatic
+retry or age-based permission release. That file requires management in Google. The fence keeps
+no raw file ID, user ID or recipient and must survive file-lock-key rotation; it is not a claim
+that account erasure revoked external access or established a legal retention policy.
 
 ## External Developer API
 

@@ -80,6 +80,11 @@ export type HushhAuthTokenErrorCode =
   (typeof HUSHH_AUTH_TOKEN_ERROR_CODE)[keyof typeof HUSHH_AUTH_TOKEN_ERROR_CODE];
 
 export interface HushhAuthPlugin {
+  /** Fresh Google proof for the current Firebase user; never replaces sign-in. */
+  reauthenticateGoogleIdentity(options: {
+    expectedUserId: string;
+  }): Promise<{ userId: string; idToken: string }>;
+
   /**
    * Sign in with Google using native iOS/Android UI
    * Returns ID token + access token for Firebase credential exchange
@@ -118,6 +123,37 @@ export interface HushhAuthPlugin {
   connectDrive(options: {
     serverClientId: string;
   }): Promise<{ serverAuthCode: string }>;
+
+  /**
+   * Opens the server-authored Drive authorization URL in a native browser
+   * surface. The backend receives the provider callback and the bridge returns
+   * only the opaque attempt reference and terminal outcome.
+   */
+  connectDrive(options: {
+    authorizeUrl: string;
+    attemptId: string;
+    expiresAt: number;
+    expectedUserId: string;
+  }): Promise<{
+    attemptId: string;
+    outcome: "ready" | "cancelled" | "failed";
+  }>;
+
+  /**
+   * Opens the server-authored Google selected-file Picker in the native
+   * browser surface. The bridge returns no file identifiers, OAuth material,
+   * or provider metadata; the owner-protected backend stages candidates until
+   * the person explicitly confirms them in One.
+   */
+  pickDriveFiles(options: {
+    authorizeUrl: string;
+    attemptId: string;
+    expiresAt: number;
+    expectedUserId: string;
+  }): Promise<{
+    attemptId: string;
+    outcome: "ready" | "cancelled" | "failed";
+  }>;
 
   /**
    * Sign in with Apple using native iOS AuthenticationServices or Firebase OAuthProvider
@@ -254,7 +290,10 @@ export interface HushhConsentPlugin {
   }): Promise<{ published: boolean }>;
 
   /** Clear the shared iMessage session when the vault locks or user signs out. */
-  clearIMessageSession(): Promise<{ cleared: boolean; sessionGeneration: number }>;
+  clearIMessageSession(): Promise<{
+    cleared: boolean;
+    sessionGeneration: number;
+  }>;
 
   getPending(options: {
     userId: string;

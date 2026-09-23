@@ -40,6 +40,14 @@ describe("ConsentCenterService actorless One routes", () => {
     vi.clearAllMocks();
   });
 
+  it("requests the isolated Sent documents projection without RIA compatibility", async () => {
+    mockApiFetch.mockResolvedValueOnce(jsonResponse({ items: [], total: 0, page: 1, limit: 20, has_more: false }));
+    await ConsentCenterService.listEntries({ idToken: "tok", userId: "u-1", surface: "pending", requestView: "sent" });
+    const [url] = mockApiFetch.mock.calls[0];
+    expect(url).toContain("request_view=sent");
+    expect(url).not.toContain("actor=ria");
+  });
+
   it("loads One summary without emitting actor=investor", async () => {
     mockApiFetch.mockResolvedValueOnce(
       jsonResponse({

@@ -17,6 +17,7 @@ import { useAuth } from "@/hooks/use-auth";
 import {
   isOneSetupSurfaceRoute,
   isPublicRoute,
+  normalizeStaticExportPathname,
   ROUTES,
 } from "@/lib/navigation/routes";
 import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
@@ -110,6 +111,18 @@ export function OneAuthGate({ children }: { children: ReactNode }) {
   // pre-authentication state too, and anything rendered as a child of
   // VaultLockGuard is unmounted while the gate is redirecting.
   const funnelObserver = <LocationFunnelObserver />;
+
+  // Only the exact OAuth return shell owns its Firebase readiness and safe
+  // failed-session UI. Do not gate it on a vault key absent in a new popup,
+  // or forward its code/state through a login/phone redirect. Completion is
+  // still server-checked against the original Vault-authorized attempt. The
+  // legacy full-page callback applies its own VaultLockGuard inside the page.
+  if (
+    normalizeStaticExportPathname(pathname ?? "") ===
+    ROUTES.PROFILE_CONNECTOR_OAUTH_RETURN
+  ) {
+    return <>{children}</>;
+  }
 
   if (isPublicRoute(pathname ?? "")) {
     return (

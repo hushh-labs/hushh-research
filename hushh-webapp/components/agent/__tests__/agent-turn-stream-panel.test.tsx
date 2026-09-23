@@ -100,6 +100,24 @@ function makeToolEvent(overrides: Partial<AgentChatToolEvent> = {}): AgentChatTo
 }
 
 describe("AgentTurnStreamPanel", () => {
+  it("renders metadata provenance and opens Connections only on explicit click", () => {
+    const onOpenConnections = vi.fn();
+    const experience = { type: "one.connector_read.v1" as const, connector: "mail" as const,
+      status: "ok" as const, sourceRefs: ["mail:1"], metadataOnly: true as const, truncated: true };
+    const { rerender } = render(<AgentTurnStreamPanel streamEvents={[]} responseText="Your answer."
+      isStreaming={false} structuredExperience={experience} onOpenConnections={onOpenConnections} />);
+    expect(screen.getByRole("region", { name: "Mail read details" })).toBeInTheDocument();
+    expect(screen.getByText("Metadata only · 1 cited source")).toBeInTheDocument();
+    expect(screen.getByText("Mail 1")).toBeInTheDocument();
+    expect(screen.getByText("Some matches or metadata were omitted.")).toBeInTheDocument();
+    expect(onOpenConnections).not.toHaveBeenCalled();
+    rerender(<AgentTurnStreamPanel streamEvents={[]} responseText="Reconnect your Mail."
+      isStreaming={false} structuredExperience={{ ...experience, status: "reconnect_required", sourceRefs: [] }}
+      onOpenConnections={onOpenConnections} />);
+    fireEvent.click(screen.getByRole("button", { name: "Open Connections" }));
+    expect(onOpenConnections).toHaveBeenCalledOnce();
+    expect(screen.queryByText("Mail 1")).not.toBeInTheDocument();
+  });
   it("renders tool progress without leaking raw action payloads", () => {
     const event = agentToolEventToVisibleStreamEvent("waiting", makeToolEvent(), 1_700_000);
 
@@ -157,42 +175,33 @@ describe("AgentTurnStreamPanel", () => {
     expect(screen.queryByText("Waiting for response tokens.")).not.toBeInTheDocument();
   });
 
-  it("shows provider reasoning to the owner", () => {
+  it("never renders legacy reasoning during a turn or after the answer arrives", () => {
+    const legacyProps = { thinkingText: "Private provider reasoning." };
     const { rerender } = render(
       <AgentTurnStreamPanel
+        {...legacyProps}
         streamEvents={[]}
         responseText=""
-        thinkingText="**Checking context**\n\nComparing the active settings."
         isStreaming
       />
     );
 
-    // Founder directive 2026-09-02: the owner asked to see the agent think.
-    // The reasoning had been received, accumulated and then discarded by a
-    // single `void thinkingText`, so the panel rendered nothing.
-    expect(
-      screen.getByText((content) => content.includes("Comparing the active settings.")),
-    ).toBeInTheDocument();
-    expect(screen.queryByText("**Checking context**")).not.toBeInTheDocument();
-    expect(screen.getByRole("log", { name: "Thinking details" })).toHaveClass(
-      "max-h-44",
-      "overflow-y-auto",
-    );
+    expect(screen.queryByText(legacyProps.thinkingText)).not.toBeInTheDocument();
+    expect(screen.queryByRole("log", { name: "Thinking details" })).not.toBeInTheDocument();
     expect(screen.getByRole("status")).toHaveTextContent("One is preparing your response.");
     expect(screen.queryByText("Waiting for response tokens.")).not.toBeInTheDocument();
 
     rerender(
       <AgentTurnStreamPanel
+        {...legacyProps}
         streamEvents={[]}
         responseText="The settings are ready."
-        thinkingText="**Checking context**\n\nComparing the active settings."
         isStreaming
       />,
     );
-    expect(screen.getByRole("button", { name: /One is thinking/i })).toHaveAttribute(
-      "data-state",
-      "closed",
-    );
+    expect(screen.queryByRole("button", { name: /One is thinking/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(legacyProps.thinkingText)).not.toBeInTheDocument();
+    expect(screen.getByText("The settings are ready.")).toBeInTheDocument();
   });
 
   it("presents consulted specialists as bounded provenance without internal ids or request text", async () => {

@@ -198,7 +198,17 @@
     "223_one_location_setup_progress.sql",
     "224_setup_capability_declined_ids.sql",
     "225_external_mcp_connectors.sql",
-    "226_pkm_manifest_path_repair.sql"
+    "226_pkm_manifest_path_repair.sql",
+    "227_external_connector_lifecycle.sql",
+    "228_selected_drive_documents.sql",
+    "229_drive_document_chunks.sql",
+    "230_drive_processing_consent.sql",
+    "231_document_review_authority.sql",
+    "232_drive_document_sharing.sql",
+    "233_drive_suggestion_preparation.sql",
+    "234_drive_permission_management_retention.sql",
+    "235_drive_share_notification_outbox.sql",
+    "236_drive_native_picker_attempts.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -385,10 +395,28 @@
       "108_canonical_mcp_credentials.sql",
       "109_oauth_client_credentials_consent_execution.sql",
       "142_source_library_scope_retirement.sql",
-      "225_external_mcp_connectors.sql"
+      "225_external_mcp_connectors.sql",
+      "227_external_connector_lifecycle.sql",
+      "228_selected_drive_documents.sql",
+      "229_drive_document_chunks.sql",
+      "230_drive_processing_consent.sql",
+      "231_document_review_authority.sql",
+      "232_drive_document_sharing.sql",
+      "233_drive_suggestion_preparation.sql",
+      "234_drive_permission_management_retention.sql",
+      "235_drive_share_notification_outbox.sql",
+      "236_drive_native_picker_attempts.sql"
     ]
   },
   "rollback_migrations": {
+    "236_drive_native_picker_attempts.sql": "rollback/236_drive_native_picker_attempts.rollback.sql",
+    "235_drive_share_notification_outbox.sql": "rollback/235_drive_share_notification_outbox.rollback.sql",
+    "234_drive_permission_management_retention.sql": "rollback/234_drive_permission_management_retention.rollback.sql",
+    "233_drive_suggestion_preparation.sql": "rollback/233_drive_suggestion_preparation.rollback.sql",
+    "232_drive_document_sharing.sql": "rollback/232_drive_document_sharing.rollback.sql",
+    "231_document_review_authority.sql": "rollback/231_document_review_authority.rollback.sql",
+    "230_drive_processing_consent.sql": "rollback/230_drive_processing_consent.rollback.sql",
+    "229_drive_document_chunks.sql": "rollback/229_drive_document_chunks.rollback.sql",
     "203_feed_counterpart_recipient_index.sql": "rollback/203_feed_counterpart_recipient_index.rollback.sql",
     "204_feed_counterpart_indexed_lookup.sql": "rollback/204_feed_counterpart_indexed_lookup.rollback.sql",
     "205_contact_sync_disconnect_actor.sql": "rollback/205_contact_sync_disconnect_actor.rollback.sql",

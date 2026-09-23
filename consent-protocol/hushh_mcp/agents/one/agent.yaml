@@ -211,6 +211,7 @@ capabilities:
     - agent_nav
     - agent_kyc
     - agent_email
+    - agent_documents
     - agent_personal_information
     - agent_location
     - agent_calendar

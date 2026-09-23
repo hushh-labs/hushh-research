@@ -17,6 +17,11 @@ from pydantic_core import PydanticSerializationError
 
 from db.db_client import DatabaseExecutionError, get_db
 from hushh_mcp.one_adk.drive_result_privacy import redact_drive_session_json
+from hushh_mcp.one_adk.external_read_boundary import (
+    STATE_EXECUTION_SURFACE,
+    STATE_EXTERNAL_READ,
+)
+from hushh_mcp.one_adk.external_read_projection import durable_external_read_projection
 from hushh_mcp.services.agent_chat_service import AgentChatService
 
 logger = logging.getLogger(__name__)
@@ -99,6 +104,7 @@ class EncryptedAdkSessionService(BaseSessionService):
             ) from None
 
     def _encode(self, session: Session) -> dict[str, str]:
+        session = durable_external_read_projection(session)
         try:
             plain = session.model_dump_json(by_alias=True)
         except PydanticSerializationError as exc:
@@ -295,7 +301,16 @@ class EncryptedAdkSessionService(BaseSessionService):
             )
             if latest is None:
                 raise RuntimeError("Encrypted ADK session disappeared.")
+            # These trusted invocation-local guards intentionally never reach
+            # storage. A CAS retry must not replace them with the redacted
+            # durable snapshot and reopen tools after an external read.
+            ephemeral = {
+                name: session.state[name]
+                for name in (STATE_EXECUTION_SURFACE, STATE_EXTERNAL_READ)
+                if name in session.state
+            }
             await super().append_event(latest, event)
+            latest.state.update(ephemeral)
             session.state = latest.state
             session.events = latest.events
             session.last_update_time = time.time()

@@ -31,6 +31,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { InformationRequestReviewFields } from "@/components/consent/information-request-review-fields";
+import { DocumentRequestButton } from "@/components/consent/document-request-button";
 import { usePersonInformationRequest } from "@/lib/consent/use-person-information-request";
 import { projectGrantPayload } from "@/lib/consent/project-grant-payload";
 import { isCurrentPersonExport } from "@/lib/consent/person-export-binding";
@@ -932,6 +933,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                 <Button type="button" variant="none" effect="fade" data-voice-control-id="person-profile-manage-consent" onClick={() => router.push(ROUTES.CONSENTS)}>
                   Manage access
                 </Button>
+                {viewerProfile.relationship.status === "connected" ? <DocumentRequestButton personRef={resolvedPersonRef} personName={profile.displayName || "this person"} /> : null}
               </>
             ) : null}
             <Button

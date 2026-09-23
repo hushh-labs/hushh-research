@@ -1197,6 +1197,7 @@ async def get_consent_center_list(
     top: int | None = Query(default=None, ge=1, le=10),
     page: int = Query(default=1, ge=1, le=1_000),
     limit: int = Query(default=20, ge=1, le=100),
+    request_view: str = Query(default="received", pattern="^(received|sent)$"),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     service = ConsentCenterService()
@@ -1209,6 +1210,7 @@ async def get_consent_center_list(
         top=top,
         page=page,
         limit=limit,
+        request_view=request_view,
     )
 
 

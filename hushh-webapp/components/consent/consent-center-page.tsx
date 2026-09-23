@@ -74,6 +74,13 @@ import {
 } from "@/lib/consent";
 
 import { HandshakeTimeline } from "@/components/consent/handshake-timeline";
+import { DocumentShareReview } from "@/components/consent/document-share-review";
+import {
+  documentShareRequestId,
+  documentShareSelectionId,
+  isDocumentShareEntry,
+  isDocumentShareSelection,
+} from "@/lib/consent/document-share-consent";
 import {
   humanizeConsentScope,
   resolveConsentRequesterLabel,
@@ -1171,6 +1178,7 @@ function ConsentEntryDetail({
   const isPendingKind =
     entry.kind === "incoming_request" || isConnectionRequestEntry(entry);
   const isPendingDecision =
+    !isDocumentShareEntry(entry) &&
     !isCircleMemberInvite &&
     isPendingKind &&
     (allowedNextAction
@@ -1205,6 +1213,7 @@ function ConsentEntryDetail({
   const isReceivedLocationGrant =
     isLocationEntry && entry.metadata?.section === "shared";
   const canRevokeActive =
+    !isDocumentShareEntry(entry) &&
     entry.kind === "active_grant" &&
     Boolean(entry.scope) &&
     !isReceivedLocationGrant &&
@@ -1703,6 +1712,7 @@ export function ConsentCenterPage() {
   const explicitView = searchParams.get("view");
   const riaOutgoingCompatibilityRoute =
     explicitActor === "ria" && explicitView === "outgoing";
+  const sentDocumentRequests = !riaOutgoingCompatibilityRoute && searchParams.get("requestView") === "sent";
   const actor: ConsentCenterActor = riaOutgoingCompatibilityRoute
     ? "ria"
     : "investor";
@@ -1786,7 +1796,7 @@ export function ConsentCenterPage() {
   const listCacheKey = user?.uid
     ? CACHE_KEYS.CONSENT_CENTER_LIST(
         user.uid,
-        `${consentScopeKey}:${mode}`,
+        `${consentScopeKey}:${mode}${tab === "requests" && sentDocumentRequests ? ":sent" : ""}`,
         listSurface,
         deferredQuery,
         page,
@@ -1992,6 +2002,8 @@ export function ConsentCenterPage() {
         offeredScopeHandles: string[];
       },
     ) => {
+      // A document request is not a PKM grant or a voice-approvable action.
+      if (isDocumentShareEntry(entry)) return;
       if (isConnectionRequestEntry(entry)) {
         void (async () => {
           if (!user) return;
@@ -2039,6 +2051,7 @@ export function ConsentCenterPage() {
   );
   const denyEntry = useCallback(
     (entry: ConsentCenterEntry) => {
+      if (isDocumentShareEntry(entry)) return;
       if (isConnectionRequestEntry(entry)) {
         void (async () => {
           if (!user) return;
@@ -2083,6 +2096,7 @@ export function ConsentCenterPage() {
   );
   const revokeEntry = useCallback(
     (entry: ConsentCenterEntry) => {
+      if (isDocumentShareEntry(entry)) return;
       if (isLocationEntry(entry)) {
         void handleLocationRevoke(entry);
         return;
@@ -2158,14 +2172,14 @@ export function ConsentCenterPage() {
     cacheKey: user?.uid
       ? CACHE_KEYS.CONSENT_CENTER_LIST(
           user.uid,
-          `${consentScopeKey}:${mode}`,
+          `${consentScopeKey}:${mode}${sentDocumentRequests ? ":sent" : ""}`,
           "pending",
           deferredQuery,
           pendingPage,
           CONSENT_CENTER_PAGE_SIZE,
         )
       : "consent_center_list_guest_pending",
-    refreshKey: `${consentScopeKey}:${mode}:pending:${deferredQuery}:${pendingPage}`,
+    refreshKey: `${consentScopeKey}:${mode}:pending:${sentDocumentRequests ? "sent" : "received"}:${deferredQuery}:${pendingPage}`,
     enabled: Boolean(user?.uid) && visitedSurfaces.has("requests"),
     retainOnInvalidate: true,
     load: async (options) => {
@@ -2179,6 +2193,7 @@ export function ConsentCenterPage() {
         actor: apiActor,
         mode,
         surface: "pending",
+        requestView: sentDocumentRequests ? "sent" : "received",
         q: deferredQuery,
         page: pendingPage,
         limit: CONSENT_CENTER_PAGE_SIZE,
@@ -2547,7 +2562,7 @@ export function ConsentCenterPage() {
     return null;
   }, [items, selectedBundleId, selectedId]);
   const shouldLookupSelectedPending = Boolean(
-    user?.uid && selectedId && tab === "requests" && !selectedEntryFromList,
+    user?.uid && selectedId && !isDocumentShareSelection(selectedId) && tab === "requests" && !selectedEntryFromList,
   );
   const selectedPendingLookupResource = useStaleResource({
     cacheKey:
@@ -2616,6 +2631,16 @@ export function ConsentCenterPage() {
   }, [selectedEntryFromList, selectedId, selectedLookupEntry]);
   const isPanelOpen =
     Boolean(selectedId || selectedEntry) && !panelCloseRequested;
+  const isDocumentSelection = isDocumentShareSelection(selectedId) || !!(selectedEntry && isDocumentShareEntry(selectedEntry));
+  const selectedDocumentRequestId = documentShareRequestId(
+    selectedEntry && isDocumentShareEntry(selectedEntry) ? selectedEntry.id : selectedId,
+  );
+  const reconcileDocumentRequest = useCallback(() => {
+    // Re-fetch authoritative buckets; HTTP acceptance does not mean shared.
+    window.dispatchEvent(new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT, {
+      detail: { reconcile: true },
+    }));
+  }, []);
   const selectedRequestMissing = Boolean(
     selectedId &&
     selectedPendingLookupResource.data?.missing_request_ids?.includes(
@@ -2640,6 +2665,7 @@ export function ConsentCenterPage() {
 
   useEffect(() => {
     if (tab === "connections" || !listResource) return;
+    if (tab === "requests" && sentDocumentRequests) return;
     if (deferredQuery) return;
     if (listResource.loading || listResource.refreshing) return;
     if (!summaryData || !listData) return;
@@ -2666,6 +2692,7 @@ export function ConsentCenterPage() {
     listSurface,
     mutationTick,
     summaryData,
+    sentDocumentRequests,
     tab,
   ]);
   const consentVoiceSurfaceMetadata = useMemo(() => {
@@ -2722,6 +2749,7 @@ export function ConsentCenterPage() {
           role: "panel",
         },
         ...(selectedEntry?.kind === "incoming_request" &&
+        !isDocumentShareEntry(selectedEntry) &&
         selectedEntry.status === "pending"
           ? [
               {
@@ -2889,7 +2917,7 @@ export function ConsentCenterPage() {
   const emptyListMessage = deferredQuery
     ? `No ${tab === "active" ? "active access" : tab} matches “${deferredQuery}”.`
     : tab === "requests"
-      ? "No requests need your review."
+      ? sentDocumentRequests ? "No document requests are waiting for a response." : "No requests need your review."
       : tab === "active"
         ? "No one currently has active access."
         : tab === "history"
@@ -3042,6 +3070,11 @@ export function ConsentCenterPage() {
                     viewportMinHeight="fill"
                     heightMode="active"
                   >
+                    <div>
+                    {!riaOutgoingCompatibilityRoute ? <div role="group" aria-label="Request direction" className="mb-3 flex flex-wrap gap-2">
+                      <Button size="standard" variant="none" aria-pressed={!sentDocumentRequests} onClick={() => setParam({ requestView: null, page: null, requestId: null, selected: null, bundleId: null })}>Received</Button>
+                      <Button size="standard" variant="none" aria-pressed={sentDocumentRequests} onClick={() => setParam({ requestView: "sent", page: null, requestId: null, selected: null, bundleId: null })}>Sent documents</Button>
+                    </div> : null}
                     <ConsentSurfaceListSection
                       loading={pendingResource.loading}
                       emptyMessage={
@@ -3054,10 +3087,11 @@ export function ConsentCenterPage() {
                       selectedId={selectedId}
                       selectedBundleId={selectedBundleId}
                       onSelectEntry={(entry) =>
-                        setParam({ requestId: entry.request_id || entry.id })
+                        setParam({ requestId: documentShareSelectionId(entry) })
                       }
                       pagination={pendingPagination}
                     />
+                    </div>
                     <ConsentSurfaceListSection
                       loading={activeResource.loading}
                       emptyMessage={
@@ -3069,7 +3103,7 @@ export function ConsentCenterPage() {
                       selectedEntry={selectedEntry}
                       selectedId={selectedId}
                       onSelectEntry={(entry) =>
-                        setParam({ requestId: entry.request_id || entry.id })
+                        setParam({ requestId: documentShareSelectionId(entry) })
                       }
                       pagination={activePagination}
                     />
@@ -3084,7 +3118,7 @@ export function ConsentCenterPage() {
                       selectedEntry={selectedEntry}
                       selectedId={selectedId}
                       onSelectEntry={(entry) =>
-                        setParam({ requestId: entry.request_id || entry.id })
+                        setParam({ requestId: documentShareSelectionId(entry) })
                       }
                       pagination={previousPagination}
                     />
@@ -3099,7 +3133,7 @@ export function ConsentCenterPage() {
                       selectedEntry={selectedEntry}
                       selectedId={selectedId}
                       onSelectEntry={(entry) =>
-                        setParam({ requestId: entry.request_id || entry.id })
+                        setParam({ requestId: documentShareSelectionId(entry) })
                       }
                       pagination={null}
                     />
@@ -3118,12 +3152,12 @@ export function ConsentCenterPage() {
             }
           }}
           title={
-            selectedEntry
+            isDocumentSelection ? "Document request" : selectedEntry
               ? resolveCounterpartLabel(selectedEntry)
               : "Consent details"
           }
           description={
-            selectedEntry
+            isDocumentSelection ? "Review files and recorded Google Drive access." : selectedEntry
               ? selectedEntry.kind === "active_grant"
                 ? "Active access"
                 : selectedEntry.kind === "history"
@@ -3138,7 +3172,7 @@ export function ConsentCenterPage() {
           mobilePresentation="sheet"
           showCloseButton={false}
         >
-          {notificationAction && selectedEntry?.status === "pending" ? (
+          {!isDocumentSelection && notificationAction && selectedEntry?.status === "pending" ? (
             <div
               role="status"
               className="mb-4 rounded-[var(--app-card-radius-compact)] border border-accent-border bg-accent-surface px-4 py-3 text-sm leading-5 text-foreground"
@@ -3150,7 +3184,10 @@ export function ConsentCenterPage() {
                   : "Don’t allow was selected in the notification. Nothing changes until you decide below."}
             </div>
           ) : null}
-          {selectedId && !selectedEntry ? (
+          {isDocumentSelection ? (
+            selectedDocumentRequestId ? <DocumentShareReview requestId={selectedDocumentRequestId} onChanged={reconcileDocumentRequest} />
+              : <SettingsRow title="Invalid document request" description="Open this request from the list again." />
+          ) : selectedId && !selectedEntry ? (
             <SettingsGroup
               embedded
               title="Request status"

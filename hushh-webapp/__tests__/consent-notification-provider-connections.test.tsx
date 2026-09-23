@@ -192,6 +192,17 @@ function dispatchConnectionRemoved(data: Record<string, string>) {
   return detail;
 }
 
+function dispatchDocumentShare(data: Record<string, string>) {
+  const detail: {
+    data: Record<string, string>;
+    accepted?: boolean;
+  } = { data };
+  act(() => {
+    window.dispatchEvent(new CustomEvent("fcm-message", { detail }));
+  });
+  return detail;
+}
+
 beforeEach(() => {
   window.localStorage.clear();
   window.sessionStorage.clear();
@@ -351,6 +362,44 @@ describe("connection-request Feed-first foreground policy", () => {
         reconcile: true,
       }),
     );
+  });
+
+  it("reconciles an allowlisted opaque document-share notification without rendering its details", async () => {
+    await renderProvider();
+    const detail = dispatchDocumentShare({
+      type: "document_share_review_ready",
+      user_id: "recipient-user",
+      request_id: "11111111-1111-4111-8111-111111111111",
+      request_url: "https://example.com/ignored",
+      file_name: "bank-statement.pdf",
+      recipient_email: "private@example.com",
+    });
+
+    expect(mocks.toast).not.toHaveBeenCalled();
+    expect(mocks.dispatchFeedStateChanged).toHaveBeenCalledOnce();
+    expect(mocks.onConsentMutated).toHaveBeenCalledWith("recipient-user");
+    expect(mocks.dispatchConsentStateChanged).toHaveBeenCalledWith({
+      source: "fcm_document_share",
+      requestId: "document_share_request:11111111-1111-4111-8111-111111111111",
+      reconcile: true,
+    });
+    expect(detail.accepted).toBe(true);
+  });
+
+  it("leaves an unreviewed or malformed document-share payload unaccepted", async () => {
+    await renderProvider();
+    const detail = dispatchDocumentShare({
+      type: "document_share_unreviewed_future_event",
+      user_id: "recipient-user",
+      request_id: "not-a-uuid",
+      request_url: "https://example.com/ignored",
+    });
+
+    expect(detail.accepted).not.toBe(true);
+    expect(mocks.toast).not.toHaveBeenCalled();
+    expect(mocks.dispatchFeedStateChanged).not.toHaveBeenCalled();
+    expect(mocks.onConsentMutated).not.toHaveBeenCalled();
+    expect(mocks.dispatchConsentStateChanged).not.toHaveBeenCalled();
   });
 
   it("leaves a malformed consent payload unacknowledged for system fallback", async () => {

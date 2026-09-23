@@ -151,11 +151,15 @@ def test_declarations_carry_a_parameter_schema_where_the_tool_has_arguments():
     )
 
 
-def test_production_instruction_is_the_identity_instruction_under_empty_state():
+def test_production_instruction_preserves_identity_and_disables_reads_under_empty_state():
     from hushh_mcp.one_adk import agent_tree
 
     text = harness.production_instruction()
-    assert text == agent_tree.ONE_IDENTITY_INSTRUCTION
+    assert text == (
+        agent_tree.ONE_IDENTITY_INSTRUCTION
+        + "\n\nMAIL READ ADMISSION: disabled. Do not call ask_email_agent or claim inbox access."
+        + "\n\nDRIVE READ ADMISSION: disabled. Do not call ask_documents_agent or claim Drive access."
+    )
     assert "discover_person_information" in text
 
 

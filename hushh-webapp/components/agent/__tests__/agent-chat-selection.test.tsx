@@ -14,6 +14,13 @@ import type { AgentChatMessage } from "@/lib/services/agent-chat-client";
 // the raw `I selected:` seed. These tests exercise the real mapping helper the
 // workspace uses to hydrate history.
 describe("storedMessageToAgentMessage — selection history mapping", () => {
+  it("retains the validated Mail receipt on reload without tool text", () => {
+    const receipt = { type: "one.connector_read.v1" as const, connector: "mail" as const,
+      status: "ok" as const, sourceRefs: ["mail:1"], metadataOnly: true as const, truncated: false };
+    const mapped = storedMessageToAgentMessage({ id: "a", conversation_id: "c", role: "assistant",
+      status: "complete", content: "Saved answer", metadata: { connectorRead: receipt } });
+    expect(mapped?.structuredExperience).toEqual(receipt);
+  });
   const base = {
     id: "m1",
     conversation_id: "c1",
