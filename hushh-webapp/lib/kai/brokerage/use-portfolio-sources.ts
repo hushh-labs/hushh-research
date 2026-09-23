@@ -40,7 +40,11 @@ import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { trackGrowthFunnelStepCompleted } from "@/lib/observability/growth";
 import { UnlockWarmOrchestrator } from "@/lib/services/unlock-warm-orchestrator";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
-import { loadFinancialForVault, refreshVaultConnections } from "@/lib/kai/plaid-vault/vault-sync";
+import {
+  buildVaultPlaidStatus,
+  loadFinancialForVault,
+  refreshVaultConnections,
+} from "@/lib/kai/plaid-vault/vault-sync";
 
 interface UsePortfolioSourcesParams {
   userId: string | null | undefined;
@@ -332,21 +336,24 @@ export function usePortfolioSources({
         let nextFinancial = financialContext.financial;
         let nextFullBlob = financialContext.fullBlob;
         const expectedDataVersion = financialContext.expectedDataVersion;
+        // Connections sealed in the vault are invisible to the server; when
+        // they exist, memory is the only source of the Plaid status.
+        const vaultPlaidStatus = buildVaultPlaidStatus(nextFinancial, userId);
         const storedActiveSource = getStoredActiveSource(nextFinancial);
         const storedStatementPortfolio = getStatementPortfolio(nextFinancial);
         const hasPlaidPortfolio =
           hasPortfolioHoldings(getPlaidPortfolio(nextFinancial)) ||
-          hasPortfolioHoldings(loadedPlaidStatus?.aggregate?.portfolio_data);
+          hasPortfolioHoldings((vaultPlaidStatus ?? loadedPlaidStatus)?.aggregate?.portfolio_data);
         const desiredSource: PortfolioSource =
           resolvePreferredPortfolioSource({
             storedActiveSource,
-            backendPreferredSource: loadedPlaidStatus?.source_preference,
+            backendPreferredSource: (vaultPlaidStatus ?? loadedPlaidStatus)?.source_preference,
             hasStatementPortfolio: hasPortfolioHoldings(storedStatementPortfolio),
             hasPlaidPortfolio,
           });
         const nowIso = new Date().toISOString();
 
-        if (userId && vaultKey && vaultOwnerToken) {
+        if (!vaultPlaidStatus && userId && vaultKey && vaultOwnerToken) {
           let projectedFinancial = nextFinancial ?? {};
           let shouldPersist = false;
 
@@ -406,7 +413,9 @@ export function usePortfolioSources({
         const projectionStale = Boolean(
           loadedPlaidStatus?.configured && isPlaidMirrorStale(nextFinancial, loadedPlaidStatus)
         );
-        const nextPlaidStatus = loadedPlaidStatus
+        const nextPlaidStatus = vaultPlaidStatus
+          ? vaultPlaidStatus
+          : loadedPlaidStatus
           ? {
               ...loadedPlaidStatus,
               aggregate: {
