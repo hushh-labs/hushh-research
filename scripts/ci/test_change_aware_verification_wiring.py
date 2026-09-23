@@ -72,6 +72,15 @@ def test_web_targeted_voice_check_uses_locked_protocol_runtime() -> None:
         assert fragment in web_targeted, f"web-targeted-check is missing {fragment!r}"
 
 
+def test_web_targeted_layout_check_tracks_people_fixture_inputs() -> None:
+    require(
+        "scripts/ci/web-targeted-check.sh",
+        "fixtures/one-location-people-rows\\.html",
+        "scripts/testing/capture-one-location-people-fixture\\.mjs",
+        'run_check "layout contracts" npm run test:layout-contracts',
+    )
+
+
 def main() -> int:
     tests = (
         test_ci_queue_smoke_and_uat_share_the_selector,
@@ -79,6 +88,7 @@ def main() -> int:
         test_smoke_receives_selector_decision_without_reclassification,
         test_uat_publishes_lane_reasons_in_summary_and_release_artifacts,
         test_web_targeted_voice_check_uses_locked_protocol_runtime,
+        test_web_targeted_layout_check_tracks_people_fixture_inputs,
     )
     for test in tests:
         test()

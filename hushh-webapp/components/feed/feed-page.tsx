@@ -19,6 +19,7 @@ import {
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 
 import { SectionLabel as AppSectionLabel } from "@/components/app-ui/typography";
+import { Button as StockButton } from "@/components/ui/button";
 import { Button } from "@/lib/morphy-ux/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useLocalOnboardingActionHandler, type LocalOnboardingActionHandler, type LocalActionPreparer } from "@/lib/agent/local-onboarding-actions";
@@ -662,7 +663,7 @@ function FeedPageSession({
                   type="button"
                   variant="none"
                   effect="fade"
-                  size="sm"
+                  size="compact"
                   onClick={() => void retryFeed()}
                 >
                   Retry
@@ -682,7 +683,7 @@ function FeedPageSession({
                   type="button"
                   variant="none"
                   effect="fade"
-                  size="sm"
+                  size="compact"
                   onClick={() => void retryFeed()}
                 >
                   Retry
@@ -705,9 +706,11 @@ function FeedPageSession({
             ) : null}
 
             {canClear ? (
-              <div className="flex justify-end pt-2" aria-live="polite">
-                <button
+              <div className="flex w-full pt-3 sm:justify-end" aria-live="polite">
+                <StockButton
                   type="button"
+                  variant="secondary"
+                  size="compact"
                   onClick={() => {
                     if (!clearArmed) {
                       setClearArmed(true);
@@ -721,14 +724,14 @@ function FeedPageSession({
                       ? "Confirm clear feed notifications on this device"
                       : "Clear feed notifications on this device"
                   }
-                  className="rounded-full bg-destructive/10 px-3 py-1.5 text-xs font-semibold text-destructive transition-colors hover:bg-destructive/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 disabled:opacity-60"
+                  className="w-full bg-destructive/10 text-destructive hover:bg-destructive/15 sm:w-auto sm:min-w-44"
                 >
                   {clearing
                     ? "Clearing…"
                     : clearArmed
                       ? "Confirm clear"
                       : "Clear on this device"}
-                </button>
+                </StockButton>
               </div>
             ) : null}
 
@@ -763,7 +766,7 @@ function FeedPageSession({
                   type="button"
                   variant="none"
                   effect="fade"
-                  size="sm"
+                  size="compact"
                   onClick={() => void loadMore()}
                   disabled={loadingMore}
                 >

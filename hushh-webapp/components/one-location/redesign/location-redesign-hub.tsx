@@ -3648,7 +3648,7 @@ function StopGrantTextButton({
 }
 
 /** One person in the People list: avatar (+ live dot) · name · status · chevron. */
-function PersonRow({
+export function PersonRow({
   name,
   photoUrl,
   verified,
@@ -3680,7 +3680,7 @@ function PersonRow({
     <div
       className={cn(
         hasQuickActions
-          ? "rounded-[var(--app-card-radius-standard,24px)] bg-[color:var(--app-card-surface-default-solid)] p-3.5 shadow-[var(--app-card-shadow-standard)]"
+          ? "grid grid-cols-1 items-center gap-x-3 gap-y-2 rounded-[var(--app-card-radius-standard,24px)] bg-[color:var(--app-card-surface-default-solid)] px-3.5 py-2.5 shadow-[var(--app-card-shadow-standard)] min-[360px]:grid-cols-[minmax(0,1fr)_auto]"
           : "relative",
         !first &&
           !hasQuickActions &&
@@ -3715,11 +3715,23 @@ function PersonRow({
           ) : null}
         </div>
         <div className="min-w-0 flex-1 space-y-0.5">
-          <p className="min-w-0 break-words text-[17px] font-medium leading-[22px] tracking-[-0.3px] text-foreground">
+          <p
+            className={cn(
+              "min-w-0 text-[17px] font-medium leading-[22px] tracking-[-0.3px] text-foreground",
+              hasQuickActions
+                ? "line-clamp-2 [overflow-wrap:anywhere] sm:block sm:truncate sm:[overflow-wrap:normal]"
+                : "break-words",
+            )}
+          >
             {name}
           </p>
           {subtitle ? (
-            <p className="break-words text-[13px] font-normal leading-[18px] tracking-[-0.2px] text-[color:var(--app-secondary-label)]">
+            <p
+              className={cn(
+                "text-[13px] font-normal leading-[18px] tracking-[-0.2px] text-[color:var(--app-secondary-label)]",
+                hasQuickActions ? "truncate" : "break-words",
+              )}
+            >
               {subtitle}
             </p>
           ) : null}
@@ -3733,32 +3745,40 @@ function PersonRow({
       </button>
       {hasQuickActions ? (
         <div
-          className="mt-2 flex justify-start gap-2"
+          className="grid w-full grid-cols-2 gap-2 min-[360px]:flex min-[360px]:w-auto"
           role="group"
           aria-label={`Actions for ${name}`}
         >
           {onAsk ? (
-            <button
+            <Button
               type="button"
+              variant="secondary"
+              size="compact"
               onClick={onAsk}
-              className="flex min-h-11 w-[120px] shrink-0 items-center justify-center gap-1.5 rounded-full bg-[color:var(--app-accent-tint)] px-3 text-[13px] font-semibold text-[color:var(--app-accent)] transition-colors hover:bg-[color:var(--app-accent-ring)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2"
+              className="w-full min-w-0 bg-[color:var(--app-accent-tint)] px-2.5 text-[color:var(--app-accent)] hover:bg-[color:var(--app-accent-ring)] min-[360px]:w-auto min-[360px]:min-w-[68px] sm:min-w-[104px] sm:px-3"
               aria-label={`Ask ${name} for their location`}
             >
-              <LocationMenuGlyph name="ask" size={17} />
+              <span className="hidden sm:block">
+                <LocationMenuGlyph name="ask" size={17} />
+              </span>
               Ask
-            </button>
+            </Button>
           ) : null}
           {onShare ? (
-            <button
+            <Button
               type="button"
+              variant="secondary"
+              size="compact"
               onClick={onShare}
               disabled={!shareReady}
-              className="flex min-h-11 w-[120px] shrink-0 items-center justify-center gap-1.5 rounded-full bg-[color:var(--app-accent-tint)] px-3 text-[13px] font-semibold text-[color:var(--app-accent)] transition-colors hover:bg-[color:var(--app-accent-ring)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-45"
+              className="w-full min-w-0 bg-[color:var(--app-accent-tint)] px-2.5 text-[color:var(--app-accent)] hover:bg-[color:var(--app-accent-ring)] min-[360px]:w-auto min-[360px]:min-w-[68px] sm:min-w-[104px] sm:px-3"
               aria-label={`Share your location with ${name}`}
             >
-              <LocationMenuGlyph name="share" size={17} />
+              <span className="hidden sm:block">
+                <LocationMenuGlyph name="share" size={17} />
+              </span>
               Share
-            </button>
+            </Button>
           ) : null}
         </div>
       ) : null}
@@ -3887,10 +3907,7 @@ function CircleIdentityStack({
 }: {
   circles: readonly OneLocationCircleSummary[];
 }) {
-  // Never render more than two identity boxes: a third 40px tile overflows
-  // the summary row's fixed leading column and reads as collapsed clutter.
-  // The remainder folds into one "+N" badge so "2 created · 1 joined" (3
-  // circles) shows two boxes plus "+1", and so on for any larger count.
+  // Only two circle identities overlap; the remainder is a separate counter.
   const MAX_VISIBLE_CIRCLE_IDENTITIES = 2;
   const visible = circles.slice(0, MAX_VISIBLE_CIRCLE_IDENTITIES);
   const overflowCount = Math.max(
@@ -3906,45 +3923,42 @@ function CircleIdentityStack({
           memberCount: 0,
         } as OneLocationCircleSummary,
       ];
-  // One 40px tile plus 16px per additional overlapped tile (40px minus the
-  // 24px overlap), so the column always hugs exactly what it draws.
-  const stackWidthPx =
-    40 + (fallback.length + (overflowCount > 0 ? 1 : 0) - 1) * 16;
   return (
-    <span
-      aria-hidden="true"
-      className="flex h-11 shrink-0 items-center"
-      style={{ width: `${stackWidthPx}px` }}
-    >
-      {fallback.map((circle, index) => {
-        const isSmsCircle = circle.systemKind === "sms";
-        const isTrustedCircle = circle.systemKind === "trusted";
-        const initials = circleInitials(circle.name);
-        return (
-          <span
-            key={`${circle.id}-${index}`}
-            className={cn(
-              "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] border-2 border-[color:var(--app-primary-surface)] text-[13px] font-semibold shadow-sm",
-              index > 0 && "-ml-6",
-              isSmsCircle
-                ? "bg-[color:var(--app-destructive)] text-[color:var(--app-destructive-fg)]"
-                : "bg-[#E5E5EA] text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#F2F2F7]",
-            )}
-          >
-            {isSmsCircle ? (
-              <SmsTextIcon className="text-[10px] font-bold tracking-[-0.2px]" />
-            ) : isTrustedCircle ? (
-              <ShieldCheck className="h-[17px] w-[17px]" />
-            ) : initials ? (
-              initials
-            ) : (
-              <UsersRound className="h-[17px] w-[17px]" />
-            )}
-          </span>
-        );
-      })}
+    <span aria-hidden="true" className="inline-flex h-11 shrink-0 items-center">
+      <span className="inline-flex items-center" data-circle-identity-stack>
+        {fallback.map((circle, index) => {
+          const isSmsCircle = circle.systemKind === "sms";
+          const isTrustedCircle = circle.systemKind === "trusted";
+          const initials = circleInitials(circle.name);
+          return (
+            <span
+              key={`${circle.id}-${index}`}
+              className={cn(
+                "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] border-2 border-[color:var(--app-primary-surface)] text-[13px] font-semibold shadow-sm",
+                index > 0 && "-ml-6",
+                isSmsCircle
+                  ? "bg-[color:var(--app-destructive)] text-[color:var(--app-destructive-fg)]"
+                  : "bg-[#E5E5EA] text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#F2F2F7]",
+              )}
+            >
+              {isSmsCircle ? (
+                <SmsTextIcon className="text-[10px] font-bold tracking-[-0.2px]" />
+              ) : isTrustedCircle ? (
+                <ShieldCheck className="h-[17px] w-[17px]" />
+              ) : initials ? (
+                initials
+              ) : (
+                <UsersRound className="h-[17px] w-[17px]" />
+              )}
+            </span>
+          );
+        })}
+      </span>
       {overflowCount > 0 ? (
-        <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] border-2 border-[color:var(--app-primary-surface)] bg-[color:var(--app-accent-tint)] text-[13px] font-semibold text-[color:var(--app-accent)] shadow-sm -ml-6">
+        <span
+          data-circle-overflow-count
+          className="ml-2 inline-flex h-9 min-w-10 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-accent-tint)] px-2 text-[13px] font-semibold text-[color:var(--app-accent)]"
+        >
           +{overflowCount}
         </span>
       ) : null}
@@ -3952,7 +3966,7 @@ function CircleIdentityStack({
   );
 }
 
-function CircleSummaryGroup({
+export function CircleSummaryGroup({
   circles,
   invitationCount,
   onOpenCircles,
