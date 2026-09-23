@@ -92,12 +92,18 @@ class PreviewContinuation:
 
     def checkpoint(self, *, message: str, response: dict, trace: list[dict]) -> dict | None:
         recorded = set(self.records)
+        guard_pending = recorded == {"agent_memory_segmentation"}
         intent_pending = recorded == {
             "agent_memory_segmentation",
             "agent_financial_guard",
         }
         merge_pending = recorded == PREFIX_AGENTS - {"agent_memory_merge"}
-        if not intent_pending and not merge_pending and recorded != PREFIX_AGENTS:
+        if (
+            not guard_pending
+            and not intent_pending
+            and not merge_pending
+            and recorded != PREFIX_AGENTS
+        ):
             return None
         segmentation = self.records["agent_memory_segmentation"]["value"]
         segments = segmentation.get("segments")
@@ -108,6 +114,24 @@ class PreviewContinuation:
             or segmentation.get("has_more_candidates") is not False
         ):
             return None
+        if guard_pending:
+            # A failed guard has no routing authority to preserve. Retain only
+            # the exact model-authored source span; guard and all later stages
+            # must run again against the unchanged owner/request context.
+            errors = str(response.get("error") or "").split("; ")
+            if (
+                response.get("used_fallback") is not True
+                or "financial_guard_agent_fallback" not in errors
+                or "memory_segmentation_agent_fallback" in errors
+                or len(response.get("preview_cards") or []) != 1
+                or not any(
+                    row.get("agent_id") == "agent_financial_guard"
+                    and row.get("status") in {"timeout", "budget_exhausted"}
+                    for row in trace
+                )
+            ):
+                return None
+            return deepcopy(self.records)
         guard = self.records["agent_financial_guard"]["value"]
         if not guard.get("routing_decision") or guard["routing_decision"] != response.get(
             "routing_decision"

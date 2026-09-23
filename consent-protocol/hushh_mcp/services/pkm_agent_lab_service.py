@@ -5886,8 +5886,23 @@ class PKMAgentLabService:
 
             response_payload = {
                 **primary_preview,
+                # These are batch health signals, not the first card's health.
+                # Preserve each card's semantic result while ensuring a later
+                # timeout cannot be reported as fully prepared information.
+                **{
+                    field: any(bool(result.get(field)) for result in preview_results)
+                    for field in (
+                        "intent_used_fallback",
+                        "merge_used_fallback",
+                        "structure_used_fallback",
+                        "intent_skipped",
+                        "merge_skipped",
+                        "structure_skipped",
+                    )
+                },
                 "used_fallback": bool(
-                    primary_preview.get("used_fallback") or segmentation_used_fallback
+                    segmentation_used_fallback
+                    or any(result.get("used_fallback") for result in preview_results)
                 ),
                 "error": "; ".join(self._unique_list(errors)) or primary_preview.get("error"),
                 "validation_hints": self._unique_list(validation_hints),
@@ -5902,6 +5917,9 @@ class PKMAgentLabService:
                 intent_used_fallback=bool(response_payload.get("intent_used_fallback")),
                 merge_used_fallback=bool(response_payload.get("merge_used_fallback")),
                 structure_used_fallback=bool(response_payload.get("structure_used_fallback")),
+                intent_skipped=bool(response_payload.get("intent_skipped")),
+                merge_skipped=bool(response_payload.get("merge_skipped")),
+                structure_skipped=bool(response_payload.get("structure_skipped")),
             )
             if not capture_execution_trace:
                 checkpoint = (
