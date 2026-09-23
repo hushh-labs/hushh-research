@@ -16,7 +16,8 @@
   "task_types": [
     "mobile-parity-check",
     "new-feature-tri-flow",
-    "release-readiness"
+    "release-readiness",
+    "tri-flow-parity"
   ],
   "required_reads": [
     "docs/reference/mobile/README.md",

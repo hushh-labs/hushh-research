@@ -1,0 +1,18 @@
+{
+  "scenarios": [
+    {
+      "id": "tri-flow-parity",
+      "workflow": "tri-flow-parity",
+      "required_reads": ["docs/reference/mobile/tri-flow-parity.md"],
+      "required_commands": ["cd hushh-webapp && node scripts/native/verify-native-static-parity.mjs"],
+      "must_delegate": true
+    },
+    {
+      "id": "local-model-evaluation",
+      "workflow": "local-model-evaluation",
+      "required_reads": [".codex/skills/puppy-one-harness/references/judging-contract.md"],
+      "required_commands": ["python3 .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py"],
+      "must_delegate": true
+    }
+  ]
+}

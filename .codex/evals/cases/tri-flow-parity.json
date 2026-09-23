@@ -1,0 +1,14 @@
+{
+  "skill_name": "tri-flow-parity",
+  "trigger": {
+    "positive": [
+      {"prompt": "declare whether this route is covered on web, iOS, and Android", "top_k": 3},
+      {"prompt": "verify the native route inventory and excluded route reasons for tri-flow parity", "top_k": 3},
+      {"prompt": "audit Web iOS Android parity before adding this feature to the PR", "top_k": 3}
+    ],
+    "negative": [
+      {"prompt": "implement and register a new Capacitor plugin bridge on iOS and Android", "owner": "mobile-plugin-contracts"},
+      {"prompt": "run a full mobile release-readiness audit for a device build", "owner": "mobile-parity-audit"}
+    ]
+  }
+}

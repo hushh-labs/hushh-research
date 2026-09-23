@@ -532,6 +532,12 @@ class GmailDeliveryService:
         if _is_email_agent_intro_instruction(instruction):
             draft["subject"] = "Meet your Hushh Email Agent"
             draft["body"] = _EMAIL_AGENT_INTRO_BODY
+        if not draft["body"].strip():
+            raise GmailDeliveryError(
+                "DRAFT_INVALID",
+                "Email drafting returned an incomplete draft.",
+                status_code=502,
+            )
         return draft
 
     async def prepare(

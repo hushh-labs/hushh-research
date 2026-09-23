@@ -32,6 +32,7 @@ import {
   type GmailInformationRequestScan,
   type GmailInformationRequestWorkflow,
 } from "@/lib/services/gmail-information-requests-service";
+import { apiErrorCode } from "@/lib/services/api-client";
 
 type Props = {
   userId: string | null;
@@ -40,7 +41,15 @@ type Props = {
   isConnected: boolean;
   idTokenProvider: (() => Promise<string>) | null;
   onRequestVaultUnlock: () => void;
+  onEnableGmailSend?: () => void;
 };
+
+function needsGmailSendPermission(error: unknown): boolean {
+  const code = apiErrorCode(error);
+  return (
+    code === "GMAIL_SEND_PERMISSION_REQUIRED" || code === "GMAIL_SEND_DISABLED"
+  );
+}
 
 function gmailThreadUrl(threadId: string): string {
   return `https://mail.google.com/mail/#all/${encodeURIComponent(threadId)}`;
@@ -370,6 +379,7 @@ export default function GmailInformationRequestsSection({
   isConnected,
   idTokenProvider,
   onRequestVaultUnlock,
+  onEnableGmailSend,
 }: Props) {
   const createHandoff = useOneConversationSession(
     (state) => state.createHandoff,
@@ -385,6 +395,7 @@ export default function GmailInformationRequestsSection({
   const [loading, setLoading] = useState(false);
   const [updating, setUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [needsGmailSend, setNeedsGmailSend] = useState(false);
   const [selectedScopes, setSelectedScopes] = useState<
     Record<string, string[]>
   >({});
@@ -425,6 +436,7 @@ export default function GmailInformationRequestsSection({
   const idTokenProviderRef = useRef(idTokenProvider);
   const activityLoadingRef = useRef(false);
   const scanInFlightRef = useRef(false);
+  const automaticScanSessionRef = useRef<string | null>(null);
 
   useEffect(() => {
     idTokenProviderRef.current = idTokenProvider;
@@ -444,18 +456,34 @@ export default function GmailInformationRequestsSection({
         });
       setPreference(nextPreference);
       if (nextPreference.monitoring_enabled && vaultOwnerToken) {
-        const response = await GmailInformationRequestsService.list({
-          firebaseIdToken,
-          vaultOwnerToken,
-          limit: 25,
-        });
-        setWorkflows(response.workflows);
-        setNextOffset(response.next_offset);
-        setTotalCount(response.total_count);
+        const [requests, activity] = await Promise.all([
+          GmailInformationRequestsService.list({
+            firebaseIdToken,
+            vaultOwnerToken,
+            limit: 100,
+          }),
+          GmailInformationRequestsService.list({
+            firebaseIdToken,
+            vaultOwnerToken,
+            limit: 100,
+            view: "activity",
+          }),
+        ]);
+        setWorkflows(requests.workflows);
+        setNextOffset(requests.next_offset);
+        setTotalCount(requests.total_count);
+        setActivityWorkflows(activity.workflows);
+        setActivityNextOffset(activity.next_offset);
+        setActivityTotalCount(activity.total_count);
+        setActivityLoaded(true);
       } else {
         setWorkflows([]);
         setNextOffset(null);
         setTotalCount(0);
+        setActivityWorkflows([]);
+        setActivityNextOffset(null);
+        setActivityTotalCount(0);
+        setActivityLoaded(false);
       }
     } catch (loadError) {
       setError(
@@ -486,23 +514,35 @@ export default function GmailInformationRequestsSection({
     setLoading(true);
     setScanningInbox(true);
     setError(null);
+    setNeedsGmailSend(false);
     try {
       const firebaseIdToken = await idTokenProvider();
       const scan = await GmailInformationRequestsService.scan({
         firebaseIdToken,
         vaultOwnerToken,
         maxResults: 30,
-        includeRecentInbox: true,
       });
       setScanSummary(scan);
-      const response = await GmailInformationRequestsService.list({
-        firebaseIdToken,
-        vaultOwnerToken,
-        limit: 25,
-      });
-      setWorkflows(response.workflows);
-      setNextOffset(response.next_offset);
-      setTotalCount(response.total_count);
+      const [requests, activity] = await Promise.all([
+        GmailInformationRequestsService.list({
+          firebaseIdToken,
+          vaultOwnerToken,
+          limit: 100,
+        }),
+        GmailInformationRequestsService.list({
+          firebaseIdToken,
+          vaultOwnerToken,
+          limit: 100,
+          view: "activity",
+        }),
+      ]);
+      setWorkflows(requests.workflows);
+      setNextOffset(requests.next_offset);
+      setTotalCount(requests.total_count);
+      setActivityWorkflows(activity.workflows);
+      setActivityNextOffset(activity.next_offset);
+      setActivityTotalCount(activity.total_count);
+      setActivityLoaded(true);
       return true;
     } catch (scanError) {
       setError(
@@ -518,6 +558,17 @@ export default function GmailInformationRequestsSection({
     }
   }, [idTokenProvider, vaultOwnerToken]);
 
+  useEffect(() => {
+    if (!preference?.monitoring_enabled || !userId || !vaultOwnerToken) {
+      automaticScanSessionRef.current = null;
+      return;
+    }
+    const sessionKey = `${userId}:${vaultOwnerToken}`;
+    if (automaticScanSessionRef.current === sessionKey) return;
+    automaticScanSessionRef.current = sessionKey;
+    void scanInbox();
+  }, [preference?.monitoring_enabled, scanInbox, userId, vaultOwnerToken]);
+
   const setMonitoring = useCallback(
     async (enabled: boolean) => {
       if (!userId || !idTokenProvider) return false;
@@ -530,6 +581,7 @@ export default function GmailInformationRequestsSection({
       }
       setUpdating(true);
       setError(null);
+      setNeedsGmailSend(false);
       try {
         const firebaseIdToken = await idTokenProvider();
         const next = await GmailInformationRequestsService.setPreference({
@@ -697,6 +749,7 @@ export default function GmailInformationRequestsSection({
       if (!selected.length) return;
       setBusyWorkflowId(workflow.workflow_id);
       setError(null);
+      setNeedsGmailSend(false);
       try {
         const prepared = await prepareScopedGmailInformationRequestDraft({
           workflow,
@@ -735,6 +788,7 @@ export default function GmailInformationRequestsSection({
       if (!draft?.body.trim()) return;
       setBusyWorkflowId(workflow.workflow_id);
       setError(null);
+      setNeedsGmailSend(false);
       try {
         const firebaseIdToken = await idTokenProvider();
         const prepared = await GmailInformationRequestsService.prepareReply({
@@ -752,10 +806,17 @@ export default function GmailInformationRequestsSection({
             preview: prepared.preview,
           },
         }));
-      } catch {
-        setError(
-          "We could not prepare this reply for sending. Review the original mail and try again.",
-        );
+      } catch (prepareError) {
+        if (needsGmailSendPermission(prepareError)) {
+          setNeedsGmailSend(true);
+          setError(
+            "Enable Mail sending before you review this reply for delivery.",
+          );
+        } else {
+          setError(
+            "We could not prepare this reply for sending. Review the original mail and try again.",
+          );
+        }
       } finally {
         setBusyWorkflowId(null);
       }
@@ -770,6 +831,7 @@ export default function GmailInformationRequestsSection({
       if (!draft?.actionId || !draft.body.trim()) return;
       setBusyWorkflowId(workflow.workflow_id);
       setError(null);
+      setNeedsGmailSend(false);
       try {
         const firebaseIdToken = await idTokenProvider();
         const result = await GmailInformationRequestsService.sendReply({
@@ -810,10 +872,17 @@ export default function GmailInformationRequestsSection({
             "Mail did not confirm delivery. Check Sent Mail before trying again.",
           );
         }
-      } catch {
-        setError(
-          "We could not send this reply. Check Sent Mail before trying again.",
-        );
+      } catch (sendError) {
+        if (needsGmailSendPermission(sendError)) {
+          setNeedsGmailSend(true);
+          setError(
+            "Enable Mail sending before you review this reply for delivery.",
+          );
+        } else {
+          setError(
+            "We could not send this reply. Check Sent Mail before trying again.",
+          );
+        }
       } finally {
         setBusyWorkflowId(null);
       }
@@ -889,47 +958,56 @@ export default function GmailInformationRequestsSection({
           <div className="flex items-start gap-2">
             <Mail className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
             <p>
-              We scan new Inbox messages, whether read or unread. Scan inbox
-              checks your last 30 Inbox mail messages. Their content is classified
-              transiently; only request metadata is retained.
+              We process new Inbox messages first, then continue a saved
+              newest-to-oldest backfill without reclassifying messages already
+              processed. Their content is classified transiently; only request
+              metadata is retained.
             </p>
           </div>
         </div>
       ) : (
         <div className="rounded-xl border border-border/60 bg-background/60 p-3 text-xs text-muted-foreground">
-          Start monitoring to scan your last 30 Inbox mail messages, then keep KYC
-          requests up to date as new mail arrives. Monitoring never grants
+          Start monitoring to scan your last 30 Inbox mail messages, then keep
+          KYC requests up to date as new mail arrives. Monitoring never grants
           sharing or send permission.
         </div>
       )}
 
       {error ? (
         <p role="alert" className="text-xs text-red-600">
-          {error}
+          {error}{" "}
+          {needsGmailSend && onEnableGmailSend ? (
+            <button
+              className="font-medium underline"
+              onClick={onEnableGmailSend}
+              type="button"
+            >
+              Enable Mail sending
+            </button>
+          ) : null}
         </p>
       ) : null}
       {enabled && scanningInbox ? (
         <p aria-live="polite" className="text-xs text-muted-foreground">
-          Scanning up to 30 Inbox mail messages…
+          Processing up to 30 previously unprocessed Inbox messages. This can
+          take a little longer when Gmail or the classifier retries…
         </p>
       ) : null}
       {enabled && scanSummary ? (
         <div
           aria-live="polite"
-          className="grid grid-cols-3 gap-2 rounded-xl border border-border/60 bg-background/60 p-3"
+          className="grid grid-cols-2 gap-2 rounded-xl border border-border/60 bg-background/60 p-3 sm:grid-cols-4"
         >
           <div>
-            <p className="text-xs text-muted-foreground">Mail messages checked</p>
+            <p className="text-xs text-muted-foreground">Processed now</p>
             <p className="mt-1 text-sm font-semibold text-foreground">
-              {scanSummary.scanned_count +
-                scanSummary.unchanged_count +
-                scanSummary.failed_count}
+              {scanSummary.scanned_count}
             </p>
           </div>
           <div>
-            <p className="text-xs text-muted-foreground">Newly classified</p>
+            <p className="text-xs text-muted-foreground">Already processed</p>
             <p className="mt-1 text-sm font-semibold text-foreground">
-              {scanSummary.scanned_count}
+              {scanSummary.unchanged_count}
             </p>
           </div>
           <div>
@@ -938,11 +1016,23 @@ export default function GmailInformationRequestsSection({
               {scanSummary.matched_count}
             </p>
           </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Pending retry</p>
+            <p className="mt-1 text-sm font-semibold text-foreground">
+              {scanSummary.failed_count}
+            </p>
+          </div>
           {scanSummary.failed_count > 0 ? (
-            <p className="col-span-3 text-xs text-amber-700 dark:text-amber-300">
+            <p className="col-span-2 text-xs text-amber-700 dark:text-amber-300 sm:col-span-4">
               {scanSummary.failed_count} mail message
               {scanSummary.failed_count === 1 ? "" : "s"} could not be
               classified. Scan again to retry.
+            </p>
+          ) : null}
+          {scanSummary.backfill_pending ? (
+            <p className="col-span-2 text-xs text-muted-foreground sm:col-span-4">
+              More older Inbox mail is queued for incremental processing. New
+              mail will always be checked first.
             </p>
           ) : null}
         </div>
@@ -1024,7 +1114,7 @@ export default function GmailInformationRequestsSection({
           options={[
             {
               value: "requests",
-              label: `Requests${totalCount ? ` (${totalCount})` : ""}`,
+              label: `Active requests${totalCount ? ` (${totalCount})` : ""}`,
             },
             {
               value: "activity",
@@ -1069,6 +1159,10 @@ export default function GmailInformationRequestsSection({
 
       {enabled && listView === "activity" && activityWorkflows.length ? (
         <div className="space-y-2" role="tabpanel" aria-label="KYC activity">
+          <p className="text-xs text-muted-foreground">
+            Showing {activityWorkflows.length} of {activityTotalCount} past
+            decisions
+          </p>
           {activityWorkflows.map((workflow) => (
             <ActivityCard key={workflow.workflow_id} workflow={workflow} />
           ))}
@@ -1136,9 +1230,10 @@ export default function GmailInformationRequestsSection({
           <AlertDialogHeader>
             <AlertDialogTitle>Start KYC monitoring?</AlertDialogTitle>
             <AlertDialogDescription>
-              We’ll scan your last 30 Inbox mail messages, including mail messages you have
-              already opened, to identify KYC requests. Mail content is not
-              retained, and monitoring never shares or sends anything.
+              We’ll scan your last 30 Inbox mail messages, including mail
+              messages you have already opened, to identify KYC requests. Mail
+              content is not retained, and monitoring never shares or sends
+              anything.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="flex-col-reverse gap-2 sm:flex-row">
@@ -1147,7 +1242,9 @@ export default function GmailInformationRequestsSection({
               disabled={updating}
               onClick={(event) => {
                 event.preventDefault();
-                void setMonitoring(true).finally(() => setShowEnableConfirm(false));
+                void setMonitoring(true).finally(() =>
+                  setShowEnableConfirm(false),
+                );
               }}
             >
               {updating ? "Starting…" : "Start monitoring"}
@@ -1165,8 +1262,8 @@ export default function GmailInformationRequestsSection({
             <AlertDialogDescription>
               This stops future checks and permanently deletes KYC-request
               activity and monitoring metadata. Your Mail messages are not
-              deleted. Turning it on again scans your last 30 Inbox mail messages
-              before monitoring new mail.
+              deleted. Turning it on again scans your last 30 Inbox mail
+              messages before monitoring new mail.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter className="flex-col-reverse gap-2 sm:flex-row">

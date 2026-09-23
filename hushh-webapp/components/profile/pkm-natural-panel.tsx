@@ -1394,7 +1394,7 @@ export function PkmNaturalPanel({
                 </SettingsGroup>
               ) : (
                 <>
-                  {!memoryCardsLoading && !memoryCardsLoadError ? (
+                  {!bootstrapError && !memoryCardsLoading && !memoryCardsLoadError ? (
                     <p className="px-1 text-sm text-muted-foreground">
                       One hasn’t saved anything yet.
                     </p>
@@ -1404,9 +1404,16 @@ export function PkmNaturalPanel({
               )}
 
               {bootstrapError ? (
-                <p className="px-1 text-sm text-muted-foreground">
-                  Some memories couldn’t be loaded. Pull to refresh.
-                </p>
+                <div className="flex items-center justify-between gap-3 px-1 text-sm text-muted-foreground">
+                  <p>Some saved details couldn’t be loaded.</p>
+                  <Button
+                    size="sm"
+                    variant="muted"
+                    onClick={() => setRefreshNonce((current) => current + 1)}
+                  >
+                    Try again
+                  </Button>
+                </div>
               ) : null}
               {memoryCardsLoadError ? (
                 <div className="flex items-center justify-between gap-3 px-1 text-sm text-muted-foreground">

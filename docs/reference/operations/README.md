@@ -59,6 +59,8 @@ Use the root CLI for agent-first onboarding and deterministic workflow routing:
 - `./bin/hushh codex ci-status [--watch]`
 - `./bin/hushh codex data-model-audit`
 - `./bin/hushh codex audit`
+- `./bin/hushh codex inspect <query>`
+- `./bin/hushh doctor --agent`
 
 Repo governance baseline:
 

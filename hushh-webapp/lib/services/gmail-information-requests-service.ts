@@ -50,6 +50,7 @@ export type GmailInformationRequestScan = {
   workflow_ids: string[];
   baseline_established?: boolean;
   baseline_reestablished?: boolean;
+  backfill_pending?: boolean;
   retry_pending?: boolean;
 };
 

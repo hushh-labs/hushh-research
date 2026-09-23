@@ -8,6 +8,7 @@ Scopes support nested paths:
 - attr.{domain}.{subintent}.*
 """
 
+import asyncio
 import difflib
 import json
 import logging
@@ -427,37 +428,48 @@ class DynamicScopeGenerator:
         Each entry describes one requestable scope string and why it exists.
         """
         try:
-            index_result = (
-                self.db.table("pkm_index")
-                .select("available_domains")
-                .eq("user_id", user_id)
-                .limit(1)
-                .execute()
-            )
-            manifest_result = (
-                self.db.table("pkm_manifests")
-                .select(
-                    "domain,top_level_scope_paths,externalizable_paths,"
-                    "manifest_version,summary_projection"
+            # The database client is synchronous.  Scope discovery is optional
+            # metadata, so never freeze the async request loop while it waits
+            # for a pool connection.
+            index_result = await asyncio.to_thread(
+                lambda: (
+                    self.db.table("pkm_index")
+                    .select("available_domains")
+                    .eq("user_id", user_id)
+                    .limit(1)
+                    .execute()
                 )
-                .eq("user_id", user_id)
-                .execute()
             )
-            path_result = (
-                self.db.table("pkm_manifest_paths")
-                .select(
-                    "domain,json_path,path_type,segment_id,exposure_eligibility,consent_label,scope_handle"
+            manifest_result = await asyncio.to_thread(
+                lambda: (
+                    self.db.table("pkm_manifests")
+                    .select(
+                        "domain,top_level_scope_paths,externalizable_paths,"
+                        "manifest_version,summary_projection"
+                    )
+                    .eq("user_id", user_id)
+                    .execute()
                 )
-                .eq("user_id", user_id)
-                .execute()
             )
-            registry_result = (
-                self.db.table("pkm_scope_registry")
-                .select(
-                    "domain,scope_handle,scope_label,exposure_enabled,visibility_posture,default_projection_ready,default_projection_updated_at,summary_projection,manifest_version"
+            path_result = await asyncio.to_thread(
+                lambda: (
+                    self.db.table("pkm_manifest_paths")
+                    .select(
+                        "domain,json_path,path_type,segment_id,exposure_eligibility,consent_label,scope_handle"
+                    )
+                    .eq("user_id", user_id)
+                    .execute()
                 )
-                .eq("user_id", user_id)
-                .execute()
+            )
+            registry_result = await asyncio.to_thread(
+                lambda: (
+                    self.db.table("pkm_scope_registry")
+                    .select(
+                        "domain,scope_handle,scope_label,exposure_enabled,visibility_posture,default_projection_ready,default_projection_updated_at,summary_projection,manifest_version"
+                    )
+                    .eq("user_id", user_id)
+                    .execute()
+                )
             )
         except Exception as exc:
             logger.error("scope_generator.get_scope_entries_failed")

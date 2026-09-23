@@ -234,27 +234,33 @@ check_local_backend_interpreter() {
   # `ps`, so command-path inspection falsely rejects a correctly launched
   # uvicorn worker. Ask the live process for the dependency-only health proof
   # instead: an old system interpreter reports ADK 1.x (or lacks this field),
-  # while the pinned process reports the 2.4 contract without a model call.
-  local runtime_compatible
-  runtime_compatible="$(python3 - <<'PY'
+  # while the pinned process reports its expected ADK contract without a model
+  # call. Keep the human-readable result coupled to that live evidence so a
+  # lockfile upgrade cannot leave this diagnostic reporting an obsolete pin.
+  local runtime_compatible runtime_expected runtime_evidence
+  runtime_evidence="$(python3 - <<'PY'
 import json
 from urllib.request import urlopen
 
 try:
     with urlopen("http://127.0.0.1:8000/health", timeout=2) as response:
         payload = json.load(response)
-    print("true" if payload.get("one_runtime", {}).get("google_adk_compatible") is True else "false")
+    runtime = payload.get("one_runtime", {})
+    expected = runtime.get("google_adk_expected")
+    compatible = runtime.get("google_adk_compatible") is True
+    print(f"{'true' if compatible else 'false'}|{expected if isinstance(expected, str) else 'unknown'}")
 except Exception:
-    print("unavailable")
+    print("unavailable|unknown")
 PY
 )"
+  IFS='|' read -r runtime_compatible runtime_expected <<<"$runtime_evidence"
 
   if [ "$runtime_compatible" = "true" ]; then
-    add_check "backend_runtime_interpreter" "pass" "Live backend proves the pinned Google ADK 2.4 runtime contract"
+    add_check "backend_runtime_interpreter" "pass" "Live backend proves the pinned Google ADK ${runtime_expected} runtime contract"
   elif [ "$runtime_compatible" = "unavailable" ]; then
     add_check "backend_runtime_interpreter" "warn" "Backend listener exists but its runtime contract could not be read"
   else
-    add_check "backend_runtime_interpreter" "fail" "Local backend is missing the pinned Google ADK 2.4 runtime contract; restart with ./bin/hushh backend --mode local --reload"
+    add_check "backend_runtime_interpreter" "fail" "Local backend is missing the pinned Google ADK ${runtime_expected} runtime contract; restart with ./bin/hushh backend --mode local --reload"
     SOURCE_READY=false
   fi
 }

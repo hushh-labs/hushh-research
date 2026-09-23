@@ -112,6 +112,16 @@ describe("PKM cache behavior", () => {
     expect(CacheService.getInstance().peek(CACHE_KEYS.PKM_METADATA(userId))?.data).toEqual(staleMetadata);
   });
 
+  it("does not turn a cold temporary metadata failure into an empty PKM", async () => {
+    apiFetchMock.mockResolvedValue(new Response("unavailable", { status: 503 }));
+
+    await expect(
+      PersonalKnowledgeModelService.getMetadata("user-1", false, "vault-owner-token"),
+    ).rejects.toThrow("temporarily unavailable");
+
+    expect(CacheService.getInstance().peek(CACHE_KEYS.PKM_METADATA("user-1"))).toBeNull();
+  });
+
   it("does not trust a fresh empty metadata cache entry when a network fetch can return real domains", async () => {
     const userId = "user-1";
     const cache = CacheService.getInstance();
@@ -149,6 +159,12 @@ describe("PKM cache behavior", () => {
     const result = await PersonalKnowledgeModelService.getMetadata(userId, false, "vault-owner-token");
 
     expect(apiFetchMock).toHaveBeenCalledTimes(1);
+    expect(apiFetchMock).toHaveBeenCalledWith(
+      `/api/pkm/metadata/${userId}`,
+      expect.objectContaining({
+        headers: expect.objectContaining({ "Cache-Control": "no-cache" }),
+      }),
+    );
     expect(result.domains).toHaveLength(1);
     expect(result.domains[0]?.key).toBe("financial");
     expect(result.totalAttributes).toBe(19);

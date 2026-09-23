@@ -1,0 +1,14 @@
+{
+  "skill_name": "puppy-one-harness",
+  "trigger": {
+    "positive": [
+      {"prompt": "run the Puppy One on-device model harness and keep the judge independent", "top_k": 3},
+      {"prompt": "grade local small-model responses through the review queue without self-grading", "top_k": 3},
+      {"prompt": "compare Puppy One capability probes in the evolution ledger", "top_k": 3}
+    ],
+    "negative": [
+      {"prompt": "change the FastAPI backend route contract for a new developer endpoint", "owner": "backend-api-contracts"},
+      {"prompt": "audit encrypted PKM historical fixtures and rollback payload fidelity", "owner": "pkm-upgrade-rehearsal"}
+    ]
+  }
+}

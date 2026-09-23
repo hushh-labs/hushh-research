@@ -388,6 +388,20 @@ describe("UnlockWarmOrchestrator", () => {
       expect(agentHistoryWarmMock).toHaveBeenCalledTimes(1);
     });
 
+    it("uses PKM priority without unrelated profile, financial, consent, or chat warmups", async () => {
+      setupDefaultMocks();
+      const result = await UnlockWarmOrchestrator.run({
+        ...BASE_PARAMS,
+        routePath: "/one/pkm",
+      });
+
+      expect(result.metadataWarmed).toBe(true);
+      expect(profileSyncMock).not.toHaveBeenCalled();
+      expect(pkmLoadDomainDataMock).not.toHaveBeenCalled();
+      expect(apiGetActiveConsentsMock).not.toHaveBeenCalled();
+      expect(agentHistoryWarmMock).not.toHaveBeenCalled();
+    });
+
     it("warms Location state only for the Location workspace", async () => {
       setupDefaultMocks();
       const result = await UnlockWarmOrchestrator.run({
