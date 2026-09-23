@@ -210,14 +210,33 @@ if [[ "$ATTACHED" == "1" ]]; then
   "$ADB" -s "$ANDROID_SERIAL" logcat -c >/dev/null 2>&1 || true
   "$ADB" -s "$ANDROID_SERIAL" logcat -v raw -s HUSHH_PERF:I > "$OUT_DIR/logcat.log" 2>&1 &
   LOGCAT_PID=$!
-  # The passphrase is quoted for the device shell by a script, never echoed.
-  "$ADB" -s "$ANDROID_SERIAL" shell am instrument -w -r \
-    -e passphrase "$(python3 -c 'import shlex,sys; print(shlex.quote(sys.argv[1]))' "$REVIEWER_VAULT_PASSPHRASE")" \
-    -e reps "$REPS" -e section "$SECTION" -e thirdParty "${PERF_THIRD_PARTY:-0}" \
-    -e holdMinutes "${PERF_HOLD_MINUTES:-20}" \
-    -e class com.hussh.app.AttachedRenderPerfTest \
-    com.hussh.app.test/androidx.test.runner.AndroidJUnitRunner > "$OUT_DIR/instrument.log" 2>&1
-  TEST_STATUS=$?
+  # The first instrumentation after the app package changes can die in the
+  # framework before our code runs: "Process crashed", a NullPointerException
+  # in WindowTokenClient.onConfigurationChanged, no app frames (seen after
+  # every new install on a Galaxy S24 Ultra, Android 16). A person's first
+  # launch after the same update does not crash, so this is the test process,
+  # not the app. That exact signature gets one retry; anything else fails.
+  for attempt in 1 2; do
+    # The passphrase is quoted for the device shell by a script, never echoed.
+    "$ADB" -s "$ANDROID_SERIAL" shell am instrument -w -r \
+      -e passphrase "$(python3 -c 'import shlex,sys; print(shlex.quote(sys.argv[1]))' "$REVIEWER_VAULT_PASSPHRASE")" \
+      -e reps "$REPS" -e section "$SECTION" -e thirdParty "${PERF_THIRD_PARTY:-0}" \
+      -e holdMinutes "${PERF_HOLD_MINUTES:-20}" \
+      -e class com.hussh.app.AttachedRenderPerfTest \
+      com.hussh.app.test/androidx.test.runner.AndroidJUnitRunner > "$OUT_DIR/instrument.log" 2>&1
+    TEST_STATUS=$?
+    if [[ "$attempt" == "1" ]] \
+      && grep -q "shortMsg=Process crashed" "$OUT_DIR/instrument.log" \
+      && grep -q "WindowTokenClient.onConfigurationChanged" "$OUT_DIR/instrument.log" \
+      && ! grep -q "at com.hussh.app" "$OUT_DIR/instrument.log"; then
+      mv "$OUT_DIR/instrument.log" "$OUT_DIR/instrument-attempt1.log"
+      echo "instrumentation died in the framework before the test ran (WindowTokenClient NPE); retrying once"
+      "$ADB" -s "$ANDROID_SERIAL" shell am force-stop "$BUNDLE_ID" >/dev/null 2>&1 || true
+      sleep 2
+      continue
+    fi
+    break
+  done
   sleep 1
   kill "$LOGCAT_PID" 2>/dev/null || true
   # The phone's own log buffer keeps every line the test logged; clear it.
