@@ -11,7 +11,11 @@ can mutate a shared fixture while it is being observed.
 2. Resolve the canonical reviewer through `reviewer-test-identity.mjs`. For a
    local UAT-backed rehearsal, set `REVIEWER_SECRET_PROJECT=hushh-pda-uat`.
    The preflight reads the approved Secret Manager values into its process only;
-   it never writes them to a profile, output, trace, or artifact.
+   it never writes them to a profile, output, trace, or artifact. When a project
+   is explicitly selected, its current pair takes precedence over ignored local
+   env files, which may contain a rotated UID. A complete process-level
+   `REVIEWER_UID` and `REVIEWER_VAULT_PASSPHRASE` pair remains authoritative
+   for an intentionally selected counterpart run.
 3. For localhost, run `REVIEWER_SECRET_PROJECT=hushh-pda-uat bash
    scripts/env/reviewer_mode.sh enable`, restart the backend, and prove review
    mode is enabled. This places only the stable reviewer subject in the ignored
