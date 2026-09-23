@@ -158,7 +158,7 @@ def test_production_instruction_preserves_identity_and_disables_reads_under_empt
     assert text == (
         agent_tree.ONE_IDENTITY_INSTRUCTION
         + "\n\nMAIL READ ADMISSION: disabled. Do not call ask_email_agent or claim inbox access."
-        + "\n\nDRIVE READ ADMISSION: disabled. Do not call ask_documents_agent or claim Drive access."
+        + "\n\nSELECTED-FILE DRIVE READ ADMISSION: disabled. Do not call ask_documents_agent or claim access to the selected-file library. Drive MCP tools, if present, require their separate read grant and must not bypass this disabled capability."
     )
     assert "discover_person_information" in text
 

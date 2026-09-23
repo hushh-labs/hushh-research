@@ -6,6 +6,7 @@ import pytest
 
 from hushh_mcp.one_adk import drive_tools
 from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
+from hushh_mcp.services.google_connection_service import GoogleConnectionError
 
 
 def _context(user_id="owner", admitted=True):
@@ -64,3 +65,22 @@ async def test_drive_uses_current_owner_and_refuses_result_after_revocation(monk
         {"user_id": "owner", "tool_name": "search_files", "arguments": {"query": "notes"}}
     ]
     assert "PRIVATE_DRIVE_SENTINEL" not in str(result)
+
+
+@pytest.mark.asyncio
+async def test_drive_mcp_missing_grant_does_not_misrepresent_selected_file_connection(monkeypatch):
+    async def active(_owner, _token):
+        return True
+
+    class Service:
+        async def read_tool(self, **_kwargs):
+            raise GoogleConnectionError("private provider detail", status_code=403)
+
+    monkeypatch.setattr(drive_tools, "pod_mode", lambda: False)
+    monkeypatch.setattr(drive_tools, "resolve_request_secret", lambda _ref: "owner-token")
+    monkeypatch.setattr(drive_tools, "validate_first_party_owner_token", active)
+    monkeypatch.setattr(drive_tools, "_service", Service)
+    result = await drive_tools.read_google_drive("search_files", {"query": "notes"}, _context())
+    assert result["status"] == "permission_required"
+    assert "selected-file library in Connections is separate" in result["message"]
+    assert "private provider detail" not in str(result)
