@@ -68,6 +68,54 @@ def test_drive_result_and_snapshot_are_redacted_but_other_tools_unchanged():
     assert safe.messages[2].content == "ordinary result"
 
 
+def test_selected_file_status_names_and_arguments_never_reach_browser_or_storage():
+    secret = "PRIVATE_FILENAME.pdf"
+    tool_name = "inspect_selected_drive_files"
+    result = json.dumps(
+        {"source": "google_drive_selected_status", "status": "ok", "matches": [{"name": secret}]}
+    )
+    known: set[str] = set()
+    redact_drive_wire_event(
+        ToolCallStartEvent(tool_call_id="selected-1", tool_call_name=tool_name), known
+    )
+    assert (
+        redact_drive_wire_event(ToolCallArgsEvent(tool_call_id="selected-1", delta=secret), known)
+        is None
+    )
+    safe = redact_drive_wire_event(
+        ToolCallResultEvent(message_id="result", tool_call_id="selected-1", content=result), known
+    )
+    assert secret not in safe.model_dump_json()
+    assert json.loads(safe.content)["status"] == "ok"
+    serialized = json.dumps(
+        {
+            "events": [
+                {
+                    "content": {
+                        "parts": [
+                            {"functionCall": {"name": tool_name, "args": {"file_name": secret}}},
+                            {
+                                "functionResponse": {
+                                    "name": tool_name,
+                                    "response": json.loads(result),
+                                }
+                            },
+                        ]
+                    }
+                }
+            ]
+        }
+    )
+    stored = redact_drive_session_json(serialized)
+    assert secret not in stored
+    assert (
+        json.loads(stored)["events"][0]["content"]["parts"][1]["functionResponse"]["response"][
+            "status"
+        ]
+        == "ok"
+    )
+
+
 def test_adapter_event_preview_log_never_contains_provider_content(caplog):
     secret = "PRIVATE_DRIVE_SENTINEL"
     bridge = logging.getLogger("ag_ui_adk.adk_agent")

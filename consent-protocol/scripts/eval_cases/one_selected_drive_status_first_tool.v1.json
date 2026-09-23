@@ -1,0 +1,18 @@
+{
+  "schema_version": "one.first_tool_evals.v1",
+  "description": "Selected Drive status intent with the typed-chat read admitted. Run with the enabled runtime instruction and synthetic file names.",
+  "cases": [
+    {
+      "id": "drive.share_selected_file_status",
+      "family": "drive",
+      "prompt": "Do you have Alex's CV? Please share it with Sam.",
+      "expected": ["inspect_selected_drive_files"]
+    },
+    {
+      "id": "drive.named_file_processing_status",
+      "family": "drive",
+      "prompt": "Is AlexCV.pdf selected and ready to use?",
+      "expected": ["inspect_selected_drive_files"]
+    }
+  ]
+}

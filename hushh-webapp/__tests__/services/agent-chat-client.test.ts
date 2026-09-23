@@ -75,6 +75,27 @@ import {
 import { ApiService } from "@/lib/services/api-service";
 
 describe("AG-UI Agent One client", () => {
+  it("shows selected Drive status activity without exposing private filenames", async () => {
+    const onToolResult = vi.fn();
+    const onToolWaiting = vi.fn();
+    mockTransport.emitEvents = (subscriber) => {
+      subscriber.onToolCallStartEvent({ event: { toolCallId: "status-call", toolCallName: "inspect_selected_drive_files" } });
+      subscriber.onToolCallEndEvent({
+        event: { toolCallId: "status-call" },
+        toolCallName: "inspect_selected_drive_files",
+        toolCallArgs: { file_name: "PRIVATE_FILENAME.pdf" },
+      });
+      subscriber.onToolCallResultEvent({ event: { toolCallId: "status-call", content: JSON.stringify({
+        status: "ok", source: "google_drive_selected_status", matches: [{ name: "PRIVATE_FILENAME.pdf" }],
+      }) } });
+    };
+    await streamAgentChat({ userId: "u1", message: "Do I have the file?", vaultOwnerToken: "fixture",
+      handlers: { onToolResult, onToolWaiting } });
+    expect(JSON.stringify(onToolWaiting.mock.calls)).not.toContain("PRIVATE_FILENAME");
+    expect(JSON.stringify(onToolResult.mock.calls)).not.toContain("PRIVATE_FILENAME");
+    expect(onToolResult.mock.calls[0][0].message).toBe("Drive status checked.");
+  });
+
   it.each([
     { toolName: "ask_email_agent", connector: "mail", sourceRef: "mail:1", kind: "metadata", label: "Mail" },
     { toolName: "ask_documents_agent", connector: "drive", sourceRef: `document:${"a".repeat(32)}`, kind: "document", label: "Document" },

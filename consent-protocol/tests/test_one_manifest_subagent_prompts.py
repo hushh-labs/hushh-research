@@ -15,12 +15,20 @@ def test_one_chat_receives_authored_cross_connector_semantic_policy():
     assert "When a request spans connected services" in authored
     assert authored.strip() in composed
     assert "A connection or a read grant is not permission" in composed
-    assert (
-        "connecting or selecting files in the Connections panel does not establish that grant"
-        in composed
-    )
-    assert "Never use the broader MCP path as a fallback" in composed
+    assert "connecting or selecting files in Connectors does not establish that grant" in composed
+    assert "Never use the broader path to bypass" in composed
+    assert "share this file with Chris" in composed
+    assert "This chat has no direct Google sharing action" in composed
     assert "SELECTED-FILE DRIVE READ ADMISSION: disabled" in composed
+    assert "Do not claim the owner is disconnected" in composed
+
+
+def test_selected_drive_status_is_available_only_in_owner_chat_roster():
+    tools = agent_tree._one_roster_tools(specialist_model="test-model")
+    assert agent_tree.inspect_selected_drive_files in tools
+    assert agent_tree.inspect_selected_drive_files not in agent_tree._one_roster_tools(
+        tool_mode="proposal"
+    )
 
 
 @pytest.mark.parametrize("child_id", ["one_intro", "google_search"])
