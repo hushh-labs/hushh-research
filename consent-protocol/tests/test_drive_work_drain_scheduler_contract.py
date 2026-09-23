@@ -126,6 +126,10 @@ def test_worker_promotion_is_post_gate_attested_and_recoverable():
     rollback = WORKER_ROLLBACK.read_text(encoding="utf-8")
     workflow = UAT_WORKFLOW.read_text(encoding="utf-8")
 
+    # gcloud's multi-container parser treats trailing flags as container
+    # arguments. Global flags must precede the command, not follow a sidecar.
+    assert 'gcloud --quiet run deploy "${SERVICE}"' in release
+    assert release.index("gcloud --quiet run deploy") < release.index("--container=clamav")
     assert "clamav/clamav@sha256:" in release
     assert "--no-allow-unauthenticated" in release
     assert "--depends-on=clamav" in release
