@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   vaultKey: null as string | null,
   vaultOwnerToken: null as string | null,
   getInformationRequest: vi.fn(),
+  getRequestHistory: vi.fn(),
   getPublic: vi.fn(),
   getViewer: vi.fn(),
   push: vi.fn(),
@@ -55,6 +56,7 @@ vi.mock("@/lib/services/person-profile-service", () => ({
     getInformationRequestExports: vi.fn(),
     cancelInformationRequest: vi.fn(),
     getInformationRequest: mocks.getInformationRequest,
+    getRequestHistory: mocks.getRequestHistory,
   },
 }));
 
@@ -188,6 +190,7 @@ describe("PersonProfilePage native profile route", () => {
       verifiedRole: null,
     });
     mocks.getViewer.mockResolvedValue(null);
+    mocks.getRequestHistory.mockRejectedValue(new Error("History service unavailable in legacy fixture"));
     mocks.pathname = "/people/actual-public-ref";
     mocks.native = true;
     mocks.platform = "ios";
@@ -445,6 +448,7 @@ describe("PersonProfilePage request catalog tools", () => {
       verifiedRole: null,
     });
     mocks.getViewer.mockResolvedValue(viewerProfile({ requestableScopes: manyScopes(9) }));
+    mocks.getRequestHistory.mockRejectedValue(new Error("History service unavailable in legacy fixture"));
     mocks.pathname = "/people/actual-public-ref";
     mocks.native = false;
     mocks.platform = "web";
@@ -896,6 +900,22 @@ describe("PersonProfilePage request catalog tools", () => {
     fireEvent.click(screen.getByRole("button", { name: "Next" }));
     expect(screen.getByText("History item 9")).toBeInTheDocument();
     expect(screen.queryByText("History item 1")).toBeNull();
+  });
+
+  it("uses server bundle pages so a large request is never truncated into smaller history rows", async () => {
+    mocks.getViewer.mockResolvedValue(viewerProfile({ requestHistory: [] }));
+    mocks.getRequestHistory.mockImplementation(async ({ cursor }: { cursor?: string }) => cursor
+      ? { bundles: [{ bundleId: "older", purpose: "Older request", durationSeconds: 3600, createdAt: "2026-09-19T10:00:00+00:00", cancelled: false, itemCount: 2 }], nextCursor: null }
+      : { bundles: [{ bundleId: "large", purpose: "Professional review", durationSeconds: 3600, createdAt: "2026-09-20T10:00:00+00:00", cancelled: false, itemCount: 150 }], nextCursor: "next-page" });
+    render(<PersonProfilePage personRef="actual-public-ref" initialProfile={null} />);
+    expect(await screen.findByText("Request for 150 information items")).toBeInTheDocument();
+    expect(screen.getByText("Check status")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    expect(await screen.findByText("Request for 2 information items")).toBeInTheDocument();
+    expect(screen.queryByText("Request for 150 information items")).toBeNull();
+    expect(mocks.getRequestHistory).toHaveBeenLastCalledWith({
+      personRef: "actual-public-ref", idToken: "id-token", cursor: "next-page", limit: 8,
+    });
   });
 
   it("does not display details returned for another person", async () => {

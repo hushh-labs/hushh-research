@@ -49,6 +49,7 @@ import {
   type ViewerPersonProfile,
   type InformationRequestBundle,
   type PersonInformationRequestHistory,
+  type PersonRequestHistoryPage,
 } from "@/lib/services/person-profile-service";
 import {
   resolvePersonRefFromProfilePathname,
@@ -111,7 +112,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     viewerProfileState.personRef === resolvedPersonRef && viewerProfileState.viewerUid === user?.uid
       ? viewerProfileState.profile
       : null;
-  const historyGroups = useMemo(() => {
+  const recentHistoryGroups = useMemo(() => {
     const groups = new Map<string, { first: PersonInformationRequestHistory; items: PersonInformationRequestHistory[] }>();
     for (const item of viewerProfile?.requestHistory ?? []) {
       const key = item.bundleId || item.requestId;
@@ -122,9 +123,31 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     return [...groups.entries()].map(([bundleId, group]) => ({ bundleId, ...group }));
   }, [viewerProfile?.requestHistory]);
   const [historyPage, setHistoryPage] = useState(1);
-  const historyPageCount = Math.max(1, Math.ceil(historyGroups.length / 8));
-  const visibleHistoryPage = Math.min(historyPage, historyPageCount);
-  const visibleHistoryGroups = historyGroups.slice((visibleHistoryPage - 1) * 8, visibleHistoryPage * 8);
+  const [historyCursors, setHistoryCursors] = useState<Array<string | null>>([null]);
+  const [historyState, setHistoryState] = useState<{
+    personRef: string; viewerUid: string; page: number; result: PersonRequestHistoryPage | null; failed: boolean;
+  } | null>(null);
+  const currentHistory = historyState?.personRef === resolvedPersonRef
+    && historyState.viewerUid === user?.uid && historyState.page === historyPage ? historyState : null;
+  const historyGroups = currentHistory?.result?.bundles.map((summary) => {
+    const recent = recentHistoryGroups.find((group) => group.bundleId === summary.bundleId);
+    return {
+      bundleId: summary.bundleId,
+      first: recent?.first ?? null,
+      items: recent?.items ?? [],
+      itemCount: summary.itemCount,
+      purpose: summary.purpose,
+      createdAt: summary.createdAt,
+    };
+  }) ?? recentHistoryGroups.slice((historyPage - 1) * 8, historyPage * 8).map((group) => ({
+    ...group,
+    itemCount: group.items.length,
+    purpose: group.first.purpose,
+    createdAt: group.first.createdAt,
+  }));
+  const visibleHistoryGroups = historyGroups;
+  const visibleHistoryPage = historyPage;
+  const historyPageCount = Math.max(1, Math.ceil(recentHistoryGroups.length / 8));
   const [selectedScopeRefs, setSelectedScopeRefs] = useState<Set<string>>(new Set());
   const [reviewOpen, setReviewOpen] = useState(false);
   const [purpose, setPurpose] = useState("");
@@ -192,6 +215,24 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
   const [viewerReloadToken, setViewerReloadToken] = useState(0);
   useEffect(() => {
     if (authLoading || !user) return;
+    let active = true;
+    const cursor = historyCursors[historyPage - 1];
+    if (historyPage > 1 && !cursor) return;
+    setHistoryState({ personRef: resolvedPersonRef, viewerUid: user.uid, page: historyPage, result: null, failed: false });
+    void user.getIdToken()
+      .then((idToken) => PersonProfileService.getRequestHistory({
+        personRef: resolvedPersonRef, idToken, cursor: cursor || undefined, limit: 8,
+      }))
+      .then((result) => {
+        if (active) setHistoryState({ personRef: resolvedPersonRef, viewerUid: user.uid, page: historyPage, result, failed: false });
+      })
+      .catch(() => {
+        if (active) setHistoryState({ personRef: resolvedPersonRef, viewerUid: user.uid, page: historyPage, result: null, failed: true });
+      });
+    return () => { active = false; };
+  }, [authLoading, resolvedPersonRef, user, historyPage, historyCursors, viewerReloadToken]);
+  useEffect(() => {
+    if (authLoading || !user) return;
     requestGeneration.current += 1;
     catalogInFlight.current = false;
     setCatalogLoading(false);
@@ -252,6 +293,8 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     setDurationHours(DEFAULT_REQUEST_DURATION_HOURS);
     setBundleDetailsState({ personRef: resolvedPersonRef, viewerUid: user?.uid ?? null, details: {} });
     setHistoryPage(1);
+    setHistoryCursors([null]);
+    setHistoryState(null);
     setDecryptedByRequest({});
     setDecryptedRevisionByRequest({});
     setDecryptFailedByRequest({});
@@ -379,6 +422,8 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
       setPurpose("");
       toast.success("Request sent for review");
       // Refresh failure must not misreport a successful write or invite a duplicate.
+      setHistoryPage(1);
+      setHistoryCursors([null]);
       setViewerReloadToken((value) => value + 1);
     }
   };
@@ -625,12 +670,10 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     try {
       await PersonProfileService.cancelInformationRequest({ bundleId, vaultOwnerToken });
       CacheSyncService.onConsentMutated(user.uid);
-      const idToken = await user.getIdToken();
-      setViewerProfileState({
-        personRef: resolvedPersonRef,
-        viewerUid: user.uid,
-        profile: await PersonProfileService.getViewer(resolvedPersonRef, idToken, { page: 1 }),
-      });
+      setBundleDetailsState((current) => ({ ...current, details: Object.fromEntries(
+        Object.entries(current.details).filter(([id]) => id !== bundleId),
+      ) }));
+      setViewerReloadToken((value) => value + 1);
       toast.success("Information request cancelled");
     } catch (reason) {
       toast.error(oneLocationErrorMessage(reason, "The request could not be cancelled. Try again."));
@@ -1151,27 +1194,32 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                 title="Request history"
                 description="Requests you sent to this person and their current status."
               />
+              {currentHistory?.failed ? (
+                <p role="status" className="text-sm text-muted-foreground">Older requests could not be loaded. Showing recent activity only.</p>
+              ) : null}
               {historyGroups.length ? (
                 <SectionCard>
                   <div className="divide-y divide-border/60">
-                    {visibleHistoryGroups.map(({ bundleId, first, items }) => {
-                      const statuses = new Set(items.map((item) => item.status));
-                      const grantedCount = items.filter((item) => item.status === "granted").length;
-                      const statusLabel = statuses.size === 1 ? first.status : `${grantedCount} of ${items.length} granted`;
+                    {visibleHistoryGroups.map(({ bundleId, first, items, itemCount, purpose: requestPurpose, createdAt }) => {
                       const details = bundleDetails[bundleId];
+                      const statusItems = details?.items ?? (items.length === itemCount ? items : []);
+                      const statuses = new Set(statusItems.map((item) => item.status));
+                      const grantedCount = statusItems.filter((item) => item.status === "granted").length;
+                      const statusLabel = !statusItems.length ? "Check status"
+                        : statuses.size === 1 ? statusItems[0]!.status : `${grantedCount} of ${itemCount} granted`;
                       return (
                         <div key={bundleId} className="flex flex-wrap items-start justify-between gap-3 py-3 first:pt-0 last:pb-0">
                           <div className="min-w-0 flex-1">
-                            <p className="text-sm font-semibold">{items.length === 1 ? first.label : `Request for ${items.length} information items`}</p>
-                            <p className="mt-1 text-sm text-muted-foreground">{first.purpose}</p>
-                            {first.createdAt ? (
+                            <p className="text-sm font-semibold">{itemCount === 1 && first ? first.label : `Request for ${itemCount} information items`}</p>
+                            <p className="mt-1 text-sm text-muted-foreground">{requestPurpose}</p>
+                            {createdAt ? (
                               <p className="mt-1 text-xs text-muted-foreground">
-                                {new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(first.createdAt))}
+                                {new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(createdAt))}
                               </p>
                             ) : null}
                           </div>
                           <div className="flex shrink-0 flex-wrap items-center gap-2">
-                            <StatusPill tone={grantedCount === items.length ? "ready" : "neutral"}>
+                            <StatusPill tone={statusItems.length === itemCount && grantedCount === itemCount ? "ready" : "neutral"}>
                               {statusLabel}
                             </StatusPill>
                             {!details ? (
@@ -1181,12 +1229,12 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                                 effect="fade"
                                 disabled={loadingBundleId === bundleId}
                                 onClick={() => void loadBundleDetails(bundleId)}
-                                aria-label={`Details for ${items.length === 1 ? first.label : `${items.length} information items`}`}
+                                aria-label={`Details for ${itemCount === 1 && first ? first.label : `${itemCount} information items`}`}
                               >
                                 {loadingBundleId === bundleId ? "Loading…" : "Details"}
                               </Button>
                             ) : null}
-                            {items.some((item) => item.status === "pending") ? (
+                            {statusItems.some((item) => item.status === "pending") ? (
                               <Button
                                 type="button"
                                 variant="none"
@@ -1210,11 +1258,14 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                       );
                     })}
                   </div>
-                  {historyGroups.length > 8 ? (
+                  {currentHistory?.result?.nextCursor || historyPage > 1 || (!currentHistory?.result && recentHistoryGroups.length > 8) ? (
                     <div className="mt-3 flex items-center justify-between gap-3 border-t border-border/60 pt-3 text-sm">
                       <Button type="button" variant="none" effect="fade" disabled={visibleHistoryPage <= 1} onClick={() => setHistoryPage((page) => Math.max(1, page - 1))}>Previous</Button>
-                      <span className="text-muted-foreground">{visibleHistoryPage} of {historyPageCount}</span>
-                      <Button type="button" variant="none" effect="fade" disabled={visibleHistoryPage >= historyPageCount} onClick={() => setHistoryPage((page) => Math.min(historyPageCount, page + 1))}>Next</Button>
+                      <span className="text-muted-foreground">{currentHistory?.result ? `Page ${visibleHistoryPage}` : `${visibleHistoryPage} of ${historyPageCount}`}</span>
+                      <Button type="button" variant="none" effect="fade" disabled={currentHistory?.result ? !currentHistory.result.nextCursor : visibleHistoryPage >= historyPageCount} onClick={() => {
+                        if (currentHistory?.result?.nextCursor) setHistoryCursors((cursors) => [...cursors.slice(0, historyPage), currentHistory.result!.nextCursor]);
+                        setHistoryPage((page) => page + 1);
+                      }}>Next</Button>
                     </div>
                   ) : null}
                 </SectionCard>
