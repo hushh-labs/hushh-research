@@ -378,13 +378,24 @@ test("background processing needs explicit consent and can be paused without rem
   await expect(page.getByRole("textbox", { name: "Chat draft" })).toHaveValue("Keep my draft");
 });
 
-test("blocked popup keeps draft in chat and makes no start request", async ({
-  page,
-}) => {
+for (const readiness of ["busy", "unavailable"] as const)
+test(`blocked Drive popup fails closed when chat recovery is ${readiness}`, async ({ page }) => {
+  const attemptId = "synthetic-blocked-popup-attempt";
   let starts = 0;
   page.on("request", (request) => {
     if (request.url().includes("/oauth/start")) starts++;
   });
+  await page.route("**/api/connectors/google_drive/connect/oauth/start", (route) =>
+    route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({
+        connectorId: "google_drive",
+        attemptId,
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth?synthetic=blocked",
+      }),
+    }),
+  );
   await page.getByRole("textbox", { name: "Chat draft" }).fill("Unsent draft");
   await page.getByRole("button", { name: "Open drawer", exact: true }).click();
   await page.getByLabel("Open Connections", { exact: true }).click();
@@ -393,11 +404,19 @@ test("blocked popup keeps draft in chat and makes no start request", async ({
   await page.evaluate(() => {
     window.open = () => null;
   });
+  await page.evaluate((value) => {
+    (window as Window & { __driveRecoveryReadiness?: string }).__driveRecoveryReadiness = value;
+  }, readiness);
   await page
     .getByRole("button", { name: "Connect Drive", exact: true })
     .click();
-  await expect(page.getByText(/Allow popups/)).toBeVisible();
-  expect(starts).toBe(0);
+  await expect(page.getByText(readiness === "busy"
+    ? "Finish the current chat action or allow popups before connecting Drive."
+    : "Your draft could not be saved safely. Allow popups or try again.")).toBeVisible();
+  expect(starts).toBe(1);
+  expect(await page.evaluate(() =>
+    (window as Window & { __driveRecoveryRequests?: unknown[] }).__driveRecoveryRequests,
+  )).toEqual([{ attemptId, reason: "web_full_page" }]);
   expect(page.url()).toBe("http://localhost/connections-fixture");
   await page.keyboard.press("Escape");
   await expect(page.getByRole("textbox", { name: "Chat draft" })).toHaveValue(
