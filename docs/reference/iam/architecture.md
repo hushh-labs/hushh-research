@@ -95,6 +95,13 @@ A single authenticated account may hold both `investor` and `ria` personas. Runt
    request-accepted and contact-sync relationships are evaluated identically by
    owner-configured relationship rules. A connection alone grants no private
    information or live-location capability.
+7. A resolved person-to-person information request emits a requester-bound,
+   metadata-only update after the owner's consent event. The requester is
+   resolved from the stored bundle and exact request item, never from the
+   notification payload. Chat may use this update to reread current status and
+   open an approved encrypted export in the unlocked browser; the update itself
+   contains no shared values and grants no read authority. A silent push or SSE
+   delivery is best effort, so revisit still rechecks the authoritative bundle.
 
 ## Ecosystem Contract Mapping
 

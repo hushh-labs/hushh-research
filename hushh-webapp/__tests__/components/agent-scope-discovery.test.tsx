@@ -277,6 +277,48 @@ describe("current-authority inline Chat catalog", () => {
     expect(await screen.findByText("Revoked")).toBeInTheDocument();
   });
 
+  it("opens a newly granted bundle on a matching requester doorbell, not another bundle", async () => {
+    const restored: InformationRequestReviewExperience = {
+      type: "one.information_request_review.v1", personName: "Synthetic Recipient",
+      purpose: "Review approved information.", durationLabel: "2 days",
+      direction: "outgoing", phase: "submitted", subjectRef: person,
+      bundleId: "bundle_12345678", requestId: "request_12345678", status: "pending",
+      fields: [{ label: "Professional role", domain: "Professional", sensitivity: "standard", requestId: "request_12345678" }],
+    };
+    const bundle = (status: "pending" | "granted") => ({
+      bundleId: restored.bundleId, personRef: person, purpose: restored.purpose,
+      durationSeconds: 172800, cancelled: false,
+      items: [{ requestId: "request_12345678", scopeRef: "scope-1", label: "Professional role", sensitivity: "standard", status }],
+    });
+    mocks.getInformationRequest.mockResolvedValue(bundle("pending"));
+    mocks.getInformationRequestExports.mockResolvedValue([{
+      requestId: "request_12345678", scopeRef: "scope-1",
+      encryptedExport: {
+        request_id: "request_12345678", scope: "attr.professional.role", export_revision: 1,
+        export_envelope: { version: 2, export_id: "export-1", aad: {
+          version: 2, app_id: "agent_one", grant_id: "request_12345678", export_id: "export-1",
+          revision: 1, machine_scope: "attr.professional.role", scope_handle: "scope-handle",
+          recipient_key_fingerprint: "fingerprint", payload_algorithm: "AES-256-GCM",
+          expires_at_ms: Date.now() + 3600_000,
+        } },
+      },
+    }]);
+    mocks.decryptScopedExport.mockResolvedValue({ professional: { role: "Synthetic analyst" } });
+
+    render(<AgentStructuredExperienceView experience={restored} />);
+    expect(await screen.findByText("Waiting for their decision")).toBeInTheDocument();
+    mocks.getInformationRequest.mockResolvedValue(bundle("granted"));
+    act(() => window.dispatchEvent(new CustomEvent("consent-state-changed", { detail: {
+      source: "information_request_updated", action: "CONSENT_GRANTED", bundleId: "another-bundle", requestId: "request_12345678",
+    } })));
+    expect(mocks.decryptScopedExport).not.toHaveBeenCalled();
+    act(() => window.dispatchEvent(new CustomEvent("consent-state-changed", { detail: {
+      source: "information_request_updated", action: "CONSENT_GRANTED", bundleId: restored.bundleId, requestId: "request_12345678",
+    } })));
+    expect(await screen.findByTestId("chat-shared-information")).toHaveTextContent("Synthetic analyst");
+    expect(mocks.decryptScopedExport).toHaveBeenCalledTimes(1);
+  });
+
   it("rejects a swapped export scope before decrypting it", async () => {
     const restored: InformationRequestReviewExperience = {
       type: "one.information_request_review.v1", personName: "Synthetic Recipient",
@@ -299,6 +341,70 @@ describe("current-authority inline Chat catalog", () => {
     fireEvent.click(await screen.findByRole("button", { name: "View shared information" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("could not be opened");
     expect(screen.queryByTestId("chat-shared-information")).toBeNull();
+    expect(mocks.decryptScopedExport).not.toHaveBeenCalled();
+  });
+
+  it("does not decrypt an export that arrives after the vault locks", async () => {
+    const restored: InformationRequestReviewExperience = {
+      type: "one.information_request_review.v1", personName: "Synthetic Recipient",
+      purpose: "Review approved information.", durationLabel: "2 days",
+      direction: "outgoing", phase: "submitted", subjectRef: person,
+      bundleId: "bundle_12345678", requestId: "request_12345678", status: "granted",
+      fields: [{ label: "Professional role", domain: "Professional", sensitivity: "standard", requestId: "request_12345678" }],
+    };
+    mocks.getInformationRequest.mockResolvedValue({
+      bundleId: restored.bundleId, personRef: person, purpose: restored.purpose,
+      durationSeconds: 172800, cancelled: false,
+      items: [{ requestId: "request_12345678", scopeRef: "scope-1", label: "Professional role", sensitivity: "standard", status: "granted" }],
+    });
+    let resolveExports!: (value: unknown[]) => void;
+    mocks.getInformationRequestExports.mockReturnValue(new Promise(done => { resolveExports = done; }));
+
+    const view = render(<AgentStructuredExperienceView experience={restored} />);
+    fireEvent.click(await screen.findByRole("button", { name: "View shared information" }));
+    await waitFor(() => expect(mocks.getInformationRequestExports).toHaveBeenCalled());
+    mocks.unlocked = false;
+    view.rerender(<AgentStructuredExperienceView experience={restored} />);
+    await act(async () => resolveExports([]));
+    expect(mocks.decryptScopedExport).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("chat-shared-information")).not.toBeInTheDocument();
+  });
+
+  it("does not auto-open another granted item after the notified item is revoked", async () => {
+    const restored: InformationRequestReviewExperience = {
+      type: "one.information_request_review.v1", personName: "Synthetic Recipient",
+      purpose: "Review approved information.", durationLabel: "2 days",
+      direction: "outgoing", phase: "submitted", subjectRef: person,
+      bundleId: "bundle_12345678", requestId: null, status: "pending",
+      fields: [
+        { label: "Professional role", domain: "Professional", sensitivity: "standard", requestId: "request_12345678" },
+        { label: "Professional title", domain: "Professional", sensitivity: "standard", requestId: "request_22345678" },
+      ],
+    };
+    const bundle = (firstStatus: "pending" | "granted" | "revoked") => ({
+      bundleId: restored.bundleId, personRef: person, purpose: restored.purpose,
+      durationSeconds: 172800, cancelled: false,
+      items: [
+        { requestId: "request_12345678", scopeRef: "scope-1", label: "Professional role", sensitivity: "standard", status: firstStatus },
+        { requestId: "request_22345678", scopeRef: "scope-2", label: "Professional title", sensitivity: "standard", status: "granted" },
+      ],
+    });
+    let resolveGrant!: (value: ReturnType<typeof bundle>) => void;
+    mocks.getInformationRequest.mockResolvedValueOnce(bundle("pending"))
+      .mockReturnValueOnce(new Promise(done => { resolveGrant = done; }))
+      .mockResolvedValue(bundle("revoked"));
+    render(<AgentStructuredExperienceView experience={restored} />);
+    await waitFor(() => expect(mocks.getInformationRequest).toHaveBeenCalledTimes(1));
+    act(() => window.dispatchEvent(new CustomEvent("consent-state-changed", { detail: {
+      source: "information_request_updated", action: "CONSENT_GRANTED", bundleId: restored.bundleId, requestId: "request_12345678",
+    } })));
+    await waitFor(() => expect(mocks.getInformationRequest).toHaveBeenCalledTimes(2));
+    act(() => window.dispatchEvent(new CustomEvent("consent-state-changed", { detail: {
+      source: "information_request_updated", action: "REVOKED", bundleId: restored.bundleId, requestId: "request_12345678",
+    } })));
+    await act(async () => resolveGrant(bundle("granted")));
+    await waitFor(() => expect(mocks.getInformationRequest).toHaveBeenCalledTimes(3));
+    expect(mocks.getInformationRequestExports).not.toHaveBeenCalled();
     expect(mocks.decryptScopedExport).not.toHaveBeenCalled();
   });
 

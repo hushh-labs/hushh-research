@@ -1,12 +1,11 @@
 "use client";
 
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { usePersonInformationRequest } from "@/lib/consent/use-person-information-request";
 import { isCurrentPersonExport } from "@/lib/consent/person-export-binding";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
-import { FCM_MESSAGE_EVENT } from "@/lib/notifications";
 import { projectGrantPayload } from "@/lib/consent/project-grant-payload";
 import { DecryptedRecordContent } from "@/components/connections/decrypted-grant-card";
 import { OneKycClientZkService } from "@/lib/services/one-kyc-client-zk-service";
@@ -342,6 +341,7 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
   } | null>(null);
   const [refreshState, setRefreshState] = useState<"idle" | "checking" | "loaded" | "unavailable">("idle");
   const [revealState, setRevealState] = useState<"idle" | "opening" | "unavailable">("idle");
+  const [autoRevealRequestId, setAutoRevealRequestId] = useState<string | null>(null);
   const [refreshRevision, setRefreshRevision] = useState(0);
   const [revealed, setRevealed] = useState<{
     viewerUid: string;
@@ -356,6 +356,7 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
     revealGeneration.current += 1;
     setRevealed(null);
     setRevealState("idle");
+    setAutoRevealRequestId(null);
   }, [experience.bundleId, experience.subjectRef, isVaultUnlocked, user?.uid, vaultKey, vaultOwnerToken]);
 
   useEffect(() => {
@@ -363,17 +364,26 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
     const refresh = () => {
       revealGeneration.current += 1;
       setRevealed(null);
+      setCurrent(null);
+      setRefreshState("checking");
       setRefreshRevision((revision) => revision + 1);
     };
     const onVisible = () => { if (document.visibilityState === "visible") refresh(); };
+    const onConsentChanged = (event: Event) => {
+      const detail = (event as CustomEvent<Record<string, unknown>>).detail;
+      if (detail?.source === "information_request_updated") {
+        if (detail.bundleId !== experience.bundleId || typeof detail.requestId !== "string") return;
+        if (detail.action === "CONSENT_GRANTED") setAutoRevealRequestId(detail.requestId);
+        else setAutoRevealRequestId((pending) => pending === detail.requestId ? null : pending);
+      }
+      refresh();
+    };
     window.addEventListener("focus", refresh);
-    window.addEventListener(CONSENT_STATE_CHANGED_EVENT, refresh);
-    window.addEventListener(FCM_MESSAGE_EVENT, refresh);
+    window.addEventListener(CONSENT_STATE_CHANGED_EVENT, onConsentChanged);
     document.addEventListener("visibilitychange", onVisible);
     return () => {
       window.removeEventListener("focus", refresh);
-      window.removeEventListener(CONSENT_STATE_CHANGED_EVENT, refresh);
-      window.removeEventListener(FCM_MESSAGE_EVENT, refresh);
+      window.removeEventListener(CONSENT_STATE_CHANGED_EVENT, onConsentChanged);
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [experience.bundleId, experience.phase]);
@@ -389,32 +399,38 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
     return () => window.clearTimeout(timer);
   }, [revealed]);
 
-  const revealGrantedInformation = async () => {
+  const revealGrantedInformation = useCallback(async () => {
     if (!user || !vaultKey || !vaultOwnerToken || !isVaultUnlocked || !experience.bundleId || !experience.subjectRef) return;
     const generation = ++revealGeneration.current;
     setRevealed(null);
     setRevealState("opening");
     try {
       const bundle = await PersonProfileService.getInformationRequest({ bundleId: experience.bundleId, vaultOwnerToken });
+      if (generation !== revealGeneration.current) return;
       if (bundle.bundleId !== experience.bundleId || bundle.personRef !== experience.subjectRef) throw new Error("Mismatched request");
       const granted = bundle.items.filter((item) => item.status === "granted");
       if (!granted.length) throw new Error("No current grant");
       const connector = await OneKycClientZkService.readStoredConnector({ userId: user.uid, vaultKey, vaultOwnerToken });
+      if (generation !== revealGeneration.current) return;
       if (!connector) throw new Error("Connector unavailable");
       const exports = await PersonProfileService.getInformationRequestExports({ bundleId: bundle.bundleId, vaultOwnerToken });
+      if (generation !== revealGeneration.current) return;
       const values: Array<{ requestId: string; label: string; data: Record<string, unknown> }> = [];
       let expiresAtMs = Number.MAX_SAFE_INTEGER;
       for (const item of granted) {
+        if (generation !== revealGeneration.current) return;
         const exact = exports.find((entry) => entry.requestId === item.requestId);
         if (!exact || !isCurrentPersonExport({ item, scopeRef: exact.scopeRef, exportPackage: exact.encryptedExport, nowMs: Date.now() })) {
           throw new Error("Export unavailable or changed");
         }
         const payload = await OneKycClientZkService.decryptScopedExport({ exportPackage: exact.encryptedExport, connector });
+        if (generation !== revealGeneration.current) return;
         const domain = current?.fields.find((field) => field.requestId === item.requestId)?.domain;
         values.push({ requestId: item.requestId, label: item.label, data: projectGrantPayload(payload, domain) });
         expiresAtMs = Math.min(expiresAtMs, exact.encryptedExport.export_envelope.aad.expires_at_ms);
       }
       const latest = await PersonProfileService.getInformationRequest({ bundleId: bundle.bundleId, vaultOwnerToken });
+      if (generation !== revealGeneration.current) return;
       if (latest.bundleId !== bundle.bundleId || latest.personRef !== experience.subjectRef
         || !values.every((value) => latest.items.some((item) => item.requestId === value.requestId && item.status === "granted"))) {
         throw new Error("Grant changed while opening information");
@@ -425,7 +441,14 @@ function InformationRequestReviewView({ experience }: { experience: InformationR
     } catch {
       if (generation === revealGeneration.current) setRevealState("unavailable");
     }
-  };
+  }, [user, vaultKey, vaultOwnerToken, isVaultUnlocked, experience.bundleId, experience.subjectRef, current?.fields]);
+
+  useEffect(() => {
+    if (!autoRevealRequestId || refreshState !== "loaded" || !isVaultUnlocked
+      || !current?.fields.some((field) => field.requestId === autoRevealRequestId && field.status === "granted")) return;
+    setAutoRevealRequestId(null);
+    void revealGrantedInformation();
+  }, [autoRevealRequestId, refreshState, isVaultUnlocked, current, revealGrantedInformation]);
 
   useEffect(() => {
     let active = true;

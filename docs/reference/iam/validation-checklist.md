@@ -31,6 +31,11 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
 2. Investor and RIA route trees enforce actor gates.
 3. Marketplace tabs render expected public-card data.
 4. Consent request/approve/deny/revoke flows complete end-to-end.
+   For person-to-person requests, verify that only the stored bundle requester
+   receives the metadata-only resolution update, and that a matching unlocked
+   Chat card rereads authority before browser-local encrypted readback. Wrong
+   bundle, revoked grant, locked vault, and unavailable export must not reveal
+   values; notification delivery must not become approval or read authority.
 5. Schema-missing compatibility:
    `GET /api/iam/persona` returns investor-safe `200`,
    `/api/ria/*` and `/api/marketplace/*` return `503 IAM_SCHEMA_NOT_READY`.
