@@ -187,6 +187,7 @@ def test_worker_promotion_is_post_gate_attested_and_recoverable():
         assert "steps.promote-uat-traffic.outcome != 'skipped'" in condition
         assert "steps.classify-uat-release.outputs.release_failed != 'true'" in condition
         assert "steps.deploy-drive-worker.outcome != 'success'" in condition
+        assert "steps.scope.outputs.deploy_backend == 'true'" in condition
 
     scheduler_rollback_clause = workflow.split(
         'if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \\\n', 1
@@ -207,6 +208,21 @@ def test_worker_promotion_is_post_gate_attested_and_recoverable():
     assert "backend_sha" in workflow and "frontend_sha" in workflow
     assert 'if [ "$STATUS" != "healthy" ]; then' in workflow
     assert "_CLOUD_RUN_MEMORY=4Gi" in workflow
+
+
+def test_frontend_only_uat_release_cannot_enter_drive_worker_fallback():
+    """A skipped worker must not undo a valid frontend-only promotion."""
+    workflow = UAT_WORKFLOW.read_text(encoding="utf-8")
+    condition = workflow.split("id: rollback-frontend-after-drive-worker", 1)[1].split(
+        "shell: bash", 1
+    )[0]
+
+    assert "steps.scope.outputs.deploy_backend == 'true'" in condition
+    assert "steps.scope.outputs.deploy_frontend == 'true'" in condition
+    # Backend failure, cancellation and skipped execution remain eligible once
+    # promotion was attempted; backend scope is the key frontend-only guard.
+    assert "steps.promote-uat-traffic.outcome != 'skipped'" in condition
+    assert "steps.deploy-drive-worker.outcome != 'success'" in condition
 
 
 def _scheduler_snapshot(uri: str, audience: str) -> dict[str, object]:

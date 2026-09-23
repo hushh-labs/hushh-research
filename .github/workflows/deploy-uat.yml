@@ -1899,7 +1899,7 @@ jobs:
 
       - name: Restore frontend after Drive worker failure
         id: rollback-frontend-after-drive-worker
-        if: always() && steps.promote-uat-traffic.outcome != 'skipped' && steps.classify-uat-release.outputs.release_failed != 'true' && steps.deploy-drive-worker.outcome != 'success' && steps.scope.outputs.deploy_frontend == 'true' && steps.rollback-targets.outputs.frontend_revision != ''
+        if: always() && steps.promote-uat-traffic.outcome != 'skipped' && steps.classify-uat-release.outputs.release_failed != 'true' && steps.deploy-drive-worker.outcome != 'success' && steps.scope.outputs.deploy_backend == 'true' && steps.scope.outputs.deploy_frontend == 'true' && steps.rollback-targets.outputs.frontend_revision != ''
         shell: bash
         env:
           PREDEPLOY_DB_GATE_OUTCOME: ${{ steps.predeploy-db-gate.outcome }}
