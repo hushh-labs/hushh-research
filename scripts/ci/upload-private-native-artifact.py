@@ -286,7 +286,13 @@ def object_name(sha: str, run_id: str, attempt: str, platform: str) -> str:
 
 
 def validate_uploaded_object(
-    metadata: dict[str, Any], *, name: str, size: int, sha256: str, md5_base64: str
+    metadata: dict[str, Any],
+    *,
+    name: str,
+    size: int,
+    sha256: str,
+    source_sha: str,
+    md5_base64: str,
 ) -> int:
     if metadata.get("name") != name or metadata.get("bucket") != BUCKET:
         raise ArtifactPolicyError(
@@ -301,9 +307,15 @@ def validate_uploaded_object(
         raise ArtifactPolicyError("uploaded object generation or size mismatch")
     if metadata.get("md5_hash") != md5_base64:
         raise ArtifactPolicyError("uploaded object MD5 mismatch")
-    custom_metadata = metadata.get("metadata")
-    if not isinstance(custom_metadata, dict) or custom_metadata.get("sha256") != sha256:
+    # `gcloud storage objects describe --format=json` renders Cloud Storage
+    # custom metadata as `custom_fields`, not the raw JSON API's `metadata`.
+    # Require the CLI's exact shape so a missing digest cannot be mistaken for
+    # a valid private-artifact receipt.
+    custom_fields = metadata.get("custom_fields")
+    if not isinstance(custom_fields, dict) or custom_fields.get("sha256") != sha256:
         raise ArtifactPolicyError("uploaded object SHA-256 metadata mismatch")
+    if custom_fields.get("source_sha") != source_sha:
+        raise ArtifactPolicyError("uploaded object source SHA metadata mismatch")
     return generation
 
 
@@ -331,6 +343,7 @@ def upload(
         name=name,
         size=path.stat().st_size,
         sha256=digest,
+        source_sha=sha,
         md5_base64=md5_base64,
     )
     validate_destination()
