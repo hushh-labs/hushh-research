@@ -180,6 +180,27 @@ from attempting its legacy issuance before returning the incompatible response.
 | DELETE | `/api/notifications/unregister`                       | Unregister FCM tokens (logout)                                                                                                                                  |
 | POST   | `/api/kai/consent/grant`                              | Grant consent for Kai scopes                                                                                                                                    |
 
+### One Person Request History
+
+`GET /api/one/people/{person_ref}/request-history` requires the authenticated
+Firebase user. It reads only bundles that user requested from the active person
+profile named by `person_ref`; the profile URL alone grants no access. A self
+profile or missing/inactive profile returns `404`. Responses are
+`private, no-store`.
+
+Query parameters: `limit` defaults to 20 and must be 1–50; `cursor` is an opaque
+continuation value from `nextCursor`. Invalid or cross-person cursors return
+`400`; out-of-range limits return `422`. Results order by bundle creation time
+descending, then bundle UUID descending, so tied timestamps remain stable.
+Each response has `bundles` and `nextCursor` (`null` at the end). A bundle has
+`bundleId`, `purpose`, `durationSeconds`, `createdAt`, `cancelled`, and
+`itemCount`. The count covers all stored items in that bundle, including bundles
+with more than 100 items. This is request correlation metadata, not consent or
+grant authority; individual grant status remains governed by the consent ledger.
+Concurrent inserts can appear ahead of an existing cursor and require a fresh
+first-page read to see them. The existing `GET /api/one/people/{person_ref}`
+`requestHistory` field remains unchanged for current callers.
+
 ### One Runtime Configuration
 
 | Method | Path                               | Auth            | Description                                                                                                                                                                                                                                                                                                               |

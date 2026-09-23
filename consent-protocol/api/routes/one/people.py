@@ -86,6 +86,30 @@ async def viewer_person_profile(
         raise _not_found(exc) from exc
 
 
+@router.get("/{person_ref}/request-history")
+async def viewer_request_history(
+    person_ref: str,
+    response: Response,
+    limit: int = Query(default=20, ge=1, le=50),
+    cursor: str | None = Query(default=None, max_length=512),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        return await _service().get_request_history_page(
+            viewer_user_id=firebase_uid,
+            public_person_ref=_validated_ref(person_ref),
+            limit=limit,
+            cursor=cursor,
+        )
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise _not_found(exc) from exc
+
+
 @router.post("/{person_ref}/connection")
 async def connect_to_person(
     person_ref: str,
