@@ -238,7 +238,8 @@ export async function createReviewerSessionHarness({
       // read-only rehearsal. Keep the vault-owner token scoped to PKM routes.
       if (
         pathname.startsWith("/api/one/connections") ||
-        pathname.startsWith("/api/one/people/")
+        pathname.startsWith("/api/one/people/") ||
+        pathname === "/api/one/models/preference"
       ) {
         identityToken = authorization.slice(7);
       }
