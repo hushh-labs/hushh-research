@@ -267,6 +267,11 @@ class MainActivity : BridgeActivity() {
 
         super.onCreate(savedInstanceState)
 
+        // Only the non-shipping perf build sets this (android/app/build.gradle).
+        if (resources.getBoolean(R.bool.webview_inspectable)) {
+            WebView.setWebContentsDebuggingEnabled(true)
+        }
+
         installAndroidPersonProfileRouting()
 
         installSessionPrivacyOverlay()

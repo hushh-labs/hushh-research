@@ -24,6 +24,7 @@ android {
     namespace = "com.hussh.app"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
+        resValue "bool", "webview_inspectable", "false"
         applicationId "com.hussh.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
@@ -70,6 +71,9 @@ android {
         perf {
             initWith release
             debuggable false
+            // The perf build never ships; it lets the render lane attach Chrome
+            // DevTools to the WebView and trace a frame (release keeps false).
+            resValue "bool", "webview_inspectable", "true"
             signingConfig signingConfigs.debug
             matchingFallbacks = ['release']
         }
