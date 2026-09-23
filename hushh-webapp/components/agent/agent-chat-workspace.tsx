@@ -7031,22 +7031,50 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                       </Button>
                     </div>
                   ) : null}
-                  {composerExpanded ? (
-                    <div
-                      data-testid="agent-chat-composer-expanded"
-                      className={cn(
-                        "relative mb-2 overflow-hidden rounded-[24px]",
-                        isCanonicalChatRoute
+                  {/* One composer, two sizes. The compact pill and the expanded
+                   * editor used to be separate text boxes in separate trees, so
+                   * React swapped one for the other when a long draft auto-
+                   * expanded, and keystrokes landing in that frame were lost
+                   * ("number 3 fopand" on a Galaxy S24 Ultra, 2026-09-22). The
+                   * text box now stays the same element; only its size, the
+                   * corner control and the labels change. */}
+                  <div
+                    data-testid={composerExpanded ? "agent-chat-composer-expanded" : "agent-chat-composer"}
+                    className={cn(
+                      composerExpanded
+                        ? "relative mb-2 overflow-hidden rounded-[24px]"
+                        : "flex min-h-14 items-center gap-2 overflow-hidden rounded-[var(--app-input-radius)] border-[1.5px] border-black/10 px-4 transition-[border-color,box-shadow,background-color] dark:border-white/15 focus-within:border-[color:var(--app-accent)] focus-within:ring-4 focus-within:ring-[color:var(--app-accent-ring)]",
+                      composerExpanded
+                        ? isCanonicalChatRoute
                           ? "bottom-chrome-surface"
-                          : "bg-foreground/[0.045] shadow-[0_18px_55px_-42px_rgba(0,0,0,0.55)] ring-1 ring-inset ring-foreground/[0.045]",
-                      )}
+                          : "bg-foreground/[0.045] shadow-[0_18px_55px_-42px_rgba(0,0,0,0.55)] ring-1 ring-inset ring-foreground/[0.045]"
+                        : isCanonicalChatRoute
+                          ? "bottom-chrome-surface min-h-14 rounded-[var(--app-input-radius)]"
+                          : "bg-foreground/[0.045] shadow-[0_18px_55px_-42px_rgba(0,0,0,0.55)]",
+                    )}
+                  >
+                    <div
+                      className={
+                        composerExpanded
+                          ? "relative"
+                          : "relative flex min-h-0 min-w-0 flex-1 items-center"
+                      }
                     >
                       <textarea
                         ref={composerTextareaRef}
-                        data-testid="agent-chat-composer-expanded-textarea"
-                        aria-label="Expanded message One"
+                        data-testid={
+                          composerExpanded
+                            ? "agent-chat-composer-expanded-textarea"
+                            : "agent-chat-composer-textarea"
+                        }
+                        aria-label={composerExpanded ? "Expanded message One" : "Message One"}
                         value={input}
                         onChange={(event) => setInput(event.target.value)}
+                        onFocus={() => {
+                          if (isCanonicalChatRoute) {
+                            snapKaiBottomChromeVisible();
+                          }
+                        }}
                         onPaste={handleComposerPaste}
                         onKeyDown={(event) => {
                           if (
@@ -7058,7 +7086,13 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           }
                           event.preventDefault();
                           if (canSend) {
-                            event.currentTarget.form?.requestSubmit();
+                            const composer = event.currentTarget;
+                            composer.form?.requestSubmit();
+                            // On a phone, sending puts the keyboard away so
+                            // the reply has the screen (founder report,
+                            // 2026-09-22: Enter left it up). The desktop
+                            // keeps focus for the next message.
+                            if (Capacitor.isNativePlatform()) composer.blur();
                           }
                         }}
                         disabled={
@@ -7071,107 +7105,56 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                             ? "Preparing your reply to the selected Mail request…"
                             : gmailKycMissingLabels.length > 0
                             ? `Reply with: ${gmailKycMissingLabels.join(", ")}`
-                            : "Write a longer message..."
+                            : composerExpanded
+                            ? "Write a longer message..."
+                            : "Message One..."
                         }
-                        className="block h-[min(38dvh,18rem)] w-full resize-none overscroll-contain overflow-y-auto bg-transparent px-4 pb-14 pr-32 pt-4 text-[16px] leading-6 text-foreground outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60 sm:h-[min(48dvh,30rem)] sm:px-5 sm:pb-16 sm:pr-36 sm:pt-5 sm:text-sm break-words [overflow-wrap:anywhere] [word-break:break-word]"
+                        rows={1}
+                        className={
+                          composerExpanded
+                            ? "block h-[min(38dvh,18rem)] w-full resize-none overscroll-contain overflow-y-auto bg-transparent px-4 pb-14 pr-32 pt-4 text-[16px] leading-6 text-foreground caret-[color:var(--app-accent)] outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60 sm:h-[min(48dvh,30rem)] sm:px-5 sm:pb-16 sm:pr-36 sm:pt-5 sm:text-sm break-words [overflow-wrap:anywhere] [word-break:break-word]"
+                            : "h-auto max-h-28 min-h-0 min-w-0 flex-1 resize-none overscroll-contain overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden border-0 bg-transparent px-0 py-2.5 text-[15px] leading-snug text-foreground caret-[color:var(--app-accent)] outline-none shadow-none focus-visible:border-transparent focus-visible:ring-0 placeholder:text-muted-foreground/60 disabled:cursor-not-allowed disabled:opacity-60 sm:max-h-36 sm:text-sm break-words [overflow-wrap:anywhere] [word-break:break-word]"
+                        }
                       />
                       <Button
                         type="button"
                         variant="ghost"
                         size="icon"
-                        className="absolute right-2 top-2 h-8 w-8 rounded-lg text-muted-foreground"
-                        aria-label="Collapse message editor"
-                        title="Collapse"
-                        onClick={collapseComposer}
+                        data-testid={composerExpanded ? undefined : "agent-chat-composer-expand"}
+                        className={
+                          composerExpanded
+                            ? "absolute right-2 top-2 h-8 w-8 rounded-lg text-muted-foreground"
+                            : "h-8 w-8 shrink-0 rounded-lg text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+                        }
+                        aria-label={composerExpanded ? "Collapse message editor" : "Expand message editor"}
+                        title={composerExpanded ? "Collapse" : "Expand"}
+                        disabled={
+                          composerExpanded
+                            ? false
+                            : !input.trim() ||
+                              isVoiceConnecting ||
+                              emailDraftOpen ||
+                              isGmailKycSaving
+                        }
+                        onClick={composerExpanded ? collapseComposer : () => setComposerExpanded(true)}
                       >
-                        <Minimize2 className="h-4 w-4" />
-                      </Button>
-                      <div className="absolute bottom-3 right-3 flex items-center gap-2 sm:bottom-4 sm:right-4">
-                        {composerActionRail}
-                      </div>
-                    </div>
-                  ) : null}
-                  {!composerExpanded ? (
-                    <div
-                      data-testid="agent-chat-composer"
-                      className={cn(
-                        "flex min-h-14 items-center gap-2 overflow-hidden rounded-[var(--app-input-radius)] border-[1.5px] border-black/10 px-4 transition-[border-color,box-shadow,background-color] dark:border-white/15 focus-within:border-[color:var(--app-accent)] focus-within:ring-4 focus-within:ring-[color:var(--app-accent-ring)]",
-                        isCanonicalChatRoute
-                          ? "bottom-chrome-surface min-h-14 rounded-[var(--app-input-radius)]"
-                          : "bg-foreground/[0.045] shadow-[0_18px_55px_-42px_rgba(0,0,0,0.55)]",
-                      )}
-                    >
-                      <div className="relative flex min-h-0 min-w-0 flex-1 items-center">
-                        <textarea
-                          ref={composerTextareaRef}
-                          data-testid="agent-chat-composer-textarea"
-                          aria-label="Message One"
-                          value={input}
-                          onChange={(event) => setInput(event.target.value)}
-                          onFocus={() => {
-                            if (isCanonicalChatRoute) {
-                              snapKaiBottomChromeVisible();
-                            }
-                          }}
-                          onPaste={handleComposerPaste}
-                          onKeyDown={(event) => {
-                            if (
-                              event.key !== "Enter" ||
-                              event.shiftKey ||
-                              event.nativeEvent.isComposing
-                            ) {
-                              return;
-                            }
-                            event.preventDefault();
-                            if (canSend) {
-                              const composer = event.currentTarget;
-                              composer.form?.requestSubmit();
-                              // On a phone, sending puts the keyboard away so
-                              // the reply has the screen (founder report,
-                              // 2026-09-22: Enter left it up). The desktop
-                              // keeps focus for the next message.
-                              if (Capacitor.isNativePlatform()) composer.blur();
-                            }
-                          }}
-                          disabled={
-                            isVoiceConnecting ||
-                            emailDraftOpen ||
-                            isGmailKycSaving
-                          }
-                          placeholder={
-                            isGmailKycSaving && gmailKycReplyRequest
-                              ? "Preparing your reply to the selected Mail request…"
-                              : gmailKycMissingLabels.length > 0
-                              ? `Reply with: ${gmailKycMissingLabels.join(", ")}`
-                              : "Message One..."
-                          }
-                          rows={1}
-                          className="h-auto max-h-28 min-h-0 min-w-0 flex-1 resize-none overscroll-contain overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden border-0 bg-transparent px-0 py-2.5 text-[15px] leading-snug text-foreground caret-[color:var(--app-accent)] outline-none shadow-none focus-visible:border-transparent focus-visible:ring-0 placeholder:text-muted-foreground/60 disabled:cursor-not-allowed disabled:opacity-60 sm:max-h-36 sm:text-sm break-words [overflow-wrap:anywhere] [word-break:break-word]"
-                        />
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          data-testid="agent-chat-composer-expand"
-                          className="h-8 w-8 shrink-0 rounded-lg text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
-                          aria-label="Expand message editor"
-                          title="Expand"
-                          disabled={
-                            !input.trim() ||
-                            isVoiceConnecting ||
-                            emailDraftOpen ||
-                            isGmailKycSaving
-                          }
-                          onClick={() => setComposerExpanded(true)}
-                        >
+                        {composerExpanded ? (
+                          <Minimize2 className="h-4 w-4" />
+                        ) : (
                           <Maximize2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-1.5">
-                        {composerActionRail}
-                      </div>
+                        )}
+                      </Button>
                     </div>
-                  ) : null}
+                    <div
+                      className={
+                        composerExpanded
+                          ? "absolute bottom-3 right-3 flex items-center gap-2 sm:bottom-4 sm:right-4"
+                          : "flex shrink-0 items-center gap-1.5"
+                      }
+                    >
+                      {composerActionRail}
+                    </div>
+                  </div>
                 </>
               )}
             </div>
