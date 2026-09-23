@@ -367,7 +367,7 @@ describe("SegmentedTabs", () => {
     expect(inactive.getAttribute("data-state")).toBe("inactive");
     expect(inactive.getAttribute("aria-selected")).toBe("false");
     expect(inactive.className).toContain(
-      "[@media(hover:hover)]:hover:bg-[color:var(--app-neutral-fill)]",
+      "[@media(hover:hover)]:hover:bg-black/5",
     );
     expect(inactive.className).not.toContain("hover:text");
     expect(active.className).not.toContain("press-scale");
@@ -397,7 +397,7 @@ describe("SegmentedTabs", () => {
     expect(root?.className).toContain("bg-[color:var(--app-segmented-track-surface)]");
     expect(root?.className).toContain("border-0");
     expect(root?.className).not.toContain("var(--app-card-surface-compact)");
-    expect(active.className).toContain("shadow-[var(--app-segmented-active-shadow)]");
+    expect(active.className).toContain("shadow-[0_1px_3px_rgba(0,0,0,0.1),0_1px_2px_rgba(0,0,0,0.06)]");
     expect(active.className).toContain("border-transparent");
     expect(active.className).toContain("font-semibold");
     expect(active.className).not.toContain("font-normal");

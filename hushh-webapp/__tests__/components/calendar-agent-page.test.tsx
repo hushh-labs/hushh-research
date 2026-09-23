@@ -93,6 +93,7 @@ describe("CalendarAgentPage", () => {
     });
     expect(chat).toBeTruthy();
     expect(screen.getByRole("button", { name: "Disconnect Calendar" })).toBeTruthy();
+
     expect(screen.queryByRole("button", { name: "Reconnect Calendar" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Enable scheduling" })).toBeNull();
 
@@ -119,6 +120,15 @@ describe("CalendarAgentPage", () => {
       screen.getByRole("button", { name: "Try Calendar Agent with One" }),
     ).toBeTruthy();
     expect(screen.getByRole("button", { name: "Disconnect Calendar" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Enable scheduling" }));
+    await waitFor(() =>
+      expect(mocks.startConnect).toHaveBeenCalledWith({
+        idToken: "firebase-token",
+        userId: "calendar-user",
+        accessLevel: "manage",
+      }),
+    );
   });
 
   it("keeps the Calendar connection surface focused on connection", async () => {
