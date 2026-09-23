@@ -42,6 +42,7 @@ test.beforeAll(async () => {
           "@/lib/capacitor",
           "@/lib/profile/gmail-connector-store",
           "@/lib/services/gmail-receipts-service",
+          "next/navigation",
         ].map((find) => ({
           find,
           replacement: path.join(
@@ -233,10 +234,10 @@ for (const width of [320, 390, 768, 1440])
       exact: true,
     });
     await expect(
-      drawer.getByRole("heading", { name: "Mail", exact: true }),
+      drawer.getByRole("heading", { name: "Gmail", exact: true }),
     ).toBeVisible();
     await expect(
-      drawer.getByRole("heading", { name: "Drive", exact: true }),
+      drawer.getByRole("heading", { name: "Google Drive", exact: true }),
     ).toBeVisible();
     await expect(
       drawer.getByText("drive-owner@synthetic.invalid"),
