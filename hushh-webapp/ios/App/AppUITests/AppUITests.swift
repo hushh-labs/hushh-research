@@ -1441,6 +1441,20 @@ final class AppUITests: XCTestCase {
                 }
                 perfTapNav(app, label: label)
             }
+            // Rapid in-test screenshots right after a tap, kept as attachments
+            // the card exports (the Mac cannot screen-record this iPhone). Each
+            // carries its capture time so the sequence can be timed.
+            func burst(_ name: String, count: Int = 10) {
+                for index in 0..<count {
+                    let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+                    attachment.name = String(
+                        format: "burst-%@-%02d-%lld", name, index,
+                        Int64(Date().timeIntervalSince1970 * 1000)
+                    )
+                    attachment.lifetime = .keepAlways
+                    add(attachment)
+                }
+            }
             func dismissKeyboard() {
                 // A tap on the content above the keyboard, as a person does.
                 webView.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.22)).tap()
@@ -1450,10 +1464,30 @@ final class AppUITests: XCTestCase {
             stop("landing", settle: 1)
 
             perfTapNav(app, label: "Chat")
+            burst("to-chat")
             stop("chat")
             if tapLabel("Message One") {
                 stop("chat-keyboard", settle: 1.5)
+                // A long draft must move into the expanded editor on its own,
+                // with every character kept. Typed, never sent, then deleted.
+                let composer = app.webViews.descendants(matching: .any)
+                    .matching(NSPredicate(format: "label == %@", "Message One")).firstMatch
+                let draft = (1...6).map { "draft line number \($0) for the expand check only. " }.joined()
+                composer.typeText(draft)
+                stop("composer-long-draft", settle: 1.0)
+                let expanded = app.webViews.descendants(matching: .any)
+                    .matching(NSPredicate(format: "label == %@", "Expanded message One")).firstMatch
+                NSLog("PERF_COMPOSER expanded=\(expanded.exists ? 1 : 0)")
+                let editor = expanded.exists ? expanded : composer
+                editor.typeText(String(repeating: XCUIKeyboardKey.delete.rawValue, count: draft.count + 10))
+                stop("composer-cleared", settle: 0.8)
                 dismissKeyboard()
+            }
+            // One rating round trip: like, then unlike, so nothing is left.
+            if tapLabel("Like response") {
+                stop("rated-like", settle: 3.0)
+                _ = tapLabel("Like response")
+                stop("rated-cleared", settle: 2.0)
             }
 
             perfTapNav(app, label: "One")
@@ -1473,10 +1507,12 @@ final class AppUITests: XCTestCase {
             }
 
             returnToTab("Connect")
+            burst("to-connect")
             stop("connect")
             if tapLabel("Circles") { stop("connect-circles") }
 
             returnToTab("Feed")
+            burst("to-feed")
             stop("feed")
 
             returnToTab("Search")

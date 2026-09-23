@@ -196,6 +196,15 @@ if [[ -n "$SHOT_PID" ]]; then
   kill "$SHOT_PID" 2>/dev/null || true
   echo "session shots: $(ls "$OUT_DIR/shots" 2>/dev/null | wc -l | tr -d ' ') in $OUT_DIR/shots"
 fi
+# Session walks keep their screenshot bursts: export the image attachments
+# only (typed strings live in the activity log, never in attachments), then
+# the bundle goes as always.
+if [[ "${PERF_SECTION:-}" == "session" && -d "$RESULT_BUNDLE" ]]; then
+  mkdir -p "$OUT_DIR/bursts"
+  xcrun xcresulttool export attachments --path "$RESULT_BUNDLE" --output-path "$OUT_DIR/bursts" >/dev/null 2>&1 || true
+  find "$OUT_DIR/bursts" -type f ! -iname '*.png' ! -iname '*.jpg' ! -iname '*.jpeg' ! -name 'manifest.json' -delete 2>/dev/null || true
+  echo "session bursts: $(find "$OUT_DIR/bursts" -type f -iname '*.png' -o -type f -iname '*.jp*g' | wc -l | tr -d ' ') in $OUT_DIR/bursts"
+fi
 rm -rf "$RESULT_BUNDLE"
 find "$DERIVED/Logs/Test" -maxdepth 1 -name '*.xcresult' -newer "$OUT_DIR/.run-start" -print0 2>/dev/null | xargs -0 rm -rf 2>/dev/null || true
 cd "$WEB_DIR"
