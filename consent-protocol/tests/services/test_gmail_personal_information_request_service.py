@@ -570,11 +570,11 @@ def test_initial_inbox_scan_completion_is_generation_scoped_metadata():
 def test_initial_inbox_backfill_cursor_is_persistent_metadata():
     root = Path(__file__).parents[2]
     migration_path = (
-        root / "db/migrations/227_gmail_personal_information_request_incremental_backfill.sql"
+        root / "db/migrations/237_gmail_personal_information_request_incremental_backfill.sql"
     )
     rollback_path = (
         root
-        / "db/migrations/rollback/227_gmail_personal_information_request_incremental_backfill.rollback.sql"
+        / "db/migrations/rollback/237_gmail_personal_information_request_incremental_backfill.rollback.sql"
     )
     migration = migration_path.read_text()
     rollback = rollback_path.read_text()
