@@ -23,7 +23,12 @@ import { Preferences } from "@capacitor/preferences";
 import { resolvePlaidLinkPlatform } from "@/lib/capacitor/plaid-link";
 import { loadPlaidLink } from "@/lib/kai/brokerage/plaid-link-loader";
 import { resolvePlaidRedirectUri } from "@/lib/kai/brokerage/plaid-redirect-uri";
-import { buildFinancialDomainSummary } from "@/lib/kai/brokerage/financial-sources";
+import {
+  buildFinancialDomainSummary,
+  getActiveStatementSnapshotId,
+  setActivePlaidSource,
+  setActiveStatementSnapshot,
+} from "@/lib/kai/brokerage/financial-sources";
 import {
   applyConnectionLink,
   applySnapshot,
@@ -151,9 +156,31 @@ function applyPages(
 }
 
 /** The finance screens show the linked source once a bank is connected. */
-function withPlaidActive(financial: FinancialDomain): FinancialDomain {
-  const sources = (financial.sources as AnyRecord | undefined) ?? {};
-  return { ...financial, sources: { ...sources, active_source: "plaid" } };
+/**
+ * Keeps the readable portfolio in step with the vault on every vault save:
+ * the retired `sources.plaid` copy is dropped, and when Plaid is the active
+ * source `portfolio` and `analytics` are rebuilt from the sealed holdings
+ * (analysis, disclosures and ticker lookups read them).
+ */
+function withVaultPortfolio(financial: FinancialDomain, now: string, activate = false): FinancialDomain {
+  const sources = { ...((financial.sources as AnyRecord | undefined) ?? {}) };
+  delete sources.plaid;
+  const base = { ...financial, sources } as FinancialDomain;
+  if (!activate && sources.active_source !== "plaid") return base;
+  const active = setActivePlaidSource(base, now) as FinancialDomain | null;
+  if (active) return active;
+  if (activate) return { ...base, sources: { ...sources, active_source: "plaid" } } as FinancialDomain;
+  // Plaid was active and no sealed holdings remain (the last bank was
+  // disconnected): fall back to the saved statement, or to nothing.
+  const snapshotId = getActiveStatementSnapshotId(base);
+  const statement = snapshotId
+    ? (setActiveStatementSnapshot(base, snapshotId, now) as FinancialDomain | null)
+    : null;
+  if (statement) return statement;
+  const cleared = { ...base, sources: { ...sources, active_source: "statement" } } as FinancialDomain;
+  delete (cleared as AnyRecord).portfolio;
+  delete (cleared as AnyRecord).analytics;
+  return cleared;
 }
 
 export type VaultConnectResult =
@@ -164,6 +191,8 @@ export type VaultConnectResult =
 /** A vault link token for this platform (Android only when native Link opens it). */
 export async function createVaultLink(params: {
   vaultOwnerToken: string;
+  /** Update mode: repair the Item this sealed token belongs to. */
+  accessToken?: string;
 }): Promise<{ linkToken: string; platform: VaultSurface }> {
   const platform = await resolvePlaidLinkPlatform();
   const sandboxProof = await requirePlaidSandboxProofMarker();
@@ -173,6 +202,7 @@ export async function createVaultLink(params: {
       platform,
       redirect_uri: platform === "android" ? null : resolvePlaidRedirectUri(),
       ...(sandboxProof ? { sandbox_proof: true } : {}),
+      ...(params.accessToken ? { access_token: params.accessToken } : {}),
     },
   });
   return { linkToken: link.link_token, platform: surfaceFor(platform) };
@@ -234,7 +264,7 @@ export async function sealVaultPlaidConnection(params: {
         },
         now,
       );
-      const domainData = withPlaidActive(applyPages(linked, exchanged.item_id, pages, now));
+      const domainData = withVaultPortfolio(applyPages(linked, exchanged.item_id, pages, now), now, true);
       saved = domainData;
       return {
         domainData,
@@ -305,6 +335,47 @@ export async function connectVaultPlaid(params: {
     surface: platform,
   });
   return { status: "connected", itemId: sealed.itemId, institutionName: sealed.institutionName };
+}
+
+export type VaultRelinkResult =
+  | { status: "repaired"; refreshed: number }
+  | { status: "exited" }
+  | { status: "blocked"; reason: string };
+
+/**
+ * Repairs a sealed connection that needs the person to log in again (Plaid
+ * update mode). The access token does not change, so nothing new is sealed;
+ * a forced refresh then reads the Item and clears its "needs relink" state.
+ */
+export async function relinkVaultPlaid(params: {
+  userId: string;
+  vaultKey: string | null | undefined;
+  vaultOwnerToken: string | null | undefined;
+  itemId: string;
+}): Promise<VaultRelinkResult> {
+  const { userId, vaultKey, vaultOwnerToken, itemId } = params;
+  if (!vaultKey || !vaultOwnerToken) {
+    return { status: "blocked", reason: "Unlock your vault to reconnect this bank." };
+  }
+  const financial = await loadFinancialForVault({ userId, vaultKey, vaultOwnerToken });
+  const connection = vaultConnections(financial)[itemId];
+  if (!connection?.access_token) {
+    return { status: "blocked", reason: "That connection is no longer in your vault." };
+  }
+  const { linkToken } = await createVaultLink({
+    vaultOwnerToken,
+    accessToken: connection.access_token,
+  });
+  const publicToken = await openVaultPlaidLink(linkToken);
+  if (!publicToken) return { status: "exited" };
+  const outcome = await refreshVaultConnections({
+    userId,
+    vaultKey,
+    vaultOwnerToken,
+    financial,
+    force: true,
+  });
+  return { status: "repaired", refreshed: outcome.refreshed };
 }
 
 export type VaultRefreshOutcome = {
@@ -403,7 +474,7 @@ async function runVaultRefresh(params: VaultRefreshParams, vaultEpoch: number): 
         if (!vaultConnections(domainData)[itemId]) continue; // disconnected meanwhile
         domainData = applyPages(domainData, itemId, pages, now);
       }
-      domainData = recomputeDerived(domainData, now);
+      domainData = withVaultPortfolio(recomputeDerived(domainData, now), now);
       return {
         domainData,
         summary: buildFinancialDomainSummary(domainData),
@@ -446,7 +517,7 @@ export async function disconnectVaultPlaid(params: {
       source: "plaid_vault_disconnect",
     },
     build: (context) => {
-      const domainData = removeConnection(context.currentDomainData, itemId, now);
+      const domainData = withVaultPortfolio(removeConnection(context.currentDomainData, itemId, now), now);
       return {
         domainData,
         summary: buildFinancialDomainSummary(domainData),

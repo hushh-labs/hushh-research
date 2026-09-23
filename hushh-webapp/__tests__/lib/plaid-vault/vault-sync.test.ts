@@ -8,6 +8,8 @@ const client = vi.hoisted(() => ({
   removeVaultItem: vi.fn(),
 }));
 const coordinator = vi.hoisted(() => ({ saveMergedDomain: vi.fn() }));
+const domainResource = vi.hoisted(() => ({ prepareDomainWriteContext: vi.fn() }));
+const linkLoader = vi.hoisted(() => ({ loadPlaidLink: vi.fn() }));
 const nativeRuntime = vi.hoisted(() => ({
   isNativePlatform: vi.fn(() => false),
   get: vi.fn(),
@@ -21,14 +23,15 @@ vi.mock("@/lib/capacitor/plaid-link", () => ({ resolvePlaidLinkPlatform: async (
 vi.mock("@/lib/kai/brokerage/plaid-redirect-uri", () => ({
   resolvePlaidRedirectUri: () => "https://uat.one.hushh.ai/one/kai/plaid/oauth/return",
 }));
-vi.mock("@/lib/kai/brokerage/plaid-link-loader", () => ({ loadPlaidLink: vi.fn() }));
-vi.mock("@/lib/pkm/pkm-domain-resource", () => ({ PkmDomainResourceService: {} }));
+vi.mock("@/lib/kai/brokerage/plaid-link-loader", () => linkLoader);
+vi.mock("@/lib/pkm/pkm-domain-resource", () => ({ PkmDomainResourceService: domainResource }));
 
 import {
   buildVaultPlaidStatus,
   createVaultLink,
   PLAID_SANDBOX_PROOF_PREFERENCE_KEY,
   refreshVaultConnections,
+  relinkVaultPlaid,
   sealVaultPlaidConnection,
 } from "@/lib/kai/plaid-vault/vault-sync";
 
@@ -281,5 +284,65 @@ describe("refreshing on unlock", () => {
 describe("status for the finance screens", () => {
   it("is absent without sealed connections", () => {
     expect(buildVaultPlaidStatus({ sources: {} }, "owner")).toBeNull();
+  });
+});
+
+describe("relinking a connection that needs a new login", () => {
+  const sealed = {
+    connections_v1: {
+      item_1: {
+        access_token: ACCESS_TOKEN,
+        institution_id: "ins_109508",
+        institution_name: "First Platypus Bank",
+        products: ["transactions"],
+        linked_at: "2026-09-01T00:00:00Z",
+        transactions_cursor: "cursor-0",
+        last_refreshed_at: new Date().toISOString(),
+        status: "needs_relink",
+      },
+    },
+  };
+
+  function linkThatEnds(outcome: "success" | "exit") {
+    linkLoader.loadPlaidLink.mockResolvedValue({
+      create: (config: { onSuccess: (token: string) => void; onExit: (error: null) => void }) => ({
+        open: () => (outcome === "success" ? config.onSuccess("public-sandbox-relink") : config.onExit(null)),
+        destroy: vi.fn(),
+      }),
+    });
+  }
+
+  beforeEach(() => {
+    domainResource.prepareDomainWriteContext.mockResolvedValue({ domainData: sealed });
+    client.createVaultLinkToken.mockResolvedValue({ link_token: "link-upd", expiration: "x" });
+    saveRunsBuild(sealed);
+  });
+
+  it("opens Link in update mode with the sealed token, then forces a refresh", async () => {
+    linkThatEnds("success");
+    const result = await relinkVaultPlaid({ userId: "owner", vaultKey: "vk", vaultOwnerToken: "vot", itemId: "item_1" });
+
+    expect(result).toEqual({ status: "repaired", refreshed: 1 });
+    expect(client.createVaultLinkToken.mock.calls[0]![0].request.access_token).toBe(ACCESS_TOKEN);
+    // Update mode never exchanges a new token: the sealed one stays.
+    expect(client.exchangeVaultPublicToken).not.toHaveBeenCalled();
+    // Forced: the connection was refreshed moments ago and is read anyway.
+    expect(client.fetchVaultSnapshot).toHaveBeenCalledTimes(1);
+  });
+
+  it("changes nothing when the person closes Link", async () => {
+    linkThatEnds("exit");
+    const result = await relinkVaultPlaid({ userId: "owner", vaultKey: "vk", vaultOwnerToken: "vot", itemId: "item_1" });
+
+    expect(result).toEqual({ status: "exited" });
+    expect(client.fetchVaultSnapshot).not.toHaveBeenCalled();
+    expect(coordinator.saveMergedDomain).not.toHaveBeenCalled();
+  });
+
+  it("refuses a connection that is not in the vault", async () => {
+    const result = await relinkVaultPlaid({ userId: "owner", vaultKey: "vk", vaultOwnerToken: "vot", itemId: "missing" });
+
+    expect(result.status).toBe("blocked");
+    expect(client.createVaultLinkToken).not.toHaveBeenCalled();
   });
 });

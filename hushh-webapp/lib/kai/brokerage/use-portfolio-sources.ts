@@ -9,8 +9,9 @@ import {
   useState,
 } from "react";
 
+import { Capacitor } from "@capacitor/core";
+
 import type { PortfolioData } from "@/components/kai/types/portfolio";
-import { ROUTES } from "@/lib/navigation/routes";
 import {
   hasPortfolioHoldings,
   resolveAvailableSources,
@@ -28,18 +29,15 @@ import {
   getPlaidPortfolio,
   getStatementPortfolio,
   getStatementSnapshotOptions,
-  isPlaidMirrorStale,
   removeStatementSnapshot,
   setActivePlaidSource,
   setActiveStatementSnapshot,
-  upsertPlaidSource,
 } from "@/lib/kai/brokerage/financial-sources";
-import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
-import { PlaidPortfolioService } from "@/lib/kai/brokerage/plaid-portfolio-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { trackGrowthFunnelStepCompleted } from "@/lib/observability/growth";
 import { UnlockWarmOrchestrator } from "@/lib/services/unlock-warm-orchestrator";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
+import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import {
   buildVaultPlaidStatus,
   loadFinancialForVault,
@@ -53,19 +51,13 @@ interface UsePortfolioSourcesParams {
   initialStatementPortfolio?: PortfolioData | null;
 }
 
-interface RefreshTracking {
-  taskId: string;
-  runIds: string[];
-}
-
 interface ReloadOptions {
   background?: boolean;
 }
 
 interface PlaidRefreshActionResult {
-  status: "started" | "already_running" | "canceled" | "noop";
-  runIds: string[];
-  taskId?: string | null;
+  refreshed: number;
+  needsRelink: string[];
 }
 
 export interface UsePortfolioSourcesResult {
@@ -90,11 +82,7 @@ export interface UsePortfolioSourcesResult {
   changeActiveSource: (nextSource: PortfolioSource) => Promise<void>;
   changeActiveStatementSnapshot: (snapshotId: string) => Promise<void>;
   deleteStatementSnapshot: (snapshotId: string) => Promise<void>;
-  refreshPlaid: (itemId?: string) => Promise<PlaidRefreshActionResult>;
-  cancelPlaidRefresh: (params?: {
-    itemId?: string;
-    runIds?: string[];
-  }) => Promise<PlaidRefreshActionResult>;
+  refreshPlaid: () => Promise<PlaidRefreshActionResult>;
   reload: (options?: ReloadOptions) => Promise<void>;
 }
 
@@ -122,50 +110,13 @@ function toFinancialDomain(
     : null;
 }
 
-function isActiveRunStatus(value: unknown): boolean {
-  const status = String(value || "").trim();
-  return status === "queued" || status === "running";
+/** Where an owner-confirmed portfolio change was made, for its receipt. */
+function confirmationSurface(): "web" | "ios" | "android" {
+  const platform = Capacitor.getPlatform();
+  return platform === "ios" || platform === "android" ? platform : "web";
 }
 
-function collectRunningRunIds(
-  plaidStatus: PlaidPortfolioStatusResponse | null,
-  itemId?: string
-): string[] {
-  return (plaidStatus?.items || [])
-    .filter((item) => !itemId || item.item_id === itemId)
-    .map((item) => item.latest_refresh_run)
-    .filter((run) => run && isActiveRunStatus(run.status))
-    .map((run) => String(run?.run_id || "").trim())
-    .filter(Boolean);
-}
-
-function readRefreshTrackingFromTask(
-  userId: string | null | undefined
-): RefreshTracking | null {
-  if (!userId) return null;
-  const runningTask = AppBackgroundTaskService.getState().tasks.find((task) => {
-    if (task.userId !== userId) return false;
-    if (task.kind !== "plaid_refresh") return false;
-    if (task.status !== "running") return false;
-    if (task.dismissedAt) return false;
-    return true;
-  });
-  if (!runningTask) return null;
-  const metadata =
-    runningTask.metadata && typeof runningTask.metadata === "object"
-      ? (runningTask.metadata as Record<string, unknown>)
-      : null;
-  const runIds = Array.isArray(metadata?.runIds)
-    ? metadata.runIds
-        .map((value) => String(value || "").trim())
-        .filter(Boolean)
-    : [];
-  if (!runIds.length) return null;
-  return {
-    taskId: runningTask.taskId,
-    runIds,
-  };
-}
+const REPLACE_FINANCIAL = { merge_mode: "replace_domain", target_domain: "financial" } as const;
 
 export function usePortfolioSources({
   userId,
@@ -183,7 +134,7 @@ export function usePortfolioSources({
   const [activeSource, setActiveSource] = useState<PortfolioSource>("statement");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [refreshTracking, setRefreshTracking] = useState<RefreshTracking | null>(null);
+  const [isPlaidRefreshing, setIsPlaidRefreshing] = useState(false);
   const [isChangingSource, setIsChangingSource] = useState(false);
   const [isChangingStatementSnapshot, setIsChangingStatementSnapshot] =
     useState(false);
@@ -191,7 +142,6 @@ export function usePortfolioSources({
   const sourceChangeInflightRef = useRef<Promise<void> | null>(null);
   const statementSnapshotChangeInflightRef = useRef<Promise<void> | null>(null);
   const lastReloadStartedAtRef = useRef(0);
-  const plaidPollAttemptRef = useRef(0);
   const growthPortfolioReadyKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -325,109 +275,20 @@ export function usePortfolioSources({
       }
       setError(null);
       try {
-        const [financialContext, loadedPlaidStatus] = await Promise.all([
-          loadFinancialContext(),
-          PlaidPortfolioService.getStatus({
-            userId,
-            vaultOwnerToken,
-          }).catch(() => null),
-        ]);
-
-        let nextFinancial = financialContext.financial;
-        let nextFullBlob = financialContext.fullBlob;
-        const expectedDataVersion = financialContext.expectedDataVersion;
-        // Connections sealed in the vault are invisible to the server; when
-        // they exist, memory is the only source of the Plaid status.
-        const vaultPlaidStatus = buildVaultPlaidStatus(nextFinancial, userId);
-        const storedActiveSource = getStoredActiveSource(nextFinancial);
+        // Reading is all a reload does. Plaid connections live sealed in the
+        // vault, so memory is the only source of their status; the retired
+        // server copy used to be re-saved here without a change plan, which
+        // the server refused (428) on every unlock.
+        const financialContext = await loadFinancialContext();
+        const nextFinancial = financialContext.financial;
+        const nextPlaidStatus = buildVaultPlaidStatus(nextFinancial, userId);
         const storedStatementPortfolio = getStatementPortfolio(nextFinancial);
-        const hasPlaidPortfolio =
-          hasPortfolioHoldings(getPlaidPortfolio(nextFinancial)) ||
-          hasPortfolioHoldings((vaultPlaidStatus ?? loadedPlaidStatus)?.aggregate?.portfolio_data);
-        const desiredSource: PortfolioSource =
-          resolvePreferredPortfolioSource({
-            storedActiveSource,
-            backendPreferredSource: (vaultPlaidStatus ?? loadedPlaidStatus)?.source_preference,
-            hasStatementPortfolio: hasPortfolioHoldings(storedStatementPortfolio),
-            hasPlaidPortfolio,
-          });
-        const nowIso = new Date().toISOString();
-
-        if (!vaultPlaidStatus && userId && vaultKey && vaultOwnerToken) {
-          let projectedFinancial = nextFinancial ?? {};
-          let shouldPersist = false;
-
-          if (loadedPlaidStatus?.configured && isPlaidMirrorStale(projectedFinancial, loadedPlaidStatus)) {
-            projectedFinancial = upsertPlaidSource(
-              projectedFinancial,
-              loadedPlaidStatus,
-              desiredSource === "plaid" ? "plaid" : "statement",
-              nowIso
-            );
-            shouldPersist = true;
-          }
-
-          if (desiredSource === "plaid" && getStoredActiveSource(projectedFinancial) !== "plaid") {
-            const plaidActivated = setActivePlaidSource(projectedFinancial, loadedPlaidStatus, nowIso);
-            if (plaidActivated) {
-              projectedFinancial = plaidActivated;
-              shouldPersist = true;
-            }
-          }
-
-          if (desiredSource === "statement" && getStoredActiveSource(projectedFinancial) !== "statement") {
-            const activeSnapshotId = getActiveStatementSnapshotId(projectedFinancial);
-            if (activeSnapshotId) {
-              const statementActivated = setActiveStatementSnapshot(
-                projectedFinancial,
-                activeSnapshotId,
-                nowIso
-              );
-              if (statementActivated) {
-                projectedFinancial = statementActivated;
-                shouldPersist = true;
-              }
-            }
-          }
-
-          if (shouldPersist) {
-            const result = await PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob({
-              userId,
-              vaultKey,
-              domain: "financial",
-              domainData: projectedFinancial,
-              summary: buildFinancialDomainSummary(projectedFinancial),
-              baseFullBlob: nextFullBlob,
-              expectedDataVersion,
-              vaultOwnerToken,
-            });
-            nextFullBlob = result.fullBlob;
-            nextFinancial = toFinancialDomain(result.fullBlob.financial) ?? projectedFinancial;
-            await refreshDerivedMarketCaches();
-          }
-        }
-
-        const plaidSourceRecord = toFinancialDomain(
-          toFinancialDomain(nextFinancial?.sources)?.plaid
-        );
-        const projectionStale = Boolean(
-          loadedPlaidStatus?.configured && isPlaidMirrorStale(nextFinancial, loadedPlaidStatus)
-        );
-        const nextPlaidStatus = vaultPlaidStatus
-          ? vaultPlaidStatus
-          : loadedPlaidStatus
-          ? {
-              ...loadedPlaidStatus,
-              aggregate: {
-                ...loadedPlaidStatus.aggregate,
-                projection_stale: projectionStale,
-                projected_at:
-                  typeof plaidSourceRecord?.projected_at === "string"
-                    ? plaidSourceRecord.projected_at
-                    : null,
-              },
-            }
-          : null;
+        const desiredSource: PortfolioSource = resolvePreferredPortfolioSource({
+          storedActiveSource: getStoredActiveSource(nextFinancial),
+          backendPreferredSource: nextPlaidStatus?.source_preference,
+          hasStatementPortfolio: hasPortfolioHoldings(storedStatementPortfolio),
+          hasPlaidPortfolio: hasPortfolioHoldings(getPlaidPortfolio(nextFinancial)),
+        });
 
         applyFinancialSnapshot({
           financial: nextFinancial,
@@ -455,25 +316,11 @@ export function usePortfolioSources({
         reloadInflightRef.current = null;
       }
     }
-  }, [
-    applyFinancialSnapshot,
-    loadFinancialContext,
-    refreshDerivedMarketCaches,
-    userId,
-    vaultKey,
-    vaultOwnerToken,
-  ]);
+  }, [applyFinancialSnapshot, loadFinancialContext, userId, vaultOwnerToken]);
 
   useEffect(() => {
     void reload();
   }, [reload]);
-
-  useEffect(() => {
-    if (refreshTracking || !userId) return;
-    const snapshot = readRefreshTrackingFromTask(userId);
-    if (!snapshot) return;
-    setRefreshTracking(snapshot);
-  }, [refreshTracking, userId]);
 
   const availableSources = useMemo(
     () =>
@@ -500,66 +347,55 @@ export function usePortfolioSources({
   const canChangePortfolioSource = Boolean(userId && vaultOwnerToken && vaultKey);
 
   /**
-   * Source selection has two durable projections: the server preference used
-   * by Plaid and the encrypted financial source metadata used by the client.
-   * Keep the confirmed source visible until both settle, and compensate the
-   * server preference if the encrypted write cannot be committed.
+   * Saves an owner-confirmed change to the financial memory: the change is
+   * computed against the latest memory inside the write, and the write
+   * replaces the domain so the sealed vault tiers are carried whole.
    */
-  const persistFinancialSourceSelection = useCallback(
+  const saveFinancialChange = useCallback(
     async (params: {
-      nextSource: PortfolioSource;
-      previousSource: PortfolioSource;
-      nextFinancial: Record<string, unknown>;
-      fullBlob: Record<string, unknown>;
-      expectedDataVersion?: number;
+      source: string;
+      transform: (financial: Record<string, unknown>) => Record<string, unknown> | null;
+      notReadyMessage: string;
+      failureMessage: string;
     }) => {
       if (!userId || !vaultOwnerToken || !vaultKey) {
-        throw new Error("Unlock your Vault before changing the portfolio source.");
+        throw new Error("Unlock your Vault before changing your portfolio.");
       }
-
-      let backendPreferenceChanged = false;
-      try {
-        await PlaidPortfolioService.setActiveSource({
-          userId,
-          activeSource: params.nextSource,
-          vaultOwnerToken,
-        });
-        backendPreferenceChanged = true;
-
-        const result = await PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob({
-          userId,
-          vaultKey,
-          domain: "financial",
-          domainData: params.nextFinancial,
-          summary: buildFinancialDomainSummary(params.nextFinancial),
-          baseFullBlob: params.fullBlob,
-          mergeDecision: {
-            merge_mode: "replace_domain",
-            target_domain: "financial",
-          },
-          expectedDataVersion: params.expectedDataVersion,
-          vaultOwnerToken,
-        });
-
-        if (!result.success) {
-          throw new Error(
-            result.conflict
-              ? "Your portfolio changed elsewhere. Please try again."
-              : "Your portfolio source could not be saved. Please try again."
-          );
-        }
-
-        return result;
-      } catch (selectionError) {
-        if (backendPreferenceChanged && params.previousSource !== params.nextSource) {
-          await PlaidPortfolioService.setActiveSource({
-            userId,
-            activeSource: params.previousSource,
-            vaultOwnerToken,
-          }).catch(() => undefined);
-        }
-        throw selectionError;
+      let notReady = false;
+      const result = await PkmWriteCoordinator.saveMergedDomain({
+        userId,
+        domain: "financial",
+        vaultKey,
+        vaultOwnerToken,
+        confirmation: {
+          confirmedByUser: true,
+          surface: confirmationSurface(),
+          source: params.source,
+        },
+        build: (context) => {
+          const next = params.transform(context.currentDomainData);
+          if (!next) {
+            notReady = true;
+            return {
+              domainData: context.currentDomainData,
+              summary: buildFinancialDomainSummary(context.currentDomainData),
+              mergeDecision: REPLACE_FINANCIAL,
+            };
+          }
+          return {
+            domainData: next,
+            summary: buildFinancialDomainSummary(next),
+            mergeDecision: REPLACE_FINANCIAL,
+          };
+        },
+      });
+      if (notReady) throw new Error(params.notReadyMessage);
+      if (!result.success) {
+        throw new Error(
+          result.conflict ? "Your portfolio changed elsewhere. Please try again." : params.failureMessage
+        );
       }
+      return toFinancialDomain(result.fullBlob.financial);
     },
     [userId, vaultKey, vaultOwnerToken]
   );
@@ -604,31 +440,17 @@ export function usePortfolioSources({
       const request = (async () => {
         setIsChangingSource(true);
         try {
-          const { fullBlob, financial, expectedDataVersion } = await loadFinancialContext();
-          const nowIso = new Date().toISOString();
-          const nextFinancial =
-            nextSource === "statement"
-              ? (() => {
-                  const snapshotId = getActiveStatementSnapshotId(financial);
-                  return snapshotId
-                    ? setActiveStatementSnapshot(financial, snapshotId, nowIso)
-                    : null;
-                })()
-              : setActivePlaidSource(financial, plaidStatus, nowIso);
-
-          if (!nextFinancial) {
-            throw new Error("That portfolio source is not ready yet.");
-          }
-
-          const result = await persistFinancialSourceSelection({
-            nextSource,
-            previousSource,
-            nextFinancial,
-            fullBlob,
-            expectedDataVersion,
+          const savedFinancial = await saveFinancialChange({
+            source: "portfolio_source_change",
+            notReadyMessage: "That portfolio source is not ready yet.",
+            failureMessage: "Your portfolio source could not be saved. Please try again.",
+            transform: (financial) => {
+              const nowIso = new Date().toISOString();
+              if (nextSource === "plaid") return setActivePlaidSource(financial, nowIso);
+              const snapshotId = getActiveStatementSnapshotId(financial);
+              return snapshotId ? setActiveStatementSnapshot(financial, snapshotId, nowIso) : null;
+            },
           });
-          const savedFinancial =
-            toFinancialDomain(result.fullBlob.financial) ?? nextFinancial;
 
           applyFinancialSnapshot({
             financial: savedFinancial,
@@ -638,9 +460,7 @@ export function usePortfolioSources({
           await refreshDerivedMarketCaches();
           await reload();
         } catch (selectionError) {
-          // The visible source stays confirmed until the complete durable write
-          // succeeds. Reconcile a compensated server preference in the
-          // background without replacing the last safe portfolio view.
+          // The visible source stays confirmed until the durable write succeeds.
           setActiveSource(previousSource);
           void reload({ background: true });
           throw selectionError;
@@ -662,9 +482,8 @@ export function usePortfolioSources({
       activeSource,
       applyFinancialSnapshot,
       availableSources,
-      loadFinancialContext,
       plaidStatus,
-      persistFinancialSourceSelection,
+      saveFinancialChange,
       refreshDerivedMarketCaches,
       reload,
       userId,
@@ -688,26 +507,16 @@ export function usePortfolioSources({
         return statementSnapshotChangeInflightRef.current;
       }
 
-      const previousSource = activeSource;
       const request = (async () => {
         setIsChangingStatementSnapshot(true);
         try {
-          const { fullBlob, financial, expectedDataVersion } = await loadFinancialContext();
-          const nowIso = new Date().toISOString();
-          const nextFinancial = setActiveStatementSnapshot(financial, snapshotId, nowIso);
-          if (!nextFinancial) {
-            throw new Error("That statement snapshot is no longer available.");
-          }
-
-          const result = await persistFinancialSourceSelection({
-            nextSource: "statement",
-            previousSource,
-            nextFinancial,
-            fullBlob,
-            expectedDataVersion,
+          const savedFinancial = await saveFinancialChange({
+            source: "portfolio_statement_change",
+            notReadyMessage: "That statement snapshot is no longer available.",
+            failureMessage: "Your saved statement could not be selected. Please try again.",
+            transform: (financial) =>
+              setActiveStatementSnapshot(financial, snapshotId, new Date().toISOString()),
           });
-          const savedFinancial =
-            toFinancialDomain(result.fullBlob.financial) ?? nextFinancial;
           applyFinancialSnapshot({
             financial: savedFinancial,
             plaidStatus,
@@ -733,11 +542,9 @@ export function usePortfolioSources({
       }
     },
     [
-      activeSource,
       applyFinancialSnapshot,
-      loadFinancialContext,
       plaidStatus,
-      persistFinancialSourceSelection,
+      saveFinancialChange,
       refreshDerivedMarketCaches,
       reload,
       statementSnapshots,
@@ -755,266 +562,43 @@ export function usePortfolioSources({
       if (sourceChangeInflightRef.current || statementSnapshotChangeInflightRef.current) {
         throw new Error("Finish the current portfolio change before deleting a statement.");
       }
-      const { fullBlob, financial, expectedDataVersion } = await loadFinancialContext();
-      const nowIso = new Date().toISOString();
-      const nextFinancial = removeStatementSnapshot(financial, snapshotId, nowIso);
-      if (!nextFinancial) {
-        throw new Error("That statement snapshot is no longer available.");
-      }
-      const nextActiveSource = getStoredActiveSource(nextFinancial);
-      // Removing a saved statement must not be blocked by the derived server
-      // preference. The encrypted financial record remains authoritative for
-      // the next active source and is committed before the view changes.
-      void PlaidPortfolioService.setActiveSource({
-        userId,
-        activeSource: nextActiveSource,
-        vaultOwnerToken,
-      }).catch(() => undefined);
-      const result = await PersonalKnowledgeModelService.storeMergedDomainWithPreparedBlob({
-        userId,
-        vaultKey,
-        domain: "financial",
-        domainData: nextFinancial,
-        summary: buildFinancialDomainSummary(nextFinancial),
-        baseFullBlob: fullBlob,
-        mergeDecision: {
-          merge_mode: "replace_domain",
-          target_domain: "financial",
-        },
-        expectedDataVersion,
-        vaultOwnerToken,
+      await saveFinancialChange({
+        source: "portfolio_statement_delete",
+        notReadyMessage: "That statement snapshot is no longer available.",
+        failureMessage: "Your saved statement could not be deleted. Please try again.",
+        transform: (financial) =>
+          removeStatementSnapshot(financial, snapshotId, new Date().toISOString()),
       });
-      if (!result.success) {
-        throw new Error(
-          result.conflict
-            ? "Your portfolio changed elsewhere. Please try again."
-            : "Your saved statement could not be deleted. Please try again."
-        );
-      }
       await refreshDerivedMarketCaches();
       await reload();
     },
-    [
-      loadFinancialContext,
-      refreshDerivedMarketCaches,
-      reload,
-      userId,
-      vaultKey,
-      vaultOwnerToken,
-    ]
+    [refreshDerivedMarketCaches, reload, saveFinancialChange, userId, vaultKey, vaultOwnerToken]
   );
 
-  const refreshPlaid = useCallback(
-    async (itemId?: string) => {
-      if (!userId || !vaultOwnerToken) {
-        throw new Error("Vault owner token missing.");
-      }
-      if (plaidStatus?.custody === "vault") {
-        // Sealed connections refresh on the device through the relay.
-        const outcome = await refreshVaultConnections({
-          userId,
-          vaultKey,
-          vaultOwnerToken,
-          financial: await loadFinancialForVault({ userId, vaultKey, vaultOwnerToken }),
-          force: true,
-        });
-        await reload();
-        if (!outcome.saved && (outcome.failed > 0 || outcome.refreshed > 0)) {
-          throw new Error("Could not refresh your connected accounts.");
-        }
-        return {
-          status: "noop",
-          runIds: [],
-          taskId: null,
-        } satisfies PlaidRefreshActionResult;
-      }
-      const runningRunIds = collectRunningRunIds(plaidStatus, itemId);
-      if (runningRunIds.length > 0) {
-        return {
-          status: "already_running",
-          runIds: runningRunIds,
-          taskId: refreshTracking?.taskId ?? null,
-        } satisfies PlaidRefreshActionResult;
-      }
-      const response = await PlaidPortfolioService.refresh({
+  /** Refreshes every sealed connection now, through the stateless relay. */
+  const refreshPlaid = useCallback(async (): Promise<PlaidRefreshActionResult> => {
+    if (!userId || !vaultKey || !vaultOwnerToken) {
+      throw new Error("Unlock your Vault to refresh your connected accounts.");
+    }
+    setIsPlaidRefreshing(true);
+    try {
+      const outcome = await refreshVaultConnections({
         userId,
+        vaultKey,
         vaultOwnerToken,
-        itemId,
+        financial: await loadFinancialForVault({ userId, vaultKey, vaultOwnerToken }),
+        force: true,
       });
-      const runIds = (response.runs || [])
-        .map((run) => String(run.run_id || "").trim())
-        .filter(Boolean);
-      if (!runIds.length) {
-        await reload();
-        return {
-          status: "noop",
-          runIds: [],
-          taskId: null,
-        } satisfies PlaidRefreshActionResult;
-      }
-      const taskId = AppBackgroundTaskService.startTask({
-        userId,
-        kind: "plaid_refresh",
-        title: "Refreshing Plaid portfolio",
-        description: "One is syncing the latest brokerage data from Plaid.",
-        routeHref: ROUTES.KAI_PORTFOLIO,
-        metadata: {
-          runIds,
-          itemId: itemId || null,
-        },
-      });
-      setRefreshTracking({ taskId, runIds });
+      if (outcome.saved) await refreshDerivedMarketCaches();
       await reload();
-      return {
-        status: "started",
-        runIds,
-        taskId,
-      } satisfies PlaidRefreshActionResult;
-    },
-    [plaidStatus, refreshTracking?.taskId, reload, userId, vaultKey, vaultOwnerToken]
-  );
-
-  const cancelPlaidRefresh = useCallback(
-    async (params?: { itemId?: string; runIds?: string[] }) => {
-      if (!userId || !vaultOwnerToken) {
-        throw new Error("Vault owner token missing.");
+      if (!outcome.saved && (outcome.failed > 0 || outcome.refreshed > 0)) {
+        throw new Error("Could not refresh your connected accounts.");
       }
-      const targetRunIds = (
-        params?.runIds?.length
-          ? params.runIds
-          : collectRunningRunIds(plaidStatus, params?.itemId)
-      )
-        .map((value) => String(value || "").trim())
-        .filter(Boolean);
-
-      if (!targetRunIds.length) {
-        return {
-          status: "noop",
-          runIds: [],
-          taskId: refreshTracking?.taskId ?? null,
-        } satisfies PlaidRefreshActionResult;
-      }
-
-      for (const runId of targetRunIds) {
-        await PlaidPortfolioService.cancelRefreshRun({
-          userId,
-          runId,
-          vaultOwnerToken,
-        });
-      }
-
-      const activeTracking = refreshTracking ?? readRefreshTrackingFromTask(userId);
-      if (activeTracking) {
-        const remainingRunIds = activeTracking.runIds.filter((runId) => !targetRunIds.includes(runId));
-        if (remainingRunIds.length > 0) {
-          AppBackgroundTaskService.updateTask(activeTracking.taskId, {
-            metadata: {
-              runIds: remainingRunIds,
-              itemId: params?.itemId || null,
-            },
-          });
-          setRefreshTracking({
-            taskId: activeTracking.taskId,
-            runIds: remainingRunIds,
-          });
-        } else {
-          AppBackgroundTaskService.cancelTask(
-            activeTracking.taskId,
-            "Plaid refresh canceled."
-          );
-          setRefreshTracking(null);
-        }
-      }
-
-      await reload();
-      return {
-        status: "canceled",
-        runIds: targetRunIds,
-        taskId: activeTracking?.taskId ?? null,
-      } satisfies PlaidRefreshActionResult;
-    },
-    [plaidStatus, refreshTracking, reload, userId, vaultOwnerToken]
-  );
-
-  useEffect(() => {
-    const runLookup = new Map(
-      (plaidStatus?.items || [])
-        .map((item) => item.latest_refresh_run)
-        .filter(Boolean)
-        .map((run) => [String(run?.run_id || ""), run] as const)
-    );
-
-    if (refreshTracking) {
-      const trackedRuns = refreshTracking.runIds
-        .map((runId) => runLookup.get(runId))
-        .filter(Boolean);
-      const allTerminal =
-        trackedRuns.length > 0 &&
-        trackedRuns.every((run) => {
-          const status = String(run?.status || "");
-          return status === "completed" || status === "failed" || status === "canceled";
-        });
-      if (allTerminal) {
-        const anyFailed = trackedRuns.some((run) => String(run?.status || "") === "failed");
-        const anyCanceled = trackedRuns.some((run) => String(run?.status || "") === "canceled");
-        if (anyFailed) {
-          AppBackgroundTaskService.failTask(
-            refreshTracking.taskId,
-            "One or more Plaid connections failed to refresh.",
-            "Plaid refresh finished with errors."
-          );
-        } else if (anyCanceled) {
-          AppBackgroundTaskService.cancelTask(
-            refreshTracking.taskId,
-            "Plaid refresh canceled."
-          );
-        } else {
-          AppBackgroundTaskService.completeTask(
-            refreshTracking.taskId,
-            "Plaid brokerage data is up to date."
-          );
-          void refreshDerivedMarketCaches();
-        }
-        setRefreshTracking(null);
-      }
+      return { refreshed: outcome.refreshed, needsRelink: outcome.needsRelink };
+    } finally {
+      setIsPlaidRefreshing(false);
     }
-
-    const shouldPoll =
-      Boolean(refreshTracking) ||
-      Boolean(
-        (plaidStatus?.items || []).some((item) => {
-          const status = String(item.latest_refresh_run?.status || item.sync_status || "");
-          return status === "queued" || status === "running";
-        })
-      );
-    if (!shouldPoll) {
-      plaidPollAttemptRef.current = 0;
-      return;
-    }
-
-    let canceled = false;
-    let timer: number | null = null;
-    const scheduleNext = () => {
-      const attempt = plaidPollAttemptRef.current;
-      const delayMs = attempt < 3 ? 4000 : attempt < 10 ? 7000 : 10000;
-      timer = window.setTimeout(async () => {
-        if (canceled) return;
-        plaidPollAttemptRef.current += 1;
-        await reload({ background: true });
-        if (!canceled) {
-          scheduleNext();
-        }
-      }, delayMs);
-    };
-    scheduleNext();
-
-    return () => {
-      canceled = true;
-      if (timer) {
-        window.clearTimeout(timer);
-      }
-    };
-  }, [plaidStatus, refreshDerivedMarketCaches, refreshTracking, reload]);
+  }, [refreshDerivedMarketCaches, reload, userId, vaultKey, vaultOwnerToken]);
 
   return {
     isLoading,
@@ -1035,15 +619,7 @@ export function usePortfolioSources({
     changeActiveStatementSnapshot,
     deleteStatementSnapshot,
     refreshPlaid,
-    cancelPlaidRefresh,
     reload,
-    isPlaidRefreshing:
-      Boolean(refreshTracking) ||
-      Boolean(
-        (plaidStatus?.items || []).some((item) => {
-          const status = String(item.latest_refresh_run?.status || item.sync_status || "");
-          return status === "queued" || status === "running";
-        })
-      ),
+    isPlaidRefreshing,
   };
 }

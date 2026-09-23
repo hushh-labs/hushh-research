@@ -30,7 +30,10 @@ describe("statement Save to Vault completion contract", () => {
   it("does not keep the dashboard Plaid flow open while refreshing projections", () => {
     const source = read("components/kai/views/dashboard-master-view.tsx");
 
-    expect(source).toContain('"Refreshing portfolio after Plaid connection"');
+    // Connect and relink run on the vault path; the refresh after either is
+    // fired, never awaited inside the Link session.
+    expect(source).toContain("relinkVaultPlaid(");
+    expect(source).toContain("void reload();");
     expect(source).not.toContain(".then(async () => {");
   });
 });

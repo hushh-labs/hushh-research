@@ -3,25 +3,14 @@
 import { useMemo } from "react";
 
 import type { PortfolioData } from "@/components/kai/types/portfolio";
-import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { logRequestAudit } from "@/lib/cache/request-audit-log";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import {
-  buildFinancialDomainSummary,
-  getFinancialCompatibilityView,
-  getActiveSource as getStoredActiveSource,
   getActiveStatementSnapshotId,
+  getFinancialCompatibilityView,
   getStatementSnapshotOptions,
-  isPlaidMirrorStale,
-  setActivePlaidSource,
-  setActiveStatementSnapshot,
-  upsertPlaidSource,
 } from "@/lib/kai/brokerage/financial-sources";
-import { PlaidPortfolioService } from "@/lib/kai/brokerage/plaid-portfolio-service";
-import {
-  buildVaultPlaidStatus,
-  refreshVaultConnections,
-} from "@/lib/kai/plaid-vault/vault-sync";
+import { buildVaultPlaidStatus } from "@/lib/kai/plaid-vault/vault-sync";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import {
   hasPortfolioHoldings,
@@ -33,9 +22,7 @@ import {
   type StatementSnapshotOption,
 } from "@/lib/kai/brokerage/portfolio-sources";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
-import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import { SecureResourceCacheService } from "@/lib/services/secure-resource-cache-service";
-import { UnlockWarmOrchestrator } from "@/lib/services/unlock-warm-orchestrator";
 
 const SECURE_RESOURCE_KEY = "kai_financial_resource_v1";
 const REQUEST_LABEL = "kai_financial_resource";
@@ -175,14 +162,6 @@ function buildResource(params: {
   };
 }
 
-function hasPlaidSource(status: PlaidPortfolioStatusResponse | null): boolean {
-  return (
-    Number(status?.aggregate?.item_count || 0) > 0 ||
-    Number(status?.aggregate?.account_count || 0) > 0 ||
-    hasPortfolioHoldings(status?.aggregate?.portfolio_data)
-  );
-}
-
 function primePortfolioCaches(resource: KaiFinancialResource): void {
   const cache = CacheService.getInstance();
   if (resource.statementPortfolio) {
@@ -222,138 +201,21 @@ async function loadFinancialContext(
   };
 }
 
-async function refreshDerivedMarketCaches(params: KaiFinancialResourceRequest): Promise<void> {
-  CacheSyncService.onPlaidSourceProjected(params.userId);
-  if (!params.vaultKey || !params.vaultOwnerToken) {
-    return;
-  }
-  await UnlockWarmOrchestrator.run({
-    userId: params.userId,
-    vaultKey: params.vaultKey,
-    vaultOwnerToken: params.vaultOwnerToken,
-    routePath:
-      typeof window !== "undefined"
-        ? `${window.location.pathname}${window.location.search}`
-        : undefined,
-  }).catch(() => undefined);
-}
-
 async function loadNetworkResource(
   params: KaiFinancialResourceRequest
 ): Promise<KaiFinancialResource | null> {
-  const loadedPlaidStatus = params.vaultOwnerToken
-    ? await PlaidPortfolioService.getStatus({
-        userId: params.userId,
-        vaultOwnerToken: params.vaultOwnerToken,
-      }).catch(() => null)
-    : null;
+  // First-run statement import starts empty; everything else reads memory.
   const canUseSetupEmptyState =
     Boolean(params.skipEmptyFinancialProbe) &&
-    !hasPortfolioHoldings(params.initialStatementPortfolio) &&
-    !hasPlaidSource(loadedPlaidStatus);
+    !hasPortfolioHoldings(params.initialStatementPortfolio);
   const financialContext = canUseSetupEmptyState
-    ? {
-        fullBlob: {},
-        financial: null,
-        expectedDataVersion: undefined,
-      }
+    ? { financial: null }
     : await loadFinancialContext(params);
 
-  let nextFinancial = financialContext.financial;
-  // Connections sealed in the person's vault are invisible to the server by
-  // design; when they exist, memory is the only source of the Plaid status.
-  const vaultPlaidStatus = buildVaultPlaidStatus(nextFinancial, params.userId);
-  const effectivePlaidStatus = vaultPlaidStatus ?? loadedPlaidStatus;
-  const storedActiveSource =
-    effectivePlaidStatus?.source_preference ?? getStoredActiveSource(nextFinancial);
-  const hasSavedStatementSnapshot = Boolean(getActiveStatementSnapshotId(nextFinancial));
-  const desiredSource: PortfolioSource =
-    storedActiveSource === "plaid" ||
-    (!hasSavedStatementSnapshot &&
-      hasPortfolioHoldings(effectivePlaidStatus?.aggregate?.portfolio_data))
-      ? "plaid"
-      : "statement";
-  const nowIso = new Date().toISOString();
-
-  if (vaultPlaidStatus && params.vaultKey && params.vaultOwnerToken) {
-    // Refresh on unlock, off the render path: the screens render what memory
-    // holds now, and re-render once the refreshed memory is saved.
-    const refreshParams = params;
-    void refreshVaultConnections({
-      userId: params.userId,
-      vaultKey: params.vaultKey,
-      vaultOwnerToken: params.vaultOwnerToken,
-      financial: nextFinancial,
-    })
-      .then((outcome) => {
-        if (outcome.saved) void refreshDerivedMarketCaches(refreshParams);
-      })
-      .catch(() => undefined);
-  }
-
-  if (!vaultPlaidStatus && params.vaultKey && params.vaultOwnerToken) {
-    let projectedFinancial = nextFinancial ?? {};
-    let shouldPersist = false;
-    let syncedProvider: "plaid" | "statement_import" = "statement_import";
-
-    if (loadedPlaidStatus?.configured && isPlaidMirrorStale(projectedFinancial, loadedPlaidStatus)) {
-      projectedFinancial = upsertPlaidSource(
-        projectedFinancial,
-        loadedPlaidStatus,
-        desiredSource === "plaid" ? "plaid" : "statement",
-        nowIso
-      );
-      shouldPersist = true;
-      syncedProvider = "plaid";
-    }
-
-    if (desiredSource === "plaid" && getStoredActiveSource(projectedFinancial) !== "plaid") {
-      const plaidActivated = setActivePlaidSource(projectedFinancial, loadedPlaidStatus, nowIso);
-      if (plaidActivated) {
-        projectedFinancial = plaidActivated;
-        shouldPersist = true;
-        syncedProvider = "plaid";
-      }
-    }
-
-    if (desiredSource === "statement" && getStoredActiveSource(projectedFinancial) !== "statement") {
-      const activeSnapshotId = getActiveStatementSnapshotId(projectedFinancial);
-      if (activeSnapshotId) {
-        const statementActivated = setActiveStatementSnapshot(
-          projectedFinancial,
-          activeSnapshotId,
-          nowIso
-        );
-        if (statementActivated) {
-          projectedFinancial = statementActivated;
-          shouldPersist = true;
-        }
-      }
-    }
-
-    if (shouldPersist) {
-      const result = await PkmWriteCoordinator.saveMergedDomain({
-        userId: params.userId,
-        domain: "financial",
-        vaultKey: params.vaultKey,
-        vaultOwnerToken: params.vaultOwnerToken,
-        // Refreshing a connected source is authorized by the connection the
-        // owner made, not by a review of this write; the receipt says so.
-        confirmation: {
-          authorizationMode: "owner_connected_source_sync",
-          surface: "web",
-          source: "kai_financial_resource_connected_source_sync",
-          connectedSourceProvider: syncedProvider,
-        },
-        build: () => ({
-          domainData: projectedFinancial,
-          summary: buildFinancialDomainSummary(projectedFinancial),
-        }),
-      });
-      nextFinancial = toFinancialDomain(result.fullBlob.financial) ?? projectedFinancial;
-      await refreshDerivedMarketCaches(params);
-    }
-  }
+  // Plaid connections are sealed in the vault, so memory is the only source
+  // of their status. Refresh on unlock is owned by UnlockWarmOrchestrator.
+  const nextFinancial = financialContext.financial;
+  const effectivePlaidStatus = buildVaultPlaidStatus(nextFinancial, params.userId);
 
   const resource = buildResource({
     userId: params.userId,
