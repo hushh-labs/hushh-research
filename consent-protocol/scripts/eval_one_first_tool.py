@@ -6,6 +6,7 @@ Usage:
       PYTHONPATH=. python scripts/eval_one_first_tool.py [--families consent,location]
       [--reps 2] [--model gemini-3.8-flash] [--thinking-level low|medium|high]
       [--instruction-file a.txt --instruction-file b.txt]   (A/B mode)
+      [--case-id consent.granted_readback --case-id drive.browse_live_files]
       [--min-overall-rate 0.9] [--min-family-rate consent=1.0 --min-family-rate 0.8]
 
 Why this exists
@@ -19,16 +20,20 @@ reason: a docstring or instruction edit can silently move the first tool.
 
 Faithful to the runtime
 -----------------------
-- Tools come from the production roster: `build_one_text_agent` under
+- Tools come from the production typed-Chat roster: `build_one_text_agent`
+  with owner Drive tools enabled under
   TESTING=1, bare callables wrapped by ADK's own `FunctionTool` exactly as
   `LlmAgent.canonical_tools` does, so the model sees the docstrings it sees in
   production. Both `parameters` and `parameters_json_schema` are forwarded;
   under `from __future__ import annotations` ADK emits only the latter and a
   harness that forwards one field sends every tool with no arguments at all.
 - The instruction is the production runtime instruction evaluated against an
-  empty-state context (no voice context, no PKM context), unless
+  empty-state context (no voice context, no PKM context, no admitted Gmail or
+  selected-file read). It does not prove behavior with a real owner session, unless
   `--instruction-file` is given for an A/B comparison.
-- Temperature 0, one turn, the KPI is the FIRST function call in the reply.
+- One turn, the KPI is the FIRST function call in the reply. The canonical model
+  adapter applies supported sampling controls; it drops temperature for models
+  where temperature is not a supported contract.
 
 Scoring
 -------
@@ -38,7 +43,9 @@ as `run_app_action:<action_id>`. A case counts as a hit only when EVERY rep
 hits. Family and overall rates are gated; a breach exits 1. `--help` never
 touches the model. An exhausted provider/transport failure stops further
 requests, preserves completed reps, and marks remaining cases unattempted.
-Incomplete measurement rates are null and always fail the gate.
+Incomplete measurement rates are null and always fail the gate. First-tool
+selection does not prove tool arguments, recipient identity, confirmation,
+decrypted readback, or an entire multi-turn workflow.
 """
 
 from __future__ import annotations
@@ -73,13 +80,12 @@ DEFAULT_MODEL = "gemini-3.8-flash"
 DEFAULT_REPS = 2
 DEFAULT_MIN_OVERALL_RATE = 0.9
 DEFAULT_MIN_FAMILY_RATE = 0.8
-STRICT_FAMILIES: dict[str, float] = {"consent": 1.0, "delegation": 1.0}
+STRICT_FAMILIES: dict[str, float] = {"consent": 1.0, "delegation": 1.0, "drive": 1.0}
 THINKING_LEVELS = ("low", "medium", "high")
 CALL_GAP_SECONDS = 2.0
-# A live evaluator must leave quota headroom for normal product traffic. Three
-# total attempts preserve one transient recovery opportunity without turning a
-# provider 429 into a retry burst for every remaining fixture.
-QUOTA_RETRY_ATTEMPTS = 3
+# One transient recovery is enough for a prompt probe. Quota failures stop the
+# run immediately so a bounded comparison cannot consume product traffic.
+TRANSIENT_RETRY_ATTEMPTS = 2
 _LABEL_SAFE = re.compile(r"[^A-Za-z0-9_.-]+")
 
 # (instruction, prompt, screen) -> first tool name, "run_app_action:<id>", or None.
@@ -187,15 +193,25 @@ def load_cases(path: Path = DEFAULT_CASES_PATH) -> list[Case]:
     return cases
 
 
-def select_cases(cases: Sequence[Case], families: Iterable[str] | None) -> list[Case]:
-    if not families:
-        return list(cases)
-    wanted = {family.strip() for family in families if family.strip()}
-    known = {case.family for case in cases}
-    unknown = sorted(wanted - known)
-    if unknown:
-        raise ValueError(f"unknown families {unknown}; fixture has {sorted(known)}")
-    return [case for case in cases if case.family in wanted]
+def select_cases(
+    cases: Sequence[Case], families: Iterable[str] | None, case_ids: Iterable[str] | None = None
+) -> list[Case]:
+    selected = list(cases)
+    if families:
+        wanted = {family.strip() for family in families if family.strip()}
+        known = {case.family for case in cases}
+        unknown = sorted(wanted - known)
+        if unknown:
+            raise ValueError(f"unknown families {unknown}; fixture has {sorted(known)}")
+        selected = [case for case in selected if case.family in wanted]
+    if case_ids:
+        wanted_ids = {case_id.strip() for case_id in case_ids if case_id.strip()}
+        known_ids = {case.id for case in cases}
+        unknown_ids = sorted(wanted_ids - known_ids)
+        if unknown_ids:
+            raise ValueError(f"unknown case ids {unknown_ids}")
+        selected = [case for case in selected if case.id in wanted_ids]
+    return selected
 
 
 # ---------------------------------------------------------------------------
@@ -223,7 +239,9 @@ def _canonical_roster() -> list[Any]:
     """
     from google.adk.tools import BaseTool, FunctionTool
 
-    agent = _agent_tree().build_one_text_agent(model="eval-first-tool-dummy-model")
+    agent = _agent_tree().build_one_text_agent(
+        model="eval-first-tool-dummy-model", allow_owner_drive_tools=True
+    )
     roster: list[Any] = []
     for entry in agent.tools:
         if isinstance(entry, BaseTool):
@@ -410,33 +428,54 @@ def evaluate_gates(
 # ---------------------------------------------------------------------------
 
 
-_TRANSIENT_MARKERS = ("RESOURCE_EXHAUSTED", "429", "DEADLINE_EXCEEDED", "504", "503", "UNAVAILABLE")
+_TRANSIENT_MARKERS = ("DEADLINE_EXCEEDED", "504", "503", "UNAVAILABLE")
 
 
-def _is_quota_error(exc: Exception) -> bool:
-    """Quota and transient provider failures are retried; everything else is a result.
+def _is_transient_provider_error(exc: Exception) -> bool:
+    """Retry a transient provider outage once; never retry quota exhaustion.
 
     Measured 2026-09-14: Vertex answered a baseline run with 504 DEADLINE_EXCEEDED
     mid-way, which is not a property of the instruction under test.
     """
+    code = getattr(exc, "code", None)
+    if code == 429:
+        return False
+    if code in (503, 504):
+        return True
     message = str(exc).upper()
+    if "RESOURCE_EXHAUSTED" in message or "429" in message:
+        return False
     return any(marker in message for marker in _TRANSIENT_MARKERS)
 
 
 def first_tool_from_response(response: Any) -> str | None:
     candidates = getattr(response, "candidates", None) or []
     if not candidates:
-        return None
-    content = getattr(candidates[0], "content", None)
-    for part in getattr(content, "parts", None) or []:
+        raise RuntimeError("model_response_missing_candidates")
+    candidate = candidates[0]
+    finish_reason = getattr(candidate, "finish_reason", None)
+    reason = str(getattr(finish_reason, "name", finish_reason) or "").upper()
+    if reason and reason != "STOP":
+        raise RuntimeError("model_response_not_completed")
+    content = getattr(candidate, "content", None)
+    parts = getattr(content, "parts", None) or []
+    if not parts:
+        raise RuntimeError("model_response_missing_content")
+    has_answer_text = False
+    for part in parts:
         call = getattr(part, "function_call", None)
         if not call:
+            has_answer_text |= bool(str(getattr(part, "text", "") or "").strip()) and not bool(
+                getattr(part, "thought", False)
+            )
             continue
         if call.name == RUN_APP_ACTION:
             action_id = (call.args or {}).get("action_id", "?")
             return f"{RUN_APP_ACTION}:{action_id}"
         return call.name
-    return None
+    if has_answer_text:
+        return None
+    raise RuntimeError("model_response_missing_answer")
 
 
 def make_live_first_tool(
@@ -449,6 +488,10 @@ def make_live_first_tool(
     from google.genai import types
 
     from hushh_mcp.runtime_providers.factory import ManagedGeminiRuntimeBinding
+    from hushh_mcp.runtime_providers.gemini_config import (
+        build_generate_content_config,
+        thinking_config_for,
+    )
 
     os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "true")
     project = os.environ.get("GENAI_GOOGLE_CLOUD_PROJECT", "").strip()
@@ -458,19 +501,19 @@ def make_live_first_tool(
         location="global", http_options=types.HttpOptions(timeout=60_000)
     )
     tool = types.Tool(function_declarations=build_roster_declarations())
-    thinking_config = None
-    if thinking_level:
-        thinking_config = types.ThinkingConfig(thinking_level=thinking_level.upper())
+    thinking_config = thinking_config_for(model, thinking_level, types)
 
     def _call(instruction: str, prompt: str, _screen: str | None) -> str | None:
-        config = types.GenerateContentConfig(
+        config = build_generate_content_config(
+            types,
+            model,
             system_instruction=instruction,
             tools=[tool],
             temperature=0,
             thinking_config=thinking_config,
         )
         last_error: Exception | None = None
-        for attempt in range(1, QUOTA_RETRY_ATTEMPTS + 1):
+        for attempt in range(1, TRANSIENT_RETRY_ATTEMPTS + 1):
             try:
                 response = client.models.generate_content(
                     model=model, contents=prompt, config=config
@@ -478,10 +521,8 @@ def make_live_first_tool(
                 break
             except Exception as exc:
                 last_error = exc
-                if _is_quota_error(exc) and attempt < QUOTA_RETRY_ATTEMPTS:
-                    # Exponential backoff, capped: 429s on a shared project quota
-                    # clear in tens of seconds, not in two.
-                    time.sleep(min(call_gap_seconds * (2 ** (attempt - 1)), 60.0))
+                if _is_transient_provider_error(exc) and attempt < TRANSIENT_RETRY_ATTEMPTS:
+                    time.sleep(call_gap_seconds)
                     continue
                 raise
         else:
@@ -629,6 +670,7 @@ def _instruction_plan(instruction_files: Sequence[str] | None) -> list[tuple[str
 def run_eval(
     *,
     families: Sequence[str] | None = None,
+    case_ids: Sequence[str] | None = None,
     instruction_files: Sequence[str] | None = None,
     model: str = DEFAULT_MODEL,
     reps: int = DEFAULT_REPS,
@@ -647,7 +689,7 @@ def run_eval(
     Several `instruction_files` run back to back (A/B) and each writes its own
     report; the latest report is the last one written.
     """
-    cases = select_cases(load_cases(cases_path), families)
+    cases = select_cases(load_cases(cases_path), families, case_ids)
     if not cases:
         raise ValueError("no cases selected")
     family_gates = resolve_family_gates(
@@ -727,6 +769,12 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
         default="",
         help="Comma-separated family filter (default: every family in the fixture).",
     )
+    parser.add_argument(
+        "--case-id",
+        action="append",
+        default=[],
+        help="Evaluate only this fixture case ID; repeat to bound live calls.",
+    )
     parser.add_argument("--reps", type=int, default=DEFAULT_REPS)
     parser.add_argument("--model", default=DEFAULT_MODEL)
     parser.add_argument("--thinking-level", choices=THINKING_LEVELS, default=None)
@@ -778,6 +826,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     families = [item for item in args.families.split(",") if item.strip()]
     return run_eval(
         families=families or None,
+        case_ids=args.case_id or None,
         instruction_files=args.instruction_file or None,
         model=args.model,
         reps=args.reps,
