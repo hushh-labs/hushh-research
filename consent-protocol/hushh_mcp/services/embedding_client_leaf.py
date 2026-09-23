@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
 from typing import Any, cast
 
+MODEL_ID = "intfloat/multilingual-e5-small"
 MODEL_REVISION = "614241f622f53c4eeff9890bdc4f31cfecc418b3"
+BAKED_MODEL_DIR = "/opt/hushh/models/multilingual-e5-small"
+BAKED_MODEL_DIR_ENV = "HUSHH_DRIVE_EMBEDDING_MODEL_DIR"
 
 
 class EmbeddingClient:
@@ -19,8 +24,16 @@ class EmbeddingClient:
         if self._model is None:
             from sentence_transformers import SentenceTransformer
 
+            model_source = MODEL_ID
+            if self.local_files_only and (baked_dir := os.getenv(BAKED_MODEL_DIR_ENV)):
+                # The isolated production child has no network or credential
+                # environment. A missing/broken image asset is an error, not
+                # permission to fall back to a mutable remote model.
+                if baked_dir != BAKED_MODEL_DIR or not Path(baked_dir).is_dir():
+                    raise FileNotFoundError("pinned Drive embedding model is unavailable")
+                model_source = baked_dir
             self._model = SentenceTransformer(
-                "intfloat/multilingual-e5-small",
+                model_source,
                 revision=self.model_revision,
                 local_files_only=self.local_files_only,
                 trust_remote_code=False,

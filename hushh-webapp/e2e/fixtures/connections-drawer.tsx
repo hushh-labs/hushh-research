@@ -8,6 +8,11 @@ import { AgentHistorySidebar } from "../../components/agent/agent-history-sideba
 import { ConnectorsPanel } from "../../components/agent/connectors-panel";
 import { ConnectorReadReceipt } from "../../components/agent/connector-read-receipt";
 
+type RecoveryFixtureWindow = Window & {
+  __driveRecoveryReadiness?: "busy" | "unavailable";
+  __driveRecoveryRequests?: { attemptId: string; reason: string }[];
+};
+
 // Fake only Google's external UI; exercise the actual Picker adapter and its
 // real DOM focus interaction with the mounted production drawer.
 class DocsView {
@@ -135,6 +140,12 @@ function Fixture() {
             onBack={() => setMode("chats")}
             onAvailableChange={setAvailable}
             onExternalModalChange={setExternal}
+            onPrepareRecovery={async (request) => {
+              const fixtureWindow = window as RecoveryFixtureWindow;
+              (fixtureWindow.__driveRecoveryRequests ??= []).push(request);
+              return fixtureWindow.__driveRecoveryReadiness ?? "unavailable";
+            }}
+            onClearRecovery={async () => undefined}
           />
         }
       />

@@ -7,6 +7,7 @@ import os
 import subprocess
 import sys
 import zipfile
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -205,12 +206,21 @@ async def test_scanner_failure_prevents_parse_and_embedding():
 async def test_clamav_fixed_private_stream_protocol(monkeypatch, response, code):
     import asyncio
 
-    sent = []
-    writer = SimpleNamespace(
-        write=sent.append, drain=AsyncMock(), close=lambda: None, wait_closed=AsyncMock()
-    )
+    sent_version = []
+    sent_scan = []
+
+    def connection(reply, sent):
+        writer = SimpleNamespace(
+            write=sent.append, drain=AsyncMock(), close=lambda: None, wait_closed=AsyncMock()
+        )
+        return SimpleNamespace(readuntil=AsyncMock(return_value=reply)), writer
+
+    signature_date = datetime.now(UTC).strftime("%a %b %d %H:%M:%S %Y")
     connect = AsyncMock(
-        return_value=(SimpleNamespace(readuntil=AsyncMock(return_value=response)), writer)
+        side_effect=[
+            connection(f"ClamAV 1.5.4/28440/{signature_date}\n\0".encode(), sent_version),
+            connection(response, sent_scan),
+        ]
     )
     monkeypatch.setattr(asyncio, "open_connection", connect)
     if code:
@@ -218,8 +228,53 @@ async def test_clamav_fixed_private_stream_protocol(monkeypatch, response, code)
             await ClamAvScanner().scan(b"private")
     else:
         await ClamAvScanner().scan(b"private")
-    connect.assert_awaited_once_with("127.0.0.1", 3310, limit=1024)
-    assert sent == [b"zINSTREAM\0", b"\0\0\0\x07private", b"\0\0\0\0"]
+    assert connect.await_count == 2
+    assert all(
+        call.args == ("127.0.0.1", 3310) and call.kwargs == {"limit": 1024}
+        for call in connect.await_args_list
+    )
+    assert sent_version == [b"zVERSION\0"]
+    assert sent_scan == [b"zINSTREAM\0", b"\0\0\0\x07private", b"\0\0\0\0"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("age_days", [8, -2])
+async def test_clamav_rejects_stale_or_future_signatures_before_sending_content(
+    monkeypatch, age_days
+):
+    import asyncio
+
+    sent = []
+    writer = SimpleNamespace(
+        write=sent.append, drain=AsyncMock(), close=lambda: None, wait_closed=AsyncMock()
+    )
+    signature_date = (datetime.now(UTC) - timedelta(days=age_days)).strftime("%a %b %d %H:%M:%S %Y")
+    connect = AsyncMock(
+        return_value=(
+            SimpleNamespace(
+                readuntil=AsyncMock(return_value=f"ClamAV 1.5.4/28440/{signature_date}\0".encode())
+            ),
+            writer,
+        )
+    )
+    monkeypatch.setattr(asyncio, "open_connection", connect)
+
+    with pytest.raises(DriveReadError, match="^scanner_unavailable$"):
+        await ClamAvScanner().scan(b"private")
+    connect.assert_awaited_once()
+    assert sent == [b"zVERSION\0"]
+
+
+@pytest.mark.asyncio
+async def test_clamav_startup_requires_eicar_detection():
+    scanner = ClamAvScanner()
+    scanner.scan = AsyncMock(side_effect=DriveReadError("unsafe_document"))
+    await scanner.check_ready()
+    scanner.scan.assert_awaited_once_with(ClamAvScanner.EICAR)
+
+    scanner.scan = AsyncMock(return_value=None)
+    with pytest.raises(DriveReadError, match="^scanner_unavailable$"):
+        await scanner.check_ready()
 
 
 def test_embedding_chunks_never_silently_drop_unicode_or_exceed_token_budget(monkeypatch):

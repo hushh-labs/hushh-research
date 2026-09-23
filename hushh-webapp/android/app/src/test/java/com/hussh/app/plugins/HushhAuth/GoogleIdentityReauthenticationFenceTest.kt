@@ -93,4 +93,69 @@ class GoogleIdentityReauthenticationFenceTest {
         assertTrue(picker.drainProvider())
         assertTrue(picker.canRelease)
     }
+
+    @Test fun driveReturnRejectsExpirySignOutAndReplacedSession() {
+        val scenarios = listOf(
+            Triple(null, false, 101L), // Signed out while the browser was open.
+            Triple("other-owner", false, 101L),
+            Triple("owner", false, 101L), // Same UID in a replacement Firebase session.
+            Triple("owner", true, 120_000L), // Callback at the deadline is expired.
+        )
+        for ((userId, sameSession, now) in scenarios) {
+            val fence = NativeDriveAuthorizationFence("owner", "attempt_123456789012", 120_000)
+            assertEquals(
+                NativeDriveAuthorizationFence.Claim.STALE,
+                fence.claim("attempt_123456789012", userId, sameSession, now)
+            )
+            assertFalse(fence.settled)
+            assertFalse(fence.canRelease)
+        }
+    }
+
+    @Test fun driveConnectionAndPickerReturnsCannotCrossSettle() {
+        val connection = NativeDriveAuthorizationFence("owner", "connect_123456789012", 120_000)
+        val picker = NativeDriveAuthorizationFence("owner", "picker_1234567890123", 120_000)
+        assertEquals(
+            NativeDriveAuthorizationFence.Claim.STALE,
+            connection.claim(picker.expectedAttemptId, "owner", true, 101)
+        )
+        assertEquals(
+            NativeDriveAuthorizationFence.Claim.STALE,
+            picker.claim(connection.expectedAttemptId, "owner", true, 101)
+        )
+        assertEquals(
+            NativeDriveAuthorizationFence.Claim.ACCEPTED,
+            connection.claim(connection.expectedAttemptId, "owner", true, 101)
+        )
+        assertTrue(connection.drainProvider())
+        assertFalse(connection.canRelease) // A provider return is not terminal settlement.
+        assertTrue(connection.settle())
+        assertFalse(connection.settle()) // Duplicate callback cannot complete twice.
+        assertFalse(connection.drainProvider())
+        assertTrue(connection.canRelease)
+        assertFalse(picker.settled)
+    }
+
+    @Test fun cancelledDriveAttemptCannotAuthorizeAfterActivityRecreation() {
+        val old = NativeDriveAuthorizationFence("owner", "old_attempt_123456789012", 120_000)
+        assertTrue(old.settle()) // Native cancellation or activity teardown.
+        assertFalse(old.canRelease) // Quarantine until the old browser returns.
+
+        val recreated = NativeDriveAuthorizationFence("owner", "new_attempt_123456789012", 240_000)
+        assertEquals(
+            NativeDriveAuthorizationFence.Claim.STALE,
+            recreated.claim(old.expectedAttemptId, "owner", true, 121_000)
+        )
+        assertEquals(
+            NativeDriveAuthorizationFence.Claim.IGNORED,
+            old.claim(old.expectedAttemptId, "owner", true, 121_000)
+        )
+        assertTrue(old.drainProvider())
+        assertTrue(old.canRelease)
+        assertEquals(
+            NativeDriveAuthorizationFence.Claim.ACCEPTED,
+            recreated.claim(recreated.expectedAttemptId, "owner", true, 121_000)
+        )
+        assertFalse(recreated.settled)
+    }
 }

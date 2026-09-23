@@ -1,7 +1,7 @@
 "use client";
 
 import { Suspense, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 
 import { ROUTES } from "@/lib/navigation/routes";
 import { ExternalConnectorService } from "@/lib/services/external-connector-service";
@@ -12,6 +12,10 @@ import {
   notifyDrivePopup,
   readDrivePopupAttempt,
 } from "@/lib/profile/drive-oauth-popup";
+import {
+  markDriveChatRecoveryReturned,
+  readDriveChatRecoveryHandoff,
+} from "@/lib/agent/drive-oauth-chat-recovery";
 import { Button } from "@/components/ui/button";
 import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
 
@@ -107,23 +111,59 @@ function DrivePopupReturn() {
 
 function ConnectorOAuthReturnRouter() {
   const [popup, setPopup] = useState<boolean | null>(null);
+  const [fullPageDetails, setFullPageDetails] = useState<{
+    code: string | null;
+    state: string | null;
+    cancelled: boolean;
+    attemptId: string | null;
+    ownerUserId: string | null;
+  } | null>(null);
   useEffect(() => {
-    setPopup(hasDrivePopupMarker() || Boolean(window.opener));
+    const isPopup = hasDrivePopupMarker() || Boolean(window.opener);
+    if (!isPopup) {
+      const search = new URL(window.location.href).searchParams;
+      const handoff = readDriveChatRecoveryHandoff();
+      if (handoff?.reason === "web_full_page") {
+        markDriveChatRecoveryReturned({
+          attemptId: handoff.attemptId,
+          reason: "web_full_page",
+        });
+      }
+      setFullPageDetails({
+        code: search.get("code"),
+        state: search.get("state"),
+        cancelled: search.has("error"),
+        attemptId: handoff?.reason === "web_full_page" ? handoff.attemptId : null,
+        ownerUserId: handoff?.reason === "web_full_page" ? handoff.ownerUserId ?? null : null,
+      });
+      // A full-page return may wait for vault unlock. Keep provider codes and
+      // signed state only in this mounted component, never in browser history.
+      window.history.replaceState(null, "", window.location.pathname);
+    }
+    setPopup(isPopup);
   }, []);
-  if (popup === null) return null;
+  if (popup === null || (popup === false && !fullPageDetails)) return null;
   return popup ? (
     <DrivePopupReturn />
   ) : (
     <VaultLockGuard>
-      <ConnectorOAuthReturnContent />
+      <ConnectorOAuthReturnContent details={fullPageDetails!} />
     </VaultLockGuard>
   );
 }
 
-function ConnectorOAuthReturnContent() {
+function ConnectorOAuthReturnContent({ details }: {
+  details: {
+    code: string | null;
+    state: string | null;
+    cancelled: boolean;
+    attemptId: string | null;
+    ownerUserId: string | null;
+  };
+}) {
   const router = useRouter();
-  const search = useSearchParams();
   const { vaultOwnerToken, ownerTokenStatus } = useVault();
+  const { user } = useAuth();
   const started = useRef(false);
   const [message, setMessage] = useState("Finishing connection…");
 
@@ -131,30 +171,38 @@ function ConnectorOAuthReturnContent() {
     if (ownerTokenStatus === "renewing" || started.current) return;
     started.current = true;
 
-    const code = search.get("code");
-    const state = search.get("state");
-    const oauthError = search.get("error") || search.get("error_description");
+    const { code, state, cancelled } = details;
 
     // Connectors live in the chat sidebar's "MCP connections" panel now, not
     // a dedicated route -- landing on `?panel=connectors` is what reopens it.
     const returnHref = `${ROUTES.HOME}?panel=connectors`;
 
-    if (oauthError) {
+    if (cancelled) {
       setMessage("That connection was not completed.");
       globalThis.setTimeout(() => router.replace(returnHref), 1500);
       return;
     }
-    if (!vaultOwnerToken || !code || !state) {
+    if (
+      !vaultOwnerToken || !code || !state ||
+      (details.attemptId && (!user || details.ownerUserId !== user.uid))
+    ) {
       setMessage("Missing authorization details. Please try again.");
       globalThis.setTimeout(() => router.replace(returnHref), 1500);
       return;
     }
 
-    void ExternalConnectorService.completeOAuthConnect({
-      vaultOwnerToken,
-      state,
-      code,
-    })
+    void (details.attemptId
+      ? user!.getIdToken().then((idToken) => ExternalConnectorService.completeWebOAuth({
+          idToken,
+          state,
+          code,
+          attemptId: details.attemptId!,
+        }))
+      : ExternalConnectorService.completeOAuthConnect({
+          vaultOwnerToken,
+          state,
+          code,
+        }))
       .then(() => {
         setMessage("Connected. Taking you back…");
       })
@@ -168,7 +216,7 @@ function ConnectorOAuthReturnContent() {
       .finally(() => {
         globalThis.setTimeout(() => router.replace(returnHref), 1500);
       });
-  }, [router, search, vaultOwnerToken, ownerTokenStatus]);
+  }, [details, router, user, vaultOwnerToken, ownerTokenStatus]);
 
   return (
     <div className="flex min-h-[50vh] items-center justify-center px-6 text-center">

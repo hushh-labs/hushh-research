@@ -238,6 +238,13 @@ import {
   shouldCaptureLargePaste,
   type PendingTextAttachment,
 } from "@/lib/agent/large-text-attachment";
+import {
+  DRIVE_CHAT_RECOVERY_RETURN_EVENT,
+  clearDriveChatRecovery,
+  saveDriveChatRecovery,
+  takeDriveChatRecovery,
+  type DriveChatRecoveryReason,
+} from "@/lib/agent/drive-oauth-chat-recovery";
 import type { AppRuntimeState } from "@/lib/voice/voice-types";
 import { getVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
@@ -1763,6 +1770,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // otherwise animate a long crawl down from the top).
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const oneScrollTopRef = useRef(0);
+  const [recoveryScrollTop, setRecoveryScrollTop] = useState<number | null>(null);
   // Programmatic history/anchor restoration must not be interpreted as a
   // person's scroll gesture. Chat's transcript is nested inside the app
   // shell, so this distinction is what keeps the shared bottom chrome visible
@@ -1859,6 +1867,30 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isHistoryDrawerOpen, setIsHistoryDrawerOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState<ConnectionsDrawerMode>("chats");
+  const [recoveryCheckedForUid, setRecoveryCheckedForUid] = useState<string | null>(null);
+  const pendingDriveRecoveryRef = useRef<{
+    ownerUid: string;
+    state: Awaited<ReturnType<typeof takeDriveChatRecovery>>;
+  } | null>(null);
+  const currentDraftRef = useRef({ input, attachment: longPromptAttachment });
+  currentDraftRef.current = { input, attachment: longPromptAttachment };
+  const recoveryUiRef = useRef({
+    conversationId, composerExpanded, drawerOpen: isHistoryDrawerOpen, drawerMode,
+  });
+  recoveryUiRef.current = {
+    conversationId, composerExpanded, drawerOpen: isHistoryDrawerOpen, drawerMode,
+  };
+  useEffect(() => {
+    if (!user?.uid || !vaultKey) {
+      pendingDriveRecoveryRef.current = null;
+      setRecoveryCheckedForUid(null);
+    }
+  }, [user?.uid, vaultKey]);
+  useEffect(() => {
+    const onReturn = () => setRecoveryCheckedForUid(null);
+    window.addEventListener(DRIVE_CHAT_RECOVERY_RETURN_EVENT, onReturn);
+    return () => window.removeEventListener(DRIVE_CHAT_RECOVERY_RETURN_EVENT, onReturn);
+  }, []);
   const [connectionsAvailable, setConnectionsAvailable] = useState(false);
   const [connectorExternalModalOpen, setConnectorExternalModalOpen] =
     useState(false);
@@ -2260,7 +2292,11 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // The single agent bar can always send text: with vault access it runs the
   // full agent, otherwise it runs the pre-vault informational tier. Voice and
   // vault-backed tools stay gated separately by hasChatAccess.
+  const recoveryInspectionPending = Boolean(
+    user?.uid && vaultKey && vaultOwnerToken && recoveryCheckedForUid !== user.uid,
+  );
   const canSend =
+    !recoveryInspectionPending &&
     !isVoiceConnecting &&
     !voiceActive &&
     !emailDraftOpen &&
@@ -2269,8 +2305,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     // keystroke. The submit path performs the authoritative empty check.
     (input.length > 0 || longPromptAttachment !== null);
   const canToggleVoice =
-    agentVoiceEnabled && !isVoiceConnecting && !emailDraftOpen;
+    agentVoiceEnabled && !recoveryInspectionPending && !isVoiceConnecting && !emailDraftOpen;
   const historyInteractionDisabled =
+    recoveryInspectionPending ||
     isChatLoading ||
     isToolWorking ||
     isVoiceConnecting ||
@@ -2414,6 +2451,19 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       behavior: "instant" as ScrollBehavior,
     });
   }, [beginTranscriptProgrammaticScroll, isPuppySurface]);
+
+  useLayoutEffect(() => {
+    if (recoveryScrollTop === null || isPuppySurface) return;
+    const element = transcriptRef.current;
+    if (!element) return;
+    const max = Math.max(0, element.scrollHeight - element.clientHeight);
+    const target = Math.min(recoveryScrollTop, max);
+    oneScrollTopRef.current = target;
+    transcriptUserScrollRef.current = max - target > 48;
+    beginTranscriptProgrammaticScroll(target);
+    element.scrollTo({ top: target, behavior: "instant" as ScrollBehavior });
+    setRecoveryScrollTop(null);
+  }, [beginTranscriptProgrammaticScroll, isPuppySurface, messages, recoveryScrollTop]);
 
   useEffect(() => {
     const token = getVaultOwnerToken();
@@ -3298,7 +3348,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   };
 
   useEffect(() => {
-    if (!hasChatAccess || !user?.uid || !vaultOwnerToken) return;
+    if (
+      !hasChatAccess ||
+      !user?.uid ||
+      !vaultOwnerToken ||
+      recoveryCheckedForUid !== user.uid
+    ) return;
     const loadKey = `${user.uid}:${vaultOwnerToken.slice(0, 12)}`;
     if (skipInitialHistoryLoadRef.current) {
       skipInitialHistoryLoadRef.current = false;
@@ -3371,10 +3426,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       cancelled = true;
       window.clearTimeout(timeoutId);
     };
-  }, [hasChatAccess, updateConversationId, user?.uid, vaultOwnerToken]);
+  }, [hasChatAccess, recoveryCheckedForUid, updateConversationId, user?.uid, vaultOwnerToken]);
 
   const restoreConversationMessages = useCallback(
-    async (nextConversationId: string, token: string) => {
+    async (
+      nextConversationId: string,
+      token: string,
+      isCurrent: () => boolean = () => true,
+    ) => {
       if (!user?.uid) return;
       clearTranscriptProgrammaticScroll();
       transcriptUserScrollRef.current = false;
@@ -3384,6 +3443,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         conversationId: nextConversationId,
         vaultOwnerToken: token,
       });
+      if (!isCurrent()) return;
       const restored = storedMessagesToAgentMessages(history);
       latestVisibleTurnIdRef.current = null;
       updateConversationId(nextConversationId);
@@ -3405,6 +3465,156 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       user?.uid,
     ],
   );
+
+  useEffect(() => {
+    if (
+      !rootChatReady ||
+      !user?.uid ||
+      !vaultKey ||
+      !vaultOwnerToken ||
+      recoveryCheckedForUid === user.uid
+    ) return;
+    let cancelled = false;
+    const ownerUid = user.uid;
+    void (async () => {
+      const existing = pendingDriveRecoveryRef.current;
+      const state = existing?.ownerUid === ownerUid
+        ? existing.state
+        : await takeDriveChatRecovery({ ownerUserId: ownerUid, vaultKey });
+      if (state) pendingDriveRecoveryRef.current = { ownerUid, state };
+      if (cancelled) return;
+      if (state) {
+        const mayRestore = () => !cancelled &&
+          currentDraftRef.current.input === "" &&
+          currentDraftRef.current.attachment === null;
+        if (!mayRestore()) {
+          pendingDriveRecoveryRef.current = null;
+          setRecoveryCheckedForUid(ownerUid);
+          return;
+        }
+        historyRestoreEpochRef.current += 1;
+        skipInitialHistoryLoadRef.current = true;
+        if (state.conversationId) {
+          try {
+            await restoreConversationMessages(
+              state.conversationId,
+              getVaultOwnerToken() || vaultOwnerToken,
+              mayRestore,
+            );
+          } catch {
+            // Preserve the draft even if the selected history is temporarily
+            // unavailable. No fabricated transcript is shown.
+            if (mayRestore()) {
+              updateConversationId(null);
+              setMessages([createGreetingMessage()]);
+            }
+          }
+        } else {
+          if (mayRestore()) {
+            updateConversationId(null);
+            setMessages([createGreetingMessage()]);
+          }
+        }
+        if (cancelled) return;
+        if (!mayRestore()) {
+          pendingDriveRecoveryRef.current = null;
+          setRecoveryCheckedForUid(ownerUid);
+          return;
+        }
+        setInput(state.input);
+        setLongPromptAttachment(state.attachment);
+        setComposerExpanded(state.composerExpanded);
+        setDrawerMode(state.drawerMode);
+        setIsHistoryDrawerOpen(state.drawerOpen);
+        setRecoveryScrollTop(state.scrollTop);
+        pendingDriveRecoveryRef.current = null;
+      }
+      if (!cancelled) setRecoveryCheckedForUid(ownerUid);
+    })().catch(() => {
+      if (!cancelled && pendingDriveRecoveryRef.current?.ownerUid !== ownerUid)
+        setRecoveryCheckedForUid(ownerUid);
+    });
+    return () => { cancelled = true; };
+  }, [
+    recoveryCheckedForUid,
+    getVaultOwnerToken,
+    restoreConversationMessages,
+    rootChatReady,
+    updateConversationId,
+    user?.uid,
+    vaultKey,
+    vaultOwnerToken,
+  ]);
+
+  const prepareDriveChatRecovery = useCallback(async (request: {
+    attemptId: string;
+    reason: DriveChatRecoveryReason;
+  }): Promise<"ready" | "busy" | "unavailable"> => {
+    if (
+      !user?.uid ||
+      !vaultKey ||
+      !hasChatAccess ||
+      isPuppySurface ||
+      historyInteractionDisabled ||
+      isPkmMemoryWorking ||
+      isLoadingHistory ||
+      activeActionRun ||
+      pendingAppAction ||
+      pendingSpecialistDirective ||
+      emailDraftOpen ||
+      isGmailKycSaving ||
+      gmailKycReplyRequest ||
+      queuedHandoffPrompt ||
+      connectorExternalModalOpen
+    ) return "busy";
+    try {
+      const state = {
+        conversationId,
+        input,
+        attachment: longPromptAttachment,
+        composerExpanded,
+        scrollTop: Math.min(10_000_000, Math.max(0, transcriptRef.current?.scrollTop ?? oneScrollTopRef.current)),
+        drawerOpen: isHistoryDrawerOpen,
+        drawerMode,
+      };
+      await saveDriveChatRecovery({
+        ownerUserId: user.uid,
+        vaultKey,
+        attemptId: request.attemptId,
+        reason: request.reason,
+        state,
+      });
+      const live = recoveryUiRef.current;
+      const draft = currentDraftRef.current;
+      if (
+        draft.input !== state.input ||
+        draft.attachment?.text !== state.attachment?.text ||
+        draft.attachment?.isExpanded !== state.attachment?.isExpanded ||
+        live.conversationId !== state.conversationId ||
+        live.composerExpanded !== state.composerExpanded ||
+        live.drawerOpen !== state.drawerOpen ||
+        live.drawerMode !== state.drawerMode ||
+        (transcriptRef.current?.scrollTop ?? oneScrollTopRef.current) !== state.scrollTop
+      ) {
+        await clearDriveChatRecovery(user.uid);
+        return "unavailable";
+      }
+      return "ready";
+    } catch {
+      return "unavailable";
+    }
+  }, [
+    activeActionRun, composerExpanded, connectorExternalModalOpen,
+    conversationId, drawerMode, emailDraftOpen, gmailKycReplyRequest,
+    hasChatAccess, historyInteractionDisabled, input,
+    isGmailKycSaving, isHistoryDrawerOpen, isLoadingHistory, isPkmMemoryWorking,
+    isPuppySurface, longPromptAttachment, pendingAppAction,
+    pendingSpecialistDirective, queuedHandoffPrompt, user?.uid, vaultKey,
+  ]);
+
+  const clearPreparedDriveChatRecovery = useCallback(async () => {
+    if (user?.uid) await clearDriveChatRecovery(user.uid);
+  }, [user?.uid]);
 
   const loadConversationList = useCallback(
     async (force = false) => {
@@ -5547,6 +5757,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
               onBack={() => setDrawerMode("chats")}
               onAvailableChange={setConnectionsAvailable}
               onExternalModalChange={setConnectorExternalModalOpen}
+              onPrepareRecovery={prepareDriveChatRecovery}
+              onClearRecovery={clearPreparedDriveChatRecovery}
             />
           }
         />
@@ -6949,6 +7161,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           }
                         }}
                         disabled={
+                          recoveryInspectionPending ||
                           isVoiceConnecting ||
                           emailDraftOpen ||
                           isGmailKycSaving
@@ -7015,6 +7228,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                             }
                           }}
                           disabled={
+                            recoveryInspectionPending ||
                             isVoiceConnecting ||
                             emailDraftOpen ||
                             isGmailKycSaving

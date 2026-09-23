@@ -99,6 +99,8 @@ const props = () => ({
   onBack: vi.fn(),
   onAvailableChange: vi.fn(),
   onExternalModalChange: vi.fn(),
+  onPrepareRecovery: vi.fn().mockResolvedValue("ready" as const),
+  onClearRecovery: vi.fn().mockResolvedValue(undefined),
 });
 
 function runAnimationFramesImmediately() {
@@ -156,7 +158,35 @@ describe("Connections owner and mutation fences", () => {
       "https://api.example.invalid/api/connectors/google_drive/picker/native/callback",
     );
   });
-  afterEach(cleanup);
+  afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+  it.each([
+    ["busy", "Finish the current chat action or allow popups before connecting Drive."],
+    ["unavailable", "Your draft could not be saved safely. Allow popups or try again."],
+  ])("keeps chat mounted when popup is blocked and recovery is %s", async (readiness, message) => {
+    state.overview.mockResolvedValue({
+      ...overview(),
+      connectors: [{
+        connectorId: "google_drive", status: "not_connected", available: true,
+        accountLabel: "Only files you choose",
+      }],
+    });
+    state.nativeStart.mockResolvedValue({
+      attemptId: "attempt_123456789012",
+      connectorId: "google_drive",
+      authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth?state=test",
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+    vi.spyOn(window, "open").mockReturnValue(null);
+    const p = props();
+    p.onPrepareRecovery.mockResolvedValue(readiness);
+    render(<ConnectorsPanel {...p} />);
+    fireEvent.click(await screen.findByRole("button", { name: "Connect Drive" }));
+    await screen.findByText(message);
+    expect(p.onPrepareRecovery).toHaveBeenCalledWith({
+      attemptId: "attempt_123456789012", reason: "web_full_page",
+    });
+    expect(p.onClearRecovery).not.toHaveBeenCalled();
+  });
   it("cannot resurrect a removed document from an earlier same-owner read", async () => {
     let stale!: (value: unknown) => void;
     state.documents
@@ -308,6 +338,9 @@ describe("Connections owner and mutation fences", () => {
     await waitFor(() => expect(connect).toBeEnabled());
     fireEvent.click(connect);
     await waitFor(() => expect(state.nativeDrive).toHaveBeenCalledTimes(1));
+    expect(p.onPrepareRecovery).toHaveBeenCalledWith({
+      attemptId: "attempt_123456789012", reason: "native_oauth",
+    });
 
     state.token = "vault-renewed";
     state.nativePending.mockResolvedValue({
