@@ -1828,6 +1828,7 @@ async def get_metadata(
             pkm_service.get_user_metadata(
                 user_id,
                 resolved_index=resolved_index,
+                include_available_scopes=False,
             ),
             upgrade_service.build_status(
                 user_id,

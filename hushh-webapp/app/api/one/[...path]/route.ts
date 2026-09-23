@@ -14,12 +14,26 @@ const ONE_API_TIMEOUT_MS = resolveSlowRequestTimeoutMs(45_000, {
   developmentFloorMs: 45_000,
   overrideEnvKey: "HUSHH_ONE_API_TIMEOUT_MS",
 });
+const ONE_EMAIL_DRAFT_TIMEOUT_MS = resolveSlowRequestTimeoutMs(75_000, {
+  developmentFloorMs: 75_000,
+  overrideEnvKey: "HUSHH_ONE_EMAIL_DRAFT_TIMEOUT_MS",
+});
+// A KYC Inbox scan can classify up to 30 messages and safely replay a
+// side-effect-free model turn after a transient provider failure. It must be
+// allowed to return its persisted partial/full result instead of being cut off
+// by the generic One API deadline.
+const ONE_KYC_SCAN_TIMEOUT_MS = resolveSlowRequestTimeoutMs(90_000, {
+  developmentFloorMs: 90_000,
+  overrideEnvKey: "HUSHH_ONE_KYC_SCAN_TIMEOUT_MS",
+});
 const ONE_STREAM_TIMEOUT_MS = resolveSlowRequestTimeoutMs(285_000, {
   developmentFloorMs: 285_000,
   overrideEnvKey: "HUSHH_ONE_STREAM_TIMEOUT_MS",
 });
 
 function requestTimeoutMs(path: string, acceptHeader: string | null): number {
+  if (path === "email/draft") return ONE_EMAIL_DRAFT_TIMEOUT_MS;
+  if (path === "email/information-requests/scan") return ONE_KYC_SCAN_TIMEOUT_MS;
   const acceptsEventStream =
     acceptHeader?.toLowerCase().includes("text/event-stream") ?? false;
   const isKnownStreamRoute = path === "agent-chat" || path.endsWith("/stream");

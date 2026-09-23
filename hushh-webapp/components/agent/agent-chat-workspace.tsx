@@ -257,6 +257,7 @@ import type {
 import { KycIdentityProfilePkmService } from "@/lib/services/kyc-identity-profile-pkm-service";
 import { prepareScopedGmailInformationRequestDraft } from "@/lib/services/gmail-information-request-draft-service";
 import { GmailInformationRequestsService } from "@/lib/services/gmail-information-requests-service";
+import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
 
 type AgentMessage = {
   id: string;
@@ -2211,6 +2212,25 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     vaultOwnerToken &&
     tokenIsFresh,
   );
+  const handleEnableGmailSend = useCallback(async () => {
+    if (!user?.uid || !user?.getIdToken) return;
+    try {
+      const idToken = await user.getIdToken();
+      const loginHint = user.providerData?.some(
+        (provider) => provider.providerId === "google.com",
+      )
+        ? user.email ?? null
+        : null;
+      const start = await GmailReceiptsService.startConnect({
+        idToken,
+        userId: user.uid,
+        loginHint,
+        includeGrantedScopes: true,
+        purpose: "send",
+      });
+      window.location.assign(start.authorize_url);
+    } catch {}
+  }, [user]);
   const availablePersonas = useMemo(() => {
     const personas = new Set<typeof activePersona>([activePersona]);
     personas.add("investor");
@@ -4536,6 +4556,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         vaultOwnerToken: token,
         vaultKey,
         message: text,
+        requireDecrypted: true,
       });
       if (!context.text) {
         throw new Error(
@@ -4559,8 +4580,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           trackEvent("agent_pkm_context_resolved", {
             route_id: "agent",
             result: "success",
-            context_mode:
-              agentPkmContext.mode === "broad" ? "broad" : "relevant",
+            context_mode: "full",
             total_fact_count_bucket: toPkmFactCountBucket(
               coverage?.totalFactCount || 0,
             ),
@@ -5573,6 +5593,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     return (
       <div className="border-t border-border/70 pt-3">
         <EmailDraftCard
+          key={`email-draft-${emailDraftAnchorMessageId ?? "standalone"}`}
           initialInstruction={emailDraftInstruction}
           initialDraft={emailDraftInitialValue}
           autoDraft={emailDraftAutoDraft}
@@ -6343,6 +6364,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                     <EmailDeliveryHistoryCard
                       key={item.id}
                       item={item}
+                      onEnableGmailSend={handleEnableGmailSend}
                       onRetry={retryEmailDelivery}
                     />
                   ))}
@@ -7010,6 +7032,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 <EmailDeliveryHistoryCard
                   key={item.id}
                   item={item}
+                  onEnableGmailSend={handleEnableGmailSend}
                   onRetry={retryEmailDelivery}
                 />
               ))}

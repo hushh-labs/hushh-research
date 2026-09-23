@@ -105,4 +105,36 @@ describe("/api/one proxy", () => {
     expect(timeoutSpy).toHaveBeenCalledWith(45_000);
     await expect(response.json()).resolves.toMatchObject({ items: [1, 2] });
   });
+
+  it("allows an email draft enough time for one safe model retry", async () => {
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
+    mocks.fetch.mockResolvedValue(
+      new Response(JSON.stringify({ body: "Hello" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    await POST(nextRequest(JSON.stringify({ instruction: "Write a note" })) as never, {
+      params: Promise.resolve({ path: ["email", "draft"] }),
+    });
+
+    expect(timeoutSpy).toHaveBeenCalledWith(75_000);
+  });
+
+  it("allows a KYC Inbox scan to return its persisted classification result", async () => {
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
+    mocks.fetch.mockResolvedValue(
+      new Response(JSON.stringify({ accepted: true, workflow_ids: ["workflow-1"] }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+
+    await POST(nextRequest(JSON.stringify({ max_results: 30 })) as never, {
+      params: Promise.resolve({ path: ["email", "information-requests", "scan"] }),
+    });
+
+    expect(timeoutSpy).toHaveBeenCalledWith(90_000);
+  });
 });

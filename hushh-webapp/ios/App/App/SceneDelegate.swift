@@ -27,12 +27,23 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         }
     }
 
-    // Active/background transitions are not handled here on purpose. In
-    // sceneDidBecomeActive, UIApplication.shared.applicationState is still
-    // .inactive, and the session privacy shield gates its published state on
-    // it; driving the shield from here published appIsActive=false once and
-    // the auth context never restored. AppLifecycleHandlers observes the
-    // UIApplication notifications, which fire once the state has changed.
+    // UIApplication notifications are the primary lifecycle source because
+    // sceneDidBecomeActive can run before UIKit reports `.active`. Keep the
+    // scene callbacks as a bounded fallback: XCTest and some scene restores
+    // can deliver the inactive transition but delay the active notification.
+    // The fallback waits for the actual active state before publishing, so it
+    // cannot make a shield releasable while the app is still inactive.
+    func sceneWillResignActive(_ scene: UIScene) {
+        AppLifecycleHandlers.willResignActive()
+    }
+
+    func sceneDidEnterBackground(_ scene: UIScene) {
+        AppLifecycleHandlers.didEnterBackground()
+    }
+
+    func sceneDidBecomeActive(_ scene: UIScene) {
+        AppLifecycleHandlers.didBecomeActiveFromScene()
+    }
 
     func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
         for context in URLContexts {
@@ -88,6 +99,23 @@ enum AppLifecycleHandlers {
         OneVoiceInvocationCoordinator.shared.publishAvailability(state: "foregrounded")
         OneSystemActionInvocationCoordinator.shared.publishAvailability(state: "foregrounded")
         OneSystemRequestInvocationCoordinator.shared.publishAvailability(state: "foregrounded")
+    }
+
+    /// Scene callbacks precede UIKit's active state on some OS versions. Retry
+    /// only until UIKit confirms activation; the shield still requires the
+    /// resumed JavaScript document's exact-generation acknowledgement to lift.
+    static func didBecomeActiveFromScene(attempt: Int = 0) {
+        guard UIApplication.shared.applicationState == .active else {
+            guard attempt < 4 else { return }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                didBecomeActiveFromScene(attempt: attempt + 1)
+            }
+            return
+        }
+        // The notification path owns availability publication. This fallback
+        // only repairs the shield's active state when that notification was
+        // delayed or absent for the resumed scene.
+        HushhSessionPrivacyShield.shared.markAppActive()
     }
 
     static func open(url: URL, options: UIScene.OpenURLOptions) -> Bool {

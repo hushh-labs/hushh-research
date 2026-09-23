@@ -14,24 +14,24 @@ export type AgentWelcomePromptContext = {
 
 const WELCOME_PROMPT_DECK: readonly (readonly AgentWelcomePrompt[])[] = [
   [
+    "What can One help me with?",
+    "Create a circle named Family",
+    "Set up Google Calendar",
+  ],
+  [
+    "Schedule a meeting",
     "Review my portfolio",
-    "Save a memory to my vault",
-    "Who can see my information right now?",
+    "Connect Gmail",
   ],
   [
-    "What moved in the market today?",
-    "How does my vault stay private?",
-    "Who is sharing their location with me?",
+    "Show my schedule for today",
+    "What do you remember about me?",
+    "Draft an email",
   ],
   [
-    "Review my portfolio",
-    "Show my consent requests",
-    "What do you remember about my preferences?",
-  ],
-  [
-    "Analyze a stock",
-    "Share my location with trusted contacts",
-    "What capabilities can One run?",
+    "Set up my financial profile",
+    "Create a circle named Friends",
+    "What can One help me with?",
   ],
 ] as const;
 

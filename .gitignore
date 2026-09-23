@@ -45,7 +45,8 @@ firebase-debug.log
 .local-secrets/
 **/.local-secrets/
 node_modules/
-
+# Local temporary secrets
+/temp_secrets/
 consent-protocol/.DS_Store
 .DS_Store
 docs/vision/kai/index.html
@@ -187,3 +188,7 @@ ehthumbs_vista.db
 .proxy-run.log
 .proxy-*.log
 *.log.cold.bak
+
+# Opt-in local diagnostics (for example KYC_DEBUG_LOGGING=true).
+/logs/
+*.log

@@ -230,6 +230,23 @@ describe("AG-UI Agent One client", () => {
     expect(labels[0]).toBe(updatedLabel);
   });
 
+  it("forwards the versioned agent-safe PKM packet on every chat turn", async () => {
+    const pkmContext = "Private-agent PKM context (agent-safe-pkm/v1):\n- Preferences > Tone: concise";
+
+    await streamAgentChat({
+      userId: "user-1",
+      message: "What tone do I prefer?",
+      conversationId: "thread-1",
+      vaultOwnerToken: "owner-token",
+      pkmContext,
+      handlers: {},
+    });
+
+    expect(mockTransport.runAgent.mock.calls[0]?.[0]).toMatchObject({
+      forwardedProps: expect.objectContaining({ pkmContext }),
+    });
+  });
+
   it("uses the same AG-UI endpoint before vault unlock", async () => {
     await expect(streamAgentIntro({ message: "What is Hussh?" })).resolves.toMatchObject({
       text: "Hello",

@@ -163,6 +163,7 @@ def _public_scan_result(result: dict[str, Any]) -> dict[str, Any]:
         "workflow_ids",
         "baseline_established",
         "baseline_reestablished",
+        "backfill_pending",
         "retry_pending",
     )
     return {key: result[key] for key in allowed if key in result}

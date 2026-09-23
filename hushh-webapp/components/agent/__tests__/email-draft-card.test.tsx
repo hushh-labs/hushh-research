@@ -480,6 +480,43 @@ describe("EmailDraftCard", () => {
     expect(EmailDeliveryService.send).not.toHaveBeenCalled();
   });
 
+  it("starts a fresh draft after a prior auto-draft failure", async () => {
+    vi.mocked(EmailDeliveryService.draft)
+      .mockRejectedValueOnce(new Error("temporary failure"))
+      .mockResolvedValueOnce({
+        to: "person@example.com",
+        cc: "",
+        bcc: "",
+        subject: "Fresh draft",
+        body: "Hello again",
+        missingDetails: [],
+      });
+
+    const props = {
+      autoDraft: true,
+      getAuth,
+      onRequireVault: vi.fn(),
+      onDismiss: vi.fn(),
+      onSent: vi.fn(),
+    };
+    const view = render(
+      <EmailDraftCard key="first" initialInstruction="Write the first note" {...props} />,
+    );
+
+    await waitFor(() => expect(EmailDeliveryService.draft).toHaveBeenCalledTimes(1));
+    view.rerender(
+      <EmailDraftCard key="second" initialInstruction="Write the second note" {...props} />,
+    );
+
+    await waitFor(() => expect(EmailDeliveryService.draft).toHaveBeenCalledTimes(2));
+    expect(EmailDeliveryService.draft).toHaveBeenLastCalledWith({
+      firebaseIdToken: "firebase-token",
+      vaultOwnerToken: "vault-owner-token",
+      instruction: "Write the second note",
+    });
+    expect(await screen.findByDisplayValue("Fresh draft")).toBeInTheDocument();
+  });
+
   it("does not claim success when Gmail cannot confirm the outcome", async () => {
     vi.mocked(EmailDeliveryService.prepare).mockResolvedValue({
       actionId: "action-unknown",
