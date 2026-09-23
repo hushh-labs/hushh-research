@@ -316,20 +316,3 @@ If a developer has not configured MCP yet:
 2. Add `plaid` only after setting local `PLAID_CLIENT_ID` and `PLAID_SECRET`.
 3. Verify each server independently before relying on it inside coding-agent flows.
 4. Add `hussh_founder_wiki` when the task involves founder language, north-star PR governance, One/Kai/Nav ontology, PCHP/BYOA posture, PKM/World Model authority, or future-state planning.
-
-## Local agent readiness and code context
-
-Run `./bin/hushh doctor --agent` before relying on optional MCPs. It reports configured server names and whether required environment-variable names are present, but never reads or prints credential values. MCP configuration remains machine-local and opt-in.
-
-Use `./bin/hushh codex inspect` for read-only queries over generated topology metadata:
-
-```bash
-./bin/hushh codex inspect summary --text
-./bin/hushh codex inspect route /one/location --json
-./bin/hushh codex inspect action onboarding.claim_one --json
-./bin/hushh codex inspect impact hushh-webapp/app/one/location/page.tsx --json
-```
-
-This is an engineering-context index, not a runtime router or a source of consent authority. The governed source remains `.codex/skills`; generate portable Codex discovery adapters with `./bin/hushh codex sync-skill-adapters --write`, then verify them with `--check`. Do not edit generated `.agents/skills/<skill>` adapters directly.
-
-The Governance check enforces Codex's default 32 KiB root-instruction budget. Keep universal invariants in `AGENTS.md`; move workflow-specific prose into the owning skill or a nested instruction file instead of growing the root contract.

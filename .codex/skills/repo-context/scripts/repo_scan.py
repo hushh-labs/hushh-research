@@ -97,8 +97,6 @@ REQUIRED_WORKFLOWS = [
     "morphy-ax-governance",
     "runtime-topology-maintenance",
     "security-posture-maintenance",
-    "tri-flow-parity",
-    "local-model-evaluation",
 ]
 PATH_PREFIXES = (
     ".codex/",
@@ -120,7 +118,6 @@ COMMAND_PATTERNS = [
     r"^\./scripts/ci/",
     r"^python3 scripts/licenses/",
     r"^cd hushh-webapp && npm run ",
-    r"^cd hushh-webapp && node ",
     r"^cd hushh-webapp && npm test",
     r"^cd consent-protocol && python3 ",
     r"^cd consent-protocol && pytest ",
@@ -130,8 +127,6 @@ COMMAND_PATTERNS = [
     r"^cd packages/hushh-mcp && npm run ",
     r"^python3 \.codex/",
     r"^python3 \.claude/skills/",
-    r"^node \.codex/",
-    r"^consent-protocol/\.venv/bin/python \.codex/",
     r"^python3 scripts/ops/",
     r"^python3 -m py_compile ",
     # Native build lanes: the only two shapes the mobile parity audit runs.

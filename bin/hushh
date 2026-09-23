@@ -17,7 +17,6 @@ Usage:
 Core commands:
   bootstrap [--mode <local|uat|dev|prod>]
   doctor --mode <local|uat|dev|prod> [--json]
-  doctor --agent [--json]
   proxy --mode local
   terminal <proxy|web|backend> [...]
   web [--mode <local|uat|dev|prod|offline>] [-- <next-dev args>]
@@ -126,8 +125,6 @@ Usage:
   ./bin/hushh codex ci-status [--pr <number>|--branch <name>] [--watch] [--interval <seconds>] [--timeout <seconds>] [--json|--text]
   ./bin/hushh codex data-model-audit [--database-url-env <env-name>] [--pkm-aggregates] [--json|--text]
   ./bin/hushh codex audit [--json|--text]
-  ./bin/hushh codex inspect <summary|route|action|agent|table-family|compatibility|impact> [arguments] [--json|--text]
-  ./bin/hushh codex sync-skill-adapters [--check|--write]
   ./bin/hushh codex rca --surface <uat|runtime|ci> [--project <gcp-project>] [--region <region>] [--backend-service <name>] [--frontend-service <name>] [--backend-url <url>] [--frontend-url <url>] [--report-path <path>] [--json|--text]
 EOF
 }
@@ -573,13 +570,6 @@ run_codex() {
       fi
       exec python3 "$REPO_ROOT/.codex/skills/repo-context/scripts/repo_scan.py" audit "$format_flag"
       ;;
-    inspect)
-      [ "${#args[@]}" -ge 1 ] || die "codex inspect requires a query"
-      exec python3 "$REPO_ROOT/scripts/ops/codex_inspect.py" "${args[@]}" "$format_flag"
-      ;;
-    sync-skill-adapters)
-      exec python3 "$REPO_ROOT/scripts/ops/sync_codex_skill_adapters.py" "${args[@]}"
-      ;;
     rca)
       if [ "${#args[@]}" -gt 0 ]; then
         exec python3 "$REPO_ROOT/.codex/skills/autonomous-rca-governance/scripts/rca_runner.py" "${args[@]}" "$format_flag"
@@ -797,10 +787,6 @@ case "$COMMAND" in
     exec bash "$REPO_ROOT/scripts/env/bootstrap.sh" "$@"
     ;;
   doctor)
-    if [ "${1:-}" = "--agent" ]; then
-      shift
-      exec python3 "$REPO_ROOT/scripts/ops/agent_doctor.py" "$@"
-    fi
     mode=""
     extra=()
     while [ "$#" -gt 0 ]; do
@@ -817,7 +803,6 @@ case "$COMMAND" in
           cat <<'EOF'
 Usage:
   ./bin/hushh doctor --mode <local|uat|dev|prod> [--json]
-  ./bin/hushh doctor --agent [--json]
 EOF
           exit 0
           ;;

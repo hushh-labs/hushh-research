@@ -37,11 +37,7 @@ python3 .codex/skills/repo-context/scripts/architecture_fitness.py --self-test
 python3 .codex/skills/repo-context/scripts/architecture_fitness.py --limit 20
 python3 .codex/skills/codex-skill-authoring/scripts/trigger_evals.py
 python3 .codex/skills/codex-skill-authoring/scripts/test_trigger_evals.py
-python3 .codex/skills/codex-skill-authoring/scripts/workflow_contract_evals.py
 python3 .codex/skills/codex-skill-authoring/scripts/compact_kernel_smoke.py
-python3 scripts/ops/sync_codex_skill_adapters.py --check
-python3 scripts/ops/check_agent_instruction_budget.py
-python3 -m py_compile scripts/ops/agent_doctor.py scripts/ops/codex_inspect.py scripts/ops/sync_codex_skill_adapters.py scripts/ops/check_agent_instruction_budget.py
 python3 .claude/skills/codex-bridge/scripts/route.py --check
 python3 .claude/skills/codex-bridge/scripts/test_route_hook.py
 # Fails when a required NEXT_PUBLIC_* credential is missing from a build lane.

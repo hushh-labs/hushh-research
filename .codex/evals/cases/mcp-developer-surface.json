@@ -19,10 +19,6 @@
       {
         "prompt": "run a scoped consent export check with the Hushh Consent MCP lifecycle tool",
         "owner": "hushh-consent-mcp"
-      },
-      {
-        "prompt": "add a new FastAPI route and versioned request schema to the backend API",
-        "owner": "backend-api-contracts"
       }
     ]
   }

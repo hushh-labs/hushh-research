@@ -25,8 +25,7 @@
     "product-agent-development",
     "hushh-consent-mcp-ops",
     "ria-api-reference",
-    "puppy-one-harness",
-    "local-model-evaluation"
+    "puppy-one-harness"
   ],
   "required_reads": [
     "consent-protocol/README.md",
