@@ -216,10 +216,20 @@ if [[ "$ATTACHED" == "1" ]]; then
   # every new install on a Galaxy S24 Ultra, Android 16). A person's first
   # launch after the same update does not crash, so this is the test process,
   # not the app. That exact signature gets one retry; anything else fails.
+  # The passphrase never goes on a command line: `am instrument -e` put it in
+  # the argv of processes on both the Mac and the phone, where any process
+  # listing shows it (seen 2026-09-22). It travels over stdin into a
+  # shell-owned, owner-only file; the test reads it through the shell identity
+  # and deletes it at once, and the card deletes it again after the run.
+  # (printf is a shell builtin, so no process on the Mac carries it either.)
+  PASSPHRASE_DEVICE_FILE=/data/local/tmp/hushh-perf-passphrase
   for attempt in 1 2; do
-    # The passphrase is quoted for the device shell by a script, never echoed.
+    # Written per attempt: a first attempt may already have consumed it.
+    printf '%s' "$REVIEWER_VAULT_PASSPHRASE" \
+      | "$ADB" -s "$ANDROID_SERIAL" shell "umask 077; cat > $PASSPHRASE_DEVICE_FILE"
+    # Only the file's path is on the command line (see PASSPHRASE_DEVICE_FILE).
     "$ADB" -s "$ANDROID_SERIAL" shell am instrument -w -r \
-      -e passphrase "$(python3 -c 'import shlex,sys; print(shlex.quote(sys.argv[1]))' "$REVIEWER_VAULT_PASSPHRASE")" \
+      -e passphraseFile "$PASSPHRASE_DEVICE_FILE" \
       -e reps "$REPS" -e section "$SECTION" -e thirdParty "${PERF_THIRD_PARTY:-0}" \
       -e holdMinutes "${PERF_HOLD_MINUTES:-20}" \
       -e class com.hussh.app.AttachedRenderPerfTest \
@@ -237,6 +247,7 @@ if [[ "$ATTACHED" == "1" ]]; then
     fi
     break
   done
+  "$ADB" -s "$ANDROID_SERIAL" shell rm -f "$PASSPHRASE_DEVICE_FILE" >/dev/null 2>&1 || true
   sleep 1
   kill "$LOGCAT_PID" 2>/dev/null || true
   # The phone's own log buffer keeps every line the test logged; clear it.

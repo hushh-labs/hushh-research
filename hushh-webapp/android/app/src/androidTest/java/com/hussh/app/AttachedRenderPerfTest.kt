@@ -48,10 +48,25 @@ class AttachedRenderPerfTest {
     private val args = InstrumentationRegistry.getArguments()
     private val reps = (args.getString("reps")?.toIntOrNull() ?: 3).coerceAtLeast(1)
     private val section = args.getString("section") ?: "all"
-    private val passphrase = args.getString("passphrase").orEmpty().trim()
+    private val passphrase = readPassphrase()
     private val thirdParty = args.getString("thirdParty") == "1"
     private val pkg = "com.hussh.app"
     private val exportDir = File(target.filesDir, "hushh-perf")
+
+    /**
+     * The card hands the passphrase over as a shell-owned, owner-only file so
+     * it is never in any process's argv; read it as the shell and delete it.
+     * The `passphrase` argument stays as a fallback for manual runs.
+     */
+    private fun readPassphrase(): String {
+        val file = args.getString("passphraseFile").orEmpty()
+        if (file.startsWith("/data/local/tmp/") && !file.contains("..")) {
+            val value = device.executeShellCommand("cat $file").trim()
+            device.executeShellCommand("rm -f $file")
+            return value
+        }
+        return args.getString("passphrase").orEmpty().trim()
+    }
 
     @Test
     fun renderPerformanceCardAttached() {
