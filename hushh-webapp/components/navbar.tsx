@@ -4,7 +4,7 @@
 "use client";
 
 import React, { useEffect, useMemo, type CSSProperties } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   Compass as PhosphorCompass,
   Search as MagnifyingGlass,
@@ -193,6 +193,9 @@ const BOTTOM_NAV_OPTION_META: Record<
   },
 };
 
+// Tab routes already warmed this session (see the prefetch effect).
+const prefetchedTabHrefs = new Set<string>();
+
 function navOptionForKey(
   key: AppBottomNavKey,
   pendingConsents: number | null,
@@ -222,6 +225,7 @@ export const Navbar = ({
   layout?: "fixed" | "slot";
 }) => {
   const pathname = usePathname();
+  const router = useRouter();
   const interactionIntents = useInteractionIntents();
   const { isAuthenticated } = useAuth();
   const { isVaultUnlocked } = useVault();
@@ -291,6 +295,38 @@ export const Navbar = ({
       navOptionForKey(key, pendingConsents, feedUnreadCount),
     );
   }, [normalizedPathname, bottomNavScope, pendingConsents, feedUnreadCount]);
+
+  // Warm every tab's route once the shell is up, so a tap resolves in about a
+  // frame instead of showing the loading boundary while the segment loads.
+  // Idle time only, once per destination.
+  const tabHrefs = useMemo(
+    () =>
+      resolveBottomNavOptionKeys(normalizedPathname, bottomNavScope)
+        .map((key) => resolveBottomNavAction(key, bottomNavScope))
+        .flatMap((action) => (action.type === "route" ? [action.href] : [])),
+    [normalizedPathname, bottomNavScope],
+  );
+  useEffect(() => {
+    if (!isVaultUnlocked || typeof window === "undefined") return;
+    const pending = tabHrefs.filter((href) => !prefetchedTabHrefs.has(href));
+    if (pending.length === 0) return;
+    const run = () => {
+      for (const href of pending) {
+        prefetchedTabHrefs.add(href);
+        router.prefetch(href);
+      }
+    };
+    const idle = (window as Window & {
+      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+      cancelIdleCallback?: (id: number) => void;
+    });
+    if (idle.requestIdleCallback) {
+      const id = idle.requestIdleCallback(run, { timeout: 1500 });
+      return () => idle.cancelIdleCallback?.(id);
+    }
+    const id = window.setTimeout(run, 300);
+    return () => window.clearTimeout(id);
+  }, [isVaultUnlocked, router, tabHrefs]);
 
   React.useLayoutEffect(() => {
     const root = document.documentElement;
@@ -451,10 +487,17 @@ export const Navbar = ({
       if (nextAgentContext) {
         setAgentNavigationContext(nextAgentContext);
       }
+      // Tab switches swap in place, the way Threads and Muse do: no fade out,
+      // no fade in. The full envelope faded the old screen out at once and
+      // left an empty page (the null loading boundary) until the new route
+      // resolved: 180 to 621 ms before the next tab was readable on a Galaxy
+      // S24 Ultra, 2026-09-22. The routes are prefetched below, so the new
+      // screen is ready by the time the tap lands.
       requestInternalAppNavigation({
         href: action.href,
         scroll: false,
         source: "tap",
+        transitionMode: "contextual",
       });
     }
   };
