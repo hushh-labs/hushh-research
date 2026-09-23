@@ -88,7 +88,7 @@ rollback() {
 }
 trap rollback ERR
 
-gcloud run deploy "${SERVICE}" \
+gcloud --quiet run deploy "${SERVICE}" \
   --project="${PROJECT_ID}" --region="${REGION}" --platform=managed \
   --service-account="${RUNTIME_SERVICE_ACCOUNT}" \
   --ingress=internal --no-allow-unauthenticated \
@@ -108,8 +108,7 @@ gcloud run deploy "${SERVICE}" \
   --container=clamav \
   --image="${CLAMAV_IMAGE}" --cpu=2 --memory=4Gi \
   --startup-probe=tcpSocket.port=3310,periodSeconds=10,timeoutSeconds=5,failureThreshold=24 \
-  --set-env-vars=CLAMD_STARTUP_TIMEOUT=180,FRESHCLAM_CHECKS=24 \
-  --quiet
+  --set-env-vars=CLAMD_STARTUP_TIMEOUT=180,FRESHCLAM_CHECKS=24
 
 candidate_revision="$(gcloud run services describe "${SERVICE}" \
   --project="${PROJECT_ID}" --region="${REGION}" \
