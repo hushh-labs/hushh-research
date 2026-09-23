@@ -379,7 +379,10 @@ async def test_callback_claim_and_new_picker_start_use_connection_before_attempt
         if pending_tasks:
             await asyncio.gather(*pending_tasks, return_exceptions=True)
 
-    assert start_result["attempt_id"] == "550e8400-e29b-41d4-a716-446655440000"
+    # PostgreSQL returns UUID columns as ``uuid.UUID`` while the service
+    # accepts the wire-format string. This lock-order test concerns the
+    # identity, not the database driver's representation.
+    assert str(start_result["attempt_id"]) == "550e8400-e29b-41d4-a716-446655440000"
     # Replacing the old session is permitted to win; the callback only needs
     # to fail safely after it can take the connection lock, never deadlock.
     assert callback_result is None
