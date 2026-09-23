@@ -1,4 +1,5 @@
 import importlib.util
+import re
 import sys
 from pathlib import Path
 
@@ -6,6 +7,7 @@ import pytest
 
 
 MODULE_PATH = Path(__file__).parents[1] / "ops" / "verify_passkey_domain_associations.py"
+WEB_APP = Path(__file__).parents[2] / "hushh-webapp" / "app"
 SPEC = importlib.util.spec_from_file_location("verify_passkey_domain_associations", MODULE_PATH)
 assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)
@@ -53,6 +55,14 @@ def test_aasa_accepts_authorized_app_and_paths() -> None:
         _aasa(paths=list(MODULE.UNIVERSAL_LINK_PATHS)),
         "TEAM.com.hushh.app",
     )
+
+
+def test_required_paths_match_served_aasa_without_retired_alpaca_returns() -> None:
+    source = (WEB_APP / ".well-known/apple-app-site-association/route.ts").read_text()
+    declared = source.split("UNIVERSAL_LINK_PATHS = [", 1)[1].split("] as const;", 1)[0]
+    served_paths = set(re.findall(r'"(/[^"]+)"', declared))
+    assert set(MODULE.UNIVERSAL_LINK_PATHS) == served_paths
+    assert not any("/alpaca/" in path for path in served_paths)
 
 
 def test_asset_links_requires_web_app_link_relation() -> None:
