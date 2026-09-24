@@ -765,9 +765,18 @@ def _one_runtime_instruction(context: Any) -> str:
     )
     mail_instruction += (
         "\n\nSELECTED-FILE DRIVE READ ADMISSION: enabled for this typed chat. For a question "
-        "about document contents, call ask_documents_agent. For a named file's connection, "
-        "selection or processing status, including a request to share that file, first call "
+        "about document contents, call ask_documents_agent. For a general question about "
+        "Drive connection, selected-file access or how many files are selected, first call "
+        "inspect_selected_drive_files with file_name as an empty string. Answer from its "
+        "current connection and count without naming files. For a named file's selection "
+        "or processing status, including a request to share that file, first call "
         "inspect_selected_drive_files with only the file name, not the recipient or full request. "
+        "Resolve 'it' or 'that PDF' only from an unambiguous name earlier in this same "
+        "conversation. In a new chat, the same owner-level selection can be checked when "
+        "the connection and consent are current, but previous-chat references and transcript "
+        "do not carry over; ask for the filename "
+        "when the current chat does not establish it. Never infer disconnection or zero "
+        "selected files without a current status check. "
         "No match means no matching selected file; it does not mean absent from all of Drive. "
         "Never infer Drive state from "
         "trusted-person connections or from an empty document search. A selected file can "
@@ -794,18 +803,6 @@ def _one_runtime_instruction(context: Any) -> str:
             "For an owner fact present in this packet, answer directly from the packet. "
             "Do not call read_my_pkm_domain_summary when this packet is present: that "
             "tool is index-only metadata and cannot add private values."
-        )
-    elif pkm_declared:
-        reason = state_getter(STATE_GROUNDING_REASON) if callable(state_getter) else None
-        detail = (
-            f" ({str(reason).strip()[:200]})" if isinstance(reason, str) and reason.strip() else ""
-        )
-        pkm_instruction = (
-            f"\n\nNO OWNER INFORMATION THIS TURN{detail}. You have not been given any of "
-            "this person's records, preferences, or history for this turn. Do not imply "
-            "you remember them or have read their holdings. If the answer needs "
-            "something about them, say plainly that you do not have it here and, when "
-            "there is one, name the step that would give it to you."
         )
     elif pkm_declared:
         reason = state_getter(STATE_GROUNDING_REASON) if callable(state_getter) else None

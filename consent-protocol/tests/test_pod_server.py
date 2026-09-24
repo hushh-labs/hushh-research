@@ -37,6 +37,20 @@ def test_pod_mounts_the_agent_and_health_surface():
         assert expected in paths, f"pod is missing its own surface: {expected}"
 
 
+def test_pod_readiness_does_not_require_the_hub_database(monkeypatch):
+    from fastapi.testclient import TestClient
+
+    from api.routes import health as health_routes
+
+    async def unavailable_pool():
+        raise AssertionError("a private pod must not query the hub database")
+
+    monkeypatch.setattr(health_routes, "get_pool", unavailable_pool)
+    response = TestClient(pod_server.app).get("/health/ready")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ready", "checks": {"pod_process": "ok"}}
+
+
 @pytest.mark.parametrize(
     "forbidden_prefix",
     [
@@ -86,6 +100,11 @@ def test_pod_surface_stays_within_reviewed_routes():
         "/api/one/pod/session/revoke",
         "/api/one/pod/status",
         "/api/one/pod/config",
+        # Upgrade handoff stays on the machine wall; its route also checks the
+        # exact control identity before touching the local admission fence.
+        "/api/one/pod/upgrade/prepare",
+        "/api/one/pod/upgrade/release",
+        "/api/one/pod/upgrade/status",
         # The device door: Puppy One dials this pod directly (Lane A).
         "/api/one/puppy/relay",
         "/docs",
@@ -231,6 +250,20 @@ def test_machine_routes_answer_404_without_a_hub_identity(walled):
     # ...and a wrong identity is the same 404, never an oracle.
     walled.identity_verifier = _hub_identity(email="stranger@example.invalid")
     assert client.get("/pod/info", headers={"Authorization": "Bearer t"}).status_code == 404
+
+
+def test_upgrade_handoff_routes_stay_behind_the_machine_wall(walled):
+    from fastapi.testclient import TestClient
+
+    client = TestClient(pod_server.app, raise_server_exceptions=False)
+    for method, path in (
+        ("POST", "/api/one/pod/upgrade/prepare"),
+        ("POST", "/api/one/pod/upgrade/release"),
+        ("GET", "/api/one/pod/upgrade/status"),
+    ):
+        response = client.request(method, path, json={} if method == "POST" else None)
+        assert response.status_code == 404, path
+        assert response.json() == {"detail": "not found"}
 
 
 def test_the_hub_identity_opens_the_wall_by_url_or_host_audience(walled, monkeypatch):

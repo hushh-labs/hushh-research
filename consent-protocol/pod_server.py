@@ -140,6 +140,8 @@ app = FastAPI(
     description="Per-user agent + storage. The consent authority stays central at Hushh.",
     version="pod-1",
 )
+app.state.runtime_topology = "private_pod"
+
 # Telemetry, mounted from the hub's middleware rather than reimplemented. Until
 # this line a pod emitted NO `request.summary` line and no trace, so a pod that was
 # failing every request looked, from outside, exactly like a pod nobody had called

@@ -45957,6 +45957,7 @@
     "workflows": [
       {
         "compatible_graph_revisions": [
+          "05f5a43ac04150f7",
           "1016f2f0efc0cbd7",
           "114ef930def0cdbb",
           "12f82fc1dec40c31",
@@ -45996,7 +45997,9 @@
         "workflow_version": 1
       },
       {
-        "compatible_graph_revisions": [],
+        "compatible_graph_revisions": [
+          "05f5a43ac04150f7"
+        ],
         "migration_required_graph_revisions": [],
         "rejected_graph_revisions": [],
         "workflow_digest": "b31fd84656bbddd7fd3b2985736c9d587d6220ae7fae712a5cbc6ca593d7b5cb",
@@ -46005,6 +46008,7 @@
       },
       {
         "compatible_graph_revisions": [
+          "05f5a43ac04150f7",
           "1016f2f0efc0cbd7",
           "114ef930def0cdbb",
           "12f82fc1dec40c31",
@@ -46045,6 +46049,7 @@
       },
       {
         "compatible_graph_revisions": [
+          "05f5a43ac04150f7",
           "1016f2f0efc0cbd7",
           "114ef930def0cdbb",
           "12f82fc1dec40c31",
@@ -46085,6 +46090,7 @@
       },
       {
         "compatible_graph_revisions": [
+          "05f5a43ac04150f7",
           "1016f2f0efc0cbd7",
           "114ef930def0cdbb",
           "12f82fc1dec40c31",
@@ -46125,6 +46131,7 @@
       },
       {
         "compatible_graph_revisions": [
+          "05f5a43ac04150f7",
           "1016f2f0efc0cbd7",
           "114ef930def0cdbb",
           "12f82fc1dec40c31",
@@ -46165,6 +46172,7 @@
       },
       {
         "compatible_graph_revisions": [
+          "05f5a43ac04150f7",
           "1016f2f0efc0cbd7",
           "114ef930def0cdbb",
           "12f82fc1dec40c31",
@@ -46205,6 +46213,7 @@
       },
       {
         "compatible_graph_revisions": [
+          "05f5a43ac04150f7",
           "1016f2f0efc0cbd7",
           "114ef930def0cdbb",
           "12f82fc1dec40c31",

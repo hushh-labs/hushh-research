@@ -11,12 +11,13 @@ from hushh_mcp.one_adk import selected_drive_status
 from hushh_mcp.one_adk.external_read_boundary import STATE_EXECUTION_SURFACE
 
 
-def context(*, user_id="owner", surface="typed_chat"):
+def context(*, user_id="owner", surface="typed_chat", conversation_id="chat-a"):
     return SimpleNamespace(
         user_id=user_id,
         state={
             "hussh:user_id": "owner",
             "hussh:consent_token": "secret-ref",
+            "hussh:conversation_id": conversation_id,
             STATE_EXECUTION_SURFACE: surface,
         },
     )
@@ -79,6 +80,52 @@ async def test_connected_without_named_selection_does_not_claim_drive_file_absen
     assert result["connection"] == "connected"
     assert result["selectedCount"] == 1
     assert result["matches"] == []
+
+
+async def test_generic_drive_access_checks_current_owner_status_without_naming_files(monkeypatch):
+    selected = service(
+        documents=[
+            {"name": "resume.pdf", "status": "ready", "documentId": "private-id"},
+            {"name": "financial-statement.pdf", "status": "parsing"},
+        ]
+    )
+    selected.oauth.lifecycle.read = AsyncMock(
+        return_value={"status": "connected", "connection_generation": 7}
+    )
+    monkeypatch.setattr(selected_drive_status, "_service", lambda: selected)
+
+    for conversation_id in ("old-chat", "new-chat"):
+        result = await selected_drive_status.inspect_selected_drive_files(
+            "", context(conversation_id=conversation_id)
+        )
+        assert result == {
+            "source": selected_drive_status.PRIVATE_SOURCE,
+            "status": "ok",
+            "connection": "connected",
+            "selectedCount": 2,
+            "matchCount": 0,
+            "matches": [],
+            "matchesTruncated": False,
+        }
+        assert "resume.pdf" not in str(result)
+        assert "financial-statement.pdf" not in str(result)
+        assert "private-id" not in str(result)
+
+    assert selected.documents.await_count == 4
+    selected.documents.assert_awaited_with(user_id="owner")
+
+
+async def test_explicit_named_file_is_available_in_a_new_chat(monkeypatch):
+    monkeypatch.setattr(
+        selected_drive_status,
+        "_service",
+        lambda: service(documents=[{"name": "resume.pdf", "status": "ready"}]),
+    )
+    result = await selected_drive_status.inspect_selected_drive_files(
+        "resume", context(conversation_id="new-chat")
+    )
+    assert result["connection"] == "connected"
+    assert result["matches"] == [{"name": "resume.pdf", "status": "ready"}]
 
 
 def test_possessive_name_matches_compact_selected_filename():
