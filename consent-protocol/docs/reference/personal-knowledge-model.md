@@ -381,6 +381,12 @@ evicting what is already stored is an upgrade step that has not run.
 
 ### Private runtime-provider references
 
+Runtime-setting mutations distinguish an authoritative absent domain/manifest
+from failed reads. Read or decryption failures stop the write; conflict recovery
+must reread successfully before rebuilding. Only transient send failures replay
+the identical commit. A recovery failure never retries the already-stale payload
+or replaces sibling settings with an empty domain.
+
 Connections-owned Gemini configuration uses the existing encrypted PKM store,
 not a new database table or native secret store. The primary references are
 `pkm:runtime_secrets.llm.credential_mode` and

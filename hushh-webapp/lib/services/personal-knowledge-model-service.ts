@@ -3908,7 +3908,7 @@ export class PersonalKnowledgeModelService {
       domain: parsed.domain,
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
-    }).catch(() => null);
+    });
 
     return this.commitRuntimeSecretsDomainWithRetry({
       userId: params.userId,
@@ -3945,7 +3945,7 @@ export class PersonalKnowledgeModelService {
       domain: parsed.domain,
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
-    }).catch(() => null);
+    });
 
     return this.commitRuntimeSecretsDomainWithRetry({
       userId: params.userId,
@@ -3984,7 +3984,7 @@ export class PersonalKnowledgeModelService {
       params.domain,
       params.vaultOwnerToken,
       params.forceManifestReload === true
-    ).catch(() => null);
+    );
     const encryptedBlob = await this.encryptDomainForStorage({
       vaultKey: params.vaultKey,
       domainData: params.domainData,
@@ -4065,7 +4065,7 @@ export class PersonalKnowledgeModelService {
           domain: params.domain,
           vaultKey: params.vaultKey,
           vaultOwnerToken: params.vaultOwnerToken,
-        }).catch(() => null);
+        });
         const domainData = params.applyMutation(
           this.isPlainObject(freshData) ? freshData : {}
         );

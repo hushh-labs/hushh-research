@@ -696,6 +696,69 @@ describe("PersonalKnowledgeModelService runtime secrets", () => {
     });
   });
 
+  it.each([
+    ["store", "loadDomainData"], ["remove", "loadDomainData"],
+    ["store", "getDomainManifest"], ["remove", "getDomainManifest"],
+  ] as const)("does not %s settings after failed %s", async (operation, failedRead) => {
+    vi.spyOn(PersonalKnowledgeModelService, "loadDomainData").mockResolvedValue({
+      llm: { other_provider_key: "synthetic-preserved-sibling" },
+    });
+    vi.spyOn(PersonalKnowledgeModelService, "getDomainManifest").mockResolvedValue(null);
+    const failure = new Error("Synthetic read unavailable");
+    vi.spyOn(PersonalKnowledgeModelService, failedRead).mockRejectedValue(failure);
+    const store = vi.spyOn(PersonalKnowledgeModelService, "storeDomainData")
+      .mockResolvedValue({ success: true });
+    const params = {
+      userId: "user-1", vaultKey: "vault-key-1", vaultOwnerToken: "vault-owner-token",
+      credentialRef: "pkm:runtime_secrets.llm.gemini_api_key",
+      secret: "synthetic-new-value",
+      confirmation: { confirmedByUser: true as const, surface: "web" as const, source: "runtime_secret_test" },
+    };
+    await expect(operation === "store"
+      ? PersonalKnowledgeModelService.storeRuntimeSecret(params)
+      : PersonalKnowledgeModelService.removeRuntimeSecret(params)).rejects.toBe(failure);
+    expect(store).not.toHaveBeenCalled();
+  });
+
+  it.each(["loadDomainData", "getDomainManifest"] as const)(
+    "stops conflict recovery when %s fails without a replacement write",
+    async (failedRead) => {
+      const failure = new TypeError("Failed to fetch");
+      const load = vi.spyOn(PersonalKnowledgeModelService, "loadDomainData")
+        .mockResolvedValue({ llm: { other_provider_key: "synthetic-preserved-sibling" } });
+      const manifest = vi.spyOn(PersonalKnowledgeModelService, "getDomainManifest")
+        .mockResolvedValue(null);
+      if (failedRead === "loadDomainData") {
+        load.mockResolvedValueOnce({ llm: { other_provider_key: "synthetic-preserved-sibling" } })
+          .mockRejectedValueOnce(failure);
+      } else {
+        manifest.mockResolvedValueOnce(null).mockRejectedValueOnce(failure);
+      }
+      const store = vi.spyOn(PersonalKnowledgeModelService, "storeDomainData")
+        .mockResolvedValueOnce({ success: false, conflict: true })
+        .mockResolvedValue({ success: true });
+      await expect(PersonalKnowledgeModelService.storeRuntimeSecret({
+        userId: "user-1", vaultKey: "vault-key-1", vaultOwnerToken: "vault-owner-token",
+        credentialRef: "pkm:runtime_secrets.llm.gemini_api_key", secret: "synthetic-value",
+        confirmation: { confirmedByUser: true, surface: "web", source: "runtime_secret_test" },
+      })).rejects.toBe(failure);
+      expect(store).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it("allows a first settings write after authoritative absence", async () => {
+    vi.spyOn(PersonalKnowledgeModelService, "loadDomainData").mockResolvedValue(null);
+    vi.spyOn(PersonalKnowledgeModelService, "getDomainManifest").mockResolvedValue(null);
+    const store = vi.spyOn(PersonalKnowledgeModelService, "storeDomainData")
+      .mockResolvedValue({ success: true });
+    await PersonalKnowledgeModelService.storeRuntimeSecret({
+      userId: "user-1", vaultKey: "vault-key-1", vaultOwnerToken: "vault-owner-token",
+      credentialRef: "pkm:runtime_secrets.llm.gemini_api_key", secret: "synthetic-value",
+      confirmation: { confirmedByUser: true, surface: "web", source: "runtime_secret_test" },
+    });
+    expect(store).toHaveBeenCalledTimes(1);
+  });
+
   it("stores a Gemini runtime key in the encrypted runtime_secrets domain without metadata leakage", async () => {
     const rawKey = "gemini-user-key-123";
     vi.spyOn(PersonalKnowledgeModelService, "loadDomainData").mockResolvedValue({
