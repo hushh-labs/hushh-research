@@ -1,6 +1,6 @@
 # Kai Architecture Specification v1
 
-Status: canonical current-state architecture specification for Kai as implemented and documented in this repository on April 22, 2026.
+Status: canonical Kai architecture narrative originally reviewed on April 22, 2026. The brokerage subsection was refreshed on September 23, 2026; other sections remain tied to their cited source evidence and may need separate review.
 
 ## Visual Map
 
@@ -31,12 +31,16 @@ flowchart TB
     routes["FastAPI Kai routes"]
     policy["Consent + IAM validation"]
     domain["Kai domain services<br/>market, portfolio, voice, debate"]
+    plaid["Plaid vault relay<br/>transient provider calls"]
   end
 
   subgraph data["Data and provider planes"]
     pkm["Encrypted financial PKM"]
     cache["Market cache + provider fallbacks"]
-    plaid["Plaid sync + source preference tables"]
+    plaidLegacy["Legacy server rows<br/>retirement pending"]
+    retirement["Retirement script<br/>then migration 239"]
+    plaidProvider["Plaid"]
+    deviceVault["Device seals returned state<br/>while vault is unlocked"]
   end
 
   onboarding --> shell
@@ -55,7 +59,9 @@ flowchart TB
   routes --> domain
   domain --> pkm
   domain --> cache
-  domain --> plaid
+  routes --> plaid --> plaidProvider
+  plaid --> deviceVault --> pkm
+  plaidLegacy -.remove after successful cleanup.-> retirement
 ```
 
 ## Purpose
@@ -69,7 +75,7 @@ This document gives one current-state architecture narrative for Kai across:
 - brokerage connectivity and portfolio analysis
 - current verification and non-current boundaries
 
-Use this document when a founder, operator, or contributor needs the repo-backed Kai architecture in one place. Use the linked subsystem references for deeper implementation detail.
+Use this document for a layered Kai overview and the linked subsystem references for deeper implementation detail. The brokerage section is a checkout-level description; its retirement steps do not establish deployed cleanup.
 
 ## Founder Language Mapping
 
@@ -180,11 +186,15 @@ Kai currently depends on three primary data planes:
 
 ### 3. Brokerage connectivity data
 
-- server-side Plaid item and refresh tables
-- source preference rows
-- short-lived OAuth resume sessions
+The current vault path returns Plaid exchange and snapshot responses to the device, which
+seals the connection state in the owner's encrypted financial domain. The backend transiently
+handles access tokens and readable provider responses but does not persist those vault-route
+payloads. Portfolio source selection is stored with encrypted financial data.
 
-Plaid tokens do not live in the PKM, and the active portfolio source determines the app-consumed portfolio shape.
+The current branch removes the former server-side item, refresh and OAuth-session services and
+includes the retirement script and migration 239. Existing server rows and Plaid Items remain a
+migration concern until those steps are verified per environment; source changes alone do not
+prove cleanup.
 
 ## Voice, Search, And Action Architecture
 
@@ -230,8 +240,10 @@ Kai currently supports two real portfolio acquisition paths plus one derived com
 Current brokerage model:
 
 - statement import writes validated portfolio data into encrypted financial PKM
-- Plaid handles holdings, accounts, transactions, refresh, and OAuth resume
-- active source selection drives the portfolio and analysis surfaces
+- the Plaid vault route returns account and portfolio snapshots; the device seals them after
+  owner unlock, then refreshes on unlock or explicit request
+- active source selection is part of encrypted financial state and drives portfolio and
+  analysis surfaces
 - sync freshness and provenance remain explicit in the UI
 
 Current decision and analysis model:

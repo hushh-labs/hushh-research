@@ -23,6 +23,7 @@ Owned repo surfaces:
 3. `consent-protocol/hushh_mcp/tools`
 4. `consent-protocol/hushh_mcp/hushh_adk`
 5. `consent-protocol/hushh_mcp/adk_bridge`
+6. `consent-protocol/hushh_mcp/one_adk`
 
 Non-owned surfaces:
 

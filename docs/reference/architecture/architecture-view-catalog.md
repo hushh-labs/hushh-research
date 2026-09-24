@@ -368,25 +368,68 @@ sequenceDiagram
   participant User as User
   participant Kai as Kai import surface
   participant Import as Portfolio Import Agent
-  participant Provider as Plaid or uploaded statement
-  participant Vault as Vault unlock / scope guard
+  participant Client as Device vault and Plaid Link
+  participant API as Plaid vault passthrough
+  participant Provider as Plaid
+  participant Vault as Owner authority and local vault key
   participant PKM as PKM encrypted storage
-  participant Audit as Workflow and consent audit
 
-  User->>Kai: Start portfolio import
-  Kai->>Vault: Require appropriate vault or import authority
-  Vault-->>Kai: Allow or request unlock/approval
-  Kai->>Import: Delegate scoped import task
-  Import->>Provider: Parse statement or connect provider
-  Provider-->>Import: Return source data for this import only
-  Import->>Kai: Return structured holdings/account summary
-  Kai->>Vault: Confirm save-to-PKM authority
-  Vault-->>Kai: Allow write
-  Kai->>PKM: Store encrypted portfolio slice
-  Kai->>Audit: Record source, scope, and workflow metadata
+  alt Statement import
+    User->>Kai: Upload and review statement
+    Kai->>Import: Delegate bounded parse task
+    Import-->>Kai: Return structured holdings and account summary
+    Kai->>Vault: Confirm save authority
+    Vault-->>Kai: Allow or block write
+    Kai->>PKM: Store encrypted portfolio slice
+  else New Plaid connection
+    User->>Client: Start Link or unlock for refresh
+    Client->>Vault: Require VAULT_OWNER and unlocked local vault key
+    Vault-->>Client: Authorize provider call and local sealing
+    Client->>API: Request Link token
+    API->>Provider: Create Link token
+    Provider-->>API: Link token
+    API-->>Client: Link token
+    Client->>Provider: Complete Link in the device SDK
+    Provider-->>Client: Public token
+    Client->>API: Exchange token or request snapshot
+    API->>Provider: Exchange or fetch readable provider data
+    Provider-->>API: Access token or financial response
+    API-->>Client: Return token or snapshot transiently
+    Client->>Client: Seal connection and snapshot with unlocked vault key
+    Client->>PKM: Send encrypted domain through the PKM write path
+  else Relink an existing connection
+    User->>Client: Unlock vault and choose relink
+    Client->>Vault: Require VAULT_OWNER and unlocked local vault key
+    Vault-->>Client: Allow update-mode relink
+    Client->>API: Request update-mode Link token with sealed access token
+    API->>Provider: Create update-mode Link token
+    Provider-->>API: Link token
+    API-->>Client: Link token
+    Client->>Provider: Complete update flow in the device SDK
+    Provider-->>Client: Relink complete
+    Client->>API: Request a fresh snapshot with the existing access token
+    API->>Provider: Fetch readable provider data
+    Provider-->>API: Financial response
+    API-->>Client: Return snapshot transiently
+    Client->>Client: Seal refreshed snapshot with unlocked vault key
+    Client->>PKM: Send encrypted domain through the PKM write path
+  else Refresh an existing connection
+    User->>Client: Unlock vault or request Refresh
+    Client->>Vault: Require VAULT_OWNER and unlocked local vault key
+    Vault-->>Client: Allow refresh and local sealing
+    Client->>API: Request snapshot with sealed access token and cursor
+    API->>Provider: Fetch readable provider data
+    Provider-->>API: Financial response
+    API-->>Client: Return snapshot transiently
+    Client->>Client: Seal refreshed snapshot with unlocked vault key
+    Client->>PKM: Send encrypted domain through the PKM write path
+  end
 ```
 
-Import rule: import work does not give Kai or the import agent broad access to the user's vault. Save-to-PKM requires explicit scoped authority.
+Import rule: statement parsing does not give Kai or the import agent broad access to the
+vault. Plaid calls transiently process provider tokens and readable responses on the backend;
+the device seals connection data before writing the encrypted domain. This diagram describes
+the vault route, not completion of legacy server-row cleanup in deployed environments.
 
 ## Dynamic View: One Email KYC
 

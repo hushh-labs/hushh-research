@@ -389,24 +389,39 @@ sequenceDiagram
   Export-->>Host: Encrypted payload only
 ```
 
-### 4. Delegated Agent Flow Via TrustLink / A2A
+### 4. One Agent Invocation Boundaries
+
+One's local ADK children, process-local bridge dispatch, and remote A2A
+entrypoints use separate mechanisms and authority checks.
 
 ```mermaid
-sequenceDiagram
-  participant Kai as Kai runtime
-  participant Orchestrator as Agent orchestrator
-  participant Delegate as Specialist agent
-  participant Policy as Trust and consent layer
-  participant Data as Allowed data sources
+flowchart LR
+  subgraph local["One ADK process"]
+    one["One root agent"]
+    tool["ADK AgentTool child"]
+    wrapper["ask_* specialist tool"]
+    dispatch["adk_bridge.dispatch registry"]
+    one -->|"local child call"| tool
+    one -->|"local tool call"| wrapper --> dispatch
+  end
 
-  Kai->>Orchestrator: Request delegated specialist work
-  Orchestrator->>Policy: Validate inherited scope
-  Policy-->>Orchestrator: Delegation allowed
-  Orchestrator->>Delegate: Launch specialist agent
-  Delegate->>Data: Read only within inherited scope
-  Delegate-->>Orchestrator: Result
-  Orchestrator-->>Kai: Grounded delegated outcome
+  subgraph remote["Remote process or deployment"]
+    caller["External caller"]
+    ingress["A2A entrypoint"]
+    scope["Agent-specific scope validation"]
+    specialist["Remote specialist"]
+    caller --> ingress --> scope --> specialist
+  end
+
+  consent["Owner and consent authority"]
+  consent -. "checked at the owning boundary" .-> dispatch
+  consent -. "checked at the owning boundary" .-> scope
 ```
+
+`AgentTool` calls remain inside the ADK runtime. `dispatch` is process-local
+and does not use the external A2A scope map. External A2A calls enter through
+their own scope-validated endpoint; a scope-map entry does not register a local
+handler or prove official A2A v1 release readiness.
 
 ### 5. Shared Action Execution Across Web And Mobile
 

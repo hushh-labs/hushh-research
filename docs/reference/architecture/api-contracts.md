@@ -805,37 +805,24 @@ within 24 hours and need explicit Resume after restart. See the
 | POST   | `/api/kai/portfolio/analyze-losers`          | Analyze losers vs Renaissance                                                                            |
 | POST   | `/api/kai/portfolio/analyze-losers/stream`   | Streaming losers analysis (SSE, deterministic config, cash-excluded investable universe)                 |
 
-#### Kai Plaid Brokerage Connectivity
+#### Kai Plaid Vault Passthrough
 
-Plaid is the read-only brokerage connectivity layer for Kai. It supports Link/OAuth, holdings, investment transactions, refresh, and connection health. It does not place trades.
-
-| Method | Path                                   | Description                                                                                                |
-| ------ | -------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| GET    | `/api/kai/plaid/status/{user_id}`      | Load Plaid aggregate status, active source, items, holdings, and transactions summary                      |
-| POST   | `/api/kai/plaid/link-token`            | Create a new Plaid Link token for investment connectivity                                                  |
-| POST   | `/api/kai/plaid/link-token/update`     | Create an update-mode Plaid Link token for reconnect/add-account flows                                     |
-| POST   | `/api/kai/plaid/oauth/resume`          | Resume a web OAuth Link flow using an active opaque resume session                                         |
-| POST   | `/api/kai/plaid/exchange-public-token` | Exchange Plaid `public_token`, sync holdings + investment transactions, and aggregate the read-only source |
-| POST   | `/api/kai/plaid/refresh`               | Start a manual refresh run for one or more connected Plaid Items                                           |
-| GET    | `/api/kai/plaid/refresh/{run_id}`      | Inspect a Plaid refresh run status                                                                         |
-| POST   | `/api/kai/plaid/source`                | Persist the active Kai portfolio source (`statement`, `plaid`)                                             |
-| POST   | `/api/kai/plaid/webhook`               | Receive Plaid webhook updates for holdings refresh and item health                                         |
-
-Operational note:
-
-- webhook URLs are supplied to Plaid during Link token creation via backend configuration, not dashboard allowlisting
-- if `PLAID_WEBHOOK_URL` changes after Items exist, existing Items need a one-time `/item/webhook/update` maintenance pass
-
-#### Kai Plaid Vault Passthrough (zero-knowledge)
-
-Stateless Plaid calls on behalf of the owner's device. The access token is returned to the device and sealed in the owner's vault; the server stores nothing, registers no webhook, and logs no bodies. All routes require `VAULT_OWNER` and answer `Cache-Control: no-store`. Contract: [../kai/plaid-vault-passthrough.md](../kai/plaid-vault-passthrough.md).
+The vault route performs Plaid provider calls for the owner's device. The backend transiently
+handles access tokens and readable provider responses but does not persist vault-route
+payloads. The device seals connection state in the owner's vault. Existing server-held data
+still requires the per-environment retirement procedure and migration evidence; source removal
+does not establish deployed cleanup. Contract: [../kai/plaid-vault-passthrough.md](../kai/plaid-vault-passthrough.md).
 
 | Method | Path                                | Description                                                                                  |
 | ------ | ----------------------------------- | -------------------------------------------------------------------------------------------- |
-| POST   | `/api/kai/plaid/vault/link-token`   | Create a Link token (no webhook, opaque `client_user_id`, platform-aware redirect)           |
+| POST   | `/api/kai/plaid/vault/link-token`   | Create a Link token (no webhook, opaque `client_user_id`, platform-aware redirect; update mode accepts a sealed token) |
 | POST   | `/api/kai/plaid/vault/exchange`     | Exchange `public_token` and return the access token plus Item and institution metadata       |
 | POST   | `/api/kai/plaid/vault/snapshot`     | Fetch accounts, holdings, and a cursor-based transactions sync; re-link needs return 200     |
 | POST   | `/api/kai/plaid/vault/remove`       | Revoke the Item at Plaid (idempotent)                                                        |
+
+The legacy server-backed endpoints and webhook may still exist at the audited `HEAD`, but
+their removal and database cleanup are pending working-tree retirement changes. They are not
+the documented integration path for new clients.
 
 #### Kai Support Messaging
 

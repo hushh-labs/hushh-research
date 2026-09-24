@@ -12,19 +12,18 @@ flowchart TD
   one["One root LlmAgent<br/>agent_one"]
   search["google_search"]
   nav_tool["open_screen<br/>governed navigation"]
-  agenttools["AgentTool specialist<br/>Finance (Kai runtime)<br/>subagents: RIA, Investor"]
-  a2a["A2A dispatch + specialist scope map"]
+  agenttools["In-process ADK AgentTool children<br/>Kai Finance -> RIA + Investor<br/>Wallet"]
+  dispatch["In-process adk_bridge registry<br/>Documents, Location, Email, Nav,<br/>Personal Information"]
+  remoteCaller["Remote process / deployment caller"]
+  a2a["External A2A entrypoints<br/>five-ID scope validation map"]
   kai["Kai<br/>agent_kai"]
   nav["Nav<br/>agent_nav"]
   kyc["KYC<br/>agent_kyc"]
-  support["Location, Email, Connections,<br/>Connected Systems, Personal Info"]
-  memory["World Model agents<br/>PKM structure + memory reducers"]
-  source["Hermes-local Source Library Steward<br/>bounded product leaf"]
-  sourceplane["Mounted provider files<br/>private PKM + local SQLite"]
+  support["Connections, Connected Systems,<br/>Calendar + supporting tools"]
+  personalInfo["Personal Information<br/>agent_personal_information"]
   operons["Tools + operons"]
   services["Services + encrypted PKM/vault"]
   consent["Consent tokens, encrypted exports,<br/>TrustLinks, device capability tokens"]
-  codex["Codex evidence subagents<br/>read-only engineering lanes"]
 
   user --> voice
   voice --> runner
@@ -32,29 +31,36 @@ flowchart TD
   one --> search
   one --> nav_tool
   one --> agenttools
-  one --> a2a
-  one -.local host delegation.-> source
+  one --> dispatch
+  remoteCaller --> a2a
   a2a --> kai
   a2a --> nav
   a2a --> kyc
-  a2a --> support
-  support --> memory
+  a2a --> one
+  a2a --> personalInfo
+  dispatch --> personalInfo
+  agenttools --> operons
   kai --> operons
   nav --> operons
   kyc --> operons
-  support --> operons
-  memory --> operons
-  source --> sourceplane
+  personalInfo --> operons
   operons --> services
   consent --> one
-  consent --> a2a
+  consent --> dispatch
   consent --> services
-  codex -.separate engineering workflow.-> one
+
+  subgraph hermes["Separate Hermes runtime (pre-existing)"]
+    hermesOne["Local One parent"]
+    source["Source Library Steward<br/>bounded product leaf"]
+    sourceplane["Mounted provider files<br/>private PKM + local SQLite"]
+    hermesOne -.bounded local delegation.-> source
+    source --> sourceplane
+  end
 ```
 
 ## Purpose
 
-One is the only direct private-agent head. It owns the relationship layer, the user-facing voice/chat handoff, and the authority to route intent. Specialists sit below One and execute bounded work through A2A, generated action contracts, tools, operons, services, consent tokens, and encrypted information boundaries.
+One is the only direct private-agent head. It owns the relationship layer, the user-facing voice/chat handoff, and the authority to route intent. Specialists sit below One and execute bounded work through the mechanism appropriate to each boundary—local `AgentTool`, process-local dispatch, or scoped A2A—along with generated action contracts, tools, operons, services, consent tokens, and encrypted information boundaries.
 
 This page is current-state implementation truth. It does not rename runtime identifiers, remove Kai compatibility paths, or claim external-agent zero-knowledge parity where checked-in code still uses first-party compatibility tokens.
 
@@ -113,26 +119,39 @@ and search instructions are authored in One's manifest subagent entries.
 
 ## Wiring Modes
 
-The hierarchy has four current wiring modes. Do not collapse them into one claim.
+The current tree uses distinct mechanisms for local ADK children, process-local
+specialist dispatch, and remote A2A entrypoints. These contracts do not form one
+universal dispatch path.
 
 Official A2A v1 Tasks remain a release gate. The contained One invocation preview
 and the legacy Kai compatibility server are not advertised as official v1.
 
-### Scope-gated A2A specialists
+### In-process ADK AgentTool children
 
-`SPECIALIST_A2A_SCOPE_MAP` defines the least-privilege scope gate for:
+`one_adk/agent_tree.py` exposes local ADK children through `AgentTool`. One's
+finance child is Kai, which composes RIA and Investor; Wallet is another
+roster-gated child. Nav composes its Consent child through AgentTool. These
+children execute inside the ADK runtime and are not entries in the external
+A2A scope map or `adk_bridge.dispatch` registry.
 
-| Agent id | Scope |
+### Scope-gated A2A specialists (external entrypoints)
+
+`SPECIALIST_A2A_SCOPE_MAP` validates caller scopes at external A2A boundaries.
+It contains five identifiers; it is not a registration table for One's
+in-process specialists.
+
+| Agent id | Required scope |
 | --- | --- |
 | `agent_one` | `cap.one.invoke` |
-| `agent_connected_systems` | Exact per-hop authority; no One-wide standing scope |
 | `agent_kai` | `agent.kai.analyze` |
 | `agent_nav` | `agent.nav.review` |
 | `agent_kyc` | `agent.kyc.process` |
-| `agent_connections` | Exact per-hop authority; no One-wide standing scope |
-| `agent_location` | Exact location capability and grant references |
-| `agent_email` | Exact per-hop authority; no One-wide standing scope |
-| `agent_personal_information` | `cap.pkm.marketplace.view` plus exact per-hop information authority; PKM summary reads use `pkm.read` |
+| `agent_personal_information` | `cap.pkm.marketplace.view` |
+
+`agent_personal_information` also applies its exact per-hop information authority;
+PKM summary reads retain the internal `pkm.read` gate. The scope map establishes
+only invocation admission. It does not register a network service or grant
+information access by itself.
 
 ### In-process dispatch registry
 
@@ -144,11 +163,26 @@ invented citations, oversized data, changed selection/generation, and provider d
 they do not infer statement coverage. Live two-account selected-file acceptance is
 required before promotion. This is implemented source, not deployed UAT evidence.
 
-The in-process `dispatch` table wires `agent_location`, `agent_nav`, `agent_personal_information` and `agent_email`. Memory is reached through `ask_memory_agent`; Marketplace pages remain standalone product surfaces. Email's `ask_email_agent` path admits only owner-authorized typed-chat metadata reads when the Mail read flag and internal cohort both allow them. It preserves One's conversation, permits only `list_needs_reply` / `search_inbox`, and closes further tool execution for that invocation before exposing external content. Its interpreter has no tools; durable tool history contains a redacted receipt, not mailbox metadata. Reviewed sending and receipt/sync tools are not admitted through this lane. Connected Systems remains authority-ingress-only. Connections is reached through Nav; its separate legacy mutation adapter retains its full information/action authority gate. There is no separate Gmail specialist roster entry.
+The `adk_bridge/__init__.py` registration includes exactly `agent_documents`,
+`agent_location`, `agent_email`, `agent_nav`, and `agent_personal_information`.
+Memory is reached through `ask_memory_agent`; Marketplace pages remain standalone
+product surfaces. Email's `ask_email_agent` path admits only owner-authorized
+typed-chat metadata reads when the Mail read flag and internal cohort both allow
+them. It preserves One's conversation, permits only `list_needs_reply` /
+`search_inbox`, and closes further tool execution for that invocation before
+exposing external content. Its interpreter has no tools; durable tool history
+contains a redacted receipt, not mailbox metadata. Reviewed sending and receipt/sync
+tools are not admitted through this lane. Connected Systems remains
+authority-ingress-only. Connections is reached through Nav; its separate legacy
+mutation adapter retains its full information/action authority gate. There is no
+separate Gmail specialist roster entry.
 
 Kai has a dedicated A2A server in `adk_bridge/kai_agent.py`. KYC is manifest/service-backed through One Email KYC and approved disclosure formatting; it is scope-gated but not an in-process dispatch handler today.
 
-Therefore, not every scope-gated specialist is registered in the in-process dispatch table.
+The external scope map and in-process dispatch registry intentionally contain
+different agents. A listed A2A scope does not prove that the agent is registered
+for local dispatch, and a local dispatch handler does not imply an external A2A
+endpoint; not every scope-gated specialist is registered in the in-process dispatch table.
 
 ### Hermes-local bounded product leaf
 

@@ -37,7 +37,12 @@ In this shared-runtime branch, omitted individual ports retain shared defaults;
 these hooks alone do not establish private isolation. No ingress binding is added
 by the generic dependency seam.
 
-This branch retains Location, Nav and Personal Information registrations. Nav
+The process-local `adk_bridge.dispatch` registry currently registers exactly
+`agent_documents`, `agent_location`, `agent_email`, `agent_nav`, and
+`agent_personal_information`. This is separate from `SPECIALIST_A2A_SCOPE_MAP`,
+which validates five external A2A identifiers: One, Kai, Nav, KYC, and Personal
+Information. A scope-map entry does not register an in-process handler, and a
+local dispatch registration does not create an A2A endpoint. Nav
 uses a manifest-owned Consent AgentTool child with scoped read tools. A selected
 Connections turn additionally requires exact manifest invocation capabilities,
 trusted task/owner bindings, and a database-confirmed owner token before and
@@ -97,50 +102,49 @@ Founder-language mapping:
 
 ## Visual Map
 
-A contributor authors only the two boxes on the left; everything downstream is
-generated, loaded, or gated. The registry is a build artifact, and consent is
-re-checked at each entry point and again per tool call.
+A contributor authors manifests and implementation code. The map below shows
+separate execution lanes; it is not one pipeline used by every agent. A generated
+registry proves manifest consistency, while each runtime boundary owns its own
+invocation and information checks.
 
 ```mermaid
 flowchart LR
-  subgraph author["1. What a contributor authors"]
-    yaml["hushh_mcp/agents/NAME/agent.yaml<br/>the only authored manifest source"]
-    tools["hushh_mcp/agents/NAME/tools.py<br/>hushh_tool decorator with a scope"]
+  subgraph source["1. Authored source and generated projection"]
+    yaml["hushh_mcp/agents/NAME/agent.yaml<br/>authored product-agent contract"]
+    impl["Agent implementation and tools<br/>separate source code"]
+    loader["AgentManifestV2 loader"]
+    gen["generate_product_agent_registry.py"]
+    registry["Generated product-agent registry"]
+    verify["Contract checks<br/>source consistency only"]
+    yaml --> loader
+    yaml --> gen --> registry --> verify
   end
 
-  subgraph contract["2. Strict contract and generated registry"]
-    loader["AgentManifestV2 + ManifestLoader<br/>hushh_mcp/hushh_adk/manifest.py<br/>extra forbid, rejects unknown fields"]
-    gen["scripts/generate_product_agent_registry.py"]
-    registry["contracts/agents/product-agent-registry.v2.json<br/>generated, do not hand-edit"]
-    verify["verify_agent_hierarchy_contract.py<br/>verify_adk_a2a_compliance.py"]
+  subgraph local["2. Same-process agent execution"]
+    caller["Typed chat caller"] --> runner["ADK Runner + One root"]
+    runner --> root["One LlmAgent"]
+    root -->|bounded in-process child| toolchild["ADK AgentTool<br/>e.g. Kai, Wallet"]
+    root -->|calls bounded tool| dispatchTool["Typed dispatch tool"]
+    dispatchTool --> dispatch["adk_bridge.dispatch<br/>five registered handlers"]
+    dispatch --> handler["Registered handler<br/>owner and invocation checks"]
   end
 
-  subgraph entry["3. Entry points that hold consent"]
-    onetree["hushh_mcp/one_adk/agent_tree.py<br/>loads one and kai manifests,<br/>dispatches via adk_bridge/dispatch.py"]
-    bridge["hushh_mcp/adk_bridge/NAME_agent.py<br/>A2A entry, requires X-Consent-Token<br/>plus the specialist scope"]
-    route["api/routes/NAME/*.py APIRouter<br/>wired in server.py"]
+  subgraph a2a["3. Cross-process A2A boundary"]
+    remote["Remote process or deployment"] --> task["A2A Task entrypoint<br/>where an endpoint is registered"]
+    task --> scope["SPECIALIST_A2A_SCOPE_MAP<br/>five admitted identifiers;<br/>does not register endpoints"]
   end
 
-  subgraph exec["4. Execution layers"]
-    ctx["HushhContext<br/>contextvars: user_id + consent_token"]
-    tooldec["hushh_tool wrapper<br/>validate_token_with_db + user_id match"]
-    operons["hushh_mcp/operons/DOMAIN/*.py<br/>calculators, fetchers, llm, storage"]
-    services["hushh_mcp/services/*<br/>only layer that touches the DB"]
+  subgraph api["4. Service-backed API boundary"]
+    request["Web or native request"] --> route["FastAPI route<br/>route-owned auth and validation"]
+    route --> service["Domain service<br/>persistence and provider adapters"]
   end
 
-  yaml --> loader
-  yaml --> gen
-  gen --> registry
-  registry --> verify
-  loader --> onetree
-  route --> bridge
-  route --> services
-  onetree --> ctx
-  bridge --> ctx
-  ctx --> tooldec
-  tools --> tooldec
-  tooldec --> operons
-  operons --> services
+  loader -.where supported.-> root
+  impl -.where registered.-> dispatch
+  toolchild --> localAuth["Child-specific authority checks"]
+  handler --> localAuth
+  scope --> remoteAuth["Endpoint and per-tool authority checks"]
+  service --> store["Database or provider boundary"]
 ```
 
 ---
@@ -153,7 +157,7 @@ Hussh agents are built from four composable layers. Each layer has a single resp
 ┌─────────────────────────────────────────────────────┐
 │ AGENT                                                │
 │ Orchestrates tools, owns a manifest, enforces        │
-│ consent at entry via HushhAgent.run_turn()           │
+│ entry authority belongs to the runtime boundary       │
 ├─────────────────────────────────────────────────────┤
 │ TOOLS                                                │
 │ LLM-callable functions decorated with @hushh_tool    │
@@ -198,11 +202,22 @@ with a fresh-process import test.
 
 ---
 
-## Consent Validation -- Three Layers
+## Consent Checks by Runtime Boundary
 
-Consent is validated at multiple points during execution. This is belt-and-suspenders by design.
+There is no single consent stack used by every route. Apply the owning runtime
+contract and re-check authority at each protected tool or service boundary.
 
-### Layer 1: Agent Entry
+- In-process ADK children use One's current session contract and child-specific tools.
+- The process-local dispatch registry separately checks owner and invocation authority.
+- External A2A entrypoints validate the mapped scope; that scope admits invocation
+  only and does not itself grant information or action authority.
+- FastAPI routes and their services enforce their route-specific authentication,
+  consent and persistence contracts.
+
+The following HushhAgent and decorator examples apply only to lanes that use those
+wrappers; they are not a description of the One ADK AgentTool or A2A paths.
+
+### HushhAgent application entry
 
 `HushhAgent.run_turn()` validates the token against the agent's
 `required_scopes` before any tool executes. Call this application entrypoint;
@@ -217,9 +232,10 @@ response = await agent.run_turn(
 )
 ```
 
-### Layer 2: Tool Invocation
+### Decorated tool invocation
 
-The `@hushh_tool` decorator re-validates consent with the tool's specific scope before the function body runs.
+Where a handler uses `@hushh_tool`, the decorator re-validates consent with the
+tool's specific scope before the function body runs.
 
 ```python
 # hushh_mcp/hushh_adk/tools.py
@@ -234,9 +250,11 @@ The decorator:
 2. Validates token scope matches the tool's required scope
 3. Verifies `token.user_id == context.user_id` (anti-spoofing)
 
-### Layer 3: Operon-Level (Impure Only)
+### Impure operon checks
 
-Impure operons (fetchers, analysis, LLM, storage) validate consent inline as their first operation. Pure calculators skip this.
+Where an impure operon is called through this tool path, it validates consent
+inline as its first operation. Pure calculators skip this check; other lanes use
+their owning service and invocation contracts.
 
 ```python
 # hushh_mcp/operons/kai/analysis.py
@@ -250,7 +268,8 @@ def analyze_fundamentals(ticker, user_id, sec_filings, consent_token):
 
 ### HushhContext Propagation
 
-Context flows via Python's `contextvars` module -- thread-safe, zero argument passing.
+In lanes that bind `HushhContext`, context flows via Python's `contextvars` module.
+Other runtime paths pass their typed session and authority explicitly.
 
 ```python
 # Set by HushhAgent.run_turn():

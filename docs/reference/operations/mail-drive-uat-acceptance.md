@@ -1,8 +1,18 @@
 # Mail + Drive UAT acceptance
 
-Status: incomplete draft; no feature enabled, merge or deployment authorized by this evidence alone.
+Status: post-merge UAT deployment verified; Mail/Drive acceptance remains incomplete.
 Runtime remains in `hushh-pda-uat`; the isolated Drive OAuth project is `hushh-drive-uat`.
 Mail/Calendar/Firebase clients and existing grants are unchanged.
+
+## Latest verified state
+
+PR [#6967](https://github.com/hushh-labs/hushh-research/pull/6967) passed its
+Main Post-Merge Smoke Gate and immutable-SHA UAT deployment. The backend and web
+services serve that merged SHA at 100% traffic, and their health/root checks
+succeeded. This proves deployment, not document-processing or authenticated
+sharing acceptance. Connector feature flags and the internal-owner cohort remain
+off; indexing remains fail-closed. The detailed evidence is in
+[Post-merge UAT delivery record](#post-merge-uat-delivery-record-2026-09-23).
 
 ## Visual Map
 

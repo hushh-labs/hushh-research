@@ -9,7 +9,8 @@
     "consent-protocol/hushh_mcp/operons",
     "consent-protocol/hushh_mcp/tools",
     "consent-protocol/hushh_mcp/hushh_adk",
-    "consent-protocol/hushh_mcp/adk_bridge"
+    "consent-protocol/hushh_mcp/adk_bridge",
+    "consent-protocol/hushh_mcp/one_adk"
   ],
   "non_owned_paths": [
     "backend",

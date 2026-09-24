@@ -72,12 +72,17 @@ For every recursive pass:
 
 ## Current Recursive Findings
 
-As of this pass, the proven oversized guide candidates are:
+The previously identified long-guide candidates already have phase-specific
+children in the current tree:
 
 - `docs/guides/mobile.md`
 - `docs/guides/one-location-uat-test-plan.md`
 
-Both should become stable entrypoints with phase-specific child pages. This keeps the contributor path readable while preserving mobile parity and One Location UAT detail where it belongs.
+Their child material lives under `docs/guides/mobile/` and
+`docs/guides/one-location-uat/`. Keep the parent guides as entrypoints; this
+revision does not recommend another split. Reassess only if the current inventory
+shows a distinct owner, lifecycle, or recurring workflow that the existing
+children do not cover.
 
 ## Verification
 
