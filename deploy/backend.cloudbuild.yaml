@@ -106,7 +106,7 @@ steps:
         fi
         if [[ "${genai_project_id}" != "$PROJECT_ID" ]]; then
           case "${_DEPLOY_ENV}:${genai_project_id}" in
-            dev:hushh-pda-uat|uat:hushh-vertex-personal54) ;;
+            dev:hushh-pda-uat|uat:hushh-vertex-personal54|production:hushh-vertex-personal54) ;;
             *)
               echo "Cross-project managed Vertex target is not allowlisted." >&2
               exit 1
