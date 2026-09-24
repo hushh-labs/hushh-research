@@ -17,6 +17,7 @@ import os
 import re
 import time
 from collections.abc import AsyncGenerator
+from contextlib import aclosing
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -25,6 +26,7 @@ from ag_ui_adk import ADKAgent
 
 from hushh_mcp.one_adk.drive_result_privacy import redact_drive_wire_event
 from hushh_mcp.one_adk.external_read_boundary import before_external_read_model
+from hushh_mcp.one_adk.mcp_turn_scope import mcp_turn_scope
 from hushh_mcp.one_adk.output_privacy import public_event
 
 logger = logging.getLogger(__name__)
@@ -232,15 +234,18 @@ class TimedADKAgent(ADKAgent):
         interrupted = False
         private_call_ids: set[str] = set()
         try:
-            async for event in super().run(input):
-                if self.head == HEAD_ONE:
-                    event = redact_drive_wire_event(event, private_call_ids)
-                    if event is None:
-                        continue
-                timing.observe(event)
-                projected = public_event(event) if self.head in (HEAD_ONE, HEAD_INTRO) else event
-                if projected is not None:
-                    yield projected
+            async with mcp_turn_scope(input.thread_id), aclosing(super().run(input)) as run:
+                async for event in run:
+                    if self.head == HEAD_ONE:
+                        event = redact_drive_wire_event(event, private_call_ids)
+                        if event is None:
+                            continue
+                    timing.observe(event)
+                    projected = (
+                        public_event(event) if self.head in (HEAD_ONE, HEAD_INTRO) else event
+                    )
+                    if projected is not None:
+                        yield projected
         except (asyncio.CancelledError, GeneratorExit):
             interrupted = True
             # Consumers commonly close immediately after the terminal event.
