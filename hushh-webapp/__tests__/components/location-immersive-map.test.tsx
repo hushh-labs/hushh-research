@@ -410,7 +410,11 @@ import {
   readOneLocationControlState,
   updateOneLocationControlState,
 } from "@/lib/one-location/location-control-state";
-import { clearAllLocationWorkspaceMemory } from "@/lib/one-location/location-workspace-memory";
+import {
+  clearAllLocationWorkspaceMemory,
+  writeLocationWorkspaceMemory,
+} from "@/lib/one-location/location-workspace-memory";
+import { dispatchOneLocationStateChanged } from "@/lib/one-location/one-location-state-events";
 import { forgetCachedRendererConsent } from "@/lib/one-location/map-renderer-consent";
 import { __resetNativeMapLifecycleForTests } from "@/lib/one-location/native-map-lifecycle";
 
@@ -691,6 +695,33 @@ describe("LocationImmersiveMap demo experience", () => {
     expect(
       screen.getByRole("button", { name: "Continue" }),
     ).toBeInTheDocument();
+  });
+
+  it("never sends a cached private coordinate to the renderer before consent", async () => {
+    experienceHarness.demoMode = false;
+    writeLocationWorkspaceMemory("test-user", {
+      myLocationPoint: {
+        latitude: 25.46,
+        longitude: 81.85,
+        accuracyM: 12,
+        capturedAt: "2026-09-25T00:00:00.000Z",
+        sourcePlatform: "web",
+      },
+      decryptedPoints: {},
+    });
+
+    render(<LocationImmersiveMap />);
+
+    await waitFor(() => {
+      expect(mapHarness.create).toHaveBeenCalled();
+      expect(
+        screen.getByTestId("one-location-map-self-avatar"),
+      ).toBeInTheDocument();
+    });
+    expect(
+      screen.getByTestId("one-location-map-disclosure"),
+    ).toBeInTheDocument();
+    expect(mapHarness.map.addCircles).not.toHaveBeenCalled();
   });
 
   it("frames demo people, searches locally, focuses, locates, and exits without writes", async () => {
@@ -2979,6 +3010,70 @@ describe("LocationImmersiveMap reported map defects", () => {
       await new Promise((resolve) => setTimeout(resolve, 40));
     });
   }
+
+  it("removes the renderer-owned self dot when renderer consent is revoked", async () => {
+    stubPhoneGeometry();
+    serviceHarness.captureCurrentPosition.mockResolvedValue({
+      latitude: 25.46,
+      longitude: 81.85,
+      accuracyM: 12,
+      capturedAt: "2026-09-25T00:00:00.000Z",
+      sourcePlatform: "web",
+    });
+
+    await renderReadyMap();
+    await reportCamera();
+    await waitFor(() => {
+      expect(
+        mapHarness.map.addCircles.mock.calls
+          .flatMap((call) => call[0] as Array<Record<string, unknown>>)
+          .some((circle) => circle.title === "Your location"),
+      ).toBe(true);
+    });
+
+    mapHarness.map.removeCircles.mockClear();
+    serviceHarness.getMapPreferences.mockResolvedValue({
+      presenceMode: "ghost",
+      rendererConsentVersion: null,
+    });
+    dispatchOneLocationStateChanged("test-user", ["map_preferences"]);
+
+    await waitFor(() => {
+      expect(mapHarness.map.removeCircles).toHaveBeenCalled();
+      expect(
+        screen.getByTestId("one-location-map-disclosure"),
+      ).toBeInTheDocument();
+    });
+  });
+
+  it("sizes the self dot from a programmatic target when camera callbacks are unavailable", async () => {
+    stubPhoneGeometry();
+    mapHarness.map.setOnBoundsChangedListener.mockRejectedValueOnce(
+      new Error("camera listeners unavailable"),
+    );
+    serviceHarness.captureCurrentPosition.mockResolvedValue({
+      latitude: 25.46,
+      longitude: 81.85,
+      accuracyM: 12,
+      capturedAt: "2026-09-25T00:00:00.000Z",
+      sourcePlatform: "android",
+    });
+
+    await renderReadyMap();
+
+    await waitFor(() => {
+      expect(mapHarness.map.setCamera).toHaveBeenCalledWith(
+        expect.objectContaining({ zoom: 16 }),
+      );
+      const fallback = mapHarness.map.addCircles.mock.calls
+        .flatMap((call) => call[0] as Array<Record<string, unknown>>)
+        .reverse()
+        .find((circle) => circle.title === "Your location");
+      expect(fallback).toBeDefined();
+      expect(Number(fallback?.radius)).toBeGreaterThan(0);
+      expect(Number(fallback?.radius)).toBeLessThan(100);
+    });
+  });
 
   it("names each pin by first name, and draws you as your own avatar", async () => {
     // The reported gap: two pins and no way to tell who is who without opening

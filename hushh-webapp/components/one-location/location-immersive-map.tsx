@@ -445,11 +445,13 @@ function zoomForAccuracy(accuracyM: number | null | undefined): number {
 async function frameMarkers(
   map: GoogleMap,
   markers: RenderMarker[],
+  prepareCamera?: (targetZoom: number | null) => void,
 ): Promise<void> {
   if (markers.length === 0) return;
   if (markers.length === 1) {
     const marker = markers[0];
     if (!marker) return;
+    prepareCamera?.(15);
     await map.setCamera({
       coordinate: {
         lat: marker.point.latitude,
@@ -475,6 +477,9 @@ async function frameMarkers(
     lat: (southwest.lat + northeast.lat) / 2,
     lng: (southwest.lng + northeast.lng) / 2,
   };
+  // fitBounds chooses its own zoom. Suppress a size derived from the previous
+  // camera until the renderer reports the new authoritative value.
+  prepareCamera?.(null);
   await map.fitBounds(new LatLngBounds({ southwest, northeast, center }), 24);
 }
 
@@ -1098,9 +1103,14 @@ export function LocationImmersiveMap({
         });
       }
       if (options.moveCamera === false) return;
+      const targetZoom = zoomForAccuracy(point.accuracyM);
+      // The target is authoritative even on compatibility bridges that never
+      // send an idle callback. Updating before the animated camera move also
+      // prevents a world-view-sized circle flashing over a street-level map.
+      setSettledCameraZoom(targetZoom);
       await mapRef.current?.setCamera({
         coordinate: { lat: point.latitude, lng: point.longitude },
-        zoom: zoomForAccuracy(point.accuracyM),
+        zoom: targetZoom,
         animate: options.animate,
       });
     },
@@ -1457,9 +1467,10 @@ export function LocationImmersiveMap({
       }
       mapRef.current = map;
       // Gives the renderer-owned owner dot a correct initial scale even on an
-      // older bridge that never emits camera callbacks. Idle reports replace
-      // this with the authoritative zoom as soon as they are available.
-      setSettledCameraZoom(initialZoom);
+      // older bridge that never emits camera callbacks. A pre-consent neutral
+      // map has no authority to size a private location, so it stays null until
+      // an accepted flow explicitly targets or reports its real camera.
+      setSettledCameraZoom(rendererReady ? initialZoom : null);
       // The name pills and owner avatar are HTML above the map, so they need to
       // know what the renderer is showing. Bounds may arrive during a gesture,
       // but they are not a proof that React and the renderer will paint the same
@@ -1530,6 +1541,7 @@ export function LocationImmersiveMap({
         const marker = markerByMapIdRef.current.get(event.markerId);
         if (!marker) return;
         setSelected(marker);
+        setSettledCameraZoom(15);
         void map.setCamera({
           coordinate: {
             lat: marker.point.latitude,
@@ -1820,6 +1832,7 @@ export function LocationImmersiveMap({
   const selectSelfMarker = useCallback(() => {
     if (!mapSelfMarker) return;
     setSelected(mapSelfMarker);
+    setSettledCameraZoom(15);
     void mapRef.current?.setCamera({
       coordinate: {
         lat: mapSelfMarker.point.latitude,
@@ -2294,6 +2307,7 @@ export function LocationImmersiveMap({
       if (
         generation !== selfCircleGenerationRef.current ||
         cancelled ||
+        !rendererReady ||
         !mapSelfMarker ||
         settledCameraZoom === null
       ) {
@@ -2345,6 +2359,7 @@ export function LocationImmersiveMap({
     isCheckInSurface,
     mapReady,
     mapSelfMarker,
+    rendererReady,
     selfRendererMarkerStale,
     settledCameraZoom,
   ]);
@@ -2445,7 +2460,7 @@ export function LocationImmersiveMap({
         visibleMarkers.length > 0
       ) {
         framedInitialMarkersRef.current = true;
-        await frameMarkers(map, visibleMarkers);
+        await frameMarkers(map, visibleMarkers, setSettledCameraZoom);
       }
     }).catch(() => {
       if (!cancelled) setStatus("error");
@@ -2544,6 +2559,7 @@ export function LocationImmersiveMap({
     setSelected(marker);
     setSearchQuery("");
     setTrayExpanded(false);
+    setSettledCameraZoom(15);
     await mapRef.current?.setCamera({
       coordinate: {
         lat: marker.point.latitude,
@@ -3002,7 +3018,7 @@ export function LocationImmersiveMap({
       toast.message("No one is sharing a live location with you yet.");
     }
     if (visibleMarkers.length > 0) {
-      await frameMarkers(map, visibleMarkers);
+      await frameMarkers(map, visibleMarkers, setSettledCameraZoom);
       return;
     }
     // Nothing on the map at all, not even this device. Still put the camera
