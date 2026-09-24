@@ -361,3 +361,38 @@ async def test_live_sheet_is_shareable_without_selected_parser_support():
         require_app_authorized=False,
         require_genai_eligibility=False,
     )
+
+
+async def test_metadata_only_video_share_rechecks_exact_version_and_share_capability():
+    adapter = acl.GoogleDrivePermissionAdapter()
+    payload = {
+        "id": "synthetic-file",
+        "version": "1",
+        "trashed": False,
+        "mimeType": "video/mp4",
+        "modifiedTime": "2026-09-23T12:00:00Z",
+        "capabilities": {"canShare": True, "canDownload": False},
+    }
+    adapter._exchange = AsyncMock(return_value=payload)
+    await adapter.inspect_shareable(
+        **arguments(),
+        expected_version="1",
+        require_app_authorized=False,
+        require_genai_eligibility=False,
+        metadata_only=True,
+        time_field="modifiedTime",
+        start_time="2026-09-22T00:00:00Z",
+        end_time="2026-09-24T00:00:00Z",
+    )
+    adapter._exchange.return_value = {**payload, "modifiedTime": "2026-09-21T00:00:00Z"}
+    with pytest.raises(acl.DrivePermissionError, match="source_changed"):
+        await adapter.inspect_shareable(
+            **arguments(),
+            expected_version="1",
+            require_app_authorized=False,
+            require_genai_eligibility=False,
+            metadata_only=True,
+            time_field="modifiedTime",
+            start_time="2026-09-22T00:00:00Z",
+            end_time="2026-09-24T00:00:00Z",
+        )

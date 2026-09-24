@@ -7,17 +7,16 @@ processing consent, rechecked before every read/model call and publication.
 
 import asyncio
 import json
-from datetime import date
+import logging
+import re
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Literal
 
-from google.adk.models import Gemini
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
 from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent, run_single_turn
-from hushh_mcp.runtime_providers import build_managed_runtime_client
-from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
 from hushh_mcp.services.drive_document_retrieval import (
     DriveDocumentReader,
     DriveSuggestionRetrievalStore,
@@ -32,6 +31,8 @@ from hushh_mcp.services.drive_suggestion_store import DriveSuggestionStore
 from hushh_mcp.services.drive_work_wake import wake_drive_work
 from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
 from hushh_mcp.services.google_drive_adapter import DriveReadError
+
+logger = logging.getLogger(__name__)
 
 
 class SuggestedFile(BaseModel):
@@ -91,12 +92,64 @@ def period_covered(
     return False
 
 
+_FILE_NOUN = re.compile(
+    r"\b(?:files?|documents?|pdfs?|spreadsheets?|sheets?|slides?|presentations?)\b",
+    re.IGNORECASE,
+)
+_FILE_ACTIVITY = re.compile(
+    r"\b(?:recent(?:ly)?|latest|today|yesterday|modified|created|uploaded|updated|changed|added)\b"
+    r"|\b(?:last|past)\s+(?:the\s+)?(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|"
+    r"few|a\s+few)\s+(?:days?|weeks?|hours?)\b",
+    re.IGNORECASE,
+)
+_EXPLICIT_METADATA_VERB = re.compile(
+    r"\b(?:modified|created|uploaded|updated|changed|added)\b", re.IGNORECASE
+)
+_CONTENT_COVERAGE_CUE = re.compile(
+    r"\b(?:cover(?:ing|ed|s)?|coverage|statements?|invoices?|transactions?|records?|reports?)\b"
+    r"|\bfor\s+(?:the\s+)?(?:last|past|period)\b",
+    re.IGNORECASE,
+)
+
+
+def explicitly_requests_file_activity(purpose: str) -> bool:
+    """Require clear file-recency wording before a complete, auto-trustable review."""
+    return bool(
+        _FILE_NOUN.search(purpose)
+        and _FILE_ACTIVITY.search(purpose)
+        and (not _CONTENT_COVERAGE_CUE.search(purpose) or _EXPLICIT_METADATA_VERB.search(purpose))
+    )
+
+
 class LiveSearchPlan(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
-    terms: list[str] = Field(min_length=1, max_length=3)
+    terms: list[str] = Field(default_factory=list, max_length=3)
     # Omitted intent may discover metadata, but must never trigger a content read.
     mode: Literal["find", "read"] = "find"
     exact_title: str | None = Field(default=None, max_length=1024)
+    relative_days: int | None = Field(default=None, ge=1, le=31)
+    file_time_field: Literal["modifiedTime", "createdTime"] = "modifiedTime"
+    time_intent: Literal["file_activity", "document_coverage"] = "document_coverage"
+
+    @model_validator(mode="after")
+    def require_search_boundary(self):
+        if not self.terms and self.relative_days is None:
+            raise ValueError("search terms or a bounded file date range required")
+        if self.relative_days is not None and self.time_intent != "file_activity":
+            raise ValueError("a file date range requires explicit file activity intent")
+        return self
+
+    def time_bounds(self, now_utc: datetime) -> tuple[str, str] | None:
+        if self.relative_days is None:
+            return None
+        if now_utc.tzinfo is None or now_utc.utcoffset() is None:
+            raise ValueError("current search time must include a timezone")
+        end = now_utc.astimezone(UTC)
+        start = end - timedelta(days=self.relative_days)
+        return (
+            start.isoformat().replace("+00:00", "Z"),
+            end.isoformat().replace("+00:00", "Z"),
+        )
 
 
 async def interpret_live_search(*, prompt, user_id):
@@ -107,10 +160,6 @@ async def interpret_live_search(*, prompt, user_id):
     agent = build_single_turn_agent(
         gene,
         output_schema=LiveSearchPlan,
-        model=Gemini(
-            model=resolve_fleet_model_name(str(gene.model.name)),
-            client=build_managed_runtime_client(gene.model.provider),
-        ),
     )
     result = await run_single_turn(
         agent,
@@ -136,10 +185,6 @@ async def interpret_suggestions(*, prompt, user_id):
     agent = build_single_turn_agent(
         gene,
         output_schema=DocumentSuggestions,
-        model=Gemini(
-            model=resolve_fleet_model_name(str(gene.model.name)),
-            client=build_managed_runtime_client(gene.model.provider),
-        ),
     )
     # Empty context grants no tool capability. Never mint/persist an owner
     # session to emulate an online user. The caller owns durable job fences.
@@ -203,25 +248,94 @@ class DriveSuggestionService:
         )
         if job is None:
             return "not_claimed"
+        stage = "reader"
         try:
             async with asyncio.timeout(160):
                 reader = self._reader(job)
                 query = job["purpose"]["purpose"]
                 if len(query.encode()) > 2048:
                     raise DriveSharingError("narrow_selection_required")
+                metadata_recency = False
                 if job.get("live"):
                     await self._require_current(job)
+                    stage = "search_plan"
+                    requested_at = job.get("requested_at")
+                    if requested_at is None:
+                        # Compatibility for test doubles created before the
+                        # request timestamp was included in the preparation job.
+                        now_utc = datetime.now(UTC)
+                    elif (
+                        isinstance(requested_at, datetime)
+                        and requested_at.tzinfo is not None
+                        and requested_at.utcoffset() is not None
+                    ):
+                        now_utc = requested_at.astimezone(UTC)
+                    else:
+                        raise ValueError("invalid request timestamp")
                     plan = LiveSearchPlan.model_validate(
                         await self.search_planner(
                             prompt=json.dumps(
-                                {"document_request": job["purpose"]}, ensure_ascii=False
+                                {
+                                    "document_request": job["purpose"],
+                                    "current_time_utc": now_utc.isoformat(timespec="seconds"),
+                                },
+                                ensure_ascii=False,
                             ),
                             user_id=user_id,
                         )
                     )
                     await self._require_current(job)
-                    retrieved = await reader.search(query=plan.terms)
+                    requested_period = bool(
+                        job["purpose"].get("periodStart") or job["purpose"].get("periodEnd")
+                    )
+                    # The request card may include dates for a request about
+                    # file activity. The typed plan distinguishes that from
+                    # dates the document's contents must cover.
+                    file_recency = (
+                        plan.relative_days is not None
+                        and plan.mode == "find"
+                        and plan.time_intent == "file_activity"
+                    )
+                    if requested_period and not file_recency and not plan.terms:
+                        raise DriveReadError("narrow_selection_required")
+                    bounds = (
+                        plan.time_bounds(now_utc) if file_recency or not requested_period else None
+                    )
+                    search_args = {"query": plan.terms}
+                    if bounds is not None:
+                        search_args.update(
+                            time_field=plan.file_time_field,
+                            start_time=bounds[0],
+                            end_time=bounds[1],
+                        )
+                    metadata_recency = file_recency and bounds is not None
+                    if metadata_recency:
+                        stage = "find_files"
+                        found = await reader.find(**search_args)
+                        if plan.exact_title:
+                            matches = [
+                                item
+                                for item in found["matches"]
+                                if item["name"].casefold() == plan.exact_title.casefold()
+                            ]
+                            found = {
+                                **found,
+                                "matches": matches,
+                                "truncated": found["truncated"] or len(matches) > 1,
+                            }
+                        stage = "bind_files"
+                        retrieved = await reader.bind_matches(
+                            matches=found["matches"],
+                            truncated=found["truncated"],
+                            time_field=plan.file_time_field,
+                            start_time=bounds[0],
+                            end_time=bounds[1],
+                        )
+                    else:
+                        stage = "search_files"
+                        retrieved = await reader.search(**search_args)
                 else:
+                    stage = "search_files"
                     retrieved = await reader.search(query=query)
                 if not retrieved["untrusted_external_content"]:
                     await self.store.fail_preparation(
@@ -232,15 +346,47 @@ class DriveSuggestionService:
                     return "no_ready_files"
                 await reader.require_current()
                 await self._require_current(job)
-                answer = DocumentSuggestions.model_validate(
-                    await self.interpreter(
-                        prompt=json.dumps(
-                            {"document_request": job["purpose"], "retrieved_documents": retrieved},
-                            ensure_ascii=False,
+                if metadata_recency:
+                    # This request is about when files changed, not dates inside
+                    # their contents. Every candidate came from the bounded Drive
+                    # date query and was verified again by bind_matches.
+                    bounded = retrieved["untrusted_external_content"]
+                    explicit_file_activity = explicitly_requests_file_activity(query)
+                    complete = not retrieved["truncated"] and explicit_file_activity
+                    gaps = []
+                    if retrieved["truncated"]:
+                        gaps.append("Additional matching files may exist.")
+                    if not explicit_file_activity:
+                        gaps.append("Confirm which recent files the requester meant.")
+                    answer = DocumentSuggestions(
+                        files=[
+                            SuggestedFile(
+                                document_ref=item["document_ref"],
+                                source_refs=[item["source_ref"]],
+                            )
+                            for item in bounded
+                        ],
+                        coverage_summary=(
+                            f"Found {len(bounded)} files with "
+                            f"{plan.file_time_field} from {bounds[0]} to {bounds[1]}."
                         ),
-                        user_id=user_id,
+                        gaps=gaps,
+                        coverage_status="complete" if complete else "partial",
                     )
-                )
+                else:
+                    stage = "interpret"
+                    answer = DocumentSuggestions.model_validate(
+                        await self.interpreter(
+                            prompt=json.dumps(
+                                {
+                                    "document_request": job["purpose"],
+                                    "retrieved_documents": retrieved,
+                                },
+                                ensure_ascii=False,
+                            ),
+                            user_id=user_id,
+                        )
+                    )
                 payload = answer.model_dump(mode="json")
                 if len(json.dumps(payload, ensure_ascii=False).encode()) > 12 * 1024:
                     raise ValueError("suggestions exceed budget")
@@ -258,8 +404,10 @@ class DriveSuggestionService:
                         for ref in item.source_refs
                     ):
                         raise ValueError("invented suggestion reference")
-                if answer.coverage_status == "complete" and not period_covered(
-                    job["purpose"], answer.covered_periods, known, ids
+                if (
+                    answer.coverage_status == "complete"
+                    and not metadata_recency
+                    and not period_covered(job["purpose"], answer.covered_periods, known, ids)
                 ):
                     raise ValueError("unsupported coverage")
                 await reader.require_current()
@@ -272,6 +420,7 @@ class DriveSuggestionService:
                 }
                 if set(ids) - observed.keys():
                     raise ValueError("unobserved suggestion source")
+                stage = "publish_review"
                 await self.store.prepare_review(
                     user_id=user_id,
                     generation=job["generation"],
@@ -293,6 +442,14 @@ class DriveSuggestionService:
                 return "review_ready"
         except Exception as error:
             code = str(error) if isinstance(error, DriveReadError) else "preparation_unavailable"
+            if isinstance(error, DriveReadError):
+                logger.warning("drive_suggestion.prepare_failed stage=%s code=%s", stage, code)
+            else:
+                logger.warning(
+                    "drive_suggestion.prepare_failed stage=%s type=%s",
+                    stage,
+                    type(error).__name__,
+                )
             await self.store.fail_preparation(
                 job, code=code, retryable=not isinstance(error, DriveReadError) or error.retryable
             )
