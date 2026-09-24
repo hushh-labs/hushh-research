@@ -2826,6 +2826,81 @@ async def propose_information_request(
         }
 
 
+async def propose_document_request(
+    person: str,
+    purpose: str,
+    tool_context: ToolContext,
+    period_start: str = "",
+    period_end: str = "",
+    last_six_completed_months: bool = False,
+    selection_handle: str = "",
+) -> dict[str, Any]:
+    """Stage one recipient-bound document request; only the browser can send it."""
+    from datetime import date
+
+    from hushh_mcp.services.drive_sharing_contract import ShareRequestPurpose
+
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+    try:
+        person_ref, display_name = await asyncio.to_thread(
+            _resolve_person_for_information,
+            ConnectionsService(),
+            user_id,
+            person,
+            tool_context,
+            selection_handle,
+        )
+        _, relationship = await asyncio.to_thread(
+            PersonProfileService().get_relationship_target,
+            viewer_user_id=user_id,
+            public_person_ref=person_ref,
+        )
+        if relationship.get("status") != "connected":
+            return {
+                "status": "connection_required",
+                "message": "Connect with this person before requesting documents.",
+            }
+        if last_six_completed_months is True:
+            now = datetime.now(ZoneInfo(_resolve_timezone(tool_context))).date()
+            end = now.replace(day=1).toordinal() - 1
+            end_date = date.fromordinal(end)
+            month = end_date.month - 5
+            year = end_date.year
+            while month <= 0:
+                month += 12
+                year -= 1
+            period_start = date(year, month, 1).isoformat()
+            period_end = end_date.isoformat()
+        terms = ShareRequestPurpose.model_validate(
+            {
+                "purpose": str(purpose or "").strip(),
+                "periodStart": period_start or None,
+                "periodEnd": period_end or None,
+            }
+        )
+        return {
+            "status": "proposal_ready",
+            "person": {"personRef": person_ref, "displayName": display_name},
+            "purpose": terms.model_dump(),
+            "clientRequestId": str(uuid.uuid4()),
+            "nextStep": "Show the dates and purpose in the card. Nothing is sent until the person taps Send and verifies their Google identity.",
+        }
+    except ConsentLifecycleError as error:
+        return _information_person_error(error, tool_context, user_id)
+    except (ValueError, PersonProfileNotFoundError):
+        return {
+            "status": "needs_clarification",
+            "message": "Choose one connected person and a valid purpose or date range.",
+        }
+    except Exception:
+        logger.exception("propose_document_request failed")
+        return {"status": "failed", "message": "The document request cannot be prepared right now."}
+
+
 async def list_pending_connection_requests(
     tool_context: ToolContext,
     direction: Literal["incoming", "outgoing"] = "incoming",

@@ -175,7 +175,9 @@ class DriveDocumentReader:
         await self.require_access()
         if self._generation is None:
             raise DriveReadError("connection_changed")
-        row, credential = await self.oauth.current_credential(user_id=self.user_id)
+        row, credential = await self.oauth.current_credential(
+            user_id=self.user_id, required_profile="selected"
+        )
         if row["connection_generation"] != self._generation:
             raise DriveReadError("connection_changed")
         await self.store.require_current(
@@ -235,7 +237,9 @@ class DriveDocumentReader:
         )
         if not connection or connection["status"] == "revoked":
             raise DriveReadError("connect_required")
-        row, _ = await self.oauth.current_credential(user_id=self.user_id)
+        row, _ = await self.oauth.current_credential(
+            user_id=self.user_id, required_profile="selected"
+        )
         self._generation = row["connection_generation"]
         self._rows = await self.store.snapshot(
             user_id=self.user_id, generation=self._generation, document_id=document_ref

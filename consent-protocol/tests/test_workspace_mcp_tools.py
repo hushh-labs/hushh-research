@@ -47,6 +47,7 @@ def admission(monkeypatch):
     service = SimpleNamespace(
         read_tool=AsyncMock(return_value=ExternalMcpToolResult(False, {"text": "PRIVATE"}, False)),
         discover_read_tools=AsyncMock(return_value=[]),
+        discover_for_owner=AsyncMock(return_value=[]),
     )
     monkeypatch.setattr(tools, "_service", lambda _: service)
     return service
@@ -80,7 +81,7 @@ async def test_revoked_grant_discards_completed_private_result(admission, monkey
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("provider", ["drive", "gmail", "calendar"])
+@pytest.mark.parametrize("provider", ["gmail", "calendar"])
 async def test_account_or_grant_change_discards_completed_result(provider, admission, monkeypatch):
     binding = AsyncMock(
         side_effect=[("owner-a", "account-a", "grant-1"), ("owner-a", "account-b", "grant-2")]
@@ -122,6 +123,35 @@ async def test_discovery_discards_catalog_after_grant_change(admission, monkeypa
     result = await tools.discover_workspace_tools("gmail", context())
     assert result["status"] == "blocked"
     assert "list_labels" not in str(result)
+
+
+@pytest.mark.asyncio
+async def test_drive_discovery_uses_live_oauth_owner_path_not_legacy_grant(admission, monkeypatch):
+    admission.discover_for_owner.return_value = [
+        {"name": "search_files", "inputSchema": {"type": "object"}}
+    ]
+    legacy_binding = AsyncMock(side_effect=AssertionError("legacy Drive grant consulted"))
+    monkeypatch.setattr(tools, "_grant_binding", legacy_binding)
+
+    result = await tools.discover_workspace_tools("drive", context())
+
+    assert result["status"] == "ok"
+    admission.discover_for_owner.assert_awaited_once_with(user_id="owner-a")
+    legacy_binding.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_drive_read_uses_service_generation_checks_not_legacy_grant(admission, monkeypatch):
+    legacy_binding = AsyncMock(side_effect=AssertionError("legacy Drive grant consulted"))
+    monkeypatch.setattr(tools, "_grant_binding", legacy_binding)
+
+    result = await tools.read_workspace_tool("drive", "search_files", {"query": "notes"}, context())
+
+    assert result["status"] == "ok"
+    admission.read_tool.assert_awaited_once_with(
+        user_id="owner-a", tool_name="search_files", arguments={"query": "notes"}
+    )
+    legacy_binding.assert_not_awaited()
 
 
 @pytest.mark.asyncio

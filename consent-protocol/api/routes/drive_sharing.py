@@ -146,6 +146,12 @@ class ApprovalRequest(DecisionRequest):
     reviewDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
     documentIds: list[UUID] = Field(min_length=1, max_length=25)
     confirmed: StrictBool
+    trustFutureRequests: StrictBool = False
+
+
+class RuleRevocationRequest(StrictRequest):
+    version: int = Field(ge=1, strict=True)
+    confirmed: StrictBool
 
 
 class RevocationRequest(DecisionRequest):
@@ -180,6 +186,11 @@ def _error(error):
         "revocation_pending": (409, "Removal is pending. Refresh its status."),
         "no_revocable_permissions": (409, "There are no recorded permissions available to remove."),
         "sharing_unavailable": (503, "Document sharing is not available yet."),
+        "rule_not_covered": (
+            409,
+            "Review the complete exact files before trusting future requests.",
+        ),
+        "rule_changed": (409, "This document trust rule changed. Refresh it."),
         "connector_unavailable": (503, "Document sharing is not available yet."),
     }
     code = str(error) if isinstance(error, DriveReadError) else "sharing_unavailable"
@@ -253,6 +264,11 @@ async def request_status(request_id: UUID, owner: Owner = Depends(_owner)):
     return await _call("status", owner=owner, request_id=str(request_id))
 
 
+@router.get("/requests/by-client/{client_request_id}")
+async def lookup_client_request(client_request_id: UUID, owner: Owner = Depends(_owner)):
+    return await _call("lookup_client", owner=owner, client_request_id=str(client_request_id))
+
+
 @router.get("/requests/{request_id}/review")
 async def owner_review(request_id: UUID, owner: Owner = Depends(_owner)):
     return await _call("review", owner=owner, request_id=str(request_id))
@@ -272,6 +288,25 @@ async def approve(request_id: UUID, body: ApprovalRequest, owner: Owner = Depend
         revision=body.revision,
         review_digest=body.reviewDigest,
         document_ids=[str(value) for value in body.documentIds],
+        confirmed=body.confirmed,
+        trust_future_requests=body.trustFutureRequests,
+    )
+
+
+@router.get("/rules")
+async def list_document_rules(owner: Owner = Depends(_owner)):
+    return await _call("list_rules", owner=owner)
+
+
+@router.post("/rules/{rule_id}/revoke")
+async def revoke_document_rule(
+    rule_id: UUID, body: RuleRevocationRequest, owner: Owner = Depends(_owner)
+):
+    return await _call(
+        "revoke_rule",
+        owner=owner,
+        rule_id=str(rule_id),
+        version=body.version,
         confirmed=body.confirmed,
     )
 

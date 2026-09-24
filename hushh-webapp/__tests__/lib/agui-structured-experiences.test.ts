@@ -26,6 +26,26 @@ const scopeResult = {
 };
 
 describe("AG-UI structured experience registry", () => {
+  it("stages a dated document request without treating the proposal as sent", () => {
+    const proposal = {
+      status: "proposal_ready",
+      person: { personRef: "11111111-1111-4111-8111-111111111111", displayName: "A" },
+      clientRequestId: "22222222-2222-4222-8222-222222222222",
+      purpose: { purpose: "Six completed months of statements", periodStart: "2026-03-01", periodEnd: "2026-08-31" },
+    };
+    expect(parseAgentToolResultExperience("propose_document_request", proposal)).toEqual({
+      type: "one.document_request_review.v1",
+      personRef: proposal.person.personRef,
+      personName: "A",
+      clientRequestId: proposal.clientRequestId,
+      purpose: proposal.purpose.purpose,
+      periodStart: "2026-03-01",
+      periodEnd: "2026-08-31",
+    });
+    expect(parseAgentToolResultExperience("propose_document_request", {
+      ...proposal, purpose: { ...proposal.purpose, periodEnd: "2026-02-28" },
+    })).toBeNull();
+  });
   it("keeps explicit catalog continuation and flags oversized legacy snapshots", () => {
     const result = parseAgentToolResultExperience("discover_person_information", {
       ...scopeResult,

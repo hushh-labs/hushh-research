@@ -1,30 +1,49 @@
-"""Drive uses MCP transport without inheriting cumulative Google write authority."""
+"""Live Drive MCP reads require the current verified broad profile."""
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
+from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
 from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
-from hushh_mcp.services.google_connection_service import (
-    GoogleConnectionError,
-    GoogleConnectionService,
-)
+from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH
 from hushh_mcp.services.google_drive_mcp_service import (
     GOOGLE_DRIVE_READ_TOOLS,
     GoogleDriveMcpService,
 )
 
 
-def _admit_schema(monkeypatch, tool: str, schema: dict | None = None) -> None:
+def oauth(*, profile="live", verified=True, generation=4):
+    row = {
+        "status": "connected",
+        "validation_state": "verified" if verified else "unverified",
+        "verified_policy_hash": LIVE_POLICY_HASH if verified else None,
+        "connection_generation": generation,
+    }
+    credential = {"accessToken": "synthetic-live-token", "profile": profile}
+    current = AsyncMock(return_value=(row, credential))
+    if profile != "live":
+        current.side_effect = DriveOAuthError("reconnect_required", status_code=401)
+    return SimpleNamespace(
+        current_credential=current,
+        lifecycle=SimpleNamespace(read=AsyncMock(return_value=row)),
+    )
+
+
+def admit(monkeypatch, tool="search_files", schema=None):
     monkeypatch.setattr(
         GoogleDriveMcpService,
         "discover_read_tools",
         AsyncMock(return_value=[{"name": tool, "inputSchema": schema or {"type": "object"}}]),
     )
+    monkeypatch.setattr(
+        "hushh_mcp.services.google_drive_mcp_service.connector_feature_enabled",
+        lambda *_: True,
+    )
 
 
-def test_read_tool_set_cannot_expand_without_explicit_review():
+def test_allowlist_is_exact():
     assert GOOGLE_DRIVE_READ_TOOLS == {
         "get_file_metadata",
         "get_file_permissions",
@@ -35,231 +54,168 @@ def test_read_tool_set_cannot_expand_without_explicit_review():
 
 
 @pytest.mark.asyncio
-async def test_discovery_exposes_only_bounded_official_read_schemas(monkeypatch):
-    connections = SimpleNamespace(access_token=AsyncMock())
+async def test_discovery_filters_write_and_unsafe_schemas(monkeypatch):
     catalog = AsyncMock(
         return_value=[
-            {"name": "copy_file", "description": "Write access", "inputSchema": {"type": "object"}},
+            {"name": "copy_file", "inputSchema": {"type": "object"}},
+            {"name": "search_files", "inputSchema": {"type": "object"}},
             {
-                "name": "search_files",
-                "description": "Find files by name.",
-                "inputSchema": {"type": "object", "properties": {"query": {"type": "string"}}},
+                "name": "get_file_permissions",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {"x": {"$ref": "https://example.invalid"}},
+                },
             },
+        ]
+    )
+    monkeypatch.setattr("hushh_mcp.services.google_drive_mcp_service.list_tools", catalog)
+    result = await GoogleDriveMcpService(oauth=oauth()).discover_read_tools(
+        access_token="synthetic"  # noqa: S106 - fake test token
+    )
+    assert [item["name"] for item in result] == ["search_files"]
+    catalog.assert_awaited_once_with(
+        endpoint="https://drivemcp.googleapis.com/mcp/v1",
+        headers={"Authorization": "Bearer synthetic"},
+    )
+
+
+@pytest.mark.asyncio
+async def test_catalog_rejects_duplicate_and_oversized_schemas_and_bounds_descriptions(monkeypatch):
+    catalog = AsyncMock(
+        return_value=[
+            {"name": "search_files", "inputSchema": {"type": "object"}},
+            {"name": "search_files", "inputSchema": {"type": "object"}},
             {
                 "name": "read_file_content",
-                "description": "x" * 10_000,
-                "inputSchema": {"type": "object", "properties": {"id": {"type": "string"}}},
-            },
-            {"name": "get_file_metadata", "inputSchema": {}},
-            {"name": "list_recent_files", "inputSchema": {"type": "array"}},
-            {
-                "name": "get_file_permissions",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {"anything": {"$ref": "https://example.invalid/schema"}},
-                },
+                "description": "d" * 1000,
+                "inputSchema": {"type": "object", "properties": {"file_id": {"type": "string"}}},
             },
             {
-                "name": "download_file_content",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {"x": {"type": "not_a_json_schema_type"}},
-                },
+                "name": "get_file_metadata",
+                "inputSchema": {"type": "object", "properties": {"x": {"type": "x"}}},
             },
             {
                 "name": "get_file_permissions",
                 "inputSchema": {
                     "type": "object",
-                    "properties": {"x": {"$dynamicRef": "https://example.invalid/schema"}},
+                    "properties": {"x": {"type": "string", "description": "s" * 20_000}},
                 },
             },
         ]
     )
     monkeypatch.setattr("hushh_mcp.services.google_drive_mcp_service.list_tools", catalog)
-    discovered = await GoogleDriveMcpService(connections=connections).discover_read_tools()
-    assert [item["name"] for item in discovered] == ["read_file_content", "search_files"]
-    assert discovered[0]["description"] == "x" * 700
-    assert discovered[1]["inputSchema"]["properties"]["query"]["type"] == "string"
-    catalog.assert_awaited_once_with(endpoint="https://drivemcp.googleapis.com/mcp/v1")
-    connections.access_token.assert_not_called()
 
+    result = await GoogleDriveMcpService(oauth=oauth()).discover_read_tools()
 
-@pytest.mark.asyncio
-async def test_duplicate_capability_name_is_not_admitted(monkeypatch):
-    catalog = AsyncMock(
-        return_value=[
-            {"name": "search_files", "inputSchema": {"type": "object"}},
-            {"name": "search_files", "inputSchema": {"type": "object"}},
-        ]
-    )
-    monkeypatch.setattr("hushh_mcp.services.google_drive_mcp_service.list_tools", catalog)
-    assert await GoogleDriveMcpService(connections=SimpleNamespace()).discover_read_tools() == []
-
-
-@pytest.mark.asyncio
-async def test_external_dynamic_reference_is_never_resolved(monkeypatch):
-    connections = SimpleNamespace(access_token=AsyncMock())
-    transport = AsyncMock()
-    monkeypatch.setattr(
-        "hushh_mcp.services.google_drive_mcp_service.list_tools",
-        AsyncMock(
-            return_value=[
-                {
-                    "name": "search_files",
-                    "inputSchema": {
-                        "type": "object",
-                        "properties": {"query": {"$dynamicRef": "https://example.invalid/private"}},
-                    },
-                }
-            ]
-        ),
-    )
-    monkeypatch.setattr("hushh_mcp.services.google_drive_mcp_service.call_tool", transport)
-    service = GoogleDriveMcpService(connections=connections)
-    assert await service.discover_read_tools() == []
-    with pytest.raises(GoogleConnectionError):
-        await service.read_tool(
-            user_id="owner", tool_name="search_files", arguments={"query": "synthetic"}
-        )
-    connections.access_token.assert_not_called()
-    transport.assert_not_called()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "tool",
-    [
-        "download_file_content",
-        "copy_file",
-        "create_file",
-        "delete_file",
-        "search_files_and_send",
-        "SEARCH_FILES",
-        " search_files",
-        "",
-        "unknown",
-    ],
-)
-async def test_unapproved_tools_fail_before_credentials_or_mcp(monkeypatch, tool):
-    connections = SimpleNamespace(access_token=AsyncMock(return_value="synthetic-cumulative-token"))
-    transport = AsyncMock()
-    monkeypatch.setattr("hushh_mcp.services.google_drive_mcp_service.call_tool", transport)
-    with pytest.raises(GoogleConnectionError) as error:
-        await GoogleDriveMcpService(connections=connections).read_tool(
-            user_id="owner", tool_name=tool, arguments={}
-        )
-    assert error.value.status_code == 403
-    connections.access_token.assert_not_called()
-    transport.assert_not_called()
+    assert [item["name"] for item in result] == ["read_file_content"]
+    assert len(result[0]["description"]) == 700
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("tool", sorted(GOOGLE_DRIVE_READ_TOOLS))
-async def test_reads_use_owner_service_grant_and_pinned_official_endpoint(monkeypatch, tool):
-    _admit_schema(monkeypatch, tool)
-    connections = SimpleNamespace(access_token=AsyncMock(return_value="synthetic-token"))
-    outcome = ExternalMcpToolResult(is_error=False, payload={"synthetic": True}, truncated=False)
-    transport = AsyncMock(return_value=outcome)
+async def test_every_reviewed_read_capability_uses_live_owner_credential(monkeypatch, tool):
+    admit(monkeypatch, tool)
+    owner = oauth()
+    transport = AsyncMock(return_value=ExternalMcpToolResult(False, {"ok": True}, False))
     monkeypatch.setattr("hushh_mcp.services.google_drive_mcp_service.call_tool", transport)
-    result = await GoogleDriveMcpService(connections=connections).read_tool(
+
+    await GoogleDriveMcpService(oauth=owner).read_tool(
         user_id="owner", tool_name=tool, arguments={}
     )
-    connections.access_token.assert_awaited_once_with(
-        user_id="owner", service="drive", access_level="read"
-    )
-    transport.assert_awaited_once_with(
-        tool,
-        {},
-        endpoint="https://drivemcp.googleapis.com/mcp/v1",
-        headers={"Authorization": "Bearer synthetic-token"},
-    )
-    assert result is outcome
+
+    owner.current_credential.assert_awaited_once_with(user_id="owner", required_profile="live")
+    assert transport.await_args.kwargs["endpoint"] == "https://drivemcp.googleapis.com/mcp/v1"
 
 
 @pytest.mark.asyncio
-async def test_missing_owner_or_refused_grant_never_dispatches(monkeypatch):
-    _admit_schema(monkeypatch, "search_files")
-    connections = SimpleNamespace(
-        access_token=AsyncMock(
-            side_effect=GoogleConnectionError(
-                "Additional Google service permission is required", status_code=403
-            )
+@pytest.mark.parametrize(
+    "tool", ["copy_file", "delete_file", "download_file_content", "", "SEARCH_FILES"]
+)
+async def test_write_or_unknown_tools_fail_before_credential(monkeypatch, tool):
+    owner = oauth()
+    monkeypatch.setattr("hushh_mcp.services.google_drive_mcp_service.call_tool", AsyncMock())
+    with pytest.raises(DriveOAuthError):
+        await GoogleDriveMcpService(oauth=owner).read_tool(
+            user_id="owner", tool_name=tool, arguments={}
         )
-    )
-    transport = AsyncMock()
+    owner.current_credential.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_read_uses_current_live_credential_and_fixed_endpoint(monkeypatch):
+    admit(monkeypatch)
+    owner = oauth()
+    outcome = ExternalMcpToolResult(is_error=False, payload={"files": []}, truncated=False)
+    transport = AsyncMock(return_value=outcome)
     monkeypatch.setattr("hushh_mcp.services.google_drive_mcp_service.call_tool", transport)
-    adapter = GoogleDriveMcpService(connections=connections)
-    for owner in ["", "owner"]:
-        with pytest.raises(GoogleConnectionError):
-            await adapter.read_tool(user_id=owner, tool_name="search_files", arguments={})
-    assert connections.access_token.await_count == 1
-    transport.assert_not_called()
+    result = await GoogleDriveMcpService(oauth=owner).read_tool(
+        user_id="owner", tool_name="search_files", arguments={"query": "name contains 'statement'"}
+    )
+    assert result is outcome
+    owner.current_credential.assert_awaited_once_with(user_id="owner", required_profile="live")
+    transport.assert_awaited_once_with(
+        "search_files",
+        {"query": "name contains 'statement'"},
+        endpoint="https://drivemcp.googleapis.com/mcp/v1",
+        headers={"Authorization": "Bearer synthetic-live-token"},
+    )
 
 
 @pytest.mark.asyncio
 async def test_oversized_arguments_fail_before_catalog_or_credentials(monkeypatch):
     catalog = AsyncMock()
-    monkeypatch.setattr("hushh_mcp.services.google_drive_mcp_service.list_tools", catalog)
-    connections = SimpleNamespace(access_token=AsyncMock())
+    monkeypatch.setattr(GoogleDriveMcpService, "discover_read_tools", catalog)
+    owner = oauth()
 
-    with pytest.raises(GoogleConnectionError) as error:
-        await GoogleDriveMcpService(connections=connections).read_tool(
+    with pytest.raises(DriveOAuthError) as error:
+        await GoogleDriveMcpService(oauth=owner).read_tool(
             user_id="owner",
             tool_name="search_files",
             arguments={"query": "x" * 5000},
         )
 
     assert error.value.status_code == 400
-    catalog.assert_not_called()
-    connections.access_token.assert_not_called()
+    catalog.assert_not_awaited()
+    owner.current_credential.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_existing_calendar_grant_cannot_authorize_drive(monkeypatch):
-    _admit_schema(monkeypatch, "search_files")
-
-    class Db:
-        def execute_raw(self, sql, params):
-            if "google_provider_connections" in sql:
-                return SimpleNamespace(
-                    data=[
-                        {
-                            "status": "connected",
-                            "provider_subject": "google-a",
-                            "service_status": "connected",
-                            "service_access_level": "read",
-                            "service_scope_csv": "https://www.googleapis.com/auth/calendar.events.readonly",
-                        }
-                    ]
-                )
-            assert params["service"] == "drive"
-            return SimpleNamespace(
-                data=[
-                    {
-                        "status": "connected",
-                        "access_level": "read",
-                        "scope_csv": "https://www.googleapis.com/auth/calendar.events.readonly",
-                    }
-                ]
+async def test_unverified_or_selected_grant_never_dispatches(monkeypatch):
+    admit(monkeypatch)
+    transport = AsyncMock()
+    monkeypatch.setattr("hushh_mcp.services.google_drive_mcp_service.call_tool", transport)
+    for owner in (oauth(verified=False), oauth(profile="selected")):
+        with pytest.raises(DriveOAuthError):
+            await GoogleDriveMcpService(oauth=owner).read_tool(
+                user_id="owner", tool_name="search_files", arguments={}
             )
-
-    connections = GoogleConnectionService(db=Db())
-    transport = AsyncMock()
-    monkeypatch.setattr("hushh_mcp.services.google_drive_mcp_service.call_tool", transport)
-    with pytest.raises(GoogleConnectionError) as error:
-        await GoogleDriveMcpService(connections=connections).read_tool(
-            user_id="owner", tool_name="search_files", arguments={}
-        )
-    assert error.value.status_code == 403
-    transport.assert_not_called()
+    transport.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_invalid_arguments_and_missing_catalog_capability_fail_before_grant(monkeypatch):
-    connections = SimpleNamespace(access_token=AsyncMock())
+async def test_missing_owner_or_disabled_live_feature_never_reads(monkeypatch):
+    owner = oauth()
     transport = AsyncMock()
     monkeypatch.setattr("hushh_mcp.services.google_drive_mcp_service.call_tool", transport)
-    _admit_schema(
+    service = GoogleDriveMcpService(oauth=owner)
+
+    with pytest.raises(DriveOAuthError):
+        await service.read_tool(user_id="", tool_name="search_files", arguments={})
+    owner.current_credential.assert_not_awaited()
+
+    monkeypatch.setattr(
+        "hushh_mcp.services.google_drive_mcp_service.connector_feature_enabled",
+        lambda *_: False,
+    )
+    with pytest.raises(DriveOAuthError):
+        await service.read_tool(user_id="owner", tool_name="search_files", arguments={})
+    owner.current_credential.assert_not_awaited()
+    transport.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_invalid_arguments_and_missing_catalog_tool_never_dispatch(monkeypatch):
+    admit(
         monkeypatch,
         "search_files",
         {
@@ -269,14 +225,58 @@ async def test_invalid_arguments_and_missing_catalog_capability_fail_before_gran
             "additionalProperties": False,
         },
     )
-    service = GoogleDriveMcpService(connections=connections)
-    for name, args in [
+    transport = AsyncMock()
+    monkeypatch.setattr("hushh_mcp.services.google_drive_mcp_service.call_tool", transport)
+    service = GoogleDriveMcpService(oauth=oauth())
+
+    for name, arguments in (
         ("get_file_metadata", {}),
         ("search_files", {}),
-        ("search_files", {"query": "x", "unapproved": True}),
-        ("search_files", {"query": "x" * 5000}),
-    ]:
-        with pytest.raises(GoogleConnectionError):
-            await service.read_tool(user_id="owner", tool_name=name, arguments=args)
-    connections.access_token.assert_not_called()
-    transport.assert_not_called()
+        ("search_files", {"query": "ok", "unexpected": True}),
+        ("search_files", {"query": "x" * 121}),
+    ):
+        with pytest.raises(DriveOAuthError):
+            await service.read_tool(user_id="owner", tool_name=name, arguments=arguments)
+
+    transport.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_owner_discovery_requires_verified_live_oauth_and_stable_generation(monkeypatch):
+    catalog = AsyncMock(return_value=[{"name": "search_files", "inputSchema": {"type": "object"}}])
+    monkeypatch.setattr(GoogleDriveMcpService, "discover_read_tools", catalog)
+    monkeypatch.setattr(
+        "hushh_mcp.services.google_drive_mcp_service.connector_feature_enabled",
+        lambda *_: True,
+    )
+    owner = oauth()
+    service = GoogleDriveMcpService(oauth=owner)
+
+    result = await service.discover_for_owner(user_id="owner")
+
+    assert result == [{"name": "search_files", "inputSchema": {"type": "object"}}]
+    owner.current_credential.assert_awaited_once_with(user_id="owner", required_profile="live")
+    catalog.assert_awaited_once_with(access_token="synthetic-live-token")  # noqa: S106 - fake token
+
+    owner.lifecycle.read.return_value = {"connection_generation": 5}
+    with pytest.raises(DriveOAuthError, match="connection_changed"):
+        await GoogleDriveMcpService(oauth=owner).discover_for_owner(user_id="owner")
+
+
+@pytest.mark.asyncio
+async def test_generation_change_discards_provider_result(monkeypatch):
+    admit(monkeypatch)
+    owner = oauth()
+    owner.lifecycle.read.return_value = {
+        "connection_generation": 5,
+        "status": "connected",
+        "verified_policy_hash": LIVE_POLICY_HASH,
+    }
+    monkeypatch.setattr(
+        "hushh_mcp.services.google_drive_mcp_service.call_tool",
+        AsyncMock(return_value=ExternalMcpToolResult(False, {"files": []}, False)),
+    )
+    with pytest.raises(DriveOAuthError, match="connection_changed"):
+        await GoogleDriveMcpService(oauth=owner).read_tool(
+            user_id="owner", tool_name="search_files", arguments={}
+        )

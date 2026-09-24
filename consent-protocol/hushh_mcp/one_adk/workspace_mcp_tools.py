@@ -16,6 +16,7 @@ from hushh_mcp.adk_bridge.delegation import validate_first_party_owner_token
 from hushh_mcp.one_adk.request_secrets import resolve_request_secret
 from hushh_mcp.runtime_settings import pod_mode
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
+from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
 from hushh_mcp.services.gmail_receipts_service import GmailApiError, GmailReceiptsService
 from hushh_mcp.services.google_calendar_mcp_service import GoogleCalendarMcpService
 from hushh_mcp.services.google_connection_service import (
@@ -216,20 +217,28 @@ async def discover_workspace_tools(
     if owner is None:
         return {"status": "blocked", "message": "This connection is unavailable in this session."}
     try:
-        binding = await _grant_binding(owner, provider)
+        # Live Drive MCP owns its OAuth profile and connection-generation
+        # checks. Do not require a parallel legacy Google service grant.
+        binding = () if provider == "drive" else await _grant_binding(owner, provider)
         if binding is None:
             return {"status": "permission_required", "message": "Connect this service to read it."}
         service = _service(provider)
         tools = (
-            await service.discover_read_tools()
+            await service.discover_for_owner(user_id=owner)
             if provider == "drive"
             else await service.discover_read_tools(user_id=owner)
         )
-        if (
-            await _owner(tool_context, provider) != owner
-            or await _grant_binding(owner, provider) != binding
+        if await _owner(tool_context, provider) != owner or (
+            provider != "drive" and await _grant_binding(owner, provider) != binding
         ):
             return {"status": "blocked", "message": "The session changed. Try again."}
+    except DriveOAuthError as error:
+        return {
+            "status": "permission_required"
+            if error.status_code in {401, 403, 409}
+            else "unavailable",
+            "message": "Connect live Drive access to check these capabilities.",
+        }
     except Exception:  # noqa: BLE001 - provider details may contain credentials
         return {"status": "unavailable", "message": "These capabilities could not be checked."}
     trusted_tools = _trusted_catalog(provider, tools)
@@ -255,20 +264,21 @@ async def read_workspace_tool(
     if owner is None:
         return {"status": "blocked", "message": "This connection is unavailable in this session."}
     try:
-        binding = await _grant_binding(owner, provider)
+        # GoogleDriveMcpService rechecks its verified live OAuth generation
+        # before and after the provider call; legacy grants are not authority.
+        binding = () if provider == "drive" else await _grant_binding(owner, provider)
         if binding is None:
             return {"status": "permission_required", "message": "Connect this service to read it."}
         result = await _service(provider).read_tool(
             user_id=owner, tool_name=tool_name, arguments=arguments
         )
-        if (
-            await _owner(tool_context, provider) != owner
-            or await _grant_binding(owner, provider) != binding
+        if await _owner(tool_context, provider) != owner or (
+            provider != "drive" and await _grant_binding(owner, provider) != binding
         ):
             return {"status": "blocked", "message": "The connection changed. Try again."}
         if result.is_error:
             return {"status": "unavailable", "message": "The service could not complete that read."}
-    except (GoogleConnectionError, GmailApiError) as error:
+    except (DriveOAuthError, GoogleConnectionError, GmailApiError) as error:
         return {
             "status": "permission_required"
             if error.status_code in {401, 403, 409}

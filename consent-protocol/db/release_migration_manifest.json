@@ -211,7 +211,8 @@
     "236_drive_native_picker_attempts.sql",
     "237_gmail_personal_information_request_incremental_backfill.sql",
     "238_gmail_personal_information_request_classifier_policy_version.sql",
-    "239_drop_server_plaid_custody.sql"
+    "239_drop_server_plaid_custody.sql",
+    "241_drive_live_sharing.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -437,6 +438,7 @@
     "223_one_location_setup_progress.sql": "rollback/223_one_location_setup_progress.rollback.sql",
     "226_pkm_manifest_path_repair.sql": "rollback/226_pkm_manifest_path_repair.rollback.sql",
     "227_gmail_personal_information_request_incremental_backfill.sql": "rollback/227_gmail_personal_information_request_incremental_backfill.rollback.sql",
-    "239_drop_server_plaid_custody.sql": "rollback/239_drop_server_plaid_custody.rollback.sql"
+    "239_drop_server_plaid_custody.sql": "rollback/239_drop_server_plaid_custody.rollback.sql",
+    "241_drive_live_sharing.sql": "rollback/241_drive_live_sharing.rollback.sql"
   }
 }

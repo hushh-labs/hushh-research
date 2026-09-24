@@ -17,6 +17,7 @@ const state = vi.hoisted(() => ({
   overview: vi.fn(),
   reauthenticate: vi.fn(),
   create: vi.fn(),
+  lookupClient: vi.fn(),
   invalidate: vi.fn(),
 }));
 vi.mock("@/lib/cache/cache-sync-service", () => ({ CacheSyncService: { onConsentMutated: state.invalidate } }));
@@ -47,7 +48,7 @@ vi.mock("@/lib/services/api-service", () => ({
 }));
 vi.mock("@/lib/services/drive-sharing-service", async (original) => ({
   ...(await original<typeof import("@/lib/services/drive-sharing-service")>()),
-  DriveSharingService: { create: state.create },
+  DriveSharingService: { create: state.create, lookupClient: state.lookupClient },
 }));
 import { DocumentRequestButton } from "@/components/consent/document-request-button";
 import { CONSENT_ACTION_COMPLETE_EVENT } from "@/lib/consent/consent-events";
@@ -84,8 +85,25 @@ describe("recipient document request", () => {
       status: "pending",
       revision: 0,
     });
+    state.lookupClient.mockResolvedValue(null);
   });
   afterEach(cleanup);
+  it("sends a staged chat card with its resolved dates and original retry key only after a tap", async () => {
+    const clientRequestId = "33333333-3333-4333-8333-333333333333";
+    render(<DocumentRequestButton personRef={personRef} personName="A" draft={{
+      clientRequestId, purpose: "Six months of statements",
+      periodStart: "2026-03-01", periodEnd: "2026-08-31",
+    }} />);
+    expect(await screen.findByText("Requested period: 2026-03-01 – 2026-08-31")).toBeTruthy();
+    expect(state.create).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Verify Google & send request" }));
+    await waitFor(() => expect(state.create).toHaveBeenCalledWith(
+      "owner-b", "fresh-proof",
+      { ownerPersonRef: personRef, clientRequestId,
+        purpose: { purpose: "Six months of statements", periodStart: "2026-03-01", periodEnd: "2026-08-31" } },
+      expect.any(Function),
+    ));
+  });
   it.each([false, true])("requires explicit submission and single-flight Google verification (native=%s)", async (native) => {
     state.native = native;
     mount();

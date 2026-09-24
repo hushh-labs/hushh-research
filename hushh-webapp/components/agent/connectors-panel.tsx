@@ -58,6 +58,7 @@ import {
 } from "@/lib/services/google-drive-picker-service";
 import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
 import type { DriveChatRecoveryReason } from "@/lib/agent/drive-oauth-chat-recovery";
+import { TrustedDocumentRules } from "@/components/consent/trusted-document-rules";
 
 type Props = {
   open: boolean;
@@ -228,6 +229,7 @@ function OwnerConnectorsPanel({
   const [overview, setOverview] = useState<ConnectorOverview | null>(null);
   const [documents, setDocuments] = useState<DriveDocument[]>([]);
   const [allowBackground, setAllowBackground] = useState(false);
+  const [liveBackground, setLiveBackground] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(false);
   const [statusChecked, setStatusChecked] = useState(false);
   const [driveMessage, setDriveMessage] = useState("");
@@ -390,6 +392,17 @@ function OwnerConnectorsPanel({
   const drive = overview?.connectors.find(
     (item) => item.connectorId === "google_drive",
   );
+  useEffect(() => {
+    if (!open || !vaultOwnerToken || drive?.profile !== "live" || drive.status !== "connected") {
+      setLiveBackground(null);
+      return;
+    }
+    let active = true;
+    void ExternalConnectorService.liveBackground(vaultOwnerToken)
+      .then((enabled) => { if (active) setLiveBackground(enabled); })
+      .catch(() => { if (active) setLiveBackground(null); });
+    return () => { active = false; };
+  }, [open, vaultOwnerToken, drive?.profile, drive?.status]);
   const hasDriveGrant = Boolean(
     drive && !["not_connected", "revoked"].includes(drive.status),
   );
@@ -660,7 +673,7 @@ function OwnerConnectorsPanel({
     [drainQueuedNativePickerReconcile],
   );
 
-  const startDrive = () => {
+  const startDrive = (profile: "selected" | "live" = "selected") => {
     if (!vaultOwnerToken || driveLock.current) return;
     if (Capacitor.isNativePlatform()) {
       void runDrive(async (token, signal) => {
@@ -672,6 +685,7 @@ function OwnerConnectorsPanel({
           connectorId: "google_drive",
           redirectUri: ExternalConnectorService.nativeDriveOAuthCallbackUri(),
           flow: "native",
+          profile,
           isEffectCurrent,
         });
         const expiresAt = Date.parse(start.expiresAt);
@@ -741,7 +755,9 @@ function OwnerConnectorsPanel({
         if (!signal.aborted) {
           setDriveMessage(
             finalized
-              ? "Drive connected. Choose files to authorize them."
+              ? profile === "live"
+                ? "Live Drive access connected. Ask One to find files."
+                : "Drive connected. Choose files to authorize them."
               : "Drive authorization is still settling. Reopen Connectors to check it.",
           );
         }
@@ -756,6 +772,7 @@ function OwnerConnectorsPanel({
           connectorId: "google_drive",
           redirectUri: `${window.location.origin}${ROUTES.PROFILE_CONNECTOR_OAUTH_RETURN}`,
           flow: "web",
+          profile,
         });
         if (signal.aborted || !start.attemptId || start.connectorId !== "google_drive") return;
         const authorizeUrl = new URL(start.authorizeUrl);
@@ -796,6 +813,7 @@ function OwnerConnectorsPanel({
           connectorId: "google_drive",
           redirectUri: `${window.location.origin}${ROUTES.PROFILE_CONNECTOR_OAUTH_RETURN}`,
           flow: "web",
+          profile,
         });
         if (signal.aborted) return;
         if (!start.attemptId || start.connectorId !== "google_drive")
@@ -809,7 +827,9 @@ function OwnerConnectorsPanel({
         await waitForDrivePopup(popup, attempt, signal);
         if (!signal.aborted && (await refresh(signal)))
           setDriveMessage(
-            "Connection checked. Choose files if authorized, or retry Connect.",
+            profile === "live"
+              ? "Live Drive connection checked. Ask One to find files."
+              : "Connection checked. Choose files if authorized, or retry Connect.",
           );
       } finally {
         signal.removeEventListener("abort", close);
@@ -1061,6 +1081,7 @@ function OwnerConnectorsPanel({
     drive?.available !== false &&
     overview?.features.google_drive_connection === true;
   const canPick =
+    drive?.profile !== "live" &&
     drive?.available !== false &&
     overview?.features.google_drive_picker === true &&
     ["connected", "verifying"].includes(drive?.status ?? "");
@@ -1159,7 +1180,7 @@ function OwnerConnectorsPanel({
             label: "Connect Google Drive",
             onClick: () => {
               showConnector("google_drive");
-              startDrive();
+              startDrive("selected");
             },
             disabled: driveBusy || loading || !canConnectDrive,
           },
@@ -1417,11 +1438,21 @@ function OwnerConnectorsPanel({
                   <Button
                     className={touch}
                     disabled={driveBusy || loading || !canConnectDrive}
-                    onClick={startDrive}
+                    onClick={() => startDrive(drive?.profile === "live" ? "live" : "selected")}
                   >
                     {hasDriveGrant ? "Reconnect Drive" : "Connect Drive"}
                   </Button>
                 )}
+                {overview?.features.google_drive_live === true &&
+                  drive?.profile !== "live" && (
+                    <Button
+                      className={touch}
+                      disabled={driveBusy || loading || !canConnectDrive}
+                      onClick={() => startDrive("live")}
+                    >
+                      Enable live Drive access
+                    </Button>
+                  )}
                 {hasDriveGrant && (
                   <Button
                     className={touch}
@@ -1457,6 +1488,27 @@ function OwnerConnectorsPanel({
                   Retry Drive
                 </Button>
               </div>
+              {overview?.features.google_drive_live === true && drive?.profile !== "live" && (
+                <p className="text-sm text-muted-foreground">
+                  Live access lets One search your Drive when needed. Connecting never shares files;
+                  each request still needs your approval or a separate permission you set.
+                </p>
+              )}
+              {drive?.profile === "live" && drive.status === "connected" && (
+                <div className="space-y-3 rounded-lg border border-border p-3">
+                  <p className="text-sm">Background preparation lets One find candidate files after someone requests them, even while your app is closed. It does not share files; you still approve each review unless you separately trust that person for the same exact files and request purpose.</p>
+                  <Button className={touch} disabled={driveBusy || liveBackground === null}
+                    onClick={() => void runDrive(async (token) => {
+                      const next = !liveBackground;
+                      await ExternalConnectorService.setLiveBackground(token, next);
+                      setLiveBackground(next);
+                      setDriveMessage(next ? "Background preparation enabled." : "Background preparation disabled.");
+                    })}>
+                    {liveBackground ? "Disable background preparation" : "Enable background preparation"}
+                  </Button>
+                </div>
+              )}
+              {vaultOwnerToken ? <TrustedDocumentRules token={vaultOwnerToken} /> : null}
               {!canConnectDrive && (
                 <p className="text-sm text-muted-foreground">
                   Drive connection is unavailable in this session. Try again after reconnecting.
