@@ -50,7 +50,7 @@ async def interpret(*, prompt, user_id, consent_token):
         output_schema=DocumentAnswer,
     )
     result = await run_single_turn(
-        agent, prompt_parts=prompt, user_id=user_id, consent_token=consent_token, timeout_seconds=20
+        agent, prompt_parts=prompt, user_id=user_id, consent_token=consent_token, timeout_seconds=45
     )
     return result.model_dump(mode="json") if hasattr(result, "model_dump") else result
 
