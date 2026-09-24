@@ -56,12 +56,15 @@ async def _owner(tool_context: ToolContext) -> str | None:
 
 
 async def inspect_selected_drive_files(file_name: str, tool_context: ToolContext) -> dict[str, Any]:
-    """Check connection and selected-file processing for a named file.
+    """Check the owner's current Drive connection and selected-file status.
 
-    Use for "do you have this file?", selected-file status, and sharing requests.
-    Pass only the file name from the request, without the recipient or action.
-    This reads only the owner's selected metadata. It cannot search all of Drive,
-    read contents, identify a recipient, create a draft, or share a file.
+    For general Drive access or selection questions, pass file_name="". That
+    returns only connection state and selected count, without any filenames.
+    For a named file, pass only its name, not a recipient or action. Resolve
+    "it" or "that file" only from an unambiguous name in this conversation;
+    never guess a name from another chat or the selected-file catalog.
+    This reads only the owner's selected metadata. It cannot search all of
+    Drive, read contents, identify a recipient, create a draft, or share.
     """
     owner = await _owner(tool_context)
     if owner is None:
@@ -109,7 +112,9 @@ async def inspect_selected_drive_files(file_name: str, tool_context: ToolContext
         else "reconnect_required"
     )
     selected = documents if connection == "connected" else []
-    matches = _matches(selected, file_name)
+    # The empty name is the aggregate status request. Never enumerate selected
+    # filenames merely to answer whether Drive is connected or has selections.
+    matches = _matches(selected, file_name) if file_name.strip() else []
     return {
         "source": PRIVATE_SOURCE,
         "status": "ok",
