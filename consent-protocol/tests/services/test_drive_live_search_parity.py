@@ -464,3 +464,101 @@ def test_file_dates_show_in_the_owners_timezone():
         timezone="Asia/Kolkata",
     )
     assert "2026-09-24" in text and "2026-09-23" not in text
+
+
+async def test_a_date_only_listing_states_the_owners_window_and_names_each_file(monkeypatch):
+    """S1: "what did I change on 21 September" lists files, states the owner's
+    own window, and never reads content (metadata-only find)."""
+    open_url = "https://drive.google.com/file/d/1AbCdEfGhIjKlMnOpQrStUvWxYz012345/view"
+    reader = SimpleNamespace(
+        find=AsyncMock(
+            return_value={
+                "matches": [
+                    {
+                        "file_id": "1AbCdEfGhIjKlMnOpQrStUvWxYz012345",
+                        "name": "Budget review",
+                        "mime_type": "application/vnd.google-apps.document",
+                        "modified_time": "2026-09-21T05:00:00Z",
+                        "created_time": "2026-09-01T05:00:00Z",
+                        "source_ref": "document:" + "c" * 32,
+                        "open_url": open_url,
+                    }
+                ],
+                "truncated": False,
+            }
+        ),
+        # A spy, not a raising stub: run_live_query's broad except would swallow a raise.
+        read_matches=AsyncMock(),
+        require_current=AsyncMock(),
+    )
+    monkeypatch.setattr(drive_chat_service, "DriveLiveReader", lambda **kwargs: reader)
+    chat = DriveChatService(
+        oauth=SimpleNamespace(current_credential=AsyncMock(return_value=({}, {"profile": "live"}))),
+        search_planner=AsyncMock(
+            return_value={
+                "mode": "find",
+                "date_from": "2026-09-21",
+                "date_to": "2026-09-21",
+                "time_intent": "file_activity",
+            }
+        ),
+    )
+    response = await chat.handle_delegated_turn(
+        user_id="owner",
+        consent_token="",
+        conversation_id="conversation",
+        message="what did I change on 21 September",
+        require_access=AsyncMock(),
+        timezone="Asia/Kolkata",
+    )
+    kwargs = reader.find.await_args.kwargs
+    assert kwargs["query"] == []
+    assert kwargs["time_field"] == "modifiedTime"
+    assert (kwargs["start_time"], kwargs["end_time"]) == (
+        "2026-09-20T18:30:00Z",
+        "2026-09-21T18:30:00Z",
+    )
+    assert kwargs["title_dates"] == ["2026-09-21"]
+    text = response["response"]
+    assert text.splitlines()[1] == (
+        "Files modified from 2026-09-21 00:00 through 2026-09-22 00:00 (Asia/Kolkata)."
+    )
+    assert f"1. Budget review · file · 2026-09-21 — [Open in Drive]({open_url})" in text
+    assert reader.read_matches.called is False
+    assert response["structured"]["metadata_only"] is True
+
+
+@pytest.mark.parametrize("time_field", ["modifiedTime", "createdTime"])
+async def test_a_file_date_window_asks_drive_to_rank_by_that_date_before_the_cut(time_field):
+    """S2: the 25-file cut must keep the newest files by the date the owner asked
+    about, so the date-bounded search asks Drive to sort by that field."""
+    window = f"({time_field} >= '2026-09-17T00:00:00Z' and {time_field} < '2026-09-24T00:00:00Z')"
+    reader, calls = reader_with({("search_files", window): [file("w1", "Weekly notes")]})
+    await reader.find(
+        query=[],
+        time_field=time_field,
+        start_time="2026-09-17T00:00:00Z",
+        end_time="2026-09-24T00:00:00Z",
+    )
+    assert calls[0][2]["orderBy"] == f"{time_field} desc"
+
+    day = f"({time_field} >= '2026-09-17T00:00:00Z' and {time_field} < '2026-09-18T00:00:00Z')"
+    reader, calls = reader_with(
+        {("search_files", day): [], ("search_files", "title contains '2026/09/17'"): []}
+    )
+    await reader.find(
+        query=[],
+        time_field=time_field,
+        start_time="2026-09-17T00:00:00Z",
+        end_time="2026-09-18T00:00:00Z",
+        title_dates=["2026-09-17"],
+    )
+    assert calls[0][2]["orderBy"] == f"{time_field} desc"
+    # The title-date lookup is not a time window; it keeps Drive's own order.
+    assert calls[-1][1] == "title contains '2026/09/17'"
+    assert "orderBy" not in calls[-1][2]
+
+    # Without a date window the transport keeps its own default order.
+    reader, calls = reader_with({("search_files", "mimeType = 'application/pdf'"): []})
+    await reader.find(query=[], file_kind="pdf")
+    assert "orderBy" not in calls[0][2]

@@ -11,7 +11,9 @@ import pytest
 from sqlalchemy import text
 
 from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
+from hushh_mcp.services.drive_permission_executor import DrivePermissionExecutor
 from hushh_mcp.services.drive_permission_store import DrivePermissionStore
+from hushh_mcp.services.drive_permission_worker import DrivePermissionWorker
 from hushh_mcp.services.drive_sharing_contract import (
     BROAD_TRUST_DISCLOSURE,
     BROAD_TRUST_SCOPE,
@@ -19,9 +21,12 @@ from hushh_mcp.services.drive_sharing_contract import (
     ShareRequestPurpose,
     VerifiedGoogleRecipient,
 )
+from hushh_mcp.services.drive_sharing_projection_store import DriveSharingProjectionStore
+from hushh_mcp.services.drive_sharing_service import DriveSharingService
 from hushh_mcp.services.drive_suggestion_service import DriveSuggestionService
 from hushh_mcp.services.drive_suggestion_store import DriveSuggestionStore
 from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH, DriveReadError
+from hushh_mcp.services.google_drive_permission_adapter import CreatedReader, PermissionSnapshot
 from tests.services.test_drive_sharing_store import (
     MIGRATIONS,
     connector_postgres_url,
@@ -186,6 +191,102 @@ async def test_zero_index_foreground_then_new_file_trusted_repeat_and_revocation
     )
     with pytest.raises(DriveSharingError, match="approval_superseded"):
         await permissions.claim_grant(user_id="owner", operation_id=str(operation["operation_id"]))
+
+
+async def test_trusted_rule_grants_a_future_file_while_owner_is_away_and_recipient_opens_the_original(
+    live_journey,
+):
+    """S19/S16: A trusts B once; a later request is prepared and delivered with no
+    owner session, and B opens the original Drive file, never a copy."""
+    store, preferences, service, create = live_journey
+    first = await create("First document")
+    owner = AsyncMock()
+    assert (
+        await service(owner).run_one(user_id="owner", request_id=first["requestId"])
+        == "review_ready"
+    )
+    review = await store.owner_review(user_id="owner", request_id=first["requestId"])
+    await store.approve_review(
+        user_id="owner",
+        generation=1,
+        request_id=first["requestId"],
+        revision=review["revision"],
+        review_digest=review["reviewDigest"],
+        document_ids=[item["documentId"] for item in review["files"]],
+        confirmed=True,
+        trust_future_requests=True,
+        trust_scope=BROAD_TRUST_SCOPE,
+        trust_disclosure_version=BROAD_TRUST_DISCLOSURE,
+    )
+    await preferences.set_background(user_id="owner", enabled=True, confirmed=True)
+    owner_calls = owner.await_count
+    second = await create("Different document and purpose")
+    assert (
+        await service().run_one(user_id="owner", request_id=second["requestId"]) == "review_ready"
+    )
+
+    # The scheduled drain: the real worker and executor, synthetic Google boundary.
+    oauth = SimpleNamespace(
+        current_credential=AsyncMock(
+            return_value=(
+                {"connection_generation": 1},
+                {
+                    "accessToken": "synthetic-token",
+                    "subject": "12345",
+                    "oauthClientId": "synthetic-client",
+                },
+            )
+        )
+    )
+    adapter = SimpleNamespace(
+        inspect_shareable=AsyncMock(),
+        list_permissions=AsyncMock(return_value=PermissionSnapshot(())),
+        create_reader=AsyncMock(
+            return_value=CreatedReader("synthetic-permission", "recipient@example.invalid")
+        ),
+        remove_recorded_permission=AsyncMock(),
+    )
+    worker = DrivePermissionWorker(
+        DrivePermissionExecutor(
+            store=DrivePermissionStore(db=store.db, authority_key="synthetic-ledger-key"),
+            oauth=oauth,
+            adapter=adapter,
+            verify_recipient=AsyncMock(),
+        )
+    )
+    assert (await worker.run())["outcomes"] == {"succeeded": 2}
+    assert oauth.current_credential.await_count == 2
+    assert all(
+        call.kwargs["required_profile"] == "live"
+        for call in oauth.current_credential.await_args_list
+    )
+    inspected = {
+        call.kwargs["file_id"]: call.kwargs for call in adapter.inspect_shareable.await_args_list
+    }
+    assert set(inspected) == {"new-file-1", "new-file-2"}
+    assert inspected["new-file-2"]["require_app_authorized"] is False
+    assert inspected["new-file-2"]["require_genai_eligibility"] is False
+    assert {call.kwargs["verified_email"] for call in adapter.create_reader.await_args_list} == {
+        "recipient@example.invalid"
+    }
+    # Nothing on the second request needed the owner to be present.
+    assert owner.await_count == owner_calls
+
+    sharing_view = DriveSharingService(
+        oauth=object(),
+        store=DriveSharingProjectionStore(db=store.db, authority_key="synthetic-ledger-key"),
+        verify_recipient=AsyncMock(),
+    )
+    delivered = await sharing_view.delivery(user_id="recipient", request_id=second["requestId"])
+    assert [item["openUrl"] for item in delivered["files"]] == [
+        "https://drive.google.com/file/d/new-file-2/view"
+    ]
+    assert delivered["files"][0]["name"] == "Requested document"
+    assert "new-file-1" not in str(delivered)
+    foreground = await sharing_view.delivery(user_id="recipient", request_id=first["requestId"])
+    assert [item["openUrl"] for item in foreground["files"]] == [
+        "https://drive.google.com/file/d/new-file-1/view"
+    ]
 
 
 @pytest.mark.parametrize(

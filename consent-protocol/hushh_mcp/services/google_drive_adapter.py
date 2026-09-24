@@ -59,8 +59,9 @@ SHARE_METADATA_FIELDS = (
 # Live search: one bounded files.list shape, never a caller-chosen field set.
 LIST_FIELDS = "nextPageToken,files(id,name,mimeType,modifiedTime,createdTime,webViewLink)"
 # Drive sorts each key ascending unless told "desc"; live results are newest
-# first. modifiedTime is the time sort Drive optimizes on large collections.
-LIST_ORDERS = frozenset({"recency desc", "modifiedTime desc"})
+# first by the file time the owner asked about. modifiedTime is the default and
+# the time sort Drive optimizes on large collections.
+LIST_ORDERS = frozenset({"recency desc", "modifiedTime desc", "createdTime desc"})
 LIST_FIXED = {
     "fields": LIST_FIELDS,
     "supportsAllDrives": "true",

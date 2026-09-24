@@ -1,0 +1,24 @@
+{
+  "schema_version": "one.first_tool_evals.v1",
+  "description": "Live Drive listings by date or recency with the typed-chat Drive read admitted. Run with the admitted typed-chat runtime instruction (GOOGLE_DRIVE_CHAT_READS on, owner cohort, typed_chat surface). Scores the first tool only, not whether the request keeps the stated dates.",
+  "cases": [
+    {
+      "id": "drive.date_only_modified_listing",
+      "family": "drive",
+      "prompt": "Which of my Drive files did I change between 20 and 22 September?",
+      "expected": ["ask_documents_agent"]
+    },
+    {
+      "id": "drive.date_only_created_listing",
+      "family": "drive",
+      "prompt": "Show me the files I added to Drive last week.",
+      "expected": ["ask_documents_agent"]
+    },
+    {
+      "id": "drive.recent_files_listing",
+      "family": "drive",
+      "prompt": "What are my most recent Drive files?",
+      "expected": ["ask_documents_agent"]
+    }
+  ]
+}

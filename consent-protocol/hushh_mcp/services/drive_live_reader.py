@@ -270,14 +270,18 @@ class DriveLiveReader:
         term_clauses = [
             f"(title contains '{term}' or fullText contains '{term}')" for term in terms
         ]
+        # A date window ranks by that file time, so the result cut keeps the newest.
+        order = {"orderBy": f"{time_field} desc"} if date_bounded else {}
         requests: list[tuple[str, dict]] = []
         if term_clauses:
-            requests.append(("search_files", {"query": " and ".join([*term_clauses, *base])}))
+            requests.append(
+                ("search_files", {"query": " and ".join([*term_clauses, *base]), **order})
+            )
             if len(term_clauses) > 1:
                 either = "(" + " or ".join(term_clauses) + ")"
-                requests.append(("search_files", {"query": " and ".join([either, *base])}))
+                requests.append(("search_files", {"query": " and ".join([either, *base]), **order}))
         elif base:
-            requests.append(("search_files", {"query": " and ".join(base)}))
+            requests.append(("search_files", {"query": " and ".join(base), **order}))
         elif recent:
             requests.append(("list_recent_files", {"orderBy": "recency"}))
         else:

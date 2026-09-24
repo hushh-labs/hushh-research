@@ -37,6 +37,8 @@ REST_TOOLS = frozenset({"search_files", "list_recent_files", "read_file_content"
 PARSE_REASONS = frozenset({"encrypted_document", "no_extractable_text", "file_too_large"})
 _MAX_ARGUMENT_BYTES = 4_096
 _MAX_QUERY_CHARS = 1_800
+# A search may only rank by a file time, newest first; anything else is refused.
+_SEARCH_ORDERS = frozenset({"modifiedTime desc", "createdTime desc"})
 _TITLE = re.compile(r"\btitle (contains|=|!=) ")
 
 
@@ -158,17 +160,23 @@ class GoogleDriveRestTransport:
             )
         else:
             query = arguments.get("query")
-            if not isinstance(query, str) or not 1 <= len(query) <= _MAX_QUERY_CHARS:
+            order = arguments.get("orderBy", "modifiedTime desc")
+            if (
+                not isinstance(query, str)
+                or not 1 <= len(query) <= _MAX_QUERY_CHARS
+                or not isinstance(order, str)
+                or order not in _SEARCH_ORDERS
+            ):
                 raise DriveOAuthError("invalid_argument", status_code=400)
             # Drive ranks fullText matches by relevance and cannot sort them;
-            # every other search comes back newest first, so a page cut keeps
-            # the most recent files.
+            # every other search comes back newest first by the requested file
+            # time, so a page cut keeps the most recent files.
             page = await self.adapter.list_files(
                 access_token=token,
                 query=rest_query(query),
                 page_size=page_size,
                 page_token=page_token,
-                order_by=None if "fullText" in query else "modifiedTime desc",
+                order_by=None if "fullText" in query else order,
             )
         files = page.get("files", [])
         if not isinstance(files, list):

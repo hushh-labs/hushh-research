@@ -173,3 +173,37 @@ describe("ExternalConnectorService native Drive OAuth", () => {
     expect(JSON.stringify(apiFetch.mock.calls)).not.toContain("refreshToken");
   });
 });
+
+describe("ExternalConnectorService live Drive background preparation", () => {
+  beforeEach(() => apiFetch.mockReset());
+
+  it("reads and sets live background preparation with explicit confirmation", async () => {
+    apiFetch.mockResolvedValueOnce(Response.json({ enabled: true }));
+    await expect(ExternalConnectorService.liveBackground("owner-token")).resolves.toBe(true);
+    expect(apiFetch).toHaveBeenLastCalledWith(
+      "/api/connectors/google_drive/live/background",
+      expect.objectContaining({
+        method: "GET",
+        cache: "no-store",
+        headers: { Authorization: "Bearer owner-token" },
+      }),
+    );
+
+    // Anything other than an explicit true reads as off.
+    apiFetch.mockResolvedValueOnce(Response.json({ enabled: "true" }));
+    await expect(ExternalConnectorService.liveBackground("owner-token")).resolves.toBe(false);
+    apiFetch.mockResolvedValueOnce(Response.json({}));
+    await expect(ExternalConnectorService.liveBackground("owner-token")).resolves.toBe(false);
+
+    apiFetch.mockResolvedValueOnce(Response.json({ enabled: true }));
+    await ExternalConnectorService.setLiveBackground("owner-token", true);
+    const [path, init] = apiFetch.mock.calls.at(-1)!;
+    expect(path).toBe("/api/connectors/google_drive/live/background");
+    expect(init.method).toBe("POST");
+    expect(JSON.parse(init.body)).toEqual({ enabled: true, confirmed: true });
+    expect(init.headers).toEqual({
+      Authorization: "Bearer owner-token",
+      "Content-Type": "application/json",
+    });
+  });
+});
