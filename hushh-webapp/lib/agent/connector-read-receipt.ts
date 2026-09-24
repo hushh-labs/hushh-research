@@ -27,7 +27,9 @@ export function parseConnectorReadReceipt(value: unknown): ConnectorReadExperien
   ].includes(key))) return null;
   if (input.schema_version !== "specialist_read.v1" || !["mail", "drive"].includes(input.connector as string) ||
     !STATUSES.includes(input.status as ConnectorReadExperience["status"]) ||
-    input.metadata_only !== (input.connector === "mail") || typeof input.truncated !== "boolean" ||
+    typeof input.metadata_only !== "boolean" ||
+    (input.connector === "mail" && input.metadata_only !== true) ||
+    typeof input.truncated !== "boolean" ||
     !Array.isArray(input.sources) || input.sources.length > 25) return null;
   const refs: string[] = [];
   const pages: (number | null)[] = [];
@@ -39,7 +41,7 @@ export function parseConnectorReadReceipt(value: unknown): ConnectorReadExperien
       if (source.kind !== "metadata" || source.label !== "Mail" ||
         !/^mail:(?:[1-9]|1[0-9]|2[0-5])$/.test(source.source_ref) || source.page != null) return null;
     } else {
-      if (source.kind !== "document" || source.label !== "Document" ||
+      if (source.kind !== (input.metadata_only ? "metadata" : "document") || source.label !== "Document" ||
         !/^document:[a-f0-9]{32}$/.test(source.source_ref) ||
         (source.page != null && (typeof source.page !== "number" || !Number.isInteger(source.page) || source.page < 1 || source.page > 100))) return null;
       pages.push(typeof source.page === "number" ? source.page : null);
@@ -50,7 +52,7 @@ export function parseConnectorReadReceipt(value: unknown): ConnectorReadExperien
   return {
     type: CONNECTOR_READ_EXPERIENCE_TYPE, connector: input.connector as "mail" | "drive",
     status: input.status as ConnectorReadExperience["status"], sourceRefs: refs,
-    truncated: input.truncated, metadataOnly: input.connector === "mail",
+    truncated: input.truncated, metadataOnly: input.metadata_only,
     ...(input.connector === "drive" ? { sourcePages: pages } : {}),
   };
 }

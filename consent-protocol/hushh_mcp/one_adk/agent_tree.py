@@ -779,7 +779,9 @@ def _one_runtime_instruction(context: Any) -> str:
         "\n\nDRIVE READ ADMISSION: enabled for this typed chat. For document contents or "
         "finding a named file, call ask_documents_agent. It selects live MCP search/read "
         "or the limited selected library from the owner's actual grant. Live access "
-        "requires no selected files or index. For connection status or explicit selected-file "
+        "requires no selected files or index. Preserve numbered file results and their Drive "
+        "opening links; finding a recording does not require reading its content. "
+        "For connection status or explicit selected-file "
         "processing questions, call inspect_selected_drive_files; follow its access mode. "
         "Never infer disconnection or missing Drive files from an empty index. "
         "Resolve references only from this conversation. After reading, only answer; "
@@ -1233,6 +1235,25 @@ async def _task_from_context(
         )
     conversation_id = str(state.get(STATE_CONVERSATION_ID) or "").strip() or None
     timezone_name = str(state.get(STATE_TIMEZONE) or "").strip() or None
+    previous_answer = None
+    if agent_id == "agent_documents":
+        # History is already part of this owner's chat session. Supply only
+        # prior visible answer text so the Documents planner can resolve
+        # references such as "read the second one" by a fresh Drive search.
+        session = getattr(tool_context, "session", None)
+        prior_parts = []
+        for event in reversed(getattr(session, "events", ()) or ()):
+            if getattr(event, "author", None) != "one" or getattr(
+                event, "invocation_id", None
+            ) == getattr(tool_context, "invocation_id", None):
+                continue
+            for part in getattr(getattr(event, "content", None), "parts", ()) or ():
+                value = getattr(part, "text", None)
+                if isinstance(value, str) and value.strip() and not getattr(part, "thought", False):
+                    prior_parts.append(value.strip())
+            if prior_parts:
+                break
+        previous_answer = " ".join(reversed(prior_parts))[-2000:] or None
     return A2ATask(
         user_id=user_id,
         consent_token=consent_token,
@@ -1246,6 +1267,7 @@ async def _task_from_context(
         execution_surface="typed_chat"
         if state.get(STATE_EXECUTION_SURFACE) == "typed_chat"
         else None,
+        previous_answer=previous_answer,
     )
 
 

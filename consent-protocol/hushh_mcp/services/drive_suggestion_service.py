@@ -94,6 +94,9 @@ def period_covered(
 class LiveSearchPlan(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     terms: list[str] = Field(min_length=1, max_length=3)
+    # Omitted intent may discover metadata, but must never trigger a content read.
+    mode: Literal["find", "read"] = "find"
+    exact_title: str | None = Field(default=None, max_length=1024)
 
 
 async def interpret_live_search(*, prompt, user_id):

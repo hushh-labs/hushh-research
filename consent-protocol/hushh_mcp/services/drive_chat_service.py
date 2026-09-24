@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
+import re
 from pathlib import Path
 
 from google.adk.models import Gemini
@@ -19,6 +21,8 @@ from hushh_mcp.services.drive_suggestion_service import LiveSearchPlan, interpre
 from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
 from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
 from hushh_mcp.services.google_drive_adapter import DriveReadError
+
+logger = logging.getLogger("drive_chat_service")
 
 
 class DocumentAnswer(BaseModel):
@@ -52,7 +56,7 @@ async def interpret(*, prompt, user_id, consent_token):
     return result.model_dump(mode="json") if hasattr(result, "model_dump") else result
 
 
-def result(conversation_id, answer, status, *, sources=(), truncated=False):
+def result(conversation_id, answer, status, *, sources=(), truncated=False, metadata_only=False):
     return {
         "conversationId": conversation_id,
         "response": answer,
@@ -63,9 +67,53 @@ def result(conversation_id, answer, status, *, sources=(), truncated=False):
             "status": status,
             "sources": list(sources),
             "truncated": truncated,
-            "metadata_only": False,
+            "metadata_only": metadata_only,
         },
     }
+
+
+def _found_files(matches: list[dict], *, truncated: bool, unreadable: bool = False) -> str:
+    """Render safe owner-only opening actions from validated provider IDs."""
+    lines = [
+        "I found these Drive files. I couldn't read their contents here, but you can open them:"
+        if unreadable
+        else "I found these Drive files:"
+    ]
+    for index, match in enumerate(matches[:10], 1):
+        title = re.sub(r"\s+", " ", match["name"]).strip()[:180]
+        title = re.sub(r"([\\`*_{}\[\]()#+.!>|~-])", r"\\\1", title)
+        modified = match.get("modified_time")
+        date = (
+            modified[:10]
+            if isinstance(modified, str) and re.match(r"^\d{4}-\d{2}-\d{2}", modified)
+            else None
+        )
+        kind = (
+            "folder"
+            if match["mime_type"] == "application/vnd.google-apps.folder"
+            else ("video" if match["mime_type"].startswith("video/") else "file")
+        )
+        detail = " · ".join(item for item in (kind, date) if item)
+        lines.append(f"{index}. {title} · {detail} — [Open in Drive]({match['open_url']})")
+    if truncated or len(matches) > 10:
+        lines.append("More matches may exist. Ask for a narrower filename or period.")
+    return "\n".join(lines)
+
+
+def _metadata_sources(matches: list[dict]) -> list[dict]:
+    return [
+        {"source_ref": item["source_ref"], "label": "Document", "kind": "metadata", "page": None}
+        for item in matches[:10]
+    ]
+
+
+_EXPLICIT_FILE_REFERENCE = re.compile(
+    r"\b(?:(?:first|second|third|fourth|fifth|last|\d+(?:st|nd|rd|th)?)\s+"
+    r"(?:one|file|document|result|recording))\b|"
+    r"^\s*(?:please\s+)?(?:read|summarize|open)\s+(?:it|this|that)"
+    r"(?:\s+(?:one|file|document|pdf))?[.!?]?\s*$",
+    re.IGNORECASE,
+)
 
 
 class DriveChatService:
@@ -83,7 +131,14 @@ class DriveChatService:
         self.search_planner = search_planner
 
     async def handle_delegated_turn(
-        self, *, user_id, consent_token, conversation_id, message, require_access
+        self,
+        *,
+        user_id,
+        consent_token,
+        conversation_id,
+        message,
+        require_access,
+        previous_answer="",
     ):
         await require_access()
         if not message.strip() or len(message.encode()) > 2048:
@@ -92,6 +147,7 @@ class DriveChatService:
                 "What would you like to know about your Drive files? Please keep the question brief.",
                 "input_required",
             )
+        stage = "connection"
         try:
             async with asyncio.timeout(160):
                 live = False
@@ -106,21 +162,81 @@ class DriveChatService:
                     )
                 query = message
                 if live:
+                    stage = "search_plan"
                     await require_access()
                     plan = LiveSearchPlan.model_validate(
                         await self.search_planner(
                             prompt=json.dumps(
-                                {"document_request": {"purpose": message}}, ensure_ascii=False
+                                {
+                                    "document_request": {"purpose": message},
+                                    "previous_answer": previous_answer[:2000],
+                                },
+                                ensure_ascii=False,
                             ),
                             user_id=user_id,
                         )
                     )
                     query = plan.terms
+                    if _EXPLICIT_FILE_REFERENCE.search(message) and (
+                        not plan.exact_title
+                        or plan.exact_title.casefold()
+                        not in previous_answer.replace("\\", "").casefold()
+                    ):
+                        return result(
+                            conversation_id,
+                            "Which file do you mean? Please give me its title.",
+                            "input_required",
+                        )
+                    stage = "search_files"
+                    found = await reader.find(query=query)
+                    matches = found["matches"]
+                    if plan.exact_title:
+                        matches = [
+                            item
+                            for item in matches
+                            if item["name"].casefold() == plan.exact_title.strip().casefold()
+                        ]
+                        if len(matches) != 1:
+                            return result(
+                                conversation_id,
+                                "I couldn't identify that exact file in the current Drive results. Please give me its title or a more specific date.",
+                                "input_required",
+                            )
+                    if not matches:
+                        return result(
+                            conversation_id,
+                            "I couldn't find a matching Drive file. Try a more specific filename or period.",
+                            "input_required",
+                        )
+                    if plan.mode == "find":
+                        await reader.require_current()
+                        return result(
+                            conversation_id,
+                            _found_files(matches, truncated=found["truncated"]),
+                            "ok",
+                            sources=_metadata_sources(matches),
+                            truncated=found["truncated"] or len(matches) > 10,
+                            metadata_only=True,
+                        )
                 await require_access()
-                retrieved = await reader.search(query=query)
+                stage = "read_file_content"
+                retrieved = (
+                    await reader.read_matches(matches=matches, truncated=found["truncated"])
+                    if live
+                    else await reader.search(query=query)
+                )
                 content = retrieved["untrusted_external_content"]
                 if not content:
                     await reader.require_current()
+                    if live:
+                        return result(
+                            conversation_id,
+                            _found_files(matches, truncated=found["truncated"], unreadable=True),
+                            "ok",
+                            sources=_metadata_sources(matches),
+                            truncated=True,
+                            metadata_only=True,
+                        )
                     return result(
                         conversation_id,
                         (
@@ -130,7 +246,9 @@ class DriveChatService:
                         ),
                         "input_required",
                     )
+                stage = "interpret"
                 answer = DocumentAnswer.model_validate(
+                    # The interpreter has no tools and receives bounded text.
                     await self.interpreter(
                         prompt=json.dumps(
                             {"user_request": message, "retrieved_documents": retrieved},
@@ -140,6 +258,7 @@ class DriveChatService:
                         consent_token=consent_token,
                     )
                 )
+                stage = "source_fence"
                 await reader.require_current()
                 known = {item["source_ref"]: item for item in content}
                 if not answer.source_refs or set(answer.source_refs) - known.keys():
@@ -165,6 +284,7 @@ class DriveChatService:
             raise
         except (DriveReadError, DriveOAuthError) as error:
             code = str(error)
+            logger.warning("drive_chat.read_failed stage=%s code=%s", stage, code)
             if code in {"connect_required", "not_connected"}:
                 return result(
                     conversation_id,
@@ -195,8 +315,9 @@ class DriveChatService:
                     "Drive access or the file changed. Try again.",
                     "source_changed",
                 )
-        except Exception:
-            pass  # Never log provider errors, prompts or document contents.
+        except Exception as error:
+            # Only the stage and exception type are safe operational evidence.
+            logger.warning("drive_chat.read_failed stage=%s type=%s", stage, type(error).__name__)
         return result(
             conversation_id,
             "Drive document reading is temporarily unavailable. Please try again.",

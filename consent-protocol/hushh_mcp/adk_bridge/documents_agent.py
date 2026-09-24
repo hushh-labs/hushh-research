@@ -50,6 +50,7 @@ class DocumentsAgentA2A:
             consent_token=task.consent_token,
             conversation_id=task.conversation_id,
             message=task.message or "",
+            previous_answer=task.previous_answer or "",
             require_access=require_access,
         )
         await require_access()
