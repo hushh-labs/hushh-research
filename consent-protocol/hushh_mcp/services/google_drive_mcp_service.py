@@ -9,6 +9,8 @@ Do not register an unrestricted generic dispatcher in place of this adapter.
 from __future__ import annotations
 
 import json
+import logging
+import re
 import time
 from copy import deepcopy
 from typing import Any
@@ -29,6 +31,8 @@ from hushh_mcp.services.external_mcp_client import (
     list_tools,
 )
 from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH
+
+logger = logging.getLogger(__name__)
 
 GOOGLE_DRIVE_MCP_ENDPOINT = "https://drivemcp.googleapis.com/mcp/v1"
 # Explicit reviewed capabilities, not server-supplied annotations, names with
@@ -199,14 +203,26 @@ class GoogleDriveMcpService:
                 project=_search_metadata,
             )
         except ExternalMcpAuthError:
+            logger.warning("drive_mcp.probe_failed reason=auth")
             raise DriveOAuthError("reconnect_required", status_code=401) from None
-        except (ExternalMcpError, ValidationError, SchemaError, Unresolvable):
+        except (ExternalMcpError, ValidationError, SchemaError, Unresolvable) as error:
+            logger.warning("drive_mcp.probe_failed reason=%s", type(error).__name__)
             raise DriveOAuthError("connector_unavailable", status_code=502) from None
         if (
             outcome.is_error
             or outcome.truncated
             or not isinstance(outcome.payload.get("files"), list)
         ):
+            # The probe is an owner-only metadata search with snippets excluded,
+            # so a provider error here is Google's own message, not file content.
+            detail = outcome.payload.get("text") if outcome.is_error else None
+            logger.warning(
+                "drive_mcp.probe_failed is_error=%s truncated=%s keys=%s detail=%s",
+                outcome.is_error,
+                outcome.truncated,
+                sorted(outcome.payload)[:6],
+                re.sub(r"[^\w .,:;'()/-]", "", detail)[:200] if isinstance(detail, str) else None,
+            )
             raise DriveOAuthError("connector_unavailable", status_code=502)
 
     async def read_tool(
