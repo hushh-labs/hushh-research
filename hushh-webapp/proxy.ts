@@ -89,6 +89,7 @@ export function proxy(request: NextRequest) {
       pathname === "/profile" ||
       pathname.startsWith("/one/profile/") ||
       pathname.startsWith("/profile/")) &&
+    pathname !== ROUTES.PROFILE_CONNECTORS &&
     !pathname.includes("oauth/return")
   ) {
     const rawSubpath = pathname
