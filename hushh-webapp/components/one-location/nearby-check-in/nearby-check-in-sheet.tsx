@@ -31,7 +31,6 @@ import {
 } from "@/lib/one-location/place-rating-consent";
 import { recordVisitNote } from "@/lib/one-location/visit-notes";
 import {
-  trackNearbyCheckOutCompleted,
   trackOneLocationJourneyAction,
   trackReviewHandoffOpened,
   trackVisitRated,
@@ -2327,9 +2326,6 @@ export function NearbyCheckInSheet({
         };
       }
       publishState(next);
-      if (binding?.presenceId || state.presence) {
-        trackNearbyCheckOutCompleted();
-      }
       if (context) {
         setViewState(next.presence ? "active" : "setup");
         return {

@@ -131,6 +131,8 @@ async def test_exact_checkout_and_prompt_leave_another_open_venue_and_new_visit_
     newer = db.execute_raw("SELECT rating_visit_id,version FROM one_location_nearby_presences").data
     replay = nearby.checkout(**checkout)
     assert replay["checkoutReceipt"] == first["checkoutReceipt"]
+    assert first["checkoutTransitioned"] is True
+    assert replay["checkoutTransitioned"] is False
     assert replay["presence"]["version"] == newer[0]["version"]
     assert replay["presence"]["status"] == "active"
     assert (
@@ -189,6 +191,22 @@ async def test_foreign_visit_pointer_cannot_close_or_reveal_another_owners_visit
     assert db.execute_raw("SELECT ended_at FROM one_location_nearby_visits").data == [
         {"ended_at": None}
     ]
+
+
+@pytest.mark.asyncio
+async def test_checkout_transition_flag_distinguishes_real_end_from_idempotent_noop(
+    db, monkeypatch
+):
+    store, values, _, _, _ = await nearby_command(db, monkeypatch)
+    values.pop("command_operation_id")
+    store.upsert_presence(**values)
+
+    first = store.checkout("owner")
+    repeat = store.checkout("owner")
+    assert first["checked_out"] is True
+    assert first["checkout_transitioned"] is True
+    assert repeat["checked_out"] is True
+    assert repeat["checkout_transitioned"] is False
 
 
 @pytest.mark.asyncio

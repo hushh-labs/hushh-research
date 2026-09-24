@@ -667,7 +667,9 @@ class PostgresNearbyPresenceStore:
                 )
                 prior = receipt.claim()
                 if prior:
-                    return prior
+                    # The receipt proves the original command completed; this
+                    # retry did not perform a second state transition.
+                    return {**prior, "_checkout_replayed": True}
             row = (
                 connection.execute(
                     text("""SELECT id,version,status,rating_visit_id,expires_at>clock_timestamp() AS active
@@ -732,6 +734,8 @@ class PostgresNearbyPresenceStore:
                 if row
                 else 0,
                 "checked_out": True,
+                # Idempotent success does not mean an active presence ended.
+                "checkout_transitioned": active,
             }
             if visit_id:
                 result["rating_visit_id"] = visit_id
@@ -1571,13 +1575,24 @@ class OneLocationNearbyPresenceService:
             if command_operation_id
             else {"presence": None, "attendees": []}
         )
+        checkout_transitioned = (
+            bool(result.get("checkout_transitioned")) and not bool(result.get("_checkout_replayed"))
+            if isinstance(result, dict)
+            else False
+        )
+        checkout_receipt = (
+            {key: value for key, value in result.items() if not key.startswith("_")}
+            if isinstance(result, dict)
+            else result
+        )
         return {
             **current,
             "checkedOut": bool(result.get("checked_out"))
             if isinstance(result, dict)
             else bool(result),
+            "checkoutTransitioned": checkout_transitioned,
             "reviewPrompt": review_prompt,
-            **({"checkoutReceipt": result} if command_operation_id else {}),
+            **({"checkoutReceipt": checkout_receipt} if command_operation_id else {}),
         }
 
     def extend(

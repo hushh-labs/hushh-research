@@ -40,7 +40,6 @@ const visitNotes = vi.hoisted(() => ({
 }));
 
 const locationAnalytics = vi.hoisted(() => ({
-  trackNearbyCheckOutCompleted: vi.fn(),
   trackOneLocationJourneyAction: vi.fn(),
 }));
 
@@ -51,8 +50,6 @@ vi.mock("@/lib/observability/location-events", async (importOriginal) => {
     >();
   return {
     ...actual,
-    trackNearbyCheckOutCompleted:
-      locationAnalytics.trackNearbyCheckOutCompleted,
     trackOneLocationJourneyAction:
       locationAnalytics.trackOneLocationJourneyAction,
   };
@@ -142,7 +139,6 @@ describe("NearbyCheckInSheet", () => {
     locationMemory.rememberLastKnownFix.mockReset();
     locationMemory.rememberLocationGrant.mockReset();
     locationAnalytics.trackOneLocationJourneyAction.mockReset();
-    locationAnalytics.trackNearbyCheckOutCompleted.mockReset();
     // Default: nothing carried over, which is what every pre-existing test in
     // this file assumed before durable memory existed.
     locationMemory.readLastKnownFix.mockResolvedValue(null);
@@ -1063,7 +1059,6 @@ describe("NearbyCheckInSheet", () => {
       vaultOwnerToken: "owner-token",
     });
     await screen.findByTestId("nearby-presence-completed");
-    expect(locationAnalytics.trackNearbyCheckOutCompleted).toHaveBeenCalledTimes(1);
   });
 
   it("does not report a checkout when the server does not confirm it", async () => {
@@ -1099,7 +1094,6 @@ describe("NearbyCheckInSheet", () => {
     await screen.findByTestId("nearby-presence-active");
     fireEvent.click(screen.getByRole("button", { name: "I'm leaving" }));
     await waitFor(() => expect(service.checkoutNearby).toHaveBeenCalledTimes(1));
-    expect(locationAnalytics.trackNearbyCheckOutCompleted).not.toHaveBeenCalled();
   });
 
   it("does not restore a checked-out presence when an older poll resolves late", async () => {
