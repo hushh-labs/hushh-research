@@ -85,6 +85,24 @@ Every emitted observability event carries centrally added shared params:
 | `gmail_sync_result` | Gmail sync queue/already-running result | `action`, `result` | `hushh-webapp/lib/services/gmail-receipts-service.ts` | sync queue health | GA DebugView |
 | `gmail_receipts_loaded` | Receipt list load result | `result` | `hushh-webapp/lib/services/gmail-receipts-service.ts` | receipts UX quality | GA DebugView |
 
+## One feature-action observability (rollout contract)
+
+These are deliberate *feature* actions, not proof that a specialist AI agent was invoked. Each event carries only a fixed `route_id`, bounded `action`, and `result`. The common adapter adds environment and platform. No memory text/domain, card data or reveal, calendar contents, KYC scopes, counterparty, workflow ID, email, or error message may be sent. Count distinct account IDs only when GA4 actually receives a stable User-ID; device/browser counts remain a separate diagnostic.
+
+| Event | Bounded actions | Emitter | Dashboard interpretation |
+| --- | --- | --- | --- |
+| `one_memory_action` | `capture_prepared`, `capture_saved`, `detail_edited`, `detail_deleted`, `export_saved`, `auto_save_changed` | Memory workspace after a completed action | Memory adoption and action mix; a prepared review is not a save |
+| `one_wallet_action` | `card_added`, `card_deleted` | Owner Wallet workspace after service success | Card-management activity, never card contents or reveal count |
+| `one_calendar_action` | `connected`, `disconnected`, `chat_opened` | Calendar owner workspace, or the verified same-window OAuth callback when no popup attempt exists | Connector adoption and assistance handoffs; opening chat is not an agent answer |
+| `one_kyc_action` | `access_approved`, `access_denied`, `redraft_completed`, `reply_sent`, `reply_rejected`, `workflow_refreshed` | One KYC workflow after the corresponding confirmed operation | KYC workflow progress; reply sent is counted even if subsequent encrypted PKM writeback fails |
+| `one_crm_action` | `record_created`, `record_updated`, `record_deleted` | Development-only Connected Systems workspace after confirmed mutations | Developer diagnostics only; excluded from the production founder and One capability KPIs |
+
+These emitters are in the client release. Until a representative event is observed in the selected GA4 export, the dashboard shows **not yet measured**, not zero. iOS needs a shipped native build before new client events appear from public iPhones. CRM / Connected Systems remains feature-flagged and development-only, so it is not presented as a production customer KPI.
+
+The owned `consent-protocol/scripts/observability/ga4_growth_dashboard_queries.sql` feature-engagement, platform-mix, health, and freshness queries include the four production feature-action events. They group the bounded action and result and report device/browser identifiers separately from identified accounts. `one_crm_action` is deliberately absent from those production queries.
+
+The web route observer now runs inside validated auth context and binds the analytics ID before a route view. This removes one known ordering risk, but historical web account coverage cannot be retroactively repaired. Verify the user-ID field on a fresh signed-in UAT journey and in the subsequent BigQuery export before calling the web user total complete.
+
 ## One Location Behaviour
 
 One Location reporting combines web, iOS, and Android into one product total.

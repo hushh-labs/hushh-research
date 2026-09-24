@@ -818,13 +818,13 @@ export function Providers({ children }: ProvidersProps) {
 
   return (
     <>
-      <ObservabilityRouteObserver />
       <StepProgressProvider>
         <StatusBarManager />
         <KeyboardInsetManager />
         {/* Step-based progress bar at top of viewport */}
         <StepProgressBar />
         <AuthProvider>
+          <ObservabilityRouteObserver />
           {/* Session-scoped voice actions ("log me out") live here rather than
               on Profile: a local handler is only offered while it is mounted,
               so a page-scoped registration would make the action depend on

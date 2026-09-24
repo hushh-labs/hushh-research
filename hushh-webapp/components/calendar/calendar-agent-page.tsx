@@ -46,6 +46,7 @@ import {
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { navigateToAgentChat } from "@/lib/navigation/agent-navigation";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
+import { trackEvent } from "@/lib/observability/client";
 import { ROUTES } from "@/lib/navigation/routes";
 import {
   createGoogleOAuthPopupAttempt,
@@ -132,6 +133,7 @@ export function CalendarAgentPage({
       if (outcome === "succeeded") {
         const currentStatus = await refresh().catch(() => null);
         if (currentStatus?.connected) {
+          trackEvent("one_calendar_action", { route_id: "one_calendar", action: "connected", result: "success" });
           morphyToast.success("Google Calendar connected.");
         } else {
           morphyToast.error(
@@ -164,6 +166,7 @@ export function CalendarAgentPage({
       clearAttempt();
       const currentStatus = await refresh().catch(() => null);
       if (currentStatus?.connected) {
+        trackEvent("one_calendar_action", { route_id: "one_calendar", action: "connected", result: "success" });
         morphyToast.success("Google Calendar connected.");
         return;
       }
@@ -243,6 +246,7 @@ export function CalendarAgentPage({
           );
         }
         setBusy(false);
+        trackEvent("one_calendar_action", { route_id: "one_calendar", action: "connected", result: "success" });
         morphyToast.success("Google Calendar connected.");
         return;
       }
@@ -291,6 +295,7 @@ export function CalendarAgentPage({
     });
     try {
       const next = await operation;
+      trackEvent("one_calendar_action", { route_id: "one_calendar", action: "disconnected", result: "success" });
       setStatus(next);
       setDisconnectConfirmOpen(false);
     } finally {
@@ -327,6 +332,7 @@ export function CalendarAgentPage({
   const shouldShowSetup = !connected && status?.status !== "needs_reauth";
 
   const openChat = (prompt?: string) => {
+    trackEvent("one_calendar_action", { route_id: "one_calendar", action: "chat_opened", result: "success" });
     if (!prompt) {
       navigateToAgentChat();
       return;

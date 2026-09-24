@@ -42,7 +42,7 @@ const USER_ID_SALT = "hushh-observability-v1";
 let lastAppliedUserId: string | null | undefined;
 let pendingWebRetry: ReturnType<typeof setInterval> | null = null;
 let identityGeneration = 0;
-let identityApplicationQueue: Promise<void> = Promise.resolve();
+let identityApplicationQueue: Promise<boolean> = Promise.resolve(false);
 
 function toHex(buffer: ArrayBuffer): string {
   return Array.from(new Uint8Array(buffer))
@@ -136,9 +136,10 @@ function clearPendingWebRetry(): void {
 async function applyObservabilityUserId(
   firebaseUid: string | null,
   generation: number
-): Promise<void> {
+): Promise<boolean> {
   const userId = firebaseUid ? await resolveAnalyticsUserId(firebaseUid) : null;
-  if (generation !== identityGeneration || userId === lastAppliedUserId) return;
+  if (generation !== identityGeneration || (firebaseUid && !userId)) return false;
+  if (userId === lastAppliedUserId) return true;
 
   const applied = Capacitor.isNativePlatform()
     ? await applyNativeUserId(userId)
@@ -172,6 +173,7 @@ async function applyObservabilityUserId(
       }
     }, 1000);
   }
+  return applied;
 }
 
 /**
@@ -179,13 +181,13 @@ async function applyObservabilityUserId(
  * finish after a later sign-out or account-B binding and become the final
  * analytics identity on a shared device.
  */
-export function setObservabilityUserId(firebaseUid: string | null): Promise<void> {
+export function setObservabilityUserId(firebaseUid: string | null): Promise<boolean> {
   const generation = ++identityGeneration;
   clearPendingWebRetry();
 
   const application = identityApplicationQueue.then(() =>
     applyObservabilityUserId(firebaseUid, generation)
   );
-  identityApplicationQueue = application.catch(() => undefined);
+  identityApplicationQueue = application.catch(() => false);
   return application;
 }
