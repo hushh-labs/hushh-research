@@ -19,6 +19,7 @@ from hushh_mcp.one_adk.governed_mcp_toolset import (
     McpConnectionBinding,
     mcp_tool_name,
 )
+from hushh_mcp.one_adk.mcp_pending_call import capture_pending_call
 from hushh_mcp.one_adk.request_secrets import resolve_request_secret, store_request_secret
 from hushh_mcp.services.action_directive_ledger import (
     MCP_ACTION_ID,
@@ -30,6 +31,37 @@ from hushh_mcp.services.action_directive_ledger import (
 )
 
 STATE_MCP_APPROVAL = "temp:hussh:mcp_approval"
+
+
+async def review_or_resume_call(context, binding, tool_name, revision, arguments):
+    """Pause using native ADK, or consume app authority for its exact resume.
+
+    The ADK confirmation boolean is never execution permission. Only a current
+    authenticated receipt, checked against the existing ledger, admits dispatch.
+    """
+    confirmation = getattr(context, "tool_confirmation", None)
+    if confirmation is not None:
+        if confirmation.confirmed is not True:
+            return {"status": "blocked", "error": "MCP_REVIEW_DECLINED", "retryable": False}
+        return await consume_resume_receipt(context, binding, tool_name, revision, arguments)
+    approval = McpCallApproval.from_call(context, binding, tool_name, revision, arguments)
+    issued = await approval.issue(ActionDirectiveStore())
+    public_name = mcp_tool_name(binding.connector_id, tool_name)
+    pending = capture_pending_call(context, tool_name=public_name, arguments=arguments)
+    context.request_confirmation(
+        hint="Review this connector call before continuing.",
+        payload={
+            "kind": "mcp_call_review",
+            "version": 1,
+            "connectorId": binding.connector_id,
+            "toolName": public_name,
+            "directiveId": issued.directive_id,
+            "pendingHandle": pending,
+            "expiresAt": issued.expires_at.isoformat(),
+        },
+    )
+    context.actions.skip_summarization = True
+    return {"status": "review_required"}
 
 
 def admit_resume_receipt(forwarded: dict, *, owner_id: str, conversation_id: str) -> str:
@@ -49,11 +81,16 @@ def admit_resume_receipt(forwarded: dict, *, owner_id: str, conversation_id: str
         "connectorId": r"[A-Za-z0-9_-]{1,128}",
         "receipt": r"[A-Za-z0-9_-]{32,128}",
     }
-    if set(value) != set(patterns) or any(
+    if set(value) not in (set(patterns), set(patterns) | {"pendingHandle"}) or any(
         not isinstance(value[key], str) or re.fullmatch(pattern, value[key]) is None
         for key, pattern in patterns.items()
     ):
         raise ActionDirectiveAuthorityError("Invalid connector confirmation.")
+    if "pendingHandle" in value and (
+        not isinstance(value["pendingHandle"], str)
+        or re.fullmatch(r"one_secret_ref:[A-Za-z0-9_-]{32}", value["pendingHandle"]) is None
+    ):
+        raise ActionDirectiveAuthorityError("Invalid connector review reference.")
     return store_request_secret(json.dumps({**value, "owner": owner_id, "thread": conversation_id}))
 
 

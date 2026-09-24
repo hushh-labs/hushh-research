@@ -58,6 +58,16 @@ The browser resume receipt travels through scrubbed forwarded properties into a
 request-memory reference, never a model-visible tool response. Remove that
 reference from both persisted state deltas and public AG-UI state projections.
 
+Pending MCP call recovery uses the existing expiring request-secret store and a
+task-local resume scope. A server-issued handle binds the owner, conversation,
+tool and original function-call ID. The encrypted session reader restores both
+argument copies only on a deep-copied live session; normal history reads remain
+redacted. Expiration, another server instance, or a restart requires review again.
+`review_or_resume_call` requests native ADK confirmation on the first call and
+requires an app-ledger receipt on resume. It is not live roster activation:
+the browser review-card transport, pending-handle confirmation API, and governed
+roster must be connected and verified together before exposing custom tools.
+
 ## 4.1 UI Stream Mapping
 
 The canonical app stream surface is `hushh-webapp/components/app-ui/stream-progress-panel.tsx`. Portfolio import and Agent Chat both use that primitive so progress, optional thinking, and answer text stay visually and semantically consistent.

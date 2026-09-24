@@ -26,6 +26,7 @@ from ag_ui_adk import ADKAgent
 
 from hushh_mcp.one_adk.drive_result_privacy import redact_drive_wire_event
 from hushh_mcp.one_adk.external_read_boundary import before_external_read_model
+from hushh_mcp.one_adk.mcp_pending_call import pending_resume_scope
 from hushh_mcp.one_adk.mcp_turn_scope import mcp_turn_scope
 from hushh_mcp.one_adk.output_privacy import public_event
 
@@ -234,7 +235,12 @@ class TimedADKAgent(ADKAgent):
         interrupted = False
         private_call_ids: set[str] = set()
         try:
-            async with mcp_turn_scope(input.thread_id), aclosing(super().run(input)) as run:
+            state = input.state if isinstance(input.state, dict) else {}
+            async with (
+                pending_resume_scope(state.get("temp:hussh:mcp_approval")),
+                mcp_turn_scope(input.thread_id),
+                aclosing(super().run(input)) as run,
+            ):
                 async for event in run:
                     if self.head == HEAD_ONE:
                         event = redact_drive_wire_event(event, private_call_ids)

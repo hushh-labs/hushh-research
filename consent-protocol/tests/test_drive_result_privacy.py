@@ -23,18 +23,30 @@ from hushh_mcp.one_adk.drive_result_privacy import (
 )
 
 
-def test_native_confirmation_nested_arguments_and_payload_are_not_durable():
+async def test_native_confirmation_nested_arguments_and_payload_are_not_durable(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
     from google.adk.agents import LlmAgent
     from google.adk.agents.invocation_context import InvocationContext
     from google.adk.events import Event, EventActions
     from google.adk.flows.llm_flows.functions import generate_request_confirmation_event
+    from google.adk.flows.llm_flows.request_confirmation import _resolve_confirmation_targets
     from google.adk.sessions import InMemorySessionService, Session
     from google.adk.tools.tool_confirmation import ToolConfirmation
     from google.genai import types
 
+    from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionService
+    from hushh_mcp.one_adk.mcp_pending_call import (
+        capture_pending_call,
+        pending_resume_scope,
+        restore_pending_call,
+    )
+    from hushh_mcp.one_adk.request_secrets import store_request_secret
+
     name = "mcp_" + "a" * 40
     private = "PRIVATE_REVIEW_ARGUMENT"
-    session = Session(id="thread", app_name="one", user_id="owner")
+    session = Session(id="thread", app_name="hussh_one", user_id="owner")
     invocation = InvocationContext(
         agent=LlmAgent(name="one", model="gemini-test"),
         session=session,
@@ -96,6 +108,65 @@ def test_native_confirmation_nested_arguments_and_payload_are_not_durable():
     nested = restored.events[3].get_function_calls()[0]
     assert nested.args["originalFunctionCall"] == {"id": "call", "name": name, "args": {}}
     assert restored.events[2].actions.requested_tool_confirmations["call"].confirmed is False
+    # The installed ADK can still identify the exact pending call from this
+    # skeleton. Restoring private arguments belongs at the governed execution
+    # boundary, not by replacing stored conversation events. This SDK check is
+    # deliberately NOT app approval: the exact-call ledger must still pass.
+    resumed_context = InvocationContext(
+        agent=invocation.agent,
+        session=restored,
+        session_service=InMemorySessionService(),
+        invocation_id="resume",
+    )
+    confirmations, calls = await _resolve_confirmation_targets(
+        resumed_context,
+        restored.events,
+        {confirmation_id},
+        {confirmation_id: ToolConfirmation(confirmed=True)},
+        {name: SimpleNamespace(check_require_confirmation=AsyncMock(return_value=True))},
+    )
+    assert set(confirmations) == {"call"}
+    assert calls["call"].name == name
+    assert calls["call"].args == {}
+    handle = capture_pending_call(
+        SimpleNamespace(
+            user_id="owner",
+            function_call_id="call",
+            state={
+                "hussh:user_id": "owner",
+                "hussh:conversation_id": "thread",
+            },
+        ),
+        tool_name=name,
+        arguments={"recipient": private},
+    )
+    live = restore_pending_call(restored, handle)
+    resumed_context.session = live
+    _, recovered = await _resolve_confirmation_targets(
+        resumed_context,
+        live.events,
+        {confirmation_id},
+        {confirmation_id: ToolConfirmation(confirmed=True)},
+        {name: SimpleNamespace(check_require_confirmation=AsyncMock(return_value=True))},
+    )
+    assert recovered["call"].args == {"recipient": private}
+    assert restored.events[1].get_function_calls()[0].args == {}
+    assert private not in redact_drive_session_json(live.model_dump_json(by_alias=True))
+    service = EncryptedAdkSessionService()
+    encoded = service._encode(restored)
+    row = {f"payload_{key}": value for key, value in encoded.items()}
+    row["revision"] = 1
+    monkeypatch.setattr(service, "_execute", AsyncMock(return_value=SimpleNamespace(data=[row])))
+    reference = store_request_secret(json.dumps({"pendingHandle": handle}))
+    async with pending_resume_scope(reference):
+        recovered_session = await service.get_session(
+            app_name="hussh_one",
+            user_id="owner",
+            session_id="thread",
+        )
+        assert recovered_session.events[1].get_function_calls()[0].args == {"recipient": private}
+    outside = await service.get_session(app_name="hussh_one", user_id="owner", session_id="thread")
+    assert outside.events[1].get_function_calls()[0].args == {}
     # Projection must never strip the live call before the model/review sees it.
     assert session.events[1].get_function_calls()[0].args == {"recipient": private}
     assert session.events[3].get_function_calls()[0].args["originalFunctionCall"]["args"] == {

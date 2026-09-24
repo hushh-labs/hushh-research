@@ -141,3 +141,56 @@ async def test_chat_admission_scrubs_receipt_and_requires_vault_authority(monkey
         assert error.value.status_code == 403
     assert "mcpApproval" not in run.forwarded_props
     assert run.state == {}
+
+
+async def test_first_call_uses_native_confirmation_without_executing(monkeypatch):
+    from datetime import UTC, datetime, timedelta
+
+    from google.adk.agents.context import Context
+    from google.adk.agents.invocation_context import InvocationContext
+    from google.adk.sessions import InMemorySessionService, Session
+    from google.adk.tools.tool_confirmation import ToolConfirmation
+
+    from hushh_mcp.one_adk.governed_mcp_toolset import McpConnectionBinding
+
+    context = Context(
+        InvocationContext(
+            session_service=InMemorySessionService(),
+            invocation_id="turn",
+            session=Session(
+                id="thread",
+                user_id="owner",
+                app_name="hussh_one",
+                state={
+                    "hussh:user_id": "owner",
+                    "hussh:conversation_id": "thread",
+                    "temp:one_execution_surface": "typed_chat",
+                },
+            ),
+        ),
+        function_call_id="call",
+    )
+    issued = SimpleNamespace(
+        directive_id="dir_" + "a" * 32, expires_at=datetime.now(UTC) + timedelta(minutes=5)
+    )
+    issue = AsyncMock(return_value=issued)
+    monkeypatch.setattr(approval.McpCallApproval, "issue", issue)
+    binding = McpConnectionBinding("owner", "custom-1", 1, 1, "https://example.com/mcp")
+    result = await approval.review_or_resume_call(
+        context, binding, "search", "revision", {"q": "PRIVATE_ARGUMENT"}
+    )
+    assert result == {"status": "review_required"}
+    requested = context.actions.requested_tool_confirmations["call"]
+    assert requested.payload["kind"] == "mcp_call_review"
+    assert requested.payload["pendingHandle"].startswith("one_secret_ref:")
+    assert "PRIVATE_ARGUMENT" not in str(requested.payload)
+    assert context.actions.skip_summarization is True
+    issue.assert_awaited_once()
+    context.tool_confirmation = ToolConfirmation(confirmed=False)
+    assert (await approval.review_or_resume_call(context, binding, "search", "revision", {}))[
+        "error"
+    ] == "MCP_REVIEW_DECLINED"
+    # Even the SDK's positive confirmation does not replace app-ledger authority.
+    context.tool_confirmation = ToolConfirmation(confirmed=True)
+    with pytest.raises(ActionDirectiveAuthorityError):
+        await approval.review_or_resume_call(context, binding, "search", "revision", {})
