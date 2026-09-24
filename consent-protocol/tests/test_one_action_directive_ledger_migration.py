@@ -22,8 +22,14 @@ def test_action_directive_ledger_is_in_release_and_schema_contracts():
 def test_replayed_212_cannot_re_narrow_checks_that_231_widened():
     """Replay runs 212 before 231 on every deploy. Once a 'document_review' row
     exists, a validating ADD in 212 fails (23514) and blocks every release, as
-    UAT run 36068626533 did; both of 212's ledger checks must skip old rows."""
+    UAT run 36068626533 did; even NOT VALID, a re-added narrow check rejects live
+    document_review writes until 231 re-runs. 212 must only narrow on first apply."""
     migration = (ROOT / "db/migrations/212_location_command_runtime.sql").read_text()
+    guard = migration.index("IF NOT EXISTS")
+    assert "pg_get_constraintdef(oid) LIKE '%''command''%'" in migration[guard:]
+    assert guard < migration.index(
+        "DROP CONSTRAINT IF EXISTS one_action_directive_ledger_channel_check"
+    )
     for name in ("one_action_directive_ledger_channel_check", "one_action_directive_ledger_check"):
         match = re.search(rf"ADD CONSTRAINT {name}\b", migration)
         assert match, name
