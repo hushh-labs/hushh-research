@@ -52,6 +52,10 @@ METADATA_FIELDS = (
     "id,name,mimeType,version,modifiedTime,size,md5Checksum,trashed,isAppAuthorized,"
     "capabilities(canDownload,canAccessViaGenAi),clientEncryptionDetails(encryptionState)"
 )
+SHARE_METADATA_FIELDS = (
+    "id,name,mimeType,version,modifiedTime,createdTime,trashed,"
+    "capabilities(canShare),clientEncryptionDetails(encryptionState)"
+)
 EXPORTS = {
     "application/vnd.google-apps.document": "text/plain",
     "application/vnd.google-apps.presentation": "text/plain",
@@ -99,6 +103,7 @@ class DriveMetadata:
     modified_time: str
     size: int | None
     checksum: str | None = field(repr=False)
+    created_time: str | None = None
 
 
 @dataclass(frozen=True)
@@ -158,6 +163,7 @@ class GoogleDriveAdapter:
                 and params
                 in (
                     {"fields": METADATA_FIELDS, "supportsAllDrives": "true"},
+                    {"fields": SHARE_METADATA_FIELDS, "supportsAllDrives": "true"},
                     {"alt": "media", "supportsAllDrives": "true"},
                 )
             ) or (
@@ -295,6 +301,53 @@ class GoogleDriveAdapter:
         ):
             raise DriveReadError("provider_response_invalid")
         return DriveMetadata(file_id, name, mime, version, modified, size, checksum)
+
+    async def get_share_metadata(self, *, file_id: str, access_token: str) -> DriveMetadata:
+        """Check an exact live file for sharing without requiring content access."""
+        result = _decode_json(
+            await self._get(
+                _file_path(file_id),
+                access_token=access_token,
+                params={"fields": SHARE_METADATA_FIELDS, "supportsAllDrives": "true"},
+                limit=METADATA_LIMIT,
+            )
+        )
+        mime = result.get("mimeType")
+        capabilities = result.get("capabilities")
+        encryption = result.get("clientEncryptionDetails")
+        if (
+            result.get("id") != file_id
+            or result.get("trashed") is not False
+            or not isinstance(mime, str)
+            or not mime
+            or mime
+            in {
+                "application/vnd.google-apps.folder",
+                "application/vnd.google-apps.shortcut",
+            }
+            or not isinstance(capabilities, dict)
+            or capabilities.get("canShare") is not True
+            or encryption is not None
+            and (
+                not isinstance(encryption, dict)
+                or encryption.get("encryptionState") != "unencrypted"
+            )
+        ):
+            raise DriveReadError("source_unavailable")
+        name, version, modified = (result.get(key) for key in ("name", "version", "modifiedTime"))
+        created = result.get("createdTime")
+        if (
+            not isinstance(name, str)
+            or not 1 <= len(name) <= 1024
+            or not isinstance(version, str)
+            or not re.fullmatch(r"[0-9]{1,30}", version)
+            or not isinstance(modified, str)
+            or not 1 <= len(modified) <= 64
+            or created is not None
+            and (not isinstance(created, str) or not 1 <= len(created) <= 64)
+        ):
+            raise DriveReadError("provider_response_invalid")
+        return DriveMetadata(file_id, name, mime, version, modified, None, None, created)
 
     async def fetch_content(
         self,

@@ -319,6 +319,10 @@ class DriveSharingStore(DriveDocumentStore):
                     "file_id": row["file_id"],
                     "name": row["name"],
                     "content_fingerprint": row["content_fingerprint"],
+                    "metadata_only": row.get("metadata_only", False),
+                    "time_field": row.get("time_field"),
+                    "start_time": row.get("start_time"),
+                    "end_time": row.get("end_time"),
                 }
             return self.sharing_cipher.open(
                 row["source_envelope"],
@@ -360,6 +364,31 @@ class DriveSharingStore(DriveDocumentStore):
             raise DriveSharingError("invalid_selection")
         for row in rows:
             file_id = row.get("file_id")
+            metadata_only = row.get("metadata_only") is True
+            fingerprint = row.get("content_fingerprint")
+            valid_fingerprint = (
+                fingerprint is None
+                if metadata_only
+                else isinstance(fingerprint, str)
+                and re.fullmatch(r"[0-9a-f]{64}", fingerprint) is not None
+            )
+            valid_time_window = (
+                row.get("time_field") in {"modifiedTime", "createdTime"}
+                and all(
+                    isinstance(row.get(key), str)
+                    and re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z", row[key])
+                    for key in ("start_time", "end_time")
+                )
+                if metadata_only
+                else True
+            )
+            if metadata_only and valid_time_window:
+                try:
+                    valid_time_window = datetime.fromisoformat(
+                        row["start_time"].replace("Z", "+00:00")
+                    ) < datetime.fromisoformat(row["end_time"].replace("Z", "+00:00"))
+                except ValueError:
+                    valid_time_window = False
             if (
                 row.get("_live") is not True
                 or not isinstance(file_id, str)
@@ -369,8 +398,8 @@ class DriveSharingStore(DriveDocumentStore):
                 or not 1 <= len(row["name"]) <= 1024
                 or not isinstance(row.get("source_version"), str)
                 or not row["source_version"].isdigit()
-                or not isinstance(row.get("content_fingerprint"), str)
-                or not re.fullmatch(r"[0-9a-f]{64}", row["content_fingerprint"])
+                or not valid_fingerprint
+                or not valid_time_window
             ):
                 raise DriveSharingError("source_changed")
             document_id = str(UUID(str(row["document_id"])))
@@ -378,7 +407,17 @@ class DriveSharingStore(DriveDocumentStore):
                 {
                     "file_id": file_id,
                     "name": row["name"],
-                    "content_fingerprint": row["content_fingerprint"],
+                    "content_fingerprint": fingerprint,
+                    "metadata_only": metadata_only,
+                    **(
+                        {
+                            "time_field": row["time_field"],
+                            "start_time": row["start_time"],
+                            "end_time": row["end_time"],
+                        }
+                        if metadata_only
+                        else {}
+                    ),
                 },
                 user_id=user_id,
                 resource_id=f"{request_id}:{document_id}",
@@ -421,6 +460,8 @@ class DriveSharingStore(DriveDocumentStore):
         if scope != LEGACY_TRUST_SCOPE:
             return False
         try:
+            if any(self._source_metadata(item).get("metadata_only") for item in sources):
+                return False
             return boundary.get("purpose_digest") == self.sharing_cipher.digest(
                 "rule-purpose", self._open_request(request)["purpose"]
             ) and sorted(
@@ -485,6 +526,16 @@ class DriveSharingStore(DriveDocumentStore):
                     "file_name": metadata["name"],
                     "source_version": source["source_version"],
                     "source_kind": "live" if source.get("_live") else "indexed",
+                    "metadata_only": metadata.get("metadata_only") is True,
+                    **(
+                        {
+                            "time_field": metadata["time_field"],
+                            "start_time": metadata["start_time"],
+                            "end_time": metadata["end_time"],
+                        }
+                        if metadata.get("metadata_only") is True
+                        else {}
+                    ),
                     "recipient": recipient,
                     "approval": approval.authority_binding(),
                     **(

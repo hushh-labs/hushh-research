@@ -175,6 +175,125 @@ async def test_zero_index_foreground_then_new_file_trusted_repeat_and_revocation
         await permissions.claim_grant(user_id="owner", operation_id=str(operation["operation_id"]))
 
 
+async def test_recency_card_dates_bind_private_metadata_through_approved_permission_plan(
+    live_journey,
+):
+    store, _, service_factory, _ = live_journey
+    created = await store.create_request(
+        recipient=VerifiedGoogleRecipient(
+            "recipient", "1234567", "recipient@example.invalid", datetime.now(UTC)
+        ),
+        owner_user_id="owner",
+        client_request_id=str(uuid4()),
+        purpose=ShareRequestPurpose(
+            purpose="Files from the last two days",
+            periodStart="2026-09-22",
+            periodEnd="2026-09-24",
+        ),
+    )
+    request_id = created["requestId"]
+    document_id = str(uuid4())
+    file_id = "recent-file-1"
+    source_ref = "document:" + "b" * 32
+    observed = {}
+    source = {
+        "document_id": document_id,
+        "file_id": file_id,
+        "name": "Recent.pdf",
+        "source_version": "7",
+        "content_fingerprint": None,
+        "connection_generation": 1,
+        "metadata_only": True,
+        "_live": True,
+    }
+
+    def reader_factory(*, user_id, require_access):
+        assert user_id == "owner"
+
+        async def find(**kwargs):
+            await require_access()
+            observed["find"] = kwargs
+            return {"matches": [{"file_id": file_id, "name": "Recent.pdf"}], "truncated": False}
+
+        async def bind_matches(**kwargs):
+            await require_access()
+            observed["bind"] = kwargs
+            source.update(
+                time_field=kwargs["time_field"],
+                start_time=kwargs["start_time"],
+                end_time=kwargs["end_time"],
+            )
+            return {
+                "untrusted_external_content": [
+                    {
+                        "document_ref": document_id,
+                        "source_ref": source_ref,
+                        "name": "Recent.pdf",
+                        "text": "Verified file metadata only",
+                    }
+                ],
+                "truncated": False,
+            }
+
+        return SimpleNamespace(
+            find=find,
+            bind_matches=bind_matches,
+            search=AsyncMock(),
+            require_current=require_access,
+            _rows=[source],
+        )
+
+    owner = AsyncMock()
+    service = service_factory(owner)
+    service.reader_factory = reader_factory
+    service.search_planner = AsyncMock(
+        return_value={"relative_days": 2, "mode": "find", "time_intent": "file_activity"}
+    )
+    service.interpreter = AsyncMock()
+    assert await service.run_one(user_id="owner", request_id=request_id) == "review_ready"
+    assert observed["find"]["query"] == []
+    assert observed["find"]["time_field"] == "modifiedTime"
+    assert observed["bind"]["start_time"] == observed["find"]["start_time"]
+    assert observed["bind"]["end_time"] == observed["find"]["end_time"]
+    service.interpreter.assert_not_awaited()
+
+    review = await store.owner_review(user_id="owner", request_id=request_id)
+    assert review["canApprove"] and len(review["files"]) == 1
+    assert review["coverage"]["coverage_status"] == "complete"
+    assert review["coverage"]["covered_periods"] == []
+    assert not rows(store, "connected_documents")
+    with store.db.engine.connect() as connection:
+        assert connection.execute(text("SELECT COUNT(*) FROM document_chunks")).scalar_one() == 0
+
+    await store.approve_review(
+        user_id="owner",
+        generation=1,
+        request_id=request_id,
+        revision=review["revision"],
+        review_digest=review["reviewDigest"],
+        document_ids=[document_id],
+        confirmed=True,
+    )
+    operation = next(
+        item
+        for item in rows(store, "drive_share_permission_operations")
+        if str(item["request_id"]) == request_id
+    )
+    assert file_id not in json.dumps(operation["plan_envelope"])
+    plan = store.sharing_cipher.open(
+        operation["plan_envelope"],
+        user_id="owner",
+        resource_id=str(operation["operation_id"]),
+        purpose="permission-plan",
+    )
+    assert plan["file_id"] == file_id
+    assert plan["source_kind"] == "live"
+    assert plan["metadata_only"] is True
+    assert plan["time_field"] == "modifiedTime"
+    assert plan["start_time"] == observed["find"]["start_time"]
+    assert plan["end_time"] == observed["find"]["end_time"]
+
+
 async def test_foreground_owner_revoked_before_publication_has_no_review_or_grant(live_journey):
     store, _, service, create = live_journey
     item = await create("Requested records")
