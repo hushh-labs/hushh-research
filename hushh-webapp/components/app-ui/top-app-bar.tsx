@@ -1030,6 +1030,12 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                     width: hasBreadcrumbTrail
                       ? "auto"
                       : "var(--top-bar-side-w)",
+                    // The collapsed gutter otherwise leaves the back button's
+                    // focus ring / ripple flush against top-app-bar-header's
+                    // overflow-hidden edge, clipping it on the left in
+                    // browsers that round the centered 44px hit-box a
+                    // fraction of a pixel tighter than others.
+                    paddingLeft: hasBreadcrumbTrail ? "4px" : undefined,
                   }}
                 >
                   {topShellBreadcrumb && !topShellBreadcrumb.hideBack ? (

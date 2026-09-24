@@ -116,6 +116,25 @@ function isNestedSwipeViewsTarget(
 }
 
 /**
+ * A Radix Select/DropdownMenu/Popover renders its open content through a
+ * portal, so it is never a descendant of the pager `root` this component
+ * tracks pointers on -- dismissing one with a click lands back on ordinary
+ * pager content. That dismiss click is real page interaction, not gesture
+ * intent, but its release can land 48px+ sideways from where it went down
+ * (mouse/trackpad clicks rarely land pixel-perfect on the same spot a
+ * fast-moving pointer went down on), which reads exactly like the edge-swipe
+ * this handler exists to detect. Tracked in the Location > Links "Duration"
+ * dropdown: opening it, then clicking away without first touching the list,
+ * silently swiped to whichever tab sits in the delta's direction.
+ */
+function hasOpenPopperOverlay(): boolean {
+  return Boolean(
+    typeof document !== "undefined" &&
+      document.querySelector("[data-radix-popper-content-wrapper]"),
+  );
+}
+
+/**
  * Embla's own `scrollSnaps` can desync from its `slideRects` after certain
  * reInit/resize sequences: slideRects correctly reports N uniform-width
  * slides, but scrollSnaps keeps a shorter array from an earlier measurement
@@ -382,7 +401,8 @@ export function SwipeViews({
     const onPointerDownCapture = (event: PointerEvent) => {
       if (
         isNestedHorizontalScrollTarget(event.target) ||
-        isNestedSwipeViewsTarget(event.target, root)
+        isNestedSwipeViewsTarget(event.target, root) ||
+        hasOpenPopperOverlay()
       ) {
         edgePointerStartRef.current = null;
         return;
