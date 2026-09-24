@@ -1455,9 +1455,9 @@ function OwnerConnectorsPanel({
             </section>}
             {activeConnector === "google_drive" && <section
               aria-labelledby="connection-drive-title"
-              className="space-y-3 rounded-xl border border-border p-3"
+              className="space-y-3"
             >
-              <h3 id="connection-drive-title" className="font-semibold">
+              <h3 id="connection-drive-title" className="sr-only">
                 Google Drive
               </h3>
               <p className="break-all text-sm text-muted-foreground">
@@ -1466,7 +1466,9 @@ function OwnerConnectorsPanel({
               <p role="status" className="text-sm">
                 {loading
                   ? "Checking Drive…"
-                  : drive
+                  : !statusChecked
+                    ? "Connection status unavailable"
+                    : drive
                     ? (labels[drive.status] ?? "Status unavailable")
                     : "Not connected"}
               </p>
@@ -1475,6 +1477,7 @@ function OwnerConnectorsPanel({
                   drive?.status === "needs_reauth" ||
                   drive?.status === "error") && (
                   <Button
+                    size="compact"
                     className={touch}
                     disabled={driveBusy || loading || !canConnectDrive}
                     onClick={() => startDrive("live")}
@@ -1503,6 +1506,7 @@ function OwnerConnectorsPanel({
                   </Button>
                 )}
                 <Button
+                  size="compact"
                   className={touch}
                   variant="ghost"
                   disabled={driveBusy || loading}
@@ -1538,7 +1542,7 @@ function OwnerConnectorsPanel({
                 </div>
               )}
               {vaultOwnerToken ? <TrustedDocumentRules token={vaultOwnerToken} /> : null}
-              {!canConnectDrive && (
+              {statusChecked && !canConnectDrive && (
                 <p className="text-sm text-muted-foreground">
                   Drive connection is unavailable in this session. Try again later.
                 </p>
