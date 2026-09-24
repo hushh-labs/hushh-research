@@ -14,10 +14,11 @@ from pathlib import Path
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
 from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent, run_single_turn
+from hushh_mcp.hushh_adk.turn import SpecialistAdkTurnError
 from hushh_mcp.services.drive_document_retrieval import (
     DriveDocumentReader,
     DriveSuggestionRetrievalStore,
@@ -147,7 +148,7 @@ def explicitly_requests_file_activity(purpose: str) -> bool:
 
 MAX_DATE_RANGE_DAYS = 366
 # Start of the metadata window for files the owner picked by hand.
-OWNER_SELECTION_START = "2000-01-01T00:00:00Z"
+OWNER_SELECTION_START = "1970-01-01T00:00:00Z"
 
 
 def _zone(timezone: str) -> ZoneInfo:
@@ -266,6 +267,23 @@ async def interpret_live_search(*, prompt, user_id):
     return result.model_dump(mode="json") if hasattr(result, "model_dump") else result
 
 
+async def plan_live_search(planner, *, prompt, user_id) -> LiveSearchPlan:
+    """The planner's typed plan, asked once more after an invalid answer.
+
+    Only a model failure is retried (a schema-invalid plan or a failed turn),
+    never a valid plan; a second failure stands. Measured on UAT 2026-09-25:
+    date-period requests intermittently failed LiveSearchPlan validation.
+    """
+    for attempt in (1, 2):
+        try:
+            return LiveSearchPlan.model_validate(await planner(prompt=prompt, user_id=user_id))
+        except (ValidationError, SpecialistAdkTurnError):
+            if attempt == 2:
+                raise
+            logger.info("drive_search_plan.retry reason=invalid_plan")
+    raise AssertionError("unreachable")
+
+
 async def interpret_suggestions(*, prompt, user_id):
     manifest = ManifestLoader.load(
         str(Path(__file__).resolve().parents[1] / "agents/documents/agent.yaml")
@@ -345,6 +363,7 @@ class DriveSuggestionService:
             user_id=user_id,
             request_id=request_id,
             **({"foreground": True} if self.require_owner is not None else {}),
+            **({"owner_selected": True} if owner_selected is not None else {}),
         )
         if job is None:
             return "not_claimed"
@@ -387,17 +406,16 @@ class DriveSuggestionService:
                         now_utc = requested_at.astimezone(UTC)
                     else:
                         raise ValueError("invalid request timestamp")
-                    plan = LiveSearchPlan.model_validate(
-                        await self.search_planner(
-                            prompt=json.dumps(
-                                {
-                                    "document_request": job["purpose"],
-                                    "current_time_utc": now_utc.isoformat(timespec="seconds"),
-                                },
-                                ensure_ascii=False,
-                            ),
-                            user_id=user_id,
-                        )
+                    plan = await plan_live_search(
+                        self.search_planner,
+                        prompt=json.dumps(
+                            {
+                                "document_request": job["purpose"],
+                                "current_time_utc": now_utc.isoformat(timespec="seconds"),
+                            },
+                            ensure_ascii=False,
+                        ),
+                        user_id=user_id,
                     )
                     await self._require_current(job)
                     requested_period = bool(
@@ -473,7 +491,7 @@ class DriveSuggestionService:
                     await self.store.fail_preparation(
                         job,
                         code="no_ready_files",
-                        retryable=await self.store.indexing_pending(job),
+                        retryable=owner_selected is None and await self.store.indexing_pending(job),
                     )
                     return "no_ready_files"
                 await reader.require_current()
@@ -603,6 +621,10 @@ class DriveSuggestionService:
                     type(error).__name__,
                 )
             await self.store.fail_preparation(
-                job, code=code, retryable=not isinstance(error, DriveReadError) or error.retryable
+                job,
+                code=code,
+                # A's hand-picked selection is never re-run by the background worker.
+                retryable=owner_selected is None
+                and (not isinstance(error, DriveReadError) or error.retryable),
             )
             return "unavailable"

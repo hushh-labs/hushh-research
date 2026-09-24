@@ -418,3 +418,30 @@ async def test_owner_selection_is_refused_without_owner_authority(live_journey):
     service = service_factory(None)
     with pytest.raises(DriveReadError, match="owner_authority_required"):
         await service.run_one(user_id="owner", request_id=str(uuid4()), owner_selected=[])
+
+
+async def test_an_owner_share_request_stays_out_of_the_background_lane(live_journey):
+    store, preferences, _, _ = live_journey
+    await preferences.set_background(user_id="owner", enabled=True, confirmed=True)
+    created = await store.create_request(
+        recipient=VerifiedGoogleRecipient(
+            "recipient", "1234567", "recipient@example.invalid", datetime.now(UTC)
+        ),
+        owner_user_id="owner",
+        client_request_id=str(uuid4()),
+        purpose=ShareRequestPurpose(purpose="Last 6 months bank statement"),
+        owner_initiated=True,
+    )
+    request_id = created["requestId"]
+    # A is not told about A's own share, and the worker never prepares it.
+    assert not [event for event in rows(store, "drive_share_events") if event["user_id"] == "owner"]
+    assert request_id not in {item["request_id"] for item in await store.due_preparations()}
+    assert await store.claim_preparation(user_id="owner", request_id=request_id) is None
+    assert (
+        await store.claim_preparation(user_id="owner", request_id=request_id, foreground=True)
+        is None
+    )
+    claimed = await store.claim_preparation(
+        user_id="owner", request_id=request_id, foreground=True, owner_selected=True
+    )
+    assert claimed is not None and claimed["request_id"] == request_id

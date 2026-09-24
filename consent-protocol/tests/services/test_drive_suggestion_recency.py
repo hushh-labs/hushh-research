@@ -290,3 +290,20 @@ async def test_latest_file_request_asks_the_reader_for_the_newest_files():
     )
     await service.run_one(user_id="owner", request_id=job["request_id"])
     assert reader.find.await_args.kwargs["recent"] is True
+
+
+@pytest.mark.asyncio
+async def test_an_invalid_plan_is_asked_once_more_then_stands():
+    """UAT 2026-09-25: date-period requests intermittently failed plan validation."""
+    from hushh_mcp.services.drive_suggestion_service import plan_live_search
+
+    planner = AsyncMock(side_effect=[{"relative_days": 99}, {"terms": ["statement"]}])
+    plan = await plan_live_search(planner, prompt="{}", user_id="owner")
+    assert plan.terms == ["statement"] and planner.await_count == 2
+    planner = AsyncMock(return_value={"relative_days": 99})
+    with pytest.raises(ValidationError):
+        await plan_live_search(planner, prompt="{}", user_id="owner")
+    assert planner.await_count == 2
+    planner = AsyncMock(return_value={"terms": ["statement"]})
+    await plan_live_search(planner, prompt="{}", user_id="owner")
+    assert planner.await_count == 1

@@ -170,8 +170,13 @@ class DriveSharingStore(DriveDocumentStore):
         owner_user_id: str,
         client_request_id: str,
         purpose: ShareRequestPurpose,
+        owner_initiated: bool = False,
     ) -> dict:
-        """B's authenticated identity must be verified by the service before calling."""
+        """B's authenticated identity must be verified by the service before calling.
+
+        owner_initiated: A shares files A chose from B's question. Background
+        preparation never runs for it and A is not notified of A's own action.
+        """
         self._sharing_admission(recipient.user_id)
         self._sharing_admission(owner_user_id)
         age = (datetime.now(UTC) - recipient.verified_at).total_seconds()
@@ -249,7 +254,18 @@ class DriveSharingStore(DriveDocumentStore):
                 """),
                     {"id": request_id, "user": owner_user_id},
                 )
-                self._event(connection, row, owner_user_id, "document_share_request")
+                if owner_initiated:
+                    # Only the owner's own foreground selection may prepare it.
+                    row = self._row(
+                        connection,
+                        """
+                        UPDATE drive_share_requests SET preparation_next_at=expires_at
+                        WHERE request_id=:id RETURNING *
+                    """,
+                        {"id": request_id},
+                    )
+                else:
+                    self._event(connection, row, owner_user_id, "document_share_request")
             return self._summary(row, recipient=True)
 
         return cast(dict, await self._transaction(operation))
