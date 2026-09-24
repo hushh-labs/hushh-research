@@ -8,21 +8,20 @@ Do not register an unrestricted generic dispatcher in place of this adapter.
 
 from __future__ import annotations
 
-import json
 import time
 from copy import deepcopy
 from typing import Any
-
-from jsonschema import Draft202012Validator
-from jsonschema.exceptions import SchemaError, ValidationError
-from referencing import Registry
-from referencing.exceptions import NoSuchResource, Unresolvable
 
 from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult, call_tool, list_tools
 from hushh_mcp.services.google_connection_service import (
     GoogleConnectionError,
     GoogleConnectionService,
     get_google_connection_service,
+)
+from hushh_mcp.services.mcp_capability_policy import (
+    admit_catalog,
+    arguments_bounded,
+    arguments_valid,
 )
 
 GOOGLE_DRIVE_MCP_ENDPOINT = "https://drivemcp.googleapis.com/mcp/v1"
@@ -38,60 +37,7 @@ GOOGLE_DRIVE_READ_TOOLS = frozenset(
         "search_files",
     }
 )
-_MAX_SCHEMA_BYTES = 16_000
-_MAX_DESCRIPTION_LENGTH = 700
-_MAX_ARGUMENT_BYTES = 4_096
 _CATALOG_TTL_SECONDS = 300
-
-
-def _reject_reference(uri: str) -> Any:
-    """Provider schemas must never cause a second, unpinned network fetch."""
-    raise NoSuchResource(ref=uri)
-
-
-_OFFLINE_REGISTRY = Registry(retrieve=_reject_reference)
-
-
-def _safe_read_capability(value: object) -> dict[str, Any] | None:
-    """Admit only bounded official read schemas as untrusted model-facing data."""
-    if not isinstance(value, dict):
-        return None
-    name = value.get("name")
-    if not isinstance(name, str) or name not in GOOGLE_DRIVE_READ_TOOLS:
-        return None
-    schema = value.get("inputSchema")
-    if not isinstance(schema, dict) or schema.get("type") != "object":
-        return None
-    try:
-        if len(json.dumps(schema, allow_nan=False).encode("utf-8")) > _MAX_SCHEMA_BYTES:
-            return None
-        Draft202012Validator.check_schema(schema)
-    except (SchemaError, TypeError, ValueError, RecursionError):
-        # A malformed provider schema is unavailable, never interpreted as a
-        # permissive object contract. Error text can contain provider payloads.
-        return None
-    pending = [schema]
-    while pending:
-        node = pending.pop()
-        if isinstance(node, dict):
-            if any(
-                key in node for key in ("$id", "$dynamicRef", "$recursiveRef", "$dynamicAnchor")
-            ):
-                return None
-            ref = node.get("$ref")
-            if ref is not None and (not isinstance(ref, str) or not ref.startswith("#/")):
-                return None
-            pending.extend(node.values())
-        elif isinstance(node, list):
-            pending.extend(node)
-    description = value.get("description")
-    return {
-        "name": name,
-        "description": description[:_MAX_DESCRIPTION_LENGTH]
-        if isinstance(description, str)
-        else "",
-        "inputSchema": schema,
-    }
 
 
 class GoogleDriveMcpService:
@@ -108,18 +54,7 @@ class GoogleDriveMcpService:
         if self._catalog is not None and self._catalog[0] > time.monotonic():
             return deepcopy(self._catalog[1])
         tools = await list_tools(endpoint=GOOGLE_DRIVE_MCP_ENDPOINT)
-        approved: dict[str, dict[str, Any]] = {}
-        duplicated: set[str] = set()
-        for tool in tools:
-            capability = _safe_read_capability(tool)
-            if capability:
-                name = capability["name"]
-                if name in approved:
-                    approved.pop(name)
-                    duplicated.add(name)
-                elif name not in duplicated:
-                    approved[name] = capability
-        result = [approved[name] for name in sorted(approved)]
+        result = admit_catalog(tools, allowed_names=GOOGLE_DRIVE_READ_TOOLS)
         self._catalog = (time.monotonic() + _CATALOG_TTL_SECONDS, result)
         return deepcopy(result)
 
@@ -132,22 +67,13 @@ class GoogleDriveMcpService:
             or tool_name not in GOOGLE_DRIVE_READ_TOOLS
         ):
             raise GoogleConnectionError("This Drive operation is not available", status_code=403)
-        if not isinstance(arguments, dict):
+        if not arguments_bounded(arguments):
             raise GoogleConnectionError("Drive request is invalid", status_code=400)
-        try:
-            if len(json.dumps(arguments, allow_nan=False).encode("utf-8")) > _MAX_ARGUMENT_BYTES:
-                raise ValueError("oversized")
-        except (TypeError, ValueError, RecursionError):
-            raise GoogleConnectionError("Drive request is invalid", status_code=400) from None
         catalog = await self.discover_read_tools()
         capability = next((item for item in catalog if item["name"] == tool_name), None)
         if capability is None:
             raise GoogleConnectionError("This Drive operation is unavailable", status_code=403)
-        try:
-            Draft202012Validator(capability["inputSchema"], registry=_OFFLINE_REGISTRY).validate(
-                arguments
-            )
-        except (ValidationError, SchemaError, Unresolvable, TypeError, ValueError):
+        if not arguments_valid(capability, arguments):
             raise GoogleConnectionError("Drive request is invalid", status_code=400) from None
         # No bearer is accepted from a model/client and none is returned to it.
         access_token = await self._connections.access_token(

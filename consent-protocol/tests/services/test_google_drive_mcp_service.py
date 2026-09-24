@@ -197,6 +197,24 @@ async def test_missing_owner_or_refused_grant_never_dispatches(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_oversized_arguments_fail_before_catalog_or_credentials(monkeypatch):
+    catalog = AsyncMock()
+    monkeypatch.setattr("hushh_mcp.services.google_drive_mcp_service.list_tools", catalog)
+    connections = SimpleNamespace(access_token=AsyncMock())
+
+    with pytest.raises(GoogleConnectionError) as error:
+        await GoogleDriveMcpService(connections=connections).read_tool(
+            user_id="owner",
+            tool_name="search_files",
+            arguments={"query": "x" * 5000},
+        )
+
+    assert error.value.status_code == 400
+    catalog.assert_not_called()
+    connections.access_token.assert_not_called()
+
+
+@pytest.mark.asyncio
 async def test_existing_calendar_grant_cannot_authorize_drive(monkeypatch):
     _admit_schema(monkeypatch, "search_files")
 
