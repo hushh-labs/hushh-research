@@ -28,6 +28,7 @@ tests/services/test_drive_sharing_contract.py
 tests/test_runtime_settings_maps.py
 tests/test_drive_sharing_routes.py
 tests/services/test_drive_live_reader.py
+tests/services/test_google_drive_rest_transport.py
 tests/services/test_drive_live_search_parity.py
 tests/services/test_drive_live_rule_contract.py
 tests/services/test_drive_live_journey.py
