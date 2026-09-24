@@ -714,14 +714,22 @@ describe("LocationImmersiveMap demo experience", () => {
 
     await waitFor(() => {
       expect(mapHarness.create).toHaveBeenCalled();
-      expect(
-        screen.getByTestId("one-location-map-self-avatar"),
-      ).toBeInTheDocument();
     });
     expect(
       screen.getByTestId("one-location-map-disclosure"),
     ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Your location" }),
+    ).toBeNull();
+    expect(
+      screen.queryByTestId("one-location-map-self-avatar"),
+    ).toBeNull();
     expect(mapHarness.map.addCircles).not.toHaveBeenCalled();
+    expect(mapHarness.map.setCamera).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        coordinate: { lat: 25.46, lng: 81.85 },
+      }),
+    );
   });
 
   it("frames demo people, searches locally, focuses, locates, and exits without writes", async () => {
@@ -3043,6 +3051,9 @@ describe("LocationImmersiveMap reported map defects", () => {
       expect(
         screen.getByTestId("one-location-map-disclosure"),
       ).toBeInTheDocument();
+      expect(
+        screen.queryByTestId("one-location-map-self-avatar"),
+      ).toBeNull();
     });
   });
 

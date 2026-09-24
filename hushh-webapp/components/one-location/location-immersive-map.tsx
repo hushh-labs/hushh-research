@@ -1830,7 +1830,9 @@ export function LocationImmersiveMap({
       : "Your location";
 
   const selectSelfMarker = useCallback(() => {
-    if (!mapSelfMarker) return;
+    // A cached point may exist before consent or after it is revoked. Never let
+    // even a stale queued activation disclose that coordinate to the renderer.
+    if (!rendererReady || !mapSelfMarker) return;
     setSelected(mapSelfMarker);
     setSettledCameraZoom(15);
     void mapRef.current?.setCamera({
@@ -1841,7 +1843,7 @@ export function LocationImmersiveMap({
       zoom: 15,
       animate: true,
     });
-  }, [mapSelfMarker]);
+  }, [mapSelfMarker, rendererReady]);
 
   /**
    * Non-owner pins managed as one renderer batch. The owner fallback is a
@@ -3070,11 +3072,16 @@ export function LocationImmersiveMap({
 
         Rendered after the pills so it paints over a name that lands on the same
         pixels, and only once the renderer has reported a camera to project
-        with. The same semantic button stays mounted through motion; when its
-        photo cannot be projected it becomes a keyboard-only control while the
-        separately managed renderer circle stays tied to the coordinate.
+        with. Once renderer consent exists, the same semantic button stays
+        mounted through motion; when its photo cannot be projected it becomes a
+        keyboard-only control while the separately managed renderer circle
+        stays tied to the coordinate.
       */}
-      {mapSelfMarker && mapReady && status !== "unavailable" && !closing ? (
+      {rendererReady &&
+      mapSelfMarker &&
+      mapReady &&
+      status !== "unavailable" &&
+      !closing ? (
         <MapSelfAvatarMarker
           point={mapSelfMarker.point}
           camera={mapCamera}
