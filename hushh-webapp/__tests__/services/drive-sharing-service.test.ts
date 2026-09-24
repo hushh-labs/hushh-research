@@ -171,6 +171,17 @@ describe("private sharing transport", () => {
     ).toThrow(DriveSharingError);
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
+  it.each([[[]], [["not-reviewed"]], [[documentId, documentId]]])(
+    "refuses a selection %j that is empty, repeated or outside the review",
+    async (selection) => {
+      fetcher.mockResolvedValueOnce(reply(rawReview()));
+      const review = await DriveSharingService.review("t", requestId, guard);
+      expect(() =>
+        DriveSharingService.approve("t", requestId, review, guard, false, undefined, selection),
+      ).toThrow(DriveSharingError);
+      expect(fetcher).toHaveBeenCalledTimes(1);
+    },
+  );
   it("checks the session again at the actual API dispatch boundary", async () => {
     let current = true;
     fetcher.mockImplementationOnce(async (_url, options) => {

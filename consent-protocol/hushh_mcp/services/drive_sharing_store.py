@@ -832,10 +832,19 @@ class DriveSharingStore(DriveDocumentStore):
                 purpose="review",
             )
             approval = SharingApproval.model_validate(payload["approval"])
-            if len(document_ids) != len(approval.sources) or set(document_ids) != {
-                str(source.document_id) for source in approval.sources
-            }:
+            reviewed_ids = [str(source.document_id) for source in approval.sources]
+            selected_ids = set(document_ids)
+            # A confirms the complete reviewed set and shares a non-empty subset
+            # of it: a file outside the review can never be granted.
+            if (
+                not selected_ids
+                or len(selected_ids) != len(document_ids)
+                or not selected_ids <= set(reviewed_ids)
+            ):
                 raise DriveSharingError("review_changed")
+            # Trust for future requests follows a review A accepted in full.
+            if trust_future_requests and selected_ids != set(reviewed_ids):
+                raise DriveSharingError("rule_not_covered")
             self._admit_sources(
                 connection, user_id=user_id, generation=generation, sources=approval.sources
             )
@@ -843,7 +852,7 @@ class DriveSharingStore(DriveDocumentStore):
                 connection,
                 user_id=user_id,
                 generation=generation,
-                document_ids=document_ids,
+                document_ids=reviewed_ids,
                 request_id=request_id,
             )
             current = SharingApproval.model_validate(
@@ -873,8 +882,9 @@ class DriveSharingStore(DriveDocumentStore):
             batch = ledger.claim_document_review_in_transaction(
                 directive_id=review["directive_id"], authority=authority, receipt=receipt.receipt
             )
+            selected = [source for source in sources if str(source["document_id"]) in selected_ids]
             self._queue_grants(
-                connection, request=request, approval=current, sources=sources, batch=batch
+                connection, request=request, approval=current, sources=selected, batch=batch
             )
             if trust_future_requests:
                 rule_id = str(uuid4())
@@ -935,7 +945,7 @@ class DriveSharingStore(DriveDocumentStore):
             return {
                 **self._summary(updated),
                 "sharingStatus": "pending",
-                "fileCount": len(sources),
+                "fileCount": len(selected),
                 "trustedForDocuments": trust_future_requests,
             }
 

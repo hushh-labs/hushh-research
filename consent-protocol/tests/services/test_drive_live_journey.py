@@ -77,7 +77,7 @@ async def live_journey(sharing, monkeypatch):
 
         # The reader's real call shape: a typed metadata search, then reads of
         # exactly the files it found.
-        async def find(*, query, file_kind="any", shared_with_me=False, **bounds):
+        async def find(*, query, file_kind="any", shared_with_me=False, recent=False, **bounds):
             assert query == ["records"] and not bounds
             await require_access()
             return {"matches": [match], "truncated": False}
