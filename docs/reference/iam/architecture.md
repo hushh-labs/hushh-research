@@ -116,6 +116,14 @@ reads the provider credential and service grant in one SQL snapshot. Refresh
 writes compare the original credential and subject plus the current service
 grant. These checks do not make OAuth permission a consent grant.
 
+Workspace Chat compares the credential owner's complete binding before and
+after discovery or reading. Calendar's shared Google binding contains both
+connection and service-grant revisions (six fields); Gmail's legacy single-row
+binding contains one revision (five fields). Neither revision may be dropped to
+normalize these different storage contracts. A change to either Calendar
+revision discards the in-flight result; malformed or mismatched bindings fail
+closed before provider dispatch.
+
 Web and native connection starts capture a generation inside the encrypted
 attempt under the same owner transaction lock used by disconnect. Publication
 rechecks that generation, the claimed attempt and its current expiry, then writes

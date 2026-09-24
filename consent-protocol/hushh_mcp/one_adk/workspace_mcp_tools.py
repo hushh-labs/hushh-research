@@ -130,14 +130,18 @@ async def _grant_binding(owner: str, provider: WorkspaceProvider) -> tuple[str, 
         binding = await get_google_connection_service().read_grant_binding(
             user_id=owner, service=provider
         )
+    # Gmail has one credential/grant row; shared Google connections have
+    # independently versioned connection and service-grant rows. Keep both
+    # revisions so a change to either invalidates an in-flight result.
+    expected_parts = 5 if provider == "gmail" else 6
     if (
         not isinstance(binding, (tuple, list))
-        or len(binding) != 5
+        or len(binding) != expected_parts
         or any(not isinstance(part, str) or not part.strip() for part in binding)
     ):
         return None
     normalized = tuple(part.strip() for part in binding if isinstance(part, str))
-    if len(normalized) != 5 or normalized[0] != owner or normalized[1] != provider:
+    if normalized[0] != owner or normalized[1] != provider:
         return None
     return normalized
 
