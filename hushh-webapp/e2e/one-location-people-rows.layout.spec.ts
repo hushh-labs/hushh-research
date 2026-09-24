@@ -67,16 +67,24 @@ async function buildFixture(dark: boolean): Promise<string> {
 
 for (const dark of [false, true]) {
   for (const width of WIDTHS) {
-    test(`People actions and Circles badge at ${width}px ${dark ? "dark" : "light"}`, async ({ page }, testInfo) => {
+    test(`People actions and Circles badge at ${width}px ${dark ? "dark" : "light"}`, async ({
+      page,
+    }, testInfo) => {
       await page.setViewportSize({ width, height: 900 });
       await page.goto(await buildFixture(dark));
       await awaitProductFont(page);
 
       const measurements = await page.evaluate(() => {
-        const rows = [...document.querySelectorAll<HTMLElement>("[data-people-rows] > div")];
+        const rows = [
+          ...document.querySelectorAll<HTMLElement>("[data-people-rows] > div"),
+        ];
         const rowMeasurements = rows.map((row) => {
-          const person = row.querySelector<HTMLButtonElement>('button[aria-label^="Open Location actions"]')!;
-          const actions = [...row.querySelectorAll<HTMLButtonElement>('[role="group"] button')];
+          const person = row.querySelector<HTMLButtonElement>(
+            'button[aria-label^="Open Location actions"]',
+          )!;
+          const actions = [
+            ...row.querySelectorAll<HTMLButtonElement>('[role="group"] button'),
+          ];
           const rowBox = row.getBoundingClientRect();
           const personBox = person.getBoundingClientRect();
           return {
@@ -87,6 +95,8 @@ for (const dark of [false, true]) {
             personCenter: (personBox.top + personBox.bottom) / 2,
             actions: actions.map((action) => {
               const box = action.getBoundingClientRect();
+              const icon = action.querySelector<SVGElement>("svg");
+              const iconBox = icon?.getBoundingClientRect();
               return {
                 left: box.left,
                 right: box.right,
@@ -94,20 +104,41 @@ for (const dark of [false, true]) {
                 bottom: box.bottom,
                 height: box.height,
                 center: (box.top + box.bottom) / 2,
-                inside: box.left >= rowBox.left - 1 && box.right <= rowBox.right + 1,
+                inside:
+                  box.left >= rowBox.left - 1 && box.right <= rowBox.right + 1,
+                iconVisible: Boolean(
+                  iconBox &&
+                  iconBox.width > 0 &&
+                  iconBox.height > 0 &&
+                  getComputedStyle(icon!).display !== "none",
+                ),
               };
             }),
           };
         });
-        const identities = [...document.querySelectorAll<HTMLElement>("[data-circle-identity-stack] > span")].map((item) => item.getBoundingClientRect());
-        const counter = document.querySelector<HTMLElement>("[data-circle-overflow-count]")!.getBoundingClientRect();
+        const identities = [
+          ...document.querySelectorAll<HTMLElement>(
+            "[data-circle-identity-stack] > span",
+          ),
+        ].map((item) => item.getBoundingClientRect());
+        const counter = document
+          .querySelector<HTMLElement>("[data-circle-overflow-count]")!
+          .getBoundingClientRect();
+        const counterElement = document.querySelector<HTMLElement>(
+          "[data-circle-overflow-count]",
+        )!;
+        const counterStyle = getComputedStyle(counterElement);
         return {
           rows: rowMeasurements,
           identityCount: identities.length,
           circlesOverlap: identities[1].left < identities[0].right,
           counterGap: counter.left - identities[1].right,
-          counterLabel: document.querySelector("[data-circle-overflow-count]")!.textContent?.trim(),
-          pageOverflow: document.documentElement.scrollWidth > window.innerWidth + 1,
+          counterLabel: counterElement.textContent?.trim(),
+          counterBackground: counterStyle.backgroundColor,
+          counterBorderRadius: counterStyle.borderRadius,
+          counterPaddingInline: `${counterStyle.paddingLeft} ${counterStyle.paddingRight}`,
+          pageOverflow:
+            document.documentElement.scrollWidth > window.innerWidth + 1,
         };
       });
 
@@ -116,24 +147,35 @@ for (const dark of [false, true]) {
       expect(measurements.identityCount).toBe(2);
       expect(measurements.circlesOverlap).toBe(true);
       expect(measurements.counterLabel).toBe("+2");
+      expect(measurements.counterBackground).toBe("rgba(0, 0, 0, 0)");
+      expect(measurements.counterBorderRadius).toBe("0px");
+      expect(measurements.counterPaddingInline).toBe("0px 0px");
       expect(measurements.counterGap).toBeGreaterThanOrEqual(7);
       for (const row of measurements.rows) {
         expect(row.actions).toHaveLength(2);
-        expect(row.height).toBeLessThanOrEqual(width < 360 ? 140 : 90);
+        expect(row.height).toBeLessThanOrEqual(width < 400 ? 140 : 90);
         for (const action of row.actions) {
           expect(action.height).toBeGreaterThanOrEqual(44);
           expect(action.inside).toBe(true);
-          if (width >= 360) {
+          expect(action.iconVisible).toBe(true);
+          if (width >= 400) {
             expect(action.left).toBeGreaterThanOrEqual(row.personRight);
-            expect(Math.abs(action.center - row.personCenter)).toBeLessThanOrEqual(6);
+            expect(
+              Math.abs(action.center - row.personCenter),
+            ).toBeLessThanOrEqual(6);
           } else {
             expect(action.top).toBeGreaterThanOrEqual(row.personBottom);
           }
         }
       }
-      await expect(page.locator("button button, a button, button a")).toHaveCount(0);
+      await expect(
+        page.locator("button button, a button, button a"),
+      ).toHaveCount(0);
       if (width === 320 || width === 390 || width === 1280) {
-        await page.screenshot({ path: testInfo.outputPath("people-rows.png"), fullPage: true });
+        await page.screenshot({
+          path: testInfo.outputPath("people-rows.png"),
+          fullPage: true,
+        });
       }
     });
   }

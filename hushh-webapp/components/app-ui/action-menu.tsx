@@ -14,6 +14,7 @@ import {
 import {
   Sheet,
   SheetContent,
+  SheetDescription,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
@@ -64,6 +65,7 @@ const ITEM_CLASSNAME =
 export function ActionMenu({
   label,
   title,
+  showMobileTitle = true,
   items,
   triggerIcon: TriggerIcon,
   trigger: customTrigger,
@@ -74,6 +76,9 @@ export function ActionMenu({
   label: string;
   /** The sheet's heading on a phone. Defaults to `label`. */
   title?: string;
+  /** Keep the sheet named for assistive technology while hiding its visual
+   * heading when the surrounding mobile screen already supplies the context. */
+  showMobileTitle?: boolean;
   items: ActionMenuItem[];
   triggerIcon?: LucideIcon;
   trigger?: ReactNode;
@@ -116,11 +121,18 @@ export function ActionMenu({
             data-testid={testId ? `${testId}-sheet` : undefined}
             className="gap-0 rounded-t-[24px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2"
           >
-            <SheetHeader className="px-1 pb-2 pt-1 text-left">
-              <SheetTitle className="text-[15px] font-medium leading-5 text-[color:var(--app-secondary-label)]">
-                {title ?? label}
-              </SheetTitle>
-            </SheetHeader>
+            {showMobileTitle ? (
+              <SheetHeader className="px-1 pb-2 pt-1 text-left">
+                <SheetTitle className="text-[15px] font-medium leading-5 text-[color:var(--app-secondary-label)]">
+                  {title ?? label}
+                </SheetTitle>
+              </SheetHeader>
+            ) : (
+              <SheetTitle className="sr-only">{title ?? label}</SheetTitle>
+            )}
+            <SheetDescription className="sr-only">
+              Choose an action for {title ?? label}.
+            </SheetDescription>
             <div className="space-y-1">
               {items.map((item) => {
                 const Icon = item.icon;
