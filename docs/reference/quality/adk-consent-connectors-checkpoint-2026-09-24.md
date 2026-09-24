@@ -1,5 +1,61 @@
 # ADK consent and connector checkpoint — 2026-09-24
 
+## Active continuation — release and user-journey closeout
+
+The user authorized this sequence on the existing `feat/adk-orchestration-runtime`
+worktree: reconcile the latest `main`, preserve both branches' intent, commit and
+push the exact verified source, use the Admin release SOP and merge queue, deploy
+the landed `main` SHA to UAT, then ship that UAT-backed SHA to TestFlight. These
+are distinct gates; neither a local merge nor a green PR means deployment or
+TestFlight is complete. Do not initiate Drive OAuth for the user.
+
+### Plan
+
+1. Finish source reconciliation and generated projections; prove the Professional
+   root request remains one reviewed bundle and the Chat/Profile actions stay
+   reachable. Keep current consent, owner and browser-decryption authorities.
+2. Run changed-surface and canonical pre-PR checks, DCO and secret hygiene. Push
+   the exact branch head and open a fresh PR (the former PR is already merged).
+3. Require terminal-green checks, clean freshness/mergeability and resolved
+   conversations. Enter the ordinary merge queue; use Admin PR landing only if
+   review policy alone blocks queue entry and the SOP's exact-head gates pass.
+4. Verify landed `main` SHA and its successful post-merge smoke. Deploy that
+   exact SHA to UAT with automatic scope selection; inspect workflow artifacts,
+   service provenance, health and the connector/consent surface.
+5. Ship the same green, UAT-backed `main` SHA through the TestFlight workflow.
+   Verify the run's terminal result and Apple processing/distribution state.
+
+### Current evidence at this checkpoint
+
+- **Main integration:** fetched `origin/main` `30c8d3006141a62cb8a12d4834cb61cc0f42ce78`
+  and merged it normally into the existing branch as `60427df4a`. Merge parent
+  and source-fidelity check confirm the latest main content is present; no history
+  rewrite or branch switch. A bounded instruction/projection reconciliation and
+  canonical Connectors-route redirect fix are still uncommitted.
+- **Automated:** 45 backend manifest/prompt tests, 115 focused frontend consent,
+  connector and receipt tests, 5 proxy tests, TypeScript typecheck, generated
+  registry/hierarchy and capability-graph checks, route/surface/cache/service
+  boundaries, and Capacitor static/plugin parity passed.
+- **Browser/runtime:** frontend `3000` and backend `8000` are served from this
+  worktree and return healthy responses. Canonical reviewer preflight and
+  read-only same-session route plus cold re-unlock proof passed for
+  `/one/profile/connectors`. This is not a consent mutation or Drive provider read.
+- **Connector state:** the Settings catalog and Chat entry are implemented.
+  Local reviewer configuration keeps Drive connect disabled; existing UAT
+  rollout configuration is enabled. No rollout values were changed and no OAuth
+  was started. A real Drive read still requires the user's normal authorization.
+- **Native:** a paired physical iPhone is available, and native static/plugin
+  contracts pass. No post-merge native interaction or TestFlight build has yet
+  been verified.
+- **Still open:** fresh live root-scope submission/approval/readback, three-account
+  Memory fixtures, the full 12-journey Chat/Profile matrix, real Drive provider
+  read, and deployed UAT/TestFlight evidence. Existing grants and their impact
+  boundaries must be inspected before any reviewer mutation; automated tests do
+  not close those gates.
+
+This active continuation supersedes the older status and plans below. Those
+entries remain historical evidence with their original revisions and limits.
+
 ## Visual Context
 
 Architecture owner: [One agent hierarchy](../one/one-agent-hierarchy.md).
@@ -7,12 +63,12 @@ Canonical visual index: [Architecture reference](../architecture/README.md).
 
 | Boundary | Current evidence | Remaining acceptance |
 | --- | --- | --- |
-| Main → ADK branch | Integrated, concurrent edits preserved | No main landing authorized here |
+| Main → ADK branch | Latest fetched main merged locally at `60427df4a` | New PR, queue/Admin SOP, landed-SHA smoke |
 | Connector → One | Guarded read path committed and regression-tested | Live provider and native proof |
 | Consent → Chat | Metadata-only receipt and restoration committed | Browser revisit and fresh encrypted readback |
 | Sidebar → connection authority | Calendar/Plaid owning status, 11 tests | Real authenticated visual rehearsal |
 
-## Implementation update (supersedes initial audit below)
+## Historical implementation update — 2026-09-24 MCP integration
 
 Concurrent documentation was preserved in `8efdd610b`. Main at `79ed54dd9`
 was merged into the existing ADK branch in `493ef2c30`; the integration is no
