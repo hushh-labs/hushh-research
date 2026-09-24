@@ -355,6 +355,8 @@ async def test_prepare_turn_is_one_transaction_and_history_precedes_current_mess
     assert len(calls) == 1
     sql, params = calls[0]
     assert sql.index("recent_rows AS MATERIALIZED") < sql.index("inserted_message AS")
+    assert "JOIN selected ON selected.id = messages.conversation_id" in sql
+    assert "WHERE messages.user_id = :user_id" in sql
     assert params["requested_conversation_id"] == "conversation-1"
     assert turn.conversation_id == "conversation-1"
     assert turn.history[0].content == "Prior assistant answer"

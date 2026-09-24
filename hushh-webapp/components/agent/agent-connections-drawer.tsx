@@ -14,6 +14,21 @@ const selector =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 export type ConnectionsDrawerMode = "chats" | "connections";
 
+export type ConnectionsDrawerState = {
+  open: boolean;
+  mode: ConnectionsDrawerMode;
+};
+
+/** Closing resets to chats; the hamburger always targets chat navigation. */
+export function transitionConnectionsDrawer(
+  state: ConnectionsDrawerState,
+  action: { type: "set-open"; open: boolean } | { type: "toggle-chats" },
+): ConnectionsDrawerState {
+  if (action.type === "toggle-chats")
+    return { open: !state.open, mode: "chats" };
+  return { open: action.open, mode: action.open ? state.mode : "chats" };
+}
+
 /** The production drawer, also mounted unchanged in browser contracts. Both
  * views stay mounted so switching preserves history search/scroll and drafts. */
 export function AgentConnectionsDrawer({

@@ -46,6 +46,7 @@ import { AgentHistorySidebar } from "@/components/agent/agent-history-sidebar";
 import { ConnectorsPanel } from "@/components/agent/connectors-panel";
 import {
   AgentConnectionsDrawer,
+  transitionConnectionsDrawer,
   type ConnectionsDrawerMode,
 } from "@/components/agent/agent-connections-drawer";
 import { SegmentedControl } from "@/lib/morphy-ux/ui/segmented-control";
@@ -1895,6 +1896,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isHistoryDrawerOpen, setIsHistoryDrawerOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState<ConnectionsDrawerMode>("chats");
+  const handleHistoryDrawerOpenChange = useCallback((open: boolean) => {
+    const next = transitionConnectionsDrawer(
+      { open: isHistoryDrawerOpen, mode: drawerMode },
+      { type: "set-open", open },
+    );
+    setIsHistoryDrawerOpen(next.open);
+    setDrawerMode(next.mode);
+  }, [drawerMode, isHistoryDrawerOpen]);
   const [recoveryCheckedForUid, setRecoveryCheckedForUid] = useState<string | null>(null);
   const pendingDriveRecoveryRef = useRef<{
     ownerUid: string;
@@ -3743,18 +3752,18 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   };
 
   const handleSidebarCreateNewChat = useCallback(() => {
-    setIsHistoryDrawerOpen(false);
+    handleHistoryDrawerOpenChange(false);
     if (isPuppySurface) {
       handleCreateNewPuppyChat();
       return;
     }
     setAgentSurface("one");
     handleCreateNewChat();
-  }, [handleCreateNewChat, handleCreateNewPuppyChat, isPuppySurface]);
+  }, [handleCreateNewChat, handleCreateNewPuppyChat, handleHistoryDrawerOpenChange, isPuppySurface]);
 
   const handleSidebarSelectConversation = useCallback(
     (nextConversationId: string) => {
-      setIsHistoryDrawerOpen(false);
+      handleHistoryDrawerOpenChange(false);
       if (isPuppySurface) {
         handleSelectPuppyConversation(nextConversationId);
         return;
@@ -3762,7 +3771,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       setAgentSurface("one");
       void handleSelectConversation(nextConversationId);
     },
-    [handleSelectConversation, handleSelectPuppyConversation, isPuppySurface],
+    [handleHistoryDrawerOpenChange, handleSelectConversation, handleSelectPuppyConversation, isPuppySurface],
   );
 
   const handleRenameConversation = useCallback(
@@ -5695,13 +5704,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     window.setTimeout(() => composerTextareaRef.current?.focus(), 0);
   }, []);
   const toggleHistoryDrawer = useCallback(() => {
-    setIsHistoryDrawerOpen((prev) => {
-      if (!prev) {
-        if (!isPuppySurface) void loadConversationList().catch(() => undefined);
-      }
-      return !prev;
-    });
-  }, [isPuppySurface, loadConversationList]);
+    const next = transitionConnectionsDrawer(
+      { open: isHistoryDrawerOpen, mode: drawerMode },
+      { type: "toggle-chats" },
+    );
+    setIsHistoryDrawerOpen(next.open);
+    setDrawerMode(next.mode);
+    if (next.open && !isPuppySurface)
+      void loadConversationList().catch(() => undefined);
+  }, [drawerMode, isHistoryDrawerOpen, isPuppySurface, loadConversationList]);
   const renderHistorySidebar = (
     sidebarClassName?: string,
     onClose?: () => void,
@@ -5823,12 +5834,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         <AgentConnectionsDrawer
           triggerRef={historyDrawerTriggerRef}
           open={isHistoryDrawerOpen}
-          onOpenChange={setIsHistoryDrawerOpen}
+          onOpenChange={handleHistoryDrawerOpenChange}
           mode={drawerMode}
           externalModalOpen={connectorExternalModalOpen}
           chats={renderHistorySidebar(
             "h-full w-full",
-            () => setIsHistoryDrawerOpen(false),
+            () => handleHistoryDrawerOpenChange(false),
             false,
             "mobile",
           )}
@@ -5836,10 +5847,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             <ConnectorsPanel
               open={isHistoryDrawerOpen && drawerMode === "connections"}
               onBack={() => setDrawerMode("chats")}
-              onClose={() => {
-                setIsHistoryDrawerOpen(false);
-                setDrawerMode("chats");
-              }}
+              onClose={() => handleHistoryDrawerOpenChange(false)}
               onAvailableChange={setConnectionsAvailable}
               onExternalModalChange={setConnectorExternalModalOpen}
               onPrepareRecovery={prepareDriveChatRecovery}

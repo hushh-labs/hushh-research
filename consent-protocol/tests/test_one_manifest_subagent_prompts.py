@@ -21,6 +21,29 @@ def test_one_chat_receives_authored_cross_connector_semantic_policy():
     assert "This chat has no direct Google sharing action" in composed
     assert "SELECTED-FILE DRIVE READ ADMISSION: disabled" in composed
     assert "Do not claim the owner is disconnected" in composed
+    assert '"do you have my Drive access?"' in composed
+    assert "The owner's selection is account-level" in composed
+
+
+def test_admitted_drive_instruction_checks_generic_status_and_keeps_chat_referents_local(
+    monkeypatch,
+):
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("GOOGLE_DRIVE_CHAT_READS", "true")
+    monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "owner")
+    composed = agent_tree._one_runtime_instruction(
+        SimpleNamespace(
+            state={
+                agent_tree.STATE_EXECUTION_SURFACE: "typed_chat",
+                agent_tree.STATE_USER_ID: "owner",
+            }
+        )
+    )
+    assert "file_name as an empty string" in composed
+    assert "without naming files" in composed
+    assert "earlier in this same conversation" in composed
+    assert "previous-chat references and transcript do not carry over" in composed
+    assert "Never infer disconnection or zero selected files" in composed
 
 
 def test_selected_drive_status_is_available_only_in_owner_chat_roster():
