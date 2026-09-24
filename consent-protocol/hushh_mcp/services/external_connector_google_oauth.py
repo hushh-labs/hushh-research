@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import hmac
 import json
+import logging
 import os
 import secrets
 from datetime import UTC, datetime, timedelta
@@ -42,6 +43,8 @@ LIVE_SCOPES = ("openid", "email", LIVE_DRIVE_SCOPE)
 REGISTRY_SCOPES = (*SCOPES, LIVE_DRIVE_SCOPE)
 DriveProfile = Literal["selected", "live"]
 RESPONSE_LIMIT = 256 * 1024
+
+logger = logging.getLogger(__name__)
 
 
 class DriveOAuthError(RuntimeError):
@@ -383,8 +386,9 @@ class ExternalConnectorGoogleOAuth:
             try:
                 if await self.verify_live(user_id=expected_user_id):
                     status = "connected"
-            except (DriveOAuthError, ExternalConnectorCredentialError):
-                pass  # The staged grant remains unverified and cannot serve live reads.
+            except (DriveOAuthError, ExternalConnectorCredentialError) as error:
+                # The staged grant remains unverified and cannot serve live reads.
+                logger.warning("drive_oauth.live_verify_failed code=%s", error)
         return {"connectorId": CONNECTOR_ID, "status": status}
 
     async def complete_native(self, *, state: str, code: str) -> dict[str, str]:
@@ -442,8 +446,8 @@ class ExternalConnectorGoogleOAuth:
             ):
                 if await self.verify_live(user_id=user_id):
                     status = "connected"
-        except (DriveOAuthError, ExternalConnectorCredentialError):
-            pass
+        except (DriveOAuthError, ExternalConnectorCredentialError) as error:
+            logger.warning("drive_oauth.live_verify_failed code=%s", error)
         return {"connectorId": CONNECTOR_ID, "status": status}
 
     async def current_credential(
@@ -545,12 +549,10 @@ class ExternalConnectorGoogleOAuth:
             raise DriveOAuthError("connector_unavailable", status_code=403)
         row, credential = await self.current_credential(user_id=user_id, required_profile="live")
         await GoogleDriveAdapter().account(access_token=credential["accessToken"])
-        # Local import avoids a module cycle: the MCP service uses DriveOAuthError.
-        from hushh_mcp.services.google_drive_mcp_service import GoogleDriveMcpService
+        # Local import avoids a module cycle: the transport uses DriveOAuthError.
+        from hushh_mcp.services.google_drive_rest_transport import GoogleDriveRestTransport
 
-        await GoogleDriveMcpService(oauth=self).probe_live_search(
-            access_token=credential["accessToken"]
-        )
+        await GoogleDriveRestTransport(oauth=self).probe(access_token=credential["accessToken"])
         return await self.lifecycle.mark_verified(
             user_id=user_id,
             connector_id=CONNECTOR_ID,

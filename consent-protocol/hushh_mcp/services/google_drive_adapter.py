@@ -56,6 +56,17 @@ SHARE_METADATA_FIELDS = (
     "id,name,mimeType,version,modifiedTime,createdTime,trashed,"
     "capabilities(canShare),clientEncryptionDetails(encryptionState)"
 )
+# Live search: one bounded files.list shape, never a caller-chosen field set.
+LIST_FIELDS = "nextPageToken,files(id,name,mimeType,modifiedTime,createdTime,webViewLink)"
+# Drive sorts each key ascending unless told "desc"; live results are newest
+# first. modifiedTime is the time sort Drive optimizes on large collections.
+LIST_ORDERS = frozenset({"recency desc", "modifiedTime desc"})
+LIST_FIXED = {
+    "fields": LIST_FIELDS,
+    "supportsAllDrives": "true",
+    "includeItemsFromAllDrives": "true",
+    "corpora": "user",
+}
 EXPORTS = {
     "application/vnd.google-apps.document": "text/plain",
     "application/vnd.google-apps.presentation": "text/plain",
@@ -157,6 +168,15 @@ class GoogleDriveAdapter:
         # supply an origin, arbitrary query, mutation, or unbounded response.
         if path == "/about":
             allowed = params == {"fields": "user(permissionId,emailAddress,me)"}
+        elif path == "/files":
+            allowed = (
+                all(params.get(key) == value for key, value in LIST_FIXED.items())
+                and set(params) <= {*LIST_FIXED, "q", "pageSize", "pageToken", "orderBy"}
+                and re.fullmatch(r"[1-9]|1\d|2[0-5]", params.get("pageSize", "")) is not None
+                and len(params.get("q", "")) <= 2000
+                and len(params.get("pageToken", "")) <= 1024
+                and params.get("orderBy", "modifiedTime desc") in LIST_ORDERS
+            )
         elif re.fullmatch(r"/files/[A-Za-z0-9_-]{1,200}(?:/export)?", path):
             allowed = (
                 not path.endswith("/export")
@@ -348,6 +368,44 @@ class GoogleDriveAdapter:
         ):
             raise DriveReadError("provider_response_invalid")
         return DriveMetadata(file_id, name, mime, version, modified, None, None, created)
+
+    async def list_files(
+        self,
+        *,
+        access_token: str,
+        query: str,
+        page_size: int,
+        page_token: str | None = None,
+        order_by: str | None = None,
+    ) -> dict[str, Any]:
+        """One bounded Drive REST search page (the GA API the picker lane already uses)."""
+        if not 1 <= page_size <= 25:
+            raise DriveReadError("invalid_argument")
+        params = {**LIST_FIXED, "q": query, "pageSize": str(page_size)}
+        if page_token:
+            params["pageToken"] = page_token
+        if order_by:
+            params["orderBy"] = order_by
+        return _decode_json(
+            await self._get(
+                "/files", access_token=access_token, params=params, limit=METADATA_LIMIT
+            )
+        )
+
+    async def read_live_bytes(
+        self, *, file_id: str, mime_type: str, access_token: str
+    ) -> tuple[str, bytes]:
+        """Content of a file the owner's live grant can read (export for Docs/Slides)."""
+        export_mime = EXPORTS.get(mime_type)
+        content = await self._get(
+            _file_path(file_id) + ("/export" if export_mime else ""),
+            access_token=access_token,
+            params={"mimeType": export_mime}
+            if export_mime
+            else {"alt": "media", "supportsAllDrives": "true"},
+            limit=CONTENT_LIMIT,
+        )
+        return export_mime or mime_type, content
 
     async def fetch_content(
         self,

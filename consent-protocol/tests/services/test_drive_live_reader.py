@@ -363,3 +363,14 @@ async def test_metadata_preview_rechecks_date_when_file_changes_before_review():
     )
     with pytest.raises(DriveReadError, match="source_changed"):
         await reader.require_current()
+
+
+@pytest.mark.asyncio
+async def test_a_search_with_no_matches_is_an_empty_answer_not_a_failure():
+    from hushh_mcp.services.google_drive_mcp_service import _search_metadata
+
+    reader, _, mcp, _ = fixture()
+    mcp.read_tool.side_effect = None
+    mcp.read_tool.return_value = ExternalMcpToolResult(False, _search_metadata({}), False)
+    found = await reader.find(query=["statement"])
+    assert found == {"matches": [], "truncated": False}

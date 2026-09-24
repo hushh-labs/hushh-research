@@ -40,7 +40,6 @@ from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionServi
 from hushh_mcp.one_adk.external_read_boundary import READ_TOOLS, STATE_EXECUTION_SURFACE
 from hushh_mcp.one_adk.external_read_projection import redacted_read_receipt
 from hushh_mcp.one_adk.mcp_call_approval import STATE_MCP_APPROVAL, admit_resume_receipt
-from hushh_mcp.one_adk.request_secrets import store_request_secret
 from hushh_mcp.one_adk.workspace_mcp_tools import WORKSPACE_CHAT_ADMISSION_STATE
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
 from hushh_mcp.services.action_gateway import get_action_gateway_action, list_action_gateway_actions

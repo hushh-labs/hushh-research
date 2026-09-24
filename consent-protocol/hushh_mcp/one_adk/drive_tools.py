@@ -12,6 +12,7 @@ from hushh_mcp.one_adk.request_secrets import resolve_request_secret
 from hushh_mcp.runtime_settings import pod_mode
 from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
 from hushh_mcp.services.google_drive_mcp_service import GoogleDriveMcpService
+from hushh_mcp.services.google_drive_rest_transport import REST_TOOLS, GoogleDriveRestTransport
 
 DRIVE_READ_TOOL_NAME = "read_google_drive"
 DRIVE_DISCOVERY_TOOL_NAME = "discover_google_drive_tools"
@@ -21,7 +22,14 @@ DRIVE_PRIVATE_SOURCE = "google_drive_mcp"
 
 @lru_cache(maxsize=1)
 def _service() -> GoogleDriveMcpService:
+    # Tool descriptions and schemas only; the preview MCP server refuses calls.
     return GoogleDriveMcpService()
+
+
+@lru_cache(maxsize=1)
+def _reader() -> GoogleDriveRestTransport:
+    # Same tool contract over the GA Drive REST API.
+    return GoogleDriveRestTransport()
 
 
 async def _owner(tool_context: ToolContext) -> str | None:
@@ -45,7 +53,11 @@ async def discover_google_drive_tools(tool_context: ToolContext) -> dict[str, An
     if not user_id:
         return {"status": "blocked", "message": "Unlock your private agent to check Drive."}
     try:
-        tools = await _service().discover_for_owner(user_id=user_id)
+        tools = [
+            tool
+            for tool in await _service().discover_for_owner(user_id=user_id)
+            if tool.get("name") in REST_TOOLS
+        ]
     except DriveOAuthError:
         return {
             "status": "permission_required",
@@ -68,7 +80,7 @@ async def read_google_drive(
     if user_id is None:
         return {"status": "blocked", "message": "Unlock your private agent to read Drive."}
     try:
-        result = await _service().read_tool(
+        result = await _reader().read_tool(
             user_id=user_id, tool_name=tool_name, arguments=arguments
         )
     except DriveOAuthError as error:
