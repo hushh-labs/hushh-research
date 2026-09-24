@@ -11,7 +11,7 @@ export const CIRCLE_STARTERS = [
     name: "Family Circle",
     kind: "family",
     description:
-      "Bring your family together in one circle, ready when you want to share with them.",
+      "Keep family members in one group so you can easily choose who to share with.",
   },
   {
     id: "finance",
@@ -19,7 +19,7 @@ export const CIRCLE_STARTERS = [
     name: "Finance Circle",
     kind: "other",
     description:
-      "Keep your CA, financial advisor and other finance connections together.",
+      "Group the people who help with your money and taxes, like your accountant.",
   },
   {
     id: "investor",
@@ -27,7 +27,7 @@ export const CIRCLE_STARTERS = [
     name: "Investor Circle",
     kind: "other",
     description:
-      "Organize your investor and RIA connections into a circle of their own.",
+      "Group the people who help you plan investments, like your investment advisor.",
   },
   {
     id: "business",
@@ -35,7 +35,7 @@ export const CIRCLE_STARTERS = [
     name: "Business Circle",
     kind: "other",
     description:
-      "A circle for your co-founders, colleagues and business connections.",
+      "Keep the people you work with in one group, separate from family and friends.",
   },
   {
     id: "location",
@@ -43,7 +43,7 @@ export const CIRCLE_STARTERS = [
     name: "Location Circle",
     kind: "other",
     description:
-      "Keep the people you choose for location sharing together. Start sharing from Location.",
+      "Choose a group to share your location with. Start sharing from Location when you want.",
   },
   {
     id: "sms",
@@ -51,7 +51,7 @@ export const CIRCLE_STARTERS = [
     name: "SMS Circle",
     kind: "other",
     description:
-      "Choose the people who receive your Save My Soul alert when you trigger it.",
+      "Choose who to alert when you need help. Send an alert from Save My Soul.",
   },
 ] as const satisfies readonly {
   id: string;

@@ -103,6 +103,19 @@ beforeEach(() => {
 });
 
 describe("circle discovery actions", () => {
+  it.each(CIRCLE_STARTERS)("explains $name before creating it", (starter) => {
+    render(ui());
+    fireEvent.click(
+      screen.getByRole("button", { name: `Explore ${starter.name}` }),
+    );
+    expect(screen.getByText(starter.description)).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: `Create ${starter.name}` }),
+    ).toBeEnabled();
+    expect(mocks.create).not.toHaveBeenCalled();
+    expect(mocks.sms).not.toHaveBeenCalled();
+  });
+
   it("reuses home icon colours while keeping selection and actions independent", () => {
     render(ui());
     const expected = {
@@ -147,7 +160,7 @@ describe("circle discovery actions", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Explore Finance Circle" }),
     );
-    expect(screen.getByText(/your CA, financial advisor/)).toBeTruthy();
+    expect(screen.getByText(/help with your money and taxes/)).toBeTruthy();
     expect(mocks.create).not.toHaveBeenCalled();
     expect(screen.getByText(/add people after they accept/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Add connection" }));

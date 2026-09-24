@@ -306,7 +306,7 @@ for (const width of [320, 390, 640, 768, 1440]) {
     };
     await checkGeometry();
     await page.getByRole("button", { name: "Explore Finance Circle" }).click();
-    await expect(page.getByText(/your CA, financial advisor/)).toBeVisible();
+    await expect(page.getByText(/help with your money and taxes/)).toBeVisible();
     await hero.screenshot({
       path: testInfo.outputPath("new-user-finance.png"),
       animations: "disabled",
@@ -343,7 +343,7 @@ for (const width of [320, 390, 640, 768, 1440]) {
     await page.evaluate(() => document.documentElement.classList.add("dark"));
     await checkNeutralSurfaces();
     await page.getByRole("button", { name: "Explore Investor Circle" }).click();
-    await expect(page.getByText(/investor and RIA/)).toBeVisible();
+    await expect(page.getByText(/help you plan investments/)).toBeVisible();
     expect(await checkIconColours()).not.toEqual(lightColours);
     await checkGeometry();
     await hero.screenshot({
