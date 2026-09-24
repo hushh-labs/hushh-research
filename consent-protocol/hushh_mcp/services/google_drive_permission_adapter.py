@@ -20,6 +20,7 @@ from opentelemetry.instrumentation.utils import suppress_instrumentation
 from hushh_mcp.services.google_drive_adapter import (
     DRIVE_BASE,
     FILE_ID,
+    LIVE_SUPPORTED_TYPES,
     SUPPORTED_TYPES,
     DriveReadError,
 )
@@ -271,7 +272,7 @@ class GoogleDrivePermissionAdapter:
             or require_app_authorized
             and result.get("isAppAuthorized") is not True
             or not isinstance(mime, str)
-            or mime not in SUPPORTED_TYPES
+            or mime not in (SUPPORTED_TYPES if require_app_authorized else LIVE_SUPPORTED_TYPES)
             or not isinstance(capabilities, dict)
             or capabilities.get("canShare") is not True
             or capabilities.get("canDownload") is not True

@@ -65,6 +65,21 @@ BINARY_TYPES = frozenset(
     }
 )
 SUPPORTED_TYPES = frozenset(EXPORTS) | BINARY_TYPES
+# Text extraction for live reads belongs to Google's MCP server, not our index.
+LIVE_SUPPORTED_TYPES = SUPPORTED_TYPES | frozenset(
+    {
+        "application/vnd.google-apps.spreadsheet",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "application/vnd.oasis.opendocument.spreadsheet",
+        "application/vnd.oasis.opendocument.presentation",
+        "application/x-vnd.oasis.opendocument.text",
+        "image/png",
+        "image/jpeg",
+        "image/jpg",
+    }
+)
 
 
 class DriveReadError(RuntimeError):
@@ -251,7 +266,9 @@ class GoogleDriveAdapter:
         mime = result.get("mimeType")
         # Shortcuts are not followed: owner must explicitly select the target.
         # Folders, Sheets, archives, binaries requiring new parsers also fail.
-        if not isinstance(mime, str) or mime not in SUPPORTED_TYPES:
+        if not isinstance(mime, str) or mime not in (
+            SUPPORTED_TYPES if require_app_authorized else LIVE_SUPPORTED_TYPES
+        ):
             raise DriveReadError("unsupported_format")
         name, version, modified = (result.get(key) for key in ("name", "version", "modifiedTime"))
         if (
@@ -268,9 +285,9 @@ class GoogleDriveAdapter:
             if not isinstance(size, str) or not re.fullmatch(r"[0-9]{1,20}", size):
                 raise DriveReadError("provider_response_invalid")
             size = int(size)
-            if size > CONTENT_LIMIT:
+            if require_app_authorized and size > CONTENT_LIMIT:
                 raise DriveReadError("file_too_large")
-        elif mime in BINARY_TYPES:
+        elif require_app_authorized and mime in BINARY_TYPES:
             raise DriveReadError("provider_response_invalid")
         checksum = result.get("md5Checksum")
         if checksum is not None and (

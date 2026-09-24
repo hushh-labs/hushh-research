@@ -162,7 +162,7 @@ class DriveLiveReader:
                 "source_ref": "document:" + hashlib.sha256(document_id.encode()).hexdigest()[:32],
                 "document_ref": document_id,
                 "name": metadata.name,
-                "page": 1,
+                "page": None,
                 "text": body[:4000],
                 "source_version": metadata.version,
             }

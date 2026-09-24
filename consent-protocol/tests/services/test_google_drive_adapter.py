@@ -271,3 +271,22 @@ async def test_compressed_response_is_rejected_before_decoding(adapter, monkeypa
     )
     with pytest.raises(drive.DriveReadError, match="provider_response_invalid"):
         await adapter.get_metadata(file_id="selected-file", access_token="synthetic-token")
+
+
+async def test_live_metadata_accepts_sheets_without_selected_parser_limit(adapter):
+    adapter._get = AsyncMock(
+        return_value=json.dumps(
+            metadata(
+                mimeType="application/vnd.google-apps.spreadsheet",
+                size=str(drive.CONTENT_LIMIT + 1),
+                isAppAuthorized=False,
+            )
+        ).encode()
+    )
+    result = await adapter.get_metadata(
+        file_id="selected-file",
+        access_token="synthetic-token",
+        require_app_authorized=False,
+        require_genai_eligibility=False,
+    )
+    assert result.mime_type == "application/vnd.google-apps.spreadsheet"

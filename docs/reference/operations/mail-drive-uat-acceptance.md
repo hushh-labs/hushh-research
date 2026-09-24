@@ -6,17 +6,56 @@ Mail/Calendar/Firebase clients and existing grants are unchanged.
 
 ## Visual Map
 
+The ordinary connection requests explicit live Drive access. Existing limited
+connections require one Google re-consent. The selected-file/index path remains
+available for compatibility under Previously added files.
+
 ```text
-Existing left drawer -> independent Mail / Drive connections
-Drive OAuth + Picker -> explicitly selected files -> bounded REST reads
-Selected files -> encrypted document catalog -> local ingestion / index
-Owner retrieval -> document-specific request -> owner approval -> recipient grant
-Automated acceptance -> protected merge -> green main SHA -> serialized UAT
+B's One session -> document request -> A's live MCP search/read
+  -> A's exact-file review OR explicit document trust -> confirmed Viewer links
 ```
 
-The selected-file fast path supersedes the earlier hosted-MCP feasibility lane.
-No hosted MCP preview or remote tool catalog is required. Google supplies source files;
-parsing, embeddings and document access control remain outside Google AI services.
+## Current live Drive contract
+
+B sends with the existing Firebase session; no interactive reauthentication age
+limit applies. The server resolves the current linked Google subject/email and
+rechecks it before permission delivery. B links Google once if missing, with
+identity scopes only. B never needs a Drive connector. Web supports that linking
+flow; existing native shells reuse linked identities silently, and unlinked
+native users add their Google identity on One web.
+
+The Documents agent selects live MCP or indexed retrieval from the verified
+credential profile. Live search works with no selected files/chunks; selected
+parser limits do not restrict MCP-supported formats. Source versions, owner
+access, connection generation and provider eligibility remain enforced.
+
+Owner-only POST `/api/connectors/google_drive/sharing/requests/{id}/prepare`
+runs foreground preparation with a current owner-token callback, without saving
+that token or requiring background consent. Its empty request body forbids mode
+flags. Worker preparation still requires the separately enabled background
+setting. Proxy/browser timeouts for this endpoint are 170/180 seconds; execution
+remains bounded to 160 seconds.
+
+Approval optionally carries `trustFutureRequests`, `trustScope` and
+`trustDisclosureVersion`. The broad scope `any_requested_drive_file` requires
+`drive-any-requested-file-including-future-v1` and explicit confirmation. It
+covers matching requested files, including future files and new request periods.
+Legacy boolean-only grants and records retain exact-file/same-purpose authority.
+Rules are versioned/revocable in the existing encrypted boundary envelope. Only
+complete, untruncated, unambiguous results can automatically queue exact Viewer
+grants. The executor rechecks the same rule boundary before dispatch. Revoking
+trust stops future grants; existing Drive permissions are removed separately.
+
+The live flag must hydrate from `BACKEND_RUNTIME_CONFIG_JSON` into
+`GOOGLE_DRIVE_LIVE`; release-config presence alone is insufficient evidence.
+Automated acceptance covers real root chat dispatch, identity continuity, the
+zero-index foreground/overnight trust journey and revocation using isolated CI
+PostgreSQL. Provider OAuth/MCP acceptance is a separate live proof.
+
+## Selected-file implementation history
+
+The following checkpoints describe the earlier selected-file path. Its picker,
+ingestion and native requirements do not gate the live request journey above.
 
 ## Implemented checkpoints
 

@@ -20,6 +20,7 @@ const {
   mockPhoneClaimAuth,
   mockSignInWithPopup,
   mockReauthenticateWithPopup,
+  mockLinkWithPopup,
   mockGoogleCredentialFromResult,
   mockGoogleSetCustomParameters,
 } = vi.hoisted(() => ({
@@ -74,6 +75,7 @@ const {
   mockInitializeApp: vi.fn(),
   mockSignInWithPopup: vi.fn(),
   mockReauthenticateWithPopup: vi.fn(),
+  mockLinkWithPopup: vi.fn(),
   mockGoogleCredentialFromResult: vi.fn(),
   mockGoogleSetCustomParameters: vi.fn(),
 }));
@@ -125,6 +127,7 @@ vi.mock("firebase/auth", () => ({
   signInWithCustomToken: vi.fn(),
   signInWithPopup: mockSignInWithPopup,
   reauthenticateWithPopup: mockReauthenticateWithPopup,
+  linkWithPopup: mockLinkWithPopup,
   signOut: mockFirebaseSignOut,
   onAuthStateChanged: vi.fn(),
   updatePhoneNumber: mockUpdatePhoneNumber,
@@ -1253,5 +1256,39 @@ describe("AuthService native Apple continuity", () => {
 
     expect(result.user.uid).toBe("native-apple-user");
     expect(result.user).not.toBe(staleJsUser);
+  });
+});
+
+
+describe("document request identity", () => {
+  beforeEach(() => { vi.clearAllMocks(); mockCapacitor.isNativePlatform.mockReturnValue(false); });
+  it("silently refreshes an existing session without Google reauthentication", async () => {
+    const user = { uid: "b", getIdToken: vi.fn().mockResolvedValue("session") };
+    mockAuth.currentUser = user;
+    expect(await AuthService.documentRequestIdentityToken("b", () => true)).toBe("session");
+    expect(user.getIdToken).toHaveBeenCalledWith(true);
+    expect(mockReauthenticateWithPopup).not.toHaveBeenCalled();
+    expect(mockSignInWithPopup).not.toHaveBeenCalled();
+  });
+  it("links Google to the captured account without replacing it", async () => {
+    const user = { uid: "b", getIdToken: vi.fn().mockResolvedValue("linked") };
+    mockAuth.currentUser = user;
+    mockLinkWithPopup.mockResolvedValue({ user });
+    expect(await AuthService.linkGoogleIdentity("b", () => true)).toBe("linked");
+    expect(mockLinkWithPopup).toHaveBeenCalledWith(user, expect.anything());
+    expect(mockOAuthAddScope).not.toHaveBeenCalled();
+    expect(mockSignInWithPopup).not.toHaveBeenCalled();
+  });
+  it("rejects an account switch while refreshing", async () => {
+    mockAuth.currentUser = { uid: "b", getIdToken: vi.fn().mockImplementation(async () => {
+      mockAuth.currentUser = { uid: "other" }; return "late";
+    }) };
+    await expect(AuthService.documentRequestIdentityToken("b", () => true)).rejects.toThrow("session_changed");
+  });
+  it("never merges accounts when Google is already linked elsewhere", async () => {
+    mockAuth.currentUser = { uid: "b" };
+    mockLinkWithPopup.mockRejectedValue({ code: "auth/credential-already-in-use" });
+    await expect(AuthService.linkGoogleIdentity("b", () => true)).rejects.toThrow("identity_already_linked");
+    expect(mockSignInWithPopup).not.toHaveBeenCalled();
   });
 });
