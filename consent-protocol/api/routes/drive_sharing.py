@@ -2,7 +2,7 @@
 
 import asyncio
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Response
@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool, model_validator
 
 from api.middleware import require_firebase_auth_read_only, require_vault_owner_token
 from api.utils.firebase_admin import get_firebase_auth_app
+from hushh_mcp.services.drive_live_query_service import DriveLiveQueryService
 from hushh_mcp.services.drive_sharing_contract import (
     DriveSharingError,
     ShareRequestPurpose,
@@ -142,6 +143,24 @@ class DecisionRequest(StrictRequest):
     revision: int = Field(ge=0, strict=True)
 
 
+class QueryCreateRequest(StrictRequest):
+    ownerUserId: str | None = Field(default=None, min_length=1, max_length=128)
+    ownerPersonRef: UUID | None = None
+    clientRequestId: UUID
+    query: str = Field(min_length=1, max_length=2000)
+
+    @model_validator(mode="after")
+    def one_owner_target(self):
+        if (self.ownerUserId is None) == (self.ownerPersonRef is None):
+            raise ValueError("Specify one owner target.")
+        return self
+
+
+class QueryAllowRequest(DecisionRequest):
+    # The owner's IANA zone, so "24th september" means the owner's day.
+    timeZone: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_+\-/]{1,64}$")
+
+
 class ApprovalRequest(DecisionRequest):
     reviewDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
     documentIds: list[UUID] = Field(min_length=1, max_length=25)
@@ -165,6 +184,10 @@ class RevocationRequest(DecisionRequest):
 
 def _service():
     return DriveSharingService()
+
+
+def _query_service():
+    return DriveLiveQueryService()
 
 
 def _error(error):
@@ -194,6 +217,9 @@ def _error(error):
         ),
         "rule_changed": (409, "This document trust rule changed. Refresh it."),
         "connector_unavailable": (503, "Document sharing is not available yet."),
+        "request_expired": (409, "This question expired."),
+        "drive_query_unavailable": (503, "Drive didn't answer. Try again."),
+        "invalid_argument": (422, "Check the document-sharing request."),
     }
     code = str(error) if isinstance(error, DriveReadError) else "sharing_unavailable"
     if code not in known:
@@ -202,10 +228,10 @@ def _error(error):
     return HTTPException(status, {"code": code, "message": message}, headers=NO_STORE)
 
 
-async def _call(method, *, owner, **kwargs):
+async def _call(method, *, owner, factory=None, **kwargs):
     try:
         await owner.require_current()
-        service = _service()
+        service = (factory or _service)()
         service.require_owner = owner.require_current
         if method != "create":
             kwargs["user_id"] = owner.user_id
@@ -219,26 +245,31 @@ async def _call(method, *, owner, **kwargs):
         raise _error(error) from None
 
 
+async def _owner_target(owner: Owner, body: CreateRequest | QueryCreateRequest) -> str:
+    if body.ownerPersonRef is None:
+        return cast(str, body.ownerUserId)
+    await owner.require_current()
+    try:
+        async with asyncio.timeout(6):
+            owner_user_id, _ = await asyncio.to_thread(
+                PersonProfileService().get_relationship_target,
+                viewer_user_id=owner.user_id,
+                public_person_ref=str(body.ownerPersonRef),
+            )
+    except PersonProfileNotFoundError:
+        raise _error(DriveSharingError("request_unavailable")) from None
+    except Exception:
+        raise _error(DriveSharingError("identity_verification_unavailable")) from None
+    # The domain store separately rechecks the active A/B relationship
+    # under locks. A public profile reference is never sharing authority.
+    return str(owner_user_id)
+
+
 @router.post("/requests", status_code=202)
 async def create_request(
     body: CreateRequest, recipient=Depends(_recipient), owner: Owner = Depends(_owner)
 ):
-    owner_user_id = body.ownerUserId
-    if body.ownerPersonRef is not None:
-        await owner.require_current()
-        try:
-            async with asyncio.timeout(6):
-                owner_user_id, _ = await asyncio.to_thread(
-                    PersonProfileService().get_relationship_target,
-                    viewer_user_id=owner.user_id,
-                    public_person_ref=str(body.ownerPersonRef),
-                )
-        except PersonProfileNotFoundError:
-            raise _error(DriveSharingError("request_unavailable")) from None
-        except Exception:
-            raise _error(DriveSharingError("identity_verification_unavailable")) from None
-        # The domain store separately rechecks the active A/B relationship
-        # under locks. A public profile reference is never sharing authority.
+    owner_user_id = await _owner_target(owner, body)
     return await _call(
         "create",
         owner=owner,
@@ -386,4 +417,66 @@ async def confirm_revocation(
         review_digest=body.reviewDigest,
         grant_ids=[str(value) for value in body.grantIds],
         confirmed=body.confirmed,
+    )
+
+
+@router.post("/queries", status_code=202)
+async def create_query(body: QueryCreateRequest, owner: Owner = Depends(_owner)):
+    """B asks a question about A's Drive. Nothing reads Drive until A allows it."""
+    owner_user_id = await _owner_target(owner, body)
+    return await _call(
+        "create",
+        owner=owner,
+        factory=_query_service,
+        requester_user_id=owner.user_id,
+        owner_user_id=owner_user_id,
+        client_request_id=str(body.clientRequestId),
+        query=body.query,
+    )
+
+
+@router.get("/queries")
+async def list_queries(
+    direction: Literal["incoming", "outgoing"] = "incoming",
+    limit: int = Query(20, ge=1, le=50),
+    offset: int = Query(0, ge=0, le=10000),
+    owner: Owner = Depends(_owner),
+):
+    return await _call(
+        "list_requests",
+        owner=owner,
+        factory=_query_service,
+        direction=direction,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.get("/queries/{request_id}")
+async def query_status(request_id: UUID, owner: Owner = Depends(_owner)):
+    return await _call("status", owner=owner, factory=_query_service, request_id=str(request_id))
+
+
+@router.post("/queries/{request_id}/allow")
+async def allow_query(request_id: UUID, body: QueryAllowRequest, owner: Owner = Depends(_owner)):
+    """A allows: the exact stored question runs once, live, under A's authority."""
+    return await _call(
+        "allow",
+        owner=owner,
+        factory=_query_service,
+        request_id=str(request_id),
+        revision=body.revision,
+        consent_token=owner.token,
+        timezone=body.timeZone or "UTC",
+    )
+
+
+@router.post("/queries/{request_id}/deny")
+async def deny_query(request_id: UUID, body: DecisionRequest, owner: Owner = Depends(_owner)):
+    return await _call(
+        "deny",
+        owner=owner,
+        factory=_query_service,
+        request_id=str(request_id),
+        revision=body.revision,
     )

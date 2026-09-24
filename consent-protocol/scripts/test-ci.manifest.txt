@@ -37,6 +37,8 @@ tests/services/test_drive_sharing_store.py
 tests/services/test_drive_permission_executor.py
 tests/services/test_drive_revocation_executor.py
 tests/test_documents_agent_a2a.py
+tests/services/test_drive_live_query.py
+tests/test_drive_live_query_routes.py
 tests/services/test_connector_feature_admission.py
 tests/test_external_connector_oauth_routes.py
 tests/services/test_gmail_metadata_reader.py

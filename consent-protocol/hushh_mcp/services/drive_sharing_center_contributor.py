@@ -11,6 +11,7 @@ from sqlalchemy import text
 from hushh_mcp.services.external_connector_lifecycle_store import ExternalConnectorLifecycleStore
 
 REQUEST_SOURCE = "drive_document_share_request"
+QUERY_REQUEST_SOURCE = "drive_live_query_request"
 BUCKETS = ("incoming_requests", "outgoing_requests", "active_grants", "history")
 SURFACES = {
     "pending": "incoming_requests",
@@ -23,7 +24,7 @@ SURFACES = {
 # request/review/plan/receipt envelope participates in search or classification.
 _PROJECTION = """
 WITH participants AS (
-  SELECT request_id,revision,created_at,
+  SELECT request_id,revision,created_at,'share' AS source,
     CASE WHEN recipient_user_id=:user THEN 'outgoing' ELSE 'incoming' END AS direction,
     CASE WHEN status IN ('pending','preparing','review_ready') AND expires_at<=now()
       THEN 'expired'
@@ -31,9 +32,9 @@ WITH participants AS (
       ELSE status END AS state
   FROM drive_share_requests WHERE user_id=:user OR recipient_user_id=:user
   UNION ALL
-  SELECT request_id,revocation_revision,created_at,'incoming','management_only'
+  SELECT request_id,revocation_revision,created_at,'share','incoming','management_only'
   FROM drive_share_management_contexts
-  WHERE user_id=:user AND private_request_erased_at IS NOT NULL
+  WHERE user_id=:user AND private_request_erased_at IS NOT NULL{queries}
 ), classified AS (
   SELECT p.*,
     CASE WHEN EXISTS (
@@ -60,21 +61,44 @@ WITH participants AS (
     CASE WHEN bucket='active_grants' THEN 'active'
          WHEN bucket IN ('incoming_requests','outgoing_requests') THEN 'pending'
          ELSE state END AS status,
-    'document_share_request:' || request_id::text AS id
+    CASE WHEN source='query' THEN 'drive_query_request:' ELSE 'document_share_request:' END
+      || request_id::text AS id
   FROM classified
 ), filtered AS (
   SELECT * FROM entries WHERE (:bucket='' OR bucket=:bucket) AND (
-    :query='' OR strpos(lower('Document request'),:query)>0
-    OR strpos(lower('Google Drive files'),:query)>0
-    OR strpos(lower(status),:query)>0 OR strpos(lower('DOCUMENT_SHARE_REVIEW'),:query)>0
-    OR strpos(request_id::text,:query)>0
+    :query='' OR strpos(lower(status),:query)>0 OR strpos(request_id::text,:query)>0
+    OR (source='share' AND (strpos(lower('Document request'),:query)>0
+      OR strpos(lower('Google Drive files'),:query)>0
+      OR strpos(lower('DOCUMENT_SHARE_REVIEW'),:query)>0))
+    OR (source='query' AND (strpos(lower('Drive question'),:query)>0
+      OR strpos(lower('Google Drive question'),:query)>0
+      OR strpos(lower('DRIVE_QUERY_REVIEW'),:query)>0))
   )
 )
 """
 
+# Questions carry no provider operations, so they never classify as active grants.
+_QUERIES = """
+  UNION ALL
+  SELECT request_id,revision,created_at,'query',
+    CASE WHEN requester_user_id=:user THEN 'outgoing' ELSE 'incoming' END,
+    CASE WHEN status='pending' AND expires_at<=now() THEN 'expired'
+      -- An abandoned claim (DriveLiveQueryStore.STALE_CLAIM_SECONDS) reads like the view.
+      WHEN status='running' AND expires_at<=now()
+        AND decided_at < now() - interval '300 seconds' THEN 'expired'
+      WHEN status='running' THEN 'pending'
+      ELSE status END
+  FROM drive_live_query_requests WHERE user_id=:user OR requester_user_id=:user"""
+
+
+def _projection(queries: bool) -> str:
+    return _PROJECTION.replace("{queries}", _QUERIES if queries else "")
+
 
 def entry(row: Any) -> dict[str, Any]:
     """Closed presentation shape; cannot enter the generic PKM grant path."""
+    if row.get("source") == "query":
+        return _query_entry(row)
     return {
         "id": row["id"],
         "request_id": str(row["request_id"]),
@@ -103,12 +127,48 @@ def entry(row: Any) -> dict[str, Any]:
     }
 
 
+def _query_entry(row: Any) -> dict[str, Any]:
+    return {
+        "id": row["id"],
+        "request_id": str(row["request_id"]),
+        "kind": {
+            "incoming_requests": "incoming_request",
+            "outgoing_requests": "outgoing_request",
+            "history": "history",
+        }[row["bucket"]],
+        "status": row["status"],
+        "action": "DRIVE_QUERY_REVIEW",
+        "scope": None,
+        "scope_description": "Google Drive question",
+        "counterpart_type": "investor",
+        "counterpart_id": None,
+        "counterpart_label": "Drive question",
+        "issued_at": int(row["issued_at"]),
+        "metadata": {
+            "request_source": QUERY_REQUEST_SOURCE,
+            "request_id": str(row["request_id"]),
+            "direction": row["direction"],
+            "state": row["state"],
+            "revision": row["revision"],
+            "recorded_outcome_only": True,
+        },
+    }
+
+
 class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
     def _supports_projection(self) -> bool:
         # Existing SQLite-only callers have no Drive domain. Check the dialect
         # before the lifecycle store issues PostgreSQL transaction settings.
         # Real PostgreSQL SQL/timeout errors still propagate, never become zero.
         return self.db.engine.dialect.name == "postgresql"
+
+    @staticmethod
+    def _queries_installed(connection) -> bool:
+        return bool(
+            connection.execute(
+                text("SELECT to_regclass('drive_live_query_requests') IS NOT NULL")
+            ).scalar_one()
+        )
 
     @staticmethod
     def _installed(connection) -> bool:
@@ -133,7 +193,10 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
                 return {**dict.fromkeys(BUCKETS, 0), "schema_available": False}
             rows = connection.execute(
                 # Both SQL fragments are static; every value is bound below.
-                text(_PROJECTION + "SELECT bucket,count(*) AS total FROM filtered GROUP BY bucket"),  # nosec B608
+                text(
+                    _projection(self._queries_installed(connection))  # nosec B608
+                    + "SELECT bucket,count(*) AS total FROM filtered GROUP BY bucket"
+                ),
                 {"user": user_id, "query": "", "bucket": ""},
             ).mappings()
             return {
@@ -159,7 +222,7 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
                 connection.execute(
                     text(
                         # Both SQL fragments are static; every value is bound below.
-                        _PROJECTION  # nosec B608
+                        _projection(self._queries_installed(connection))  # nosec B608
                         + """
                         SELECT totals.total,page.* FROM (SELECT count(*) AS total FROM filtered) totals
                         LEFT JOIN LATERAL (
@@ -204,7 +267,7 @@ class DriveSharingCenterContributor(ExternalConnectorLifecycleStore):
             rows = connection.execute(
                 text(
                     # Both SQL fragments are static; every value is bound below.
-                    _PROJECTION  # nosec B608
+                    _projection(self._queries_installed(connection))  # nosec B608
                     + """
                     , ranked AS (
                       SELECT *,count(*) OVER (PARTITION BY bucket) AS total,

@@ -259,6 +259,24 @@ describe("useFeedActionables — connection request de-duplication", () => {
     expect(documents[0].href).toContain("document_share_request%3A");
   });
 
+  it("routes only incoming Drive questions to their own card, with no inline actions", () => {
+    mocks.pendingCount = 3;
+    mocks.consentItems = ["incoming", "outgoing", null].map((direction, index) => ({
+      id: `drive_query_request:11111111-1111-4111-8111-11111111111${index}`,
+      request_id: `11111111-1111-4111-8111-11111111111${index}`,
+      kind: direction === "outgoing" ? "outgoing_request" : "incoming_request",
+      status: "pending", action: "DRIVE_QUERY_REVIEW", scope: null,
+      scope_description: "Google Drive question", counterpart_label: "Drive question",
+      metadata: { request_source: "drive_live_query_request", direction },
+    }));
+    const { result } = renderHook(() => useFeedActionables());
+    const questions = result.current.actionables.filter((row) => row.id.startsWith("consent:drive_query_request:"));
+    expect(questions).toHaveLength(1);
+    expect(questions[0].id).toBe(`consent:${mocks.consentItems[0].id}`);
+    expect(questions[0].actions).toEqual([]);
+    expect(questions[0].href).toContain(encodeURIComponent(mocks.consentItems[0].id));
+  });
+
   it("keeps failed background work visible with recovery and dismiss actions", () => {
     mocks.appTasks = [
       {

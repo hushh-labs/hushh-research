@@ -10,12 +10,20 @@ import {
   DriveSharingService,
   DriveSharingError,
   validDocumentRequestPeriod,
+  validDriveQuery,
 } from "@/lib/services/drive-sharing-service";
 import {
   documentShareRequestId,
   documentShareSelectionId,
   isDocumentShareSelection,
 } from "@/lib/consent/document-share-consent";
+import {
+  driveQueryRequestId,
+  driveSharingSelectionId,
+  isDriveQueryEntry,
+  isDriveQuerySelection,
+  isDriveSharingEntry,
+} from "@/lib/consent/drive-query-consent";
 import type { ConsentCenterEntry } from "@/lib/services/consent-center-service";
 const requestId = "11111111-1111-4111-8111-111111111111";
 const documentId = "22222222-2222-4222-8222-222222222222";
@@ -232,5 +240,224 @@ describe("private sharing transport", () => {
         request_id: requestId,
       } as ConsentCenterEntry),
     ).toBe(id);
+  });
+});
+
+describe("drive question transport", () => {
+  const ownerRef = "33333333-3333-4333-8333-333333333333";
+  const clientRequestId = "44444444-4444-4444-8444-444444444444";
+  const rawView = (overrides: Record<string, unknown> = {}) => ({
+    requestId,
+    direction: "outgoing",
+    status: "pending",
+    revision: 1,
+    query: "potential bank statement",
+    counterpartName: "A",
+    createdAt: "2026-09-24T10:00:00Z",
+    expiresAt: "2026-10-01T10:00:00Z",
+    decidedAt: null,
+    answer: null,
+    canDecide: false,
+    lastError: null,
+    ...overrides,
+  });
+  beforeEach(() => vi.resetAllMocks());
+
+  it("creates a pending question with vault authority only and the exact body", async () => {
+    fetcher.mockResolvedValueOnce(reply(rawView(), 202));
+    const view = await DriveSharingService.createQuery(
+      "vault",
+      { ownerPersonRef: ownerRef, clientRequestId, query: "potential bank statement" },
+      guard,
+    );
+    expect(view).toMatchObject({ requestId, direction: "outgoing", status: "pending", answer: null });
+    const [url, options] = fetcher.mock.calls[0];
+    expect(url).toBe("/api/connectors/google_drive/sharing/queries");
+    expect(options).toMatchObject({ method: "POST", cache: "no-store" });
+    expect(options.headers).toEqual({
+      Authorization: "Bearer vault",
+      "Content-Type": "application/json",
+    });
+    expect(options.headers).not.toHaveProperty("X-Hushh-Consent");
+    expect(JSON.parse(options.body)).toEqual({
+      ownerPersonRef: ownerRef,
+      clientRequestId,
+      query: "potential bank statement",
+    });
+    expect(options.isEffectCurrent()).toBe(true);
+  });
+
+  it("sends ownerUserId instead of a person ref when that is the only owner", async () => {
+    fetcher.mockResolvedValueOnce(reply(rawView(), 202));
+    await DriveSharingService.createQuery(
+      "vault",
+      { ownerUserId: "firebaseUid_123", clientRequestId, query: "Q" },
+      guard,
+    );
+    expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({
+      ownerUserId: "firebaseUid_123",
+      clientRequestId,
+      query: "Q",
+    });
+  });
+
+  it.each([
+    ["blank", " \n "],
+    ["over 2000 characters", "a".repeat(2001)],
+    ["over 2048 UTF-8 bytes", "€".repeat(700)],
+  ])("rejects a %s question before dispatch", async (_label, query) => {
+    await expect(
+      DriveSharingService.createQuery("vault", { ownerPersonRef: ownerRef, clientRequestId, query }, guard),
+    ).rejects.toMatchObject({ code: "invalid_argument" });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("accepts exactly 2000 characters and 2048 bytes", () => {
+    expect(validDriveQuery("a".repeat(2000))).toBe(true);
+    expect(validDriveQuery("€".repeat(682) + "ab")).toBe(true); // 2046 + 2 bytes
+    expect(validDriveQuery("€".repeat(683))).toBe(false); // 2049 bytes
+  });
+
+  it("requires exactly one well-formed owner and a UUID retry key", async () => {
+    for (const draft of [
+      { ownerPersonRef: ownerRef, ownerUserId: "uid", clientRequestId, query: "Q" },
+      { clientRequestId, query: "Q" },
+      { ownerPersonRef: "not-a-uuid", clientRequestId, query: "Q" },
+      { ownerPersonRef: ownerRef, clientRequestId: "retry", query: "Q" },
+    ]) {
+      await expect(
+        DriveSharingService.createQuery("vault", draft as never, guard),
+      ).rejects.toMatchObject({ code: "invalid_argument" });
+    }
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("allows with the revision and the owner's time zone, denies with the revision only", async () => {
+    const answered = rawView({
+      direction: "incoming",
+      status: "answered",
+      revision: 3,
+      decidedAt: "2026-09-24T10:05:00Z",
+      answer: { text: "Found it.", titles: ["March.pdf"], truncated: false },
+    });
+    fetcher
+      .mockResolvedValueOnce(reply(answered))
+      .mockResolvedValueOnce(reply({ ...answered, status: "denied", answer: null }));
+    const zone = vi
+      .spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions")
+      .mockReturnValue({ timeZone: "Asia/Kolkata" } as Intl.ResolvedDateTimeFormatOptions);
+    try {
+      await expect(
+        DriveSharingService.allowQuery("owner", requestId, 2, guard),
+      ).resolves.toMatchObject({ status: "answered", answer: { titles: ["March.pdf"] } });
+      await DriveSharingService.denyQuery("owner", requestId, 2, guard);
+    } finally {
+      zone.mockRestore();
+    }
+    expect(fetcher.mock.calls[0][0]).toBe(
+      `/api/connectors/google_drive/sharing/queries/${requestId}/allow`,
+    );
+    expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({ revision: 2, timeZone: "Asia/Kolkata" });
+    expect(fetcher.mock.calls[1][0]).toBe(
+      `/api/connectors/google_drive/sharing/queries/${requestId}/deny`,
+    );
+    expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({ revision: 2 });
+  });
+
+  it("omits a time zone that is not a plain IANA name", async () => {
+    fetcher.mockResolvedValueOnce(reply(rawView({ direction: "incoming", status: "running" })));
+    const zone = vi
+      .spyOn(Intl.DateTimeFormat.prototype, "resolvedOptions")
+      .mockReturnValue({ timeZone: "Bad Zone;drop" } as Intl.ResolvedDateTimeFormatOptions);
+    try {
+      await DriveSharingService.allowQuery("owner", requestId, 1, guard);
+    } finally {
+      zone.mockRestore();
+    }
+    expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({ revision: 1 });
+  });
+
+  it("lists one direction with bounded paging", async () => {
+    fetcher.mockResolvedValueOnce(reply({ items: [rawView()], hasMore: true }));
+    await expect(
+      DriveSharingService.listQueries("vault", "outgoing", guard),
+    ).resolves.toMatchObject({ items: [{ requestId }], hasMore: true });
+    expect(fetcher.mock.calls[0][0]).toBe(
+      "/api/connectors/google_drive/sharing/queries?direction=outgoing&limit=20&offset=0",
+    );
+    expect(fetcher.mock.calls[0][1].method).toBe("GET");
+    fetcher.mockResolvedValueOnce(reply({ items: [rawView()], hasMore: false }));
+    await expect(
+      DriveSharingService.listQueries("vault", "incoming", guard),
+    ).rejects.toMatchObject({ code: "invalid_response" });
+  });
+
+  it.each([
+    ["an unknown status", { status: "approved" }],
+    ["an unknown direction", { direction: "sideways" }],
+    ["an answer before answering", { answer: { text: "x", titles: [], truncated: false } }],
+    ["an answered view without an answer", { status: "answered" }],
+    ["a non-array title list", { status: "answered", answer: { text: "x", titles: "a.pdf", truncated: false } }],
+    ["too many titles", { status: "answered", answer: { text: "x", titles: Array(26).fill("a"), truncated: false } }],
+    ["a missing truncation flag", { status: "answered", answer: { text: "x", titles: [] } }],
+    ["an unknown last error", { lastError: "provider_secret" }],
+    ["a malformed request id", { requestId: "not-a-uuid" }],
+    ["an unparseable expiry", { expiresAt: "tomorrow-ish" }],
+    ["an overlong question", { query: "q".repeat(2001) }],
+  ])("rejects a view with %s", async (_label, overrides) => {
+    fetcher.mockResolvedValueOnce(reply(rawView(overrides)));
+    await expect(
+      DriveSharingService.getQuery("vault", requestId, guard),
+    ).rejects.toMatchObject({ code: "invalid_response" });
+  });
+
+  it("never grants decisions or owner errors to the person who asked", async () => {
+    fetcher.mockResolvedValueOnce(
+      reply(rawView({ canDecide: true, lastError: "reconnect_required" })),
+    );
+    await expect(
+      DriveSharingService.getQuery("vault", requestId, guard),
+    ).resolves.toMatchObject({ canDecide: false, lastError: null });
+    fetcher.mockResolvedValueOnce(
+      reply(rawView({ direction: "incoming", status: "denied", canDecide: true, decidedAt: "2026-09-24T10:05:00Z" })),
+    );
+    await expect(
+      DriveSharingService.getQuery("vault", requestId, guard),
+    ).resolves.toMatchObject({ canDecide: false });
+  });
+
+  it("rejects a view for a different question and surfaces only the error code", async () => {
+    fetcher.mockResolvedValueOnce(
+      reply(rawView({ requestId: "55555555-5555-4555-8555-555555555555" })),
+    );
+    await expect(
+      DriveSharingService.getQuery("vault", requestId, guard),
+    ).rejects.toMatchObject({ code: "invalid_response" });
+    fetcher.mockResolvedValueOnce(
+      reply({ detail: { code: "reconnect_required", message: "private detail" } }, 409),
+    );
+    await expect(
+      DriveSharingService.allowQuery("owner", requestId, 1, guard),
+    ).rejects.toMatchObject({ code: "reconnect_required", status: 409 });
+  });
+
+  it("recognizes Drive questions separately from document requests", () => {
+    const entry = {
+      id: `drive_query_request:${requestId}`,
+      request_id: requestId,
+      action: "DRIVE_QUERY_REVIEW",
+      metadata: { request_source: "drive_live_query_request" },
+    } as unknown as ConsentCenterEntry;
+    expect(isDriveQueryEntry(entry)).toBe(true);
+    expect(isDriveSharingEntry(entry)).toBe(true);
+    expect(driveSharingSelectionId(entry)).toBe(entry.id);
+    expect(driveQueryRequestId(entry.id)).toBe(requestId);
+    expect(driveQueryRequestId("drive_query_request:wrong")).toBeNull();
+    expect(isDriveQuerySelection("drive_query_request:wrong")).toBe(true);
+    expect(documentShareRequestId(entry.id)).toBeNull();
+    // A malformed row still fails closed by source or action alone.
+    expect(isDriveSharingEntry({ id: "x", action: "DRIVE_QUERY_REVIEW" } as ConsentCenterEntry)).toBe(true);
+    expect(isDriveSharingEntry({ id: "x", action: "REQUESTED", metadata: { request_source: "drive_live_query_request" } } as unknown as ConsentCenterEntry)).toBe(true);
+    expect(isDriveSharingEntry({ id: "x", action: "REQUESTED" } as ConsentCenterEntry)).toBe(false);
   });
 });
