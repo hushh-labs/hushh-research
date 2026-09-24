@@ -75,12 +75,19 @@ import {
 
 import { HandshakeTimeline } from "@/components/consent/handshake-timeline";
 import { DocumentShareReview } from "@/components/consent/document-share-review";
+import { DriveQueryRequestCard } from "@/components/consent/drive-query-request-card";
 import {
   documentShareRequestId,
-  documentShareSelectionId,
   isDocumentShareEntry,
   isDocumentShareSelection,
 } from "@/lib/consent/document-share-consent";
+import {
+  driveQueryRequestId,
+  driveSharingSelectionId,
+  isDriveQueryEntry,
+  isDriveQuerySelection,
+  isDriveSharingEntry,
+} from "@/lib/consent/drive-query-consent";
 import {
   humanizeConsentScope,
   resolveConsentRequesterLabel,
@@ -1178,7 +1185,7 @@ function ConsentEntryDetail({
   const isPendingKind =
     entry.kind === "incoming_request" || isConnectionRequestEntry(entry);
   const isPendingDecision =
-    !isDocumentShareEntry(entry) &&
+    !isDriveSharingEntry(entry) &&
     !isCircleMemberInvite &&
     isPendingKind &&
     (allowedNextAction
@@ -1213,7 +1220,7 @@ function ConsentEntryDetail({
   const isReceivedLocationGrant =
     isLocationEntry && entry.metadata?.section === "shared";
   const canRevokeActive =
-    !isDocumentShareEntry(entry) &&
+    !isDriveSharingEntry(entry) &&
     entry.kind === "active_grant" &&
     Boolean(entry.scope) &&
     !isReceivedLocationGrant &&
@@ -2002,8 +2009,9 @@ export function ConsentCenterPage() {
         offeredScopeHandles: string[];
       },
     ) => {
-      // A document request is not a PKM grant or a voice-approvable action.
-      if (isDocumentShareEntry(entry)) return;
+      // A document request or Drive question is not a PKM grant or a
+      // voice-approvable action; only its own card can decide it.
+      if (isDriveSharingEntry(entry)) return;
       if (isConnectionRequestEntry(entry)) {
         void (async () => {
           if (!user) return;
@@ -2051,7 +2059,7 @@ export function ConsentCenterPage() {
   );
   const denyEntry = useCallback(
     (entry: ConsentCenterEntry) => {
-      if (isDocumentShareEntry(entry)) return;
+      if (isDriveSharingEntry(entry)) return;
       if (isConnectionRequestEntry(entry)) {
         void (async () => {
           if (!user) return;
@@ -2096,7 +2104,7 @@ export function ConsentCenterPage() {
   );
   const revokeEntry = useCallback(
     (entry: ConsentCenterEntry) => {
-      if (isDocumentShareEntry(entry)) return;
+      if (isDriveSharingEntry(entry)) return;
       if (isLocationEntry(entry)) {
         void handleLocationRevoke(entry);
         return;
@@ -2562,7 +2570,7 @@ export function ConsentCenterPage() {
     return null;
   }, [items, selectedBundleId, selectedId]);
   const shouldLookupSelectedPending = Boolean(
-    user?.uid && selectedId && !isDocumentShareSelection(selectedId) && tab === "requests" && !selectedEntryFromList,
+    user?.uid && selectedId && !isDocumentShareSelection(selectedId) && !isDriveQuerySelection(selectedId) && tab === "requests" && !selectedEntryFromList,
   );
   const selectedPendingLookupResource = useStaleResource({
     cacheKey:
@@ -2631,7 +2639,17 @@ export function ConsentCenterPage() {
   }, [selectedEntryFromList, selectedId, selectedLookupEntry]);
   const isPanelOpen =
     Boolean(selectedId || selectedEntry) && !panelCloseRequested;
-  const isDocumentSelection = isDocumentShareSelection(selectedId) || !!(selectedEntry && isDocumentShareEntry(selectedEntry));
+  const isQuerySelection = isDriveQuerySelection(selectedId) || !!(selectedEntry && isDriveQueryEntry(selectedEntry));
+  const selectedQueryRequestId = driveQueryRequestId(
+    selectedEntry && isDriveQueryEntry(selectedEntry) ? selectedEntry.id : selectedId,
+  );
+  // A layout hint only; the card trusts the server's direction for its role.
+  const selectedEntryDirection = selectedEntry?.metadata?.direction;
+  const selectedQueryDirection =
+    selectedEntryDirection === "incoming" || selectedEntryDirection === "outgoing"
+      ? selectedEntryDirection
+      : undefined;
+  const isDocumentSelection = !isQuerySelection && (isDocumentShareSelection(selectedId) || !!(selectedEntry && isDocumentShareEntry(selectedEntry)));
   const selectedDocumentRequestId = documentShareRequestId(
     selectedEntry && isDocumentShareEntry(selectedEntry) ? selectedEntry.id : selectedId,
   );
@@ -2749,7 +2767,7 @@ export function ConsentCenterPage() {
           role: "panel",
         },
         ...(selectedEntry?.kind === "incoming_request" &&
-        !isDocumentShareEntry(selectedEntry) &&
+        !isDriveSharingEntry(selectedEntry) &&
         selectedEntry.status === "pending"
           ? [
               {
@@ -3087,7 +3105,7 @@ export function ConsentCenterPage() {
                       selectedId={selectedId}
                       selectedBundleId={selectedBundleId}
                       onSelectEntry={(entry) =>
-                        setParam({ requestId: documentShareSelectionId(entry) })
+                        setParam({ requestId: driveSharingSelectionId(entry) })
                       }
                       pagination={pendingPagination}
                     />
@@ -3103,7 +3121,7 @@ export function ConsentCenterPage() {
                       selectedEntry={selectedEntry}
                       selectedId={selectedId}
                       onSelectEntry={(entry) =>
-                        setParam({ requestId: documentShareSelectionId(entry) })
+                        setParam({ requestId: driveSharingSelectionId(entry) })
                       }
                       pagination={activePagination}
                     />
@@ -3118,7 +3136,7 @@ export function ConsentCenterPage() {
                       selectedEntry={selectedEntry}
                       selectedId={selectedId}
                       onSelectEntry={(entry) =>
-                        setParam({ requestId: documentShareSelectionId(entry) })
+                        setParam({ requestId: driveSharingSelectionId(entry) })
                       }
                       pagination={previousPagination}
                     />
@@ -3133,7 +3151,7 @@ export function ConsentCenterPage() {
                       selectedEntry={selectedEntry}
                       selectedId={selectedId}
                       onSelectEntry={(entry) =>
-                        setParam({ requestId: documentShareSelectionId(entry) })
+                        setParam({ requestId: driveSharingSelectionId(entry) })
                       }
                       pagination={null}
                     />
@@ -3152,12 +3170,12 @@ export function ConsentCenterPage() {
             }
           }}
           title={
-            isDocumentSelection ? "Document request" : selectedEntry
+            isQuerySelection ? "Drive question" : isDocumentSelection ? "Document request" : selectedEntry
               ? resolveCounterpartLabel(selectedEntry)
               : "Consent details"
           }
           description={
-            isDocumentSelection ? "Review files and recorded Google Drive access." : selectedEntry
+            isQuerySelection ? "A question about Google Drive." : isDocumentSelection ? "Review files and recorded Google Drive access." : selectedEntry
               ? selectedEntry.kind === "active_grant"
                 ? "Active access"
                 : selectedEntry.kind === "history"
@@ -3172,7 +3190,7 @@ export function ConsentCenterPage() {
           mobilePresentation="sheet"
           showCloseButton={false}
         >
-          {!isDocumentSelection && notificationAction && selectedEntry?.status === "pending" ? (
+          {!isDocumentSelection && !isQuerySelection && notificationAction && selectedEntry?.status === "pending" ? (
             <div
               role="status"
               className="mb-4 rounded-[var(--app-card-radius-compact)] border border-accent-border bg-accent-surface px-4 py-3 text-sm leading-5 text-foreground"
@@ -3184,7 +3202,10 @@ export function ConsentCenterPage() {
                   : "Don’t allow was selected in the notification. Nothing changes until you decide below."}
             </div>
           ) : null}
-          {isDocumentSelection ? (
+          {isQuerySelection ? (
+            selectedQueryRequestId ? <DriveQueryRequestCard requestId={selectedQueryRequestId} direction={selectedQueryDirection} />
+              : <SettingsRow title="Invalid Drive question" description="Open this question from the list again." />
+          ) : isDocumentSelection ? (
             selectedDocumentRequestId ? <DocumentShareReview requestId={selectedDocumentRequestId} onChanged={reconcileDocumentRequest} />
               : <SettingsRow title="Invalid document request" description="Open this request from the list again." />
           ) : selectedId && !selectedEntry ? (

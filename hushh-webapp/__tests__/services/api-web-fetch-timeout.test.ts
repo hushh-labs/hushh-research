@@ -31,6 +31,22 @@ describe("fetchWithWebTimeout", () => {
     expect(webFetchTimeoutMsForPath("/api/one/feed/unread-count")).toBe(60_000);
   });
 
+  it("outlasts the connector proxy for an allowed Drive question's search", () => {
+    const id = "11111111-1111-4111-8111-111111111111";
+    expect(
+      webFetchTimeoutMsForPath(`/api/connectors/google_drive/sharing/queries/${id}/allow`),
+    ).toBe(180_000);
+    expect(
+      webFetchTimeoutMsForPath(`/api/connectors/google_drive/sharing/requests/${id}/prepare`),
+    ).toBe(180_000);
+    expect(
+      webFetchTimeoutMsForPath(`/api/connectors/google_drive/sharing/queries/${id}/deny`),
+    ).toBe(60_000);
+    expect(
+      webFetchTimeoutMsForPath("/api/connectors/google_drive/sharing/queries?direction=incoming"),
+    ).toBe(60_000);
+  });
+
   it("aborts a request that never responds", async () => {
     // The core guarantee: a silent server cannot hang the caller forever.
     vi.stubGlobal(

@@ -8,23 +8,24 @@ import {
   snapshotVaultSessionEpoch,
   isVaultSessionEpochCurrent,
 } from "@/lib/vault/session-epoch";
-import { AuthService } from "@/lib/services/auth-service";
 import { ExternalConnectorService } from "@/lib/services/external-connector-service";
 import {
   DriveSharingError,
   DriveSharingService,
-  validDocumentRequestPeriod,
+  validDriveQuery,
+  type DriveQueryView,
 } from "@/lib/services/drive-sharing-service";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
+import { driveQuerySelection } from "@/lib/consent/drive-query-consent";
 import { CONSENT_ACTION_COMPLETE_EVENT } from "@/lib/consent/consent-events";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { Button } from "@/lib/morphy-ux/button";
 import { FlowActionGroup } from "@/components/app-ui/flow-actions";
 import { BodyText, HelperText } from "@/components/app-ui/typography";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { DocumentShareReview } from "@/components/consent/document-share-review";
+import { DriveQueryRequestCard } from "@/components/consent/drive-query-request-card";
 import {
   Dialog,
   DialogContent,
@@ -33,7 +34,29 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 
-/** Independent of B's Drive grant. Drafts and retry keys never leave memory. */
+type RequestDraft = {
+  clientRequestId: string;
+  purpose: string;
+  periodStart: string | null;
+  periodEnd: string | null;
+};
+
+const ASK_HELPER =
+  "They see your question and decide. Nothing in their Drive is read unless they allow it.";
+
+/** A chat draft becomes one plain question; its period travels as text. */
+function draftQuestion(draft: RequestDraft): string {
+  const purpose = draft.purpose.trim();
+  return draft.periodStart && draft.periodEnd
+    ? `${purpose} (${draft.periodStart} to ${draft.periodEnd})`
+    : purpose;
+}
+
+/**
+ * Asks a connection one question about their Drive. Sending creates a pending
+ * question only; the asker needs no Google account. Drafts and retry keys never
+ * leave memory.
+ */
 export function DocumentRequestButton({
   personRef,
   personName,
@@ -41,7 +64,7 @@ export function DocumentRequestButton({
 }: {
   personRef: string;
   personName: string;
-  draft?: { clientRequestId: string; purpose: string; periodStart: string | null; periodEnd: string | null };
+  draft?: RequestDraft;
 }) {
   const { user } = useAuth();
   const { isVaultUnlocked, getVaultOwnerToken } = useVault();
@@ -68,25 +91,28 @@ function UnlockedRequestButton({
   userId: string;
   personRef: string;
   personName: string;
-  draft?: { clientRequestId: string; purpose: string; periodStart: string | null; periodEnd: string | null };
+  draft?: RequestDraft;
   getToken: () => string | null;
 }) {
   const [enabled, setEnabled] = useState(false);
   const [open, setOpen] = useState(false);
-  const [purpose, setPurpose] = useState(draft?.purpose ?? "");
-  const [start, setStart] = useState(draft?.periodStart ?? "");
-  const [end, setEnd] = useState(draft?.periodEnd ?? "");
-  const [phase, setPhase] = useState<"idle" | "verifying" | "sending">("idle");
+  const [query, setQuery] = useState(draft ? draftQuestion(draft) : "");
+  const [phase, setPhase] = useState<"idle" | "sending">("idle");
   const [error, setError] = useState<string | null>(null);
-  const [needsGoogle, setNeedsGoogle] = useState(false);
-  const [created, setCreated] = useState<string | null>(null);
+  const [created, setCreated] = useState<DriveQueryView | null>(null);
+  // A chat card sent before questions existed keeps showing its document request.
+  const [legacyRequestId, setLegacyRequestId] = useState<string | null>(null);
   const alive = useRef(false);
   const serial = useRef(0);
   const inFlight = useRef(false);
-  const attempt = useRef<{ fingerprint: string; id: string } | null>(draft ? {
-    fingerprint: JSON.stringify({personRef, purpose: draft.purpose, periodStart: draft.periodStart, periodEnd: draft.periodEnd}),
-    id: draft.clientRequestId,
-  } : null);
+  const attempt = useRef<{ fingerprint: string; id: string } | null>(
+    draft
+      ? {
+          fingerprint: JSON.stringify({ personRef, query: draftQuestion(draft) }),
+          id: draft.clientRequestId,
+        }
+      : null,
+  );
   const draftClientRequestId = draft?.clientRequestId;
   useEffect(() => {
     alive.current = true;
@@ -111,7 +137,7 @@ function UnlockedRequestButton({
           throw new DriveSharingError("session_changed");
       };
       void DriveSharingService.lookupClient(token, draftClientRequestId, guard)
-        .then((requestId) => { guard(); if (requestId) setCreated(requestId); })
+        .then((requestId) => { guard(); if (requestId) setLegacyRequestId(requestId); })
         .catch(() => { /* Sending still requires an explicit tap and server idempotency. */ });
     }
     return () => {
@@ -122,10 +148,8 @@ function UnlockedRequestButton({
       inFlight.current = false;
     };
   }, [getToken, draftClientRequestId]);
-  const valid =
-    purpose.trim().length > 0 &&
-    purpose.length <= 2000 &&
-    validDocumentRequestPeriod(start || null, end || null);
+  const question = query.trim();
+  const valid = validDriveQuery(question);
   const close = () => {
     // Dismissal cannot cancel a POST which the server may already have accepted.
     if (phase === "sending") return;
@@ -134,7 +158,7 @@ function UnlockedRequestButton({
     setPhase("idle");
     setOpen(false);
   };
-  const send = async (linkGoogle = false) => {
+  const send = async () => {
     if (inFlight.current || !valid || !alive.current) return;
     const token = getToken();
     if (!token) return;
@@ -148,38 +172,24 @@ function UnlockedRequestButton({
     const guard = () => {
       if (!current()) throw new DriveSharingError("session_changed");
     };
-    const terms = {
-      purpose: purpose.trim(),
-      periodStart: start || null,
-      periodEnd: end || null,
-    };
-    const fingerprint = JSON.stringify({ personRef, ...terms });
+    // An unchanged retry reuses its key, so the server never records it twice.
+    const fingerprint = JSON.stringify({ personRef, query: question });
     if (attempt.current?.fingerprint !== fingerprint)
       attempt.current = { fingerprint, id: crypto.randomUUID() };
     const clientRequestId = attempt.current.id;
     inFlight.current = true;
     setError(null);
-    setPhase("verifying");
+    setPhase("sending");
     try {
-      const firebaseToken = await (linkGoogle
-        ? AuthService.linkGoogleIdentity(userId, current)
-        : AuthService.documentRequestIdentityToken(userId, current));
-      guard();
-      if (linkGoogle) setNeedsGoogle(false);
-      setPhase("sending");
-      const result = await DriveSharingService.create(
+      const view = await DriveSharingService.createQuery(
         token,
-        firebaseToken,
-        { ownerPersonRef: personRef, clientRequestId, purpose: terms },
+        { ownerPersonRef: personRef, clientRequestId, query: question },
         guard,
       );
       guard();
-      setNeedsGoogle(false);
-      setCreated(result.requestId);
+      setCreated(view);
       if (!draft) {
-        setPurpose("");
-        setStart("");
-        setEnd("");
+        setQuery("");
         attempt.current = null;
       }
       CacheSyncService.onConsentMutated(userId);
@@ -191,37 +201,17 @@ function UnlockedRequestButton({
     } catch (cause) {
       if (!current()) return;
       const code =
-        cause instanceof DriveSharingError
-          ? cause.code
-          : cause instanceof Error
-            ? cause.message
-            : "request_failed";
-      if (code === "verify_google_identity_required" || code === "google_identity_required") setNeedsGoogle(true);
+        cause instanceof DriveSharingError ? cause.code : "request_failed";
       setError(
-        code === "verify_google_identity_required" || code === "google_identity_required"
-          ? "Add a Google account once to receive original files."
-          : code === "identity_link_web_required"
-            ? "Open One on the web to add your Google account once."
-          : code === "identity_already_linked"
-            ? "That Google account belongs to another One account. Choose another."
-          : code === "identity_cancelled"
-          ? "Google verification was cancelled. No new attempt was sent. Check Sent documents for any earlier request."
-          : code === "identity_busy"
-            ? "Finish the verification already open, then retry."
-          : code === "identity_timeout"
-            ? "Google verification timed out. Close any open verification window, then retry. Update the app if this continues."
-          : code === "identity_mismatch" || code === "google_identity_required"
-            ? "Use the Google identity linked to your current One account."
-            : code === "native_identity_unavailable"
-              ? "Update the app to verify your Google identity, then retry."
-              : code === "sharing_unavailable" ||
-                  code === "connector_unavailable"
-                ? "Document requests are not available for this connection yet."
-                : code === "connection_required"
-                  ? "An active connection with this person is required."
-                  : code === "identity_popup_blocked"
-                    ? "Allow the Google verification popup, then retry."
-                    : "The request could not be confirmed. Retry these same details to check without duplicating it.",
+        code === "sharing_unavailable" || code === "connector_unavailable"
+          ? "Drive questions aren't available for this connection yet."
+          : code === "connection_required"
+            ? "You need an active connection with this person."
+            : code === "request_changed"
+              ? "This question was already sent with different words. Start a new question."
+              : code === "invalid_argument"
+                ? "Check your question and try again."
+                : "Couldn't confirm it was sent. Send again. It won't be sent twice.",
       );
     } finally {
       if (serial.current === operation) {
@@ -230,24 +220,48 @@ function UnlockedRequestButton({
       }
     }
   };
-  if (!enabled) return draft ? <HelperText>Document requests are unavailable here.</HelperText> : null;
-  if (draft) return created ? (
-    <DocumentShareReview requestId={created} onChanged={() => CacheSyncService.onConsentMutated(userId)} />
-  ) : (
-    <div className="space-y-3">
-      <BodyText>Ask {personName} for: {purpose}</BodyText>
-      {start && end ? <HelperText>Requested period: {start} – {end}</HelperText> : null}
-      <HelperText>Files are shared after approval or under document trust.</HelperText>
-      {error ? <HelperText role="alert">{error}</HelperText> : null}
-      <Button size="prominent" disabled={!valid || phase !== "idle"} onClick={() => void send(needsGoogle)}>
-        {phase === "verifying" ? "Sending…" : phase === "sending" ? "Sending…" : needsGoogle ? "Add Google account" : "Send request"}
-      </Button>
-    </div>
-  );
+  const tooLong = question.length > 0 && !valid;
+  if (draft && legacyRequestId)
+    return (
+      <DocumentShareReview
+        requestId={legacyRequestId}
+        onChanged={() => CacheSyncService.onConsentMutated(userId)}
+      />
+    );
+  if (!enabled)
+    return draft ? (
+      <HelperText>Drive questions are unavailable here.</HelperText>
+    ) : null;
+  if (draft)
+    return created ? (
+      <DriveQueryRequestCard
+        requestId={created.requestId}
+        direction="outgoing"
+        initial={created}
+      />
+    ) : (
+      <div className="min-w-0 space-y-3 break-words">
+        <BodyText className="whitespace-pre-wrap">
+          Ask {personName}: “{question}”
+        </BodyText>
+        <HelperText>{ASK_HELPER}</HelperText>
+        {tooLong ? (
+          <HelperText role="status">This question is too long to send.</HelperText>
+        ) : null}
+        {error ? <HelperText role="alert">{error}</HelperText> : null}
+        <Button
+          size="prominent"
+          disabled={!valid || phase !== "idle"}
+          onClick={() => void send()}
+        >
+          {phase === "sending" ? "Sending…" : "Send"}
+        </Button>
+      </div>
+    );
   return (
     <>
       <Button size="standard" variant="none" onClick={() => setOpen(true)}>
-        Request documents
+        Ask about files
       </Button>
       <Dialog
         open={open}
@@ -258,25 +272,26 @@ function UnlockedRequestButton({
       >
         <DialogContent className="max-h-[85dvh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Request documents</DialogTitle>
+            <DialogTitle>Ask about their Drive</DialogTitle>
             <DialogDescription className="break-words">
-              Ask {personName} for files. They choose the exact files and
-              approve or decline.
+              {ASK_HELPER}
             </DialogDescription>
           </DialogHeader>
           {created ? (
-            <div className="space-y-4">
-              <BodyText role="status">
-                Request sent. No files have been shared by this action.
-              </BodyText>
+            <div className="min-w-0 space-y-4">
+              <DriveQueryRequestCard
+                requestId={created.requestId}
+                direction="outgoing"
+                initial={created}
+              />
               <Button asChild size="prominent">
                 <Link
                   href={buildConsentCenterHref("pending", {
-                    requestId: `document_share_request:${created}`,
+                    requestId: driveQuerySelection(created.requestId),
                     requestView: "sent",
                   })}
                 >
-                  View request
+                  View question
                 </Link>
               </Button>
               <Button
@@ -288,7 +303,7 @@ function UnlockedRequestButton({
                   setError(null);
                 }}
               >
-                New request
+                Ask another question
               </Button>
             </div>
           ) : (
@@ -296,55 +311,24 @@ function UnlockedRequestButton({
               className="min-w-0 space-y-4"
               onSubmit={(event) => {
                 event.preventDefault();
-                void send(needsGoogle);
+                void send();
               }}
             >
               <div className="space-y-2">
-                <Label htmlFor="document-request-purpose">
-                  What do you need?
-                </Label>
+                <Label htmlFor="drive-query-text">Your question</Label>
                 <Textarea
-                  id="document-request-purpose"
-                  value={purpose}
-                  onChange={(event) => setPurpose(event.target.value)}
+                  id="drive-query-text"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
                   maxLength={2000}
                   required
                   disabled={phase !== "idle"}
-                  placeholder="Six months of bank statements"
+                  placeholder="e.g. Find my bank statement from March"
                 />
               </div>
-              <fieldset
-                className="grid min-w-0 gap-3 sm:grid-cols-2"
-                disabled={phase !== "idle"}
-              >
-                <legend className="mb-2">Period (optional)</legend>
-                <div className="min-w-0 space-y-2">
-                  <Label htmlFor="document-period-start">Start date</Label>
-                  <Input
-                    id="document-period-start"
-                    type="date"
-                    value={start}
-                    onChange={(event) => setStart(event.target.value)}
-                  />
-                </div>
-                <div className="min-w-0 space-y-2">
-                  <Label htmlFor="document-period-end">End date</Label>
-                  <Input
-                    id="document-period-end"
-                    type="date"
-                    value={end}
-                    onChange={(event) => setEnd(event.target.value)}
-                  />
-                </div>
-              </fieldset>
-              {!validDocumentRequestPeriod(start || null, end || null) ? (
-                <HelperText role="status">
-                  Choose both dates, with the end on or after the start.
-                </HelperText>
+              {tooLong ? (
+                <HelperText role="status">Shorten your question.</HelperText>
               ) : null}
-              <HelperText as="p">
-                Receive approved originals through your linked Google account.
-              </HelperText>
               {error ? (
                 <HelperText as="p" role="alert">
                   {error}
@@ -355,15 +339,9 @@ function UnlockedRequestButton({
                   <Button
                     type="submit"
                     size="prominent"
-                    disabled={
-                      !valid || phase !== "idle"
-                    }
+                    disabled={!valid || phase !== "idle"}
                   >
-                    {phase === "verifying"
-                      ? "Sending…"
-                      : phase === "sending"
-                        ? "Sending…"
-                        : needsGoogle ? "Add Google account" : "Send request"}
+                    {phase === "sending" ? "Sending…" : "Send"}
                   </Button>
                 }
                 secondary={
@@ -378,17 +356,6 @@ function UnlockedRequestButton({
                   </Button>
                 }
               />
-              {phase !== "sending" ? (
-                <Button asChild size="standard" variant="none">
-                  <Link
-                    href={buildConsentCenterHref("pending", {
-                      requestView: "sent",
-                    })}
-                  >
-                    Sent documents
-                  </Link>
-                </Button>
-              ) : null}
             </form>
           )}
         </DialogContent>
