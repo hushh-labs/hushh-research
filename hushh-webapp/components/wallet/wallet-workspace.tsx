@@ -29,6 +29,7 @@ import {
   type WalletCardSummary,
 } from "@/lib/services/wallet-service";
 import { useVault } from "@/lib/vault/vault-context";
+import { trackEvent } from "@/lib/observability/client";
 
 type WorkspaceView =
   | { kind: "disabled" }
@@ -148,6 +149,7 @@ export function WalletWorkspace() {
         surface: "web",
         source: "one_wallet_remove",
       });
+      trackEvent("one_wallet_action", { route_id: "one_wallet", action: "card_deleted", result: "success" });
       await refresh();
     } finally {
       setBusyCardId(null);
@@ -306,6 +308,7 @@ export function WalletWorkspace() {
               surface: "web",
               source: "one_wallet_add",
             });
+            trackEvent("one_wallet_action", { route_id: "one_wallet", action: "card_added", result: "success" });
             await refresh();
           }}
           onCancel={() => setView({ kind: "list" })}

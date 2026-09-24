@@ -27,6 +27,7 @@ import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 import { NativeTestBeacon, type NativeTestDataState } from "@/components/app-ui/native-test-beacon";
 import { useAuth } from "@/hooks/use-auth";
+import { trackEvent } from "@/lib/observability/client";
 import { Button } from "@/lib/morphy-ux/morphy";
 import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 import {
@@ -177,6 +178,7 @@ export function PkmNaturalPanel({
         vaultKey,
         vaultOwnerToken,
       });
+      if (result.saved) trackEvent("one_memory_action", { route_id: "pkm", action: "export_saved", result: "success" });
       // On a phone the file only exists once the share sheet accepts it, so the
       // two outcomes are reported differently rather than both as success.
       setExportStatus(
@@ -786,6 +788,7 @@ export function PkmNaturalPanel({
       setMetadata(
         await PersonalKnowledgeModelService.getMetadata(user.uid, true, vaultOwnerToken)
       );
+      trackEvent("one_memory_action", { route_id: "pkm", action: params.action === "edited" ? "detail_edited" : "detail_deleted", result: "success" });
       morphyToast.success(params.action === "edited" ? "Memory updated." : "Memory forgotten.");
       resetMemoryActionState();
       setSelectedCard(null);
@@ -822,6 +825,7 @@ export function PkmNaturalPanel({
         error: "Automatic memory saving couldn’t be updated. Try again.",
       });
       const nextPolicy = await operation;
+      trackEvent("one_memory_action", { route_id: "pkm", action: "auto_save_changed", result: "success" });
       setAutoSavePolicy(nextPolicy);
       setAutoSavePolicyError(null);
       setAutoSavePolicyRetryValue(null);
@@ -881,6 +885,7 @@ export function PkmNaturalPanel({
       });
       if (!guard.isCurrent()) return;
       setCaptureCards(prepared.cards);
+      if (prepared.cards.length > 0) trackEvent("one_memory_action", { route_id: "pkm", action: "capture_prepared", result: "success" });
       setCaptureSharingImpactAcknowledged(false);
       const hasUnresolvedSource = prepared.sourceCoverage.some((block) =>
         Boolean(block.preparationIssue) || block.disposition === "failed" ||
@@ -976,6 +981,7 @@ export function PkmNaturalPanel({
           : "Nothing was saved; the proposed detail needs a correction first."
       );
       if (result.saved > 0) {
+        trackEvent("one_memory_action", { route_id: "pkm", action: "capture_saved", result: "success" });
         if (result.failed > 0 || captureHasUnresolvedSource) {
           const savedIds = new Set(result.results.filter((item) => item.success).map((item) => item.cardId));
           setCaptureCards((current) => current.filter((card) => !savedIds.has(card.card_id)));

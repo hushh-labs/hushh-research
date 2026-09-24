@@ -185,7 +185,12 @@ export type ObservabilityEventName =
   | "one_location_review_handoff_opened"
   | "one_location_circle_created"
   | "one_location_sos_triggered"
-  | "one_location_journey_action";
+  | "one_location_journey_action"
+  | "one_memory_action"
+  | "one_wallet_action"
+  | "one_calendar_action"
+  | "one_kyc_action"
+  | "one_crm_action";
 
 export type StatusBucket =
   | "2xx"
@@ -348,6 +353,11 @@ const EVENT_CATEGORY_BY_NAME: Record<
   one_location_circle_created: "feature",
   one_location_sos_triggered: "feature",
   one_location_journey_action: "feature",
+  one_memory_action: "feature",
+  one_wallet_action: "feature",
+  one_calendar_action: "feature",
+  one_kyc_action: "feature",
+  one_crm_action: "feature",
 };
 
 export function resolveObservabilityEventCategory(
@@ -357,6 +367,33 @@ export function resolveObservabilityEventCategory(
 }
 
 export interface EventPayloadMap {
+  /** Deliberate feature actions only. Never include content, card data or workflow IDs. */
+  one_memory_action: {
+    route_id: RouteId;
+    action: "export_saved" | "capture_prepared" | "capture_saved" | "detail_edited" | "detail_deleted" | "auto_save_changed";
+    result: EventResult;
+  };
+  one_wallet_action: {
+    route_id: RouteId;
+    action: "card_added" | "card_deleted";
+    result: EventResult;
+  };
+  one_calendar_action: {
+    route_id: RouteId;
+    action: "connected" | "disconnected" | "chat_opened";
+    result: EventResult;
+  };
+  one_kyc_action: {
+    route_id: RouteId;
+    action: "redraft_completed" | "reply_sent" | "reply_rejected" | "workflow_refreshed" | "access_approved" | "access_denied";
+    result: EventResult;
+  };
+  /** Development-only CRM owner actions; never a public-production KPI. */
+  one_crm_action: {
+    route_id: RouteId;
+    action: "record_created" | "record_updated" | "record_deleted";
+    result: EventResult;
+  };
   page_view: {
     route_id: RouteId;
     nav_type?: "route_change" | "initial_load" | "redirect";

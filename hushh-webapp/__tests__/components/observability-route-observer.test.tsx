@@ -1,4 +1,4 @@
-import { render } from "@testing-library/react";
+import { render, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ObservabilityRouteObserver } from "@/components/observability/route-observer";
@@ -9,6 +9,9 @@ const mocks = vi.hoisted(() => ({
   captureGrowthAttribution: vi.fn(),
   setLastKaiPath: vi.fn(),
   setLastRiaPath: vi.fn(),
+  setObservabilityUserId: vi.fn().mockResolvedValue(undefined),
+  user: null as { uid: string } | null,
+  loading: false,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -21,6 +24,12 @@ vi.mock("@/lib/observability/client", () => ({
 
 vi.mock("@/lib/observability/growth", () => ({
   captureGrowthAttribution: mocks.captureGrowthAttribution,
+}));
+vi.mock("@/lib/observability/identity", () => ({
+  setObservabilityUserId: mocks.setObservabilityUserId,
+}));
+vi.mock("@/hooks/use-auth", () => ({
+  useAuth: () => ({ user: mocks.user, loading: mocks.loading }),
 }));
 
 vi.mock("@/lib/stores/kai-session-store", () => ({
@@ -39,6 +48,8 @@ function renderAt(pathname: string) {
 describe("ObservabilityRouteObserver", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.user = null;
+    mocks.loading = false;
   });
 
   // Wallet Profile contract §7: the public page must emit no analytics. The
@@ -64,27 +75,37 @@ describe("ObservabilityRouteObserver", () => {
     expect(mocks.setLastRiaPath).not.toHaveBeenCalled();
   });
 
-  it("still instruments the owner's own Wallet Profile surface", () => {
+  it("still instruments the owner's own Wallet Profile surface", async () => {
     // The exemption must stay scoped to the public token namespace: the owner
     // is a signed-in user on a first-party screen.
     renderAt("/one/wallet-card");
 
-    expect(mocks.trackPageView).toHaveBeenCalledWith(
+    await waitFor(() => expect(mocks.trackPageView).toHaveBeenCalledWith(
       "/one/wallet-card",
       "initial_load",
-    );
+    ));
     expect(mocks.captureGrowthAttribution).toHaveBeenCalledWith(
       "/one/wallet-card",
     );
   });
 
-  it("still instruments ordinary product routes and records their scope", () => {
+  it("still instruments ordinary product routes and records their scope", async () => {
     renderAt("/ria/clients");
 
-    expect(mocks.trackPageView).toHaveBeenCalledWith(
+    await waitFor(() => expect(mocks.trackPageView).toHaveBeenCalledWith(
       "/ria/clients",
       "initial_load",
-    );
+    ));
     expect(mocks.setLastRiaPath).toHaveBeenCalledWith("/ria/clients");
+  });
+  it("waits for restored auth and binds its ID before recording a product view", async () => {
+    mocks.user = { uid: "validated-account" };
+    let releaseBinding: (() => void) | undefined;
+    mocks.setObservabilityUserId.mockImplementationOnce(() => new Promise<void>((resolve) => { releaseBinding = resolve; }));
+    renderAt("/one");
+    expect(mocks.setObservabilityUserId).toHaveBeenCalledWith("validated-account");
+    expect(mocks.trackPageView).not.toHaveBeenCalled();
+    releaseBinding?.();
+    await waitFor(() => expect(mocks.trackPageView).toHaveBeenCalledWith("/one", "initial_load"));
   });
 });

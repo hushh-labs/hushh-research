@@ -59,6 +59,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth, useRequireAuth } from "@/hooks/use-auth";
+import { trackEvent } from "@/lib/observability/client";
 import { isApplePrivateRelayEmail } from "@/lib/auth/private-relay";
 import {
   CONSENT_ACTION_COMPLETE_EVENT,
@@ -1207,6 +1208,7 @@ export function OneKycWorkspace({
               setError("Redraft failed — please try again.");
               return;
             }
+            trackEvent("one_kyc_action", { route_id: "one_kyc", action: "redraft_completed", result: "success" });
             setLocalDrafts((current) => ({
               ...current,
               [workflow.workflow_id]: result.draft,
@@ -1291,6 +1293,7 @@ export function OneKycWorkspace({
                     : null,
             pkmWritebackArtifactHash: artifactHash,
           });
+          trackEvent("one_kyc_action", { route_id: "one_kyc", action: "reply_sent", result: "success" });
 
           let writeback;
           try {
@@ -1343,8 +1346,10 @@ export function OneKycWorkspace({
             ...input,
             reason: "Rejected from KYC.",
           });
+          trackEvent("one_kyc_action", { route_id: "one_kyc", action: "reply_rejected", result: "success" });
         } else {
           next = await refreshWorkflowState(workflow);
+          trackEvent("one_kyc_action", { route_id: "one_kyc", action: "workflow_refreshed", result: "success" });
         }
         updateWorkflow(next);
       } catch (err) {
@@ -1551,11 +1556,13 @@ export function OneKycWorkspace({
             duration: 3000,
           });
           await promise;
+          trackEvent("one_kyc_action", { route_id: "one_kyc", action: "access_approved", result: "success" });
         } else {
           await handleApproveBundle(consents, {
             bundleId: withRequests.consent_bundle_id || undefined,
             bundleLabel: "One access request",
           });
+          trackEvent("one_kyc_action", { route_id: "one_kyc", action: "access_approved", result: "success" });
         }
         const refreshed = await refreshWorkflowState(withRequests);
         if (refreshed.status === "waiting_on_user") {
@@ -1601,11 +1608,13 @@ export function OneKycWorkspace({
             duration: 3000,
           });
           await promise;
+          trackEvent("one_kyc_action", { route_id: "one_kyc", action: "access_denied", result: "success" });
         } else {
           await handleDenyBundle(requestIds, {
             bundleId: withRequests.consent_bundle_id || undefined,
             bundleLabel: "One access request",
           });
+          trackEvent("one_kyc_action", { route_id: "one_kyc", action: "access_denied", result: "success" });
         }
         await refreshWorkflowState(withRequests);
       } catch (err) {
