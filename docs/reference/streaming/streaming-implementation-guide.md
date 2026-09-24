@@ -68,6 +68,16 @@ requires an app-ledger receipt on resume. It is not live roster activation:
 the browser review-card transport, pending-handle confirmation API, and governed
 roster must be connected and verified together before exposing custom tools.
 
+The Chat wire projection buffers native confirmation argument fragments (64 KB
+per call, at most 32 pending envelopes). For private MCP calls it exposes only
+the original call identity with empty arguments and the validated app review
+reference; nested private hints, arguments and extra payload fields are removed.
+The browser fetches exact review arguments through the authenticated review API.
+Malformed, oversized or incomplete confirmations fail closed. Snapshot projection
+also indexes confirmation identities before results, preventing an out-of-order
+confirmation reply from exposing a private payload. Non-MCP confirmation argument
+contracts remain unchanged within the same envelope bounds.
+
 ## 4.1 UI Stream Mapping
 
 The canonical app stream surface is `hushh-webapp/components/app-ui/stream-progress-panel.tsx`. Portfolio import and Agent Chat both use that primitive so progress, optional thinking, and answer text stay visually and semantically consistent.
@@ -87,6 +97,30 @@ The canonical app stream surface is `hushh-webapp/components/app-ui/stream-progr
   review surface. Only the resumed terminal success/error settles the turn.
 
 ## 5. UI State Machines
+
+- Native MCP confirmation references use the ephemeral `onMcpReview` Chat
+  callback only after the matching AG-UI interrupt is available. They are not
+  structured history descriptors or generic diagnostic tool arguments.
+- `ExternalConnectorService.reviewMcpCall` retrieves the exact pending call for
+  an active owner/vault review; `confirmMcpCall` returns the existing ledger's
+  receipt. Both reject stale effects and mismatched references. The receipt
+  travels through scrubbed `forwardedProps.mcpApproval`; the ADK resume payload
+  contains only `confirmed`. Cancellation sends `confirmed: false` without a
+  receipt. Uncertain resumes are not retried automatically.
+- The review callback exposes the initiating validated-owner/vault-epoch guard;
+  the review surface uses it for fetches and invalidates private previews when
+  it changes. Resume rechecks the same guard rather than relying only on a
+  component having aborted its old turn.
+- `McpCallReviewCard` is the transient Chat review surface. It displays the
+  registered connector label, tool label and exact inputs, serializes visible
+  reviews, confirms once, and clears private inputs before resume. Unmounting
+  aborts the review operation; unknown outcomes offer no execution retry.
+  Expired or unavailable previews cannot be approved. A native denial returns
+  before argument validation or provider access, since recovered private
+  arguments are intentionally absent without an approval receipt.
+- Component tests do not establish live acceptance: the governed tool roster
+  still needs integration, authenticated browser/native proof and release
+  gates. Private previews and receipts must not enter persistence.
 
 - Drive state transitions from canonical `event` + `payload`.
 - Do not use thought events as control-plane requirements.

@@ -73,8 +73,11 @@ import {
   streamAgentChat,
   streamAgentIntro,
   type SpecialistDirectiveEvent,
+  type AgentChatStreamHandlers,
 } from "@/lib/services/agent-chat-client";
 import { ApiService } from "@/lib/services/api-service";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
 
 describe("AG-UI Agent One client", () => {
   it("records a submission locator and accepts only a bound safe history descriptor", async () => {
@@ -220,6 +223,7 @@ describe("AG-UI Agent One client", () => {
     expect(JSON.stringify(messages)).not.toContain("PRIVATE");
   });
   beforeEach(() => {
+    publishValidatedAuthSessionOwner(null);
     mockTransport.runAgent.mockClear();
     mockTransport.outcome = "success";
     mockTransport.emitEvents = null;
@@ -448,6 +452,60 @@ describe("AG-UI Agent One client", () => {
     expect(onInterrupt).toHaveBeenCalledWith({ conversationId: "thread-hitl" });
     expect(onComplete).not.toHaveBeenCalled();
     expect(result.interrupted).toBe(true);
+  });
+
+  it.each([true, false])("resumes MCP through native confirmation with private approval=%s", async (confirm) => {
+    publishValidatedAuthSessionOwner("user-1");
+    const reference = { kind: "mcp_call_review", version: 1,
+      connectorId: "custom_test", toolName: `mcp_${"a".repeat(40)}`,
+      directiveId: `dir_${"b".repeat(32)}`, pendingHandle: `one_secret_ref:${"c".repeat(32)}`,
+      expiresAt: "2099-01-01T00:00:00Z" };
+    mockTransport.outcome = "interrupt";
+    mockTransport.emitEvents = (subscriber) => subscriber.onToolCallEndEvent?.({
+      event: { type: "TOOL_CALL_END", toolCallId: "tool-1" },
+      toolCallName: "adk_request_confirmation",
+      toolCallArgs: { originalFunctionCall: { id: "original", name: reference.toolName, args: {} },
+        toolConfirmation: { confirmed: false, payload: reference } },
+    });
+    const onMcpReview = vi.fn<NonNullable<AgentChatStreamHandlers["onMcpReview"]>>();
+    const onToolWaiting = vi.fn();
+    await streamAgentChat({ userId: "user-1", message: "Use connector", conversationId: "thread-mcp",
+      vaultOwnerToken: "owner-token", handlers: { onMcpReview, onToolWaiting } });
+    expect(onMcpReview).toHaveBeenCalledTimes(1);
+    expect(onToolWaiting).not.toHaveBeenCalled();
+    const review = onMcpReview.mock.calls[0][0];
+    const approval = { connectorId: reference.connectorId, toolName: reference.toolName,
+      directiveId: reference.directiveId, pendingHandle: reference.pendingHandle, receipt: "r".repeat(48) };
+    await expect(review.resume({ ...approval, connectorId: "wrong_owner_connector" })).rejects.toThrow("does not match");
+    expect(mockTransport.runAgent).toHaveBeenCalledTimes(1);
+    mockTransport.outcome = "success";
+    mockTransport.emitEvents = null;
+    await review.resume(confirm ? approval : null);
+    const parameters = mockTransport.runAgent.mock.calls[1][0];
+    expect(parameters.resume).toEqual([{ interruptId: "interrupt-1", status: "resolved", payload: { confirmed: confirm } }]);
+    expect(parameters.forwardedProps.mcpApproval).toEqual(confirm ? approval : undefined);
+    expect(JSON.stringify(parameters.resume)).not.toContain(approval.receipt);
+    expect(JSON.stringify(parameters.resume)).not.toContain(reference.pendingHandle);
+    await expect(review.resume(confirm ? approval : null)).rejects.toThrow("already used");
+    expect(mockTransport.runAgent).toHaveBeenCalledTimes(2);
+    expect(review.isCurrent()).toBe(true);
+    advanceVaultSessionEpoch();
+    expect(review.isCurrent()).toBe(false);
+  });
+
+  it("does not forward a malformed MCP confirmation to generic diagnostic events", async () => {
+    mockTransport.emitEvents = (subscriber) => subscriber.onToolCallEndEvent?.({
+      event: { type: "TOOL_CALL_END", toolCallId: "tool-1" },
+      toolCallName: "adk_request_confirmation",
+      toolCallArgs: { originalFunctionCall: { name: `mcp_${"a".repeat(40)}`, args: { secret: "synthetic private content" } },
+        toolConfirmation: { confirmed: false, payload: { kind: "mcp_call_review" } } },
+    });
+    const onToolWaiting = vi.fn(), onError = vi.fn(), onMcpReview = vi.fn();
+    await streamAgentChat({ userId: "user-1", message: "Use connector", vaultOwnerToken: "owner-token",
+      handlers: { onToolWaiting, onError, onMcpReview } });
+    expect(onToolWaiting).not.toHaveBeenCalled();
+    expect(onMcpReview).not.toHaveBeenCalled();
+    expect(onError).toHaveBeenCalledWith("The connector review could not be verified. Please ask again.");
   });
 
   it("emits onSpecialistDirective when a pending directive arrives via state delta", async () => {

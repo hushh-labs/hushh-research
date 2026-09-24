@@ -8,9 +8,11 @@ from ag_ui.core import (
     AssistantMessage,
     FunctionCall,
     MessagesSnapshotEvent,
+    RunFinishedEvent,
     ToolCall,
     ToolCallArgsEvent,
     ToolCallChunkEvent,
+    ToolCallEndEvent,
     ToolCallResultEvent,
     ToolCallStartEvent,
     ToolMessage,
@@ -18,9 +20,123 @@ from ag_ui.core import (
 
 from hushh_mcp.one_adk import agui_turn_timing  # noqa: F401 - installs adapter log filter
 from hushh_mcp.one_adk.drive_result_privacy import (
+    ConfirmationWireProjection,
     redact_drive_session_json,
     redact_drive_wire_event,
 )
+
+
+def confirmation_arguments():
+    return {
+        "originalFunctionCall": {
+            "id": "call",
+            "name": "mcp_" + "a" * 40,
+            "args": {"q": "PRIVATE_SENTINEL"},
+        },
+        "toolConfirmation": {
+            "hint": "PRIVATE_SENTINEL",
+            "payload": {
+                "kind": "mcp_call_review",
+                "version": 1,
+                "connectorId": "custom",
+                "toolName": "mcp_" + "a" * 40,
+                "directiveId": "dir_" + "b" * 32,
+                "pendingHandle": "one_secret_ref:" + "c" * 32,
+                "expiresAt": "2099-01-01T00:00:00+00:00",
+                "extra": "PRIVATE_SENTINEL",
+            },
+        },
+    }
+
+
+@pytest.mark.parametrize("split", [1, 40, 100])
+def test_fragmented_native_confirmation_only_exposes_typed_review_reference(split):
+    projection = ConfirmationWireProjection()
+    original = json.dumps(confirmation_arguments())
+    assert (
+        projection.project(
+            ToolCallStartEvent(tool_call_id="confirm", tool_call_name="adk_request_confirmation")
+        )
+        == []
+    )
+    assert (
+        projection.project(ToolCallArgsEvent(tool_call_id="confirm", delta=original[:split])) == []
+    )
+    assert (
+        projection.project(ToolCallArgsEvent(tool_call_id="confirm", delta=original[split:])) == []
+    )
+    events = projection.project(ToolCallEndEvent(tool_call_id="confirm"))
+    assert len(events) == 3
+    assert "PRIVATE_SENTINEL" not in str([item.model_dump() for item in events])
+    payload = json.loads(events[1].delta)["toolConfirmation"]["payload"]
+    assert payload["kind"] == "mcp_call_review"
+    assert payload["pendingHandle"] == "one_secret_ref:" + "c" * 32
+    assert "extra" not in payload
+    reply = projection.project(
+        ToolCallResultEvent(
+            message_id="reply",
+            tool_call_id="confirm",
+            content='{"payload":"PRIVATE_SENTINEL"}',
+        )
+    )
+    assert "PRIVATE_SENTINEL" not in reply[0].model_dump_json()
+
+
+def test_confirmation_snapshot_redacts_nested_private_arguments():
+    snapshot = MessagesSnapshotEvent(
+        messages=[
+            ToolMessage(
+                id="reply", tool_call_id="confirm", content='{"payload":"PRIVATE_SENTINEL"}'
+            ),
+            AssistantMessage(
+                id="message",
+                tool_calls=[
+                    ToolCall(
+                        id="confirm",
+                        function=FunctionCall(
+                            name="adk_request_confirmation",
+                            arguments=json.dumps(confirmation_arguments()),
+                        ),
+                    ),
+                ],
+            ),
+        ]
+    )
+    safe = redact_drive_wire_event(snapshot, set())
+    assert "PRIVATE_SENTINEL" not in safe.model_dump_json()
+    assert "PRIVATE_SENTINEL" in snapshot.model_dump_json()
+
+
+def test_incomplete_confirmation_never_reports_successful_finish():
+    projection = ConfirmationWireProjection()
+    projection.project(
+        ToolCallStartEvent(tool_call_id="confirm", tool_call_name="adk_request_confirmation")
+    )
+    with pytest.raises(ValueError, match="incomplete"):
+        projection.project(RunFinishedEvent(thread_id="thread", run_id="run"))
+
+
+@pytest.mark.parametrize("delta", ["invalid-json", "x" * 64_001])
+def test_invalid_confirmation_fails_without_exposing_input(delta):
+    projection = ConfirmationWireProjection()
+    projection.project(
+        ToolCallStartEvent(tool_call_id="confirm", tool_call_name="adk_request_confirmation")
+    )
+    with pytest.raises(ValueError) as error:
+        projection.project(ToolCallArgsEvent(tool_call_id="confirm", delta=delta))
+        projection.project(ToolCallEndEvent(tool_call_id="confirm"))
+    assert delta not in str(error.value)
+
+
+def test_non_mcp_confirmation_preserves_existing_contract():
+    projection = ConfirmationWireProjection()
+    args = {"originalFunctionCall": {"id": "other", "name": "existing_action", "args": {"x": 1}}}
+    projection.project(
+        ToolCallStartEvent(tool_call_id="confirm", tool_call_name="adk_request_confirmation")
+    )
+    projection.project(ToolCallArgsEvent(tool_call_id="confirm", delta=json.dumps(args)))
+    events = projection.project(ToolCallEndEvent(tool_call_id="confirm"))
+    assert json.loads(events[1].delta) == args
 
 
 async def test_native_confirmation_nested_arguments_and_payload_are_not_durable(monkeypatch):

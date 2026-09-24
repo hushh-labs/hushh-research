@@ -1,5 +1,9 @@
 import { BACKEND_URL } from "@/lib/config";
 import { ApiService } from "@/lib/services/api-service";
+import {
+  parseMcpCallApproval, parseMcpCallPreview,
+  type McpCallApproval, type McpCallPreview, type McpCallReviewReference,
+} from "@/lib/agent/mcp-call-review";
 
 export type ExternalConnectorAuthStyle = "api_key" | "oauth";
 
@@ -173,6 +177,66 @@ async function readJsonOrThrow<T>(response: Response): Promise<T> {
 
 /** Typed transport for /api/connectors. Components never call fetch directly. */
 export class ExternalConnectorService {
+  /** Fetch exact arguments into the active review only; never cache or log them. */
+  static async reviewMcpCall(input: {
+    vaultOwnerToken: string;
+    conversationId: string;
+    reference: McpCallReviewReference;
+    signal: AbortSignal;
+    isEffectCurrent: ConnectorEffectGuard;
+  }): Promise<McpCallPreview> {
+    const payload = await this.mcpReviewRequest(input, "review", {});
+    const preview = parseMcpCallPreview(payload, input.reference);
+    if (!preview) throw new Error("This connector review changed. Please review it again.");
+    return preview;
+  }
+
+  /** Explicit tap only. A failed acknowledgement never triggers an automatic retry. */
+  static async confirmMcpCall(input: {
+    vaultOwnerToken: string;
+    conversationId: string;
+    reference: McpCallPreview;
+    signal: AbortSignal;
+    isEffectCurrent: ConnectorEffectGuard;
+  }): Promise<McpCallApproval> {
+    const payload = await this.mcpReviewRequest(input, "confirm", input.reference.arguments);
+    const approval = parseMcpCallApproval(payload, input.reference);
+    if (!approval) throw new Error("Confirmation could not be verified. No automatic retry was made.");
+    return approval;
+  }
+
+  private static async mcpReviewRequest(input: {
+    vaultOwnerToken: string;
+    conversationId: string;
+    reference: McpCallReviewReference;
+    signal: AbortSignal;
+    isEffectCurrent: ConnectorEffectGuard;
+  }, operation: "review" | "confirm", args: Record<string, unknown>): Promise<unknown> {
+    const current = () => !input.signal.aborted && input.isEffectCurrent() &&
+      Date.parse(input.reference.expiresAt) > Date.now();
+    if (!current()) throw new Error("This review expired or your vault session changed.");
+    const response = await ApiService.apiFetch(
+      `/api/connectors/${encodeURIComponent(input.reference.connectorId)}/mcp/${operation}`,
+      {
+        method: "POST", cache: "no-store", signal: input.signal,
+        isEffectCurrent: current,
+        headers: { ...authHeaders(input.vaultOwnerToken), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          conversationId: input.conversationId,
+          toolName: input.reference.toolName,
+          pendingHandle: input.reference.pendingHandle,
+          arguments: args,
+          ...(operation === "confirm" ? { directiveId: input.reference.directiveId, confirmed: true } : {}),
+        }),
+      },
+    );
+    // Never echo response bodies: they may contain private arguments or provider text.
+    if (!response.ok) throw new Error("Connector review is unavailable. No automatic retry was made.");
+    const payload: unknown = await response.json().catch(() => null);
+    if (!current()) throw new Error("Your vault session changed. Open the review again.");
+    return payload;
+  }
+
   static nativeDriveOAuthCallbackUri(): string {
     return nativeDriveOAuthCallbackUri();
   }

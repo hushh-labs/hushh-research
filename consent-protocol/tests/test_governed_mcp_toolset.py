@@ -164,6 +164,18 @@ async def test_approved_call_uses_native_implementation_once(harness):
     assert h.resolve.await_count >= 5  # discovery, admission, dispatch, publication
 
 
+async def test_native_denial_needs_no_private_arguments_or_provider_access(harness):
+    h = harness
+    tool = (await h.toolset.get_tools(h.context))[0]
+    h.resolve.reset_mock()
+    h.context.tool_confirmation = SimpleNamespace(confirmed=False)
+    result = await tool.run_async(args={}, tool_context=h.context)
+    assert result == {"status": "blocked", "error": "MCP_REVIEW_DECLINED", "retryable": False}
+    h.resolve.assert_not_awaited()
+    h.approve.assert_not_awaited()
+    h.native.assert_not_awaited()
+
+
 async def test_rejected_app_receipt_never_dispatches_or_claims_uncertain_write(harness):
     from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
 

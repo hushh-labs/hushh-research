@@ -5,6 +5,9 @@ import { HttpAgent, type AgentSubscriber, type Tool } from "@ag-ui/client";
 import { applyPatch, type Operation } from "fast-json-patch";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 import { describeDirectiveForOwner } from "@/lib/agent/action-directive-summary";
+import { parseMcpCallReview, type McpCallApproval, type McpCallReviewReference } from "@/lib/agent/mcp-call-review";
+import { snapshotValidatedAuthSessionOwner, isValidatedAuthSessionOwnerCurrent } from "@/lib/auth/session-owner";
+import { snapshotVaultSessionEpoch, isVaultSessionEpochCurrent } from "@/lib/vault/session-epoch";
 import {
   parseAgentActivityExperience,
   parseAgentToolResultExperience,
@@ -76,6 +79,13 @@ export type AgentSource = {
 };
 
 export type AgentChatStreamHandlers = {
+  /** Ephemeral native review: never append its references or receipt to history/debug events. */
+  onMcpReview?: (review: {
+    reference: McpCallReviewReference;
+    conversationId: string;
+    isCurrent: () => boolean;
+    resume: (approval: McpCallApproval | null, signal?: AbortSignal) => Promise<void>;
+  }) => void;
   onStart?: (payload: { conversationId: string; model?: string }) => void;
   onToolStart?: (payload: AgentChatToolEvent) => void;
   onToolWaiting?: (payload: AgentChatToolEvent) => void;
@@ -416,6 +426,13 @@ export async function streamAgentChat(input: {
   const timezone = resolveBrowserTimeZone();
   const threadId = input.conversationId || crypto.randomUUID();
   const handlers = input.handlers ?? {};
+  const mcpOwner = snapshotValidatedAuthSessionOwner();
+  const mcpVaultEpoch = snapshotVaultSessionEpoch();
+  const mcpSessionCurrent = () => Boolean(
+    mcpOwner && mcpOwner.userId === input.userId &&
+    isValidatedAuthSessionOwnerCurrent(mcpOwner) &&
+    isVaultSessionEpochCurrent(mcpVaultEpoch) && !input.signal?.aborted,
+  );
   const availableActionIds = (() => {
     const screen = input.screenContext || {};
     const nested = asRecord(screen.one_voice_context);
@@ -479,6 +496,8 @@ export async function streamAgentChat(input: {
   const toolNames = new Map<string, string>();
   const toolArgs = new Map<string, Record<string, unknown>>();
   const interruptsByToolCall = new Map<string, string>();
+  const mcpReviews = new Map<string, McpCallReviewReference>();
+  const publishedMcpReviews = new Set<string>();
   const emittedStateDirectivePaths = new Set<string>();
   const toolPayload = (callId: string, name: string, args: Record<string, unknown> = {}): AgentChatToolEvent => {
     const actionId = tools.find((tool) => tool.name === name)?.metadata?.actionId;
@@ -551,6 +570,22 @@ export async function streamAgentChat(input: {
       handlers.onToolStart?.(toolPayload(event.toolCallId, event.toolCallName));
     },
     onToolCallEndEvent: ({ event, toolCallName, toolCallArgs }) => {
+      if (toolCallName === "adk_request_confirmation") {
+        const review = parseMcpCallReview(toolCallArgs);
+        if (review) {
+          mcpReviews.set(event.toolCallId, review);
+          // Publish only after RUN_FINISHED supplies the native interrupt id.
+          // Neither pending handles nor private review details enter generic diagnostics.
+          return;
+        }
+        const original = asRecord(toolCallArgs.originalFunctionCall);
+        const confirmation = asRecord(toolCallArgs.toolConfirmation);
+        if ((typeof original?.name === "string" && original.name.startsWith("mcp_")) ||
+            asRecord(confirmation?.payload)?.kind === "mcp_call_review") {
+          handlers.onError?.("The connector review could not be verified. Please ask again.");
+          return;
+        }
+      }
       const workspaceConnectorTool =
         toolCallName === "discover_workspace_tools" ||
         toolCallName === "read_workspace_tool";
@@ -768,6 +803,56 @@ export async function streamAgentChat(input: {
       if (params.outcome === "interrupt") {
         for (const interrupt of params.interrupts) {
           if (interrupt.toolCallId) interruptsByToolCall.set(interrupt.toolCallId, interrupt.id);
+        }
+        for (const [callId, reference] of mcpReviews) {
+          const interruptId = interruptsByToolCall.get(callId);
+          if (!interruptId || publishedMcpReviews.has(callId)) continue;
+          publishedMcpReviews.add(callId);
+          let attempted = false;
+          handlers.onMcpReview?.({
+            reference,
+            conversationId: threadId,
+            isCurrent: mcpSessionCurrent,
+            resume: async (approval, signal) => {
+              if (attempted || signal?.aborted || !mcpSessionCurrent() || Date.parse(reference.expiresAt) <= Date.now()) {
+                throw new Error("This connector review expired or was already used.");
+              }
+              if (approval && (
+                approval.directiveId !== reference.directiveId ||
+                approval.connectorId !== reference.connectorId ||
+                approval.toolName !== reference.toolName ||
+                approval.pendingHandle !== reference.pendingHandle ||
+                !/^[A-Za-z0-9_-]{32,128}$/.test(approval.receipt)
+              )) throw new Error("This confirmation does not match the connector review.");
+              // A lost acknowledgement must not cause an automatic second mutation.
+              attempted = true;
+              const abortResume = () => agent.abortRun();
+              input.signal?.addEventListener("abort", abortResume, { once: true });
+              signal?.addEventListener("abort", abortResume, { once: true });
+              try {
+                await agent.runAgent({
+                  tools, context: [],
+                  forwardedProps: {
+                    timezone, pkmContext: input.pkmContext,
+                    personSelectionHandle: input.personSelectionHandle,
+                    gmailInformationRequestWorkflowId: input.gmailInformationRequestWorkflowId,
+                    screenContext: input.screenContext,
+                    ...(approval ? { mcpApproval: {
+                      directiveId: approval.directiveId, connectorId: approval.connectorId,
+                      toolName: approval.toolName, pendingHandle: approval.pendingHandle,
+                      receipt: approval.receipt,
+                    } } : {}),
+                  },
+                  resume: [{ interruptId, status: "resolved", payload: { confirmed: approval !== null } }],
+                }, subscriber);
+                if (signal?.aborted || !mcpSessionCurrent()) throw new Error("The connector session changed.");
+                if (failure) throw failure;
+              } finally {
+                input.signal?.removeEventListener("abort", abortResume);
+                signal?.removeEventListener("abort", abortResume);
+              }
+            },
+          });
         }
         interrupted = true;
         handlers.onInterrupt?.({ conversationId: threadId });

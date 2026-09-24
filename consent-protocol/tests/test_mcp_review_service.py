@@ -18,7 +18,9 @@ from hushh_mcp.services.external_mcp_client import ExternalMcpError
 def harness(monkeypatch):
     binding = McpConnectionBinding("owner", "custom", 1, 1, "https://example.com/mcp")
     registry = SimpleNamespace(
-        get_connector=AsyncMock(return_value=SimpleNamespace(owner_user_id="owner"))
+        get_connector=AsyncMock(
+            return_value=SimpleNamespace(owner_user_id="owner", display_name="Synthetic connector")
+        )
     )
     sessions = InMemorySessionService()
     sessions.get_session = AsyncMock(
@@ -91,6 +93,7 @@ async def test_review_and_confirmation_use_current_terms_without_executing(harne
     preview = await module.prepare_review(**h.request)
     assert preview["arguments"] == h.request["arguments"]
     assert preview["status"] == "review_required"
+    assert preview["connectorLabel"] == "Synthetic connector"
     assert "synthetic-token" not in str(preview)
     h.registry.get_connector.assert_awaited_once_with("custom", user_id="owner")
     h.sessions.get_session.assert_awaited_once_with(
