@@ -754,6 +754,10 @@ class DriveSharingStore(DriveDocumentStore):
                 purpose="review",
             )
             approval = SharingApproval.model_validate(payload["approval"])
+            if len(document_ids) != len(approval.sources) or set(document_ids) != {
+                str(source.document_id) for source in approval.sources
+            }:
+                raise DriveSharingError("review_changed")
             self._admit_sources(
                 connection, user_id=user_id, generation=generation, sources=approval.sources
             )
