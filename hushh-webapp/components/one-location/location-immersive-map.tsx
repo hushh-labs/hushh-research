@@ -332,6 +332,38 @@ function selfFallbackRadiusMeters(latitude: number, zoom: number): number {
   return Math.max(0.25, metresPerPixel * SELF_FALLBACK_RADIUS_PX);
 }
 
+/**
+ * Approximate the zoom `fitBounds` will choose for a radius around one point.
+ *
+ * Compatibility bridges may accept `fitBounds` but never report the resulting
+ * camera. The owner circle still needs a geographic radius in that case, and
+ * reusing the neutral world zoom would turn its 9 px puck into a continent.
+ * This is the same Web Mercator metres-per-pixel relationship used by the
+ * circle conversion above, solved for the padded viewport's limiting edge.
+ */
+function zoomForRadiusBounds(
+  latitude: number,
+  radiusMeters: number,
+  box: { width: number; height: number },
+  paddingPx: number,
+): number | null {
+  if (!(radiusMeters > 0) || !Number.isFinite(radiusMeters)) return null;
+  const fittedDiameterPx =
+    Math.min(Number(box.width) || 0, Number(box.height) || 0) -
+    Math.max(0, paddingPx) * 2;
+  if (!(fittedDiameterPx > 0)) return null;
+
+  const clampedLatitude = Math.max(
+    -85.05112878,
+    Math.min(85.05112878, latitude),
+  );
+  const metresPerPixelAtZoomZero =
+    156543.03392 * Math.cos((clampedLatitude * Math.PI) / 180);
+  const targetMetresPerPixel = radiusMeters / (fittedDiameterPx / 2);
+  const zoom = Math.log2(metresPerPixelAtZoomZero / targetMetresPerPixel);
+  return Number.isFinite(zoom) ? Math.max(0, zoom) : null;
+}
+
 /** "last seen 7m ago" -- a fact about their signal, not their intent. */
 function lastSeenLabel(
   capturedAt: string | null | undefined,
@@ -1467,10 +1499,15 @@ export function LocationImmersiveMap({
       }
       mapRef.current = map;
       // Gives the renderer-owned owner dot a correct initial scale even on an
-      // older bridge that never emits camera callbacks. A pre-consent neutral
-      // map has no authority to size a private location, so it stays null until
-      // an accepted flow explicitly targets or reports its real camera.
-      setSettledCameraZoom(rendererReady ? initialZoom : null);
+      // older bridge that never emits camera callbacks. A neutral camera has
+      // no authority to size a private location, even for a returning consented
+      // session with no cached device point, so it stays null until a real
+      // camera target is known.
+      setSettledCameraZoom(
+        rendererReady && (cachedPoint || initialDemoModeRef.current)
+          ? initialZoom
+          : null,
+      );
       // The name pills and owner avatar are HTML above the map, so they need to
       // know what the renderer is showing. Bounds may arrive during a gesture,
       // but they are not a proof that React and the renderer will paint the same
@@ -2235,6 +2272,7 @@ export function LocationImmersiveMap({
       // Frame both points only during selection. Once active there is one
       // presentation point -- the venue-anchored avatar -- and the map should
       // frame the check-in radius rather than the owner's earlier GPS fix.
+      const fitPaddingPx = 48;
       const bounds =
         !placeFocus?.active && searchPoint && placeCenter
           ? pairBounds(
@@ -2248,7 +2286,20 @@ export function LocationImmersiveMap({
               },
               NEARBY_CHECK_IN_RADIUS_METERS,
             );
-      await map.fitBounds(bounds, 48);
+      if (placeFocus?.active && mapElement.current) {
+        // A restored venue intentionally prevents the late entry GPS fix from
+        // moving the camera. Publish the radius-bound target instead so an old
+        // bridge with no idle callback never sizes the owner puck from the
+        // neutral world camera it started on.
+        const fittedZoom = zoomForRadiusBounds(
+          circleCenter.lat,
+          NEARBY_CHECK_IN_RADIUS_METERS,
+          measureMapBox(mapElement.current),
+          fitPaddingPx,
+        );
+        if (fittedZoom !== null) setSettledCameraZoom(fittedZoom);
+      }
+      await map.fitBounds(bounds, fitPaddingPx);
     }).catch(() => {
       // Place discovery remains usable from the drawer if an older renderer
       // cannot draw the visual boundary. Never convert this into map data.

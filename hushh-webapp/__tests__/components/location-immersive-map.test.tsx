@@ -1433,6 +1433,9 @@ describe("LocationImmersiveMap demo experience", () => {
     mapHarness.map.setOnBoundsChangedListener.mockRejectedValueOnce(
       new Error("camera listeners unavailable"),
     );
+    serviceHarness.captureCurrentPosition.mockRejectedValue(
+      new Error("location permission unavailable"),
+    );
 
     seedConsentedRenderer();
     render(<LocationImmersiveMap surface="check-in" />);
@@ -1452,6 +1455,7 @@ describe("LocationImmersiveMap demo experience", () => {
             call[0] as Array<{
               center: { lat: number; lng: number };
               fillColor?: string;
+              radius?: number;
               title?: string;
             }>,
         )
@@ -1462,7 +1466,10 @@ describe("LocationImmersiveMap demo experience", () => {
           fillColor: "#34c759",
         }),
       );
+      expect(Number(fallback?.radius)).toBeGreaterThan(0);
+      expect(Number(fallback?.radius)).toBeLessThan(100);
     });
+    expect(mapHarness.map.fitBounds).toHaveBeenCalled();
     expect(screen.getByTestId("one-location-map-self-avatar")).toHaveClass(
       "sr-only",
     );
