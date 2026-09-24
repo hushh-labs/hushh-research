@@ -101,6 +101,59 @@ describe("Connect circle growth", () => {
     isRia: false,
   };
 
+  it("keeps the owner in the center and makes every profile-backed avatar a link", () => {
+    render(
+      <LivingCirclePanel
+        circleName="Family"
+        members={[
+          {
+            userId: "owner",
+            displayName: "Taylor Kim",
+            publicPersonRef: "taylor-profile",
+            role: "owner",
+            phoneVerified: true,
+            secureLocationReady: true,
+          },
+          {
+            userId: "member",
+            displayName: "Jordan Lee",
+            publicPersonRef: "jordan-profile",
+            role: "member",
+            phoneVerified: true,
+            secureLocationReady: true,
+          },
+        ]}
+        memberCount={2}
+        canInvite
+        candidates={[]}
+        availableCount={0}
+        remainingCapacity={4}
+        loading={false}
+        error={null}
+        addingUserId={null}
+        onAdd={vi.fn()}
+        searchQuery=""
+        onSearchChange={vi.fn()}
+        hasMore={false}
+        loadingMore={false}
+        onLoadMore={vi.fn()}
+        onRetry={vi.fn()}
+      />,
+    );
+
+    const ownerLinks = screen.getAllByTestId("circle-owner-profile");
+    expect(ownerLinks).toHaveLength(2);
+    expect(ownerLinks[0]).toHaveAttribute(
+      "href",
+      "/people/taylor-profile?from=%2Fone%2Fconnect",
+    );
+    expect(
+      screen.getAllByRole("link", { name: "Open Jordan Lee's profile" })[0],
+    ).toHaveAttribute("href", "/people/jordan-profile?from=%2Fone%2Fconnect");
+    expect(screen.getByTestId("people-orbit").querySelector("[data-orbit-center]"))
+      .toContainElement(ownerLinks[0]);
+  });
+
   it.each([
     ["new circle", {}, 3],
     ["connections still loading", { loading: true, remainingCapacity: 0 }, 3],

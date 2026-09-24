@@ -6,7 +6,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ContextType } from "react";
 import type {
   OneLocationCircleDetail,
@@ -102,7 +102,80 @@ beforeEach(() => {
   );
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+});
+
 describe("circle discovery actions", () => {
+  it("guides untouched users every three seconds and stops after interaction", () => {
+    vi.useFakeTimers();
+    render(ui());
+    const discovery = screen.getByTestId("connect-living-connections");
+    expect(discovery).toHaveAttribute("data-auto-tour", "running");
+    expect(
+      screen.getByRole("button", { name: "Explore Family Circle" }),
+    ).toHaveAttribute("aria-pressed", "true");
+
+    act(() => vi.advanceTimersByTime(3_000));
+    expect(
+      screen.getByRole("button", { name: "Explore Finance Circle" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText(/help with your money and taxes/)).toBeVisible();
+
+    // Browsing the card must not cancel the tour; only an actual circle choice
+    // is an intentional interaction.
+    fireEvent.pointerEnter(discovery);
+    act(() => vi.advanceTimersByTime(3_000));
+    expect(
+      screen.getByRole("button", { name: "Explore Investor Circle" }),
+    ).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.pointerEnter(
+      screen.getByRole("button", { name: "Explore Investor Circle" }),
+    );
+    expect(discovery).toHaveAttribute("data-auto-tour", "stopped");
+    act(() => vi.advanceTimersByTime(9_000));
+    expect(
+      screen.getByRole("button", { name: "Explore Investor Circle" }),
+    ).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("keeps manual selection authoritative after keyboard interaction", () => {
+    vi.useFakeTimers();
+    render(ui());
+    const investor = screen.getByRole("button", {
+      name: "Explore Investor Circle",
+    });
+    fireEvent.focus(investor);
+    fireEvent.click(investor);
+    expect(screen.getByTestId("connect-living-connections")).toHaveAttribute(
+      "data-auto-tour",
+      "stopped",
+    );
+    act(() => vi.advanceTimersByTime(6_000));
+    expect(investor).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("does not autoplay when reduced motion is requested", () => {
+    vi.stubGlobal(
+      "matchMedia",
+      vi.fn().mockReturnValue({
+        matches: true,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+      }),
+    );
+    vi.useFakeTimers();
+    render(ui());
+    const discovery = screen.getByTestId("connect-living-connections");
+    expect(discovery).toHaveAttribute("data-auto-tour", "stopped");
+    act(() => vi.advanceTimersByTime(9_000));
+    expect(
+      screen.getByRole("button", { name: "Explore Family Circle" }),
+    ).toHaveAttribute("aria-pressed", "true");
+  });
+
   it.each(CIRCLE_STARTERS)("explains $name before creating it", (starter) => {
     render(ui());
     fireEvent.click(

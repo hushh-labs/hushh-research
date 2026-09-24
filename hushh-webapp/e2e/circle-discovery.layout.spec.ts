@@ -95,6 +95,38 @@ test.beforeAll(async () => {
       .join("\n");
 });
 
+test("circle discovery advances every three seconds until a circle is explored", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 768, height: 900 });
+  await page.emulateMedia({ reducedMotion: "no-preference" });
+  await page.setContent(
+    `<html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`,
+  );
+  await page.addScriptTag({ content: script });
+  await awaitProductFont(page);
+
+  const hero = page.getByTestId("connect-living-connections");
+  const family = page.getByTestId("circle-starter-family");
+  const finance = page.getByTestId("circle-starter-finance");
+  const investor = page.getByTestId("circle-starter-investor");
+  await expect(hero).toHaveAttribute("data-auto-tour", "running");
+  await expect(family).toHaveAttribute("aria-pressed", "true");
+
+  await page.waitForTimeout(3_100);
+  await expect(finance).toHaveAttribute("aria-pressed", "true");
+  await expect(hero).toHaveAttribute("data-auto-tour", "running");
+
+  // Reading the card does not halt the guide. Deliberately hovering a circle does.
+  await hero.hover();
+  await page.waitForTimeout(3_100);
+  await expect(investor).toHaveAttribute("aria-pressed", "true");
+  await investor.hover();
+  await expect(hero).toHaveAttribute("data-auto-tour", "stopped");
+  await page.waitForTimeout(3_100);
+  await expect(investor).toHaveAttribute("aria-pressed", "true");
+});
+
 for (const width of [320, 390, 768, 1440]) {
   test(`new circle placeholders stay responsive and give way to members at ${width}px`, async ({
     page,
@@ -161,7 +193,9 @@ for (const width of [320, 390, 768, 1440]) {
     await expect(spots).toHaveCount(0);
     await expect(
       orbit.locator("[data-testid='people-orbit-overflow']:visible"),
-    ).toHaveText(width < 640 ? "+9" : "+7");
+    // The owner remains in the center, so the radial overflow counts only
+    // members outside that center position.
+    ).toHaveText(width < 640 ? "+8" : "+6");
     await checkGeometry();
     await state.selectOption("no-connections");
     await expect(spots).toHaveCount(3);

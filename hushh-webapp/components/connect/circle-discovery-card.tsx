@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import {
   ArrowRight,
   Briefcase,
@@ -52,6 +52,8 @@ const STARTER_ICON_STYLES: Record<CircleStarterId, AgentProfileIconStyle> = {
 const STARTER_TONE_CLASSNAME =
   "[--circle-tint:var(--agent-icon-profile-bg)] [--circle-ink:var(--agent-icon-profile-fg)] dark:[--circle-tint:var(--agent-icon-profile-bg-dark)] dark:[--circle-ink:var(--agent-icon-profile-fg-dark)]";
 
+const CIRCLE_TOUR_INTERVAL_MS = 3_000;
+
 export type CircleDiscoveryCardProps = {
   ownerName: string;
   ownerPhotoUrl?: string | null;
@@ -89,6 +91,7 @@ export function CircleDiscoveryCard({
   onSetupCircles,
 }: CircleDiscoveryCardProps) {
   const [selected, setSelected] = useState<CircleStarterId>("family");
+  const [autoTourActive, setAutoTourActive] = useState(true);
   const headingId = useId();
   const descriptionId = useId();
   const starter = CIRCLE_STARTERS.find((item) => item.id === selected)!;
@@ -103,10 +106,57 @@ export function CircleDiscoveryCard({
   const shownConnections = connections.slice(0, 3);
   const moreConnections = Math.max(0, totalCount - shownConnections.length);
 
+  const stopAutoTour = useCallback(() => {
+    setAutoTourActive(false);
+  }, []);
+
+  const selectStarter = useCallback(
+    (starterId: CircleStarterId) => {
+      stopAutoTour();
+      setSelected(starterId);
+    },
+    [stopAutoTour],
+  );
+
+  useEffect(() => {
+    const reducedMotion = window.matchMedia?.(
+      "(prefers-reduced-motion: reduce)",
+    );
+    if (!reducedMotion) return;
+
+    const handlePreferenceChange = (event: MediaQueryListEvent) => {
+      if (event.matches) stopAutoTour();
+    };
+
+    if (reducedMotion.matches) stopAutoTour();
+    reducedMotion.addEventListener?.("change", handlePreferenceChange);
+    return () =>
+      reducedMotion.removeEventListener?.("change", handlePreferenceChange);
+  }, [stopAutoTour]);
+
+  useEffect(() => {
+    if (!autoTourActive) return;
+
+    const intervalId = window.setInterval(() => {
+      if (document.hidden) return;
+      setSelected((current) => {
+        const currentIndex = CIRCLE_STARTERS.findIndex(
+          (item) => item.id === current,
+        );
+        return CIRCLE_STARTERS[
+          (currentIndex + 1) % CIRCLE_STARTERS.length
+        ]!.id;
+      });
+    }, CIRCLE_TOUR_INTERVAL_MS);
+
+    return () => window.clearInterval(intervalId);
+  }, [autoTourActive]);
+
   return (
     <section
       aria-labelledby={headingId}
       data-testid="connect-living-connections"
+      data-auto-tour={autoTourActive ? "running" : "stopped"}
       className={cn(CONNECT_HERO_CLASSNAME, "motion-step-enter")}
     >
       <div className="flex items-start justify-between gap-2">
@@ -201,7 +251,9 @@ export function CircleDiscoveryCard({
                 aria-pressed={active}
                 aria-controls={descriptionId}
                 disabled={Boolean(creating)}
-                onClick={() => setSelected(item.id)}
+                onPointerEnter={stopAutoTour}
+                onFocus={stopAutoTour}
+                onClick={() => selectStarter(item.id)}
                 title={existing?.name ?? item.name}
                 data-testid={`circle-starter-${item.id}`}
                 className={cn(
@@ -261,7 +313,7 @@ export function CircleDiscoveryCard({
         >
           <div
             className="contents sm:block"
-            aria-live="polite"
+            aria-live={autoTourActive ? "off" : "polite"}
             aria-atomic="true"
           >
             <p className="hidden sm:block text-xs font-medium text-[color:var(--app-secondary-label)]">
