@@ -96,6 +96,7 @@ _SERVER_RUN_RE = re.compile(r"\brun=([0-9a-fA-F-]{1,8})")
 _SERVER_FIRST_VISIBLE_RE = re.compile(r"\bfirst_visible_ms=([^\s,]+)")
 _SERVER_FIRST_ANSWER_TOKEN_RE = re.compile(r"\bfirst_answer_token_ms=([^\s,]+)")
 _SERVER_ELAPSED_RE = re.compile(r"\belapsed_ms=([^\s,]+)")
+_SAFE_ERROR_CODE_RE = re.compile(r"^[A-Za-z0-9_.:-]{1,80}$")
 RUN_PREFIX_LEN = 8
 
 REDACTED = "[redacted]"
@@ -106,6 +107,9 @@ class PromptCase:
     prompt_id: str
     category: str
     text: str
+    expected_answer_pattern: str | None = None
+    expected_tool_name: str | None = None
+    require_no_tools: bool = False
 
     def render(self, *, counterpart: str) -> str:
         return self.text.format(counterpart=counterpart)
@@ -115,9 +119,20 @@ PROMPTS: tuple[PromptCase, ...] = (
     PromptCase("general_help", "general", "what can you help me with"),
     PromptCase("general_time", "general", "what time is it"),
     PromptCase("general_sharing", "general", "how does sharing my information work"),
-    PromptCase("general_identity", "general", "who are you"),
+    PromptCase(
+        "general_identity",
+        "general",
+        "who are you",
+        expected_answer_pattern=r"\bOne\b",
+        require_no_tools=True,
+    ),
     PromptCase("consent_pending", "consent", "is there anything waiting for me to approve"),
-    PromptCase("consent_visibility", "consent", "who can see my information right now"),
+    PromptCase(
+        "consent_visibility",
+        "consent",
+        "who can see my information right now",
+        expected_tool_name="list_active_grants",
+    ),
     PromptCase(
         "consent_request",
         "consent",
@@ -146,6 +161,9 @@ class TurnSample:
     server_elapsed_ms: float | None = None
     first_visible_event: str | None = None
     event_count: int = 0
+    tool_call_count: int = 0
+    expected_tool_observed: bool | None = None
+    answer_validated: bool | None = None
     detail: str = ""
 
 
@@ -266,6 +284,8 @@ def drive_turn(
         outcome=OUTCOME_NO_TERMINAL,
     )
     started_at = clock()
+    answer_parts: list[str] = []
+    observed_tools: list[str] = []
     try:
         lines = open_stream(body)
     except TransportFailure as failure:
@@ -284,6 +304,15 @@ def drive_turn(
             now = clock()
             sample.event_count += 1
             event_type = str(event.get("type") or "")
+            if event_type == "TEXT_MESSAGE_CONTENT":
+                delta = event.get("delta")
+                if isinstance(delta, str):
+                    answer_parts.append(delta)
+            elif event_type == "TOOL_CALL_START":
+                sample.tool_call_count += 1
+                tool_name = str(event.get("toolCallName") or event.get("tool_call_name") or "")
+                if tool_name:
+                    observed_tools.append(tool_name)
             if sample.client_first_visible_ms is None and event_type in FIRST_VISIBLE_EVENT_TYPES:
                 sample.client_first_visible_ms = _elapsed_ms(started_at, now)
                 sample.first_visible_event = event_type
@@ -295,7 +324,8 @@ def drive_turn(
                     OUTCOME_FINISHED if event_type == "RUN_FINISHED" else OUTCOME_RUN_ERROR
                 )
                 if event_type == "RUN_ERROR":
-                    sample.detail = str(event.get("code") or "RUN_ERROR")
+                    code = str(event.get("code") or "RUN_ERROR")
+                    sample.detail = code if _SAFE_ERROR_CODE_RE.fullmatch(code) else "UNCLASSIFIED"
                 break
             if now - started_at > turn_timeout_seconds:
                 sample.outcome = OUTCOME_TIMEOUT
@@ -312,6 +342,29 @@ def drive_turn(
 
     if sample.client_total_ms is None:
         sample.client_total_ms = _elapsed_ms(started_at, clock())
+    if (
+        prompt.expected_answer_pattern is not None
+        or prompt.expected_tool_name is not None
+        or prompt.require_no_tools
+    ):
+        answer = "".join(answer_parts).strip()
+        sample.expected_tool_observed = (
+            prompt.expected_tool_name is None or prompt.expected_tool_name in observed_tools
+        )
+        answer_matches = bool(answer) and (
+            prompt.expected_answer_pattern is None
+            or re.search(prompt.expected_answer_pattern, answer, re.IGNORECASE) is not None
+        )
+        tools_match = (
+            sample.tool_call_count == 0
+            if prompt.require_no_tools
+            else prompt.expected_tool_name is None
+            or bool(observed_tools)
+            and all(name == prompt.expected_tool_name for name in observed_tools)
+        )
+        sample.answer_validated = answer_matches and sample.expected_tool_observed and tools_match
+        answer_parts.clear()
+        observed_tools.clear()
     return sample
 
 
@@ -740,7 +793,8 @@ def format_sample(sample: TurnSample) -> str:
     return (
         f"{sample.prompt_id} rep={sample.rep} first_visible={_ms(sample.client_first_visible_ms)}"
         f" first_answer_token={_ms(sample.client_first_answer_token_ms)}"
-        f" total={_ms(sample.client_total_ms)} outcome={sample.outcome}{server}"
+        f" total={_ms(sample.client_total_ms)} outcome={sample.outcome}"
+        f" detail={sample.detail or 'none'}{server}"
     )
 
 

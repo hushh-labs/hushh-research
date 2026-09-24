@@ -24,6 +24,7 @@ import { BodyText, HelperText } from "@/components/app-ui/typography";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { DocumentShareReview } from "@/components/consent/document-share-review";
 import {
   Dialog,
   DialogContent,
@@ -36,19 +37,22 @@ import {
 export function DocumentRequestButton({
   personRef,
   personName,
+  draft,
 }: {
   personRef: string;
   personName: string;
+  draft?: { clientRequestId: string; purpose: string; periodStart: string | null; periodEnd: string | null };
 }) {
   const { user } = useAuth();
   const { isVaultUnlocked, getVaultOwnerToken } = useVault();
   if (!user || !isVaultUnlocked) return null;
   return (
     <UnlockedRequestButton
-      key={`${user.uid}:${personRef}:${snapshotVaultSessionEpoch()}`}
+      key={`${user.uid}:${personRef}:${draft?.clientRequestId ?? "manual"}:${snapshotVaultSessionEpoch()}`}
       userId={user.uid}
       personRef={personRef}
       personName={personName}
+      draft={draft}
       getToken={getVaultOwnerToken}
     />
   );
@@ -58,25 +62,31 @@ function UnlockedRequestButton({
   userId,
   personRef,
   personName,
+  draft,
   getToken,
 }: {
   userId: string;
   personRef: string;
   personName: string;
+  draft?: { clientRequestId: string; purpose: string; periodStart: string | null; periodEnd: string | null };
   getToken: () => string | null;
 }) {
   const [enabled, setEnabled] = useState(false);
   const [open, setOpen] = useState(false);
-  const [purpose, setPurpose] = useState("");
-  const [start, setStart] = useState("");
-  const [end, setEnd] = useState("");
+  const [purpose, setPurpose] = useState(draft?.purpose ?? "");
+  const [start, setStart] = useState(draft?.periodStart ?? "");
+  const [end, setEnd] = useState(draft?.periodEnd ?? "");
   const [phase, setPhase] = useState<"idle" | "verifying" | "sending">("idle");
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<string | null>(null);
   const alive = useRef(false);
   const serial = useRef(0);
   const inFlight = useRef(false);
-  const attempt = useRef<{ fingerprint: string; id: string } | null>(null);
+  const attempt = useRef<{ fingerprint: string; id: string } | null>(draft ? {
+    fingerprint: JSON.stringify({personRef, purpose: draft.purpose, periodStart: draft.periodStart, periodEnd: draft.periodEnd}),
+    id: draft.clientRequestId,
+  } : null);
+  const draftClientRequestId = draft?.clientRequestId;
   useEffect(() => {
     alive.current = true;
     const epoch = snapshotVaultSessionEpoch();
@@ -94,6 +104,15 @@ function UnlockedRequestButton({
         .catch(() => {
           /* A rollout-status failure cannot enable a new action. */
         });
+    if (token && draftClientRequestId) {
+      const guard = () => {
+        if (!alive.current || !isVaultSessionEpochCurrent(epoch) || getToken() !== token)
+          throw new DriveSharingError("session_changed");
+      };
+      void DriveSharingService.lookupClient(token, draftClientRequestId, guard)
+        .then((requestId) => { guard(); if (requestId) setCreated(requestId); })
+        .catch(() => { /* Sending still requires an explicit tap and server idempotency. */ });
+    }
     return () => {
       alive.current = false;
       // This is a monotonic operation fence, not a captured DOM reference.
@@ -101,7 +120,7 @@ function UnlockedRequestButton({
       serial.current++;
       inFlight.current = false;
     };
-  }, [getToken]);
+  }, [getToken, draftClientRequestId]);
   const valid =
     purpose.trim().length > 0 &&
     purpose.length <= 2000 &&
@@ -156,10 +175,12 @@ function UnlockedRequestButton({
       );
       guard();
       setCreated(result.requestId);
-      setPurpose("");
-      setStart("");
-      setEnd("");
-      attempt.current = null;
+      if (!draft) {
+        setPurpose("");
+        setStart("");
+        setEnd("");
+        attempt.current = null;
+      }
       CacheSyncService.onConsentMutated(userId);
       window.dispatchEvent(
         new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT, {
@@ -201,7 +222,20 @@ function UnlockedRequestButton({
       }
     }
   };
-  if (!enabled) return null;
+  if (!enabled) return draft ? <HelperText>Document requests are unavailable here.</HelperText> : null;
+  if (draft) return created ? (
+    <DocumentShareReview requestId={created} onChanged={() => CacheSyncService.onConsentMutated(userId)} />
+  ) : (
+    <div className="space-y-3">
+      <BodyText>Ask {personName} for: {purpose}</BodyText>
+      {start && end ? <HelperText>Requested period: {start} – {end}</HelperText> : null}
+      <HelperText>They choose the exact files. Verify your Google identity before sending; you do not need Drive access to open approved originals.</HelperText>
+      {error ? <HelperText role="alert">{error}</HelperText> : null}
+      <Button size="prominent" disabled={!valid || phase !== "idle"} onClick={() => void send()}>
+        {phase === "verifying" ? "Verifying…" : phase === "sending" ? "Sending…" : "Verify Google & send request"}
+      </Button>
+    </div>
+  );
   return (
     <>
       <Button size="standard" variant="none" onClick={() => setOpen(true)}>

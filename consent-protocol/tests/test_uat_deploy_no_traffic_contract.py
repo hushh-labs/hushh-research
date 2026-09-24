@@ -5,8 +5,6 @@ from pathlib import Path
 
 import yaml
 
-from tests._deploy_contract import backend_deploy_surface
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -24,7 +22,6 @@ def test_manual_rollback_jobs_bind_exact_deployment_environments() -> None:
 def test_uat_deploy_builds_candidates_without_serving_traffic() -> None:
     workflow = _read(".github/workflows/deploy-uat.yml")
     backend_build = _read("deploy/backend.cloudbuild.yaml")
-    backend_deploy = backend_deploy_surface()
     frontend_build = _read("deploy/frontend.cloudbuild.yaml")
 
     assert "group: deploy-uat\n" in workflow
@@ -33,8 +30,10 @@ def test_uat_deploy_builds_candidates_without_serving_traffic() -> None:
     assert '--to-revisions="${{ steps.candidate-state.outputs.frontend_revision }}=100"' in workflow
 
     assert '_CLOUD_RUN_NO_TRAFFIC: "false"' in backend_build
-    assert 'if [[ "${_CLOUD_RUN_NO_TRAFFIC}" == "true" ]]; then' in backend_deploy
-    assert 'cmd+=("--no-traffic")' in backend_deploy
+    assert (
+        'if [[ "${_CLOUD_RUN_NO_TRAFFIC}" == "true" ]]; then\n          cmd+=("--no-traffic")'
+        in backend_build
+    )
     assert '_CLOUD_RUN_NO_TRAFFIC: "false"' in frontend_build
     assert (
         'if [[ "${_CLOUD_RUN_NO_TRAFFIC}" == "true" ]]; then\n          cmd+=("--no-traffic")'
@@ -68,11 +67,11 @@ def test_uat_drive_secret_wiring_is_explicit_and_default_off() -> None:
 
 def test_uat_runtime_capacity_is_bounded_and_revision_safe() -> None:
     workflow = _read(".github/workflows/deploy-uat.yml")
-    backend_deploy = backend_deploy_surface()
+    backend_build = _read("deploy/backend.cloudbuild.yaml")
     frontend_build = _read("deploy/frontend.cloudbuild.yaml")
 
-    assert '"--cpu=${_CLOUD_RUN_CPU}"' in backend_deploy
-    assert '"--concurrency=${_CLOUD_RUN_CONCURRENCY}"' in backend_deploy
+    assert '"--cpu=${_CLOUD_RUN_CPU}"' in backend_build
+    assert '"--concurrency=${_CLOUD_RUN_CONCURRENCY}"' in backend_build
     assert "_CLOUD_RUN_CPU=2" in workflow
     assert "_CLOUD_RUN_CONCURRENCY=20" in workflow
 
@@ -130,18 +129,17 @@ def test_uat_deploy_pins_the_shared_firebase_authority() -> None:
 
 def test_backend_and_readiness_job_share_the_supported_text_model_regions() -> None:
     backend_build = _read("deploy/backend.cloudbuild.yaml")
-    backend_deploy = backend_deploy_surface()
     uat_workflow = _read(".github/workflows/deploy-uat.yml")
 
     # Gemini 3.1 Flash-Lite is part of the approved text matrix and only shares
     # global/us/eu endpoints with Gemini 3.5 Flash. The deployed service and its
     # candidate-image readiness job must prove the same configuration.
-    assert backend_deploy.count("GOOGLE_CLOUD_LOCATION=global") == 2
-    assert '"HUSHH_VERTEX_LOCATIONS=global,us,eu"' in backend_deploy
-    assert '--set-env-vars="^|^HUSHH_GENAI_AUTH_MODE=vertex_adc|' in backend_deploy
-    assert "|HUSHH_VERTEX_LOCATIONS=global,us,eu|" in backend_deploy
-    assert "HUSHH_VERTEX_LOCATIONS=global\\,us\\,eu" not in backend_deploy
-    assert "GOOGLE_CLOUD_LOCATION=asia-southeast1" not in backend_deploy
+    assert backend_build.count("GOOGLE_CLOUD_LOCATION=global") == 2
+    assert '"HUSHH_VERTEX_LOCATIONS=global,us,eu"' in backend_build
+    assert '--set-env-vars="^|^HUSHH_GENAI_AUTH_MODE=vertex_adc|' in backend_build
+    assert "|HUSHH_VERTEX_LOCATIONS=global,us,eu|" in backend_build
+    assert "HUSHH_VERTEX_LOCATIONS=global\\,us\\,eu" not in backend_build
+    assert "GOOGLE_CLOUD_LOCATION=asia-southeast1" not in backend_build
     # The managed-Vertex candidate job stays conservative for direct builds,
     # while UAT must honor the same changed-SHA selector that governs the
     # candidate evaluator lane. An unrelated release must not fail because an
@@ -193,17 +191,16 @@ def test_backend_vertex_advisory_probe_parses_pretty_json_verdict() -> None:
     assert 'sed -n \'s/.*"classification":"' not in backend_build
 
 
-def test_cross_project_vertex_fallback_is_exact_personal_bridge_only() -> None:
+def test_cross_project_vertex_fallback_is_dev_or_exact_uat_personal_project_only() -> None:
     backend_build = _read("deploy/backend.cloudbuild.yaml")
-    backend_deploy = backend_deploy_surface()
     uat_workflow = _read(".github/workflows/deploy-uat.yml")
     production_workflow = _read(".github/workflows/deploy-production.yml")
 
     assert 'if [[ "${_DEPLOY_ENV}" == "dev" ]]; then' in backend_build
-    assert 'genai_project_id="hushh-vertex-personal54"' in backend_build
+    assert 'genai_project_id="hushh-pda-uat"' in backend_build
     assert backend_build.count('case "${_DEPLOY_ENV}:${genai_project_id}" in') == 1
     assert (
-        "dev:hushh-vertex-personal54|uat:hushh-vertex-personal54|production:hushh-vertex-personal54)"
+        "dev:hushh-pda-uat|uat:hushh-vertex-personal54|production:hushh-vertex-personal54)"
         in backend_build
     )
     assert "Cross-project managed Vertex target is not allowlisted." in backend_build
@@ -212,15 +209,15 @@ def test_cross_project_vertex_fallback_is_exact_personal_bridge_only() -> None:
     assert "hushh-gemini-bridge" not in production_workflow
     assert "_GENAI_PROJECT_ID=hushh-vertex-personal54" in production_workflow
     assert "roles/serviceusage.serviceUsageConsumer" in backend_build
-    assert '"GOOGLE_CLOUD_PROJECT=${PROJECT_ID}"' in backend_deploy
-    assert backend_deploy.count('"GOOGLE_CLOUD_PROJECT=${PROJECT_ID}"') == 1
-    assert "GENAI_GOOGLE_CLOUD_PROJECT=${genai_project_id}" in backend_deploy
+    assert '"GOOGLE_CLOUD_PROJECT=${PROJECT_ID}"' in backend_build
+    assert backend_build.count('"GOOGLE_CLOUD_PROJECT=${PROJECT_ID}"') == 1
+    assert "GENAI_GOOGLE_CLOUD_PROJECT=${genai_project_id}" in backend_build
     assert '_GENAI_PROJECT_ID: ""' in backend_build
 
 
 def test_command_deploys_do_not_restore_live_or_model_pack_dependencies() -> None:
     sources = [
-        backend_deploy_surface(),
+        _read("deploy/backend.cloudbuild.yaml"),
         _read(".github/workflows/deploy-uat.yml"),
         _read(".github/workflows/deploy-production.yml"),
         _read("consent-protocol/scripts/verify_managed_vertex_runtime.py"),
@@ -297,7 +294,7 @@ def test_production_deploy_builds_candidates_without_serving_traffic() -> None:
 
 
 def test_hosted_backend_bounds_database_connection_fanout() -> None:
-    backend_build = backend_deploy_surface()
+    backend_build = _read("deploy/backend.cloudbuild.yaml")
     uat_workflow = _read(".github/workflows/deploy-uat.yml")
     production_workflow = _read(".github/workflows/deploy-production.yml")
 
@@ -306,10 +303,9 @@ def test_hosted_backend_bounds_database_connection_fanout() -> None:
     assert '"DB_SQLALCHEMY_POOL_SIZE=${_DB_SQLALCHEMY_POOL_SIZE}"' in backend_build
     assert '"DB_SQLALCHEMY_MAX_OVERFLOW=${_DB_SQLALCHEMY_MAX_OVERFLOW}"' in backend_build
     assert (
-        'append_optional_env "CONSENT_WEB_FALLBACK_ENABLED" "${_CONSENT_WEB_FALLBACK_ENABLED}"'
-        in backend_build
+        'add_env "CONSENT_WEB_FALLBACK_ENABLED" "${_CONSENT_WEB_FALLBACK_ENABLED}"' in backend_build
     )
-    assert 'append_optional_env "CONSENT_SSE_ENABLED" "${_CONSENT_SSE_ENABLED}"' in backend_build
+    assert 'add_env "CONSENT_SSE_ENABLED" "${_CONSENT_SSE_ENABLED}"' in backend_build
     assert '"--max=${_CLOUD_RUN_MAX_INSTANCES}"' in backend_build
     assert '"--min=${_CLOUD_RUN_MIN_INSTANCES}"' in backend_build
     assert '"--min-instances=0"' in backend_build

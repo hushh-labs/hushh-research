@@ -18,6 +18,7 @@ LOCAL_PASSKEY_RP_IDS = ("localhost", "127.0.0.1")
 CONNECTOR_ROLLOUT_FLAGS = (
     "connections_panel_v2",
     "google_drive_connection",
+    "google_drive_live",
     "google_drive_picker",
     "drive_document_indexing",
     "drive_document_sharing",
@@ -245,6 +246,7 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         "one_location_read_only_state_enabled": args.one_location_read_only_state_enabled,
         "connections_panel_v2": getattr(args, "connections_panel_v2", "false"),
         "google_drive_connection": getattr(args, "google_drive_connection", "false"),
+        "google_drive_live": getattr(args, "google_drive_live", "false"),
         "google_drive_picker": getattr(args, "google_drive_picker", "false"),
         "drive_document_indexing": getattr(args, "drive_document_indexing", "false"),
         "drive_document_sharing": getattr(args, "drive_document_sharing", "false"),
@@ -400,6 +402,7 @@ def main() -> int:
     parser.add_argument("--one-location-read-only-state-enabled", default="false")
     parser.add_argument("--connections-panel-v2", default="false", choices=["true", "false"])
     parser.add_argument("--google-drive-connection", default="false", choices=["true", "false"])
+    parser.add_argument("--google-drive-live", default="false", choices=["true", "false"])
     parser.add_argument("--google-drive-picker", default="false", choices=["true", "false"])
     parser.add_argument("--drive-document-indexing", default="false", choices=["true", "false"])
     parser.add_argument("--drive-document-sharing", default="false", choices=["true", "false"])

@@ -2240,7 +2240,7 @@ body:has(.profile-account-content)
     calc(var(--agent-chat-keyboard-inset) + 0.5rem)
   );
   --agent-chat-composer-focused-bottom: max(
-    calc(var(--app-bottom-shell-height, 4.5rem) + 0.75rem),
+    calc(var(--app-bottom-shell-height, 4.5rem) + 0.5rem),
     calc(var(--agent-chat-keyboard-inset) + 0.5rem)
   );
 }
@@ -5178,6 +5178,41 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
   box-shadow:
     0 12px 36px -4px rgba(0, 0, 0, 0.85),
     0 2px 6px rgba(0, 0, 0, 0.5) !important;
+}
+
+/* The One composer is a direct-entry surface, not another navigation pill.
+   It keeps the shared chrome geometry while giving active writing a warmer
+   elevation and an accent-only focus state. */
+.agent-chat-composer-surface {
+  border: 1px solid color-mix(in oklab, var(--foreground) 12%, transparent);
+  background: color-mix(in oklab, var(--background) 92%, var(--foreground)) !important;
+  box-shadow:
+    0 16px 36px -26px color-mix(in oklab, var(--foreground) 48%, transparent),
+    inset 0 1px 0 color-mix(in oklab, var(--background) 16%, var(--foreground));
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease,
+    box-shadow 150ms ease;
+}
+
+.dark .agent-chat-composer-surface {
+  background: color-mix(in oklab, var(--background) 86%, var(--foreground)) !important;
+  border-color: color-mix(in oklab, var(--foreground) 16%, transparent);
+}
+
+.agent-chat-composer-surface:focus-within {
+  border-color: color-mix(in oklab, var(--app-accent) 62%, transparent);
+  background: color-mix(in oklab, var(--background) 88%, var(--app-accent)) !important;
+  box-shadow:
+    0 16px 38px -24px color-mix(in oklab, var(--app-accent) 42%, transparent),
+    0 0 0 3px color-mix(in oklab, var(--app-accent) 16%, transparent),
+    inset 0 1px 0 color-mix(in oklab, var(--background) 18%, var(--foreground));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-chat-composer-surface {
+    transition: none;
+  }
 }
 
 /* Reduced motion keeps the shell present and keyboard-safe, but removes the

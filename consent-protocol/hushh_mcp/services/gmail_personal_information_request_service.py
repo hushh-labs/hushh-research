@@ -1517,6 +1517,30 @@ class PersonalGmailInformationRequestService:
             },
         }
 
+    async def get_source_preview(self, *, user_id: str, workflow_id: str) -> dict[str, str]:
+        """Return an owner-only, process-fetched view of the selected email.
+
+        The body is not a workflow field or cache value. Callers receive it only
+        after current owner authentication and the source/thread fingerprint
+        check used by draft preparation and sending.
+        """
+        _workflow, message = await self._validated_workflow_source(
+            user_id=user_id,
+            workflow_id=workflow_id,
+        )
+        headers = _header_map(message)
+        return {
+            "from": headers.get("from", "")[:2048],
+            "subject": headers.get("subject", "")[:2048],
+            "body": _message_text(message),
+        }
+
+    async def get_chat_reply_context(self, *, user_id: str, workflow_id: str) -> str:
+        """Resolve the selected email as transient context for one One turn."""
+
+        source = await self.get_source_preview(user_id=user_id, workflow_id=workflow_id)
+        return f"Subject: {source['subject']}\nEmail:\n{source['body']}"[:14_000]
+
     async def ignore_workflow(self, *, user_id: str, workflow_id: str) -> dict[str, Any]:
         pool = await get_pool()
         async with pool.acquire() as conn:
@@ -1581,6 +1605,41 @@ class PersonalGmailInformationRequestService:
         body: str,
         html_body: str | None,
     ) -> tuple[dict[str, Any], GmailReplyContext]:
+        workflow, message = await self._validated_workflow_source(
+            user_id=user_id,
+            workflow_id=workflow_id,
+        )
+        headers = _header_map(message)
+        recipient = headers.get("reply-to") or headers.get("from") or ""
+        subject = _text(headers.get("subject")) or "Information request"
+        if not subject.lower().startswith("re:"):
+            subject = f"Re: {subject}"
+        in_reply_to = self._safe_reply_header(headers.get("message-id"))
+        references = self._safe_reply_header(headers.get("references"))
+        if in_reply_to:
+            references = f"{references} {in_reply_to}".strip() if references else in_reply_to
+        reply_context = GmailReplyContext(
+            thread_id=_text(workflow.get("gmail_thread_id")),
+            in_reply_to=in_reply_to,
+            references=references,
+        )
+        return (
+            {
+                "to": recipient,
+                "cc": [],
+                "bcc": [],
+                "subject": subject,
+                "body": body,
+                "html_body": html_body,
+            },
+            reply_context,
+        )
+
+    async def _validated_workflow_source(
+        self, *, user_id: str, workflow_id: str
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Fetch and fingerprint-check one active workflow source without persisting it."""
+
         pool = await get_pool()
         async with pool.acquire() as conn:
             row = await conn.fetchrow(
@@ -1619,31 +1678,7 @@ class PersonalGmailInformationRequestService:
                 code="PERSONAL_GMAIL_INFORMATION_REQUEST_SOURCE_CHANGED",
                 status_code=409,
             )
-        headers = _header_map(message)
-        recipient = headers.get("reply-to") or headers.get("from") or ""
-        subject = _text(headers.get("subject")) or "Information request"
-        if not subject.lower().startswith("re:"):
-            subject = f"Re: {subject}"
-        in_reply_to = self._safe_reply_header(headers.get("message-id"))
-        references = self._safe_reply_header(headers.get("references"))
-        if in_reply_to:
-            references = f"{references} {in_reply_to}".strip() if references else in_reply_to
-        reply_context = GmailReplyContext(
-            thread_id=_text(workflow.get("gmail_thread_id")),
-            in_reply_to=in_reply_to,
-            references=references,
-        )
-        return (
-            {
-                "to": recipient,
-                "cc": [],
-                "bcc": [],
-                "subject": subject,
-                "body": body,
-                "html_body": html_body,
-            },
-            reply_context,
-        )
+        return workflow, message
 
     @staticmethod
     def _safe_reply_header(value: str | None) -> str | None:

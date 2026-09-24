@@ -29,6 +29,9 @@ import {
 } from "@/lib/navigation/use-deep-link-return";
 import { ROUTES } from "@/lib/navigation/routes";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
+import { useCalendarConnectionStatus } from "@/lib/calendar/use-calendar-connection-status";
+import { usePkmDomainResource } from "@/lib/pkm/pkm-domain-resource";
+import { vaultConnections } from "@/lib/kai/plaid-vault/vault-sync";
 import {
   createGmailOAuthPopupAttempt,
   openGmailOAuthPopup,
@@ -55,6 +58,7 @@ import {
 } from "@/lib/services/google-drive-picker-service";
 import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
 import type { DriveChatRecoveryReason } from "@/lib/agent/drive-oauth-chat-recovery";
+import { TrustedDocumentRules } from "@/components/consent/trusted-document-rules";
 
 type Props = {
   open: boolean;
@@ -221,10 +225,11 @@ function OwnerConnectorsPanel({
 }: Props) {
   const router = useRouter();
   const { user } = useAuth();
-  const { vaultOwnerToken } = useVault();
+  const { vaultOwnerToken, vaultKey } = useVault();
   const [overview, setOverview] = useState<ConnectorOverview | null>(null);
   const [documents, setDocuments] = useState<DriveDocument[]>([]);
   const [allowBackground, setAllowBackground] = useState(false);
+  const [liveBackground, setLiveBackground] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(false);
   const [statusChecked, setStatusChecked] = useState(false);
   const [driveMessage, setDriveMessage] = useState("");
@@ -286,6 +291,21 @@ function OwnerConnectorsPanel({
     idTokenProvider: user ? mailToken : null,
     routeHref: ROUTES.HOME,
   });
+  const calendar = useCalendarConnectionStatus({
+    userId: user?.uid ?? null,
+    idTokenProvider: user ? mailToken : null,
+    enabled: open && Boolean(vaultOwnerToken),
+  });
+  const financial = usePkmDomainResource({
+    userId: user?.uid ?? "",
+    domain: "financial",
+    vaultKey,
+    vaultOwnerToken,
+    enabled: open && Boolean(vaultKey && vaultOwnerToken),
+  });
+  const plaidConnections = vaultKey && vaultOwnerToken && financial.data
+    ? Object.values(vaultConnections(financial.data.data))
+    : [];
   const refresh = useCallback(async (signal?: AbortSignal) => {
     const token = currentToken.current;
     if (!token) return false;
@@ -372,6 +392,17 @@ function OwnerConnectorsPanel({
   const drive = overview?.connectors.find(
     (item) => item.connectorId === "google_drive",
   );
+  useEffect(() => {
+    if (!open || !vaultOwnerToken || drive?.profile !== "live" || drive.status !== "connected") {
+      setLiveBackground(null);
+      return;
+    }
+    let active = true;
+    void ExternalConnectorService.liveBackground(vaultOwnerToken)
+      .then((enabled) => { if (active) setLiveBackground(enabled); })
+      .catch(() => { if (active) setLiveBackground(null); });
+    return () => { active = false; };
+  }, [open, vaultOwnerToken, drive?.profile, drive?.status]);
   const hasDriveGrant = Boolean(
     drive && !["not_connected", "revoked"].includes(drive.status),
   );
@@ -642,7 +673,7 @@ function OwnerConnectorsPanel({
     [drainQueuedNativePickerReconcile],
   );
 
-  const startDrive = () => {
+  const startDrive = (profile: "selected" | "live" = "selected") => {
     if (!vaultOwnerToken || driveLock.current) return;
     if (Capacitor.isNativePlatform()) {
       void runDrive(async (token, signal) => {
@@ -654,6 +685,7 @@ function OwnerConnectorsPanel({
           connectorId: "google_drive",
           redirectUri: ExternalConnectorService.nativeDriveOAuthCallbackUri(),
           flow: "native",
+          profile,
           isEffectCurrent,
         });
         const expiresAt = Date.parse(start.expiresAt);
@@ -723,7 +755,9 @@ function OwnerConnectorsPanel({
         if (!signal.aborted) {
           setDriveMessage(
             finalized
-              ? "Drive connected. Choose files to authorize them."
+              ? profile === "live"
+                ? "Live Drive access connected. Ask One to find files."
+                : "Drive connected. Choose files to authorize them."
               : "Drive authorization is still settling. Reopen Connectors to check it.",
           );
         }
@@ -738,6 +772,7 @@ function OwnerConnectorsPanel({
           connectorId: "google_drive",
           redirectUri: `${window.location.origin}${ROUTES.PROFILE_CONNECTOR_OAUTH_RETURN}`,
           flow: "web",
+          profile,
         });
         if (signal.aborted || !start.attemptId || start.connectorId !== "google_drive") return;
         const authorizeUrl = new URL(start.authorizeUrl);
@@ -778,6 +813,7 @@ function OwnerConnectorsPanel({
           connectorId: "google_drive",
           redirectUri: `${window.location.origin}${ROUTES.PROFILE_CONNECTOR_OAUTH_RETURN}`,
           flow: "web",
+          profile,
         });
         if (signal.aborted) return;
         if (!start.attemptId || start.connectorId !== "google_drive")
@@ -791,7 +827,9 @@ function OwnerConnectorsPanel({
         await waitForDrivePopup(popup, attempt, signal);
         if (!signal.aborted && (await refresh(signal)))
           setDriveMessage(
-            "Connection checked. Choose files if authorized, or retry Connect.",
+            profile === "live"
+              ? "Live Drive connection checked. Ask One to find files."
+              : "Connection checked. Choose files if authorized, or retry Connect.",
           );
       } finally {
         signal.removeEventListener("abort", close);
@@ -942,7 +980,7 @@ function OwnerConnectorsPanel({
       }
     });
   };
-  const connectMail = () => {
+  const connectMail = (purpose: "read" | "compose" = "read") => {
     const signal = controller.current?.signal;
     if (!user || !signal || signal.aborted || mailLock.current) return;
     const native = Capacitor.isNativePlatform();
@@ -966,12 +1004,13 @@ function OwnerConnectorsPanel({
         if (native) {
           const start = await GmailReceiptsService.startNativeConnect({
             idToken,
-            purpose: "read",
+            purpose,
           });
           if (signal.aborted || !start.configured) return;
           const result = await HushhAuth.connectGmail({
             serverClientId: start.server_client_id,
             purpose: start.purpose,
+            preserveSend: purpose === "compose" && gmail.status?.send_permission_granted === true,
           });
           if (signal.aborted) return;
           await GmailReceiptsService.completeNativeConnect({
@@ -983,8 +1022,8 @@ function OwnerConnectorsPanel({
           const start = await GmailReceiptsService.startConnect({
             idToken,
             userId: user.uid,
-            includeGrantedScopes: false,
-            purpose: "read",
+            includeGrantedScopes: purpose === "compose",
+            purpose,
           });
           if (signal.aborted) return;
           const url = new URL(start.authorize_url);
@@ -1016,7 +1055,11 @@ function OwnerConnectorsPanel({
           if (!signal.aborted)
             setMailMessage(
               status?.connected
-                ? "Mail connected."
+                ? purpose === "compose"
+                  ? status.compose_permission_granted
+                    ? "Gmail drafts enabled. Review your draft in Chat before saving."
+                    : "Gmail drafts permission was not granted. Try again."
+                  : "Mail connected."
                 : "Mail is not connected yet. You can retry.",
             );
         }
@@ -1038,6 +1081,7 @@ function OwnerConnectorsPanel({
     drive?.available !== false &&
     overview?.features.google_drive_connection === true;
   const canPick =
+    drive?.profile !== "live" &&
     drive?.available !== false &&
     overview?.features.google_drive_picker === true &&
     ["connected", "verifying"].includes(drive?.status ?? "");
@@ -1126,8 +1170,8 @@ function OwnerConnectorsPanel({
       detail: hasDriveGrant
         ? drive?.status === "needs_reauth"
           ? "Reconnect needed"
-          : drive?.accountLabel || "Choose files for One"
-        : undefined,
+          : "Selected files · " + (drive?.accountLabel || "Choose files for One")
+        : "Selected-file access",
       connected: hasDriveGrant,
       onOpen: () => showConnector("google_drive"),
       action: hasDriveGrant
@@ -1136,7 +1180,7 @@ function OwnerConnectorsPanel({
             label: "Connect Google Drive",
             onClick: () => {
               showConnector("google_drive");
-              startDrive();
+              startDrive("selected");
             },
             disabled: driveBusy || loading || !canConnectDrive,
           },
@@ -1144,7 +1188,16 @@ function OwnerConnectorsPanel({
     {
       id: "calendar",
       name: "Calendar",
-      connected: false,
+      connected: calendar.connected,
+      detail: calendar.error
+        ? "Status unavailable"
+        : !calendar.loaded
+          ? "Checking connection…"
+          : calendar.status?.status === "needs_reauth"
+            ? "Reconnect needed"
+            : calendar.connected
+              ? "Read your calendar · changes need confirmation"
+              : "Not connected",
       action: {
         label: "Manage Calendar",
         onClick: () => {
@@ -1156,7 +1209,16 @@ function OwnerConnectorsPanel({
     {
       id: "plaid",
       name: "Plaid",
-      connected: false,
+      connected: plaidConnections.length > 0,
+      detail: financial.error
+        ? "Status unavailable"
+        : financial.loading
+          ? "Checking connection…"
+          : plaidConnections.some((item) => item.status === "needs_relink")
+            ? "Reconnect needed"
+            : plaidConnections.length > 0
+              ? "Vault-connected accounts · sharing needs approval"
+              : "Not connected",
       action: {
         label: "Manage Plaid",
         onClick: () => {
@@ -1166,7 +1228,10 @@ function OwnerConnectorsPanel({
       },
     },
     ...(overview?.connectors ?? [])
-      .filter((item) => !["google_drive", "gmail"].includes(item.connectorId))
+      .filter((item, index, items) =>
+        !["google_drive", "gmail", "calendar", "plaid"].includes(item.connectorId) &&
+        items.findIndex((candidate) => candidate.connectorId === item.connectorId) === index,
+      )
       .map((item): ConnectorListEntry => ({
         id: item.connectorId,
         name: item.displayName,
@@ -1298,11 +1363,21 @@ function OwnerConnectorsPanel({
                   <Button
                     className={touch}
                     disabled={mailBusy || gmail.loadingStatus}
-                    onClick={connectMail}
+                    onClick={() => connectMail()}
                   >
                     {gmail.status?.needs_reauth
                       ? "Reconnect Mail"
                       : "Connect Mail"}
+                  </Button>
+                )}
+                {gmail.status?.connected && !gmail.status.compose_permission_granted && (
+                  <Button
+                    className={touch}
+                    variant="outline"
+                    disabled={mailBusy || gmail.loadingStatus}
+                    onClick={() => connectMail("compose")}
+                  >
+                    Enable Gmail drafts
                   </Button>
                 )}
                 {(gmail.status?.connected || gmail.status?.needs_reauth) && (
@@ -1363,11 +1438,21 @@ function OwnerConnectorsPanel({
                   <Button
                     className={touch}
                     disabled={driveBusy || loading || !canConnectDrive}
-                    onClick={startDrive}
+                    onClick={() => startDrive(drive?.profile === "live" ? "live" : "selected")}
                   >
                     {hasDriveGrant ? "Reconnect Drive" : "Connect Drive"}
                   </Button>
                 )}
+                {overview?.features.google_drive_live === true &&
+                  drive?.profile !== "live" && (
+                    <Button
+                      className={touch}
+                      disabled={driveBusy || loading || !canConnectDrive}
+                      onClick={() => startDrive("live")}
+                    >
+                      Enable live Drive access
+                    </Button>
+                  )}
                 {hasDriveGrant && (
                   <Button
                     className={touch}
@@ -1403,6 +1488,27 @@ function OwnerConnectorsPanel({
                   Retry Drive
                 </Button>
               </div>
+              {overview?.features.google_drive_live === true && drive?.profile !== "live" && (
+                <p className="text-sm text-muted-foreground">
+                  Live access lets One search your Drive when needed. Connecting never shares files;
+                  each request still needs your approval or a separate permission you set.
+                </p>
+              )}
+              {drive?.profile === "live" && drive.status === "connected" && (
+                <div className="space-y-3 rounded-lg border border-border p-3">
+                  <p className="text-sm">Background preparation lets One find candidate files after someone requests them, even while your app is closed. It does not share files; you still approve each review unless you separately trust that person for the same exact files and request purpose.</p>
+                  <Button className={touch} disabled={driveBusy || liveBackground === null}
+                    onClick={() => void runDrive(async (token) => {
+                      const next = !liveBackground;
+                      await ExternalConnectorService.setLiveBackground(token, next);
+                      setLiveBackground(next);
+                      setDriveMessage(next ? "Background preparation enabled." : "Background preparation disabled.");
+                    })}>
+                    {liveBackground ? "Disable background preparation" : "Enable background preparation"}
+                  </Button>
+                </div>
+              )}
+              {vaultOwnerToken ? <TrustedDocumentRules token={vaultOwnerToken} /> : null}
               {!canConnectDrive && (
                 <p className="text-sm text-muted-foreground">
                   Drive connection is unavailable in this session. Try again after reconnecting.

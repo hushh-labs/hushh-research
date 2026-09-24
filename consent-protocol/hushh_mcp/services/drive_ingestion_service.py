@@ -36,7 +36,9 @@ class DriveIngestionService:
 
     async def _fetch(self, job: dict) -> DriveContent | None:
         await self.store.current(job)
-        row, credential = await self.oauth.current_credential(user_id=job["user_id"])
+        row, credential = await self.oauth.current_credential(
+            user_id=job["user_id"], required_profile="selected"
+        )
         if row["connection_generation"] != job["connection_generation"]:
             raise DriveReadError("connection_changed")
         await self.store.current(job)
@@ -81,7 +83,9 @@ class DriveIngestionService:
                 )
                 prepared.validate()
                 await self.store.stage(job, "indexing")
-                current, credential = await self.oauth.current_credential(user_id=user_id)
+                current, credential = await self.oauth.current_credential(
+                    user_id=user_id, required_profile="selected"
+                )
                 if current["connection_generation"] != job["connection_generation"]:
                     raise DriveReadError("connection_changed")
                 await self.store.current(job)

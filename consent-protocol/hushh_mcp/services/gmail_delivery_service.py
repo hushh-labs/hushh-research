@@ -520,6 +520,13 @@ class GmailDeliveryService:
             )
         except GmailDeliveryError:
             raise
+        except ValueError as exc:
+            # The single-turn runtime has already exhausted its safe schema
+            # retry. This is a bad model draft, not a Gmail transport outage.
+            logger.warning("gmail.delivery.draft_failed category=invalid_model_output")
+            raise GmailDeliveryError(
+                "DRAFT_INVALID", "Email drafting returned an invalid draft.", status_code=502
+            ) from exc
         except Exception as exc:
             logger.warning("gmail.delivery.draft_failed error=%s", type(exc).__name__)
             raise GmailDeliveryError(

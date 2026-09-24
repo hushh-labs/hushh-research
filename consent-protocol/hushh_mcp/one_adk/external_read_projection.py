@@ -13,7 +13,21 @@ from hushh_mcp.one_adk.external_read_boundary import (
     STATE_EXTERNAL_READ,
 )
 
-_EPHEMERAL = frozenset({STATE_EXECUTION_SURFACE, STATE_EXTERNAL_READ})
+_EPHEMERAL = frozenset(
+    {
+        STATE_EXECUTION_SURFACE,
+        STATE_EXTERNAL_READ,
+        "temp:hussh:workspace_chat_admission",
+        # Agent Chat stores source text behind an in-process request secret.
+        # Remove both handles before encrypting a conversation snapshot so a
+        # selected Gmail request cannot affect a later turn.
+        "temp:hussh:gmail_information_request_workflow_id",
+        "temp:hussh:gmail_information_request_context",
+        "hussh:gmail_information_request_context",
+        "hussh:pending_directive:gmail_information_request_reply",
+    }
+)
+_PRIVATE_DRAFT_TOOLS = frozenset({"open_gmail_email_draft", "open_gmail_information_request_reply"})
 
 
 def redacted_read_receipt(response: Any) -> dict[str, Any]:
@@ -41,7 +55,19 @@ def durable_external_read_projection(session: Session) -> Session:
         if (part.function_call and part.function_call.name in READ_TOOLS)
         or (part.function_response and part.function_response.name in READ_TOOLS)
     }
-    if not read_invocations and not any(key in session.state for key in _EPHEMERAL):
+    private_draft_invocations = {
+        event.invocation_id
+        for event in session.events
+        if event.content
+        for part in (event.content.parts or [])
+        if (part.function_call and part.function_call.name in _PRIVATE_DRAFT_TOOLS)
+        or (part.function_response and part.function_response.name in _PRIVATE_DRAFT_TOOLS)
+    }
+    if (
+        not read_invocations
+        and not private_draft_invocations
+        and not any(key in session.state for key in _EPHEMERAL)
+    ):
         return session
     projected = session.model_copy(deep=True)
     for key in _EPHEMERAL:
@@ -49,7 +75,7 @@ def durable_external_read_projection(session: Session) -> Session:
     for event in projected.events:
         for key in _EPHEMERAL:
             event.actions.state_delta.pop(key, None)
-        if event.invocation_id not in read_invocations or event.content is None:
+        if event.content is None:
             continue
         for part in event.content.parts or []:
             # Keep SDK call names, IDs, associations and opaque thought
@@ -66,4 +92,12 @@ def durable_external_read_projection(session: Session) -> Session:
                 part.function_response.response = redacted_read_receipt(
                     part.function_response.response
                 )
+            if event.invocation_id in private_draft_invocations and (
+                (part.function_call and part.function_call.name in _PRIVATE_DRAFT_TOOLS)
+                or (part.function_response and part.function_response.name in _PRIVATE_DRAFT_TOOLS)
+            ):
+                if part.function_call:
+                    part.function_call.args = {}
+                if part.function_response:
+                    part.function_response.response = {"content_redacted": True}
     return projected

@@ -87,7 +87,10 @@ class DrivePermissionExecutor:
             async with asyncio.timeout(75):
                 plan = self.store._plan(job)
                 await self.verify_recipient(plan["recipient"])
-                row, credentials = await self.oauth.current_credential(user_id=user_id)
+                row, credentials = await self.oauth.current_credential(
+                    user_id=user_id,
+                    required_profile="live" if plan.get("source_kind") == "live" else "selected",
+                )
                 if row["connection_generation"] != job["connection_generation"]:
                     raise DriveSharingError("connection_changed")
                 issuer = verified_issuer(credentials)
@@ -97,7 +100,10 @@ class DrivePermissionExecutor:
                     "require_current": lambda: self.store.require_current(job),
                 }
                 await self.adapter.inspect_shareable(
-                    **args, expected_version=plan["source_version"]
+                    **args,
+                    expected_version=plan["source_version"],
+                    require_app_authorized=plan.get("source_kind") != "live",
+                    require_genai_eligibility=plan.get("source_kind") != "live",
                 )
                 before = await self.adapter.list_permissions(**args)
                 existing = existing_individual_permission(before, email=plan["recipient"]["email"])
@@ -159,7 +165,11 @@ class DrivePermissionExecutor:
         target = await self.store.reconciliation_target(user_id=user_id, operation_id=operation_id)
         if not target or target["state"] not in {"dispatching", "unknown"}:
             return "not_claimed"
-        row, credentials = await self.oauth.current_credential(user_id=user_id)
+        target_plan = self.store._plan(target)
+        row, credentials = await self.oauth.current_credential(
+            user_id=user_id,
+            required_profile="live" if target_plan.get("source_kind") == "live" else "selected",
+        )
         job = await self.store.claim_reconciliation(
             user_id=user_id,
             operation_id=operation_id,

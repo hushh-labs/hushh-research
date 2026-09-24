@@ -9,6 +9,7 @@ export type PersonSelectionExperience = {
   candidatesIncomplete?: boolean;
 };
 export const INFORMATION_REQUEST_REVIEW_EXPERIENCE_TYPE = "one.information_request_review.v1" as const;
+export const DOCUMENT_REQUEST_REVIEW_EXPERIENCE_TYPE = "one.document_request_review.v1" as const;
 export const KYC_READINESS_EXPERIENCE_TYPE = "one.kyc_readiness.v1" as const;
 export const MEMORY_IMPORT_REVIEW_EXPERIENCE_TYPE = "one.memory_import_review.v1" as const;
 export const EVIDENCE_BRIEF_EXPERIENCE_TYPE = "one.evidence_brief.v1" as const;
@@ -82,6 +83,16 @@ export type InformationRequestReviewExperience = {
   fields: Array<ReviewField & { status?: InformationRequestItemStatus }>;
 };
 
+export type DocumentRequestReviewExperience = {
+  type: typeof DOCUMENT_REQUEST_REVIEW_EXPERIENCE_TYPE;
+  personRef: string;
+  personName: string;
+  clientRequestId: string;
+  purpose: string;
+  periodStart: string | null;
+  periodEnd: string | null;
+};
+
 export type KycReadinessExperience = {
   type: typeof KYC_READINESS_EXPERIENCE_TYPE;
   subjectName: string;
@@ -123,6 +134,7 @@ export type AgentStructuredExperience =
   | ConnectorReadExperience
   | ScopeDiscoveryExperience
   | InformationRequestReviewExperience
+  | DocumentRequestReviewExperience
   | KycReadinessExperience
   | MemoryImportReviewExperience
   | EvidenceBriefExperience;
@@ -315,6 +327,25 @@ function parseInformationRequestProposal(
   };
 }
 
+function parseDocumentRequestReview(content: unknown): DocumentRequestReviewExperience | null {
+  const record = unwrapToolResult(content);
+  if (!record) return null;
+  const person = asRecord(record.person);
+  const purposeRecord = asRecord(record.purpose);
+  const personRef = boundedString(record.personRef ?? person?.personRef, 36);
+  const personName = boundedString(record.personName ?? person?.displayName, 120);
+  const clientRequestId = boundedString(record.clientRequestId, 36);
+  const purpose = boundedString(purposeRecord?.purpose ?? record.purpose, 2000);
+  const periodStart = boundedString(record.periodStart ?? purposeRecord?.periodStart, 10);
+  const periodEnd = boundedString(record.periodEnd ?? purposeRecord?.periodEnd, 10);
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!personRef || !uuid.test(personRef) || !clientRequestId || !uuid.test(clientRequestId) ||
+      !personName || !purpose || (periodStart === null) !== (periodEnd === null) ||
+      (periodStart !== null && (!/^\d{4}-\d{2}-\d{2}$/.test(periodStart) || !/^\d{4}-\d{2}-\d{2}$/.test(periodEnd ?? "") || periodEnd! < periodStart))) return null;
+  return { type: DOCUMENT_REQUEST_REVIEW_EXPERIENCE_TYPE, personRef, personName,
+    clientRequestId, purpose, periodStart, periodEnd };
+}
+
 function parseKycReadiness(content: unknown): KycReadinessExperience | null {
   const record = unwrapToolResult(content);
   if (!record) return null;
@@ -487,6 +518,7 @@ function parseScopeDiscovery(
 const EXPERIENCE_REGISTRY: Record<string, ExperienceParser> = {
   [SCOPE_DISCOVERY_EXPERIENCE_TYPE]: parseScopeDiscovery,
   [INFORMATION_REQUEST_REVIEW_EXPERIENCE_TYPE]: parseInformationRequestReview,
+  [DOCUMENT_REQUEST_REVIEW_EXPERIENCE_TYPE]: parseDocumentRequestReview,
   [KYC_READINESS_EXPERIENCE_TYPE]: parseKycReadiness,
   [MEMORY_IMPORT_REVIEW_EXPERIENCE_TYPE]: parseMemoryImportReview,
   [EVIDENCE_BRIEF_EXPERIENCE_TYPE]: parseEvidenceBrief,
@@ -514,6 +546,7 @@ export function parseAgentToolResultExperience(
   const supportsPersonSelection =
     toolName === "discover_person_information" ||
     toolName === "propose_information_request" ||
+    toolName === "propose_document_request" ||
     toolName === "list_information_shared_with_me";
   if (!supportsPersonSelection) return null;
   const result = unwrapToolResult(content);
@@ -540,6 +573,10 @@ export function parseAgentToolResultExperience(
   }
   if (toolName === "propose_information_request") {
     return parseInformationRequestProposal(content);
+  }
+  if (toolName === "propose_document_request") {
+    const result = unwrapToolResult(content);
+    return result?.status === "proposal_ready" ? parseDocumentRequestReview(content) : null;
   }
   const experience = parseScopeDiscovery(content);
   const presentation = experience ? parsePresentation(content) : null;

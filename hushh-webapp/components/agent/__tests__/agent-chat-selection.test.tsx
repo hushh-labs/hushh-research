@@ -188,6 +188,25 @@ describe("ordered retained cards", () => {
     expect(result.at(-1)?.structuredExperiences?.[0].id).toBe("c1");
   });
 
+  it("restores the submitted metadata-only card after Chat remount", () => {
+    const bundleId = "11111111-1111-1111-1111-111111111111";
+    const restored = storedMessagesToAgentMessages([{ ...message("receipt-event", [], ""), metadata: {
+      structuredExperiences: [{ id: "request_submission_source", activityType: "one.information_request_review.v1", content: {
+        direction: "outgoing", phase: "submitted", status: "pending",
+        personName: "Synthetic Recipient", purpose: "Synthetic professional review",
+        durationLabel: "1 day", subjectRef: "1234567890abcdef", bundleId,
+        fields: [{ requestId: "request_12345678", label: "Professional Domain",
+          domain: "Information", sensitivity: "standard", status: "pending" }],
+      } }],
+    } }]);
+    expect(restored).toHaveLength(1);
+    expect(restored[0].structuredExperiences?.[0].experience).toMatchObject({
+      type: "one.information_request_review.v1", phase: "submitted", bundleId,
+      subjectRef: "1234567890abcdef",
+    });
+    expect(JSON.stringify(restored)).not.toContain("decryptedExport");
+  });
+
   it("retains more than eight distinct live cards while revising by identity", () => {
     const first = {
       type: "one.scope_discovery.v1" as const,

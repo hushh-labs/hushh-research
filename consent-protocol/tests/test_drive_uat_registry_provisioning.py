@@ -14,7 +14,6 @@ import pytest
 from hushh_mcp.services.drive_uat_registry_provisioning import (
     NATIVE_OAUTH_REDIRECT_URI,
     NATIVE_PICKER_REDIRECT_URI,
-    POLICY_HASH,
     PROVISIONED_BY,
     REGISTERED_REDIRECT_URIS,
     UAT_PROJECT_ID,
@@ -24,7 +23,7 @@ from hushh_mcp.services.drive_uat_registry_provisioning import (
     _canonical_row,
     assert_google_drive_uat_registry_target,
 )
-from hushh_mcp.services.google_drive_adapter import DRIVE_BASE, SELECTED_POLICY
+from hushh_mcp.services.google_drive_adapter import DRIVE_BASE, DRIVE_POLICY, LIVE_POLICY_HASH
 from hushh_mcp.services.hushh_tech_uat_database_attestation import (
     UAT_DATABASE_NAME,
     UAT_DATABASE_ROLE,
@@ -137,7 +136,7 @@ def _service(connection: _RegistryConnection) -> DriveUatRegistryProvisioner:
 def _canonical_active_row(*, active: bool = True) -> dict[str, Any]:
     return {
         **copy.deepcopy(_canonical_row()),
-        "capability_policy": copy.deepcopy(SELECTED_POLICY),
+        "capability_policy": copy.deepcopy(DRIVE_POLICY),
         "registered_redirect_uris": list(REGISTERED_REDIRECT_URIS),
         "is_active": active,
     }
@@ -213,7 +212,7 @@ def test_activation_inserts_only_the_fixed_drive_rest_policy():
         "connectorId": "google_drive",
         "status": "activated",
         "transportKind": "google_drive_rest",
-        "policyHash": POLICY_HASH,
+        "policyHash": LIVE_POLICY_HASH,
         "redirectCount": 3,
     }
     assert connection.row == _canonical_active_row()
@@ -223,7 +222,7 @@ def test_activation_inserts_only_the_fixed_drive_rest_policy():
         if sql.startswith("INSERT INTO external_mcp_connectors")
     )
     assert insert_values["mcp_endpoint"] == DRIVE_BASE
-    assert json.loads(insert_values["capability_policy"]) == SELECTED_POLICY
+    assert json.loads(insert_values["capability_policy"]) == DRIVE_POLICY
     assert json.loads(insert_values["registered_redirect_uris"]) == [
         WEB_REDIRECT_URI,
         NATIVE_OAUTH_REDIRECT_URI,

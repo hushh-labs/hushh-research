@@ -120,9 +120,10 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 | `PLAID_REDIRECT_PATH` | `hushh_mcp/integrations/plaid/config.py` | Recommended for OAuth | Relative callback path used with `APP_FRONTEND_ORIGIN`. Default: `/kai/plaid/oauth/return`. |
 | `PLAID_REDIRECT_URI` / `PLAID_OAUTH_REDIRECT_URI` | `hushh_mcp/integrations/plaid/config.py` | Optional override | Full allowlisted redirect URI, including path. Use only when overriding `APP_FRONTEND_ORIGIN + PLAID_REDIRECT_PATH`. |
 | `PLAID_PRIMARY_PRODUCTS` / `PLAID_REQUIRED_IF_SUPPORTED_PRODUCTS` / `PLAID_ADDITIONAL_CONSENTED_PRODUCTS` | `hushh_mcp/integrations/plaid/products.py` | No | Link product sets for the vault pass-through. Defaults `transactions` / `investments` / `identity`. |
-| `PLAID_WEBHOOK_URL` | `hushh_mcp/integrations/plaid/config.py` | No | Still parsed, but unused: the vault pass-through (`api/routes/kai/plaid_vault.py`) creates Link tokens without a webhook and the old `/api/kai/plaid/webhook` route is removed. |
-| `PLAID_ACCESS_TOKEN_KEY` | `hushh_mcp/runtime_settings.py` | Retirement only | Decrypts the remaining server-held portfolio tokens for `consent-protocol/scripts/ops/plaid_server_custody_retire.py`. Remove once that script has run everywhere and migration 239 has dropped the tables. |
-| `FUNDING_SECRET_ENCRYPTION_KEY` | `hushh_mcp/runtime_settings.py` | Retirement only | Same, for the retired funding tables. When unset, the script derives the old fallback key from the Plaid and `ALPACA_*` credentials exactly as the removed funding service did. |
+| `PLAID_WEBHOOK_URL` | `hushh_mcp/integrations/plaid/config.py` | No | Still parsed by shared Plaid configuration, but the vault route creates Link tokens without a webhook. The old receiver is removed on this branch; treat environment retirement as pending until deployed evidence confirms it. |
+| `PLAID_TX_HISTORY_DAYS` | `hushh_mcp/integrations/plaid/config.py` | No | Still parsed by shared Plaid configuration; the vault route currently does not consume this setting. |
+| `PLAID_ACCESS_TOKEN_KEY` | `hushh_mcp/runtime_settings.py` | Retirement only | Decrypts existing server-held portfolio tokens for the retirement script. Remove only after the script has completed and migration 239 is confirmed in every target environment. |
+| `FUNDING_SECRET_ENCRYPTION_KEY` | `hushh_mcp/runtime_settings.py` | Retirement only | Decrypts existing funding records during retirement. The script's credential-derived fallback also needs the original Plaid and Alpaca credentials; prefer the explicit key when available. Remove only after per-environment retirement and migration evidence is recorded. |
 
 ---
 
@@ -226,21 +227,16 @@ RIA claim-by-phone (RIA Identity API):
 
 ## Kai Brokerage Boundary
 
-Kai now supports embedded bank funding orchestration using:
+The current vault route uses Plaid for read-only account, holding, security and transaction
+snapshots. The backend processes request and response payloads transiently; the device seals
+the resulting connection and snapshot in the owner's vault. It does not register a webhook
+or use the retired funding flow.
 
-- Plaid Link/Auth + processor token creation (`processor=alpaca`)
-- Alpaca Broker ACH relationship creation and approval tracking
-- Alpaca Broker transfer create/get/cancel orchestration
-- webhook verification + replay protection for Plaid funding webhooks
-- reconciliation and support escalation tables for transfer lifecycle auditing
-
-Existing Plaid investment-sync variables remain valid for read-only holdings/transactions refresh flows.
-
-Webhook maintenance:
-
-- If `PLAID_WEBHOOK_URL` changes after users have already linked institutions, existing Items will need a one-time `/item/webhook/update` maintenance pass from an operator.
-- UAT value: `https://uat.one.hushh.ai/api/kai/plaid/webhook`
-- Localhost value: `https://<your-current-tunnel>/api/kai/plaid/webhook`
+The working-tree retirement change removes the previous server-side routes and services.
+That source change does not establish that existing database rows have been disconnected,
+deleted, or migrated in any deployed environment. Follow the retirement procedure and record
+per-environment evidence before removing retirement-only credentials or describing cleanup as
+complete.
 
 ## Profile Support Messaging
 

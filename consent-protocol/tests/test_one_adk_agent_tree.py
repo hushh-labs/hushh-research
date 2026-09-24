@@ -58,6 +58,8 @@ from hushh_mcp.one_adk.agent_tree import (
     APP_ROUTES,
     ONE_IDENTITY_INSTRUCTION,
     STATE_CONSENT_TOKEN,
+    STATE_GMAIL_INFORMATION_REQUEST_CONTEXT,
+    STATE_GMAIL_INFORMATION_REQUEST_WORKFLOW_ID,
     STATE_PENDING_DIRECTIVE,
     STATE_PENDING_TOOL_TRACE,
     STATE_PKM_CONTEXT,
@@ -75,7 +77,12 @@ from hushh_mcp.one_adk.agent_tree import (
     get_one_runner,
     list_intro_navigation_actions,
     open_gmail_email_draft,
+    open_gmail_information_request_reply,
     open_screen,
+)
+from hushh_mcp.one_adk.agui_turn_timing import (
+    timed_one_after_model,
+    timed_one_before_model,
 )
 from hushh_mcp.services.action_gateway import get_action_gateway_action, list_action_gateway_actions
 from hushh_mcp.services.connections_service import ConnectionsError, ConnectionsService
@@ -112,15 +119,27 @@ class TestAgentTreeShape:
         assert config.include_thoughts is False
         assert getattr(getattr(config, "thinking_level", None), "value", None) == "LOW"
 
+    @pytest.mark.parametrize("model", ["gemini-3.7-flash", "gemini-3.8-flash"])
+    def test_chat_thinking_policy_uses_selected_flash_model(self, monkeypatch, model):
+        monkeypatch.setenv("HUSHH_ONE_CHAT_THINKING_LEVEL", "low")
+
+        config = _one_chat_thinking_config(model)
+
+        assert config.include_thoughts is False
+        assert getattr(getattr(config, "thinking_level", None), "value", None) == "LOW"
+
     def test_root_agent_is_one_with_full_roster(self):
         agent = build_one_root_agent()
         assert agent.name == "one"
+        assert agent.before_model_callback is timed_one_before_model
+        assert agent.after_model_callback is timed_one_after_model
         tool_names = {
             getattr(t, "name", getattr(t, "__name__", type(t).__name__)) for t in agent.tools
         }
         assert "google_search" in tool_names
         assert "open_screen" in tool_names
         assert "open_gmail_email_draft" in tool_names
+        assert "open_gmail_information_request_reply" in tool_names
         assert "run_app_action" in tool_names
         assert "list_app_actions" in tool_names
         assert "report_no_app_action" in tool_names
@@ -943,6 +962,20 @@ class TestGmailEmailDraftDirective:
     def test_gmail_receipt_pause_does_not_disable_personal_drafts(self):
         assert "This does not limit the open_gmail_email_draft tool" in ONE_IDENTITY_INSTRUCTION
 
+    def test_selected_gmail_request_is_turn_context_for_one(self):
+        instruction = _one_runtime_instruction(
+            SimpleNamespace(
+                state={
+                    STATE_GMAIL_INFORMATION_REQUEST_CONTEXT: "Subject: Verification\nEmail: Please share your education details.",
+                    STATE_PKM_CONTEXT: "Education: Example University",
+                }
+            )
+        )
+
+        assert "SELECTED GMAIL INFORMATION REQUEST" in instruction
+        assert "Please share your education details." in instruction
+        assert "open_gmail_information_request_reply" in instruction
+
     @pytest.mark.asyncio
     async def test_opens_only_an_editable_draft_directive(self):
         state = {STATE_USER_ID: "u1"}
@@ -959,6 +992,25 @@ class TestGmailEmailDraftDirective:
                 "kind": "gmail_email_draft",
                 "instruction": "Send a hello email to me",
             },
+        }
+
+    @pytest.mark.asyncio
+    async def test_keeps_prefilled_draft_values_out_of_directive_state(self):
+        state = {STATE_USER_ID: "u1"}
+
+        result = await open_gmail_email_draft(
+            "Send a hello email",
+            _tool_context(state),
+            to="person@example.com",
+            subject="Hello",
+            body="Hello there",
+        )
+
+        assert result["status"] == "draft_opened"
+        assert result["prefilled"] is True
+        assert state[f"{STATE_PENDING_DIRECTIVE}:gmail_email_draft"]["payload"] == {
+            "kind": "gmail_email_draft",
+            "instruction": "Send a hello email",
         }
 
     @pytest.mark.asyncio
@@ -985,6 +1037,9 @@ class TestGmailEmailDraftDirective:
         parameters = declaration.parameters_json_schema
         assert "drive_file_id" in parameters["properties"]
         assert "drive_file_id" not in parameters["required"]
+        for field in ("to", "cc", "bcc", "subject", "body"):
+            assert field in parameters["properties"]
+            assert field not in parameters["required"]
 
     @pytest.mark.asyncio
     async def test_rejects_oversized_drive_file_selection(self):
@@ -1005,6 +1060,26 @@ class TestGmailEmailDraftDirective:
 
         assert result["status"] == "authentication_required"
         assert f"{STATE_PENDING_DIRECTIVE}:gmail_email_draft" not in state
+
+    @pytest.mark.asyncio
+    async def test_selected_request_reply_uses_only_the_trusted_workflow_binding(self):
+        state = {
+            STATE_USER_ID: "u1",
+            STATE_GMAIL_INFORMATION_REQUEST_WORKFLOW_ID: "workflow-1",
+        }
+
+        result = await open_gmail_information_request_reply(
+            "Here are the requested details.", _tool_context(state)
+        )
+
+        assert result["status"] == "draft_opened"
+        assert state[f"{STATE_PENDING_DIRECTIVE}:gmail_information_request_reply"] == {
+            "kind": "prompt",
+            "payload": {
+                "kind": "gmail_information_request_reply",
+                "workflow_id": "workflow-1",
+            },
+        }
 
 
 class TestRunAppAction:

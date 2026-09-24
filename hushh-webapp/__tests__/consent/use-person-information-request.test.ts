@@ -56,6 +56,23 @@ describe("shared explicit information request submission", () => {
     expect(state.consentMutation).toHaveBeenCalledWith("reviewer-a");
   });
 
+  it("exposes the server bundle for Chat without changing Profile's boolean submit", async () => {
+    const bundle = {
+      personRef: "person-b", bundleId: "synthetic-bundle", purpose: draft.purpose,
+      durationSeconds: 86_400, cancelled: false,
+      items: [{ requestId: "request-1", scopeRef: "opaque-1", label: "Synthetic detail", sensitivity: "standard", status: "pending" }],
+    };
+    state.create.mockResolvedValue(bundle);
+    const { result } = renderHook(() => usePersonInformationRequest("person-b"));
+    await act(async () => { expect(await result.current.submitWithResult(draft)).toEqual(bundle); });
+    await act(async () => { expect(await result.current.submit(draft)).toBe(true); });
+    await act(async () => {
+      const receipt = await result.current.submitWithReceipt(draft);
+      expect(receipt).toEqual({ bundle, idempotencyKey: state.create.mock.calls[2][0].idempotencyKey });
+    });
+    expect(state.create).toHaveBeenCalledTimes(3);
+  });
+
   it("reuses the same key after a lost acknowledgement, but rotates it for an edited draft", async () => {
     state.create.mockRejectedValue(new Error("Lost acknowledgement"));
     const { result } = renderHook(() => usePersonInformationRequest("person-b"));

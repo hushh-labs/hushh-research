@@ -11,8 +11,10 @@ from hushh_mcp.one_adk.drive_tools import DRIVE_PRIVATE_SOURCE, DRIVE_READ_TOOL_
 from hushh_mcp.one_adk.selected_drive_status import PRIVATE_SOURCE as SELECTED_STATUS_SOURCE
 
 _OUTCOMES = frozenset({"ok", "blocked", "unavailable"})
-_PRIVATE_TOOLS = frozenset({DRIVE_READ_TOOL_NAME, "inspect_selected_drive_files"})
-_PRIVATE_SOURCES = frozenset({DRIVE_PRIVATE_SOURCE, SELECTED_STATUS_SOURCE})
+_PRIVATE_TOOLS = frozenset(
+    {DRIVE_READ_TOOL_NAME, "inspect_selected_drive_files", "read_workspace_tool"}
+)
+_PRIVATE_SOURCES = frozenset({DRIVE_PRIVATE_SOURCE, SELECTED_STATUS_SOURCE, "workspace_mcp"})
 
 
 def _safe_result(value: object) -> dict[str, Any]:

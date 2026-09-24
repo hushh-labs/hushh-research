@@ -96,7 +96,9 @@ export function EmailDraftCard({
   const [connections, setConnections] = useState<ConnectionSummaryEntry[]>([]);
   const [activeDropdownField, setActiveDropdownField] = useState<"to" | "cc" | "bcc" | null>(null);
   const dropdownContainerRef = useRef<HTMLDivElement>(null);
-  const [busy, setBusy] = useState<"draft" | "attachment" | null>(null);
+  const [busy, setBusy] = useState<"draft" | "attachment" | "save" | null>(null);
+  const [savedToGmail, setSavedToGmail] = useState(false);
+  const saveStartedRef = useRef(false);
   const [error, setError] = useState<EmailDeliveryError | null>(null);
   const [attachmentReview, setAttachmentReview] = useState<{
     draft: EmailDraft;
@@ -145,6 +147,8 @@ export function EmailDraftCard({
     setError(null);
     setAttachmentReview(null);
     attachmentIdempotencyKeyRef.current = null;
+    saveStartedRef.current = false;
+    setSavedToGmail(false);
   };
 
   const selectConnection = (field: "to" | "cc" | "bcc", conn: ConnectionSummaryEntry) => {
@@ -387,8 +391,37 @@ export function EmailDraftCard({
     })();
   };
 
+  const saveToGmailDrafts = async () => {
+    if (busy || saveStartedRef.current || draft.driveFileId || sourceBoundReply) return;
+    saveStartedRef.current = true;
+    setBusy("save");
+    setError(null);
+    try {
+      const auth = await withAuth();
+      if (!auth) {
+        saveStartedRef.current = false;
+        return;
+      }
+      await EmailDeliveryService.saveGmailDraft({ ...auth, draft: { ...draft } });
+      setSavedToGmail(true);
+    } catch (cause) {
+      const failure = cause instanceof EmailDeliveryError
+        ? cause
+        : new EmailDeliveryError(
+            "Gmail may have saved this draft. Check Gmail Drafts before trying again.", 502,
+          );
+      if (failure.code === "GMAIL_COMPOSE_PERMISSION_REQUIRED" || failure.status === 400) {
+        saveStartedRef.current = false;
+      }
+      setError(failure);
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const disabled = busy !== null;
   const isDrafting = busy === "draft";
+  const needsGeneratedDraft = autoDraft && !draft.body.trim();
 
   return (
     <section
@@ -580,17 +613,29 @@ export function EmailDraftCard({
           ) : null}
           {busy === "attachment" ? <p role="status" className="text-sm text-muted-foreground">Checking the selected Drive file…</p> : null}
           {error ? (
-            <p
-              className="rounded-lg bg-destructive/10 px-3 py-2 text-sm leading-5 text-destructive"
-              role="alert"
-            >
-              {error.message}{" "}
-              {error.needsGmailReconnect ? (
-                <Link className="font-medium underline" href="/one/gmail">
-                  Reconnect Mail
-                </Link>
+            <div className="flex flex-wrap items-center gap-2 rounded-lg bg-destructive/10 px-3 py-2 text-sm leading-5 text-destructive" role="alert">
+              <span>
+                {error.message}{" "}
+                {error.needsGmailReconnect ? (
+                  <Link className="font-medium underline" href="/one/gmail">
+                    Reconnect Mail
+                  </Link>
+                ) : null}
+              </span>
+              {autoDraft && !sourceBoundReply ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 border-destructive/30 bg-background text-destructive hover:bg-destructive/10"
+                  data-testid="one-email-draft-retry"
+                  onClick={() => void askOneToDraft()}
+                  disabled={disabled}
+                >
+                  Try drafting again
+                </Button>
               ) : null}
-            </p>
+            </div>
           ) : null}
         </div>
       )}
@@ -605,12 +650,26 @@ export function EmailDraftCard({
         >
           {isDrafting ? "Close draft" : "Decline"}
         </Button>
-        <Button
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          {!sourceBoundReply && !draft.driveFileId && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="min-h-11"
+              onClick={() => void saveToGmailDrafts()}
+              disabled={disabled || needsGeneratedDraft || saveStartedRef.current}
+              data-testid="one-email-draft-save-gmail"
+            >
+              {savedToGmail ? "Saved in Gmail Drafts" : busy === "save" ? "Saving…" : "Save to Gmail Drafts"}
+            </Button>
+          )}
+          <Button
           type="button"
           size="sm"
           className="gap-2 rounded-xl px-4 sm:min-w-32"
           onClick={() => void send()}
-          disabled={disabled}
+          disabled={disabled || needsGeneratedDraft}
           data-testid="one-email-draft-send"
         >
           <Send className="h-3.5 w-3.5" />
@@ -621,7 +680,8 @@ export function EmailDraftCard({
               : draft.driveFileId
                 ? "Send email"
                 : "Send"}
-        </Button>
+          </Button>
+        </div>
       </div>
     </section>
   );

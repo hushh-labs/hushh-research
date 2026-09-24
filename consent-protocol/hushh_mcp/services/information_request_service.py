@@ -400,6 +400,18 @@ class InformationRequestService:
             "items": output,
         }
 
+    async def verify_submission_receipt(
+        self, *, requester_user_id: str, bundle_id: str, idempotency_key: str
+    ) -> dict[str, Any]:
+        """Resolve only the bundle created by this owner's exact submission key."""
+        if not 16 <= len(idempotency_key) <= 256:
+            raise InformationRequestError("Request receipt was not found.", status_code=404)
+        idem_hash = hashlib.sha256(f"{requester_user_id}|{idempotency_key}".encode()).hexdigest()
+        bundle, _items = await self._bundle(requester_user_id, bundle_id)
+        if str(bundle.get("idempotency_hash") or "") != idem_hash:
+            raise InformationRequestError("Request receipt was not found.", status_code=404)
+        return await self.get(requester_user_id=requester_user_id, bundle_id=bundle_id)
+
     async def list_outgoing(
         self, *, requester_user_id: str, limit: int = 10
     ) -> list[dict[str, Any]]:

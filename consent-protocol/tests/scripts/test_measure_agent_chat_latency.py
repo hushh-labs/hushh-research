@@ -231,6 +231,23 @@ def test_drive_turn_tool_call_start_counts_as_first_visible_and_run_error_is_ter
     assert sample.client_total_ms == pytest.approx(500.0, abs=0.2)
 
 
+def test_run_error_reports_only_a_sanitized_error_code():
+    secret = "private response text"
+
+    def lines():
+        yield from _sse({"type": "RUN_ERROR", "message": secret, "code": secret})
+
+    sample = driver.drive_turn(
+        lambda _body: lines(),
+        driver.build_run_agent_input("x", thread_id="t", run_id="r", timezone="UTC"),
+        prompt=driver.PROMPTS[0],
+        rep=0,
+    )
+
+    assert sample.detail == "UNCLASSIFIED"
+    assert secret not in driver.format_sample(sample)
+
+
 def test_drive_turn_distinguishes_first_tool_activity_from_answer_token():
     clock = FakeClock()
 
@@ -253,6 +270,64 @@ def test_drive_turn_distinguishes_first_tool_activity_from_answer_token():
     assert sample.client_first_visible_ms == pytest.approx(200.0, abs=0.2)
     assert sample.client_first_answer_token_ms == pytest.approx(900.0, abs=0.2)
     assert driver.summarize([sample])["client"]["first_answer_token"]["p50"] == pytest.approx(900.0)
+
+
+def test_benchmark_validation_keeps_answer_text_out_of_the_sample():
+    clock = FakeClock()
+    prompt = driver.PromptCase(
+        "safe_check",
+        "consent",
+        "who can see my information",
+        expected_tool_name="list_active_grants",
+    )
+    private_answer = "Only the person selected in this private answer can see it."
+
+    def lines():
+        yield from _sse(
+            {"type": "TOOL_CALL_START", "toolCallId": "c", "toolCallName": "list_active_grants"}
+        )
+        yield from _sse({"type": "TEXT_MESSAGE_CONTENT", "messageId": "m", "delta": private_answer})
+        yield from _sse({"type": "RUN_FINISHED"})
+
+    sample = driver.drive_turn(
+        lambda _body: lines(),
+        driver.build_run_agent_input("prompt", thread_id="t", run_id="r", timezone="UTC"),
+        prompt=prompt,
+        rep=0,
+        clock=clock,
+    )
+
+    assert sample.answer_validated is True
+    assert sample.expected_tool_observed is True
+    assert sample.tool_call_count == 1
+    assert private_answer not in repr(sample)
+
+
+def test_benchmark_validation_rejects_mutating_or_missing_tools():
+    prompt = next(case for case in driver.PROMPTS if case.prompt_id == "consent_visibility")
+
+    def lines():
+        yield from _sse(
+            {"type": "TOOL_CALL_START", "toolCallId": "c", "toolCallName": "run_app_action"}
+        )
+        yield from _sse(
+            {
+                "type": "TEXT_MESSAGE_CONTENT",
+                "messageId": "m",
+                "delta": "You are sharing with Alex.",
+            }
+        )
+        yield from _sse({"type": "RUN_FINISHED"})
+
+    sample = driver.drive_turn(
+        lambda _body: lines(),
+        driver.build_run_agent_input("prompt", thread_id="t", run_id="r", timezone="UTC"),
+        prompt=prompt,
+        rep=0,
+    )
+
+    assert sample.expected_tool_observed is False
+    assert sample.answer_validated is False
 
 
 def test_drive_turn_without_terminal_frame_and_transport_failure():

@@ -30,9 +30,13 @@ const state = vi.hoisted(() => ({
   disconnectMail: vi.fn(),
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn() }) }));
-vi.mock("@capacitor/core", () => ({
-  Capacitor: { isNativePlatform: () => state.native },
-}));
+vi.mock("@capacitor/core", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@capacitor/core")>();
+  return {
+    ...actual,
+    Capacitor: { ...actual.Capacitor, isNativePlatform: () => state.native },
+  };
+});
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({
     user: { uid: state.uid, getIdToken: async () => "firebase" },
@@ -253,11 +257,11 @@ describe("Connectors owner and mutation fences", () => {
     state.token = "vault-b";
     state.overview.mockResolvedValue(overview("new-owner@example.invalid"));
     view.rerender(<ConnectorsPanel {...p} />);
-    await screen.findByText("new-owner@example.invalid");
+    await screen.findByText(/new-owner@example\.invalid/);
     await act(async () => {
       stale(overview("old-owner@example.invalid"));
     });
-    expect(screen.queryByText("old-owner@example.invalid")).toBeNull();
+    expect(screen.queryByText(/old-owner@example\.invalid/)).toBeNull();
   });
   it("new connection gate does not disable selected-file management on existing grant", async () => {
     const result = overview();
@@ -394,7 +398,7 @@ describe("Connectors owner and mutation fences", () => {
     state.nativePending.mockResolvedValue(null);
     const p = props();
     render(<ConnectorsPanel {...p} />);
-    expect(await screen.findByText("drive@example.invalid")).toBeVisible();
+    expect(await screen.findByText(/drive@example\.invalid/)).toBeVisible();
     await openDriveDetail();
     expect(screen.getByRole("button", { name: "Choose files" })).toBeEnabled();
 

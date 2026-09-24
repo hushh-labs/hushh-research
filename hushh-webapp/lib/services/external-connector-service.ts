@@ -20,6 +20,7 @@ export type ExternalConnectorSummary = {
   accountLabel?: string | null;
   connectedAt?: string | null;
   validationState?: string;
+  profile?: "selected" | "live" | null;
   revocationOutcome?: string;
   lastErrorCode?: string | null;
   available?: boolean;
@@ -29,6 +30,7 @@ export type ConnectorFeatures = Partial<
   Record<
     | "connections_panel_v2"
     | "google_drive_connection"
+    | "google_drive_live"
     | "google_drive_picker"
     | "drive_document_indexing"
     | "drive_document_sharing"
@@ -228,6 +230,7 @@ export class ExternalConnectorService {
     connectorId: string;
     redirectUri: string;
     flow?: "web" | "native";
+    profile?: "selected" | "live";
     isEffectCurrent?: ConnectorEffectGuard;
   }): Promise<{
     authorizeUrl: string;
@@ -246,6 +249,7 @@ export class ExternalConnectorService {
         body: JSON.stringify({
           redirectUri: input.redirectUri,
           flow: input.flow ?? "web",
+          profile: input.profile ?? "selected",
         }),
         isEffectCurrent: input.isEffectCurrent,
       },
@@ -495,6 +499,33 @@ export class ExternalConnectorService {
       }),
     );
     return result.documents;
+  }
+
+  static async liveBackground(vaultOwnerToken: string): Promise<boolean> {
+    const result = await readJsonOrThrow<{ enabled: boolean }>(
+      await ApiService.apiFetch("/api/connectors/google_drive/live/background", {
+        method: "GET",
+        headers: authHeaders(vaultOwnerToken),
+        cache: "no-store",
+      }),
+    );
+    return result.enabled === true;
+  }
+
+  static async setLiveBackground(
+    vaultOwnerToken: string,
+    enabled: boolean,
+  ): Promise<void> {
+    await readJsonOrThrow(
+      await ApiService.apiFetch("/api/connectors/google_drive/live/background", {
+        method: "POST",
+        headers: {
+          ...authHeaders(vaultOwnerToken),
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ enabled, confirmed: true }),
+      }),
+    );
   }
 
   static async removeDocument(

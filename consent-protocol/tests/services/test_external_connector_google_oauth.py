@@ -206,3 +206,17 @@ def test_selected_file_consent_rejects_read_all_and_combined_mail_grants(service
                 "scope": scope,
             }
         )
+
+
+@pytest.mark.parametrize("scope", [oauth.LIVE_SCOPES, oauth.REGISTRY_SCOPES])
+def test_live_consent_accepts_drive_with_optional_prior_selected_scope(service, scope):
+    credential = service._token_fields(
+        {
+            "access_token": "synthetic",
+            "token_type": "Bearer",
+            "expires_in": 3600,
+            "scope": " ".join(scope),
+        },
+        profile="live",
+    )
+    assert oauth.LIVE_DRIVE_SCOPE in credential["grantedScopes"]

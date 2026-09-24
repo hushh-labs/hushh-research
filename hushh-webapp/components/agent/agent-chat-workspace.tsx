@@ -6,6 +6,7 @@ import {
   FormEvent,
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -16,15 +17,18 @@ import {
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { AgentMemoryCaptureStatus } from "@/components/agent/agent-memory-capture-status";
 import { aggregateAgentPkmCaptures, createAgentPkmCaptureGuard, describeAgentPkmCapture, isAgentPkmProcessingReady, type AgentPkmCaptureStatus } from "@/lib/agent/agent-pkm-capture-runtime";
-import { AgentPersonSelectionContext } from "@/components/agent/agent-structured-experience";
+import { AgentPersonSelectionContext, type InformationRequestSubmissionReceipt } from "@/components/agent/agent-structured-experience";
 import {
   Check,
+  ChevronDown,
   ChevronRight,
   Copy,
   FileText,
   KeyRound,
   Laptop,
+  Loader2,
   LogIn,
+  Mail,
   Maximize2,
   Mic,
   Minimize2,
@@ -158,6 +162,7 @@ import {
   loadAgentChatConversationHistory,
   peekAgentChatHistoryCache,
   warmAgentChatHistoryCache,
+  clearAgentChatHistoryCache,
 } from "@/lib/agent/agent-chat-history-cache";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { usePersonaState } from "@/lib/persona/persona-context";
@@ -187,6 +192,7 @@ import {
   type AgentSource,
   getAgentChatFeedback,
   setAgentChatFeedback,
+  recordAgentChatInformationRequest,
 } from "@/lib/services/agent-chat-client";
 import { runConnectedSystemDirective } from "@/lib/agent/connected-system-directive-runtime";
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
@@ -255,9 +261,10 @@ import type {
   EmailDeliveryError,
   EmailDraft,
 } from "@/lib/services/email-delivery-service";
-import { KycIdentityProfilePkmService } from "@/lib/services/kyc-identity-profile-pkm-service";
-import { prepareScopedGmailInformationRequestDraft } from "@/lib/services/gmail-information-request-draft-service";
-import { GmailInformationRequestsService } from "@/lib/services/gmail-information-requests-service";
+import {
+  GmailInformationRequestsService,
+  type GmailInformationRequestSourcePreview,
+} from "@/lib/services/gmail-information-requests-service";
 import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
 
 type AgentMessage = {
@@ -275,6 +282,8 @@ type AgentMessage = {
   ephemeral?: boolean;
   memoryCapture?: AgentPkmCaptureStatus;
   kind?: "selection";
+  /** Session-only source handle for the owner-selected Gmail KYC request. */
+  gmailInformationRequestWorkflowId?: string;
   // Calendar proposal status is already a bounded confirmation/result. Keep
   // that one message on the regular assistant surface instead of wrapping it
   // in the generic turn stream panel.
@@ -376,6 +385,7 @@ type AgentTurnSource = "typed";
 type AgentRunTurnOptions = {
   source: AgentTurnSource;
   personSelectionHandle?: string;
+  gmailInformationRequestWorkflowId?: string;
   appendUserMessage?: boolean;
   replaceAssistantMessageId?: string | null;
   deferPkmContext?: boolean;
@@ -454,9 +464,9 @@ function getConsentRequiredPayload(
   };
 }
 
-function getGmailEmailDraftPayload(
+export function getGmailEmailDraftPayload(
   event: AgentChatToolEvent | null,
-): { instruction: string; driveFileId: string | null } | null {
+): { instruction: string; driveFileId: string | null; initialDraft: EmailDraft | null } | null {
   if (!event || event.raw.toolName !== "open_gmail_email_draft") return null;
   const instruction =
     typeof event.slots.request === "string" ? event.slots.request.trim() : "";
@@ -464,9 +474,36 @@ function getGmailEmailDraftPayload(
     typeof event.slots.drive_file_id === "string"
       ? event.slots.drive_file_id.trim()
       : "";
+  const draftField = (name: "to" | "cc" | "bcc" | "subject" | "body", limit: number) => {
+    const value = event.slots[name];
+    return typeof value === "string" && value.trim().length <= limit
+      ? value.trim()
+      : "";
+  };
+  const body = draftField("body", 12_000);
   return instruction
-    ? { instruction, driveFileId: driveFileId && driveFileId.length <= 256 ? driveFileId : null }
+    ? {
+        instruction,
+        driveFileId: driveFileId && driveFileId.length <= 256 ? driveFileId : null,
+        initialDraft: body
+          ? {
+              to: draftField("to", 2_048),
+              cc: draftField("cc", 2_048),
+              bcc: draftField("bcc", 2_048),
+              subject: draftField("subject", 512),
+              body,
+            }
+          : null,
+      }
     : null;
+}
+
+export function getGmailInformationRequestReplyPayload(
+  event: AgentChatToolEvent | null,
+): { body: string } | null {
+  if (!event || event.raw.toolName !== "open_gmail_information_request_reply") return null;
+  const body = typeof event.slots.body === "string" ? event.slots.body.trim() : "";
+  return body && body.length <= 12_000 ? { body } : null;
 }
 
 /** Metadata-only context for a Gmail KYC handoff. Gmail content never enters chat. */
@@ -1352,9 +1389,132 @@ function AgentThinkingDots() {
   );
 }
 
+export function GmailInformationRequestAttachment({
+  loadPreview,
+}: {
+  loadPreview: () => Promise<GmailInformationRequestSourcePreview>;
+}) {
+  const [open, setOpen] = useState(false);
+  const [preview, setPreview] = useState<GmailInformationRequestSourcePreview | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const previewRequestRef = useRef(0);
+  const previewId = useId();
+
+  useEffect(() => {
+    return () => {
+      previewRequestRef.current += 1;
+    };
+  }, []);
+
+  const toggle = async () => {
+    const nextOpen = !open;
+    setOpen(nextOpen);
+    if (!nextOpen) {
+      previewRequestRef.current += 1;
+      setPreview(null);
+      setError(null);
+      setLoading(false);
+      return;
+    }
+    if (preview || loading) return;
+    const requestId = ++previewRequestRef.current;
+    setLoading(true);
+    setError(null);
+    try {
+      const source = await loadPreview();
+      if (previewRequestRef.current === requestId) setPreview(source);
+    } catch {
+      if (previewRequestRef.current === requestId) {
+        setError("Couldn’t load this Gmail message. Please try again.");
+      }
+    } finally {
+      if (previewRequestRef.current === requestId) setLoading(false);
+    }
+  };
+
+  return (
+    <div
+      className={cn(
+        "mt-3 overflow-hidden rounded-[18px] border text-left shadow-[inset_0_1px_0_rgb(255_255_255_/_0.08)] transition-colors",
+        open
+          ? "border-white/30 bg-white/[0.11]"
+          : "border-white/20 bg-white/[0.075] hover:border-white/30 hover:bg-white/[0.11]",
+      )}
+    >
+      <button
+        type="button"
+        onClick={() => void toggle()}
+        aria-expanded={open}
+        aria-controls={open ? previewId : undefined}
+        className="group flex min-h-14 w-full items-center gap-3 px-3 py-2.5 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/70"
+      >
+        <span className="flex size-9 shrink-0 items-center justify-center rounded-xl border border-white/15 bg-black/[0.12] text-white shadow-sm">
+          <Mail className="h-[18px] w-[18px]" aria-hidden="true" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-sm font-semibold leading-5 text-white">
+            Mail
+          </span>
+          <span className="block text-xs leading-5 text-white/65">
+            Selected Gmail message
+          </span>
+        </span>
+        <span className="flex shrink-0 items-center gap-1 rounded-full bg-white/[0.10] px-2.5 py-1 text-[11px] font-semibold text-white/90 transition-colors group-hover:bg-white/[0.16]">
+          {open ? "Hide" : "View"}
+          <ChevronDown
+            className={cn(
+              "h-3.5 w-3.5 transition-transform duration-150",
+              open && "rotate-180",
+            )}
+            aria-hidden="true"
+          />
+        </span>
+      </button>
+      {open ? (
+        <div
+          id={previewId}
+          aria-live="polite"
+          className="border-t border-white/15 bg-black/[0.075] px-3.5 py-3.5 text-xs leading-5"
+        >
+          {loading ? (
+            <span className="flex items-center gap-2 text-white/70">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+              Loading Gmail message…
+            </span>
+          ) : null}
+          {error ? <span className="text-red-100">{error}</span> : null}
+          {preview ? (
+            <div className="space-y-3 whitespace-pre-wrap break-words">
+              <dl className="space-y-2">
+                {preview.from ? (
+                  <div className="grid grid-cols-[3.5rem_minmax(0,1fr)] gap-2">
+                    <dt className="font-medium text-white/55">From</dt>
+                    <dd className="min-w-0 text-white/95">{preview.from}</dd>
+                  </div>
+                ) : null}
+                {preview.subject ? (
+                  <div className="grid grid-cols-[3.5rem_minmax(0,1fr)] gap-2">
+                    <dt className="font-medium text-white/55">Subject</dt>
+                    <dd className="min-w-0 font-medium text-white">{preview.subject}</dd>
+                  </div>
+                ) : null}
+              </dl>
+              <p className="border-t border-white/15 pt-3 text-white/85">
+                {preview.body || "This email has no readable text."}
+              </p>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function AgentBubble({
   message,
   onOpenConnections,
+  onInformationRequestSubmitted,
   userAvatarUrl,
   userInitials = "YO",
   onRetry,
@@ -1368,9 +1528,11 @@ function AgentBubble({
   onPendingConsentDetails,
   rating = null,
   onRate,
+  gmailInformationRequestAttachment,
 }: {
   message: AgentMessage;
   onOpenConnections?: (trigger: HTMLButtonElement) => void;
+  onInformationRequestSubmitted?: (activityId: string, receipt: InformationRequestSubmissionReceipt) => Promise<void>;
   userAvatarUrl?: string | null;
   userInitials?: string;
   onRetry?: () => void;
@@ -1388,6 +1550,7 @@ function AgentBubble({
   onPendingConsentDetails?: (item: SpecialistPendingConsentRequestItem) => void;
   rating?: "up" | "down" | null;
   onRate?: (rating: "up" | "down" | null) => void;
+  gmailInformationRequestAttachment?: ReactNode;
 }) {
   const [copied, setCopied] = useState(false);
   // The rating is owned by the workspace so it survives a reload; the bubble
@@ -1499,9 +1662,10 @@ function AgentBubble({
           )}
         >
           {isUser ? (
-            <span className="whitespace-pre-wrap break-words">
-              {message.text}
-            </span>
+            <>
+              <span className="whitespace-pre-wrap break-words">{message.text}</span>
+              {gmailInformationRequestAttachment}
+            </>
           ) : shouldRenderStreamPanel ? (
             <AgentTurnStreamPanel
               streamEvents={streamEvents}
@@ -1509,6 +1673,7 @@ function AgentBubble({
               structuredExperience={message.structuredExperience}
               structuredExperiences={structuredExperiences}
               onOpenConnections={onOpenConnections}
+              onInformationRequestSubmitted={onInformationRequestSubmitted}
               responseText={assistantText}
               isStreaming={isStreaming}
               isError={isError}
@@ -1858,7 +2023,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   // Which model runs this person's agent. The catalog is served, so a new
   // generation appears here without a client release.
   const [modelPreference, setModelPreference] = useState<ModelPreference | null>(null);
-  const [composerExpanded, setComposerExpanded] = useState(false);
+  const [composerExpanded, setComposerExpandedState] = useState(false);
   const [queuedPrompts, setQueuedPrompts] = useState<QueuedAgentPrompt[]>([]);
   const [editingQueuedPromptId, setEditingQueuedPromptId] = useState<
     string | null
@@ -1969,10 +2134,10 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   >(null);
   const [gmailKycEmailDraftWorkflowId, setGmailKycEmailDraftWorkflowId] =
     useState<string | null>(null);
-  const [gmailKycMissingLabels, setGmailKycMissingLabels] = useState<string[]>(
-    [],
-  );
-  const [isGmailKycSaving, setIsGmailKycSaving] = useState(false);
+  const runAgentTurnRef = useRef<(
+    text: string,
+    options: AgentRunTurnOptions,
+  ) => Promise<void>>(async () => undefined);
   // This is intentionally session-only. The normal user prompt is stored by
   // the encrypted chat service, but raw email fields must not become durable
   // chat/workflow records.
@@ -2017,6 +2182,30 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const activeActionRun = useActiveActionRun();
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const composerTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const composerSurfaceRef = useRef<HTMLDivElement | null>(null);
+  const composerExpandedRef = useRef(composerExpanded);
+  composerExpandedRef.current = composerExpanded;
+  const composerTransitionRectRef = useRef<DOMRect | null>(null);
+  const composerSurfaceAnimationRef = useRef<Animation | null>(null);
+  const manuallyCollapsedComposerDraftsRef = useRef(new Set<string>());
+  const composerDraftKey = conversationId ?? "__new_chat__";
+  const setComposerExpanded = useCallback((
+    expanded: boolean,
+    originRect?: DOMRect | null,
+  ) => {
+    if (composerExpandedRef.current === expanded) return;
+    const surface = composerSurfaceRef.current;
+    // Capture the currently presented box before cancelling an in-flight FLIP
+    // animation, so a quick second toggle continues smoothly from this frame.
+    const currentRect = originRect === undefined
+      ? surface?.getBoundingClientRect() ?? null
+      : originRect;
+    composerSurfaceAnimationRef.current?.cancel();
+    composerSurfaceAnimationRef.current = null;
+    composerTransitionRectRef.current = currentRect;
+    composerExpandedRef.current = expanded;
+    setComposerExpandedState(expanded);
+  }, []);
   const historyDrawerTriggerRef = useRef<HTMLButtonElement | null>(null);
   const historyLoadKeyRef = useRef<string | null>(null);
   const welcomePromptSetInitializedRef = useRef(false);
@@ -2159,6 +2348,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       return undefined;
     }
     if (peekAgentPkmContext({ userId: user.uid })?.text) {
+      performance.mark("hushh:agent-chat:pkm-warm-ready");
       return undefined;
     }
 
@@ -2170,7 +2360,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         userId: user.uid,
         vaultKey,
         vaultOwnerToken,
-      }).catch(() => undefined);
+      })
+        .then(() => performance.mark("hushh:agent-chat:pkm-warm-ready"))
+        .catch(() => undefined);
     }, 180);
     return () => window.clearTimeout(timeoutId);
   }, [isVaultUnlocked, user?.uid, vaultKey, vaultOwnerToken]);
@@ -2356,7 +2548,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     !isVoiceConnecting &&
     !voiceActive &&
     !emailDraftOpen &&
-    !isGmailKycSaving &&
     // Do not trim a potentially very large expanded attachment on every
     // keystroke. The submit path performs the authoritative empty check.
     (input.length > 0 || longPromptAttachment !== null);
@@ -2597,27 +2788,115 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   useEffect(() => {
     const textarea = composerTextareaRef.current;
     if (!textarea || voiceActive) return;
+    const surface = composerSurfaceRef.current;
+    const wasExpanded = composerExpanded;
+    const previousHeight = textarea.style.height;
+    const rectBeforeEmptyCollapse =
+      wasExpanded && !input.trim() ? surface?.getBoundingClientRect() ?? null : null;
     textarea.style.height = "0px";
     const nextHeight = textarea.scrollHeight;
-    if (!input.trim()) setComposerExpanded(false);
     // The compact pill grows to its CSS ceiling; text that outgrows it moves
     // into the expanded writing surface (the same place the expand button
     // opens) instead of scrolling inside the pill, which drew a scrollbar
     // beside the expand icon (founder report, 2026-09-22).
-    const compactCeiling = Number.parseFloat(
-      window.getComputedStyle(textarea).maxHeight,
-    );
-    if (
-      !composerExpanded &&
-      Number.isFinite(compactCeiling) &&
-      nextHeight > compactCeiling + 1
-    ) {
+    const compactStyles = window.getComputedStyle(textarea);
+    const compactCeiling = Number.parseFloat(compactStyles.maxHeight);
+    const lineHeight = Number.parseFloat(compactStyles.lineHeight);
+    const verticalPadding =
+      Number.parseFloat(compactStyles.paddingTop) +
+      Number.parseFloat(compactStyles.paddingBottom);
+    const oneLineHeight = lineHeight + verticalPadding;
+    const hasSecondLine = Number.isFinite(oneLineHeight)
+      ? nextHeight > oneLineHeight + 1
+      : Number.isFinite(compactCeiling) && nextHeight > compactCeiling + 1;
+
+    if (!input.trim()) {
+      manuallyCollapsedComposerDraftsRef.current.delete(composerDraftKey);
+      if (wasExpanded) {
+        textarea.style.height = previousHeight;
+        setComposerExpanded(false, rectBeforeEmptyCollapse);
+        return;
+      }
+    } else if (!hasSecondLine) {
+      // Re-arm automatic expansion after the person edits the draft back to a
+      // single line. A manual collapse remains respected while it is long.
+      manuallyCollapsedComposerDraftsRef.current.delete(composerDraftKey);
+    }
+
+    const shouldAutoExpand =
+      !composerExpanded && hasSecondLine &&
+      !manuallyCollapsedComposerDraftsRef.current.has(composerDraftKey);
+    if (shouldAutoExpand) {
+      // Restore the current compact geometry before recording the FLIP origin.
+      textarea.style.height = previousHeight;
       setComposerExpanded(true);
       return;
     }
     // The expanded writing surface owns its fixed, spacious height.
     textarea.style.height = composerExpanded ? "" : `${nextHeight}px`;
-  }, [composerExpanded, input, voiceActive]);
+  }, [composerDraftKey, composerExpanded, input, setComposerExpanded, voiceActive]);
+
+  useLayoutEffect(() => {
+    const fromRect = composerTransitionRectRef.current;
+    composerTransitionRectRef.current = null;
+    const surface = composerSurfaceRef.current;
+    const textarea = composerTextareaRef.current;
+    if (!fromRect || !surface || !textarea) return;
+
+    // Set the destination dimensions before measuring. The actual layout only
+    // changes once; the short transition below is compositor-only.
+    if (composerExpanded) {
+      textarea.style.height = "";
+    } else {
+      textarea.style.height = "0px";
+      const compactStyles = window.getComputedStyle(textarea);
+      const maxHeight = Number.parseFloat(compactStyles.maxHeight);
+      const desiredHeight = textarea.scrollHeight;
+      textarea.style.height = `${Number.isFinite(maxHeight)
+        ? Math.min(desiredHeight, maxHeight)
+        : desiredHeight}px`;
+    }
+
+    const toRect = surface.getBoundingClientRect();
+    if (
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches ||
+      fromRect.width <= 0 || fromRect.height <= 0 ||
+      toRect.width <= 0 || toRect.height <= 0
+    ) {
+      return;
+    }
+
+    const easing =
+      window.getComputedStyle(document.documentElement)
+        .getPropertyValue("--motion-ease-emphasized")
+        .trim() || "cubic-bezier(0.2, 0, 0, 1)";
+    // FLIP keeps the composer's bottom edge as its anchor, so the expanded
+    // surface grows upward from the same place as the compact pill.
+    const animation = surface.animate(
+      [
+        {
+          transformOrigin: "left bottom",
+          transform: `translate3d(${fromRect.left - toRect.left}px, ${fromRect.bottom - toRect.bottom}px, 0) scale(${fromRect.width / toRect.width}, ${fromRect.height / toRect.height})`,
+        },
+        {
+          transformOrigin: "left bottom",
+          transform: "translate3d(0, 0, 0) scale(1, 1)",
+        },
+      ],
+      { duration: 120, easing, fill: "none" },
+    );
+    composerSurfaceAnimationRef.current = animation;
+    animation.onfinish = () => {
+      if (composerSurfaceAnimationRef.current === animation) {
+        composerSurfaceAnimationRef.current = null;
+      }
+    };
+    animation.oncancel = () => {
+      if (composerSurfaceAnimationRef.current === animation) {
+        composerSurfaceAnimationRef.current = null;
+      }
+    };
+  }, [composerExpanded]);
 
   useEffect(() => {
     if (!composerExpanded) return;
@@ -2759,8 +3038,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setEmailDraftAnchorMessageId(null);
     setGmailKycReplyRequest(null);
     setGmailKycEmailDraftWorkflowId(null);
-    setGmailKycMissingLabels([]);
-    setIsGmailKycSaving(false);
     setEmailDeliveryHistory([]);
     setSpecialistBusy(false);
     operationQueueRef.current.replace([]);
@@ -2790,175 +3067,30 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setMessages((current) => [...current, message]);
   };
 
-  const prepareGmailKycReply = useCallback(
-    async (
-      request: GmailInformationRequestHandoff,
-      assistantMessageId: string,
-      options: { retryCandidateResolution?: boolean } = {},
-    ) => {
-      if (!user?.uid || !vaultKey || !vaultOwnerToken) return;
-
-      setIsGmailKycSaving(true);
-      try {
-        let workflow = request;
-        let draft = await prepareScopedGmailInformationRequestDraft({
-          workflow,
-          userId: user.uid,
-          vaultKey,
-          vaultOwnerToken,
-        });
-        // The scan already supplied exact candidates. Re-resolving them for
-        // every click adds a slow metadata round trip without making the
-        // initial draft safer. Only retry after a just-completed PKM write
-        // failed to satisfy one of those candidates.
-        if (
-          options.retryCandidateResolution &&
-          (!draft.body || draft.unavailableLabels.length > 0)
-        ) {
-          const firebaseIdToken = await user.getIdToken();
-          const refreshed = await GmailInformationRequestsService.refreshCandidates({
-            firebaseIdToken,
-            vaultOwnerToken,
-            workflowId: request.workflow_id,
-          });
-          workflow = {
-            ...request,
-            candidate_scopes: refreshed.candidate_scopes,
-          };
-          draft = await prepareScopedGmailInformationRequestDraft({
-            workflow,
-            userId: user.uid,
-            vaultKey,
-            vaultOwnerToken,
-          });
-        }
-        const unavailableLabels = draft.unavailableLabels
-          .map((label) => label.trim())
-          .filter(Boolean);
-
-        if (!draft.body || unavailableLabels.length > 0) {
-          setEmailDraftOpen(false);
-          setGmailKycEmailDraftWorkflowId(null);
-          setGmailKycMissingLabels(
-            unavailableLabels.length > 0
-              ? unavailableLabels
-              : request.requested_field_labels,
-          );
-          updateMessage(assistantMessageId, (message) => ({
-            ...message,
-            text: `I couldn’t find ${(unavailableLabels.length > 0 ? unavailableLabels : request.requested_field_labels).join(", ")} in your private memory. Reply here with only the details you want to share, and I’ll save them privately before preparing the Mail reply.`,
-            status: "done",
-          }));
-          return;
-        }
-
-        setGmailKycMissingLabels([]);
-        const requestSummary = gmailKycRequestSummary(workflow);
-        setEmailDraftInstruction(
-          `Replying to the selected Mail request. Requested: ${requestSummary}.`,
-        );
-        setEmailDraftInitialValue({
-          to: "",
-          cc: "",
-          bcc: "",
-          subject: "",
-          body: draft.body,
-        });
-        setEmailDraftAutoDraft(false);
-        setGmailKycEmailDraftWorkflowId(request.workflow_id);
-        setEmailDraftAnchorMessageId(assistantMessageId);
-        setEmailDraftOpen(true);
-        updateMessage(assistantMessageId, (message) => ({
-          ...message,
-          text: "I found the matching private details. Your editable reply to the selected Mail request is ready below.",
-          status: "done",
-        }));
-      } catch {
-        setEmailDraftOpen(false);
-        setGmailKycEmailDraftWorkflowId(null);
-        updateMessage(assistantMessageId, (message) => ({
-          ...message,
-          text: "I couldn’t prepare the Mail reply right now. Please try again.",
-          status: "error",
-        }));
-      } finally {
-        setIsGmailKycSaving(false);
-      }
-    },
-    [user, vaultKey, vaultOwnerToken],
-  );
-
-  const submitGmailKycDetails = async (details: string) => {
-    const request = gmailKycReplyRequest;
-    if (!request || !user?.uid || !vaultKey || !vaultOwnerToken) return;
-    const timestamp = formatNow();
-    const userMessageId = `gmail-kyc-details-${request.workflow_id}-${Date.now()}`;
-    const assistantMessageId = `${userMessageId}-assistant`;
-    const missingLabels = gmailKycMissingLabels.length > 0
-      ? gmailKycMissingLabels
-      : request.requested_field_labels;
-    // The person has already answered this prompt. Clear it before the PKM
-    // write begins so the disabled composer never asks for the same details.
-    setGmailKycMissingLabels([]);
-    appendMessage({
-      id: userMessageId,
-      role: "user",
-      text: details,
-      timestamp,
-      status: "done",
-      ephemeral: true,
-    });
-    appendMessage({
-      id: assistantMessageId,
-      role: "assistant",
-      text: `Saving those details privately and preparing a reply to the selected Mail request for ${gmailKycRequestSummary(request)}…`,
-      timestamp,
-      status: "streaming",
-      ephemeral: true,
-      renderAsPlainAssistantMessage: true,
-    });
-    setIsGmailKycSaving(true);
-    try {
-      const saved = await KycIdentityProfilePkmService.saveProfile({
-        userId: user.uid,
-        vaultKey,
-        vaultOwnerToken,
-        profile: { aboutMe: details },
-      });
-      if (!saved.success) {
-        throw new Error(saved.message || "One could not save those private details.");
-      }
-      updateMessage(assistantMessageId, (message) => ({
-        ...message,
-        text: "Finding the matching private details and preparing the reply in the original Mail thread…",
-        status: "streaming",
-      }));
-      await prepareGmailKycReply(request, assistantMessageId, {
-        retryCandidateResolution: true,
-      });
-    } catch (error) {
-      setGmailKycMissingLabels(missingLabels);
-      updateMessage(assistantMessageId, (message) => ({
-        ...message,
-        text:
-          error instanceof Error
-            ? error.message
-            : "One could not save those private details. Edit them and try again.",
-        status: "error",
-      }));
-    } finally {
-      setIsGmailKycSaving(false);
-    }
-  };
-
   const closeEmailDraft = () => {
     setEmailDraftOpen(false);
     setEmailDraftInstruction("");
     setEmailDraftAutoDraft(false);
     setEmailDraftInitialValue(null);
     setEmailDraftAnchorMessageId(null);
+    setGmailKycReplyRequest(null);
     setGmailKycEmailDraftWorkflowId(null);
   };
+
+  const loadGmailInformationRequestPreview = useCallback(
+    async (workflowId: string): Promise<GmailInformationRequestSourcePreview> => {
+      const token = getVaultOwnerToken();
+      if (!user?.uid || !token) {
+        throw new Error("Vault access expired.");
+      }
+      return GmailInformationRequestsService.getSourcePreview({
+        firebaseIdToken: await user.getIdToken(),
+        vaultOwnerToken: token,
+        workflowId,
+      });
+    },
+    [getVaultOwnerToken, user],
+  );
 
   const handleEmailSendStarted = (draft: EmailDraft): string => {
     const id = `email-delivery-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -3028,6 +3160,26 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
 
   const openGmailEmailDraftFromDirective = useCallback(
     (event: AgentChatToolEvent, assistantMessageId: string): boolean => {
+      const sourceBoundReply = getGmailInformationRequestReplyPayload(event);
+      if (sourceBoundReply) {
+        if (!hasChatAccess) {
+          if (user) setVaultDialogOpen(true);
+          else router.push(ROUTES.LOGIN);
+          return true;
+        }
+        setEmailDraftInstruction("Replying to the selected Mail request with your private information.");
+        setEmailDraftInitialValue({
+          to: "",
+          cc: "",
+          bcc: "",
+          subject: "",
+          body: sourceBoundReply.body,
+        });
+        setEmailDraftAutoDraft(false);
+        setEmailDraftAnchorMessageId(assistantMessageId);
+        setEmailDraftOpen(true);
+        return true;
+      }
       const payload = getGmailEmailDraftPayload(event);
       if (!payload) return false;
       if (!hasChatAccess) {
@@ -3036,10 +3188,14 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         return true;
       }
       setEmailDraftInstruction(payload.instruction);
-      setEmailDraftInitialValue(payload.driveFileId
-        ? { to: "", cc: "", bcc: "", subject: "", body: "", driveFileId: payload.driveFileId }
-        : null);
-      setEmailDraftAutoDraft(true);
+      setEmailDraftInitialValue(
+        payload.initialDraft
+          ? { ...payload.initialDraft, ...(payload.driveFileId ? { driveFileId: payload.driveFileId } : {}) }
+          : payload.driveFileId
+            ? { to: "", cc: "", bcc: "", subject: "", body: "", driveFileId: payload.driveFileId }
+            : null,
+      );
+      setEmailDraftAutoDraft(!payload.initialDraft);
       setEmailDraftAnchorMessageId(assistantMessageId);
       setEmailDraftOpen(true);
       return true;
@@ -3095,24 +3251,18 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       const shouldSkipInitialHistoryLoad = historyLoadKeyRef.current === null;
       handleCreateNewChat();
       skipInitialHistoryLoadRef.current = shouldSkipInitialHistoryLoad;
-      const handoffMessageId = `handoff-${handoff.id}-assistant`;
       setGmailKycReplyRequest(gmailInformationRequest);
-      setGmailKycEmailDraftWorkflowId(null);
-      setGmailKycMissingLabels([]);
-      const requestedFields = gmailKycRequestSummary(gmailInformationRequest);
-      setMessages((current) => [
-        ...current,
+      setGmailKycEmailDraftWorkflowId(gmailInformationRequest.workflow_id);
+      // This is an ordinary One turn. The browser forwards only the opaque
+      // workflow id; authenticated agent-chat ingress re-fetches the actual
+      // selected Gmail message as one-turn source context for One.
+      void runAgentTurnRef.current(
+        "Reply to the selected Gmail email with appropriate details from my PKM.",
         {
-          id: handoffMessageId,
-          role: "assistant",
-          text: `I’m replying in the selected Mail thread. This request asks for: ${requestedFields}. I’ll use only matching private details, and you can review the response before it sends.`,
-          timestamp,
-          status: "done",
-          ephemeral: true,
-          renderAsPlainAssistantMessage: true,
+          source: "typed",
+          gmailInformationRequestWorkflowId: gmailInformationRequest.workflow_id,
         },
-      ]);
-      void prepareGmailKycReply(gmailInformationRequest, handoffMessageId);
+      );
       consumeHandoff(handoff.id);
       return;
     }
@@ -3186,7 +3336,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     handoff,
     handleCreateNewChat,
     hasChatAccess,
-    prepareGmailKycReply,
     router,
     localCrmEnabled,
     user,
@@ -3617,6 +3766,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     getVaultOwnerToken,
     restoreConversationMessages,
     rootChatReady,
+    setComposerExpanded,
     updateConversationId,
     user?.uid,
     vaultKey,
@@ -3639,7 +3789,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       pendingAppAction ||
       pendingSpecialistDirective ||
       emailDraftOpen ||
-      isGmailKycSaving ||
       gmailKycReplyRequest ||
       queuedHandoffPrompt ||
       connectorExternalModalOpen
@@ -3684,7 +3833,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     activeActionRun, composerExpanded, connectorExternalModalOpen,
     conversationId, drawerMode, emailDraftOpen, gmailKycReplyRequest,
     hasChatAccess, historyInteractionDisabled, input,
-    isGmailKycSaving, isHistoryDrawerOpen, isLoadingHistory, isPkmMemoryWorking,
+    isHistoryDrawerOpen, isLoadingHistory, isPkmMemoryWorking,
     isPuppySurface, longPromptAttachment, pendingAppAction,
     pendingSpecialistDirective, queuedHandoffPrompt, user?.uid, vaultKey,
   ]);
@@ -4028,6 +4177,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     textInput: string,
     options: AgentRunTurnOptions = { source: "typed" },
   ) => {
+    for (const name of [
+      "send-handler-entry",
+      "pkm-prepare-start",
+      "pkm-prepare-end",
+      "dispatch-start",
+    ]) {
+      performance.clearMarks(`hushh:agent-chat:${name}`);
+    }
+    performance.mark("hushh:agent-chat:send-handler-entry");
     const text = textInput.trim();
     if (!text || !hasChatAccess || !user?.uid) return;
     // Pre-model paste guard: a message that appears to contain a full card
@@ -4468,6 +4626,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       role: "user",
       text,
       timestamp,
+      gmailInformationRequestWorkflowId: options.gmailInformationRequestWorkflowId,
     };
     const assistantMessage: AgentMessage = {
       id: assistantMessageId,
@@ -4517,6 +4676,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     const streamAbortController = new AbortController();
     streamAbortControllerRef.current = streamAbortController;
     const pkmContextStartedAt = performance.now();
+    performance.mark("hushh:agent-chat:pkm-prepare-start");
 
     const loadTurnPkmContext = async (): Promise<AgentPkmContext> => {
       if (!vaultKey) {
@@ -4579,6 +4739,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       let agentPkmContext = EMPTY_PKM_CONTEXT;
       try {
         agentPkmContext = await loadTurnPkmContext();
+        performance.mark("hushh:agent-chat:pkm-prepare-end");
         turnPkmContext = agentPkmContext;
         if (streamAbortController.signal.aborted) {
           finishCanceledTurn();
@@ -4636,6 +4797,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         return;
       }
 
+      performance.mark("hushh:agent-chat:dispatch-start");
       const streamResult = await streamAgentChat({
         userId,
         message: text,
@@ -4643,6 +4805,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         vaultOwnerToken: token,
         pkmContext: agentPkmContext.text || undefined,
         personSelectionHandle: options.personSelectionHandle,
+        gmailInformationRequestWorkflowId: options.gmailInformationRequestWorkflowId,
         screenContext: buildOneVoiceStructuredScreenContext({
           appRuntimeState: appRuntimeStateRef.current,
           state: useAgentVoiceState.getState().oneVoiceState,
@@ -4865,6 +5028,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       }
     }
   };
+
+  runAgentTurnRef.current = runAgentTurn;
 
   /**
    * Follow-up turn that reports a specialist DelegateResult back to One.
@@ -5436,10 +5601,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       }
       return;
     }
-    if (gmailKycReplyRequest && gmailKycMissingLabels.length > 0) {
-      await submitGmailKycDetails(text);
-      return;
-    }
     enqueuePrompt(submittedText, undefined, {
       deferPkmContext: attachment !== null,
     });
@@ -5488,8 +5649,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     if (longPromptAttachment?.isExpanded) {
       setLongPromptAttachment(createPendingTextAttachment(input));
       setInput("");
+    } else if (input.trim()) {
+      manuallyCollapsedComposerDraftsRef.current.add(composerDraftKey);
     }
     setComposerExpanded(false);
+  };
+
+  const expandComposer = () => {
+    manuallyCollapsedComposerDraftsRef.current.delete(composerDraftKey);
+    setComposerExpanded(true);
   };
 
   const removeLongPromptAttachment = () => {
@@ -6217,9 +6385,52 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                   ) : (
                     <AgentBubble
                       message={message}
+                      onInformationRequestSubmitted={async (activityId, receipt) => {
+                        const ownerUid = user?.uid;
+                        const threadId = conversationIdRef.current;
+                        const ownerToken = vaultOwnerToken;
+                        const epoch = historyRestoreEpochRef.current;
+                        if (!ownerUid || !threadId || !ownerToken) {
+                          toast.error("Request sent, but Chat history could not be saved.");
+                          return;
+                        }
+                        try {
+                          const review = await recordAgentChatInformationRequest({
+                            conversationId: threadId,
+                            sourceActivityId: activityId,
+                            bundleId: receipt.bundleId,
+                            idempotencyKey: receipt.idempotencyKey,
+                            vaultOwnerToken: ownerToken,
+                          });
+                          if (review.type !== "one.information_request_review.v1"
+                            || review.subjectRef !== receipt.subjectRef) {
+                            throw new Error("Submitted request history did not match the recipient.");
+                          }
+                          clearAgentChatHistoryCache(ownerUid);
+                          if (historyRestoreEpochRef.current !== epoch || conversationIdRef.current !== threadId) return;
+                          setMessages((current) => current.map((item) => item.id !== message.id ? item : {
+                            ...item,
+                            structuredExperiences: (item.structuredExperiences ?? []).map((entry) =>
+                              entry.id === activityId ? { ...entry, experience: review } : entry),
+                          }));
+                        } catch {
+                          toast.error("Request sent, but Chat history could not be saved.");
+                        }
+                      }}
                       onOpenConnections={(trigger) => { historyDrawerTriggerRef.current = trigger; setDrawerMode("connections"); setIsHistoryDrawerOpen(true); }}
                       userAvatarUrl={userAvatarUrl}
                       userInitials={userInitials}
+                      gmailInformationRequestAttachment={
+                        hasChatAccess && message.gmailInformationRequestWorkflowId ? (
+                          <GmailInformationRequestAttachment
+                            loadPreview={() =>
+                              loadGmailInformationRequestPreview(
+                                message.gmailInformationRequestWorkflowId!,
+                              )
+                            }
+                          />
+                        ) : undefined
+                      }
                       retryDisabled={isChatLoading || isStreaming}
                       rating={messageRatings[message.serverMessageId ?? message.id] ?? null}
                       onRate={(next) =>
@@ -7237,11 +7448,12 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                    * text box now stays the same element; only its size, the
                    * corner control and the labels change. */}
                   <div
+                    ref={composerSurfaceRef}
                     data-testid={composerExpanded ? "agent-chat-composer-expanded" : "agent-chat-composer"}
                     className={cn(
                       composerExpanded
-                        ? "relative mb-2 overflow-hidden rounded-[24px]"
-                        : "flex min-h-14 items-center gap-2 overflow-hidden rounded-[var(--app-input-radius)] border-[1.5px] border-black/10 px-4 transition-[border-color,box-shadow,background-color] dark:border-white/15 focus-within:border-[color:var(--app-accent)] focus-within:ring-4 focus-within:ring-[color:var(--app-accent-ring)]",
+                        ? "agent-chat-composer-surface relative mb-2 overflow-hidden rounded-[24px]"
+                        : "agent-chat-composer-surface flex min-h-[3.75rem] items-center gap-2 overflow-hidden rounded-[var(--app-input-radius)] px-2.5 pl-3.5",
                       composerExpanded
                         ? isCanonicalChatRoute
                           ? "bottom-chrome-surface"
@@ -7268,11 +7480,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         aria-label={composerExpanded ? "Expanded message One" : "Message One"}
                         value={input}
                         onChange={(event) => setInput(event.target.value)}
-                        onFocus={() => {
-                          if (isCanonicalChatRoute) {
-                            snapKaiBottomChromeVisible();
-                          }
-                        }}
                         onPaste={handleComposerPaste}
                         onKeyDown={(event) => {
                           if (
@@ -7295,24 +7502,18 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         }}
                         disabled={
                           recoveryInspectionPending ||
-                          isVoiceConnecting ||
-                          emailDraftOpen ||
-                          isGmailKycSaving
+                          isVoiceConnecting || emailDraftOpen
                         }
                         placeholder={
-                          isGmailKycSaving && gmailKycReplyRequest
-                            ? "Preparing your reply to the selected Mail request…"
-                            : gmailKycMissingLabels.length > 0
-                            ? `Reply with: ${gmailKycMissingLabels.join(", ")}`
-                            : composerExpanded
+                          composerExpanded
                             ? "Write a longer message..."
                             : "Message One..."
                         }
                         rows={1}
                         className={
                           composerExpanded
-                            ? "block h-[min(38dvh,18rem)] w-full resize-none overscroll-contain overflow-y-auto bg-transparent px-4 pb-14 pr-32 pt-4 text-[16px] leading-6 text-foreground caret-[color:var(--app-accent)] outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60 sm:h-[min(48dvh,30rem)] sm:px-5 sm:pb-16 sm:pr-36 sm:pt-5 sm:text-sm break-words [overflow-wrap:anywhere] [word-break:break-word]"
-                            : "h-auto max-h-28 min-h-0 min-w-0 flex-1 resize-none overscroll-contain overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden border-0 bg-transparent px-0 py-2.5 text-[15px] leading-snug text-foreground caret-[color:var(--app-accent)] outline-none shadow-none focus-visible:border-transparent focus-visible:ring-0 placeholder:text-muted-foreground/60 disabled:cursor-not-allowed disabled:opacity-60 sm:max-h-36 sm:text-sm break-words [overflow-wrap:anywhere] [word-break:break-word]"
+                            ? "block h-[30dvh] w-full resize-none overscroll-contain overflow-y-auto bg-transparent px-4 pb-14 pr-32 pt-4 text-[16px] leading-6 text-foreground caret-[color:var(--app-accent)] outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60 sm:px-5 sm:pb-16 sm:pr-36 sm:pt-5 sm:text-sm break-words [overflow-wrap:anywhere] [word-break:break-word]"
+                                : "h-auto max-h-28 min-h-0 min-w-0 flex-1 resize-none overscroll-contain overflow-y-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden border-0 bg-transparent px-0 py-3 text-[15px] leading-snug text-foreground caret-[color:var(--app-accent)] outline-none shadow-none focus-visible:border-transparent focus-visible:ring-0 placeholder:text-muted-foreground/70 disabled:cursor-not-allowed disabled:opacity-60 sm:max-h-36 sm:text-sm break-words [overflow-wrap:anywhere] [word-break:break-word]"
                         }
                       />
                       <Button
@@ -7321,9 +7522,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         size="icon"
                         data-testid={composerExpanded ? undefined : "agent-chat-composer-expand"}
                         className={
-                          composerExpanded
-                            ? "absolute right-2 top-2 h-8 w-8 rounded-lg text-muted-foreground"
-                            : "h-8 w-8 shrink-0 rounded-lg text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground disabled:pointer-events-none disabled:opacity-30"
+                            composerExpanded
+                              ? "absolute right-2 top-2 h-8 w-8 rounded-lg text-muted-foreground"
+                              : "h-9 w-9 shrink-0 rounded-full border border-foreground/[0.08] bg-foreground/[0.045] text-muted-foreground hover:border-[color:var(--app-accent)]/25 hover:bg-[color:var(--app-accent)]/10 hover:text-[color:var(--app-accent)] disabled:pointer-events-none disabled:opacity-30"
                         }
                         aria-label={composerExpanded ? "Collapse message editor" : "Expand message editor"}
                         title={composerExpanded ? "Collapse" : "Expand"}
@@ -7331,11 +7532,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           composerExpanded
                             ? false
                             : !input.trim() ||
-                              isVoiceConnecting ||
-                              emailDraftOpen ||
-                              isGmailKycSaving
+                              isVoiceConnecting || emailDraftOpen
                         }
-                        onClick={composerExpanded ? collapseComposer : () => setComposerExpanded(true)}
+                        onClick={composerExpanded ? collapseComposer : expandComposer}
                       >
                         {composerExpanded ? (
                           <Minimize2 className="h-4 w-4" />
@@ -7344,15 +7543,17 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                         )}
                       </Button>
                     </div>
-                    <div
-                      className={
-                        composerExpanded
-                          ? "absolute bottom-3 right-3 flex items-center gap-2 sm:bottom-4 sm:right-4"
-                          : "flex shrink-0 items-center gap-1.5"
-                      }
-                    >
-                      {composerActionRail}
-                    </div>
+                        <div
+                          className={
+                            composerExpanded
+                              ? "absolute bottom-3 right-3 flex items-center gap-2 sm:bottom-4 sm:right-4"
+                              : "flex shrink-0 items-center gap-1.5"
+                          }
+                        >
+                          <div className="flex items-center gap-1 rounded-full border border-foreground/[0.08] bg-foreground/[0.045] p-1">
+                            {composerActionRail}
+                          </div>
+                        </div>
                   </div>
                 </>
               )}

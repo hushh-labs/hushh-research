@@ -61,14 +61,16 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).not.toContain("streamAbortControllerRef.current?.abort();\n    streamAbortControllerRef.current = streamAbortController");
   });
 
-  it("keeps compact composer controls inside a rectangular editor and opens a separate long-form editor", () => {
+  it("keeps one composer and lets auto-expanded drafts return to compact size", () => {
     const workspace = read("components/agent/agent-chat-workspace.tsx");
 
     expect(workspace).toContain("agent-chat-composer-expand");
     expect(workspace).toContain("agent-chat-composer-expanded");
     expect(workspace).toContain("agent-chat-composer-expanded-textarea");
     expect(workspace).toContain("overflow-y-auto");
-    expect(workspace).toContain("px-0 py-2.5");
+    expect(workspace).toContain("agent-chat-composer-surface");
+    expect(workspace).toContain("px-0 py-3");
+    expect(workspace).not.toContain("<Sparkles className=\"h-3.5 w-3.5\" />");
     expect(workspace).toContain("rounded-[var(--app-input-radius)]");
     expect(workspace).not.toContain("agent-chat-composer\"\n                      className=\"flex min-h-16 items-end gap-2 rounded-2xl border");
     expect(workspace).toContain('"flex shrink-0 items-center gap-1.5"');
@@ -77,8 +79,12 @@ describe("private-agent chat shell contract", () => {
     expect(workspace.match(/ref=\{composerTextareaRef\}/g) ?? []).toHaveLength(1);
     expect(workspace).toContain("max-h-28");
     expect(workspace).toContain("sm:max-h-36");
-    expect(workspace).toContain("h-[min(38dvh,18rem)]");
-    expect(workspace).toContain("sm:h-[min(48dvh,30rem)]");
+    expect(workspace).toContain("h-[30dvh]");
+    expect(workspace).toContain("{ duration: 120, easing, fill: \"none\" }");
+    expect(workspace).toContain("transformOrigin: \"left bottom\"");
+    expect(workspace).toContain("manuallyCollapsedComposerDraftsRef.current.add(composerDraftKey)");
+    expect(workspace).toContain("!manuallyCollapsedComposerDraftsRef.current.has(composerDraftKey)");
+    expect(workspace).toContain("onClick={composerExpanded ? collapseComposer : expandComposer}");
     // `composerLong` was removed from this file some time ago; the expanded
     // editor is driven by `composerExpanded` now. The stale name had left this
     // whole case red, which is how a red suite stops being read at all.

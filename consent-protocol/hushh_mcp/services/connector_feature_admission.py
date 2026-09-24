@@ -11,6 +11,7 @@ import os
 FEATURES = {
     "connections_panel_v2": "CONNECTIONS_PANEL_V2",
     "google_drive_connection": "GOOGLE_DRIVE_CONNECTION",
+    "google_drive_live": "GOOGLE_DRIVE_LIVE",
     "google_drive_picker": "GOOGLE_DRIVE_PICKER",
     "drive_document_indexing": "DRIVE_DOCUMENT_INDEXING",
     "drive_document_sharing": "DRIVE_DOCUMENT_SHARING",

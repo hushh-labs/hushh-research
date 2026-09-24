@@ -157,6 +157,20 @@ function routeSort(left, right) {
 }
 
 const routeOverrides = {
+  "/": {
+    api_dependencies: [{
+      service_file: "lib/services/agent-chat-client.ts",
+      service_methods: ["streamAgentChat", "getAgentChatHistory", "recordAgentChatInformationRequest"],
+      nextjs_api_route: "/api/one/{path*}",
+      nextjs_proxy_file: "app/api/one/[...path]/route.ts",
+      backend_endpoint_family: "/api/one/agent-chat/{history/*,conversations/*}",
+      native_transport: "CapacitorHttp direct backend via ApiService.apiFetch",
+    }],
+    native_plugin_dependencies: [],
+    thread_and_consent_contract: {
+      submitted_card_history: "Owner-bound request receipts are metadata-only encrypted session events; grant status and values require current authority and browser-only decrypt.",
+    },
+  },
   "/people/[personRef]": {
     api_dependencies: [
       {

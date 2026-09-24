@@ -1,6 +1,9 @@
 import base64
+import hashlib
 import time
+import uuid
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -11,7 +14,33 @@ from hushh_mcp.consent.export_envelope import (
 from hushh_mcp.services import information_request_service as information_request_module
 from hushh_mcp.services.consent_center_service import ConsentCenterService
 from hushh_mcp.services.consent_db import ConsentDBService
-from hushh_mcp.services.information_request_service import InformationRequestService
+from hushh_mcp.services.information_request_service import (
+    InformationRequestError,
+    InformationRequestService,
+)
+
+
+@pytest.mark.asyncio
+async def test_submission_receipt_requires_owner_bound_creation_key(monkeypatch):
+    service = InformationRequestService()
+    key = "synthetic-submission-key-123"
+    owner = "owner-a"
+    digest = hashlib.sha256(f"{owner}|{key}".encode()).hexdigest()
+    bundle_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"hussh:information-request:{digest}"))
+    read = AsyncMock(return_value={"bundleId": bundle_id})
+    stored = AsyncMock(return_value=({"idempotency_hash": digest}, []))
+    monkeypatch.setattr(service, "get", read)
+    monkeypatch.setattr(service, "_bundle", stored)
+    assert await service.verify_submission_receipt(
+        requester_user_id=owner, bundle_id=bundle_id, idempotency_key=key
+    ) == {"bundleId": bundle_id}
+    read.assert_awaited_once_with(requester_user_id=owner, bundle_id=bundle_id)
+    with pytest.raises(InformationRequestError):
+        await service.verify_submission_receipt(
+            requester_user_id="owner-b", bundle_id=bundle_id, idempotency_key=key
+        )
+    assert read.await_count == 1
+    assert stored.await_count == 2
 
 
 class _Profiles:

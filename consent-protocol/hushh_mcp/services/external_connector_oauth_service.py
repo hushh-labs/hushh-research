@@ -105,10 +105,20 @@ class ExternalConnectorOAuthService:
         return attempt_id
 
     async def start(
-        self, *, user_id: str, connector_id: str, redirect_uri: str, flow: str = "web"
+        self,
+        *,
+        user_id: str,
+        connector_id: str,
+        redirect_uri: str,
+        flow: str = "web",
+        profile: str = "selected",
     ) -> dict[str, Any]:
         if connector_id == "google_drive":
-            return await self.drive().start(user_id=user_id, redirect_uri=redirect_uri, flow=flow)
+            return await self.drive().start(
+                user_id=user_id, redirect_uri=redirect_uri, flow=flow, profile=profile
+            )
+        if profile != "selected":
+            raise ExternalConnectorOAuthError("This connector does not support live access")
         if flow != "web":
             raise ExternalConnectorOAuthError(
                 "This connector does not support native authorization"

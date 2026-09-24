@@ -11,7 +11,9 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 from collections.abc import AsyncGenerator
+from types import SimpleNamespace
 
 import pytest
 from ag_ui.core import (
@@ -138,6 +140,51 @@ async def test_log_line_carries_no_identifying_records(monkeypatch, caplog):
 
     line = _timing_lines(caplog)[0]
     assert MESSAGE_TEXT not in line
+
+
+def test_model_callback_times_provider_and_keeps_prompt_text_out_of_logs(monkeypatch, caplog):
+    monkeypatch.setenv("HUSHH_ONE_CHAT_TIMING_DETAIL", "1")
+    caplog.set_level(logging.INFO, logger=LOGGER_NAME)
+    timing = agui_turn_timing.TurnTiming(
+        head=HEAD_ONE, run="timing01", started_at=time.perf_counter()
+    )
+    token = agui_turn_timing._CURRENT_TURN.set(timing)
+    request = SimpleNamespace(
+        model="gemini-3.8-flash",
+        config=SimpleNamespace(
+            system_instruction="private system instruction",
+            thinking_config=SimpleNamespace(thinking_level=SimpleNamespace(value="LOW")),
+            tools=[{"name": "safe_tool_schema"}],
+        ),
+        contents=[SimpleNamespace(parts=[SimpleNamespace(text="private request text")])],
+    )
+    barrier_calls = []
+    monkeypatch.setattr(
+        agui_turn_timing,
+        "before_external_read_model",
+        lambda context, llm_request: barrier_calls.append((context, llm_request)),
+    )
+    try:
+        agui_turn_timing.timed_one_before_model(object(), request)
+        time.sleep(0.01)
+        agui_turn_timing.timed_one_after_model(object(), object())
+    finally:
+        agui_turn_timing._CURRENT_TURN.reset(token)
+
+    assert len(barrier_calls) == 1
+    assert timing.model_calls == 1
+    assert timing.model_call_total_ms >= 5
+    assert timing.prompt_chars_peak == len("private system instructionprivate request text")
+    assert timing.tool_schema_chars_peak == len(repr(request.config.tools))
+    assert timing.history_items_peak == 1
+
+    timing.log()
+    line = _timing_lines(caplog)[-1]
+    assert "model_calls=1" in line
+    assert "model_id=gemini-3.8-flash" in line
+    assert "thinking_level=LOW" in line
+    assert "private system instruction" not in line
+    assert "private request text" not in line
     assert THREAD_ID not in line
     assert USER_ID not in line
     assert RUN_ID not in line, "only the eight-character run label may appear"

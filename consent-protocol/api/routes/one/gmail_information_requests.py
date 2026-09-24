@@ -6,7 +6,7 @@ import logging
 import os
 from typing import Any, Literal, cast
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.concurrency import run_in_threadpool
 from google.auth.transport.requests import Request as GoogleAuthRequest
 from google.oauth2 import id_token as google_id_token
@@ -280,6 +280,26 @@ async def refresh_information_request_candidates(
                 user_id=user_id,
                 workflow_id=workflow_id,
             ),
+        )
+    except Exception as exc:  # noqa: BLE001 - HTTP boundary sanitizes provider/database details
+        raise _as_http_error(exc) from exc
+
+
+@router.get("/{workflow_id}/source-preview")
+async def get_information_request_source_preview(
+    workflow_id: str,
+    response: Response,
+    firebase_uid: str = Depends(require_firebase_auth),
+    token_data: dict[str, Any] = Depends(require_vault_owner_token),
+) -> dict[str, str]:
+    """Fetch the selected KYC email only for the current vault owner to view."""
+
+    user_id = _owner_user_id(firebase_uid=firebase_uid, token_data=token_data)
+    try:
+        response.headers["Cache-Control"] = "private, no-store"
+        return cast(
+            dict[str, str],
+            await _service().get_source_preview(user_id=user_id, workflow_id=workflow_id),
         )
     except Exception as exc:  # noqa: BLE001 - HTTP boundary sanitizes provider/database details
         raise _as_http_error(exc) from exc
