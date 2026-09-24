@@ -25,6 +25,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from hushh_mcp.services.mcp_public_http import create_public_mcp_http_client, validate_mcp_endpoint
+
 logger = logging.getLogger("external_mcp_client")
 
 _DEFAULT_TIMEOUT_SECONDS = 20.0
@@ -170,7 +172,11 @@ async def list_tools(
         from mcp.client.session import ClientSession
         from mcp.client.streamable_http import streamablehttp_client
 
-        client_kwargs: dict[str, Any] = {"headers": dict(headers)} if headers else {}
+        validate_mcp_endpoint(endpoint)
+        client_kwargs: dict[str, Any] = {
+            "headers": dict(headers) if headers else None,
+            "httpx_client_factory": create_public_mcp_http_client,
+        }
         async with streamablehttp_client(endpoint, **client_kwargs) as (
             read_stream,
             write_stream,
@@ -212,7 +218,11 @@ async def call_tool(
         from mcp.client.session import ClientSession
         from mcp.client.streamable_http import streamablehttp_client
 
-        client_kwargs: dict[str, Any] = {"headers": dict(headers)} if headers else {}
+        validate_mcp_endpoint(endpoint)
+        client_kwargs: dict[str, Any] = {
+            "headers": dict(headers) if headers else None,
+            "httpx_client_factory": create_public_mcp_http_client,
+        }
         async with streamablehttp_client(endpoint, **client_kwargs) as (
             read_stream,
             write_stream,

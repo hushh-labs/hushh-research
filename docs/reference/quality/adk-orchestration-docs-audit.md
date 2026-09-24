@@ -2,6 +2,32 @@
 
 **Review basis:** repository `HEAD` `4fb27f5a06a397ac3d42599a55e5da2245ddf5a2`, inspected 2026-09-23. The Plaid retirement implementation is committed on this branch; this documentation audit is an uncommitted working-tree change. Branch source inspection does not establish that the code is deployed or that per-environment cleanup completed.
 
+## Shared MCP transport checkpoint — 2026-09-24
+
+On ADK base `236db2404`, discovery and invocation now use the same public-HTTPS
+transport. Validation happens at each socket connection: all DNS answers must
+be public, TCP uses a vetted numeric address, and TLS retains the original host.
+Redirect following, environment proxies, Unix sockets and connection retries are
+disabled. The initial endpoint policy admits HTTPS port 443 without userinfo,
+query credentials or fragments; nonstandard ports/query-based endpoints are not
+admitted by this policy. Error messages do not include endpoint contents.
+
+The implementation uses the documented public
+[HTTPcore network-backend seam](https://www.encode.io/httpcore/network-backends/)
+and [HTTPX transport interface](https://www.python-httpx.org/advanced/transports/).
+HTTPcore is now an explicit dependency, without changing its installed version.
+
+Verification: **104 focused tests passed**, covering the transport and existing
+Workspace provider/runtime contracts. These include DNS rebinding, mixed private
+and public answers, TLS host preservation, redirect/proxy refusal, timeouts, and
+both MCP discovery and call factory wiring. This is automated evidence, not a
+live provider, custom-registration, browser, native or release acceptance claim.
+
+Still open: owner-private registration ingress and account-erasure proof,
+OAuth discovery protections, shared ADK toolset admission/approval, Settings/Chat
+catalog refresh, governed continuation, and the approved live/release gates.
+Response normalization limits are not proof of a wire-level response-byte limit.
+
 ## Product-agent hierarchy audit — 2026-09-24
 
 Source baseline: ADK `6ae5a2a5965a79d75ec72e4fdf5e90b667df1a2b`.
