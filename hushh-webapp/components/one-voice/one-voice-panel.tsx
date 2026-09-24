@@ -16,6 +16,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Loader2 } from "@/components/icons";
 
+import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
 import {
   SOS_PUBLISH_PURPOSE,
@@ -48,10 +49,12 @@ export type OneVoicePanelProps = {
 };
 
 const MAX_LOOSE_ENTITIES = 3;
-// A 44px-tall text control, matching the dock's touch-target floor. Disabled
-// state is a real `disabled` attribute so assistive tech reports it too.
+// A 44px-tall text control, matching the dock's touch-target floor.
 const CLEAR_ACTION_BUTTON =
-  "flex h-11 min-w-11 shrink-0 touch-manipulation items-center justify-center rounded-full px-3 text-[12px] font-semibold leading-none text-[color:var(--app-secondary-label)] disabled:opacity-40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-focus-ring)]";
+  "flex h-11 min-w-11 shrink-0 touch-manipulation items-center justify-center rounded-full px-3 text-[13px] font-medium leading-[18px] text-[color:var(--app-secondary-label)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-focus-ring)]";
+const PANEL_HEADER =
+  "sticky top-0 z-10 flex min-h-12 items-center justify-between gap-2 bg-[color:var(--app-card-surface-default-solid)] px-4 sm:px-5";
+const PANEL_CONTENT = "flex flex-col gap-3 px-4 pb-5 pt-2 sm:px-5";
 const HANDOFF_STATUSES = new Set<string>([
   "confirmation_required",
   "tap_required",
@@ -154,8 +157,8 @@ export function isSosPublishStep(step: ClientStepView | null): boolean {
 /** True when there is anything worth opening the panel for. */
 export function panelHasContent(state: VoiceSessionState): boolean {
   return (
-    // A cleared view is still a view: the panel keeps its controls and its
-    // empty state instead of vanishing and taking the toggle with it.
+    // A cleared view is still a view: keep the panel and its empty state so
+    // the dock toggle remains available even after earlier messages vanish.
     state.historyCleared ||
     state.transcript.some((item) => item.text.trim().length > 0) ||
     state.entities.length > 0 ||
@@ -181,12 +184,13 @@ export function OneVoicePanel({
   const [askingClear, setAskingClear] = useState(false);
   const clearButtonRef = useRef<HTMLButtonElement | null>(null);
   const clearConfirmRef = useRef<HTMLButtonElement | null>(null);
-  // Focus must not be dropped on the document when the toolbar swaps for the
+  const conversationHeadingRef = useRef<HTMLHeadingElement | null>(null);
+  // Focus must not be dropped on the document when the clear utility swaps for the
   // confirmation and back, or a keyboard or screen-reader user loses their
   // place mid-decision. Only moved in response to the person's own click.
-  const [focusTarget, setFocusTarget] = useState<"none" | "confirm" | "clear">(
-    "none",
-  );
+  const [focusTarget, setFocusTarget] = useState<
+    "none" | "confirm" | "clear" | "conversation"
+  >("none");
   const picker = state.candidatePicker;
   const pending = state.pendingAction;
   // A confirmation is actionable only until its matching terminal receipt
@@ -209,11 +213,9 @@ export function OneVoicePanel({
   useEffect(() => {
     if (focusTarget === "confirm") clearConfirmRef.current?.focus();
     if (focusTarget === "clear") clearButtonRef.current?.focus();
+    if (focusTarget === "conversation") conversationHeadingRef.current?.focus();
     if (focusTarget !== "none") setFocusTarget("none");
   }, [focusTarget]);
-  // The reducer owns "the view is cleared", so the control and its notice
-  // survive a remount and disappear on their own once a new turn arrives.
-  const showClearRow = canClearHistory || state.historyCleared;
 
   const pendingEntityKeys = new Set(
     (openPending?.entities ?? []).map(
@@ -231,6 +233,16 @@ export function OneVoicePanel({
           )
           .slice(0, MAX_LOOSE_ENTITIES)
       : [];
+  // The empty conversation copy is useful only when there is no live card to
+  // act on. A pending decision, progress, recovery error, or result remains
+  // the panel's actual content after history has been cleared.
+  const hasRenderedLiveContent =
+    looseEntities.length > 0 ||
+    picker !== null ||
+    visiblePending !== null ||
+    sosPublishing ||
+    resultSlot !== null ||
+    error !== null;
 
   const busy = confirming || state.phase === "executing";
   const confirm = async () => {
@@ -257,74 +269,25 @@ export function OneVoicePanel({
       aria-label="One conversation"
       data-testid="one-voice-panel"
       className={cn(
-        "bottom-chrome-surface one-voice-panel-enter pointer-events-auto flex max-h-[min(52dvh,420px)] w-full flex-col gap-3 overflow-y-auto overscroll-contain rounded-[24px] p-3",
+        "bottom-chrome-surface one-voice-panel-enter pointer-events-auto flex max-h-[min(52dvh,420px)] w-full flex-col overflow-y-auto overscroll-contain rounded-[24px]",
         className,
       )}
     >
-      {askingClear ? (
-        <div
-          role="alertdialog"
-          aria-label="Clear chat view?"
-          data-testid="one-voice-clear-confirm"
-          className="flex flex-col gap-2 rounded-[var(--app-card-radius-standard,24px)] border border-[color:var(--app-separator)] bg-[color:var(--app-card-surface-default-solid)] p-3"
+      <div data-testid="one-voice-panel-header" className={PANEL_HEADER}>
+        <h2
+          ref={conversationHeadingRef}
+          data-testid="one-voice-panel-title"
+          tabIndex={-1}
+          className="rounded-md text-sm font-semibold leading-5 text-[color:var(--app-label)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)]"
         >
-          <p className="text-[13px] font-semibold text-[color:var(--app-label)]">
-            Clear chat view?
-          </p>
-          <p className="text-[12px] text-[color:var(--app-secondary-label)]">
-            Removes earlier messages from this view. Voice stays active, and One
-            can still use earlier conversation context.
-          </p>
-          <div className="flex items-center justify-end gap-2">
-            <button
-              type="button"
-              data-testid="one-voice-clear-cancel"
-              onClick={() => {
-                setAskingClear(false);
-                setFocusTarget("clear");
-              }}
-              className={CLEAR_ACTION_BUTTON}
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              data-testid="one-voice-clear-confirm-action"
-              ref={clearConfirmRef}
-              onClick={() => {
-                setAskingClear(false);
-                setFocusTarget("clear");
-                controller.clearView();
-              }}
-              className={CLEAR_ACTION_BUTTON}
-            >
-              Clear view
-            </button>
-          </div>
-        </div>
-      ) : showClearRow ? (
-        // The panel itself scrolls and the transcript follows the latest
-        // line, so a static toolbar scrolled out of reach exactly when there
-        // was history to clear. Pinning it keeps the control reachable.
-        <div
-          data-testid="one-voice-panel-toolbar"
-          className="bottom-chrome-surface sticky top-0 z-10 -mx-3 -mt-3 flex min-h-11 items-center justify-between gap-2 px-3 pt-3"
-        >
-          <p
-            data-testid="one-voice-clear-status"
-            role="status"
-            aria-live="polite"
-            className="text-[12px] text-[color:var(--app-tertiary-label)]"
-          >
-            {/* The notice stands down as soon as the view has content again,
-                so it cannot keep claiming "cleared" over a filled panel. */}
-            {state.historyCleared && !canClearHistory ? "Chat view cleared" : ""}
-          </p>
+          Conversation
+        </h2>
+        {!askingClear && canClearHistory ? (
           <button
             type="button"
             data-testid="one-voice-clear-history"
-            disabled={!canClearHistory}
             aria-label="Clear chat view"
+            title="Clear chat view"
             ref={clearButtonRef}
             onClick={() => {
               setAskingClear(true);
@@ -332,91 +295,142 @@ export function OneVoicePanel({
             }}
             className={CLEAR_ACTION_BUTTON}
           >
-            Clear chat view
+            Clear view
           </button>
-        </div>
-      ) : null}
+        ) : null}
+      </div>
 
-      <VoiceTranscript items={state.transcript} />
-
-      {looseEntities.length > 0 ? (
-        <div
-          className="flex flex-col gap-1.5"
-          data-testid="one-voice-panel-entities"
-        >
-          {looseEntities.map((entity, index) => (
-            <EntityCard
-              key={`${entity.kind}:${entity.user_id ?? entity.circle_id ?? index}`}
-              card={entity}
+      <div data-testid="one-voice-panel-content" className={PANEL_CONTENT}>
+        {askingClear ? (
+          <div
+            role="alertdialog"
+            aria-label="Clear chat view?"
+            data-testid="one-voice-clear-confirm"
+            className="flex flex-col gap-2 rounded-[var(--app-card-radius-standard,24px)] border border-[color:var(--app-separator)] bg-[color:var(--app-card-surface-default-solid)] p-3"
+          >
+            <p className="text-[13px] font-semibold text-[color:var(--app-label)]">
+              Clear chat view?
+            </p>
+            <p className="text-[12px] text-[color:var(--app-secondary-label)]">
+              Removes earlier messages from this view. Voice stays active, and One
+              can still use earlier conversation context.
+            </p>
+            <div className="flex items-center justify-end gap-2">
+              <button
+                type="button"
+                data-testid="one-voice-clear-cancel"
+                onClick={() => {
+                  setAskingClear(false);
+                  setFocusTarget("clear");
+                }}
+                className={CLEAR_ACTION_BUTTON}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                data-testid="one-voice-clear-confirm-action"
+                ref={clearConfirmRef}
+                onClick={() => {
+                  setAskingClear(false);
+                  setFocusTarget("conversation");
+                  controller.clearView();
+                  morphyToast.success("Chat view cleared");
+                }}
+                className={CLEAR_ACTION_BUTTON}
+              >
+                Clear view
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <VoiceTranscript
+              items={state.transcript}
+              showEmptyState={!hasRenderedLiveContent}
             />
-          ))}
-        </div>
-      ) : null}
 
-      {picker ? (
-        <CandidatePicker
-          picker={picker}
-          selectedId={pickedId}
-          onPick={(id) => {
-            setPickedId(id);
-            controller.chooseCandidate(id);
-          }}
-          onNone={() => {
-            setPickedId(null);
-            controller.chooseCandidate(null);
-          }}
-        />
-      ) : null}
+            {looseEntities.length > 0 ? (
+              <div
+                className="flex flex-col gap-1.5"
+                data-testid="one-voice-panel-entities"
+              >
+                {looseEntities.map((entity, index) => (
+                  <EntityCard
+                    key={`${entity.kind}:${entity.user_id ?? entity.circle_id ?? index}`}
+                    card={entity}
+                  />
+                ))}
+              </div>
+            ) : null}
 
-      {visiblePending ? (
-        <PendingActionCard
-          action={visiblePending}
-          busy={busy}
-          onConfirm={() => void confirm()}
-          onCancel={() => controller.cancelPending()}
-        />
-      ) : null}
+            {picker ? (
+              <CandidatePicker
+                picker={picker}
+                selectedId={pickedId}
+                onPick={(id) => {
+                  setPickedId(id);
+                  controller.chooseCandidate(id);
+                }}
+                onNone={() => {
+                  setPickedId(null);
+                  controller.chooseCandidate(null);
+                }}
+              />
+            ) : null}
 
-      {sosPublishing ? (
-        <div
-          data-testid="one-voice-sos-publishing"
-          role="status"
-          aria-live="polite"
-          className={cn(
-            "flex min-h-11 items-center gap-2.5 rounded-[var(--app-card-radius-standard,24px)] border border-[color:var(--app-separator)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-2.5",
-          )}
-        >
-          <Loader2
-            className={cn(
-              "h-4 w-4 shrink-0 animate-spin motion-reduce:animate-none",
-              roleClasses("action").glyph,
-            )}
-            aria-hidden
-          />
-          <span className="text-[13px] font-medium text-[color:var(--app-label)]">
-            Sending your position…
-          </span>
-        </div>
-      ) : null}
+            {visiblePending ? (
+              <PendingActionCard
+                action={visiblePending}
+                busy={busy}
+                onConfirm={() => void confirm()}
+                onCancel={() => controller.cancelPending()}
+              />
+            ) : null}
 
-      {resultSlot ? (
-        <ToolResultCard
-          result={resultSlot.result}
-          tool={resultSlot.tool}
-          ok={resultSlot.ok}
-        />
-      ) : null}
+            {sosPublishing ? (
+              <div
+                data-testid="one-voice-sos-publishing"
+                role="status"
+                aria-live="polite"
+                className={cn(
+                  "flex min-h-11 items-center gap-2.5 rounded-[var(--app-card-radius-standard,24px)] border border-[color:var(--app-separator)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-2.5",
+                )}
+              >
+                <Loader2
+                  className={cn(
+                    "h-4 w-4 shrink-0 animate-spin motion-reduce:animate-none",
+                    roleClasses("action").glyph,
+                  )}
+                  aria-hidden
+                />
+                <span className="text-[13px] font-medium text-[color:var(--app-label)]">
+                  Sending your position…
+                </span>
+              </div>
+            ) : null}
 
-      {error ? (
-        <VoiceErrorCard
-          error={error}
-          onRetry={retry}
-          onOpenSettings={
-            isMicPermissionError(error.code) ? onOpenSettings : undefined
-          }
-          onDismiss={onDismissError}
-        />
-      ) : null}
+            {resultSlot ? (
+              <ToolResultCard
+                result={resultSlot.result}
+                tool={resultSlot.tool}
+                ok={resultSlot.ok}
+              />
+            ) : null}
+
+            {error ? (
+              <VoiceErrorCard
+                error={error}
+                onRetry={retry}
+                onOpenSettings={
+                  isMicPermissionError(error.code) ? onOpenSettings : undefined
+                }
+                onDismiss={onDismissError}
+              />
+            ) : null}
+          </>
+        )}
+      </div>
     </div>
   );
 }

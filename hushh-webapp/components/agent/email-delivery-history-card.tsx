@@ -20,6 +20,8 @@ export type EmailDeliveryHistoryItem = {
 
 type EmailDeliveryHistoryCardProps = {
   item: EmailDeliveryHistoryItem;
+  /** Starts an explicit, incremental Gmail send-consent request. */
+  onEnableGmailSend?: () => void;
   onRetry?: (item: EmailDeliveryHistoryItem) => void;
 };
 
@@ -43,6 +45,7 @@ function statusCopy(item: EmailDeliveryHistoryItem): string {
  */
 export function EmailDeliveryHistoryCard({
   item,
+  onEnableGmailSend,
   onRetry,
 }: EmailDeliveryHistoryCardProps) {
   const canRetry = item.status === "failed";
@@ -138,9 +141,15 @@ export function EmailDeliveryHistoryCard({
         {canRetry ? (
           <div className="flex flex-wrap gap-2">
             {needsGmailReconnect ? (
-              <Button asChild type="button" variant="outline" size="sm">
-                <Link href="/one/gmail">Reconnect Mail</Link>
-              </Button>
+              onEnableGmailSend ? (
+                <Button type="button" variant="outline" size="sm" onClick={onEnableGmailSend}>
+                  Enable sending
+                </Button>
+              ) : (
+                <Button asChild type="button" variant="outline" size="sm">
+                  <Link href="/one/gmail">Reconnect Mail</Link>
+                </Button>
+              )
             ) : null}
             {onRetry ? (
               <Button type="button" variant="outline" size="sm" onClick={() => onRetry(item)}>

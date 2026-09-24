@@ -13,6 +13,9 @@ const tsPluginFiles = [
   "lib/capacitor/personal-knowledge-model.ts",
   "lib/capacitor/one-voice-invocation.ts",
   "lib/capacitor/session-privacy.ts",
+  "lib/capacitor/stream.ts",
+  "lib/capacitor/oauth-return.ts",
+  "lib/capacitor/plaid-link.ts",
 ];
 
 const iosPluginsDir = path.join(appRoot, "ios/App/App/Plugins");
@@ -33,6 +36,8 @@ const iosMicrophoneCapturePath = path.join(
 const webOnlyPlugins = new Set(["HushhDatabase", "HushhAgent"]);
 // App Shortcuts are an Apple system surface, not an Android route-parity lane.
 // The TypeScript adapter returns unsupported/no pending invocation elsewhere.
+// (HushhPlaidLink is implemented on both platforms: LinkKit on iOS, Plaid's
+// Link SDK on Android, so it is held to full parity like every other plugin.)
 const iosOnlyPlugins = new Set();
 const appleInvocationMethods = new Set([
   "getPendingInvocation", "claimInvocation", "reportInvocationProgress", "completeInvocation",
@@ -47,6 +52,8 @@ const ignoredTsMethodsByPlugin = new Map([
   ["Kai", new Set(["addListener"])],
   ["HushhVoiceInvocation", new Set(["addListener"])],
   ["HushhSessionPrivacy", new Set(["addListener"])],
+  ["HushhStream", new Set(["addListener"])],
+  ["HushhPlaidLink", new Set(["addListener"])],
 ]);
 
 const failures = [];

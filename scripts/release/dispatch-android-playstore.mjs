@@ -3,7 +3,7 @@
  * One-click Android Google Play Store release trigger.
  *
  * Wraps the GitHub Actions workflow "Ship Android to Google Play Store"
- * (.github/workflows/ship-android-playstore.yml): it resolves the release SHA
+ * (.github/workflows/ship-android-playstore-v1.yml): it resolves the release SHA
  * (the current tip of origin/main by default), asks for confirmation, dispatches
  * the workflow with `gh workflow run`, then streams the run with `gh run watch`.
  *

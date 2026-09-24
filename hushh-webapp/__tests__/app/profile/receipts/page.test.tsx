@@ -1006,7 +1006,7 @@ describe("ProfileReceiptsPage", () => {
     render(<ProfileReceiptsPage initialWorkspace="receipts" />);
 
     expect(
-      screen.getByRole("heading", { name: /checking your mail status/i }),
+      screen.getByRole("heading", { name: /checking your gmail status/i }),
     ).toBeTruthy();
     expect(
       screen.getByText(

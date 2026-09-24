@@ -1527,9 +1527,11 @@ describe("OneLocationAgentPage", () => {
     expect(pageShell).toBeTruthy();
     expect(pageShell?.className).not.toContain("--app-bottom-fixed-ui");
     expect(pageShell?.className).not.toMatch(/\b(?:sm:|md:)?pb-/u);
+    // "fill" makes the pager measure the remaining body so the swipe works
+    // from the whole screen below the tabs, not only from the rendered list.
     expect(screen.getByTestId("location-swipe-views")).toHaveAttribute(
       "data-viewport-min-height",
-      "0px",
+      "fill",
     );
     expect(screen.getByTestId("location-swipe-views")).toHaveAttribute(
       "data-height-mode",
@@ -3973,7 +3975,7 @@ describe("OneLocationAgentPage", () => {
     expect(document.body).toHaveStyle({ pointerEvents: "none" });
     expect(actionsDialog).toHaveStyle({ pointerEvents: "auto" });
     expect(document.querySelector('[data-slot="dialog-overlay"]')).toHaveClass(
-      "backdrop-blur-[12px]",
+      "[backdrop-filter:var(--app-scrim-filter)]",
     );
 
     fireEvent.click(
@@ -6041,6 +6043,55 @@ describe("OneLocationAgentPage", () => {
     },
   );
 
+  it("keeps Ask for location open when it is launched from Shared with me", async () => {
+    window.localStorage.setItem("one_location_onboarding_v2:user_a", "1");
+    window.history.replaceState(
+      window.history.state,
+      "",
+      "/one/location?action=shared-with-me",
+    );
+    mockUseSearchParams.mockReturnValue(
+      new URLSearchParams("action=shared-with-me"),
+    );
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      ownerGrants: [],
+      receivedGrants: [],
+    });
+
+    const view = render(<OneLocationAgentPage />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Shared with me" }),
+    ).toBeTruthy();
+    mockRouterPush.mockClear();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Ask for location" }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Ask for location" }),
+    ).toBeTruthy();
+    expect(window.location.search).toBe("?action=ask");
+    expect(mockRouterPush).not.toHaveBeenCalled();
+
+    // Apply the browser's new query snapshot, as Next does after a native
+    // history write. The URL-sync effect must agree with the focused flow and
+    // must not restore the previous Shared-with-me action a moment later.
+    mockUseSearchParams.mockReturnValue(
+      new URLSearchParams(window.location.search),
+    );
+    view.rerender(<OneLocationAgentPage />);
+
+    expect(
+      await screen.findByRole("heading", { name: "Ask for location" }),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("heading", { name: "Shared with me" }),
+    ).toBeNull();
+  });
+
   it("warns the recipient when the decrypted location update is stale", async () => {
     const staleGrant = {
       id: "grant_stale",
@@ -7087,6 +7138,9 @@ describe("OneLocationAgentPage", () => {
         }),
       ).getByText("Trusted B"),
     ).toBeTruthy();
+    expect(screen.getByText("Request Location")).toBeTruthy();
+    expect(screen.queryByText("Asking", { exact: true })).toBeNull();
+    expect(screen.queryByText("Requesting", { exact: true })).toBeNull();
     expect(
       screen.queryByTestId("one-location-ask-selection-summary"),
     ).toBeNull();
@@ -7108,6 +7162,11 @@ describe("OneLocationAgentPage", () => {
               photoUrl: "https://cdn.example.test/investor-d-avatar.jpg",
               isRia: true,
             }
+          : recipient.userId === "user_c"
+            ? {
+                ...recipient,
+                connectedFromContacts: true,
+              }
           : recipient,
       ),
       // The page derives `requestedByMe` from `requests`, filtered to the ones
@@ -7138,9 +7197,21 @@ describe("OneLocationAgentPage", () => {
     expect(within(list).getAllByRole("listitem").length).toBeGreaterThanOrEqual(
       1,
     );
+    const advisorAction = within(list).getByRole("button", {
+      name: /Select Advisor C/i,
+    });
+    const advisorRow = advisorAction.closest('[role="listitem"]');
+    expect(advisorRow).toBeTruthy();
     expect(
-      within(list).getByRole("button", { name: /Select Advisor C/i }),
-    ).toBeTruthy();
+      within(advisorRow as HTMLElement).getByLabelText(
+        "Connected from your contacts",
+      ),
+    ).toHaveClass(
+      "col-start-2",
+      "row-start-2",
+      "sm:col-start-3",
+      "sm:row-start-1",
+    );
     expect(within(list).queryByText("Trusted B")).toBeNull();
     expect(
       screen.getByTestId("one-location-ask-waiting-summary"),

@@ -43,11 +43,16 @@ import { toast } from "sonner";
 
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
-import { names } from "@/lib/agent/action-directive-summary";
+import {
+  names,
+  requestDurationLabel,
+} from "@/lib/agent/action-directive-summary";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { useConsentActions } from "@/lib/consent/use-consent-actions";
 import { OneKycClientZkService } from "@/lib/services/one-kyc-client-zk-service";
 import { PersonProfileService } from "@/lib/services/person-profile-service";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { dispatchConsentStateChanged } from "@/lib/consent/consent-events";
 
 /** Seconds, from the hours the proposal carried. */
 function durationSeconds(hours: unknown): number {
@@ -103,13 +108,14 @@ export function GlobalConsentActionHandlers() {
         };
       }
 
+      let created: Awaited<ReturnType<typeof PersonProfileService.createInformationRequest>>;
       try {
         const connector = await OneKycClientZkService.ensureConnector({
           userId: user.uid,
           vaultKey,
           vaultOwnerToken,
         });
-        await PersonProfileService.createInformationRequest({
+        created = await PersonProfileService.createInformationRequest({
           personRef,
           scopeRefs,
           purpose,
@@ -123,6 +129,8 @@ export function GlobalConsentActionHandlers() {
           idempotencyKey,
           vaultOwnerToken,
         });
+        CacheSyncService.onConsentMutated(user.uid);
+        dispatchConsentStateChanged({ action: "request", bundleId: created.bundleId, personRef });
       } catch (reason) {
         const message =
           reason instanceof Error && reason.message
@@ -135,11 +143,45 @@ export function GlobalConsentActionHandlers() {
       }
 
       const who = String(slots?.displayName || "").trim();
+      const durationHours = Number(slots?.durationHours);
+      const fields = created.items.map((item) => ({
+        label: item.label,
+        domain: "Information",
+        sensitivity: item.sensitivity || "standard",
+        requestId: item.requestId,
+        status: item.status,
+      }));
       const summary = who
         ? `Asked ${who} for ${names(slots?.labels)}.`
         : `Asked for ${names(slots?.labels)}.`;
       toast.success(summary);
-      return { status: "succeeded" as const, summary };
+      return {
+        status: "succeeded" as const,
+        summary,
+        // Display-only metadata carried through the encrypted AG-UI
+        // settlement. It contains no proposal handles, scope authority,
+        // credentials, or decrypted information.
+        data: {
+          consentCard: {
+            schemaVersion: 1,
+            activityType: "one.information_request_review.v1",
+            direction: "outgoing",
+            phase: "submitted",
+            status: "pending",
+            personName: who || "the selected person",
+            purpose,
+            durationLabel: requestDurationLabel(
+              Number.isFinite(durationHours) && durationHours > 0
+                ? Math.round(durationHours)
+                : 168,
+            ),
+            subjectRef: personRef,
+            bundleId: created.bundleId,
+            requestId: null,
+            fields,
+          },
+        },
+      };
     },
     // Not registered while signed out or locked, so the action drops out of
     // available_action_ids rather than being offered and then refused.
@@ -231,11 +273,17 @@ export function GlobalConsentActionHandlers() {
           summary: "I could not tell which request that was. Ask me what you've sent.",
         };
       }
+      if (!user) {
+        return { status: "failed" as const, summary: "Sign in first." };
+      }
+      const viewerUid = user.uid;
       if (!vaultOwnerToken) {
         return { status: "failed" as const, summary: "Unlock your private agent first." };
       }
       try {
         await PersonProfileService.cancelInformationRequest({ bundleId, vaultOwnerToken });
+        CacheSyncService.onConsentMutated(viewerUid);
+        dispatchConsentStateChanged({ action: "cancel", bundleId });
       } catch (reason) {
         return {
           status: "failed" as const,

@@ -259,7 +259,7 @@ const oneHiddenExpression = oneHiddenMatches[0][1];
  */
 const oneComposerMatch = one(
   workspace,
-  /data-testid="(agent-chat-composer-textarea)"\s*aria-label="([^"]+)"/,
+  /<textarea\s+ref=\{composerTextareaRef\}\s+data-testid=\{\s*composerExpanded\s*\?\s*"agent-chat-composer-expanded-textarea"\s*:\s*"(agent-chat-composer-textarea)"\s*\}\s*aria-label=\{composerExpanded\s*\?\s*"Expanded message One"\s*:\s*"([^"]+)"\}/,
   "One's composer textarea",
   WORKSPACE_PATH,
 );

@@ -5,7 +5,7 @@ Agent Kai API Routes - Modular Package
 This package organizes Kai routes into logical modules:
 - chat.py: Conversational chat endpoint with auto-learning
 - portfolio.py: Portfolio import and analysis
-- plaid.py: Brokerage connectivity, funding link/transfer APIs, OAuth resume, refresh, and source selection
+- plaid_vault.py: Zero-knowledge Plaid passthrough (device holds the access token; no server storage)
 - analyze.py: Non-streaming analysis endpoint
 - stream.py: SSE streaming analysis endpoint
 - decisions.py: Decision history (reads from domain_summaries; legacy CRUD returns 410)
@@ -28,7 +28,7 @@ from .health import router as health_router
 from .local_runtime import router as local_runtime_router
 from .losers import router as losers_router
 from .market_insights import router as market_insights_router
-from .plaid import router as plaid_router
+from .plaid_vault import router as plaid_vault_router
 from .portfolio import router as portfolio_router
 from .stream import router as stream_router
 from .support import router as support_router
@@ -59,34 +59,10 @@ KAI_ROUTE_CONTRACT_PATHS = [
     "/portfolio/import/run/{run_id}/stream",
     "/portfolio/import/run/{run_id}/cancel",
     "/portfolio/summary/{user_id}",
-    "/plaid/status/{user_id}",
-    "/plaid/link-token",
-    "/plaid/link-token/update",
-    "/plaid/oauth/resume",
-    "/plaid/exchange-public-token",
-    "/plaid/funding/link-token",
-    "/plaid/funding/exchange-public-token",
-    "/plaid/funding/status/{user_id}",
-    "/plaid/funding/transactions/sync",
-    "/plaid/funding/default-account",
-    "/plaid/funding/admin/search",
-    "/plaid/funding/admin/transfers/{transfer_id}/refresh",
-    "/plaid/funding/admin/escalations",
-    "/plaid/funding/reconcile",
-    "/alpaca/connect/start",
-    "/alpaca/connect/complete",
-    "/plaid/transfers/create",
-    "/plaid/trades/funded/create",
-    "/plaid/trades/funded",
-    "/plaid/trades/funded/{intent_id}",
-    "/plaid/trades/funded/{intent_id}/refresh",
-    "/plaid/transfers/{transfer_id}",
-    "/plaid/transfers/{transfer_id}/cancel",
-    "/plaid/refresh",
-    "/plaid/refresh/{run_id}",
-    "/plaid/refresh/{run_id}/cancel",
-    "/plaid/source",
-    "/plaid/webhook",
+    "/plaid/vault/link-token",
+    "/plaid/vault/exchange",
+    "/plaid/vault/snapshot",
+    "/plaid/vault/remove",
     "/gmail/connect/start",
     "/gmail/connect/complete",
     "/gmail/status/{user_id}",
@@ -113,7 +89,7 @@ KAI_ROUTE_CONTRACT_PATHS = [
 kai_router.include_router(health_router)
 kai_router.include_router(chat_router)
 kai_router.include_router(portfolio_router)
-kai_router.include_router(plaid_router)
+kai_router.include_router(plaid_vault_router)
 kai_router.include_router(gmail_router)
 kai_router.include_router(consent_router)
 kai_router.include_router(analyze_router)

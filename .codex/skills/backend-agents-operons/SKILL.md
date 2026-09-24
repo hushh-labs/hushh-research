@@ -64,7 +64,7 @@ Non-owned surfaces:
 ## Required Checks
 
 ```bash
-cd consent-protocol && python3 -m pytest tests/agents -q
-cd consent-protocol && python3 -m pytest tests/test_hushh_adk_foundation.py -q
-cd consent-protocol && python3 scripts/verify_agent_hierarchy_contract.py
+cd consent-protocol && uv run pytest tests/agents -q
+cd consent-protocol && uv run pytest tests/test_hushh_adk_foundation.py -q
+cd consent-protocol && uv run python scripts/verify_agent_hierarchy_contract.py
 ```

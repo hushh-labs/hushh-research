@@ -121,6 +121,105 @@ describe("EmailDraftCard", () => {
     expect(onSent).toHaveBeenCalledTimes(1);
   });
 
+  it("shows the resolved Drive file and recipient before a separate Send click", async () => {
+    vi.mocked(EmailDeliveryService.prepare).mockResolvedValue({
+      actionId: "action-drive",
+      expiresAt: null,
+      attachmentToken: "bound-attachment-token",
+      driveAttachment: {
+        filename: "Project brief.pdf",
+        mimeType: "application/pdf",
+        size: 1536,
+        sourceAccountLabel: "Connected Drive account",
+      },
+    });
+    vi.mocked(EmailDeliveryService.send).mockResolvedValue({
+      messageId: "sent-drive",
+      threadId: null,
+      outcomeUnknown: false,
+    });
+    const onSendStarted = vi.fn();
+    render(
+      <EmailDraftCard
+        initialInstruction="Send the selected file to Pat"
+        initialDraft={{
+          to: "pat@example.com", cc: "", bcc: "", subject: "Brief", body: "Please see attached.",
+          driveFileId: "drive-file-1",
+        }}
+        getAuth={getAuth}
+        onRequireVault={vi.fn()}
+        onDismiss={vi.fn()}
+        onSendStarted={onSendStarted}
+        onSent={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Review attachment" }));
+    await waitFor(() => expect(screen.getByTestId("one-email-attachment-review")).toBeInTheDocument());
+    expect(screen.getByTestId("one-email-attachment-review")).toHaveTextContent("Project brief.pdf");
+    expect(screen.getByTestId("one-email-attachment-review")).toHaveTextContent("pat@example.com");
+    expect(EmailDeliveryService.prepare).toHaveBeenCalledWith(expect.objectContaining({
+      draft: expect.objectContaining({ driveFileId: "drive-file-1" }),
+    }));
+    expect(EmailDeliveryService.send).not.toHaveBeenCalled();
+    expect(onSendStarted).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Send email" }));
+    await waitFor(() => expect(EmailDeliveryService.send).toHaveBeenCalledTimes(1));
+    expect(EmailDeliveryService.send).toHaveBeenCalledWith(expect.objectContaining({
+      actionId: "action-drive",
+      attachmentToken: "bound-attachment-token",
+    }));
+    expect(onSendStarted).toHaveBeenCalledTimes(1);
+    expect(EmailDeliveryService.prepare).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not send a Drive file if server review omits bound metadata", async () => {
+    vi.mocked(EmailDeliveryService.prepare).mockResolvedValue({
+      actionId: "action-without-file",
+      expiresAt: null,
+    });
+    render(
+      <EmailDraftCard
+        initialInstruction="Send a file"
+        initialDraft={{ to: "pat@example.com", cc: "", bcc: "", subject: "Brief", body: "Hello", driveFileId: "drive-file-1" }}
+        getAuth={getAuth}
+        onRequireVault={vi.fn()}
+        onDismiss={vi.fn()}
+        onSent={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Review attachment" }));
+    await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("could not be reviewed"));
+    expect(EmailDeliveryService.send).not.toHaveBeenCalled();
+  });
+
+  it("invalidates the Drive confirmation when a recipient changes", async () => {
+    vi.mocked(EmailDeliveryService.prepare).mockResolvedValue({
+      actionId: "action-drive", expiresAt: null, attachmentToken: "bound-token",
+      driveAttachment: {
+        filename: "Brief.pdf", mimeType: "application/pdf", size: 2048,
+        sourceAccountLabel: "Connected Drive account",
+      },
+    });
+    render(
+      <EmailDraftCard
+        initialInstruction="Send the selected file"
+        initialDraft={{ to: "pat@example.com", cc: "", bcc: "", subject: "Brief", body: "Hello", driveFileId: "drive-file-1" }}
+        getAuth={getAuth}
+        onRequireVault={vi.fn()}
+        onDismiss={vi.fn()}
+        onSent={vi.fn()}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Review attachment" }));
+    await waitFor(() => expect(screen.getByTestId("one-email-attachment-review")).toBeInTheDocument());
+    fireEvent.change(screen.getByTestId("one-email-draft-to"), { target: { value: "someone-else@example.com" } });
+    expect(screen.queryByTestId("one-email-attachment-review")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Review attachment" })).toBeInTheDocument();
+    expect(EmailDeliveryService.send).not.toHaveBeenCalled();
+  });
+
   it("reuses the reviewed composer for a source-bound Gmail reply", async () => {
     const send = vi.fn().mockResolvedValue({ outcomeUnknown: false });
     render(
@@ -379,6 +478,76 @@ describe("EmailDraftCard", () => {
       }),
     );
     expect(EmailDeliveryService.send).not.toHaveBeenCalled();
+  });
+
+  it("offers a retry and blocks send until an automatic draft succeeds", async () => {
+    vi.mocked(EmailDeliveryService.draft)
+      .mockRejectedValueOnce(new Error("Draft unavailable"))
+      .mockResolvedValueOnce({
+        to: "person@example.com",
+        cc: "",
+        bcc: "",
+        subject: "Recovered draft",
+        body: "Hello again",
+        missingDetails: [],
+      });
+
+    render(
+      <EmailDraftCard
+        initialInstruction="Draft a welcome email"
+        autoDraft
+        getAuth={getAuth}
+        onRequireVault={vi.fn()}
+        onDismiss={vi.fn()}
+        onSent={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("one-email-draft-retry")).toBeEnabled());
+    expect(screen.getByTestId("one-email-draft-send")).toBeDisabled();
+
+    fireEvent.click(screen.getByTestId("one-email-draft-retry"));
+
+    await waitFor(() => expect(EmailDeliveryService.draft).toHaveBeenCalledTimes(2));
+    expect(await screen.findByDisplayValue("Recovered draft")).toBeInTheDocument();
+    expect(screen.getByTestId("one-email-draft-send")).toBeEnabled();
+  });
+
+  it("starts a fresh draft after a prior auto-draft failure", async () => {
+    vi.mocked(EmailDeliveryService.draft)
+      .mockRejectedValueOnce(new Error("temporary failure"))
+      .mockResolvedValueOnce({
+        to: "person@example.com",
+        cc: "",
+        bcc: "",
+        subject: "Fresh draft",
+        body: "Hello again",
+        missingDetails: [],
+      });
+
+    const props = {
+      autoDraft: true,
+      getAuth,
+      onRequireVault: vi.fn(),
+      onDismiss: vi.fn(),
+      onSent: vi.fn(),
+    };
+    const view = render(
+      <EmailDraftCard key="first" initialInstruction="Write the first note" {...props} />,
+    );
+
+    await waitFor(() => expect(EmailDeliveryService.draft).toHaveBeenCalledTimes(1));
+    view.rerender(
+      <EmailDraftCard key="second" initialInstruction="Write the second note" {...props} />,
+    );
+
+    await waitFor(() => expect(EmailDeliveryService.draft).toHaveBeenCalledTimes(2));
+    expect(EmailDeliveryService.draft).toHaveBeenLastCalledWith({
+      firebaseIdToken: "firebase-token",
+      vaultOwnerToken: "vault-owner-token",
+      instruction: "Write the second note",
+    });
+    expect(await screen.findByDisplayValue("Fresh draft")).toBeInTheDocument();
   });
 
   it("does not claim success when Gmail cannot confirm the outcome", async () => {

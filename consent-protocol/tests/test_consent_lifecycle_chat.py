@@ -45,6 +45,7 @@ from hushh_mcp.one_adk.action_tools import (
     _execute_backend_direct_mutation,
     _resolved_directive_slots,
     list_active_grants,
+    list_information_shared_with_me,
     list_my_outgoing_information_requests,
     list_pending_information_requests,
     propose_information_request,
@@ -63,6 +64,7 @@ STATE_CONSENT_TOKEN = action_tools._STATE_CONSENT_TOKEN
 PERSON_REF = "11111111-1111-4111-8111-111111111111"
 
 PROFILE = {
+    "personRef": PERSON_REF,
     "displayName": "Sarah Chen",
     "requestableScopes": [
         {
@@ -329,17 +331,18 @@ class TestRevokeAndCancelAreTargetable:
         ):
             result = await list_active_grants(_ctx(state))
         assert result["status"] == "ok"
-        assert result["grants"] == [
-            {
-                "grantId": "g1",
-                "label": "Professional Employment",
-                "sharedWith": "Sarah Chen",
-                "expiresAt": 2,
-            }
-        ]
+        assert len(result["grants"]) == 1
+        grant_id = result["grants"][0]["grantId"]
+        assert grant_id.startswith("g_")
+        assert result["grants"][0] == {
+            "grantId": grant_id,
+            "label": "Professional Employment",
+            "sharedWith": "Sarah Chen",
+            "expiresAt": 2,
+        }
         # The raw scope stays on the server, against the handle.
         assert "attr." not in json.dumps(result)
-        assert state[action_tools._STATE_ACTIVE_GRANT_HANDLES]["g1"]["scope"] == (
+        assert state[action_tools._STATE_ACTIVE_GRANT_HANDLES][grant_id]["scope"] == (
             "attr.professional.employment"
         )
 
@@ -370,18 +373,116 @@ class TestRevokeAndCancelAreTargetable:
         ):
             result = await list_my_outgoing_information_requests(_ctx(state))
         assert result["status"] == "ok"
-        assert [row["requestId"] for row in result["requests"]] == ["r1", "r2"]
+        request_handles = [row["requestId"] for row in result["requests"]]
+        assert all(handle.startswith("r_") for handle in request_handles)
         assert "bundle_newest" not in json.dumps(result)
-        # Insertion order is load-bearing: _resolved_directive_slots takes the
-        # first entry when the model names none.
+        # Listing order remains newest first for the unnamed fallback, while
+        # each handle is keyed to its bundle identity.
         handles = state[action_tools._STATE_SENT_REQUEST_HANDLES]
-        assert list(handles) == ["r1", "r2"]
-        assert handles["r1"]["bundleId"] == "bundle_newest"
+        assert list(handles) == request_handles
+        assert handles[request_handles[0]]["bundleId"] == "bundle_newest"
+
+    @pytest.mark.asyncio
+    async def test_grant_handles_survive_reordering(self):
+        first = [
+            {
+                "scope": "attr.professional.employment",
+                "requestId": "req_a",
+                "holderLabel": "Sarah",
+            },
+            {"scope": "attr.financial.income", "requestId": "req_b", "holderLabel": "Dev"},
+        ]
+        second = [first[1], first[0]]
+        state = _state()
+        with (
+            _auth(),
+            patch.object(
+                ConsentLifecycleService,
+                "list_active_grants",
+                new=AsyncMock(side_effect=[first, second]),
+            ),
+        ):
+            first_result = await list_active_grants(_ctx(state))
+            first_handles = {row["sharedWith"]: row["grantId"] for row in first_result["grants"]}
+            await list_active_grants(_ctx(state))
+
+        resolved = _resolved_directive_slots(
+            "consent.revoke", {"grant_id": first_handles["Sarah"]}, _ctx(state)
+        )
+        assert resolved["scope"] == "attr.professional.employment"
+        assert resolved["requestId"] == "req_a"
+
+    @pytest.mark.asyncio
+    async def test_request_handles_survive_reordering_and_removed_rows_fail_closed(self):
+        first = [
+            {"bundleId": "bundle_newest", "displayName": "Sarah"},
+            {"bundleId": "bundle_older", "displayName": "Dev"},
+        ]
+        second = [first[1]]
+        state = _state()
+        with (
+            _auth(),
+            patch.object(
+                InformationRequestService,
+                "list_outgoing",
+                new=AsyncMock(side_effect=[first, second]),
+            ),
+        ):
+            first_result = await list_my_outgoing_information_requests(_ctx(state))
+            first_handles = {row["person"]: row["requestId"] for row in first_result["requests"]}
+            await list_my_outgoing_information_requests(_ctx(state))
+
+        resolved = _resolved_directive_slots(
+            "consent.cancel_request", {"request_id": first_handles["Sarah"]}, _ctx(state)
+        )
+        assert resolved == {"request_id": first_handles["Sarah"]}
 
     @pytest.mark.asyncio
     async def test_both_listings_fail_closed_without_a_vault_owner_session(self):
         assert (await list_active_grants(_ctx({})))["status"] == "blocked"
         assert (await list_my_outgoing_information_requests(_ctx({})))["status"] == "blocked"
+
+    @pytest.mark.asyncio
+    async def test_cancel_without_a_handle_refreshes_the_newest_open_request(self):
+        state = {
+            **_state(),
+            action_tools._STATE_TYPED_CHAT_CONTEXT: True,
+            action_tools._STATE_VOICE_CONTEXT: {
+                "screen": "app",
+                "available_action_ids": [],
+                "executable_action_ids": [],
+            },
+        }
+        sent = [
+            {
+                "bundleId": "bundle_newest",
+                "personRef": PERSON_REF,
+                "displayName": "Sarah Chen",
+                "purpose": "Checking references",
+                "sentAt": "2026-09-21",
+            }
+        ]
+        with (
+            _auth(),
+            patch.object(
+                InformationRequestService, "list_outgoing", new=AsyncMock(return_value=sent)
+            ) as list_outgoing,
+        ):
+            result = await action_tools.run_app_action("consent.cancel_request", {}, _ctx(state))
+
+        assert result["status"] == "confirm_pending"
+        assert result["directive"]["slots"]["bundleId"] == "bundle_newest"
+        assert result["directive"]["slots"]["displayName"] == "Sarah Chen"
+        list_outgoing.assert_awaited_once_with(requester_user_id="user_1")
+
+    def test_chat_lifecycle_actions_remain_reachable_without_screen_inventory(self):
+        for action_id in CONSENT_LIFECYCLE_IDS - {"consent.request"}:
+            entry = action_tools.get_action_gateway_action(action_id)
+            assert entry is not None
+            assert action_tools._reachability(entry, action_id, set()) == (
+                "on_screen",
+                None,
+            )
 
 
 class TestListPending:
@@ -454,9 +555,24 @@ class TestPropose:
         assert result["durationHours"] == 48
         assert result["connectorReady"] is True
         assert result["person"]["profilePath"] == f"/people/{PERSON_REF}"
-        assert "psr_" not in str(result)
+        assert result["directive"]["actionId"] == "consent.request"
+        assert result["directive"]["needsConfirmation"] is True
+        assert result["directive"]["slots"]["personRef"] == PERSON_REF
+        assert result["directive"]["slots"]["scopeRefs"] == [
+            "psr_employment",
+            "psr_cuisine",
+        ]
         parked = state[action_tools._STATE_INFORMATION_REQUEST_PROPOSALS][result["proposalId"]]
         assert parked["scopeRefs"] == ["psr_employment", "psr_cuisine"]
+        directive = state[f"{action_tools._STATE_PENDING_DIRECTIVE}:consent.request"]
+        assert directive["kind"] == "action"
+        assert directive["payload"]["actionId"] == "consent.request"
+        assert directive["payload"]["needsConfirmation"] is True
+        assert directive["payload"]["slots"]["scopeRefs"] == [
+            "psr_employment",
+            "psr_cuisine",
+        ]
+        assert "run_app_action" not in result["nextStep"]
 
     @pytest.mark.asyncio
     async def test_a_domain_name_selects_that_domain(self):
@@ -519,7 +635,384 @@ class TestPropose:
                 "Alex", "favorite cuisine", "Dinner planning", _ctx(_state())
             )
         assert result["status"] == "needs_clarification"
-        assert "Alex Kim" in result["message"] and "Alex Singh" in result["message"]
+        assert [item["displayName"] for item in result["candidates"]] == [
+            "Alex Kim",
+            "Alex Singh",
+        ]
+        assert len({item["selectionHandle"] for item in result["candidates"]}) == 2
+
+    @pytest.mark.asyncio
+    async def test_proposal_rejects_a_profile_for_another_person(self):
+        context = _ctx(_state())
+        with (
+            _auth(),
+            _connections({"displayName": "Sarah Chen", "publicPersonRef": PERSON_REF}),
+            _profile({**PROFILE, "personRef": "another-person"}),
+        ):
+            result = await propose_information_request(
+                "Sarah",
+                "favorite cuisine",
+                "Synthetic dinner planning",
+                context,
+            )
+        assert result["status"] == "failed"
+        assert action_tools._STATE_INFORMATION_REQUEST_PROPOSALS not in context.state
+
+    @pytest.mark.parametrize("invalid", ["owner", "session", "expired", "forged"])
+    def test_person_choice_cannot_cross_authority(self, invalid):
+        context = _ctx(_state())
+        result = action_tools._information_person_error(
+            action_tools.InformationPersonAmbiguous(
+                [
+                    {"displayName": "Alex", "publicPersonRef": PERSON_REF},
+                ]
+            ),
+            context,
+            "owner-a",
+        )
+        handle = result["candidates"][0]["selectionHandle"]
+        owner = "owner-a"
+        if invalid == "owner":
+            owner = "owner-b"
+        elif invalid == "session":
+            context.session.id = "other-thread"
+        elif invalid == "expired":
+            context.state[action_tools._STATE_INFORMATION_PERSON_CHOICES][handle]["expiresAt"] = 0
+        else:
+            handle = "forged"
+        context.state[action_tools._STATE_REQUESTED_INFORMATION_PERSON] = handle
+        with pytest.raises(action_tools.ConsentLifecycleError, match="choose the person again"):
+            action_tools._resolve_person_for_information(None, owner, "Alex", context, handle)
+
+    def test_model_supplied_choice_requires_browser_admission(self):
+        context = _ctx(_state())
+        with pytest.raises(action_tools.ConsentLifecycleError, match="conversation"):
+            action_tools._resolve_person_for_information(
+                None, "owner-a", "Alex", context, "model-only-handle"
+            )
+
+    def test_conversation_state_binds_picker_when_adk_session_id_is_missing(self):
+        state = _state()
+        state["hussh:conversation_id"] = "thread_1"
+        context = _ctx(state)
+        context.session.id = None
+        result = action_tools._information_person_error(
+            action_tools.InformationPersonAmbiguous(
+                [{"displayName": "Alex", "publicPersonRef": PERSON_REF}]
+            ),
+            context,
+            "owner-a",
+        )
+        assert result["candidates"][0]["displayName"] == "Alex"
+        handle = result["candidates"][0]["selectionHandle"]
+        assert (
+            context.state[action_tools._STATE_INFORMATION_PERSON_CHOICES][handle]["session"]
+            == "thread_1"
+        )
+
+    def test_valid_person_choice_never_resolves_a_different_name(self):
+        context = _ctx(_state())
+        result = action_tools._information_person_error(
+            action_tools.InformationPersonAmbiguous(
+                [
+                    {"displayName": "Alex", "publicPersonRef": PERSON_REF},
+                ]
+            ),
+            context,
+            "owner-a",
+        )
+        handle = result["candidates"][0]["selectionHandle"]
+        context.state[action_tools._STATE_REQUESTED_INFORMATION_PERSON] = handle
+        assert action_tools._resolve_person_for_information(
+            None,
+            "owner-a",
+            "Someone else",
+            context,
+            handle,
+        ) == (PERSON_REF, "Alex")
+
+    def test_incomplete_directory_never_establishes_unique_person(self):
+        context = _ctx(_state())
+        pages = [
+            {"items": [{"displayName": "Alex Kim", "publicPersonRef": PERSON_REF}], "hasMore": True}
+        ] * action_tools._DIRECTORY_RESOLVE_MAX_PAGES
+        with (
+            _connections(),
+            patch.object(
+                ConnectionsService,
+                "search_directory",
+                autospec=True,
+                side_effect=pages,
+            ),
+        ):
+            with pytest.raises(action_tools.InformationPersonAmbiguous) as error:
+                action_tools._resolve_person_for_information(
+                    ConnectionsService(), "owner-a", "Alex", context
+                )
+        assert error.value.candidates_complete is False
+
+    def test_directory_fallback_preserves_all_normalized_name_tokens(self):
+        calls = []
+
+        class Directory:
+            def search_directory(self, user_id, *, query, page, limit):
+                calls.append((user_id, query, page, limit))
+                return {"items": [], "hasMore": False}
+
+        candidates, complete = action_tools._directory_candidates(
+            Directory(), "owner-a", "  Kushal-Trivedi  "
+        )
+
+        assert candidates == []
+        assert complete is True
+        assert calls == [
+            ("owner-a", "kushal trivedi", 1, action_tools._DIRECTORY_RESOLVE_PAGE_SIZE)
+        ]
+
+    @pytest.mark.asyncio
+    async def test_proposal_requires_narrowing_when_more_than_fifty_fields_match(self):
+        context = _ctx(_state())
+        scopes = [
+            {
+                "scopeRef": f"psr_professional_{index}",
+                "label": f"Professional field {index}",
+                "domain": "professional",
+            }
+            for index in range(51)
+        ]
+        with (
+            _auth(),
+            _connections({"displayName": "Sarah Chen", "publicPersonRef": PERSON_REF}),
+            _profile({**PROFILE, "requestableScopes": scopes}),
+        ):
+            result = await propose_information_request(
+                "Sarah", "professional", "Synthetic review planning", context
+            )
+        assert result["status"] == "needs_clarification"
+        assert result["fieldCount"] == 51
+        assert result["maxFieldsPerRequest"] == 50
+        assert action_tools._STATE_INFORMATION_REQUEST_PROPOSALS not in context.state
+
+    @pytest.mark.parametrize("spoken", ["Sarah", "sarah@example.test"])
+    def test_unique_lookup_is_retained_for_followups(self, spoken):
+        context = _ctx(_state())
+        with _connections(
+            {
+                "displayName": "Sarah Chen",
+                "publicPersonRef": PERSON_REF,
+                "email": "sarah@example.test",
+            }
+        ):
+            assert action_tools._resolve_person_for_information(
+                ConnectionsService(),
+                "owner-a",
+                spoken,
+                context,
+            ) == (PERSON_REF, "Sarah Chen")
+        # No service is available: a repeat must use the selected stable identity,
+        # not another name lookup that might now return someone else.
+        for followup in [spoken, "Sarah Chen", spoken, ""]:
+            assert action_tools._resolve_person_for_information(
+                None,
+                "owner-a",
+                followup,
+                context,
+            ) == (PERSON_REF, "Sarah Chen")
+        with pytest.raises(action_tools.ConsentLifecycleError):
+            action_tools._resolve_person_for_information(None, "owner-b", spoken, context)
+
+    def test_expired_implicit_selection_re_resolves_an_explicit_name(self):
+        context = _ctx(_state())
+        person = {"displayName": "Sarah Chen", "publicPersonRef": PERSON_REF}
+        with _connections(person):
+            action_tools._resolve_person_for_information(
+                ConnectionsService(), "owner-a", "Sarah", context
+            )
+        old_handle = context.state[action_tools._STATE_SELECTED_INFORMATION_PERSON]["handle"]
+        context.state[action_tools._STATE_INFORMATION_PERSON_CHOICES][old_handle]["expiresAt"] = 0
+
+        with _connections(person):
+            assert action_tools._resolve_person_for_information(
+                ConnectionsService(), "owner-a", "Sarah Chen", context
+            ) == (PERSON_REF, "Sarah Chen")
+        assert (
+            context.state[action_tools._STATE_SELECTED_INFORMATION_PERSON]["handle"] != old_handle
+        )
+
+    def test_expired_implicit_selection_re_resolves_when_model_omits_name(self):
+        context = _ctx(_state())
+        person = {"displayName": "Sarah Chen", "publicPersonRef": PERSON_REF}
+        with _connections(person):
+            action_tools._resolve_person_for_information(
+                ConnectionsService(), "owner-a", "Sarah", context
+            )
+        old_handle = context.state[action_tools._STATE_SELECTED_INFORMATION_PERSON]["handle"]
+        context.state[action_tools._STATE_INFORMATION_PERSON_CHOICES][old_handle]["expiresAt"] = 0
+
+        with _connections(person):
+            assert action_tools._resolve_person_for_information(
+                ConnectionsService(), "owner-a", "", context, old_handle
+            ) == (PERSON_REF, "Sarah Chen")
+
+    def test_pruned_implicit_selection_re_resolves_instead_of_blocking(self):
+        context = _ctx(_state())
+        person = {"displayName": "Sarah Chen", "publicPersonRef": PERSON_REF}
+        with _connections(person):
+            action_tools._resolve_person_for_information(
+                ConnectionsService(), "owner-a", "Sarah", context
+            )
+        context.state[action_tools._STATE_INFORMATION_PERSON_CHOICES] = {}
+
+        with _connections(person):
+            assert action_tools._resolve_person_for_information(
+                ConnectionsService(), "owner-a", "Sarah Chen", context
+            ) == (PERSON_REF, "Sarah Chen")
+
+    def test_email_punctuation_cannot_reuse_another_recipient(self):
+        context = _ctx(_state())
+        people = [
+            {
+                "displayName": "Alex",
+                "publicPersonRef": PERSON_REF,
+                "email": "alex+one@example.test",
+            },
+            {
+                "displayName": "Alex",
+                "publicPersonRef": "other-person",
+                "email": "alex.one@example.test",
+            },
+        ]
+        with _connections(*people):
+            assert (
+                action_tools._resolve_person_for_information(
+                    ConnectionsService(), "owner-a", people[0]["email"], context
+                )[0]
+                == PERSON_REF
+            )
+            with pytest.raises(action_tools.InformationPersonAmbiguous) as change:
+                action_tools._resolve_person_for_information(
+                    ConnectionsService(), "owner-a", people[1]["email"], context
+                )
+        assert change.value.candidates[0]["publicPersonRef"] == "other-person"
+
+    def test_switching_from_a_unique_recipient_requires_a_new_choice(self):
+        context = _ctx(_state())
+        with _connections({"displayName": "Sarah Chen", "publicPersonRef": PERSON_REF}):
+            action_tools._resolve_person_for_information(
+                ConnectionsService(),
+                "owner-a",
+                "Sarah",
+                context,
+            )
+        with _connections({"displayName": "Alex Kim", "publicPersonRef": "different-person"}):
+            with pytest.raises(action_tools.InformationPersonAmbiguous):
+                action_tools._resolve_person_for_information(
+                    ConnectionsService(),
+                    "owner-a",
+                    "Alex",
+                    context,
+                )
+        assert action_tools._resolve_person_for_information(
+            None,
+            "owner-a",
+            "Sarah",
+            context,
+        ) == (PERSON_REF, "Sarah Chen")
+
+    @pytest.mark.asyncio
+    async def test_shared_information_followup_stays_bound_to_selected_person(self):
+        context = _ctx(_state())
+        action_tools._remember_information_person(
+            context, "user_1", PERSON_REF, "Sarah Chen", "Sarah"
+        )
+        with (
+            _auth(),
+            patch.object(
+                InformationRequestService,
+                "list_granted_shares",
+                new=AsyncMock(
+                    return_value=[{"person": "Sarah Chen", "label": "Employment status"}]
+                ),
+            ) as list_shares,
+        ):
+            result = await list_information_shared_with_me(context)
+        assert result["person"] == {"displayName": "Sarah Chen", "personRef": PERSON_REF}
+        list_shares.assert_awaited_once_with(requester_user_id="user_1", person_ref=PERSON_REF)
+
+    @pytest.mark.asyncio
+    async def test_shared_information_validates_browser_selection_before_listing(self):
+        context = _ctx(_state())
+        context.state[action_tools._STATE_INFORMATION_PERSON_CHOICES] = {
+            "a" * 32: {
+                "owner": "user_1",
+                "session": "session_1",
+                "personRef": PERSON_REF,
+                "displayName": "Sarah Chen",
+                "expiresAt": 2_000_000_000,
+            },
+        }
+        context.state[action_tools._STATE_REQUESTED_INFORMATION_PERSON] = "a" * 32
+        with (
+            _auth(),
+            patch.object(
+                InformationRequestService,
+                "list_granted_shares",
+                new=AsyncMock(return_value=[]),
+            ) as list_shares,
+        ):
+            result = await list_information_shared_with_me(context)
+        assert result["status"] == "ok"
+        assert result["person"] == {"displayName": "Sarah Chen", "personRef": PERSON_REF}
+        list_shares.assert_awaited_once_with(requester_user_id="user_1", person_ref=PERSON_REF)
+
+    @pytest.mark.asyncio
+    async def test_shared_information_does_not_fall_back_to_unfiltered_after_bad_selection(self):
+        context = _ctx(_state())
+        context.state[action_tools._STATE_REQUESTED_INFORMATION_PERSON] = "forged"
+
+        with (
+            _auth(),
+            patch.object(
+                InformationRequestService,
+                "list_granted_shares",
+                new=AsyncMock(),
+            ) as list_shares,
+        ):
+            result = await list_information_shared_with_me(context)
+        assert result == {
+            "status": "needs_clarification",
+            "message": "That choice expired. Please choose the person again.",
+        }
+        list_shares.assert_not_awaited()
+
+    def test_persisted_legacy_selection_cannot_override_a_new_spoken_name(self):
+        context = _ctx(_state())
+        # Older sessions may still carry the pre-temp key. It is historical
+        # state, never current-turn browser admission, and must not redirect a
+        # new explicit lookup.
+        context.state["hussh:requested_person_selection"] = "expired-handle"
+        with _connections({"displayName": "Sarah Chen", "publicPersonRef": PERSON_REF}):
+            assert action_tools._resolve_person_for_information(
+                ConnectionsService(), "owner-a", "Sarah Chen", context
+            ) == (PERSON_REF, "Sarah Chen")
+
+    @pytest.mark.asyncio
+    async def test_shared_information_empty_state_is_bound_to_selected_person(self):
+        context = _ctx(_state())
+        action_tools._remember_information_person(
+            context, "user_1", PERSON_REF, "Sarah Chen", "Sarah"
+        )
+        with (
+            _auth(),
+            patch.object(
+                InformationRequestService,
+                "list_granted_shares",
+                new=AsyncMock(return_value=[]),
+            ),
+        ):
+            result = await list_information_shared_with_me(context)
+
+        assert result["nextStep"] == "Sarah Chen has not shared any information with you yet."
 
     @pytest.mark.asyncio
     async def test_short_purpose_and_bad_duration_are_asked_back(self):
@@ -540,6 +1033,7 @@ class TestPropose:
 
     @pytest.mark.asyncio
     async def test_missing_connector_points_at_the_profile(self):
+        state = _state()
         with (
             _auth(),
             _connections({"displayName": "Sarah Chen", "publicPersonRef": PERSON_REF}),
@@ -547,7 +1041,7 @@ class TestPropose:
             _connector(False),
         ):
             result = await propose_information_request(
-                "Sarah", "food", "Dinner planning for the offsite", _ctx(_state())
+                "Sarah", "food", "Dinner planning for the offsite", _ctx(state)
             )
         assert result["status"] == "proposal_ready"
         assert result["connectorReady"] is False
@@ -558,3 +1052,4 @@ class TestPropose:
         # import and nothing ran.
         assert "unlock their private agent" in result["nextStep"]
         assert "profilePath" not in result["nextStep"]
+        assert f"{action_tools._STATE_PENDING_DIRECTIVE}:consent.request" not in state

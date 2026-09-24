@@ -218,6 +218,7 @@ vi.mock("@/lib/share/share-link", async () => {
 });
 
 import ConnectPageClient from "@/app/connect/page-client";
+import { CACHE_KEYS, CacheService } from "@/lib/services/cache-service";
 import { ShareUnavailableError } from "@/lib/share/share-link";
 import { dispatchConnectionGraphChanged } from "@/lib/connections/connection-graph-events";
 import { resolveLocalOnboardingHandler, prepareLocalOnboardingAction } from "@/lib/agent/local-onboarding-actions";
@@ -354,6 +355,9 @@ beforeEach(() => {
   // A leaked search query in sessionStorage would silently seed the next
   // test's render, the same way a leaked `?tab=` would.
   window.sessionStorage.clear();
+  // Connect caches its first page per person; a page cached by one test
+  // would paint the next test's first render.
+  CacheService.getInstance().invalidateUser("me");
   // A fresh URL per test: the outer tab is read from it, so a leaked
   // `?tab=circles` would silently render the wrong surface for everything
   // that ran after it.
@@ -2600,7 +2604,11 @@ describe("Connect — Circles", () => {
     // The default is not written to the URL on mount: doing that would eat one
     // router.back() step for every arrival.
     expect(await screen.findByText("Search by name.")).toBeTruthy();
-    expect(screen.queryByTestId("connect-circles-tab")).toBeNull();
+    // Both surfaces live in one swipeable pager (as Finance and Consent do);
+    // the one the URL did not ask for is present but inert and hidden.
+    const circles = screen.getByTestId("connect-circles-tab");
+    expect(circles.closest('[aria-hidden="true"]')).not.toBeNull();
+    expect(circles.closest("[inert]")).not.toBeNull();
     expect(mocks.routerPush).not.toHaveBeenCalled();
   });
 
@@ -2609,10 +2617,14 @@ describe("Connect — Circles", () => {
 
     render(<ConnectPageClient />);
 
-    expect(await screen.findByTestId("connect-circles-tab")).toBeTruthy();
-    // The whole directory half is gone, not merely scrolled past: the search
-    // box drives a paged server query that has nothing to do with this tab.
-    expect(screen.queryByLabelText("Search people")).toBeNull();
+    const circles = await screen.findByTestId("connect-circles-tab");
+    expect(circles.closest('[aria-hidden="true"]')).toBeNull();
+    // The directory half is the other pane of the pager: still mounted so a
+    // swipe back lands on it, but inert and hidden so nothing in it is
+    // reachable from this tab.
+    const search = screen.getByLabelText("Search people");
+    expect(search.closest('[aria-hidden="true"]')).not.toBeNull();
+    expect(search.closest("[inert]")).not.toBeNull();
     expect(
       screen.queryByRole("button", { name: /Current directory:/ }),
     ).toBeNull();
@@ -2956,5 +2968,46 @@ describe("Connect — contact sync", () => {
     expect(mocks.toastInfo.mock.calls[0][0]).toBe(
       "No eligible contacts matched",
     );
+  });
+});
+
+// Connect opened on "My connections (0) · No connections yet" and jumped when
+// the list landed half a second later (Galaxy S24 Ultra, 2026-09-22).
+describe("My connections before the first page answers", () => {
+  afterEach(() => {
+    CacheService.getInstance().invalidateUser("me");
+  });
+
+  it("claims no count and no empty list until the list has answered", async () => {
+    const firstPage = deferred<TestConnectionPage>();
+    mocks.listConnectionsPage.mockImplementation(() => firstPage.promise);
+    render(<ConnectPageClient />);
+    expect(await screen.findByText("My connections")).toBeTruthy();
+    expect(screen.queryByText("My connections (0)")).toBeNull();
+    expect(screen.queryByText("No connections yet")).toBeNull();
+
+    await act(async () =>
+      firstPage.resolve({ items: [], page: 1, hasMore: false, totalCount: 0, audience: "all" }),
+    );
+    expect(await screen.findByText("No connections yet")).toBeTruthy();
+    expect(screen.getByText("My connections (0)")).toBeTruthy();
+  });
+
+  it("paints the last first page on the first render of a revisit", () => {
+    CacheService.getInstance().set(
+      CACHE_KEYS.CONNECTIONS_FIRST_PAGE("me", "all"),
+      {
+        items: [{ connectionId: "c1", userId: "u1", displayName: "Cached Friend", photoUrl: null }],
+        page: 1,
+        hasMore: false,
+        totalCount: 1,
+        audience: "all",
+      },
+      60_000,
+    );
+    mocks.listConnectionsPage.mockImplementation(() => new Promise(() => {}));
+    render(<ConnectPageClient />);
+    expect(screen.getByText("Cached Friend")).toBeTruthy();
+    expect(screen.getByText("My connections (1)")).toBeTruthy();
   });
 });

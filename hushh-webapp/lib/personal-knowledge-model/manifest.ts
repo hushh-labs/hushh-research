@@ -32,6 +32,13 @@ export type PathDescriptor = {
   source_agent?: string | null;
 };
 
+export class PkmMetadataReviewRequired extends Error {
+  constructor() {
+    super("Memory metadata needs review before saving.");
+    this.name = "PkmMetadataReviewRequired";
+  }
+}
+
 export type StructureDecision = {
   action: "match_existing_domain" | "create_domain" | "extend_domain";
   target_domain: string;
@@ -103,6 +110,8 @@ export type DomainManifest = {
 const ENTITY_MAP_KEY = "entities";
 /** One representative subtree standing for every entry of an `entities` map. */
 const ENTITY_COLLECTION_SEGMENT = "_entities";
+/** The Financial contract stores one analysis-history array per ticker. */
+const ANALYSIS_HISTORY_MAP_KEY = "analysis_history";
 
 function normalizePathSegment(segment: string): string {
   const normalized = String(segment).trim().toLowerCase();
@@ -110,6 +119,9 @@ function normalizePathSegment(segment: string): string {
   // their leading underscore and turn them into ordinary keys.
   if (normalized === "_items") return "_items";
   if (normalized === ENTITY_COLLECTION_SEGMENT) return ENTITY_COLLECTION_SEGMENT;
+  // Private-key spelling is authority-bearing. Never turn `_private` into an
+  // ordinary public path while preparing a manifest or resolving one.
+  if (normalized.startsWith("_")) return normalized;
   return String(segment)
     .trim()
     .toLowerCase()
@@ -137,6 +149,7 @@ function titleizePath(path: string): string {
 }
 
 function cloneValue<T>(value: T): T {
+  if (value === undefined) return value;
   if (typeof globalThis.structuredClone === "function") {
     try {
       return globalThis.structuredClone(value);
@@ -187,6 +200,26 @@ const BLOCKED_EXTERNAL_PATH_PARTS = new Set([
   "workflow_state",
 ]);
 
+/**
+ * The sealed Plaid tiers (see `lib/kai/plaid-vault/types.ts`). Private to the
+ * owner, never offered for sharing (the shareable tier is `summary`), so the
+ * manifest declares each as one opaque node and does not walk inside it.
+ *
+ * Walked field by field they grew with the records: one bank's 264
+ * transactions declared 3,349 paths, and even collapsed they cost ~190 of the
+ * 1000 `json_paths` a domain may declare. A real account already spent 821 on
+ * statements and the older Plaid copy, so the sealed connect write died with a
+ * 422 (iPhone proof, run 13). Nothing reads a path below these roots.
+ */
+const VAULT_PRIVATE_BRANCHES = new Set([
+  "connections_v1",
+  "accounts_v1",
+  "holdings_v1",
+  "securities_v1",
+  "transactions_v1",
+  "derived_v1",
+]);
+
 /** Segments the walk invents; they were never keys the owner wrote. */
 const SYNTHETIC_SEGMENTS = new Set(["_items", ENTITY_COLLECTION_SEGMENT]);
 
@@ -196,6 +229,7 @@ function isExternalizablePath(
   value: unknown,
 ): boolean {
   if (pathType !== "leaf") return false;
+  if (VAULT_PRIVATE_BRANCHES.has(path.split(".")[0] ?? "")) return false;
 
   // A value nobody ever set is not information about anybody.
   //
@@ -278,7 +312,10 @@ function walkValue(
    * which is why the label has to be authored here and not at any of the five
    * places downstream that used to try.
    */
-  displayPath: string[]
+  displayPath: string[],
+  metadataPaths?: Map<string, { path: string; defaultLabel: string }>,
+  concretePath: string[] = path,
+  concreteDisplayPath: string[] = displayPath
 ): void {
   if (value === undefined) {
     return;
@@ -286,6 +323,9 @@ function walkValue(
 
   const pathKey = joinPath(path);
   if (pathKey) {
+    metadataPaths?.set(joinPath(concretePath), {
+      path: pathKey, defaultLabel: titleizePath(joinPath(concreteDisplayPath)),
+    });
     const rawSegment = displayPath[displayPath.length - 1] ?? "";
     const isArray = Array.isArray(value);
     const isObject =
@@ -324,13 +364,31 @@ function walkValue(
             : existingDescriptor.path_type,
         exposure_eligibility: false,
       });
+    } else {
+      // Collection walks are intentionally order-independent. A null, empty,
+      // or otherwise non-materialized occurrence must not hide a populated
+      // sibling that resolves to the same logical path later in the array or
+      // entity map. Keep the first safe presentation metadata, but union the
+      // independently computed eligibility/materialization signal.
+      descriptors.set(pathKey, {
+        ...existingDescriptor,
+        exposure_eligibility:
+          existingDescriptor.exposure_eligibility || nextDescriptor.exposure_eligibility,
+        consent_label: existingDescriptor.consent_label || nextDescriptor.consent_label,
+        sensitivity_label:
+          existingDescriptor.sensitivity_label || nextDescriptor.sensitivity_label,
+      });
     }
+  }
+
+  if (path.length === 1 && VAULT_PRIVATE_BRANCHES.has(path[0] ?? "")) {
+    return;
   }
 
   if (Array.isArray(value)) {
     for (const item of value) {
       if (item !== undefined) {
-        walkValue(item, [...path, "_items"], descriptors, [...displayPath, "_items"]);
+        walkValue(item, [...path, "_items"], descriptors, [...displayPath, "_items"], metadataPaths, [...concretePath, "_items"], [...concreteDisplayPath, "_items"]);
       }
     }
     return;
@@ -342,21 +400,34 @@ function walkValue(
 
   const record = value as Record<string, unknown>;
   // An `entities` map is a homogeneous collection keyed by entity id -- the
-  // same shape as an array, just keyed. Walking each key made the manifest grow
-  // with the DATA rather than the SHAPE: a portfolio of a hundred holdings
-  // emitted a hundred near-identical subtrees, pushed the path list past the
-  // server's 1000-path cap, and the save died with a 422 that got surfaced as
-  // "Backend returned failure on store". It also wrote every ticker the person
-  // owns into the manifest, which is holdings data sitting in a structure
-  // descriptor. Collapse to one representative subtree, exactly as arrays do.
-  if (path[path.length - 1] === ENTITY_MAP_KEY) {
-    for (const childValue of Object.values(record)) {
-      if (childValue !== undefined) {
-        walkValue(childValue, [...path, ENTITY_COLLECTION_SEGMENT], descriptors, [
-          ...displayPath,
-          ENTITY_COLLECTION_SEGMENT,
-        ]);
+  // same shape as an array, just keyed. Financial analysis history has the
+  // same shape one level earlier: its ticker keys each contain an array of
+  // history entries, alongside a domain_intent metadata object. Walking each
+  // key made the manifest grow with the DATA rather than the SHAPE: a real
+  // reviewer portfolio emitted 1,043 paths, pushed the request past the
+  // server's 1000-path cap, and the save died with a 422. Collapse only the
+  // collection entries and continue walking metadata siblings normally.
+  const mapKey = path[path.length - 1];
+  const isAnalysisHistoryMap =
+    mapKey === ANALYSIS_HISTORY_MAP_KEY &&
+    Object.values(record).some((childValue) => Array.isArray(childValue));
+  if (mapKey === ENTITY_MAP_KEY || isAnalysisHistoryMap) {
+    for (const [rawKey, childValue] of Object.entries(record)) {
+      if (childValue === undefined || rawKey.trim().startsWith("_")) continue;
+      // `domain_intent` is metadata on the analysis-history map, not an
+      // entity. Keep its authored path so it remains available to internal
+      // reconciliation while ticker entries share one safe descriptor tree.
+      if (isAnalysisHistoryMap && !Array.isArray(childValue)) {
+        const normalizedKey = normalizePathSegment(rawKey);
+        if (normalizedKey) {
+          walkValue(childValue, [...path, normalizedKey], descriptors, [...displayPath, rawKey], metadataPaths, [...concretePath, normalizedKey], [...concreteDisplayPath, rawKey]);
+        }
+        continue;
       }
+      walkValue(childValue, [...path, ENTITY_COLLECTION_SEGMENT], descriptors, [
+        ...displayPath,
+        ENTITY_COLLECTION_SEGMENT,
+      ], metadataPaths, [...concretePath, normalizePathSegment(rawKey)], [...concreteDisplayPath, rawKey]);
     }
     return;
   }
@@ -366,7 +437,7 @@ function walkValue(
       continue;
     }
     // rawKey, not normalizedKey: this is the moment the spelling still exists.
-    walkValue(childValue, [...path, normalizedKey], descriptors, [...displayPath, rawKey]);
+    walkValue(childValue, [...path, normalizedKey], descriptors, [...displayPath, rawKey], metadataPaths, [...concretePath, normalizedKey], [...concreteDisplayPath, rawKey]);
   }
 }
 
@@ -374,13 +445,77 @@ export function buildPersonalKnowledgeModelStructureArtifacts(params: {
   domain: string;
   domainData: Record<string, unknown>;
   previousManifest?: DomainManifest | null;
+  /** Oldest first; metadata only, never path/exposure authority. */
+  semanticManifests?: DomainManifest[];
+  semanticDecision?: Record<string, unknown>;
 }): {
   structureDecision: StructureDecision;
   manifest: DomainManifest;
 } {
   const normalizedDomain = normalizePathSegment(params.domain) || "general";
   const descriptors = new Map<string, PathDescriptor>();
-  walkValue(params.domainData, [], descriptors, []);
+  const metadataPaths = new Map<string, { path: string; defaultLabel: string }>();
+  walkValue(params.domainData, [], descriptors, [], metadataPaths);
+
+  const resolveMetadataPath = (path: string) => descriptors.get(path)
+    ?? descriptors.get(metadataPaths.get(path)?.path || "");
+  // Apply revisions at the source path before combining collection members.
+  const sensitivityBySource = new Map<string, { target: PathDescriptor; label: string }>();
+  const applyMetadata = (
+    target: PathDescriptor, field: "consent_label" | "sensitivity_label",
+    value: unknown, seen: Map<string, string>,
+  ) => {
+    if (typeof value !== "string" || !value.trim()) return;
+    const key = `${target.json_path}:${field}`;
+    const label = value.trim();
+    if (seen.has(key) && seen.get(key) !== label) {
+      // Different entity assessments cannot be represented by one collection
+      // label. Preserve the draft for review instead of selecting the last one.
+      throw new PkmMetadataReviewRequired();
+    }
+    seen.set(key, label);
+    target[field] = label;
+  };
+
+  for (const manifest of params.semanticManifests || []) {
+    if (manifest.domain !== normalizedDomain) continue;
+    const seen = new Map<string, string>();
+    for (const source of manifest.paths) {
+      const target = resolveMetadataPath(source.json_path);
+      if (!target || target.path_type !== source.path_type) continue;
+      for (const field of ["consent_label", "sensitivity_label"] as const) {
+        const value = source[field];
+        if (field === "consent_label" && target.json_path !== source.json_path
+          && typeof value === "string" && value.trim()) {
+          if (value.trim() !== metadataPaths.get(source.json_path)?.defaultLabel) {
+            throw new PkmMetadataReviewRequired();
+          }
+          // A concrete default title is not a collection label. Preserve the
+          // canonical collection title without publishing an entity identifier.
+          continue;
+        }
+        if (field === "sensitivity_label") {
+          if (typeof value === "string" && value.trim()) {
+            sensitivityBySource.set(source.json_path, { target, label: value.trim() });
+          }
+        } else applyMetadata(target, field, value, seen);
+      }
+    }
+  }
+  const decision = params.semanticDecision;
+  const labels = decision?.target_domain === normalizedDomain ? decision.sensitivity_labels : null;
+  if (labels && typeof labels === "object" && !Array.isArray(labels)) {
+    for (const [path, label] of Object.entries(labels)) {
+      const target = resolveMetadataPath(path);
+      if (target && typeof label === "string" && label.trim()) {
+        sensitivityBySource.set(path, { target, label: label.trim() });
+      }
+    }
+  }
+  const sensitivitySeen = new Map<string, string>();
+  for (const { target, label } of sensitivityBySource.values()) {
+    applyMetadata(target, "sensitivity_label", label, sensitivitySeen);
+  }
 
   const paths = [...descriptors.values()].sort((a, b) =>
     a.json_path.localeCompare(b.json_path)
@@ -479,6 +614,9 @@ export function buildPersonalKnowledgeModelStructureArtifacts(params: {
 
 function extractPathValue(value: unknown, segments: string[]): unknown {
   if (!segments.length) {
+    // An eligible leaf may have changed since review. Never export a newly
+    // introduced subtree under authority that described a scalar field.
+    if (value !== null && typeof value === "object") return undefined;
     return cloneValue(value);
   }
 
@@ -488,10 +626,10 @@ function extractPathValue(value: unknown, segments: string[]): unknown {
     if (!Array.isArray(value)) {
       return undefined;
     }
-    const extracted = value
-      .map((item) => extractPathValue(item, rest))
-      .filter((item) => item !== undefined);
-    return extracted.length ? extracted : undefined;
+    const extracted = value.map((item) => extractPathValue(item, rest));
+    // Preserve slots until all selected paths have been merged. Compacting
+    // each column separately can attach one item's field to another item.
+    return extracted.some(item => item !== undefined) ? extracted : undefined;
   }
   if (segment === ENTITY_COLLECTION_SEGMENT) {
     if (!value || typeof value !== "object" || Array.isArray(value)) {
@@ -502,6 +640,7 @@ function extractPathValue(value: unknown, segments: string[]): unknown {
     // projected data still has to say which entity each value belongs to.
     const extracted: Record<string, unknown> = {};
     for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      if (key.trim().startsWith("_")) continue;
       const child = extractPathValue(item, rest);
       if (child !== undefined) {
         extracted[key] = child;
@@ -515,13 +654,16 @@ function extractPathValue(value: unknown, segments: string[]): unknown {
   }
 
   const record = value as Record<string, unknown>;
-  if (!Object.prototype.hasOwnProperty.call(record, segment)) {
-    return undefined;
-  }
-  return extractPathValue(record[segment], rest);
+  // The manifest uses canonical spelling; encrypted records retain the
+  // original spelling. This is the same codec as the manifest walk, not a
+  // semantic alias. Collisions are ambiguous even if one key is an exact hit.
+  const keys = Object.keys(record).filter(key => normalizePathSegment(key) === segment);
+  if (keys.length !== 1 || keys[0]!.trim().startsWith("_")) return undefined;
+  return extractPathValue(record[keys[0]!], rest);
 }
 
 function rebuildProjectedValue(segments: string[], value: unknown): unknown {
+  if (value === undefined) return undefined;
   if (!segments.length) {
     return cloneValue(value);
   }

@@ -494,6 +494,9 @@ export function AuthStep({
             const { token } = await ApiService.createAppReviewModeSession(
               "reviewer",
               {
+                reviewerUid: nativeTestConfig.autoReviewerLogin
+                  ? nativeTestConfig.expectedUserId
+                  : null,
                 smokePassphrase: nativeTestConfig.autoReviewerLogin
                   ? nativeTestConfig.vaultPassphrase
                   : null,
@@ -559,6 +562,7 @@ export function AuthStep({
     growthEntrySurface,
     growthJourney,
     nativeTestConfig.autoReviewerLogin,
+    nativeTestConfig.expectedUserId,
     nativeTestConfig.vaultPassphrase,
     resolveAndNavigate,
     reviewModeConfig.enabled,
@@ -990,7 +994,7 @@ export function AuthStep({
 
   return (
     <main
-      className={cn("relative w-full overflow-hidden bg-white dark:bg-[#000000]", lightStyles.shell)}
+      className={cn("relative w-full overflow-hidden bg-white dark:bg-background", lightStyles.shell)}
       style={{
         height: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
         minHeight: "calc(100svh - var(--app-scroll-bottom-pad, 0px))",
@@ -1049,7 +1053,10 @@ export function AuthStep({
           data-auth-signin-clusters
         >
           <div className={cn("flex w-full flex-col items-center gap-3", lightStyles.hero)}>
-            <span className={lightStyles.brandMark} aria-hidden="true">🤫</span>
+            <span className={lightStyles.brandMark} aria-hidden="true">
+              <span className={lightStyles.brandGlow} />
+              <span className={lightStyles.brandEmoji}>🤫</span>
+            </span>
 
             <h1
               role="heading"

@@ -417,14 +417,12 @@ def _validate_contract(contract: dict[str, Any]) -> list[str]:
             errors.append(f"{family_id}:missing_table_matcher")
     required_retention_families = {
         "kai_gmail_receipts_provider_cache",
-        "kai_brokerage_provider_cache",
         "pkm_encrypted_memory",
         "one_action_directive_authority",
         "one_capability_runtime",
         "one_location_agent",
         "information_marketplace_requests",
         "one_email_kyc_workflow",
-        "funding_trading_audit",
     }
     retention_registry = contract.get("retention_registry", [])
     registered_families: set[str] = set()

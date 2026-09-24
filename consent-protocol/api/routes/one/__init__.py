@@ -16,6 +16,7 @@ from .email_chat import router as email_chat_router
 from .feed import router as feed_router
 from .gmail_delivery import router as gmail_delivery_router
 from .gmail_information_requests import router as gmail_information_requests_router
+from .google import router as google_router
 from .information_chat import router as information_chat_router
 from .information_requests import router as information_requests_router
 from .insurance_agents import router as insurance_agents_router
@@ -48,6 +49,7 @@ router.include_router(email_router)
 router.include_router(email_chat_router)
 router.include_router(gmail_delivery_router)
 router.include_router(gmail_information_requests_router)
+router.include_router(google_router)
 router.include_router(feed_router)
 router.include_router(models_router)
 router.include_router(agent_feedback_router)

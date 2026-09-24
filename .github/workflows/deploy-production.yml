@@ -61,11 +61,16 @@ env:
   PROD_CLOUDSQL_INSTANCE: hushh-pda:us-central1:hushh-vault-db
   PROD_DB_UNIX_SOCKET: /cloudsql/hushh-pda:us-central1:hushh-vault-db
   PROD_DB_NAME: hushh_vault
+  ACCOUNT_DELETION_SCHEDULER_SERVICE_ACCOUNT_ID: account-deletion-cleanup
+  ACCOUNT_DELETION_SCHEDULER_JOB: account-deletion-cleanup-production
   BACKUP_MAX_AGE_HOURS: "30"
   PROTOCOL_PYTHON: ${{ github.workspace }}/consent-protocol/.venv/bin/python
 
+# One global group: the account deletion fence, migration, and activation
+# must never interleave between two production dispatches, even for different
+# SHAs. Queued runs wait; an in-flight release is never cancelled mid-fence.
 concurrency:
-  group: deploy-production-${{ github.event.inputs.sha || github.run_id }}
+  group: deploy-production
   cancel-in-progress: false
 
 jobs:
@@ -216,16 +221,6 @@ jobs:
             --github-output "$GITHUB_OUTPUT" \
             --json
 
-      - name: Block production migration 201 until lifecycle rollout controls exist
-        if: steps.scope.outputs.deploy_backend == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [ -f consent-protocol/db/migrations/201_account_deletion_tombstones.sql ]; then
-            echo "::error title=Production account-deletion boundary is not activated::Migration 201 requires the production deletion fence, pinned bridge revision, fresh Scheduler AttemptFinished evidence, and legacy revision drain before any backend deploy. Use the governed UAT rollout only until those production controls land."
-            exit 1
-          fi
-
       - name: Set up Python + uv runtime
         uses: ./consent-protocol/.github/actions/setup-python-uv
         with:
@@ -297,6 +292,40 @@ jobs:
           echo "backup_id=${BACKUP_ID}" >> "$GITHUB_OUTPUT"
           echo "backup_completed_at=${BACKUP_COMPLETED_AT}" >> "$GITHUB_OUTPUT"
 
+      - name: Build and pin backend image before lifecycle migration
+        id: build-backend-image
+        if: steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          image_tag="prod-${{ github.event.inputs.sha }}"
+          gcloud builds submit \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --config=deploy/backend-image.cloudbuild.yaml \
+            "--substitutions=_IMAGE_TAG=${image_tag}"
+
+          image_repository="gcr.io/${{ env.GCP_PROJECT_ID }}/consent-protocol"
+          image_digest="$(gcloud container images describe \
+            "${image_repository}:${image_tag}" \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --format='value(image_summary.digest)')"
+          if [[ ! "${image_digest}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "Backend image build did not resolve an immutable sha256 digest." >&2
+            exit 1
+          fi
+          image_reference="${image_repository}@${image_digest}"
+          # Buildx attestations live in a parent index. Pin its executable child
+          # before the fence; Cloud Run must later report this exact digest.
+          gcloud auth configure-docker gcr.io --quiet
+          docker buildx imagetools inspect --raw "${image_reference}" \
+            > /tmp/prod-backend-image-manifest.json
+          image_reference="$(python3 scripts/ci/resolve-cloud-run-image.py \
+            --image-reference "${image_reference}" \
+            --manifest-json /tmp/prod-backend-image-manifest.json \
+            --sha "${{ github.event.inputs.sha }}" \
+            --json-output /tmp/prod-backend-image.json)"
+          echo "image_reference=${image_reference}" >> "$GITHUB_OUTPUT"
+
       - name: Install Cloud SQL Auth Proxy
         if: steps.scope.outputs.deploy_backend == 'true'
         shell: bash
@@ -307,11 +336,81 @@ jobs:
             -o /usr/local/bin/cloud-sql-proxy
           chmod +x /usr/local/bin/cloud-sql-proxy
 
-      - name: Apply production release migrations
+      - name: Install fail-closed account deletion release fence
+        id: install-account-deletion-fence
         if: steps.scope.outputs.deploy_backend == 'true'
         shell: bash
         run: |
           set -euo pipefail
+
+          if [ "${GCP_PROJECT_ID}" != "hushh-pda" ] \
+             || [ "${PROD_CLOUDSQL_INSTANCE}" != "hushh-pda:us-central1:hushh-vault-db" ]; then
+            echo "Refusing account deletion fence: project or Cloud SQL instance is not the canonical production target."
+            exit 1
+          fi
+          export CLOUDSQL_INSTANCE_CONNECTION_NAME="${PROD_CLOUDSQL_INSTANCE}"
+
+          DB_USER="$(gcloud secrets versions access latest --secret=DB_USER --project="${{ env.GCP_PROJECT_ID }}")"
+          DB_PASSWORD="$(gcloud secrets versions access latest --secret=DB_PASSWORD --project="${{ env.GCP_PROJECT_ID }}")"
+          echo "::add-mask::${DB_USER}"
+          echo "::add-mask::${DB_PASSWORD}"
+
+          cloud-sql-proxy \
+            --address 127.0.0.1 \
+            --port 6544 \
+            ${GOOGLE_GHA_CREDS_PATH:+--credentials-file="${GOOGLE_GHA_CREDS_PATH}"} \
+            "${{ env.PROD_CLOUDSQL_INSTANCE }}" >/tmp/cloud-sql-proxy-prod-fence.log 2>&1 &
+          PROXY_PID=$!
+          trap 'kill "${PROXY_PID}" >/dev/null 2>&1 || true' EXIT
+
+          python3 - <<'PY'
+          import socket
+          import time
+
+          deadline = time.time() + 20
+          while time.time() < deadline:
+              with socket.socket() as sock:
+                  sock.settimeout(0.5)
+                  if sock.connect_ex(("127.0.0.1", 6544)) == 0:
+                      raise SystemExit(0)
+              time.sleep(0.25)
+          raise SystemExit("Cloud SQL proxy did not bind 127.0.0.1:6544 in time")
+          PY
+
+          export DB_HOST=127.0.0.1
+          export DB_PORT=6544
+          export DB_NAME="${{ env.PROD_DB_NAME }}"
+          export DB_USER
+          export DB_PASSWORD
+
+          if ! command -v psql >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq postgresql-client
+          fi
+
+          export PGHOST="$DB_HOST"
+          export PGPORT="$DB_PORT"
+          export PGDATABASE="${PROD_DB_NAME}"
+          export PGUSER="$DB_USER"
+          export PGPASSWORD="$DB_PASSWORD"
+          psql --no-psqlrc \
+            --file deploy/account-deletion/install_release_fence.sql \
+            | tee /tmp/prod-account-deletion-fence-install.log
+          echo "installed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Apply production DB migrations behind account deletion fence
+        id: predeploy-db-gate
+        if: steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${GCP_PROJECT_ID}" != "hushh-pda" ] \
+             || [ "${PROD_CLOUDSQL_INSTANCE}" != "hushh-pda:us-central1:hushh-vault-db" ]; then
+            echo "Refusing production migration: project or Cloud SQL instance is not the canonical production target."
+            exit 1
+          fi
+          export CLOUDSQL_INSTANCE_CONNECTION_NAME="${PROD_CLOUDSQL_INSTANCE}"
 
           # Production is Cloud SQL, reached only through the Auth Proxy from this
           # runner (there is no plain DB_HOST/DB_PORT env var on the deployed
@@ -350,6 +449,17 @@ jobs:
           export DB_PORT=6544
           export DB_NAME="${{ env.PROD_DB_NAME }}"
           export DB_USER DB_PASSWORD
+          export PGHOST="$DB_HOST"
+          export PGPORT="$DB_PORT"
+          export PGDATABASE="${PROD_DB_NAME}"
+          export PGUSER="$DB_USER"
+          export PGPASSWORD="$DB_PASSWORD"
+
+          # Re-acquire the table locks and prove the fence immediately before
+          # migration so manual drift cannot reopen the rolling-deploy gap.
+          psql --no-psqlrc \
+            --file deploy/account-deletion/install_release_fence.sql \
+            | tee /tmp/prod-account-deletion-fence-premigration.log
 
           (
             cd consent-protocol
@@ -357,6 +467,16 @@ jobs:
               --release-environment production \
               --migration-mode replay
           )
+          psql --no-psqlrc \
+            --file deploy/account-deletion/verify_release_boundary.sql \
+            | tee /tmp/prod-account-deletion-boundary.log
+          tombstone_count="$(psql --no-psqlrc --tuples-only --no-align \
+            --command 'SELECT count(*) FROM public.account_deletion_tombstones')"
+          if [[ ! "${tombstone_count}" =~ ^[0-9]+$ ]]; then
+            echo "Unable to record the migration-boundary tombstone count." >&2
+            exit 1
+          fi
+          echo "tombstone_count=${tombstone_count}" >> "$GITHUB_OUTPUT"
 
       - name: Migration governance and DB drift gate
         if: steps.scope.outputs.deploy_backend == 'true'
@@ -421,6 +541,7 @@ jobs:
             /tmp/prod-migration-release-manifest.json
 
       - name: Deploy backend using Cloud Build
+        id: deploy-backend
         if: steps.scope.outputs.deploy_backend == 'true'
         run: |
           if [ "${{ github.event.inputs.enable_one_email_kyc }}" = "true" ]; then
@@ -430,7 +551,7 @@ jobs:
           gcloud builds submit \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --config=deploy/backend.cloudbuild.yaml \
-            "--substitutions=_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }},_REGION=${{ env.GCP_REGION }},_CLOUDSQL_INSTANCES=${{ env.PROD_CLOUDSQL_INSTANCE }},_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID,_PLAID_SECRET_SECRET=PLAID_SECRET,_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY,_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY,_PMP_API_KEY_SECRET=PMP_API_KEY,_NEWSAPI_KEY_SECRET=NEWSAPI_KEY,_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID,_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET,_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI,_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY,_GOOGLE_OAUTH_CLIENT_ID_SECRET=GOOGLE_OAUTH_CLIENT_ID,_GOOGLE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_OAUTH_CLIENT_SECRET,_GOOGLE_OAUTH_REDIRECT_URI_SECRET=GOOGLE_OAUTH_REDIRECT_URI,_GOOGLE_OAUTH_TOKEN_KEY_SECRET=GOOGLE_OAUTH_TOKEN_KEY,_OPENAI_API_KEY_SECRET=OPENAI_API_KEY,_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY,_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN,_HUSHH_PROD_PHONE_TEST_NUMBERS_SECRET=HUSHH_PROD_PHONE_TEST_NUMBERS,_HUSHH_PROD_PHONE_TEST_CODE_SECRET=HUSHH_PROD_PHONE_TEST_CODE,_HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET_SECRET=HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET,_HUSHH_PROD_PHONE_TEST_ENABLED=true,_KAI_ANALYZE_DURABLE_RUN_STORE=true,_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL,_CONSENT_API_PUBLIC_ORIGIN=${{ env.CONSENT_API_PUBLIC_ORIGIN }},_CONSENT_WEB_FALLBACK_ENABLED=false,_CONSENT_SSE_ENABLED=false,_DB_POOL_MIN_SIZE=1,_DB_POOL_MAX_SIZE=4,_DB_SQLALCHEMY_POOL_SIZE=4,_DB_SQLALCHEMY_MAX_OVERFLOW=0,_CLOUD_RUN_MIN_INSTANCES=1,_CLOUD_RUN_MAX_INSTANCES=5,_CLOUD_RUN_NO_TRAFFIC=true,_IMAGE_TAG=prod-${{ github.event.inputs.sha }},_ONE_WALLET_CARD_ENABLED=true,_WALLET_PASS_PROVIDER=service,_WALLET_API_KEY_SECRET=WALLET_API_KEY,_HUSSH_GEMINI_TEXT_MODEL=gemini-3.7-flash,_ONE_VOICE_LIVE_ENABLED=false,_VERTEX_LIVE_MODEL_ID=gemini-live-2.5-flash-native-audio,_VERTEX_LIVE_LOCATION=us-central1,_GENAI_PROJECT_ID=hushh-vertex-personal54,_DEPLOY_ENV=production,_DEPLOY_SOURCE=deploy-production,_DEPLOY_SHA=${{ github.event.inputs.sha }},_GITHUB_RUN_ID=${{ github.run_id }},_RUNTIME_SERVICE_ACCOUNT=${{ env.RUNTIME_SERVICE_ACCOUNT }}"
+            "--substitutions=_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }},_REGION=${{ env.GCP_REGION }},_CLOUDSQL_INSTANCES=${{ env.PROD_CLOUDSQL_INSTANCE }},_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID,_PLAID_SECRET_SECRET=PLAID_SECRET,_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY,_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY,_PMP_API_KEY_SECRET=PMP_API_KEY,_NEWSAPI_KEY_SECRET=NEWSAPI_KEY,_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID,_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET,_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI,_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY,_GOOGLE_OAUTH_CLIENT_ID_SECRET=GOOGLE_OAUTH_CLIENT_ID,_GOOGLE_OAUTH_CLIENT_SECRET_SECRET=GOOGLE_OAUTH_CLIENT_SECRET,_GOOGLE_OAUTH_REDIRECT_URI_SECRET=GOOGLE_OAUTH_REDIRECT_URI,_GOOGLE_OAUTH_TOKEN_KEY_SECRET=GOOGLE_OAUTH_TOKEN_KEY,_OPENAI_API_KEY_SECRET=OPENAI_API_KEY,_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY,_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN,_HUSHH_PROD_PHONE_TEST_NUMBERS_SECRET=HUSHH_PROD_PHONE_TEST_NUMBERS,_HUSHH_PROD_PHONE_TEST_CODE_SECRET=HUSHH_PROD_PHONE_TEST_CODE,_HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET_SECRET=HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET,_HUSHH_PROD_PHONE_TEST_ENABLED=true,_KAI_ANALYZE_DURABLE_RUN_STORE=true,_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL,_CONSENT_API_PUBLIC_ORIGIN=${{ env.CONSENT_API_PUBLIC_ORIGIN }},_CONSENT_WEB_FALLBACK_ENABLED=false,_CONSENT_SSE_ENABLED=false,_DB_POOL_MIN_SIZE=1,_DB_POOL_MAX_SIZE=4,_DB_SQLALCHEMY_POOL_SIZE=4,_DB_SQLALCHEMY_MAX_OVERFLOW=0,_CLOUD_RUN_MIN_INSTANCES=1,_CLOUD_RUN_MAX_INSTANCES=5,_CLOUD_RUN_NO_TRAFFIC=true,_IMAGE_TAG=prod-${{ github.event.inputs.sha }},_ONE_WALLET_CARD_ENABLED=true,_WALLET_PASS_PROVIDER=service,_WALLET_API_KEY_SECRET=WALLET_API_KEY,_HUSSH_GEMINI_TEXT_MODEL=gemini-3.7-flash,_ONE_VOICE_LIVE_ENABLED=false,_VERTEX_LIVE_MODEL_ID=gemini-live-2.5-flash-native-audio,_VERTEX_LIVE_LOCATION=us-central1,_GENAI_PROJECT_ID=hushh-vertex-personal54,_DEPLOY_ENV=production,_DEPLOY_SOURCE=deploy-production,_DEPLOY_SHA=${{ github.event.inputs.sha }},_GITHUB_RUN_ID=${{ github.run_id }},_RUNTIME_SERVICE_ACCOUNT=${{ env.RUNTIME_SERVICE_ACCOUNT }},_SKIP_IMAGE_BUILD=true,_IMAGE_REFERENCE=${{ steps.build-backend-image.outputs.image_reference }},_CLOUD_RUN_TAG=account-deletion-${{ github.run_id }},_ACCOUNT_DELETION_CLEANUP_AUDIENCE=${{ env.CONSENT_API_PUBLIC_ORIGIN }},_ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL=${{ env.ACCOUNT_DELETION_SCHEDULER_SERVICE_ACCOUNT_ID }}@${{ env.GCP_PROJECT_ID }}.iam.gserviceaccount.com"
 
       - name: Get backend URL
         if: steps.scope.outputs.deploy_backend == 'true'
@@ -447,6 +568,123 @@ jobs:
         if: steps.scope.outputs.deploy_backend == 'true'
         continue-on-error: true
         run: bash scripts/ci/cloudrun-retention.sh "${{ env.BACKEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ env.BACKEND_REVISION_RETENTION }}"
+
+      - name: Resolve backend candidate revision
+        id: backend-candidate-state
+        if: steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --region="${{ env.GCP_REGION }}" \
+            --format=json > /tmp/prod-backend-candidate-service.json
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          service = json.loads(
+              Path("/tmp/prod-backend-candidate-service.json").read_text(encoding="utf-8")
+          )
+          status = service.get("status") or {}
+          revision = str(status.get("latestCreatedRevisionName") or "").strip()
+          expected_tag = f"account-deletion-{os.environ['GITHUB_RUN_ID']}"
+          tagged = [
+              entry
+              for entry in (status.get("traffic") or [])
+              if isinstance(entry, dict) and entry.get("tag") == expected_tag
+          ]
+          if not revision or len(tagged) != 1:
+              raise SystemExit("Backend candidate revision/tag could not be resolved uniquely")
+          tagged_revision = str(tagged[0].get("revisionName") or revision).strip()
+          candidate_url = str(tagged[0].get("url") or "").strip()
+          if tagged_revision != revision or not candidate_url.startswith("https://"):
+              raise SystemExit("Backend candidate tag does not resolve to the latest created revision")
+          with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
+              output.write(f"backend_revision={revision}\n")
+              output.write(f"backend_candidate_url={candidate_url}\n")
+          PY
+
+      - name: Verify backend candidate readiness and exact-SHA provenance
+        if: steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        env:
+          BACKEND_REVISION: ${{ steps.backend-candidate-state.outputs.backend_revision }}
+          BACKEND_CANDIDATE_URL: ${{ steps.backend-candidate-state.outputs.backend_candidate_url }}
+          EXPECTED_SHA: ${{ github.event.inputs.sha }}
+          EXPECTED_IMAGE_REFERENCE: ${{ steps.build-backend-image.outputs.image_reference }}
+        run: |
+          set -euo pipefail
+          gcloud run revisions describe "${BACKEND_REVISION}" \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --region="${{ env.GCP_REGION }}" \
+            --format=json > /tmp/prod-backend-candidate.json
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          revision = json.loads(
+              Path("/tmp/prod-backend-candidate.json").read_text(encoding="utf-8")
+          )
+          expected_revision = os.environ["BACKEND_REVISION"]
+          expected_sha = os.environ["EXPECTED_SHA"]
+          expected_image_reference = os.environ["EXPECTED_IMAGE_REFERENCE"]
+          metadata = revision.get("metadata") or {}
+          labels = metadata.get("labels") or {}
+          containers = (revision.get("spec") or {}).get("containers") or []
+          env = {
+              str(item.get("name") or ""): str(item.get("value") or "")
+              for container in containers
+              if isinstance(container, dict)
+              for item in (container.get("env") or [])
+              if isinstance(item, dict) and "value" in item
+          }
+          ready = any(
+              condition.get("type") == "Ready" and str(condition.get("status")).lower() == "true"
+              for condition in ((revision.get("status") or {}).get("conditions") or [])
+              if isinstance(condition, dict)
+          )
+          checks = {
+              "revision": metadata.get("name") == expected_revision,
+              "ready": ready,
+              "label_sha": labels.get("deploy-sha") == expected_sha,
+              "label_environment": labels.get("deploy-env") == "production",
+              "label_source": labels.get("deploy-source") == "deploy-production",
+              "lifecycle_contract": labels.get("account-deletion-contract") == "v201",
+              "immutable_image": bool(containers)
+              and containers[0].get("image") == expected_image_reference,
+              "env_sha": env.get("HUSHH_DEPLOY_SHA") == expected_sha,
+              "env_environment": env.get("HUSHH_DEPLOY_ENV") == "production",
+              "env_source": env.get("HUSHH_DEPLOY_SOURCE") == "deploy-production",
+              "env_run": env.get("HUSHH_DEPLOY_RUN_ID") == os.environ["GITHUB_RUN_ID"],
+          }
+          report = {
+              "status": "ready" if all(checks.values()) else "blocked",
+              "revision": expected_revision,
+              "checks": checks,
+          }
+          Path("/tmp/prod-backend-candidate-readiness.json").write_text(
+              json.dumps(report, indent=2, sort_keys=True), encoding="utf-8"
+          )
+          if not all(checks.values()):
+              raise SystemExit("Backend candidate readiness/provenance gate failed")
+          PY
+          candidate_health_ok=false
+          for _attempt in 1 2 3 4 5; do
+            if curl --fail --silent --show-error --max-time 15 \
+              "${BACKEND_CANDIDATE_URL%/}/health" \
+              > /tmp/prod-backend-candidate-health.json; then
+              candidate_health_ok=true
+              break
+            fi
+            sleep 3
+          done
+          if [ "${candidate_health_ok}" != "true" ]; then
+            echo "Backend candidate tagged health probe failed." >&2
+            exit 1
+          fi
 
       - name: Deploy frontend using Cloud Build
         if: steps.scope.outputs.deploy_frontend == 'true'
@@ -480,10 +718,13 @@ jobs:
           backend_revision=""
           frontend_revision=""
           if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ]; then
-            backend_revision="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
-              --project="${{ env.GCP_PROJECT_ID }}" \
-              --region="${{ env.GCP_REGION }}" \
-              --format='value(status.latestCreatedRevisionName)')"
+            # Promote exactly the tagged, digest-pinned, readiness-proven
+            # candidate, never whatever revision happens to be latest now.
+            backend_revision="${{ steps.backend-candidate-state.outputs.backend_revision }}"
+            if [ -z "${backend_revision}" ]; then
+              echo "Backend candidate revision was not resolved." >&2
+              exit 1
+            fi
           fi
           if [ "${{ steps.scope.outputs.deploy_frontend }}" = "true" ]; then
             frontend_revision="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
@@ -785,8 +1026,93 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo "Backend runtime health gate failed; reverting traffic to predeploy revision ${{ steps.predeploy-state.outputs.backend_revision }}"
-          bash scripts/ci/cloudrun-rollback.sh "${{ env.BACKEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ steps.predeploy-state.outputs.backend_revision }}"
+          rollback_revision="${{ steps.predeploy-state.outputs.backend_revision }}"
+          echo "Backend release gate failed; evaluating rollback to predeploy revision ${rollback_revision}"
+          gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --region="${{ env.GCP_REGION }}" \
+            --format=json > /tmp/prod-backend-prerollback-service.json
+          serving_revision="$(python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          service = json.loads(
+              Path('/tmp/prod-backend-prerollback-service.json').read_text(encoding='utf-8')
+          )
+          status = service.get('status') or {}
+          positive = [
+              item for item in (status.get('traffic') or [])
+              if isinstance(item, dict) and int(item.get('percent') or 0) > 0
+          ]
+          if len(positive) != 1:
+              raise SystemExit('Cannot authorize rollback from ambiguous backend traffic')
+          revision = str(positive[0].get('revisionName') or '').strip()
+          if not revision and positive[0].get('latestRevision'):
+              revision = str(status.get('latestReadyRevisionName') or '').strip()
+          if not revision:
+              raise SystemExit('Cannot resolve current backend revision for rollback')
+          print(revision)
+          PY
+          )"
+          if [ "${serving_revision}" = "${rollback_revision}" ]; then
+            echo "Backend rollback target already serves 100% traffic; no traffic mutation required."
+            exit 0
+          fi
+          if [ "${{ steps.predeploy-db-gate.outcome }}" != "success" ]; then
+            echo "Refusing backend rollback after an unproven migration boundary." >&2
+            exit 1
+          fi
+
+          rollback_contract="$(gcloud run revisions describe "${rollback_revision}" \
+            --project="${{ env.GCP_PROJECT_ID }}" \
+            --region="${{ env.GCP_REGION }}" \
+            --format='value(metadata.labels.account-deletion-contract)' 2>/dev/null || true)"
+          DB_USER="$(gcloud secrets versions access latest --secret=DB_USER --project="${{ env.GCP_PROJECT_ID }}")"
+          DB_PASSWORD="$(gcloud secrets versions access latest --secret=DB_PASSWORD --project="${{ env.GCP_PROJECT_ID }}")"
+          echo "::add-mask::${DB_USER}"
+          echo "::add-mask::${DB_PASSWORD}"
+          cloud-sql-proxy \
+            --address 127.0.0.1 \
+            --port 6544 \
+            ${GOOGLE_GHA_CREDS_PATH:+--credentials-file="${GOOGLE_GHA_CREDS_PATH}"} \
+            "${{ env.PROD_CLOUDSQL_INSTANCE }}" >/tmp/cloud-sql-proxy-prod-rollback.log 2>&1 &
+          PROXY_PID=$!
+          trap 'kill "${PROXY_PID}" >/dev/null 2>&1 || true' EXIT
+          python3 - <<'PY'
+          import socket
+          import time
+
+          deadline = time.time() + 20
+          while time.time() < deadline:
+              with socket.socket() as sock:
+                  sock.settimeout(0.5)
+                  if sock.connect_ex(("127.0.0.1", 6544)) == 0:
+                      raise SystemExit(0)
+              time.sleep(0.25)
+          raise SystemExit("Cloud SQL proxy did not bind for rollback authorization")
+          PY
+          export PGHOST=127.0.0.1
+          export PGPORT=6544
+          export PGDATABASE="${{ env.PROD_DB_NAME }}"
+          export PGUSER="$DB_USER"
+          export PGPASSWORD="$DB_PASSWORD"
+          psql --no-psqlrc \
+            --file deploy/account-deletion/install_release_fence.sql \
+            > /tmp/prod-account-deletion-fence-rollback.log
+          tombstone_count="$(psql --no-psqlrc --tuples-only --no-align \
+            --command 'SELECT count(*) FROM public.account_deletion_tombstones')"
+          if [[ ! "${tombstone_count}" =~ ^[0-9]+$ ]]; then
+            echo "Cannot authorize backend rollback without a tombstone count." >&2
+            exit 1
+          fi
+          if [ "${rollback_contract}" != "v201" ] && [ "${tombstone_count}" != "0" ]; then
+            echo "Refusing rollback to a pre-v201 backend after an account tombstone exists." >&2
+            exit 1
+          fi
+          bash scripts/ci/cloudrun-rollback.sh \
+            "${{ env.BACKEND_SERVICE }}" \
+            "${{ env.GCP_REGION }}" \
+            "${rollback_revision}"
 
       - name: Roll back frontend revision
         id: rollback-frontend
@@ -797,20 +1123,258 @@ jobs:
           echo "Frontend runtime health gate failed; reverting traffic to predeploy revision ${{ steps.predeploy-state.outputs.frontend_revision }}"
           bash scripts/ci/cloudrun-rollback.sh "${{ env.FRONTEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ steps.predeploy-state.outputs.frontend_revision }}"
 
+      - name: Activate tombstone-aware account deletion
+        id: activate-account-deletion
+        if: steps.classify.outputs.release_failed == 'false' && steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        env:
+          BACKEND_URL: ${{ env.CONSENT_API_PUBLIC_ORIGIN }}
+          OIDC_AUDIENCE: ${{ env.CONSENT_API_PUBLIC_ORIGIN }}
+          PROJECT_ID: ${{ env.GCP_PROJECT_ID }}
+          SCHEDULER_LOCATION: ${{ env.GCP_REGION }}
+          SCHEDULER_SERVICE_ACCOUNT_NAME: ${{ env.ACCOUNT_DELETION_SCHEDULER_SERVICE_ACCOUNT_ID }}
+          JOB_NAME: ${{ env.ACCOUNT_DELETION_SCHEDULER_JOB }}
+          BATCH_LIMIT: "10"
+        run: |
+          set -euo pipefail
+          if [ "${PROJECT_ID}" != "hushh-pda" ] \
+             || [ "${PROD_CLOUDSQL_INSTANCE}" != "hushh-pda:us-central1:hushh-vault-db" ]; then
+            echo "Refusing account deletion activation: project or Cloud SQL instance is not the canonical production target." >&2
+            exit 1
+          fi
+          bash deploy/account-deletion/setup_cleanup_scheduler.sh \
+            | tee /tmp/prod-account-deletion-scheduler-setup.log
+
+          gcloud scheduler jobs describe "${JOB_NAME}" \
+            --project="${PROJECT_ID}" \
+            --location="${SCHEDULER_LOCATION}" \
+            --format=json > /tmp/prod-account-deletion-scheduler-config.json
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          job = json.loads(
+              Path('/tmp/prod-account-deletion-scheduler-config.json').read_text(
+                  encoding='utf-8'
+              )
+          )
+          target = job.get('httpTarget') or {}
+          oidc = target.get('oidcToken') or {}
+          expected_uri = (
+              'https://api.hushh.ai/api/account/deletion-cleanup/drain?limit=10'
+          )
+          expected_service_account_email = (
+              f"{os.environ['SCHEDULER_SERVICE_ACCOUNT_NAME']}@"
+              f"{os.environ['PROJECT_ID']}.iam.gserviceaccount.com"
+          )
+          checks = {
+              'enabled': job.get('state') == 'ENABLED',
+              'method': target.get('httpMethod') == 'POST',
+              'uri': target.get('uri') == expected_uri,
+              'service_account': oidc.get('serviceAccountEmail')
+              == expected_service_account_email,
+              'audience': oidc.get('audience') == 'https://api.hushh.ai',
+          }
+          if not all(checks.values()):
+              raise SystemExit('Account deletion cleanup scheduler configuration drifted')
+          PY
+
+          # lastAttemptTime only proves that an attempt started. A release may
+          # activate only after Cloud Logging records the matching HTTP target
+          # completion with a concrete 2xx response; absent status is failure.
+          scheduler_triggered_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          gcloud scheduler jobs run "${JOB_NAME}" \
+            --project="${PROJECT_ID}" \
+            --location="${SCHEDULER_LOCATION}"
+
+          scheduler_job_resource="projects/${PROJECT_ID}/locations/${SCHEDULER_LOCATION}/jobs/${JOB_NAME}"
+          expected_uri="${BACKEND_URL%/}/api/account/deletion-cleanup/drain?limit=${BATCH_LIMIT}"
+          scheduler_log_filter="resource.type=\"cloud_scheduler_job\" AND resource.labels.project_id=\"${PROJECT_ID}\" AND resource.labels.location=\"${SCHEDULER_LOCATION}\" AND resource.labels.job_id=\"${JOB_NAME}\" AND logName=\"projects/${PROJECT_ID}/logs/cloudscheduler.googleapis.com%2Fexecutions\" AND timestamp>=\"${scheduler_triggered_at}\" AND jsonPayload.\"@type\"=\"type.googleapis.com/google.cloud.scheduler.logging.AttemptFinished\""
+          scheduler_verified=false
+          for _attempt in $(seq 1 72); do
+            if ! gcloud logging read "${scheduler_log_filter}" \
+              --project="${PROJECT_ID}" \
+              --freshness=10m \
+              --order=desc \
+              --limit=20 \
+              --format=json > /tmp/prod-account-deletion-scheduler-finished-logs.json; then
+              echo "Cannot read Cloud Scheduler completion logs; grant the deploy identity logging.logEntries.list." >&2
+              exit 1
+            fi
+            if python3 scripts/ci/verify-cloud-scheduler-attempt.py \
+              --logs-json /tmp/prod-account-deletion-scheduler-finished-logs.json \
+              --triggered-at "${scheduler_triggered_at}" \
+              --expected-job "${scheduler_job_resource}" \
+              --expected-uri "${expected_uri}" \
+              --evidence-path /tmp/prod-account-deletion-scheduler-evidence.json
+            then
+              scheduler_verified=true
+              break
+            fi
+            sleep 5
+          done
+          if [ "${scheduler_verified}" != "true" ]; then
+            echo "Account deletion cleanup scheduler produced no fresh successful AttemptFinished evidence." >&2
+            exit 1
+          fi
+
+          # Zero traffic is not a hard drain: an already-routed request can
+          # still reach an old revision. Retire every pre-v201 backend revision
+          # before removing the database fence, then prove none remain.
+          gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
+            --project="${PROJECT_ID}" \
+            --region="${{ env.GCP_REGION }}" \
+            --format=json > /tmp/prod-backend-preactivation-service.json
+          gcloud run revisions list \
+            --service="${{ env.BACKEND_SERVICE }}" \
+            --project="${PROJECT_ID}" \
+            --region="${{ env.GCP_REGION }}" \
+            --format=json > /tmp/prod-backend-preactivation-revisions.json
+          python3 - <<'PY'
+          import json
+          import re
+          from pathlib import Path
+
+          service = json.loads(
+              Path('/tmp/prod-backend-preactivation-service.json').read_text(encoding='utf-8')
+          )
+          revisions = json.loads(
+              Path('/tmp/prod-backend-preactivation-revisions.json').read_text(encoding='utf-8')
+          )
+          legacy = {
+              str((revision.get('metadata') or {}).get('name') or '').strip()
+              for revision in revisions
+              if ((revision.get('metadata') or {}).get('labels') or {}).get('account-deletion-contract') != 'v201'
+          }
+          if any(not re.fullmatch(r'[a-z0-9-]+', revision) for revision in legacy):
+              raise SystemExit('Refusing to retire an invalid legacy revision name')
+          tags = []
+          for entry in ((service.get('status') or {}).get('traffic') or []):
+              if not isinstance(entry, dict):
+                  continue
+              revision = str(entry.get('revisionName') or '').strip()
+              if revision in legacy and int(entry.get('percent') or 0) > 0:
+                  raise SystemExit('A pre-v201 backend revision still has serving traffic')
+              tag = str(entry.get('tag') or '').strip()
+              if revision in legacy and tag:
+                  if not re.fullmatch(r'[a-z][a-z0-9-]{0,62}', tag):
+                      raise SystemExit('Refusing to remove an invalid legacy traffic tag')
+                  tags.append(tag)
+          Path('/tmp/prod-backend-legacy-revisions.txt').write_text(
+              ''.join(f'{revision}\n' for revision in sorted(legacy)), encoding='utf-8'
+          )
+          Path('/tmp/prod-backend-legacy-tags.txt').write_text(
+              ','.join(sorted(set(tags))), encoding='utf-8'
+          )
+          PY
+          legacy_tags="$(cat /tmp/prod-backend-legacy-tags.txt)"
+          if [ -n "${legacy_tags}" ]; then
+            gcloud run services update-traffic "${{ env.BACKEND_SERVICE }}" \
+              --project="${PROJECT_ID}" \
+              --region="${{ env.GCP_REGION }}" \
+              --remove-tags="${legacy_tags}"
+          fi
+          while IFS= read -r legacy_revision; do
+            [ -n "${legacy_revision}" ] || continue
+            gcloud run revisions delete "${legacy_revision}" \
+              --project="${PROJECT_ID}" \
+              --region="${{ env.GCP_REGION }}" \
+              --quiet
+          done < /tmp/prod-backend-legacy-revisions.txt
+          gcloud run revisions list \
+            --service="${{ env.BACKEND_SERVICE }}" \
+            --project="${PROJECT_ID}" \
+            --region="${{ env.GCP_REGION }}" \
+            --format=json > /tmp/prod-backend-postretirement-revisions.json
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          revisions = json.loads(
+              Path('/tmp/prod-backend-postretirement-revisions.json').read_text(encoding='utf-8')
+          )
+          legacy = [
+              str((revision.get('metadata') or {}).get('name') or '')
+              for revision in revisions
+              if ((revision.get('metadata') or {}).get('labels') or {}).get('account-deletion-contract') != 'v201'
+          ]
+          evidence = {'status': 'retired' if not legacy else 'blocked', 'remaining_pre_v201_count': len(legacy)}
+          Path('/tmp/prod-account-deletion-revision-retirement.json').write_text(
+              json.dumps(evidence, indent=2, sort_keys=True), encoding='utf-8'
+          )
+          if legacy:
+              raise SystemExit('Pre-v201 backend revisions remain; retaining deletion fence')
+          PY
+
+          DB_USER="$(gcloud secrets versions access latest --secret=DB_USER --project="${PROJECT_ID}")"
+          DB_PASSWORD="$(gcloud secrets versions access latest --secret=DB_PASSWORD --project="${PROJECT_ID}")"
+          echo "::add-mask::${DB_USER}"
+          echo "::add-mask::${DB_PASSWORD}"
+          cloud-sql-proxy \
+            --address 127.0.0.1 \
+            --port 6544 \
+            ${GOOGLE_GHA_CREDS_PATH:+--credentials-file="${GOOGLE_GHA_CREDS_PATH}"} \
+            "${{ env.PROD_CLOUDSQL_INSTANCE }}" >/tmp/cloud-sql-proxy-prod-activation.log 2>&1 &
+          PROXY_PID=$!
+          trap 'kill "${PROXY_PID}" >/dev/null 2>&1 || true' EXIT
+          python3 - <<'PY'
+          import socket
+          import time
+
+          deadline = time.time() + 20
+          while time.time() < deadline:
+              with socket.socket() as sock:
+                  sock.settimeout(0.5)
+                  if sock.connect_ex(("127.0.0.1", 6544)) == 0:
+                      raise SystemExit(0)
+              time.sleep(0.25)
+          raise SystemExit("Cloud SQL proxy did not bind for account deletion activation")
+          PY
+          export PGHOST=127.0.0.1
+          export PGPORT=6544
+          export PGDATABASE="${{ env.PROD_DB_NAME }}"
+          export PGUSER="$DB_USER"
+          export PGPASSWORD="$DB_PASSWORD"
+          psql --no-psqlrc \
+            --file deploy/account-deletion/verify_release_boundary.sql \
+            > /tmp/prod-account-deletion-boundary-preactivation.log
+          psql --no-psqlrc --tuples-only --no-align \
+            --command "SELECT json_build_object(
+              'counts_by_status', COALESCE((SELECT json_object_agg(cleanup_status, intent_count) FROM (SELECT cleanup_status, count(*) AS intent_count FROM public.account_deletion_tombstones GROUP BY cleanup_status) grouped), '{}'::json),
+              'oldest_due_age_seconds', COALESCE((SELECT floor(extract(epoch FROM (now() - min(cleanup_next_attempt_at))))::bigint FROM public.account_deletion_tombstones WHERE firebase_uid IS NOT NULL AND cleanup_status <> 'completed' AND cleanup_next_attempt_at <= now()), 0)
+            )" > /tmp/prod-account-deletion-cleanup-health.json
+          psql --no-psqlrc \
+            --file deploy/account-deletion/remove_release_fence.sql \
+            | tee /tmp/prod-account-deletion-fence-removal.log
+          echo "activated=true" >> "$GITHUB_OUTPUT"
+
       - name: Resolve final Cloud Run state
         id: final-state
         if: always()
         shell: bash
         run: |
           set -euo pipefail
-          backend_serving="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
+          # A zero-percent candidate tag can sort ahead of the serving entry, so
+          # never trust traffic order; resolve the single 100% revision.
+          if ! gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --region="${{ env.GCP_REGION }}" \
-            --format='value(status.traffic[0].revisionName)' 2>/dev/null || true)"
-          frontend_serving="$(gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
+            --format=json > /tmp/prod-backend-final-service.json 2>/dev/null; then
+            printf '{}\n' > /tmp/prod-backend-final-service.json
+          fi
+          if ! gcloud run services describe "${{ env.FRONTEND_SERVICE }}" \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --region="${{ env.GCP_REGION }}" \
-            --format='value(status.traffic[0].revisionName)' 2>/dev/null || true)"
+            --format=json > /tmp/prod-frontend-final-service.json 2>/dev/null; then
+            printf '{}\n' > /tmp/prod-frontend-final-service.json
+          fi
+          backend_serving="$(python3 scripts/ci/resolve-cloud-run-serving-state.py \
+            --service-json /tmp/prod-backend-final-service.json --allow-missing \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')"
+          frontend_serving="$(python3 scripts/ci/resolve-cloud-run-serving-state.py \
+            --service-json /tmp/prod-frontend-final-service.json --allow-missing \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["revision"])')"
           echo "backend_serving=${backend_serving}" >> "$GITHUB_OUTPUT"
           echo "frontend_serving=${frontend_serving}" >> "$GITHUB_OUTPUT"
 
@@ -828,6 +1392,12 @@ jobs:
             fi
             if [ "${{ steps.scope.outputs.deploy_frontend }}" = "true" ] \
                && [ "${{ steps.final-state.outputs.frontend_serving }}" != "${{ steps.candidate-state.outputs.frontend_revision }}" ]; then
+              STATUS="blocked"
+            fi
+            # A backend release is healthy only once tombstone-aware deletion is
+            # activated; until then the fence keeps account deletion fail-closed.
+            if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \
+               && [ "${{ steps.activate-account-deletion.outcome }}" != "success" ]; then
               STATUS="blocked"
             fi
           else
@@ -883,6 +1453,8 @@ jobs:
                   "backend_health": "${{ steps.health-backend.outcome }}",
                   "frontend_health": "${{ steps.health-frontend.outcome }}",
                   "passkey_domain_associations": "${{ steps.verify-passkey-associations.outcome }}",
+                  "account_deletion_activation": "${{ steps.activate-account-deletion.outcome }}",
+                  "account_deletion_activated": "${{ steps.activate-account-deletion.outputs.activated }}",
               },
               "classification": {
                   "release_failed": "${{ steps.classify.outputs.release_failed }}",
@@ -913,6 +1485,27 @@ jobs:
             /tmp/prod-connected-systems.log
             /tmp/prod-backend-provenance.json
             /tmp/prod-frontend-provenance.json
+            /tmp/prod-backend-image.json
+            /tmp/prod-backend-image-manifest.json
+            /tmp/prod-backend-candidate.json
+            /tmp/prod-backend-candidate-readiness.json
+            /tmp/prod-backend-candidate-health.json
+            /tmp/prod-account-deletion-fence-install.log
+            /tmp/prod-account-deletion-fence-premigration.log
+            /tmp/prod-account-deletion-boundary.log
+            /tmp/prod-account-deletion-boundary-preactivation.log
+            /tmp/prod-account-deletion-scheduler-setup.log
+            /tmp/prod-account-deletion-scheduler-config.json
+            /tmp/prod-account-deletion-scheduler-finished-logs.json
+            /tmp/prod-account-deletion-scheduler-evidence.json
+            /tmp/prod-account-deletion-cleanup-health.json
+            /tmp/prod-account-deletion-revision-retirement.json
+            /tmp/prod-account-deletion-fence-removal.log
+            /tmp/cloud-sql-proxy-prod.log
+            /tmp/cloud-sql-proxy-prod-fence.log
+            /tmp/cloud-sql-proxy-prod-drift-gate.log
+            /tmp/cloud-sql-proxy-prod-rollback.log
+            /tmp/cloud-sql-proxy-prod-activation.log
             /tmp/prod-release-status.json
 
       - name: Deployment Summary
@@ -938,6 +1531,7 @@ jobs:
               echo "- Backend serving revision (final): \`${{ steps.final-state.outputs.backend_serving || 'unknown' }}\`"
               echo "- Backend health gate: \`${{ steps.health-backend.outcome }}\`"
               echo "- Backend rollback: \`${{ steps.rollback-backend.outcome }}\`"
+              echo "- Account deletion activation: \`${{ steps.activate-account-deletion.outcome }}\`"
               echo "- Latest backup id: \`${{ steps.backup-gate.outputs.backup_id }}\`"
               echo "- Latest backup completed at: \`${{ steps.backup-gate.outputs.backup_completed_at }}\`"
             else
@@ -1005,6 +1599,7 @@ jobs:
             echo "promote_failed=${{ steps.classify.outputs.promote_failed }}"
             echo "backend_provenance_failed=${{ steps.classify.outputs.backend_provenance_failed }}"
             echo "frontend_provenance_failed=${{ steps.classify.outputs.frontend_provenance_failed }}"
+            echo "account_deletion_activation=${{ steps.activate-account-deletion.outcome }}"
             echo "backend_rollback=${{ steps.rollback-backend.outcome }}"
             echo "frontend_rollback=${{ steps.rollback-frontend.outcome }}"
             if [ "${{ steps.rollback-backend.outcome }}" = "success" ] || [ "${{ steps.rollback-frontend.outcome }}" = "success" ]; then

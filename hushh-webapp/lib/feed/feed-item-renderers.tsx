@@ -9,6 +9,7 @@ import {
   Users,
 } from "@/components/icons";
 
+import { humanizeConsentScope } from "@/lib/consent/consent-display";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { formatLocationDurationLabel } from "@/lib/one-location/duration-copy";
 import { buildOneLocationWorkflowHref } from "@/lib/one-location/notifications";
@@ -147,9 +148,14 @@ function counterpartPerson(
 export function presentFeedItem(item: FeedItem): FeedItemPresentation {
   const icon = DOMAIN_ICON[item.source_domain] || Newspaper;
   const domainLabel = DOMAIN_LABEL[item.source_domain] || "Activity";
+  // A description reads as written; a bare scope key goes through the same
+  // humanizer the consent screens use. Printed raw, a row said
+  // "attr.professional.work_preferences.entities._entities.observations._items
+  // was revoked."
+  const rawScope = metadataString(item.metadata, "scope");
   const scope =
     metadataString(item.metadata, "scope_description") ||
-    metadataString(item.metadata, "scope");
+    (rawScope ? humanizeConsentScope(rawScope) : "");
   // Best-available name for the other party (label → display → first →
   // "Someone" last). Used to turn vague, subjectless lines like "A live
   // location share was revoked" into explicit subject-action-object sentences.

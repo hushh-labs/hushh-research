@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import { SettingsRow } from "@/components/app-ui/settings-ui";
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { cn } from "@/lib/utils";
@@ -7,8 +8,15 @@ import { presentFeedItem } from "@/lib/feed/feed-item-renderers";
 import { FeedRowMetadata } from "./feed-row-metadata";
 import type { FeedItem } from "@/lib/services/feed-service";
 
-/** History and pending requests share the same contact-list geometry. */
-export function FeedRow({
+/**
+ * History and pending requests share the same contact-list geometry.
+ *
+ * Memoised on its props: the page re-renders on every poll and every visit
+ * bookkeeping change, and without this each row re-presented its item and
+ * rebuilt its subtree on a phone for no visible change. `onOpen` is a stable
+ * callback from the page.
+ */
+export const FeedRow = memo(function FeedRow({
   item,
   onOpen,
   unread,
@@ -69,4 +77,4 @@ export function FeedRow({
       onClick={presentation.href ? () => onOpen(item) : undefined}
     />
   );
-}
+});

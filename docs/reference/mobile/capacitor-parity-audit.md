@@ -153,6 +153,14 @@ Current accepted parity exceptions are:
 
 Cloud-backed vault preference flows are the canonical cross-platform behavior, and Android passkey PRF is part of the parity contract rather than an exception. If a new exception is ever needed, document it in the mobile docs in the same change.
 
+## Render Performance
+
+This audit checks routes, plugins, markers and auth states. It does not
+measure frame pacing. That bar, the in-app probe, the native instruments and
+the gesture card live in [render-performance-charter.md](./render-performance-charter.md);
+`npm run verify:render-performance` is its static gate, and a dated device
+baseline under `perf/` is its evidence.
+
 ## Native Project Sanity
 
 Parity is not complete until both projects still load structurally:
@@ -256,6 +264,43 @@ Native parity for authenticated flows now includes the verified phone mandate af
   `FirebaseAuth.currentUser.phoneNumber` cannot continue past the mandate.
 - Android still requires a documented OTP smoke on device or UAT because the repo does not
   currently ship a dedicated Android OTP automation harness.
+
+## Plaid Link (native SDK on both platforms)
+
+Bank linking on the native shell opens Plaid's own SDK through the
+`HushhPlaidLink` plugin, never web Link inside the WebView. Web Link cannot
+finish an OAuth bank there: the bank's OAuth leg leaves for the external
+browser, the redirect chain ends on the https frontend origin, and neither
+Universal Links nor App Links can catch a redirect chain. The native SDK owns
+that leg and the return into the app.
+
+- **iOS** uses LinkKit. **Android** uses `com.plaid.link:sdk-core` (pinned
+  exactly in `android/app/build.gradle`) through Capacitor's
+  `startActivityForResult` and the SDK's `OpenPlaidLink` contract. Both return
+  the same shape: `{ publicToken, metadata }` or `{ exit: true, error?, metadata }`,
+  with the same error codes (`MISSING_TOKEN`, `ALREADY_OPEN`, `CREATE_FAILED`)
+  and events on `plaidLinkEvent`. Nothing is stored natively.
+- Plaid documents Android 8.0 (API 26) as the SDK minimum while the app
+  installs on API 24. The manifest overrides the SDK's minSdk; on older devices
+  the plugin's `isAvailable` returns false and the page uses web Link.
+- The link token is shaped by the Link runtime. The app sends `platform`
+  (`web`, `ios`, `android`) on `/api/kai/plaid/link-token`,
+  `/api/kai/plaid/link-token/update` and `/api/kai/plaid/funding/link-token`.
+  `android` is sent only when the native SDK will open the token; the backend
+  then sends `android_package_name` (from `PLAID_ANDROID_PACKAGE_NAME`, default
+  `com.hussh.app`) and **omits** `redirect_uri`, as Plaid requires. Web and iOS
+  keep `redirect_uri`. A client that omits `platform` is treated as web.
+- The Android SDK merges `READ_BASIC_PHONE_STATE`, a `plaid://` redirect
+  activity and a file provider into the app manifest; account for them in the
+  Play data-safety declaration.
+
+Plaid Dashboard actions (founder, per Plaid environment, production and
+sandbox): under **Developers > API**, add `com.hussh.app` to **Allowed
+Android package names**, and keep the https redirect URIs used by web and iOS
+(for example `https://uat.one.hushh.ai/one/kai/plaid/oauth/return` and
+`https://one.hushh.ai/one/kai/plaid/oauth/return`) on the **Allowed redirect
+URIs** list. A token minted for a package name or redirect URI that is not
+allowlisted fails at `/link/token/create`.
 
 ## Release Standard
 

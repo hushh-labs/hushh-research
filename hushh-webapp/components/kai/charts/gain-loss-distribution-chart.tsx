@@ -13,6 +13,8 @@ import {
   ChartTooltip,
   ChartTooltipContent,
   type ChartConfig,
+  CHART_ANIMATION_ACTIVE,
+  CHART_TOOLTIP_TRIGGER,
 } from "@/components/ui/chart";
 
 interface GainLossBandDatum {
@@ -96,7 +98,7 @@ export function GainLossDistributionChart({
               tickLine={false}
               tick={{ fontSize: 10, fill: "hsl(var(--foreground) / 0.72)" }}
             />
-            <ChartTooltip
+            <ChartTooltip trigger={CHART_TOOLTIP_TRIGGER}
               cursor={false}
               content={
                 <ChartTooltipContent
@@ -117,7 +119,7 @@ export function GainLossDistributionChart({
                 />
               }
             />
-            <Bar dataKey="count" radius={[6, 6, 0, 0]} maxBarSize={28}>
+            <Bar isAnimationActive={CHART_ANIMATION_ACTIVE} dataKey="count" radius={[6, 6, 0, 0]} maxBarSize={28}>
               <LabelList
                 dataKey="count"
                 position="top"

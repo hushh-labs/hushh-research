@@ -31,6 +31,16 @@ const READ_ONLY_SAFE_POST_PATHS = new Set([
   "/__nextjs_original-stack-frames",
 ]);
 
+// Unlock warming publishes only the current device's public ECDH recipient
+// keys. These endpoints are idempotent bootstrap metadata, not consent, PKM,
+// export, or decrypted-information writes. Preparation-only rehearsals must
+// allow this exact readiness seam while continuing to block every other
+// state-changing request.
+const PREPARATION_SAFE_BOOTSTRAP_POST_PATHS = new Set([
+  "/api/one/location/recipient-keys",
+  "/api/one/marketplace/recipient-keys",
+]);
+
 // Firebase authentication hosts. The reviewer login handshake exchanges the
 // review-mode session for a custom token and signs in through Identity
 // Toolkit (signInWithCustomToken, accounts:lookup, token refresh). These are
@@ -53,26 +63,55 @@ function requestPathname(request) {
   return endpointPath(request.url());
 }
 
-function installReadOnlyMutationGuard(context) {
+export async function installReadOnlyMutationGuard(context, {
+  appOrigin,
+  allowMemoryPreparation = false,
+  admitMutation = null,
+} = {}) {
   const blockedMutations = [];
-  if (process.env.REVIEWER_ALLOW_SHARED_MUTATIONS === "true") {
+  if (process.env.REVIEWER_ALLOW_SHARED_MUTATIONS === "true" && !admitMutation) {
     return {
       assertNoBlockedMutation() {},
       policy: "explicit_mutation_authorized",
     };
   }
 
-  void context.route("**/*", async (route) => {
+  await context.route("**/*", async (route) => {
     const request = route.request();
     const method = request.method().toUpperCase();
     const pathname = requestPathname(request);
+    // Preparation sends source text for authorized processing but cannot save
+    // Memory. Grant only this exact method/path/origin, not a mutation bypass.
+    const memoryPreparation = allowMemoryPreparation && method === "POST" &&
+      pathname === "/api/pkm/memory/proposals" &&
+      new URL(request.url()).origin === appOrigin;
+    const preparationBootstrap = allowMemoryPreparation &&
+      method === "POST" &&
+      PREPARATION_SAFE_BOOTSTRAP_POST_PATHS.has(pathname) &&
+      new URL(request.url()).origin === appOrigin;
     if (
       !["POST", "PUT", "PATCH", "DELETE"].includes(method) ||
-      READ_ONLY_SAFE_POST_PATHS.has(pathname) ||
+      (method === "POST" && READ_ONLY_SAFE_POST_PATHS.has(pathname)
+        && (!admitMutation || new URL(request.url()).origin === appOrigin)) ||
+      memoryPreparation ||
+      preparationBootstrap ||
       AUTH_ONLY_HOSTS.has(requestHostname(request))
     ) {
       await route.continue();
       return;
+    }
+
+    // A bounded rehearsal installs this policy before any page navigation,
+    // including bootstrap retries and fresh contexts. Authorization is still
+    // required; a callback cannot upgrade a read-only run.
+    if (admitMutation && process.env.REVIEWER_ALLOW_SHARED_MUTATIONS === "true"
+      && new URL(request.url()).origin === appOrigin) {
+      try {
+        if (await admitMutation(request) === true) {
+          await route.continue();
+          return;
+        }
+      } catch { /* Refusal is retained below without request bodies or errors. */ }
     }
 
     blockedMutations.push(`${method} ${pathname || "(unknown path)"}`);
@@ -93,7 +132,7 @@ function installReadOnlyMutationGuard(context) {
         `Read-only reviewer rehearsal blocked state-changing request(s): ${blockedMutations.join(", ")}. Fix the app's test/read-only posture or use an isolated fixture with explicit mutation authority.`,
       );
     },
-    policy: "read_only",
+    policy: admitMutation ? "bounded_mutation" : allowMemoryPreparation ? "preparation_only" : "read_only",
   };
 }
 
@@ -107,10 +146,26 @@ async function waitForValue(readValue, label, timeoutMs) {
   throw new Error(`Timed out waiting for ${label}.`);
 }
 
+export function shouldRetryReviewerBootstrap(error) {
+  return error?.code !== "REVIEWER_TERMINAL_BOOTSTRAP";
+}
+
+/** A loaded route beacon can describe anonymous or locked UI, not admission. */
+export async function waitForReviewerVaultAdmission(page, expectedUserId, timeoutMs = 60_000) {
+  if (!expectedUserId) throw new Error("Reviewer admission requires a configured identity.");
+  await page.waitForFunction((expected) => {
+    const bridge = window.__HUSHH_NATIVE_TEST__;
+    return bridge?.bootstrapState === "vault_unlocked" &&
+      bridge?.bootstrapUserId === expected;
+  }, expectedUserId, { timeout: timeoutMs });
+}
+
 export async function createReviewerSessionHarness({
   repoRoot,
   appOrigin = "https://uat.one.hushh.ai",
   timeoutMs = 360_000,
+  allowMemoryPreparation = false,
+  admitMutation = null,
   reviewerIdentity = /** @type {{ reviewerUid: string, reviewerVaultPassphrase: string } | null} */ (null),
 }) {
   const webDir = path.join(repoRoot, "hushh-webapp");
@@ -138,19 +193,31 @@ export async function createReviewerSessionHarness({
   }
 
   async function installBridge(page, { includePassphrase = true } = {}) {
+    const reviewerMutationPolicy = process.env.REVIEWER_ALLOW_SHARED_MUTATIONS === "true"
+      ? admitMutation ? "bounded_mutation" : "mutation_authorized"
+      : allowMemoryPreparation
+        ? "preparation_only"
+        : "read_only";
+    const reviewerAuthMode = process.env.REVIEWER_AUTH_MODE === "custom_token"
+      ? "custom_token"
+      : "local_credentials";
     await page.addInitScript(
-      ({ expectedUserId, vaultPassphrase }) => {
+      ({ expectedUserId, vaultPassphrase, reviewerMutationPolicy, reviewerAuthMode }) => {
         window.__HUSHH_NATIVE_TEST__ = {
           ...(window.__HUSHH_NATIVE_TEST__ || {}),
           enabled: true,
           autoReviewerLogin: true,
           expectedUserId,
+          reviewerMutationPolicy,
+          reviewerAuthMode,
           ...(vaultPassphrase ? { vaultPassphrase } : {}),
         };
       },
       {
         expectedUserId: reviewerUid,
         vaultPassphrase: includePassphrase ? reviewerPassphrase : "",
+        reviewerMutationPolicy,
+        reviewerAuthMode,
       }
     );
   }
@@ -166,7 +233,13 @@ export async function createReviewerSessionHarness({
       const authorization = request.headers().authorization || "";
       if (!authorization.startsWith("Bearer ")) return;
       if (pathname.startsWith("/api/pkm/")) ownerToken = authorization.slice(7);
-      if (pathname.startsWith("/api/one/connections")) {
+      // Viewer-relative people/profile reads use the Firebase identity token
+      // too, and may be the first identity-authenticated request in a
+      // read-only rehearsal. Keep the vault-owner token scoped to PKM routes.
+      if (
+        pathname.startsWith("/api/one/connections") ||
+        pathname.startsWith("/api/one/people/")
+      ) {
         identityToken = authorization.slice(7);
       }
     });
@@ -242,9 +315,11 @@ export async function createReviewerSessionHarness({
       const bootstrap = await safeBootstrapState();
       if (bootstrap.state === "vault_unlocked" && bootstrap.userMatches) return;
       if (terminalFailures.has(bootstrap.state)) {
-        throw new Error(
+        const error = new Error(
           `Reviewer vault bootstrap failed (state=${bootstrap.state}, error_class=${bootstrap.errorClass || "unknown"}, path=${bootstrap.path}, user_match=${bootstrap.userMatches}).`
         );
+        error.code = "REVIEWER_TERMINAL_BOOTSTRAP";
+        throw error;
       }
 
       if (!reviewerLoginSubmitted && await reviewerButton.isVisible().catch(() => false)) {
@@ -299,17 +374,20 @@ export async function createReviewerSessionHarness({
     await assertVaultContinuity(page, href);
   }
 
-  async function openSession(browser, redirect) {
+  async function openSession(browser, redirect, { allowQueryMutation = false } = {}) {
     const maxAttempts = 3;
     const attemptTimeoutMs = Math.max(20_000, Math.floor(timeoutMs / maxAttempts));
     let lastError = null;
+    const redirectUrl = new URL(redirect, normalizedOrigin);
+    const expectedPath = redirectUrl.pathname;
+    const expectedHref = `${redirectUrl.pathname}${redirectUrl.search}`;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       const context = await browser.newContext({ baseURL: normalizedOrigin, viewport: { width: 1440, height: 900 } });
       const page = await context.newPage();
       page.setDefaultTimeout(attemptTimeoutMs);
       page.setDefaultNavigationTimeout(attemptTimeoutMs);
-      const readOnlyGuard = installReadOnlyMutationGuard(context);
+      const readOnlyGuard = await installReadOnlyMutationGuard(context, { appOrigin: normalizedOrigin, allowMemoryPreparation, admitMutation });
       const capture = attachMemoryOnlyCapture(page);
       await installBridge(page);
       try {
@@ -317,16 +395,37 @@ export async function createReviewerSessionHarness({
           waitUntil: "domcontentloaded",
         });
         await waitForUnlock(page, readOnlyGuard, attemptTimeoutMs);
+        // Unlock can finish before the login component's pending redirect.
+        // Do not race that redirect with the first same-session navigation.
+        await page.waitForFunction(
+          ({ targetPath, targetHref, queryMayChange }) =>
+            queryMayChange
+              ? window.location.pathname === targetPath
+              : `${window.location.pathname}${window.location.search}` === targetHref,
+          {
+            targetPath: expectedPath,
+            targetHref: expectedHref,
+            queryMayChange: allowQueryMutation,
+          },
+          { timeout: attemptTimeoutMs },
+        );
         return { context, page, capture, readOnlyGuard };
       } catch (error) {
         lastError = error;
         await context.close().catch(() => undefined);
+        if (!shouldRetryReviewerBootstrap(error)) throw error;
       }
     }
 
-    throw new Error(`Reviewer session bootstrap failed after ${maxAttempts} attempts.`, {
+    const causeMessage = lastError?.cause instanceof Error
+      ? lastError.cause.message.replace(/\s+/g, " ").slice(0, 200)
+      : "";
+    throw new Error(
+      `Reviewer session bootstrap failed after ${maxAttempts} attempts.${causeMessage ? ` cause=${causeMessage}` : ""}`,
+      {
       cause: lastError,
-    });
+      },
+    );
   }
 
   async function assertVisibleVaultChallenge(browser, redirect) {
@@ -335,7 +434,7 @@ export async function createReviewerSessionHarness({
     const challengeTimeoutMs = Math.min(timeoutMs, 60_000);
     page.setDefaultTimeout(challengeTimeoutMs);
     page.setDefaultNavigationTimeout(challengeTimeoutMs);
-    const readOnlyGuard = installReadOnlyMutationGuard(context);
+    const readOnlyGuard = await installReadOnlyMutationGuard(context, { appOrigin: normalizedOrigin, allowMemoryPreparation, admitMutation });
     const capture = attachMemoryOnlyCapture(page);
     try {
       // Authenticate the canonical reviewer through the test bridge, but do
@@ -359,9 +458,11 @@ export async function createReviewerSessionHarness({
         bootstrapState: window.__HUSHH_NATIVE_TEST__?.bootstrapState || "unknown",
         bootstrapErrorClass:
           window.__HUSHH_NATIVE_TEST__?.bootstrapErrorClass || "none",
+        openingChat: document.body.textContent?.includes("Opening chat…") === true,
+        unlockHeading: document.body.textContent?.includes("Unlock One") === true,
       }));
       throw new Error(
-        `Visible vault challenge timed out (path=${diagnostics.path}, title=${diagnostics.title || "unknown"}, state=${diagnostics.bootstrapState}, error_class=${diagnostics.bootstrapErrorClass}).`
+        `Visible vault challenge timed out (path=${diagnostics.path}, title=${diagnostics.title || "unknown"}, state=${diagnostics.bootstrapState}, error_class=${diagnostics.bootstrapErrorClass}, opening_chat=${diagnostics.openingChat}, unlock_heading=${diagnostics.unlockHeading}).`
       );
     } finally {
       await context.close().catch(() => undefined);

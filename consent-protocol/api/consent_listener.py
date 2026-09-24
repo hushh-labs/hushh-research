@@ -447,6 +447,7 @@ async def _handle_notify(payload_str: str):
             await _record_notification_event(notification_payload, action_name="NOTIFICATION_SENT")
         else:
             await _dispatch_notification_for_user(user_id, data)
+            await _notify_information_requester(data)
     except json.JSONDecodeError as e:
         logger.warning("Consent notify invalid JSON: %s", e)
     except Exception as e:
@@ -488,6 +489,60 @@ async def _record_notification_event(
 async def _dispatch_notification_for_user(user_id: str, data: Dict[str, Any]) -> None:
     await _push_to_consent_queue(user_id, data)
     await _send_fcm_for_user(user_id, data)
+
+
+async def _notify_information_requester(data: Dict[str, Any]) -> None:
+    """Wake only the requester bound to this resolved person-to-person item.
+
+    The notification is a metadata-only doorbell. The client must reread the
+    bundle and encrypted export through its normal owner-scoped authorities;
+    neither a payload-supplied requester nor a scope label is trusted here.
+    """
+    action = str(data.get("action") or "").strip().upper()
+    if action not in {"CONSENT_GRANTED", "CONSENT_DENIED", "CANCELLED", "REVOKED", "TIMEOUT"}:
+        return
+    bundle_id = str(data.get("bundle_id") or "").strip()
+    request_id = str(data.get("request_id") or "").strip()
+    subject_user_id = str(data.get("user_id") or "").strip()
+    if not _UUID_LIKE_PATTERN.fullmatch(bundle_id) or not request_id or not subject_user_id:
+        return
+    try:
+        from db.db_client import get_db
+
+        result = get_db().execute_raw(
+            """SELECT bundle.requester_user_id
+               FROM one_information_request_bundles bundle
+               JOIN one_information_request_items item ON item.bundle_id = bundle.bundle_id
+               WHERE bundle.bundle_id = CAST(:bundle_id AS UUID)
+                 AND bundle.subject_user_id = :subject_user_id
+                 AND item.request_id = :request_id
+               LIMIT 1""",
+            {
+                "bundle_id": bundle_id,
+                "subject_user_id": subject_user_id,
+                "request_id": request_id,
+            },
+        )
+        rows = result.data or []
+        row = rows[0] if rows else {}
+        requester_user_id = str(row.get("requester_user_id") or "").strip()
+        if not requester_user_id or requester_user_id == subject_user_id:
+            return
+        await _dispatch_notification_for_user(
+            requester_user_id,
+            {
+                "type": "information_request_updated",
+                "user_id": requester_user_id,
+                "action": action,
+                "bundle_id": bundle_id,
+                "request_id": request_id,
+                "message_id": f"information-request:{bundle_id}:{request_id}:{action}:{data.get('issued_at') or ''}",
+                "request_url": "/",
+                "deep_link": "/",
+            },
+        )
+    except Exception as exc:  # noqa: BLE001 - never unwind the consent event
+        logger.warning("information_request.requester_notify_failed error=%s", type(exc).__name__)
 
 
 async def _enrich_notify_payload(data: Dict[str, Any]) -> Dict[str, Any]:
@@ -712,7 +767,9 @@ async def _send_fcm_for_user(user_id: str, data: Dict[str, Any]):
 
         message_type = "consent_resolved"
         normalized_action = action.upper()
-        if normalized_action == "REQUESTED":
+        if data.get("type") == "information_request_updated":
+            message_type = "information_request_updated"
+        elif normalized_action == "REQUESTED":
             message_type = "consent_request"
         elif normalized_action == "NOTIFICATION_OPENED":
             message_type = "consent_opened"
@@ -721,6 +778,7 @@ async def _send_fcm_for_user(user_id: str, data: Dict[str, Any]):
             {
                 "type": message_type,
                 "request_id": request_id,
+                "message_id": data.get("message_id"),
                 "action": action,
                 "user_id": user_id,
                 "scope": scope,

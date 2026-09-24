@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 
@@ -67,13 +67,45 @@ async def viewer_person_profile(
     person_ref: str,
     response: Response,
     firebase_uid: str = Depends(require_firebase_auth),
+    catalog_page: int = Query(default=1, ge=1),
+    catalog_revision: str = Query(default="", max_length=64),
+    catalog_query: str = Query(default="", max_length=200),
+    catalog_domain: str = Query(default="", max_length=80),
 ):
     response.headers["Cache-Control"] = "private, no-store"
     try:
         return await _service().get_viewer_profile(
             viewer_user_id=firebase_uid,
             public_person_ref=_validated_ref(person_ref),
+            catalog_page=catalog_page,
+            catalog_revision=catalog_revision,
+            catalog_query=catalog_query,
+            catalog_domain=catalog_domain,
         )
+    except Exception as exc:  # noqa: BLE001
+        raise _not_found(exc) from exc
+
+
+@router.get("/{person_ref}/request-history")
+async def viewer_request_history(
+    person_ref: str,
+    response: Response,
+    limit: int = Query(default=20, ge=1, le=50),
+    cursor: str | None = Query(default=None, max_length=512),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        return await _service().get_request_history_page(
+            viewer_user_id=firebase_uid,
+            public_person_ref=_validated_ref(person_ref),
+            limit=limit,
+            cursor=cursor,
+        )
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
         raise _not_found(exc) from exc
 

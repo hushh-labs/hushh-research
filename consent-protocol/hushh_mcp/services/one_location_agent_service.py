@@ -7,6 +7,7 @@ import hmac
 import json
 import logging
 import os
+import re
 import secrets
 import uuid
 from collections.abc import Sequence
@@ -649,7 +650,8 @@ _DIRECTORY_SEPARATOR_FOLD = str.maketrans(_DIRECTORY_SEPARATORS, " " * len(_DIRE
 #: The SQL half of the same fold, written out so a test can assert the
 #: statement below still contains exactly this and nothing has drifted.
 _DIRECTORY_SEPARATOR_SQL = (
-    "TRANSLATE(LOWER(BTRIM(COALESCE(a.display_name, ''))), '{}', '{}')".format(
+    "REGEXP_REPLACE(TRANSLATE(LOWER(BTRIM(COALESCE(a.display_name, ''))), '{}', '{}'), "
+    "'[[:space:]]+', ' ', 'g')".format(
         _DIRECTORY_SEPARATORS.replace("'", "''"),
         " " * len(_DIRECTORY_SEPARATORS),
     )
@@ -4686,7 +4688,9 @@ class OneLocationAgentService:
         # stored side has already turned it into a space, so matching it as a
         # literal could only ever return nothing. Once folded it is a space, so
         # it reaches LIKE as a space and cannot act as a wildcard either.
-        needle = (query or "").strip().lower().translate(_DIRECTORY_SEPARATOR_FOLD).strip()
+        needle = " ".join(
+            (query or "").strip().lower().translate(_DIRECTORY_SEPARATOR_FOLD).split()
+        )
         target = (candidate_user_id or "").strip() or None
         # An unrecognised audience widens to "all" rather than narrowing: a typo
         # in a caller must not silently hide people who are really there.
@@ -4723,8 +4727,21 @@ class OneLocationAgentService:
         # punctuation someone typed into a profile field.
         name_prefix_pattern = f"{escaped_needle}%"
         word_prefix_pattern = f"% {escaped_needle}%"
+        compact_needle = re.sub(r"[^a-z0-9]", "", needle)
+        escaped_compact_needle = (
+            compact_needle.replace("!", "!!").replace("%", "!%").replace("_", "!_")
+        )
+        email_prefix_pattern = f"{escaped_compact_needle}%"
+        token_prefix_patterns = [
+            f"% {token.replace('!', '!!').replace('%', '!%').replace('_', '!_')}%"
+            for token in needle.split()
+        ]
+        all_tokens_match_sql = f"""NOT EXISTS (
+            SELECT 1 FROM unnest(CAST(:token_prefixes AS TEXT[])) AS query_token(pattern)
+            WHERE (' ' || {_DIRECTORY_SEPARATOR_SQL}) NOT LIKE query_token.pattern ESCAPE '!'
+        )"""  # nosec B608 - static SQL fragments only; every value is a bound parameter.
         rows = self._execute_many(
-            """
+            f"""
             SELECT
               a.user_id, a.display_name, a.email, a.phone_number, a.phone_verified,
               profile.public_person_ref,
@@ -4783,10 +4800,15 @@ class OneLocationAgentService:
               )
               AND (
                 :query = ''
-                OR TRANSLATE(LOWER(BTRIM(COALESCE(a.display_name, ''))), '-''._/,', '      ')
-                     LIKE :name_prefix ESCAPE '!'
-                OR TRANSLATE(LOWER(BTRIM(COALESCE(a.display_name, ''))), '-''._/,', '      ')
-                     LIKE :word_prefix ESCAPE '!'
+                OR {_DIRECTORY_SEPARATOR_SQL} = :exact_name
+                OR {_DIRECTORY_SEPARATOR_SQL} LIKE :name_prefix ESCAPE '!'
+                OR {_DIRECTORY_SEPARATOR_SQL} LIKE :word_prefix ESCAPE '!'
+                OR (:query <> '' AND {all_tokens_match_sql})
+                OR (
+                  :query <> '' AND :email_query <> ''
+                  AND REGEXP_REPLACE(LOWER(BTRIM(COALESCE(a.email, ''))), '[^[:alnum:]]', '', 'g')
+                       LIKE :email_prefix ESCAPE '!'
+                )
               )
               AND (
                 :audience = 'all'
@@ -4803,20 +4825,29 @@ class OneLocationAgentService:
             ORDER BY
               CASE
                 WHEN :query = '' THEN 0
-                WHEN TRANSLATE(LOWER(BTRIM(COALESCE(a.display_name, ''))), '-''._/,', '      ')
-                       LIKE :name_prefix ESCAPE '!' THEN 0
-                ELSE 1
+                WHEN {_DIRECTORY_SEPARATOR_SQL} = :exact_name THEN 0
+                WHEN {_DIRECTORY_SEPARATOR_SQL} LIKE :name_prefix ESCAPE '!' THEN 1
+                WHEN {_DIRECTORY_SEPARATOR_SQL} LIKE :word_prefix ESCAPE '!' THEN 2
+                WHEN :query <> '' AND {all_tokens_match_sql} THEN 2
+                WHEN :query <> '' AND :email_query <> ''
+                  AND REGEXP_REPLACE(LOWER(BTRIM(COALESCE(a.email, ''))), '[^[:alnum:]]', '', 'g')
+                       LIKE :email_prefix ESCAPE '!' THEN 3
+                ELSE 4
               END,
               LOWER(COALESCE(NULLIF(BTRIM(a.display_name), ''), a.phone_number, a.user_id)),
               a.user_id
             LIMIT :fetch_limit OFFSET :offset
-            """,
+            """,  # nosec B608 - static SQL fragments only; every value is a bound parameter.
             {
                 "owner_user_id": owner_user_id,
                 "candidate_user_id": target,
                 "query": needle,
+                "exact_name": needle,
                 "name_prefix": name_prefix_pattern,
                 "word_prefix": word_prefix_pattern,
+                "token_prefixes": token_prefix_patterns,
+                "email_prefix": email_prefix_pattern,
+                "email_query": compact_needle,
                 "audience": requested_audience,
                 "fetch_limit": limit + 1,
                 "offset": offset,

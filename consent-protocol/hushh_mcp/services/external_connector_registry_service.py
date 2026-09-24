@@ -9,7 +9,7 @@ via `scripts/ops/configure_external_mcp_connector.py`) rather than
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from db.db_client import get_db
@@ -33,6 +33,9 @@ class ExternalMcpConnectorDefinition:
     oauth_client_secret_env: str | None
     api_key_header_name: str | None
     is_active: bool
+    transport_kind: str = "mcp"
+    capability_policy: dict[str, Any] = field(default_factory=dict)
+    registered_redirect_uris: tuple[str, ...] = ()
 
     @classmethod
     def from_row(cls, row: dict[str, Any]) -> "ExternalMcpConnectorDefinition":
@@ -50,6 +53,11 @@ class ExternalMcpConnectorDefinition:
             oauth_client_secret_env=_clean(row.get("oauth_client_secret_env")) or None,
             api_key_header_name=_clean(row.get("api_key_header_name")) or None,
             is_active=bool(row.get("is_active")),
+            transport_kind=_clean(row.get("transport_kind")) or "mcp",
+            capability_policy=row.get("capability_policy")
+            if isinstance(row.get("capability_policy"), dict)
+            else {},
+            registered_redirect_uris=tuple(row.get("registered_redirect_uris") or ()),
         )
 
     def to_public_dict(self) -> dict[str, Any]:

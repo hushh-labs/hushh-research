@@ -53,7 +53,7 @@ describe("canonical workspace hierarchy", () => {
     expect(finance).toContain('data-finance-workspace="true"');
     expect(finance).toContain('heightMode="active"');
     expect(finance).toContain("holdHeightDuringTransition={false}");
-    expect(finance).toContain('viewportMinHeight="0px"');
+    expect(finance).toContain('viewportMinHeight="fill"');
     expect(finance).toContain("scrollAppToTop();");
     expect(finance).toContain("resetKaiBottomChromeVisibility();");
     expect(finance).not.toContain("router.replace(destination.href, { scroll: false })");

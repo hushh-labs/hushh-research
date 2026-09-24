@@ -47,6 +47,13 @@ def test_one_is_the_only_product_head_and_invocation_is_narrow() -> None:
     assert not (MANIFEST_ROOT / "orchestrator" / "agent.yaml").exists()
 
 
+def test_one_chat_keeps_tool_progress_in_activity_cards() -> None:
+    instruction = load("one").system_instruction
+    assert "Do not repeat that plumbing as transcript prose" in instruction
+    assert "Available information" in instruction
+    assert "Do not announce a profile" in instruction
+
+
 def test_core_specialists_have_distinct_ids_and_reserved_authority() -> None:
     manifests = [load(name) for name in ("kai", "nav", "kyc", "location")]
     assert len({manifest.id for manifest in manifests}) == 4

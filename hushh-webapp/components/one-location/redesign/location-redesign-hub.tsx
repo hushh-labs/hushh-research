@@ -70,10 +70,7 @@ import {
   shareReplacementsLosingTime,
 } from "@/lib/one-location/share-replacement";
 import { ActionMenu } from "@/components/app-ui/action-menu";
-import {
-  FlowActionGroup,
-  FlowSelectionSummary,
-} from "@/components/app-ui/flow-actions";
+import { FlowActionGroup } from "@/components/app-ui/flow-actions";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { TopShellTabs } from "@/components/app-ui/top-shell-tabs";
@@ -824,6 +821,33 @@ const NEARBY_CHECK_IN_SOURCE = "nearby";
 // arrow agreeing with the chrome and OS back buttons, which follow real history.
 const SOS_FLOW_SOURCE = "sos";
 
+/**
+ * Commit query-only Location flows synchronously.
+ *
+ * These screens are local states of `/one/location`, not server routes. Using
+ * `router.push` for them left an asynchronous RSC navigation in flight after
+ * the next flow was already visible. A quick Shared-with-me -> Ask transition
+ * could therefore be overwritten when the older Shared-with-me navigation
+ * settled, and the URL-sync effect faithfully reopened the wrong screen.
+ *
+ * Next's patched native History API updates `useSearchParams` without a full
+ * document navigation. Writing the URL in the same turn as the local state
+ * removes that stale-navigation window while preserving push/replace history
+ * semantics and the memory-only vault session.
+ */
+function commitLocationFlowHistory(
+  href: string,
+  navigation: "push" | "replace",
+): boolean {
+  if (typeof window === "undefined") return false;
+  if (navigation === "replace") {
+    window.history.replaceState(window.history.state, "", href);
+  } else {
+    window.history.pushState(window.history.state, "", href);
+  }
+  return true;
+}
+
 const FLOW_TO_ACTION: Record<Exclude<FlowKind, "none">, string> = {
   share: "share",
   ask: "ask",
@@ -1319,7 +1343,10 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
       }
       params.set(FLOW_ACTION_PARAM, FLOW_TO_ACTION[next]);
       params.delete("circleId");
-      router[navigation](`${pathname}?${params.toString()}`, { scroll: false });
+      const href = `${pathname}?${params.toString()}`;
+      if (!commitLocationFlowHistory(href, navigation)) {
+        router[navigation](href, { scroll: false });
+      }
     },
     [pathname, router, searchParams],
   );
@@ -1845,7 +1872,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
           activeValue={tab}
           options={LOCATION_SWIPE_OPTIONS}
           onSelectionChange={(value) => setTab(value as LocationHubTab)}
-          viewportMinHeight="0px"
+          viewportMinHeight="fill"
           heightMode="active"
         >
           <LocationHubPanel>
@@ -3147,8 +3174,8 @@ function LocationToggle({
     >
       <span
         className={cn(
-          "absolute top-[2px] h-[27px] w-[27px] rounded-full bg-[color:var(--switch-thumb)] shadow-[0_1px_3px_rgba(0,0,0,0.15)] transition-[left] duration-150",
-          checked ? "left-[22px]" : "left-[2px]",
+          "absolute top-[2px] left-[2px] h-[27px] w-[27px] rounded-full bg-[color:var(--switch-thumb)] shadow-[0_1px_3px_rgba(0,0,0,0.15)] transition-transform duration-150",
+          checked ? "translate-x-[20px]" : "translate-x-0",
         )}
       />
     </button>
@@ -3621,7 +3648,7 @@ function StopGrantTextButton({
 }
 
 /** One person in the People list: avatar (+ live dot) · name · status · chevron. */
-function PersonRow({
+export function PersonRow({
   name,
   photoUrl,
   verified,
@@ -3653,7 +3680,7 @@ function PersonRow({
     <div
       className={cn(
         hasQuickActions
-          ? "rounded-[var(--app-card-radius-standard,24px)] bg-[color:var(--app-card-surface-default-solid)] p-3.5 shadow-[var(--app-card-shadow-standard)]"
+          ? "grid grid-cols-1 items-center gap-x-3 gap-y-2 rounded-[var(--app-card-radius-standard,24px)] bg-[color:var(--app-card-surface-default-solid)] px-3.5 py-2.5 shadow-[var(--app-card-shadow-standard)] min-[360px]:grid-cols-[minmax(0,1fr)_auto]"
           : "relative",
         !first &&
           !hasQuickActions &&
@@ -3688,11 +3715,23 @@ function PersonRow({
           ) : null}
         </div>
         <div className="min-w-0 flex-1 space-y-0.5">
-          <p className="min-w-0 break-words text-[17px] font-medium leading-[22px] tracking-[-0.3px] text-foreground">
+          <p
+            className={cn(
+              "min-w-0 text-[17px] font-medium leading-[22px] tracking-[-0.3px] text-foreground",
+              hasQuickActions
+                ? "line-clamp-2 [overflow-wrap:anywhere] sm:block sm:truncate sm:[overflow-wrap:normal]"
+                : "break-words",
+            )}
+          >
             {name}
           </p>
           {subtitle ? (
-            <p className="break-words text-[13px] font-normal leading-[18px] tracking-[-0.2px] text-[color:var(--app-secondary-label)]">
+            <p
+              className={cn(
+                "text-[13px] font-normal leading-[18px] tracking-[-0.2px] text-[color:var(--app-secondary-label)]",
+                hasQuickActions ? "truncate" : "break-words",
+              )}
+            >
               {subtitle}
             </p>
           ) : null}
@@ -3706,32 +3745,40 @@ function PersonRow({
       </button>
       {hasQuickActions ? (
         <div
-          className="mt-2 flex justify-start gap-2"
+          className="grid w-full grid-cols-2 gap-2 min-[360px]:flex min-[360px]:w-auto"
           role="group"
           aria-label={`Actions for ${name}`}
         >
           {onAsk ? (
-            <button
+            <Button
               type="button"
+              variant="secondary"
+              size="compact"
               onClick={onAsk}
-              className="flex min-h-11 w-[120px] shrink-0 items-center justify-center gap-1.5 rounded-full bg-[color:var(--app-accent-tint)] px-3 text-[13px] font-semibold text-[color:var(--app-accent)] transition-colors hover:bg-[color:var(--app-accent-ring)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2"
+              className="w-full min-w-0 bg-[color:var(--app-accent-tint)] px-2.5 text-[color:var(--app-accent)] hover:bg-[color:var(--app-accent-ring)] min-[360px]:w-auto min-[360px]:min-w-[68px] sm:min-w-[104px] sm:px-3"
               aria-label={`Ask ${name} for their location`}
             >
-              <LocationMenuGlyph name="ask" size={17} />
+              <span className="hidden sm:block">
+                <LocationMenuGlyph name="ask" size={17} />
+              </span>
               Ask
-            </button>
+            </Button>
           ) : null}
           {onShare ? (
-            <button
+            <Button
               type="button"
+              variant="secondary"
+              size="compact"
               onClick={onShare}
               disabled={!shareReady}
-              className="flex min-h-11 w-[120px] shrink-0 items-center justify-center gap-1.5 rounded-full bg-[color:var(--app-accent-tint)] px-3 text-[13px] font-semibold text-[color:var(--app-accent)] transition-colors hover:bg-[color:var(--app-accent-ring)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent)] focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-45"
+              className="w-full min-w-0 bg-[color:var(--app-accent-tint)] px-2.5 text-[color:var(--app-accent)] hover:bg-[color:var(--app-accent-ring)] min-[360px]:w-auto min-[360px]:min-w-[68px] sm:min-w-[104px] sm:px-3"
               aria-label={`Share your location with ${name}`}
             >
-              <LocationMenuGlyph name="share" size={17} />
+              <span className="hidden sm:block">
+                <LocationMenuGlyph name="share" size={17} />
+              </span>
               Share
-            </button>
+            </Button>
           ) : null}
         </div>
       ) : null}
@@ -3860,10 +3907,7 @@ function CircleIdentityStack({
 }: {
   circles: readonly OneLocationCircleSummary[];
 }) {
-  // Never render more than two identity boxes: a third 40px tile overflows
-  // the summary row's fixed leading column and reads as collapsed clutter.
-  // The remainder folds into one "+N" badge so "2 created · 1 joined" (3
-  // circles) shows two boxes plus "+1", and so on for any larger count.
+  // Only two circle identities overlap; the remainder is a separate counter.
   const MAX_VISIBLE_CIRCLE_IDENTITIES = 2;
   const visible = circles.slice(0, MAX_VISIBLE_CIRCLE_IDENTITIES);
   const overflowCount = Math.max(
@@ -3879,45 +3923,42 @@ function CircleIdentityStack({
           memberCount: 0,
         } as OneLocationCircleSummary,
       ];
-  // One 40px tile plus 16px per additional overlapped tile (40px minus the
-  // 24px overlap), so the column always hugs exactly what it draws.
-  const stackWidthPx =
-    40 + (fallback.length + (overflowCount > 0 ? 1 : 0) - 1) * 16;
   return (
-    <span
-      aria-hidden="true"
-      className="flex h-11 shrink-0 items-center"
-      style={{ width: `${stackWidthPx}px` }}
-    >
-      {fallback.map((circle, index) => {
-        const isSmsCircle = circle.systemKind === "sms";
-        const isTrustedCircle = circle.systemKind === "trusted";
-        const initials = circleInitials(circle.name);
-        return (
-          <span
-            key={`${circle.id}-${index}`}
-            className={cn(
-              "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] border-2 border-[color:var(--app-primary-surface)] text-[13px] font-semibold shadow-sm",
-              index > 0 && "-ml-6",
-              isSmsCircle
-                ? "bg-[color:var(--app-destructive)] text-[color:var(--app-destructive-fg)]"
-                : "bg-[#E5E5EA] text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#F2F2F7]",
-            )}
-          >
-            {isSmsCircle ? (
-              <SmsTextIcon className="text-[10px] font-bold tracking-[-0.2px]" />
-            ) : isTrustedCircle ? (
-              <ShieldCheck className="h-[17px] w-[17px]" />
-            ) : initials ? (
-              initials
-            ) : (
-              <UsersRound className="h-[17px] w-[17px]" />
-            )}
-          </span>
-        );
-      })}
+    <span aria-hidden="true" className="inline-flex h-11 shrink-0 items-center">
+      <span className="inline-flex items-center" data-circle-identity-stack>
+        {fallback.map((circle, index) => {
+          const isSmsCircle = circle.systemKind === "sms";
+          const isTrustedCircle = circle.systemKind === "trusted";
+          const initials = circleInitials(circle.name);
+          return (
+            <span
+              key={`${circle.id}-${index}`}
+              className={cn(
+                "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] border-2 border-[color:var(--app-primary-surface)] text-[13px] font-semibold shadow-sm",
+                index > 0 && "-ml-6",
+                isSmsCircle
+                  ? "bg-[color:var(--app-destructive)] text-[color:var(--app-destructive-fg)]"
+                  : "bg-[#E5E5EA] text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#F2F2F7]",
+              )}
+            >
+              {isSmsCircle ? (
+                <SmsTextIcon className="text-[10px] font-bold tracking-[-0.2px]" />
+              ) : isTrustedCircle ? (
+                <ShieldCheck className="h-[17px] w-[17px]" />
+              ) : initials ? (
+                initials
+              ) : (
+                <UsersRound className="h-[17px] w-[17px]" />
+              )}
+            </span>
+          );
+        })}
+      </span>
       {overflowCount > 0 ? (
-        <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] border-2 border-[color:var(--app-primary-surface)] bg-[color:var(--app-accent-tint)] text-[13px] font-semibold text-[color:var(--app-accent)] shadow-sm -ml-6">
+        <span
+          data-circle-overflow-count
+          className="ml-2 inline-flex h-9 min-w-10 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-accent-tint)] px-2 text-[13px] font-semibold text-[color:var(--app-accent)]"
+        >
           +{overflowCount}
         </span>
       ) : null}
@@ -3925,7 +3966,7 @@ function CircleIdentityStack({
   );
 }
 
-function CircleSummaryGroup({
+export function CircleSummaryGroup({
   circles,
   invitationCount,
   onOpenCircles,
@@ -5081,6 +5122,11 @@ function ShareFlow({
   // another thirty seconds -- long enough to read a wrong end time, and long
   // enough for the replacement warning below to compare against a share that
   // has less left than it thinks.
+  // Main scoped this tick to the details step and resyncs it on entry, which
+  // is tighter than a clock that runs on every step: somebody who spent ten
+  // minutes picking people arrives with a fresh "now" to compare against.
+  // Its contract test pins that shape, so this component keeps its own clock
+  // rather than the shared coarse one.
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
     if (step !== "details") return;
@@ -5945,16 +5991,11 @@ function RequestRecipientListRow({
         selected && selectable && "bg-[color:var(--app-accent)]/[0.045]",
       )}
     >
-      <div className="flex min-h-[58px] items-center gap-3 px-3.5 py-2">
+      <div className="grid min-h-[58px] grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 px-3.5 py-2 sm:grid-cols-[auto_minmax(0,1fr)_auto_auto]">
         <ContactAvatar label={name} photoUrl={photoUrl} verified={verified} />
         <span className="min-w-0 flex-1">
-          <span className="flex min-w-0 items-start gap-1.5">
-            <span className="min-w-0 flex-1 truncate text-[17px] font-normal leading-[22px] text-foreground">
-              {name}
-            </span>
-            {fromContacts ? (
-              <ContactSourceBadge className="mt-px shrink-0" />
-            ) : null}
+          <span className="block truncate text-[17px] font-normal leading-[22px] text-foreground">
+            {name}
           </span>
           {subtitle ? (
             <span className="mt-0.5 block truncate text-[13px] leading-4 text-muted-foreground">
@@ -5962,7 +6003,10 @@ function RequestRecipientListRow({
             </span>
           ) : null}
         </span>
-        <span className="flex shrink-0 items-center gap-1.5">
+        {fromContacts ? (
+          <ContactSourceBadge className="col-start-2 row-start-2 mt-1 w-fit shrink-0 sm:col-start-3 sm:row-start-1 sm:mt-0" />
+        ) : null}
+        <span className="col-start-3 row-span-2 row-start-1 flex shrink-0 items-center gap-1.5 sm:col-start-4 sm:row-span-1">
           {statusLabel ? (
             <StatusPill tone={pillTone} className="px-2 py-0 text-[12px]">
               {statusLabel}
@@ -6323,7 +6367,7 @@ function AskFlow({
         <TaskFlowHeader eyebrow="Step 2 of 2" title="Who, then how long?" />
 
         <SelectedRecipientsRail
-          title="Asking"
+          title="Request Location"
           ariaLabel="People you are asking for location"
           recipients={selectedRequestRecipients}
           recipientLabel={vm.recipientLabel}
@@ -6390,13 +6434,8 @@ function AskFlow({
 
         <div
           data-testid="one-location-ask-send-bar"
-          className={cn(STICKY_FLOW_ACTION_CLASSNAME, "space-y-2.5")}
+          className={STICKY_FLOW_ACTION_CLASSNAME}
         >
-          <FlowSelectionSummary
-            label="Requesting"
-            value={`${selectedRequestRecipients.length} ${selectedRequestRecipients.length === 1 ? "person" : "people"}`}
-            detail={formatLocationDurationLabel(Number(vm.durationHours))}
-          />
           <FlowActionGroup
             stacked
             primary={

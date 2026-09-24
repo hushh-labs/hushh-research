@@ -74,6 +74,13 @@ import {
 } from "@/lib/consent";
 
 import { HandshakeTimeline } from "@/components/consent/handshake-timeline";
+import { DocumentShareReview } from "@/components/consent/document-share-review";
+import {
+  documentShareRequestId,
+  documentShareSelectionId,
+  isDocumentShareEntry,
+  isDocumentShareSelection,
+} from "@/lib/consent/document-share-consent";
 import {
   humanizeConsentScope,
   resolveConsentRequesterLabel,
@@ -400,7 +407,9 @@ const LIFECYCLE_EVENT_LABELS: Record<string, string> = {
 };
 
 export function formatLifecycleEventLabel(event: ConsentTrailEvent) {
-  const action = String(event.action || "").trim().toUpperCase();
+  const action = String(event.action || "")
+    .trim()
+    .toUpperCase();
   const named = LIFECYCLE_EVENT_LABELS[action];
   if (named) return named;
   const value = String(event.action || event.status || "Consent event")
@@ -785,6 +794,67 @@ function ConsentEntryRow({
   );
 }
 
+function ConsentBundleRow({
+  entry,
+  selectedId,
+  selectedBundleId,
+  onSelectItem,
+}: {
+  entry: ConsentCenterEntry;
+  selectedId: string | null;
+  selectedBundleId: string | null;
+  onSelectItem: (entry: ConsentCenterEntry) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const items = entry.bundle_items || [];
+  const openedByLink =
+    selectedBundleId === entry.bundle_id ||
+    items.some((item) => item.request_id === selectedId);
+  useEffect(() => {
+    if (openedByLink) setExpanded(true);
+  }, [openedByLink]);
+  const isExpanded = expanded;
+  const pendingCount = items.filter((item) => item.status === "pending").length;
+  const summary = entry.bundle_complete
+    ? `${items.length} items · ${pendingCount} awaiting review`
+    : "Request is still being prepared";
+  const toggleLabel = isExpanded
+    ? "Hide"
+    : entry.bundle_complete
+      ? "Review"
+      : "Details";
+
+  return (
+    <div data-testid="consent-bundle-row">
+      <SettingsRow
+        leading={<ConsentCounterpartAvatar entry={entry} />}
+        title={resolveCounterpartLabel(entry)}
+        description={summary}
+        trailing={
+          <Badge className={badgeClassName(entry.status)}>{toggleLabel}</Badge>
+        }
+        onClick={() => setExpanded((value) => !value)}
+        ariaLabel={`${toggleLabel} ${items.length} information items from ${resolveCounterpartLabel(entry)}`}
+      />
+      {isExpanded ? (
+        <SettingsGroup embedded separatorInset>
+          {items.map((item) => (
+            <SettingsRow
+              key={item.request_id}
+              title={item.label}
+              description={formatStatus(item.status)}
+              trailing={item.entry ? "Review" : undefined}
+              chevron={Boolean(item.entry)}
+              onClick={item.entry ? () => onSelectItem(item.entry!) : undefined}
+              testId="consent-bundle-item"
+            />
+          ))}
+        </SettingsGroup>
+      ) : null}
+    </div>
+  );
+}
+
 function ConsentHistoryLifecycleDetails({
   entry,
   onRevokeScope,
@@ -1108,6 +1178,7 @@ function ConsentEntryDetail({
   const isPendingKind =
     entry.kind === "incoming_request" || isConnectionRequestEntry(entry);
   const isPendingDecision =
+    !isDocumentShareEntry(entry) &&
     !isCircleMemberInvite &&
     isPendingKind &&
     (allowedNextAction
@@ -1142,6 +1213,7 @@ function ConsentEntryDetail({
   const isReceivedLocationGrant =
     isLocationEntry && entry.metadata?.section === "shared";
   const canRevokeActive =
+    !isDocumentShareEntry(entry) &&
     entry.kind === "active_grant" &&
     Boolean(entry.scope) &&
     !isReceivedLocationGrant &&
@@ -1392,27 +1464,21 @@ function ConsentEntryDetail({
       ) : null}
 
       {canRevokeActive ? (
-        <SettingsGroup
-          embedded
-          title="Manage access"
-          description="Stop future access without removing the activity record."
-        >
-          <SettingsRow
-            title="Stop sharing"
-            description="Revoke this access now. The change remains visible in History."
-            trailing={
-              <Button
-                variant="none"
-                effect="fade"
-                size="sm"
-                disabled={revokeBusy}
-                onClick={() => setRevokeDialogOpen(true)}
-                data-voice-control-id="consent_revoke"
-              >
-                {revokeBusy ? "Stopping..." : "Stop sharing"}
-              </Button>
-            }
-          />
+        // One destructive row: it said "Stop sharing" three times (group,
+        // row, button) around two blurbs. The confirmation below carries the
+        // consequence, so the sheet only needs the action.
+        <SettingsGroup embedded>
+          <Button
+            variant="none"
+            effect="fade"
+            size="sm"
+            disabled={revokeBusy}
+            onClick={() => setRevokeDialogOpen(true)}
+            className="h-12 w-full justify-start rounded-none px-4 text-[15px] font-medium text-[color:var(--app-destructive)]"
+            data-voice-control-id="consent_revoke"
+          >
+            {revokeBusy ? "Stopping..." : "Stop sharing"}
+          </Button>
           <AlertDialog
             open={revokeDialogOpen}
             onOpenChange={setRevokeDialogOpen}
@@ -1543,6 +1609,7 @@ function ConsentSurfaceListSection({
   items,
   selectedEntry,
   selectedId,
+  selectedBundleId,
   onSelectEntry,
   pagination,
 }: {
@@ -1551,6 +1618,7 @@ function ConsentSurfaceListSection({
   items: ConsentCenterEntry[];
   selectedEntry: ConsentCenterEntry | null;
   selectedId: string | null;
+  selectedBundleId?: string | null;
   onSelectEntry: (entry: ConsentCenterEntry) => void;
   pagination: {
     page: number;
@@ -1573,35 +1641,46 @@ function ConsentSurfaceListSection({
         {!loading && items.length === 0 ? (
           <SettingsRow title={emptyMessage} />
         ) : null}
-        {items.map((entry, index) => (
-          <ConsentEntryRow
-            key={`${entry.kind}-${entry.id}-${entry.request_id || "no-request"}-${index}`}
-            entry={entry}
-            selected={
-              // Bug: when nothing is selected, selectedEntry is null,
-              // so selectedEntry?.id and selectedEntry?.request_id are
-              // both undefined. Entries without their own request_id
-              // (e.g. one_location_grant rows) also have
-              // entry.request_id === undefined, so
-              // "undefined === undefined" was true and falsely
-              // highlighted that row as selected on every render -
-              // this is the row that appeared to randomly "jump" to
-              // a different entry on every tab switch. Require a
-              // real selectedEntry (or a matching selectedId) before
-              // comparing ids at all.
-              Boolean(
-                selectedEntry &&
-                (selectedEntry.id === entry.id ||
-                  (selectedEntry.request_id &&
-                    selectedEntry.request_id === entry.request_id)),
-              ) ||
-              Boolean(
-                selectedId && consentEntryMatchesSelectedId(entry, selectedId),
-              )
-            }
-            onSelect={() => onSelectEntry(entry)}
-          />
-        ))}
+        {items.map((entry, index) =>
+          entry.bundle_items ? (
+            <ConsentBundleRow
+              key={entry.id}
+              entry={entry}
+              selectedId={selectedId}
+              selectedBundleId={selectedBundleId || null}
+              onSelectItem={onSelectEntry}
+            />
+          ) : (
+            <ConsentEntryRow
+              key={`${entry.kind}-${entry.id}-${entry.request_id || "no-request"}-${index}`}
+              entry={entry}
+              selected={
+                // Bug: when nothing is selected, selectedEntry is null,
+                // so selectedEntry?.id and selectedEntry?.request_id are
+                // both undefined. Entries without their own request_id
+                // (e.g. one_location_grant rows) also have
+                // entry.request_id === undefined, so
+                // "undefined === undefined" was true and falsely
+                // highlighted that row as selected on every render -
+                // this is the row that appeared to randomly "jump" to
+                // a different entry on every tab switch. Require a
+                // real selectedEntry (or a matching selectedId) before
+                // comparing ids at all.
+                Boolean(
+                  selectedEntry &&
+                  (selectedEntry.id === entry.id ||
+                    (selectedEntry.request_id &&
+                      selectedEntry.request_id === entry.request_id)),
+                ) ||
+                Boolean(
+                  selectedId &&
+                  consentEntryMatchesSelectedId(entry, selectedId),
+                )
+              }
+              onSelect={() => onSelectEntry(entry)}
+            />
+          ),
+        )}
       </div>
       {pagination ? (
         <div className="shrink-0">
@@ -1633,6 +1712,7 @@ export function ConsentCenterPage() {
   const explicitView = searchParams.get("view");
   const riaOutgoingCompatibilityRoute =
     explicitActor === "ria" && explicitView === "outgoing";
+  const sentDocumentRequests = !riaOutgoingCompatibilityRoute && searchParams.get("requestView") === "sent";
   const actor: ConsentCenterActor = riaOutgoingCompatibilityRoute
     ? "ria"
     : "investor";
@@ -1701,8 +1781,6 @@ export function ConsentCenterPage() {
   // transition so the navigation never blocks the close animation.
   const [panelCloseRequested, setPanelCloseRequested] = useState(false);
   const [, startPanelUrlSync] = useTransition();
-  const isPanelOpen =
-    Boolean(selectedId || selectedBundleId) && !panelCloseRequested;
   const routeQuery = searchParams.get("q") || "";
   const [searchValue, setSearchValue] = useState(routeQuery);
   const deferredQuery = useDeferredValue(searchValue.trim());
@@ -1718,7 +1796,7 @@ export function ConsentCenterPage() {
   const listCacheKey = user?.uid
     ? CACHE_KEYS.CONSENT_CENTER_LIST(
         user.uid,
-        `${consentScopeKey}:${mode}`,
+        `${consentScopeKey}:${mode}${tab === "requests" && sentDocumentRequests ? ":sent" : ""}`,
         listSurface,
         deferredQuery,
         page,
@@ -1924,6 +2002,8 @@ export function ConsentCenterPage() {
         offeredScopeHandles: string[];
       },
     ) => {
+      // A document request is not a PKM grant or a voice-approvable action.
+      if (isDocumentShareEntry(entry)) return;
       if (isConnectionRequestEntry(entry)) {
         void (async () => {
           if (!user) return;
@@ -1971,6 +2051,7 @@ export function ConsentCenterPage() {
   );
   const denyEntry = useCallback(
     (entry: ConsentCenterEntry) => {
+      if (isDocumentShareEntry(entry)) return;
       if (isConnectionRequestEntry(entry)) {
         void (async () => {
           if (!user) return;
@@ -2015,6 +2096,7 @@ export function ConsentCenterPage() {
   );
   const revokeEntry = useCallback(
     (entry: ConsentCenterEntry) => {
+      if (isDocumentShareEntry(entry)) return;
       if (isLocationEntry(entry)) {
         void handleLocationRevoke(entry);
         return;
@@ -2090,14 +2172,14 @@ export function ConsentCenterPage() {
     cacheKey: user?.uid
       ? CACHE_KEYS.CONSENT_CENTER_LIST(
           user.uid,
-          `${consentScopeKey}:${mode}`,
+          `${consentScopeKey}:${mode}${sentDocumentRequests ? ":sent" : ""}`,
           "pending",
           deferredQuery,
           pendingPage,
           CONSENT_CENTER_PAGE_SIZE,
         )
       : "consent_center_list_guest_pending",
-    refreshKey: `${consentScopeKey}:${mode}:pending:${deferredQuery}:${pendingPage}`,
+    refreshKey: `${consentScopeKey}:${mode}:pending:${sentDocumentRequests ? "sent" : "received"}:${deferredQuery}:${pendingPage}`,
     enabled: Boolean(user?.uid) && visitedSurfaces.has("requests"),
     retainOnInvalidate: true,
     load: async (options) => {
@@ -2111,6 +2193,7 @@ export function ConsentCenterPage() {
         actor: apiActor,
         mode,
         surface: "pending",
+        requestView: sentDocumentRequests ? "sent" : "received",
         q: deferredQuery,
         page: pendingPage,
         limit: CONSENT_CENTER_PAGE_SIZE,
@@ -2445,7 +2528,15 @@ export function ConsentCenterPage() {
     if (!items.length) return null;
     if (selectedId) {
       return (
-        items.find((item) => consentEntryMatchesSelectedId(item, selectedId)) ??
+        items
+          .flatMap((item) =>
+            item.bundle_items
+              ? item.bundle_items.flatMap((bundleItem) =>
+                  bundleItem.entry ? [bundleItem.entry] : [],
+                )
+              : [item],
+          )
+          .find((item) => consentEntryMatchesSelectedId(item, selectedId)) ??
         null
       );
     }
@@ -2453,8 +2544,10 @@ export function ConsentCenterPage() {
     // matching bundle entry so backend-generated bundle URLs land somewhere.
     if (selectedBundleId) {
       return (
-        items.find((item) =>
-          consentEntryMatchesBundleId(item, selectedBundleId),
+        items.find(
+          (item) =>
+            !item.bundle_items &&
+            consentEntryMatchesBundleId(item, selectedBundleId),
         ) ?? null
       );
     }
@@ -2469,7 +2562,7 @@ export function ConsentCenterPage() {
     return null;
   }, [items, selectedBundleId, selectedId]);
   const shouldLookupSelectedPending = Boolean(
-    user?.uid && selectedId && tab === "requests" && !selectedEntryFromList,
+    user?.uid && selectedId && !isDocumentShareSelection(selectedId) && tab === "requests" && !selectedEntryFromList,
   );
   const selectedPendingLookupResource = useStaleResource({
     cacheKey:
@@ -2536,6 +2629,18 @@ export function ConsentCenterPage() {
     }
     return selectedEntryFromList;
   }, [selectedEntryFromList, selectedId, selectedLookupEntry]);
+  const isPanelOpen =
+    Boolean(selectedId || selectedEntry) && !panelCloseRequested;
+  const isDocumentSelection = isDocumentShareSelection(selectedId) || !!(selectedEntry && isDocumentShareEntry(selectedEntry));
+  const selectedDocumentRequestId = documentShareRequestId(
+    selectedEntry && isDocumentShareEntry(selectedEntry) ? selectedEntry.id : selectedId,
+  );
+  const reconcileDocumentRequest = useCallback(() => {
+    // Re-fetch authoritative buckets; HTTP acceptance does not mean shared.
+    window.dispatchEvent(new CustomEvent(CONSENT_ACTION_COMPLETE_EVENT, {
+      detail: { reconcile: true },
+    }));
+  }, []);
   const selectedRequestMissing = Boolean(
     selectedId &&
     selectedPendingLookupResource.data?.missing_request_ids?.includes(
@@ -2560,6 +2665,7 @@ export function ConsentCenterPage() {
 
   useEffect(() => {
     if (tab === "connections" || !listResource) return;
+    if (tab === "requests" && sentDocumentRequests) return;
     if (deferredQuery) return;
     if (listResource.loading || listResource.refreshing) return;
     if (!summaryData || !listData) return;
@@ -2586,6 +2692,7 @@ export function ConsentCenterPage() {
     listSurface,
     mutationTick,
     summaryData,
+    sentDocumentRequests,
     tab,
   ]);
   const consentVoiceSurfaceMetadata = useMemo(() => {
@@ -2642,6 +2749,7 @@ export function ConsentCenterPage() {
           role: "panel",
         },
         ...(selectedEntry?.kind === "incoming_request" &&
+        !isDocumentShareEntry(selectedEntry) &&
         selectedEntry.status === "pending"
           ? [
               {
@@ -2809,7 +2917,7 @@ export function ConsentCenterPage() {
   const emptyListMessage = deferredQuery
     ? `No ${tab === "active" ? "active access" : tab} matches “${deferredQuery}”.`
     : tab === "requests"
-      ? "No requests need your review."
+      ? sentDocumentRequests ? "No document requests are waiting for a response." : "No requests need your review."
       : tab === "active"
         ? "No one currently has active access."
         : tab === "history"
@@ -2959,9 +3067,14 @@ export function ConsentCenterPage() {
                       commitConsentTab(value as ConsentTab)
                     }
                     panelInset="none"
-                    viewportMinHeight="0px"
+                    viewportMinHeight="fill"
                     heightMode="active"
                   >
+                    <div>
+                    {!riaOutgoingCompatibilityRoute ? <div role="group" aria-label="Request direction" className="mb-3 flex flex-wrap gap-2">
+                      <Button size="standard" variant="none" aria-pressed={!sentDocumentRequests} onClick={() => setParam({ requestView: null, page: null, requestId: null, selected: null, bundleId: null })}>Received</Button>
+                      <Button size="standard" variant="none" aria-pressed={sentDocumentRequests} onClick={() => setParam({ requestView: "sent", page: null, requestId: null, selected: null, bundleId: null })}>Sent documents</Button>
+                    </div> : null}
                     <ConsentSurfaceListSection
                       loading={pendingResource.loading}
                       emptyMessage={
@@ -2972,11 +3085,13 @@ export function ConsentCenterPage() {
                       items={pendingItems}
                       selectedEntry={selectedEntry}
                       selectedId={selectedId}
+                      selectedBundleId={selectedBundleId}
                       onSelectEntry={(entry) =>
-                        setParam({ requestId: entry.request_id || entry.id })
+                        setParam({ requestId: documentShareSelectionId(entry) })
                       }
                       pagination={pendingPagination}
                     />
+                    </div>
                     <ConsentSurfaceListSection
                       loading={activeResource.loading}
                       emptyMessage={
@@ -2988,7 +3103,7 @@ export function ConsentCenterPage() {
                       selectedEntry={selectedEntry}
                       selectedId={selectedId}
                       onSelectEntry={(entry) =>
-                        setParam({ requestId: entry.request_id || entry.id })
+                        setParam({ requestId: documentShareSelectionId(entry) })
                       }
                       pagination={activePagination}
                     />
@@ -3003,7 +3118,7 @@ export function ConsentCenterPage() {
                       selectedEntry={selectedEntry}
                       selectedId={selectedId}
                       onSelectEntry={(entry) =>
-                        setParam({ requestId: entry.request_id || entry.id })
+                        setParam({ requestId: documentShareSelectionId(entry) })
                       }
                       pagination={previousPagination}
                     />
@@ -3018,7 +3133,7 @@ export function ConsentCenterPage() {
                       selectedEntry={selectedEntry}
                       selectedId={selectedId}
                       onSelectEntry={(entry) =>
-                        setParam({ requestId: entry.request_id || entry.id })
+                        setParam({ requestId: documentShareSelectionId(entry) })
                       }
                       pagination={null}
                     />
@@ -3037,12 +3152,12 @@ export function ConsentCenterPage() {
             }
           }}
           title={
-            selectedEntry
+            isDocumentSelection ? "Document request" : selectedEntry
               ? resolveCounterpartLabel(selectedEntry)
               : "Consent details"
           }
           description={
-            selectedEntry
+            isDocumentSelection ? "Review files and recorded Google Drive access." : selectedEntry
               ? selectedEntry.kind === "active_grant"
                 ? "Active access"
                 : selectedEntry.kind === "history"
@@ -3057,7 +3172,7 @@ export function ConsentCenterPage() {
           mobilePresentation="sheet"
           showCloseButton={false}
         >
-          {notificationAction && selectedEntry?.status === "pending" ? (
+          {!isDocumentSelection && notificationAction && selectedEntry?.status === "pending" ? (
             <div
               role="status"
               className="mb-4 rounded-[var(--app-card-radius-compact)] border border-accent-border bg-accent-surface px-4 py-3 text-sm leading-5 text-foreground"
@@ -3069,7 +3184,10 @@ export function ConsentCenterPage() {
                   : "Don’t allow was selected in the notification. Nothing changes until you decide below."}
             </div>
           ) : null}
-          {selectedId && !selectedEntry ? (
+          {isDocumentSelection ? (
+            selectedDocumentRequestId ? <DocumentShareReview requestId={selectedDocumentRequestId} onChanged={reconcileDocumentRequest} />
+              : <SettingsRow title="Invalid document request" description="Open this request from the list again." />
+          ) : selectedId && !selectedEntry ? (
             <SettingsGroup
               embedded
               title="Request status"

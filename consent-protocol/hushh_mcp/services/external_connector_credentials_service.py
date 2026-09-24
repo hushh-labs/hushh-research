@@ -43,6 +43,14 @@ def _aad(user_id: str, connector_id: str) -> str:
     return f"external-connector:{user_id}:{connector_id}"
 
 
+def _versioned_aad(user_id: str, connector_id: str, generation: int, version: int) -> str:
+    # JSON avoids delimiter ambiguity; version/generation prevent row rollback
+    # or a refresh envelope being substituted for a later account connection.
+    return json.dumps(
+        ["external-connector-v2", user_id, connector_id, generation, version], separators=(",", ":")
+    )
+
+
 class ExternalConnectorCredentialsService:
     def __init__(self, db: Any | None = None) -> None:
         self.db = db or get_db()
@@ -84,10 +92,78 @@ class ExternalConnectorCredentialsService:
             nonce = base64.urlsafe_b64decode(_clean(iv))
             blob = base64.urlsafe_b64decode(_clean(ciphertext))
             return AESGCM(self._token_key()).decrypt(nonce, blob, aad.encode()).decode()
-        except Exception as exc:
+        except Exception:
             raise ExternalConnectorCredentialError(
                 "Connector credential needs reauthorization", status_code=401
-            ) from exc
+            ) from None
+
+    def seal_credential(
+        self,
+        *,
+        user_id: str,
+        connector_id: str,
+        generation: int,
+        version: int,
+        secret: dict[str, Any],
+        expires_at: datetime,
+    ) -> dict[str, Any]:
+        """Version 2 OAuth envelope, sealed after the database pins its version.
+
+        Account identity, scopes, client, and refresh material belong inside
+        `secret`, not plaintext connection metadata. Legacy API keys retain v1.
+        """
+        if generation < 1 or version < 1 or expires_at.tzinfo is None:
+            raise ExternalConnectorCredentialError("Invalid credential envelope")
+        expires_at = expires_at.astimezone(UTC)
+        encoded = json.dumps(
+            {"envelopeVersion": 2, "expiresAt": expires_at.isoformat(), "credential": secret},
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+        sealed = self.encrypt_secret(
+            encoded, aad=_versioned_aad(user_id, connector_id, generation, version)
+        )
+        sealed["algorithm"] = f"aes-{len(self._token_key()) * 8}-gcm-aad-v2"
+        return {**sealed, "expires_at": expires_at}
+
+    def open_credential(
+        self, *, user_id: str, connector_id: str, row: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Decrypt only. The caller must separately authorize lifecycle/execution.
+
+        Keeping decryption separate permits bounded provider revocation after
+        local disconnect without ever re-enabling execution of the old grant.
+        """
+        try:
+            version = int(row.get("envelope_version") or 1)
+            if version == 1:
+                aad = _aad(user_id, connector_id)
+            elif version == 2:
+                aad = _versioned_aad(
+                    user_id,
+                    connector_id,
+                    int(row["connection_generation"]),
+                    int(row["credential_version"]),
+                )
+            else:
+                raise ValueError("unsupported envelope")
+            payload = json.loads(
+                self.decrypt_secret(
+                    ciphertext=row["credential_ciphertext"], iv=row["credential_iv"], aad=aad
+                )
+            )
+            if version == 2:
+                expiry = datetime.fromisoformat(payload["expiresAt"])
+                if payload["envelopeVersion"] != 2 or expiry != row["credential_expires_at"]:
+                    raise ValueError("envelope metadata mismatch")
+                payload = payload["credential"]
+            if not isinstance(payload, dict):
+                raise ValueError("invalid credential shape")
+            return payload
+        except (KeyError, TypeError, ValueError, ExternalConnectorCredentialError):
+            raise ExternalConnectorCredentialError(
+                "Connector credential needs reauthorization", status_code=401
+            ) from None
 
     async def _execute(
         self, sql: str, params: dict[str, Any] | None = None
@@ -154,7 +230,8 @@ class ExternalConnectorCredentialsService:
         user_id = _clean(user_id)
         connector_id = _clean(connector_id)
         rows = await self._execute(
-            """SELECT credential_ciphertext, credential_iv, status
+            """SELECT credential_ciphertext, credential_iv, status, envelope_version,
+                      credential_version, connection_generation, credential_expires_at
                FROM user_external_connector_connections
                WHERE user_id = :user_id AND connector_id = :connector_id""",
             {"user_id": user_id, "connector_id": connector_id},
@@ -162,18 +239,15 @@ class ExternalConnectorCredentialsService:
         row = rows[0] if rows else None
         if not row or row.get("status") != "connected" or not row.get("credential_ciphertext"):
             return None
-        secret_json = self.decrypt_secret(
-            ciphertext=row["credential_ciphertext"],
-            iv=row["credential_iv"],
-            aad=_aad(user_id, connector_id),
-        )
-        return json.loads(secret_json)
+        return self.open_credential(user_id=user_id, connector_id=connector_id, row=row)
 
     async def status(self, *, user_id: str, connector_id: str) -> dict[str, Any]:
         user_id = _clean(user_id)
         connector_id = _clean(connector_id)
         rows = await self._execute(
-            """SELECT status, connected_account_label, connected_at, last_error_code
+            """SELECT status, connected_account_label, connected_at, last_error_code,
+                      validation_state, revocation_outcome, credential_ciphertext, credential_iv,
+                      envelope_version, credential_version, connection_generation, credential_expires_at
                FROM user_external_connector_connections
                WHERE user_id = :user_id AND connector_id = :connector_id""",
             {"user_id": user_id, "connector_id": connector_id},
@@ -181,30 +255,59 @@ class ExternalConnectorCredentialsService:
         row = rows[0] if rows else None
         if not row:
             return {"connectorId": connector_id, "status": "not_connected"}
+        return self._public_status(user_id=user_id, connector_id=connector_id, row=row)
+
+    def _public_status(
+        self, *, user_id: str, connector_id: str, row: dict[str, Any]
+    ) -> dict[str, Any]:
+        status = row["status"]
+        label = row.get("connected_account_label")
+        profile = None
+        if row.get("envelope_version") == 2 and status in {
+            "connected",
+            "verifying",
+            "needs_reauth",
+        }:
+            try:
+                credential = self.open_credential(
+                    user_id=user_id, connector_id=connector_id, row=row
+                )
+                label = credential.get("accountLabel")
+                if connector_id == "google_drive":
+                    profile = credential.get("profile", "selected")
+                    if profile not in {"selected", "live"}:
+                        profile = None
+            except ExternalConnectorCredentialError:
+                status, label = "needs_reauth", None
+        connected_at = row.get("connected_at")
+        if isinstance(connected_at, datetime):
+            connected_at = connected_at.isoformat()
         return {
             "connectorId": connector_id,
-            "status": row["status"],
-            "accountLabel": row.get("connected_account_label"),
-            "connectedAt": row.get("connected_at"),
-            "lastErrorCode": row.get("last_error_code"),
+            "status": status,
+            "accountLabel": str(label)[:254] if label else None,
+            "connectedAt": connected_at,
+            "validationState": row.get("validation_state", "unverified"),
+            "profile": profile,
+            "revocationOutcome": row.get("revocation_outcome", "not_attempted"),
+            "lastErrorCode": row.get("last_error_code")
+            if row.get("last_error_code")
+            in {"grant_rejected", "policy_drift", "provider_unavailable", "insufficient_scope"}
+            else None,
         }
 
     async def list_statuses(self, *, user_id: str) -> list[dict[str, Any]]:
         user_id = _clean(user_id)
         rows = await self._execute(
-            """SELECT connector_id, status, connected_account_label, connected_at, last_error_code
+            """SELECT connector_id, status, connected_account_label, connected_at, last_error_code,
+                      validation_state, revocation_outcome, credential_ciphertext, credential_iv,
+                      envelope_version, credential_version, connection_generation, credential_expires_at
                FROM user_external_connector_connections
                WHERE user_id = :user_id""",
             {"user_id": user_id},
         )
         return [
-            {
-                "connectorId": row["connector_id"],
-                "status": row["status"],
-                "accountLabel": row.get("connected_account_label"),
-                "connectedAt": row.get("connected_at"),
-                "lastErrorCode": row.get("last_error_code"),
-            }
+            self._public_status(user_id=user_id, connector_id=row["connector_id"], row=row)
             for row in rows
         ]
 

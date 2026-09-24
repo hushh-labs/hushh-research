@@ -7,6 +7,8 @@ import {
   ChartTooltip,
   ChartTooltipContent,
   type ChartConfig,
+  CHART_ANIMATION_ACTIVE,
+  CHART_TOOLTIP_TRIGGER,
 } from "@/components/ui/chart";
 
 export interface DebateReadinessDatum {
@@ -75,7 +77,7 @@ export function DebateReadinessChart({ data, className }: DebateReadinessChartPr
           width={42}
           tick={{ fontSize: 11 }}
         />
-        <ChartTooltip
+        <ChartTooltip trigger={CHART_TOOLTIP_TRIGGER}
           cursor={false}
           content={
             <ChartTooltipContent
@@ -83,7 +85,7 @@ export function DebateReadinessChart({ data, className }: DebateReadinessChartPr
             />
           }
         />
-        <Bar dataKey="value" radius={[6, 6, 0, 0]} maxBarSize={30}>
+        <Bar isAnimationActive={CHART_ANIMATION_ACTIVE} dataKey="value" radius={[6, 6, 0, 0]} maxBarSize={30}>
           <LabelList
             dataKey="value"
             position="top"

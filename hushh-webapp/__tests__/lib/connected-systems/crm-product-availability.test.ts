@@ -28,7 +28,7 @@ describe("local CRM product availability", () => {
       "utf8",
     );
     const nativeGuard = source.indexOf(
-      'process.env.CAPACITOR_BUILD !== "true"',
+      'if (process.env.CAPACITOR_BUILD === "true")',
     );
     const requestSearchParams = source.indexOf("await searchParams");
 

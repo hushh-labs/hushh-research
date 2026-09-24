@@ -62,6 +62,20 @@ describe("deriveVoiceRouteScreen", () => {
     });
   });
 
+  it("keeps redirect-only connector and RIA routes out of retired profile controls", () => {
+    expect(deriveVoiceRouteScreen("/one/profile/connectors")).toEqual({
+      screen: "profile_connectors",
+      subview: null,
+    });
+    expect(
+      deriveVoiceRouteScreen("/one/profile/connectors/oauth/return"),
+    ).toEqual({ screen: "profile_connectors", subview: null });
+    expect(deriveVoiceRouteScreen("/ria")).toEqual({
+      screen: "compatibility_redirect",
+      subview: null,
+    });
+  });
+
   it("maps One KYC to a voice-eligible screen", () => {
     expect(deriveVoiceRouteScreen("/one/kyc")).toEqual({
       screen: "one_kyc",

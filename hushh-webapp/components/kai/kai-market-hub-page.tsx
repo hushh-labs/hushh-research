@@ -123,7 +123,7 @@ export function KaiMarketHubPage() {
         heightMode="active"
         holdHeightDuringTransition={false}
         panelInset="page"
-        viewportMinHeight="0px"
+        viewportMinHeight="fill"
       >
         <div className="w-full">
           <AppPageContentRegion>

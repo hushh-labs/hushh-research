@@ -134,10 +134,6 @@ export const ROUTES = {
   PROFILE_GOOGLE_OAUTH_RETURN: "/one/profile/google/oauth/return",
   OAUTH_AUTHORIZE: "/oauth/authorize",
   ONE_SETUP: "/one/setup",
-  /** Opened from the dashboard's "Finish setting up One" tile -- the full
-   * capability list, distinct from ONE_SETUP itself, which stays the
-   * canonical pre-vault landing route for the one mandatory step. */
-  ONE_SETUP_CAPABILITIES: "/one/setup/capabilities",
   ONE_SETUP_FINANCE: "/one/setup/finance",
   ONE_SETUP_FINANCE_IMPORT: "/one/setup/finance/import",
   ONE_SETUP_KAI: "/one/setup/kai",
@@ -205,7 +201,6 @@ export const ROUTES = {
   LEGACY_ONE_KAI_ONBOARDING: "/one/kai/onboarding",
   LEGACY_KAI_IMPORT: "/kai/import",
   LEGACY_KAI_PLAID_OAUTH_RETURN: "/kai/plaid/oauth/return",
-  LEGACY_KAI_ALPACA_OAUTH_RETURN: "/kai/alpaca/oauth/return",
   LEGACY_KAI_PORTFOLIO: "/kai/portfolio",
   LEGACY_KAI_ANALYSIS: "/kai/analysis",
   /** One-release redirect only. Optimize is no longer a product surface. */
@@ -226,7 +221,6 @@ export const ROUTES = {
   KAI_SETUP: "/one/setup/finance",
   KAI_IMPORT: "/one/kai/import",
   KAI_PLAID_OAUTH_RETURN: "/one/kai/plaid/oauth/return",
-  KAI_ALPACA_OAUTH_RETURN: "/one/kai/alpaca/oauth/return",
   KAI_PORTFOLIO: buildKaiMarketRoute("portfolio"),
   KAI_PORTFOLIO_HOLDINGS: "/one/kai/portfolio/holdings",
   KAI_PORTFOLIO_ALLOCATION: "/one/kai/portfolio/allocation",

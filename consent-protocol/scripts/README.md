@@ -35,6 +35,17 @@ Legacy/bootstrap SQL and one-off repair scripts here are not the release lane.
 - `../db/verify/verify_iam_schema.py`: IAM schema validation.
 - `../db/verify/verify_vault_schema.py`: vault schema validation.
 - `uat_kai_regression_smoke.py`: UAT-focused Kai smoke coverage for maintainers.
+- `drive_share_notification_worker.py`: finite metadata-only Drive-share push outbox drain;
+  retained as an operator diagnostic. UAT schedules the single bounded Drive work drain instead,
+  after the release gate verifies Firebase configuration, token registration and notification
+  acceptance. It records a dispatch attempt, not user receipt.
+- `../deploy/drive/setup_work_drain_scheduler.sh`: idempotent UAT-only Cloud Scheduler helper
+  for the OIDC-protected bounded sequence: document indexing, review suggestions, permission
+  delivery/reconciliation and metadata-only notifications. It is not an application deployment,
+  does not enable a cohort, and scheduler success is not person or device delivery evidence.
+- `ops/reconcile_google_drive_uat_connector.py`: attested, fixed-policy UAT registry verifier;
+  `--activate` is explicit and cannot accept provider endpoints, scopes, redirects or secrets.
+  It creates no feature cohort and does not enable Drive execution.
 
 ### Inspection and Evaluation
 

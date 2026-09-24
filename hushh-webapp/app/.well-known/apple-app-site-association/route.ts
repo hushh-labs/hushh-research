@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 /**
  * Paths iOS should hand back to the app instead of Safari.
  *
- * Every entry is an OAuth-style return: the person left for Plaid, Alpaca,
+ * Every entry is an OAuth-style return: the person left for Plaid,
  * Google or Gmail and must land back inside the app. Before this list existed
  * the applinks block was empty, so iOS had nothing to match and opened the
  * browser, which is exactly what a person saw after connecting a bank account.
@@ -15,11 +15,9 @@ export const dynamic = "force-dynamic";
  */
 export const UNIVERSAL_LINK_PATHS = [
   "/one/kai/plaid/oauth/return",
-  "/one/kai/alpaca/oauth/return",
   "/one/profile/google/oauth/return",
   "/one/profile/gmail/oauth/return",
   "/kai/plaid/oauth/return",
-  "/kai/alpaca/oauth/return",
   "/profile/google/oauth/return",
   "/profile/gmail/oauth/return",
 ] as const;

@@ -23,6 +23,7 @@ import {
   peekAgentChatHistoryCache,
   warmAgentChatHistoryCache,
 } from "@/lib/agent/agent-chat-history-cache";
+import { AGENT_CHAT_HISTORY_INVALIDATED_EVENT } from "@/lib/agent/agent-chat-history-events";
 
 const conversation = {
   id: "conversation-1",
@@ -108,5 +109,16 @@ describe("agent chat history memory cache", () => {
     await expect(warming).rejects.toThrow("cache was invalidated");
     expect(peekAgentChatHistoryCache("user-1")).toBeNull();
     expect(mocks.history).not.toHaveBeenCalled();
+  });
+
+  it("clears a protected snapshot when a consent mutation invalidates Chat history", async () => {
+    await warmAgentChatHistoryCache({ userId: "user-1", vaultOwnerToken: "token" });
+    expect(peekAgentChatHistoryCache("user-1")).not.toBeNull();
+
+    window.dispatchEvent(new CustomEvent(AGENT_CHAT_HISTORY_INVALIDATED_EVENT, {
+      detail: { userId: "user-1" },
+    }));
+
+    expect(peekAgentChatHistoryCache("user-1")).toBeNull();
   });
 });

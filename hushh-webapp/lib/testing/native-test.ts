@@ -7,6 +7,11 @@ declare global {
     __HUSHH_NATIVE_TEST__?: {
       enabled?: boolean;
       autoReviewerLogin?: boolean;
+      reviewerAuthMode?: "local_credentials" | "custom_token";
+      reviewerMutationPolicy?: "read_only" | "preparation_only" | "bounded_mutation" | "mutation_authorized";
+      pkmProofEnabled?: boolean;
+      pkmProofExpectation?: import("@/lib/testing/reviewer-pkm-proof").ReviewerPkmExpectation;
+      pkmProof?: import("@/lib/testing/reviewer-pkm-proof").ReviewerPkmBridge | null;
       vaultPassphrase?: string;
       expectedUserId?: string;
       expectedMarker?: string;
@@ -38,6 +43,7 @@ declare global {
       dispatchAgentActionError?: string;
       bootstrapState?: string;
       bootstrapUserId?: string;
+      bootstrapDetail?: string;
       bootstrapError?: string;
       bootstrapErrorClass?: string;
       vaultCryptoStage?: string;
@@ -161,6 +167,24 @@ export function shouldSkipAmbientIdentityHydrationForAutomation(
   config: NativeTestConfig = getNativeTestConfig(),
 ): boolean {
   return isAutomatedReviewerSession(config);
+}
+
+/**
+ * Read-only, preparation-only and action-bounded reviewer runs must not start background
+ * migrations or connector registration while they prove UI/read behavior.
+ * The policy is injected in-memory by the canonical reviewer harness and is
+ * never persisted or honored outside an explicit automated reviewer session.
+ * Mutation-authorized journeys retain explicit action-boundary setup.
+ */
+export function shouldSkipReviewerBackgroundWritesForAutomation(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    window.__HUSHH_NATIVE_TEST__?.enabled === true &&
+    window.__HUSHH_NATIVE_TEST__?.autoReviewerLogin === true &&
+    ["read_only", "preparation_only", "bounded_mutation"].includes(
+      window.__HUSHH_NATIVE_TEST__?.reviewerMutationPolicy || "",
+    )
+  );
 }
 
 /** External telemetry must not leave an explicit shared reviewer session. */

@@ -100,12 +100,11 @@ describe("pending consent card mapping", () => {
     expect(consent.expiryHours).toBe(168);
   });
 
-  it("keeps the bundle fold inert: the stored payload carries no bundle", () => {
-    // The workspace folds a later request into an existing card only when
-    // the stored payload's bundleId matches. The parser does not re-emit the
-    // bundle fields, so that comparison never matches and a bundle of N
-    // requests renders N cards, each approvable on its own. Folding is a
-    // follow-up that needs handleApproveBundle wired to the card first.
+  it("preserves sanitized bundle descriptors through the stored payload", () => {
+    // Restored cards need their safe bundle descriptors so one consent ask
+    // remains one coherent card after history hydration. Approval still
+    // revalidates every request against live authority; these descriptors do
+    // not grant access on their own.
     const first = pendingConsentLookupItemToCardItem(lookupItem)!;
     const second = pendingConsentLookupItemToCardItem({
       ...lookupItem,
@@ -117,14 +116,14 @@ describe("pending consent card mapping", () => {
     expect(second.bundleId).toBe("bundle_9");
 
     const stored = getPendingConsentRequestPayload(embed(first))!.item;
-    expect(stored.bundleId).toBeUndefined();
-    expect(stored.bundleLabel).toBeUndefined();
-    expect(stored.bundleScopeCount).toBeUndefined();
-    expect(stored.bundledRequestIds).toBeUndefined();
-    expect(stored.bundledScopes).toBeUndefined();
-    expect(stored.bundleId === second.bundleId).toBe(false);
+    expect(stored.bundleId).toBe("bundle_9");
+    expect(stored.bundleLabel).toBe("Budget planning");
+    expect(stored.bundleScopeCount).toBe(2);
+    expect(stored.bundledRequestIds).toEqual(["req_123"]);
+    expect(stored.bundledScopes).toHaveLength(1);
+    expect(stored.bundleId === second.bundleId).toBe(true);
 
-    // Each card therefore decides for exactly its own request.
+    // A single-request card still decides only for its own request.
     expect(pendingConsentCardRequestIds(stored)).toEqual(["req_123"]);
     const storedSecond = getPendingConsentRequestPayload(embed(second))!.item;
     expect(pendingConsentCardRequestIds(storedSecond)).toEqual(["req_456"]);
@@ -140,7 +139,7 @@ describe("pending consent card mapping", () => {
     expect(card?.expiryHours).toBeNull();
     const reparsed = getPendingConsentRequestPayload(embed(card!));
     expect(reparsed?.item.metadata).toBeNull();
-    expect(reparsed?.item.bundleId).toBeUndefined();
+    expect(reparsed?.item.bundleId).toBeNull();
     const consent = pendingConsentCardItemToPendingConsent(reparsed!.item);
     expect(consent.metadata).toBeNull();
     expect(consent.bundleId).toBeUndefined();
@@ -190,17 +189,44 @@ describe("pending consent card targets", () => {
     ).toEqual(["req_123", "req_456"]);
   });
 
-  it("needs no lookup for a single-request card and keeps its key", async () => {
-    const card = pendingConsentLookupItemToCardItem(lookupItem)!;
+  it("revalidates a single-request card and uses fresh metadata", async () => {
+    lookupPendingRequests.mockResolvedValue({ items: [{ ...lookupItem,
+      metadata: { connector_public_key: "pk_fresh" } }], missing_request_ids: [] });
+    const card = { ...pendingConsentLookupItemToCardItem(lookupItem)!, bundleId: null };
     const targets = await resolvePendingConsentCardTargets({
       userId: "user_1",
-      vaultOwnerToken: null,
+      vaultOwnerToken: "owner-token",
       item: card,
     });
-    expect(lookupPendingRequests).not.toHaveBeenCalled();
+    expect(lookupPendingRequests).toHaveBeenCalledWith({ userId: "user_1",
+      vaultOwnerToken: "owner-token", requestIds: ["req_123"] });
     expect(targets.map((target) => target.id)).toEqual(["req_123"]);
-    expect(targets[0]?.metadata?.connector_public_key).toBe("pk_test_base64");
+    expect(targets[0]?.metadata?.connector_public_key).toBe("pk_fresh");
   });
+
+  it("rejects a single-request lookup without owner authority", async () => {
+    await expect(resolvePendingConsentCardTargets({ userId: "user_1", vaultOwnerToken: null,
+      item: pendingConsentLookupItemToCardItem(lookupItem)! })).rejects.toThrow("Unlock");
+    expect(lookupPendingRequests).not.toHaveBeenCalled();
+  });
+
+  it("returns no targets for a missing single request", async () => {
+    lookupPendingRequests.mockResolvedValue({items: [], missing_request_ids: ["req_123"]});
+    await expect(resolvePendingConsentCardTargets({ userId: "user_1", vaultOwnerToken: "owner-token",
+      item: { ...pendingConsentLookupItemToCardItem(lookupItem)!, bundleId: null } })).resolves.toEqual([]);
+  });
+
+  it("propagates lookup failure without stale fallback", async () => {
+    lookupPendingRequests.mockRejectedValue(new Error("Unavailable"));
+    await expect(resolvePendingConsentCardTargets({ userId: "user_1", vaultOwnerToken: "owner-token",
+      item: { ...pendingConsentLookupItemToCardItem(lookupItem)!, bundleId: null } })).rejects.toThrow("Unavailable");
+  });
+
+  it.each(["approved", "denied", "cancelled", "expired", "revoked", "unavailable"] as const)(
+    "preserves %s status through payload parsing", status => {
+      const card = {...pendingConsentLookupItemToCardItem(lookupItem)!, status};
+      expect(getPendingConsentRequestPayload(embed(card))?.item.status).toBe(status);
+    });
 
   it("resolves every folded request with its own key, in card order", async () => {
     lookupPendingRequests.mockResolvedValue({
@@ -226,6 +252,14 @@ describe("pending consent card targets", () => {
       "pk_test_base64",
       "pk_second",
     ]);
+  });
+
+  it("does not decide a bundle from only the first arriving notification", async () => {
+    const first = pendingConsentLookupItemToCardItem(lookupItem)!;
+    await expect(resolvePendingConsentCardTargets({
+      userId: "user_1", vaultOwnerToken: "owner-token", item: first,
+    })).rejects.toThrow("still loading");
+    expect(lookupPendingRequests).not.toHaveBeenCalled();
   });
 
   it("acts only on the requests still pending, so a retry is safe", async () => {

@@ -16,8 +16,10 @@ import {
   CSSProperties,
   ReactNode,
   Suspense,
+  useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { AuthProvider } from "@/lib/firebase";
@@ -26,7 +28,12 @@ import { VaultProvider } from "@/lib/vault/vault-context";
 import { StepProgressProvider } from "@/lib/progress/step-progress-context";
 import { StepProgressBar } from "@/components/app-ui/step-progress-bar";
 import { CacheProvider } from "@/lib/cache/cache-context";
+import {
+  createRootShellMirror,
+  type RootShellMirror,
+} from "@/lib/navigation/root-shell-mirror";
 import { useDeepLinkReturn } from "@/lib/navigation/use-deep-link-return";
+import { useAndroidBack } from "@/lib/navigation/android-back";
 import { ConsentNotificationProvider } from "@/components/consent/notification-provider";
 import { GlobalVoiceActionHandlers } from "@/components/agent/global-voice-action-handlers";
 import { ProfileIdentityVoiceRefresh } from "@/components/profile/profile-identity-voice-refresh";
@@ -38,6 +45,7 @@ import { resolveAppRouteLayout } from "@/lib/navigation/app-route-layout";
 import { AppTopShell } from "@/components/app-ui/top-app-bar";
 import { AppEdgeBackGesture } from "@/components/app-ui/app-edge-back-gesture";
 import { AppProfileEdgeGesture } from "@/components/app-ui/app-profile-edge-gesture";
+import { AppChatHistoryEdgeGesture } from "@/components/app-ui/app-chat-history-edge-gesture";
 import { ProfilePane } from "@/components/app-ui/profile-pane";
 import { TopShellRouteSwipe } from "@/components/app-ui/top-shell-route-swipe";
 import { AgentRuntimeStateProvider } from "@/lib/agent/agent-runtime-context";
@@ -93,6 +101,8 @@ import { RiaSurfaceScopeSync } from "@/components/ria/ria-surface-scope-sync";
 import { NativeTestBootstrap } from "@/components/app-ui/native-test-bootstrap";
 import { NativeTestRouteStatus } from "@/components/app-ui/native-test-route-status";
 import { InteractionRuntime } from "@/components/app-ui/interaction-runtime";
+import { RenderPerfProbe } from "@/components/app-ui/render-perf-probe";
+import { RenderPerfProfiler } from "@/components/app-ui/render-perf-profiler";
 import {
   acknowledgeInternalAppNavigation,
   consumePendingInternalAppNavigation,
@@ -382,19 +392,33 @@ function AppShellFrame({ children }: ProvidersProps) {
   // RIA and Foundation both use a persistent-but-pinned lower utility. Keep
   // the scroll-hide driver for ordinary signed-in navigation only.
   const pinnedBottomChrome = isRiaRoute(pathname) || foundationVoiceOnlyChrome;
-  const bottomShellModel = {
-    ambientEnabled:
-      ambientChromeEnabled &&
-      !isFullscreenTopFlow &&
-      !bottomChromeHidden,
-    navigationHidden: hideBottomNavigation,
-    // The canonical Chat route already exposes its text composer. Keep the
-    // idle voice launcher out of that route's visual hierarchy while allowing
-    // an active command to remain visible and cancellable.
-    agentBarHidden:
-      isAuthenticated && !authLoading && pathname === ROUTES.HOME,
-    hidden: bottomChromeHidden,
-  };
+  // Stable identity: AppShellFrame re-renders on every pathname and query
+  // change, and a fresh model object each time re-rendered the whole bottom
+  // chrome (navbar, agent bar, masks) on every tab switch.
+  const bottomShellModel = useMemo(
+    () => ({
+      ambientEnabled:
+        ambientChromeEnabled &&
+        !isFullscreenTopFlow &&
+        !bottomChromeHidden,
+      navigationHidden: hideBottomNavigation,
+      // The canonical Chat route already exposes its text composer. Keep the
+      // idle voice launcher out of that route's visual hierarchy while allowing
+      // an active command to remain visible and cancellable.
+      agentBarHidden:
+        isAuthenticated && !authLoading && pathname === ROUTES.HOME,
+      hidden: bottomChromeHidden,
+    }),
+    [
+      ambientChromeEnabled,
+      isFullscreenTopFlow,
+      bottomChromeHidden,
+      hideBottomNavigation,
+      isAuthenticated,
+      authLoading,
+      pathname,
+    ],
+  );
   // Drive the bottom-chrome hide animation through a CSS variable instead of a
   // render-coupled value. Reading the continuous scroll progress in this root
   // shell re-rendered the entire provider subtree on every scroll frame, which
@@ -492,19 +516,23 @@ function AppShellFrame({ children }: ProvidersProps) {
     searchParams,
   ]);
 
-  const handleProfilePaneOpenChange = (nextOpen: boolean) => {
-    if (nextOpen) {
-      if (!profilePaneUrlState.open) {
-        openProfilePane(
-          pathname || ROUTES.ONE_HOME,
-          searchParams,
-          profilePaneResumeLocation,
-        );
+  const profilePaneIsOpen = profilePaneUrlState.open;
+  const handleProfilePaneOpenChange = useCallback(
+    (nextOpen: boolean) => {
+      if (nextOpen) {
+        if (!profilePaneIsOpen) {
+          openProfilePane(
+            pathname || ROUTES.ONE_HOME,
+            searchParams,
+            profilePaneResumeLocation,
+          );
+        }
+        return;
       }
-      return;
-    }
-    closeProfilePane(pathname || ROUTES.ONE_HOME, searchParams);
-  };
+      closeProfilePane(pathname || ROUTES.ONE_HOME, searchParams);
+    },
+    [profilePaneIsOpen, pathname, searchParams, profilePaneResumeLocation],
+  );
 
   useEffect(() => {
     const handleInternalNavigation = (event: Event) => {
@@ -554,73 +582,22 @@ function AppShellFrame({ children }: ProvidersProps) {
     };
   }, [router]);
 
+  // Shell geometry mirrored onto <html>: changed values only, restored on
+  // unmount (lib/navigation/root-shell-mirror.ts explains why).
+  const rootMirrorRef = useRef<RootShellMirror | null>(null);
   useEffect(() => {
     if (typeof document === "undefined") return;
-    const root = document.documentElement;
-    const mirroredVars = [
-      // Top-shell geometry is consumed by both the fixed sibling shell and
-      // route content. Mirror the complete dependency chain so a tabbed route
-      // never resolves a root-level `0px` tab stack for its mask or fade.
-      "--top-tabs-gap",
-      "--top-tabs-total",
-      "--top-subnav-total",
-      "--top-systembar-row-gap",
-      "--top-fade-active",
-      "--top-ambient-tab-tail-midpoint",
-      "--top-shell-reserved-height",
-      "--top-shell-visual-height",
-      "--top-shell-live-height",
-      "--top-shell-mask-tabs-gap",
-      "--top-shell-mask-solid-height",
-      "--top-shell-mask-visible-height",
-      "--top-shell-h",
-      "--top-glass-h",
-      "--page-top-start",
-      "--page-top-local-offset",
-      "--app-top-mask-tail-clearance",
-      "--app-top-content-offset",
-      "--app-fullscreen-flow-content-offset",
-      "--app-top-shell-visible",
-      "--app-top-offset-mode",
-      // AgentBar is an app-level fixed sibling of the route shell, not its
-      // descendant. Mirror the complete bottom-chrome geometry to :root so it
-      // resolves the same hide distance as the navbar and bottom glass instead
-      // of falling through an unresolved sibling-only custom property.
-      "--bottom-chrome-stack-height",
-      "--bottom-chrome-full-height",
-      "--bottom-chrome-search-height",
-      "--bottom-chrome-visual-height",
-      "--bottom-chrome-hide-distance",
-    ];
-    const previousValues = new Map<string, string>();
-
-    mirroredVars.forEach((key) => {
-      previousValues.set(key, root.style.getPropertyValue(key));
-      const nextValue =
+    rootMirrorRef.current ??= createRootShellMirror(document.documentElement);
+    rootMirrorRef.current.apply(
+      (key) =>
         readCustomVar(topShellRouteStyle, key) ||
-        readCustomVar(signedInShellContentOffset.style, key);
-      if (nextValue) {
-        root.style.setProperty(key, nextValue);
-      }
-    });
-
-    root.dataset.appShellOffsetMode = signedInShellContentOffset.mode;
-    root.dataset.appShellRouteLayout = routeLayoutMode;
-    root.dataset.appTopShellProfile = topShellRouteProfile.id;
-
-    return () => {
-      mirroredVars.forEach((key) => {
-        const previous = previousValues.get(key) || "";
-        if (previous) {
-          root.style.setProperty(key, previous);
-        } else {
-          root.style.removeProperty(key);
-        }
-      });
-      delete root.dataset.appShellOffsetMode;
-      delete root.dataset.appShellRouteLayout;
-      delete root.dataset.appTopShellProfile;
-    };
+        readCustomVar(signedInShellContentOffset.style, key),
+      {
+        appShellOffsetMode: signedInShellContentOffset.mode,
+        appShellRouteLayout: routeLayoutMode,
+        appTopShellProfile: topShellRouteProfile.id,
+      },
+    );
   }, [
     routeLayoutMode,
     signedInShellContentOffset.mode,
@@ -628,6 +605,14 @@ function AppShellFrame({ children }: ProvidersProps) {
     topShellRouteProfile.id,
     topShellRouteStyle,
   ]);
+
+  useEffect(() => {
+    const ref = rootMirrorRef;
+    return () => {
+      ref.current?.restore();
+      ref.current = null;
+    };
+  }, []);
 
   return (
     <CacheProvider>
@@ -646,6 +631,7 @@ function AppShellFrame({ children }: ProvidersProps) {
                   <NativeTestBootstrap />
                   <NativeTestRouteStatus />
                   <InteractionRuntime />
+                  <RenderPerfProbe />
                   <FoundationPublicAmbient />
                   {!hidesPersistentChrome ? (
                     <AmbientChromeController enabled={ambientChromeEnabled} />
@@ -659,6 +645,7 @@ function AppShellFrame({ children }: ProvidersProps) {
                   {!hidesPersistentChrome ? <AgentVoiceEdgeGlow /> : null}
                   {!hidesPersistentChrome ? <AppEdgeBackGesture /> : null}
                   <AppProfileEdgeGesture enabled={profilePaneEnabled} />
+                  <AppChatHistoryEdgeGesture enabled={isCanonicalChatRoute} />
                   <AppBottomShell model={bottomShellModel} />
                   <ProfilePane
                     open={profilePaneOpen}
@@ -827,6 +814,7 @@ export function Providers({ children }: ProvidersProps) {
   // Mounted here, above the shell, so an OAuth return lands wherever the person
   // is rather than depending on which screen happened to be open.
   useDeepLinkReturn();
+  useAndroidBack();
 
   return (
     <>
@@ -852,7 +840,9 @@ export function Providers({ children }: ProvidersProps) {
               the root Chat workspace and /one. Route-local boundaries cannot catch a hook in
               the provider that owns them. */}
           <Suspense fallback={null}>
-            <AppShellFrame>{children}</AppShellFrame>
+            <RenderPerfProfiler>
+              <AppShellFrame>{children}</AppShellFrame>
+            </RenderPerfProfiler>
           </Suspense>
         </AuthProvider>
         <Toaster

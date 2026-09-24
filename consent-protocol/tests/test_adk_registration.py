@@ -4,6 +4,9 @@ Kept separate from test_adk_dispatch.py because the reload-based test
 interacts badly with the autouse _clear_registry fixture there.
 """
 
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+
 import pytest
 
 
@@ -28,15 +31,34 @@ async def test_importing_package_wires_location(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_importing_package_keeps_ambient_email_unwired(monkeypatch):
+@pytest.mark.parametrize("agent_id", ["agent_email", "agent_documents"])
+async def test_registered_connector_specialists_reject_ambient_dispatch(monkeypatch, agent_id):
     import importlib
 
     from hushh_mcp import adk_bridge
 
     importlib.reload(adk_bridge)
     from hushh_mcp.adk_bridge import dispatch as d
+    from hushh_mcp.adk_bridge.contract import A2ATask
+    from hushh_mcp.adk_bridge.documents_agent import DocumentsAgentA2A
+    from hushh_mcp.adk_bridge.email_agent import EmailAgentA2A
 
-    assert d.is_wired_specialist("agent_email") is False
+    service = SimpleNamespace(handle_delegated_turn=AsyncMock())
+    monkeypatch.setattr(adk_bridge, "get_email_a2a", lambda: EmailAgentA2A(service))
+    monkeypatch.setattr(adk_bridge, "DocumentsAgentA2A", lambda: DocumentsAgentA2A(service))
+    assert d.is_wired_specialist(agent_id) is True
+    with pytest.raises(PermissionError):
+        await d.dispatch(
+            agent_id,
+            A2ATask(
+                user_id="owner",
+                consent_token="synthetic",  # noqa: S106 -- deliberately invalid test authority
+                conversation_id="conversation",
+                message="Read my files",
+                execution_surface="typed_chat",
+            ),
+        )
+    service.handle_delegated_turn.assert_not_awaited()
 
 
 def test_generated_wired_specialist_actions_match_dispatch_registry():

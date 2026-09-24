@@ -164,6 +164,8 @@ const SETTINGS_ICON_TONE_CLASSNAME = {
   indigo:
     "bg-[color-mix(in_srgb,var(--app-indigo)_12%,transparent)] text-[color:var(--app-indigo)] dark:bg-[color-mix(in_srgb,var(--app-indigo)_20%,transparent)] dark:text-[color:var(--app-indigo)]",
   gray: "bg-[#E5E5EA] text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#D1D1D6]",
+  capability: "bg-transparent text-current shadow-none ring-0",
+  transparent: "bg-transparent text-current shadow-none ring-0",
 } as const;
 
 type SettingsIconTone = keyof typeof SETTINGS_ICON_TONE_CLASSNAME;
@@ -480,7 +482,11 @@ export function SettingsRow({
     className,
   );
   const resolvedIconTone: SettingsIconTone =
-    tone === "destructive" ? "red" : iconTone;
+    tone === "destructive" && iconTone !== "capability" && iconTone !== "transparent"
+      ? "red"
+      : iconTone;
+  const isCapabilityTone =
+    resolvedIconTone === "capability" || resolvedIconTone === "transparent";
   const mainContent = (
     <div
       className={cn(
@@ -503,19 +509,36 @@ export function SettingsRow({
           data-slot="settings-row-icon"
           data-icon-tone={resolvedIconTone}
           className={cn(
-            // Keep settings icons as iOS-style rounded-square utility wells.
-            // Agent artwork continues to use AgentSectionIcon, which owns the
-            // larger launcher/menu geometry separately.
+            // Keep settings icons as iOS-style rounded-square utility wells,
+            // or clean transparent canvas for capability duotone icons.
             "inline-flex shrink-0 items-center justify-center self-center",
             layout === "person"
               ? "size-10 rounded-full"
               : resolvedDensity === "compact"
-                ? "h-7 w-7 rounded-[7px]"
-                : "h-[34px] w-[34px] rounded-[10px] sm:h-[34px] sm:w-[34px] sm:rounded-[10px]",
-            SETTINGS_ICON_TONE_CLASSNAME[resolvedIconTone],
+                ? "h-7 w-7"
+                : "h-[34px] w-[34px]",
+            isCapabilityTone
+              ? "!bg-transparent !shadow-none !ring-0 text-current"
+              : cn(
+                  resolvedDensity === "compact"
+                    ? "rounded-[7px]"
+                    : "rounded-[10px] sm:rounded-[10px]",
+                  SETTINGS_ICON_TONE_CLASSNAME[resolvedIconTone],
+                ),
           )}
         >
-          <Icon icon={icon} size={resolvedDensity === "compact" ? 16 : 17} />
+          <Icon
+            icon={icon}
+            size={
+              isCapabilityTone
+                ? resolvedDensity === "compact"
+                  ? 22
+                  : 24
+                : resolvedDensity === "compact"
+                  ? 16
+                  : 17
+            }
+          />
         </span>
       ) : null}
       <div className="min-w-0 flex-1 space-y-0.5">
@@ -560,6 +583,15 @@ export function SettingsRow({
       <div
         className={cn(
           "relative z-0 flex max-w-full shrink-0 items-center justify-end self-center gap-2.5 pr-0.5 sm:pr-1",
+          // A wide inline trailing value must never squeeze the title into a
+          // one-word-per-line column (a statement label did exactly that on
+          // the phone). The bound lives on the grid track (fit-content(58%),
+          // below), which resolves against the row. It used to be a
+          // max-width here, where 58% resolved against an auto track sized
+          // from this very box: every value was cut to 58% of itself ("Equi…",
+          // "+..") and each chevron landed at a different x. A stacked
+          // trailing owns its own line and is not bounded.
+          !shouldStackTrailing && "min-w-0 shrink justify-self-end [&>*]:min-w-0 [&>*]:truncate sm:shrink-0",
           shouldStackTrailing &&
             "w-full min-w-0 justify-between pl-[var(--settings-row-stack-indent,2.65rem)] pt-1 sm:w-auto sm:justify-end sm:pl-0 sm:pt-0",
         )}
@@ -582,7 +614,7 @@ export function SettingsRow({
     layout === "person" && "min-h-[72px]",
     shouldStackTrailing
       ? "grid-cols-1 gap-y-[var(--settings-row-stack-gap)] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:gap-x-[var(--settings-row-gap)] sm:gap-y-0"
-      : "grid-cols-[minmax(0,1fr)_auto] items-center gap-x-[var(--settings-row-gap)]",
+      : "grid-cols-[minmax(0,1fr)_fit-content(58%)] items-center gap-x-[var(--settings-row-gap)] sm:grid-cols-[minmax(0,1fr)_auto]",
     isInteractive &&
       "transition-[border-color,box-shadow] focus:outline-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2",
   );
@@ -665,7 +697,7 @@ export function SettingsRow({
                     ? "gap-y-[var(--settings-row-stack-gap)]"
                     : "gap-y-0",
                 )
-              : "grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3",
+              : "grid-cols-[minmax(0,1fr)_fit-content(58%)] items-center gap-x-3 sm:grid-cols-[minmax(0,1fr)_auto]",
           )}
         >
           <button
@@ -851,7 +883,7 @@ export function AdaptiveDetailSurface({
               (event.currentTarget as HTMLElement).focus();
             }}
           >
-            <SheetHeader className="morphy-theme-content sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[var(--activeGlassColor)] px-4 pt-7 pb-3 text-left backdrop-blur-[var(--blur-standard)]">
+            <SheetHeader className="morphy-theme-content sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 pt-7 pb-3 text-left">
               <div
                 className={cn(
                   "flex min-w-0 items-center gap-3 text-left",
@@ -917,7 +949,7 @@ export function AdaptiveDetailSurface({
             (e.currentTarget as HTMLElement).focus();
           }}
         >
-          <DrawerHeader className="morphy-theme-content sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[var(--activeGlassColor)] px-4 pt-8 pb-2 pr-14 text-left backdrop-blur-[var(--blur-standard)] sm:px-5 sm:pt-6 sm:pb-3 sm:pr-14">
+          <DrawerHeader className="morphy-theme-content sticky top-0 z-10 border-b border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 pt-8 pb-2 pr-14 text-left sm:px-5 sm:pt-6 sm:pb-3 sm:pr-14">
             <div className="flex min-w-0 items-center gap-3 text-left">
               {leading ? <div className="shrink-0">{leading}</div> : null}
               <div className="min-w-0 text-left">

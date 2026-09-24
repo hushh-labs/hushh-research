@@ -1,0 +1,838 @@
+{
+  "schema_version": "hushh-render-perf-baseline-v1",
+  "label": "",
+  "source_sha": "8ac9b635b",
+  "captured_at": "2026-09-20T03:38:13.398Z",
+  "device": {
+    "tier": "ios-mid-2025",
+    "certifies": false,
+    "configuration": "Debug",
+    "test_mode": true,
+    "raf_hz": {
+      "raw": 58.9,
+      "nominal": 60,
+      "budget_ms": 16.7,
+      "samples": 59
+    },
+    "platform": "ios",
+    "ua_family": "iPhone AppleWebKit/605",
+    "supported_entry_types": [
+      "event",
+      "first-input",
+      "largest-contentful-paint",
+      "mark",
+      "measure",
+      "navigation",
+      "paint",
+      "resource"
+    ]
+  },
+  "runs": [
+    {
+      "run_id": "a459275d",
+      "windows": 9,
+      "hud": false
+    },
+    {
+      "run_id": "c367b477",
+      "windows": 15,
+      "hud": false
+    },
+    {
+      "run_id": "e3f71271",
+      "windows": 46,
+      "hud": false
+    }
+  ],
+  "gestures": [
+    {
+      "name": "feed-flick",
+      "windows": 30,
+      "frames": 2727,
+      "p95_ms_median": 20.5,
+      "p99_ms_median": 35,
+      "max_ms": 77,
+      "over_50_count": 16,
+      "hitch_ms_per_s_median": 33.8,
+      "longtask_count": null,
+      "verdict": "critical"
+    },
+    {
+      "name": "bottom-nav-switch",
+      "windows": 9,
+      "frames": 742,
+      "p95_ms_median": 22,
+      "p99_ms_median": 44,
+      "max_ms": 49,
+      "over_50_count": 0,
+      "hitch_ms_per_s_median": 52.6,
+      "longtask_count": null,
+      "verdict": "critical"
+    },
+    {
+      "name": "profile-pane-open-dismiss",
+      "windows": 6,
+      "frames": 445,
+      "p95_ms_median": 20,
+      "p99_ms_median": 33.5,
+      "max_ms": 35,
+      "over_50_count": 0,
+      "hitch_ms_per_s_median": 31.5,
+      "longtask_count": null,
+      "verdict": "critical"
+    },
+    {
+      "name": "chat-stream-30s",
+      "windows": 0,
+      "frames": 0,
+      "p95_ms_median": null,
+      "p99_ms_median": null,
+      "max_ms": 0,
+      "over_50_count": 0,
+      "hitch_ms_per_s_median": null,
+      "longtask_count": null,
+      "verdict": "good"
+    },
+    {
+      "name": "top-shell-pager-swipe",
+      "windows": 6,
+      "frames": 580,
+      "p95_ms_median": 18.5,
+      "p99_ms_median": 32.5,
+      "max_ms": 62,
+      "over_50_count": 1,
+      "hitch_ms_per_s_median": 31.2,
+      "longtask_count": null,
+      "verdict": "critical"
+    },
+    {
+      "name": "kai-chart-flick",
+      "windows": 9,
+      "frames": 650,
+      "p95_ms_median": 44,
+      "p99_ms_median": 76,
+      "max_ms": 82,
+      "over_50_count": 9,
+      "hitch_ms_per_s_median": 209,
+      "longtask_count": null,
+      "verdict": "critical"
+    },
+    {
+      "name": "location-map-pan",
+      "windows": 9,
+      "frames": 755,
+      "p95_ms_median": 19,
+      "p99_ms_median": 29,
+      "max_ms": 38,
+      "over_50_count": 0,
+      "hitch_ms_per_s_median": 27.5,
+      "longtask_count": null,
+      "verdict": "critical"
+    }
+  ],
+  "idle_by_route": [
+    {
+      "route": "idle:/login/",
+      "frames": 54,
+      "p95_ms": 25,
+      "max_ms": 44,
+      "over_50_count": 0
+    },
+    {
+      "route": "idle:/one/location/",
+      "frames": 986,
+      "p95_ms": 20,
+      "max_ms": 47,
+      "over_50_count": 0
+    },
+    {
+      "route": "idle:/",
+      "frames": 1,
+      "p95_ms": 4,
+      "max_ms": 4,
+      "over_50_count": 0
+    },
+    {
+      "route": "idle:/login/",
+      "frames": 50,
+      "p95_ms": 33,
+      "max_ms": 51,
+      "over_50_count": 1
+    },
+    {
+      "route": "idle:/one/kai/",
+      "frames": 1610,
+      "p95_ms": 23,
+      "max_ms": 42,
+      "over_50_count": 0
+    },
+    {
+      "route": "idle:/",
+      "frames": 1,
+      "p95_ms": 1,
+      "max_ms": 1,
+      "over_50_count": 0
+    },
+    {
+      "route": "idle:/login/",
+      "frames": 138,
+      "p95_ms": 24,
+      "max_ms": 43,
+      "over_50_count": 0
+    },
+    {
+      "route": "idle:/one/feed/",
+      "frames": 2172,
+      "p95_ms": 26,
+      "max_ms": 43,
+      "over_50_count": 0
+    },
+    {
+      "route": "idle:/one/",
+      "frames": 1222,
+      "p95_ms": 21,
+      "max_ms": 40,
+      "over_50_count": 0
+    },
+    {
+      "route": "idle:/one/connect/",
+      "frames": 119,
+      "p95_ms": 32,
+      "max_ms": 61,
+      "over_50_count": 1
+    }
+  ],
+  "reference_threads": {
+    "method": "XCTOSSignpostMetric.scrollDecelerationMetric via XCUITest on the same phone, five flicks, three iterations",
+    "app": "threads",
+    "hitch_time_ratio_ms_per_s": [
+      0,
+      6.05,
+      0
+    ],
+    "hitches": [
+      0,
+      1,
+      0
+    ],
+    "hitches_total_ms": [
+      0,
+      16.7,
+      0
+    ],
+    "frame_rate_fps": [
+      57.4,
+      57.21,
+      57.77
+    ],
+    "deceleration_duration_s": [
+      2.74,
+      2.76,
+      2.79
+    ]
+  },
+  "reference_x": {
+    "result": "not_measurable_by_xcuitest",
+    "detail": "com.atebits.Tweetie2 calls abort() from its own lifecycle library ~30 s into any XCUITest-driven session (two attempts, identical crash)."
+  },
+  "certifying": {
+    "schema_version": "hushh-render-perf-baseline-v1",
+    "label": "",
+    "source_sha": "85007a81f",
+    "captured_at": "2026-09-20T05:51:36.226Z",
+    "device": {
+      "tier": "ios-mid-2025",
+      "certifies": true,
+      "configuration": "Release",
+      "test_mode": false,
+      "raf_hz": {
+        "raw": 59.8,
+        "nominal": 60,
+        "budget_ms": 16.7,
+        "samples": 60
+      },
+      "platform": "ios",
+      "ua_family": "iPhone AppleWebKit/605",
+      "supported_entry_types": [
+        "event",
+        "first-input",
+        "largest-contentful-paint",
+        "mark",
+        "measure",
+        "navigation",
+        "paint",
+        "resource"
+      ]
+    },
+    "runs": [
+      {
+        "run_id": "07b0d6c2",
+        "windows": 47,
+        "hud": false
+      },
+      {
+        "run_id": "4c61005b",
+        "windows": 16,
+        "hud": false
+      },
+      {
+        "run_id": "778fa70f",
+        "windows": 11,
+        "hud": false
+      }
+    ],
+    "gestures": [
+      {
+        "name": "feed-flick",
+        "windows": 30,
+        "frames": 2739,
+        "p95_ms_median": 18.5,
+        "p99_ms_median": 35,
+        "max_ms": 76,
+        "over_50_count": 16,
+        "hitch_ms_per_s_median": 30.3,
+        "longtask_count": null,
+        "verdict": "critical"
+      },
+      {
+        "name": "bottom-nav-switch",
+        "windows": 9,
+        "frames": 742,
+        "p95_ms_median": 21,
+        "p99_ms_median": 45,
+        "max_ms": 49,
+        "over_50_count": 0,
+        "hitch_ms_per_s_median": 51.8,
+        "longtask_count": null,
+        "verdict": "critical"
+      },
+      {
+        "name": "profile-pane-open-dismiss",
+        "windows": 6,
+        "frames": 448,
+        "p95_ms_median": 17.5,
+        "p99_ms_median": 34,
+        "max_ms": 35,
+        "over_50_count": 0,
+        "hitch_ms_per_s_median": 22.4,
+        "longtask_count": null,
+        "verdict": "critical"
+      },
+      {
+        "name": "top-shell-pager-swipe",
+        "windows": 6,
+        "frames": 546,
+        "p95_ms_median": 18,
+        "p99_ms_median": 34.5,
+        "max_ms": 38,
+        "over_50_count": 0,
+        "hitch_ms_per_s_median": 24.7,
+        "longtask_count": null,
+        "verdict": "critical"
+      },
+      {
+        "name": "kai-chart-flick",
+        "windows": 9,
+        "frames": 643,
+        "p95_ms_median": 43,
+        "p99_ms_median": 81,
+        "max_ms": 83,
+        "over_50_count": 13,
+        "hitch_ms_per_s_median": 215.4,
+        "longtask_count": null,
+        "verdict": "critical"
+      },
+      {
+        "name": "location-map-pan",
+        "windows": 9,
+        "frames": 755,
+        "p95_ms_median": 18,
+        "p99_ms_median": 30,
+        "max_ms": 31,
+        "over_50_count": 0,
+        "hitch_ms_per_s_median": 18.9,
+        "longtask_count": null,
+        "verdict": "critical"
+      }
+    ],
+    "idle_by_route": [
+      {
+        "route": "idle:/one/feed/",
+        "frames": 9419,
+        "p95_ms": 19,
+        "max_ms": 119,
+        "over_50_count": 3
+      },
+      {
+        "route": "idle:/one/",
+        "frames": 1123,
+        "p95_ms": 19,
+        "max_ms": 50,
+        "over_50_count": 0
+      },
+      {
+        "route": "idle:/one/connect/",
+        "frames": 119,
+        "p95_ms": 34,
+        "max_ms": 58,
+        "over_50_count": 1
+      },
+      {
+        "route": "idle:/",
+        "frames": 1,
+        "p95_ms": 26,
+        "max_ms": 26,
+        "over_50_count": 0
+      },
+      {
+        "route": "idle:/one/kai/",
+        "frames": 9317,
+        "p95_ms": 17,
+        "max_ms": 108,
+        "over_50_count": 3
+      },
+      {
+        "route": "idle:/one/location/",
+        "frames": 8534,
+        "p95_ms": 17,
+        "max_ms": 97,
+        "over_50_count": 1
+      }
+    ]
+  },
+  "after_9230d6ae4": {
+    "schema_version": "hushh-render-perf-baseline-v1",
+    "label": "",
+    "source_sha": "bea3b68b8",
+    "captured_at": "2026-09-20T06:16:29.579Z",
+    "device": {
+      "tier": "ios-mid-2025",
+      "certifies": true,
+      "configuration": "Release",
+      "test_mode": false,
+      "raf_hz": {
+        "raw": 59.4,
+        "nominal": 60,
+        "budget_ms": 16.7,
+        "samples": 60
+      },
+      "platform": "ios",
+      "ua_family": "iPhone AppleWebKit/605",
+      "supported_entry_types": [
+        "event",
+        "first-input",
+        "largest-contentful-paint",
+        "mark",
+        "measure",
+        "navigation",
+        "paint",
+        "resource"
+      ]
+    },
+    "runs": [
+      {
+        "run_id": "114d3f36",
+        "windows": 47,
+        "hud": false
+      },
+      {
+        "run_id": "aaa40f54",
+        "windows": 10,
+        "hud": false
+      },
+      {
+        "run_id": "ab32b48f",
+        "windows": 17,
+        "hud": false
+      }
+    ],
+    "gestures": [
+      {
+        "name": "feed-flick",
+        "windows": 30,
+        "frames": 2840,
+        "p95_ms_median": 18,
+        "p99_ms_median": 34,
+        "max_ms": 49,
+        "over_50_count": 0,
+        "hitch_ms_per_s_median": 25.6,
+        "longtask_count": null,
+        "verdict": "critical"
+      },
+      {
+        "name": "bottom-nav-switch",
+        "windows": 9,
+        "frames": 736,
+        "p95_ms_median": 20,
+        "p99_ms_median": 46,
+        "max_ms": 55,
+        "over_50_count": 2,
+        "hitch_ms_per_s_median": 50,
+        "longtask_count": null,
+        "verdict": "critical"
+      },
+      {
+        "name": "profile-pane-open-dismiss",
+        "windows": 6,
+        "frames": 448,
+        "p95_ms_median": 18,
+        "p99_ms_median": 34,
+        "max_ms": 48,
+        "over_50_count": 0,
+        "hitch_ms_per_s_median": 21.8,
+        "longtask_count": null,
+        "verdict": "critical"
+      },
+      {
+        "name": "top-shell-pager-swipe",
+        "windows": 6,
+        "frames": 542,
+        "p95_ms_median": 18,
+        "p99_ms_median": 36.5,
+        "max_ms": 39,
+        "over_50_count": 0,
+        "hitch_ms_per_s_median": 23,
+        "longtask_count": null,
+        "verdict": "critical"
+      },
+      {
+        "name": "kai-chart-flick",
+        "windows": 9,
+        "frames": 739,
+        "p95_ms_median": 21,
+        "p99_ms_median": 47,
+        "max_ms": 61,
+        "over_50_count": 2,
+        "hitch_ms_per_s_median": 72,
+        "longtask_count": null,
+        "verdict": "critical"
+      },
+      {
+        "name": "location-map-pan",
+        "windows": 9,
+        "frames": 756,
+        "p95_ms_median": 18,
+        "p99_ms_median": 30,
+        "max_ms": 30,
+        "over_50_count": 0,
+        "hitch_ms_per_s_median": 18.2,
+        "longtask_count": null,
+        "verdict": "critical"
+      }
+    ],
+    "idle_by_route": [
+      {
+        "route": "idle:/one/feed/",
+        "frames": 9385,
+        "p95_ms": 19,
+        "max_ms": 130,
+        "over_50_count": 3
+      },
+      {
+        "route": "idle:/one/",
+        "frames": 1165,
+        "p95_ms": 19,
+        "max_ms": 49,
+        "over_50_count": 0
+      },
+      {
+        "route": "idle:/one/connect/",
+        "frames": 125,
+        "p95_ms": 24,
+        "max_ms": 62,
+        "over_50_count": 1
+      },
+      {
+        "route": "idle:/one/location/",
+        "frames": 8672,
+        "p95_ms": 17,
+        "max_ms": 118,
+        "over_50_count": 3
+      },
+      {
+        "route": "idle:/one/kai/",
+        "frames": 9185,
+        "p95_ms": 17,
+        "max_ms": 118,
+        "over_50_count": 3
+      }
+    ]
+  },
+  "after_bda07869a_feed_section": {
+    "schema_version": "hushh-render-perf-baseline-v1",
+    "label": "",
+    "source_sha": "9230d6ae4",
+    "captured_at": "2026-09-20T06:30:18.742Z",
+    "device": {
+      "tier": "ios-mid-2025",
+      "certifies": true,
+      "configuration": "Release",
+      "test_mode": false,
+      "raf_hz": {
+        "raw": 59.2,
+        "nominal": 60,
+        "budget_ms": 16.7,
+        "samples": 60
+      },
+      "platform": "ios",
+      "ua_family": "iPhone AppleWebKit/605",
+      "supported_entry_types": [
+        "event",
+        "first-input",
+        "largest-contentful-paint",
+        "mark",
+        "measure",
+        "navigation",
+        "paint",
+        "resource"
+      ]
+    },
+    "runs": [
+      {
+        "run_id": "66fade3a",
+        "windows": 47,
+        "hud": false
+      }
+    ],
+    "gestures": [
+      {
+        "name": "feed-flick",
+        "windows": 30,
+        "frames": 2852,
+        "p95_ms_median": 18,
+        "p99_ms_median": 34.5,
+        "max_ms": 43,
+        "over_50_count": 0,
+        "hitch_ms_per_s_median": 24.4,
+        "longtask_count": null,
+        "verdict": "critical"
+      },
+      {
+        "name": "bottom-nav-switch",
+        "windows": 9,
+        "frames": 742,
+        "p95_ms_median": 20,
+        "p99_ms_median": 44,
+        "max_ms": 50,
+        "over_50_count": 0,
+        "hitch_ms_per_s_median": 41.6,
+        "longtask_count": null,
+        "verdict": "critical"
+      },
+      {
+        "name": "profile-pane-open-dismiss",
+        "windows": 6,
+        "frames": 448,
+        "p95_ms_median": 19,
+        "p99_ms_median": 34,
+        "max_ms": 36,
+        "over_50_count": 0,
+        "hitch_ms_per_s_median": 21.9,
+        "longtask_count": null,
+        "verdict": "critical"
+      }
+    ],
+    "idle_by_route": [
+      {
+        "route": "idle:/",
+        "frames": 1,
+        "p95_ms": 1,
+        "max_ms": 1,
+        "over_50_count": 0
+      },
+      {
+        "route": "idle:/one/feed/",
+        "frames": 9389,
+        "p95_ms": 19,
+        "max_ms": 116,
+        "over_50_count": 2
+      },
+      {
+        "route": "idle:/one/",
+        "frames": 1161,
+        "p95_ms": 19,
+        "max_ms": 51,
+        "over_50_count": 1
+      },
+      {
+        "route": "idle:/one/connect/",
+        "frames": 124,
+        "p95_ms": 25,
+        "max_ms": 58,
+        "over_50_count": 2
+      }
+    ]
+  },
+  "after_08eea591d_material": {
+    "schema_version": "hushh-render-perf-baseline-v1",
+    "label": "",
+    "source_sha": "bb3387780",
+    "captured_at": "2026-09-20T08:11:02.200Z",
+    "device": {
+      "tier": "ios-mid-2025",
+      "certifies": true,
+      "configuration": "Release",
+      "test_mode": false,
+      "raf_hz": {
+        "raw": 60.9,
+        "nominal": 60,
+        "budget_ms": 16.7,
+        "samples": 61
+      },
+      "platform": "ios",
+      "ua_family": "iPhone AppleWebKit/605",
+      "supported_entry_types": [
+        "event",
+        "first-input",
+        "largest-contentful-paint",
+        "mark",
+        "measure",
+        "navigation",
+        "paint",
+        "resource"
+      ]
+    },
+    "runs": [
+      {
+        "run_id": "2b1b34c0",
+        "windows": 17,
+        "hud": false
+      },
+      {
+        "run_id": "59c1b01d",
+        "windows": 10,
+        "hud": false
+      },
+      {
+        "run_id": "e3bb9a44",
+        "windows": 47,
+        "hud": false
+      }
+    ],
+    "gestures": [
+      {
+        "name": "feed-flick",
+        "windows": 30,
+        "frames": 2826,
+        "p95_ms_median": 18.5,
+        "p99_ms_median": 33.5,
+        "max_ms": 49,
+        "over_50_count": 0,
+        "hitch_ms_per_s_median": 25.4,
+        "longtask_count": null,
+        "verdict": "critical"
+      },
+      {
+        "name": "bottom-nav-switch",
+        "windows": 9,
+        "frames": 748,
+        "p95_ms_median": 22,
+        "p99_ms_median": 44,
+        "max_ms": 46,
+        "over_50_count": 0,
+        "hitch_ms_per_s_median": 46.5,
+        "longtask_count": null,
+        "verdict": "critical"
+      },
+      {
+        "name": "profile-pane-open-dismiss",
+        "windows": 6,
+        "frames": 449,
+        "p95_ms_median": 17.5,
+        "p99_ms_median": 33,
+        "max_ms": 44,
+        "over_50_count": 0,
+        "hitch_ms_per_s_median": 22.2,
+        "longtask_count": null,
+        "verdict": "critical"
+      },
+      {
+        "name": "top-shell-pager-swipe",
+        "windows": 6,
+        "frames": 543,
+        "p95_ms_median": 18,
+        "p99_ms_median": 37,
+        "max_ms": 39,
+        "over_50_count": 0,
+        "hitch_ms_per_s_median": 30.3,
+        "longtask_count": null,
+        "verdict": "critical"
+      },
+      {
+        "name": "kai-chart-flick",
+        "windows": 9,
+        "frames": 739,
+        "p95_ms_median": 21,
+        "p99_ms_median": 44,
+        "max_ms": 65,
+        "over_50_count": 1,
+        "hitch_ms_per_s_median": 70.3,
+        "longtask_count": null,
+        "verdict": "critical"
+      },
+      {
+        "name": "location-map-pan",
+        "windows": 9,
+        "frames": 755,
+        "p95_ms_median": 18,
+        "p99_ms_median": 30,
+        "max_ms": 42,
+        "over_50_count": 0,
+        "hitch_ms_per_s_median": 19.8,
+        "longtask_count": null,
+        "verdict": "critical"
+      }
+    ],
+    "idle_by_route": [
+      {
+        "route": "idle:/",
+        "frames": 1,
+        "p95_ms": 1,
+        "max_ms": 1,
+        "over_50_count": 0
+      },
+      {
+        "route": "idle:/one/kai/",
+        "frames": 9163,
+        "p95_ms": 17,
+        "max_ms": 101,
+        "over_50_count": 1
+      },
+      {
+        "route": "idle:/one/location/",
+        "frames": 8662,
+        "p95_ms": 17,
+        "max_ms": 114,
+        "over_50_count": 2
+      },
+      {
+        "route": "idle:/",
+        "frames": 1,
+        "p95_ms": 1,
+        "max_ms": 1,
+        "over_50_count": 0
+      },
+      {
+        "route": "idle:/one/feed/",
+        "frames": 9377,
+        "p95_ms": 18,
+        "max_ms": 106,
+        "over_50_count": 3
+      },
+      {
+        "route": "idle:/one/",
+        "frames": 1188,
+        "p95_ms": 18,
+        "max_ms": 53,
+        "over_50_count": 1
+      },
+      {
+        "route": "idle:/one/connect/",
+        "frames": 115,
+        "p95_ms": 37,
+        "max_ms": 61,
+        "over_50_count": 3
+      }
+    ]
+  }
+}

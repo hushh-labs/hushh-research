@@ -23,8 +23,12 @@ import { warmGeminiRuntimeConnection } from "@/lib/connections/gemini-runtime-co
 
 import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
 import { KaiFinancialResourceService } from "@/lib/kai/kai-financial-resource";
+import { loadFinancialForVault, refreshVaultConnections } from "@/lib/kai/plaid-vault/vault-sync";
+import { recoverPendingSeals } from "@/lib/kai/plaid-vault/pending-seal";
+import { isVaultSessionEpochCurrent, snapshotVaultSessionEpoch } from "@/lib/vault/session-epoch";
 import { toDurationBucket, trackEvent } from "@/lib/observability/client";
 import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
+import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 
 export type UnlockWarmResult = {
   onboardingSynced: boolean;
@@ -39,11 +43,13 @@ export type UnlockWarmResult = {
 };
 
 type WarmPriority =
+  | "chat"
   | "market"
   | "dashboard"
   | "analysis"
   | "consents"
   | "location"
+  | "pkm"
   | "profile"
   | "ria"
   | "default";
@@ -78,6 +84,7 @@ function resolveWarmPriority(routePath?: string | null): WarmPriority {
   const path = String(routePath || "")
     .trim()
     .toLowerCase();
+  if (path === ROUTES.HOME || path === "/chat") return "chat";
   if (!path) return "default";
   if (
     path === KAI_MARKET_PATH ||
@@ -110,6 +117,7 @@ function resolveWarmPriority(routePath?: string | null): WarmPriority {
     return "consents";
   }
   if (path.startsWith(ROUTES.ONE_LOCATION)) return "location";
+  if (path.startsWith(ROUTES.PKM)) return "pkm";
   if (path.startsWith("/one/profile")) return "profile";
   if (path.startsWith("/ria")) return "ria";
   return "default";
@@ -223,6 +231,7 @@ export class UnlockWarmOrchestrator {
     vaultOwnerToken: string;
     vaultKey: string;
   }): void {
+    if (shouldSkipReviewerBackgroundWritesForAutomation()) return;
     if (this.locationKeyBootstrappedByUser.has(params.userId)) return;
     this.locationKeyBootstrappedByUser.add(params.userId);
     void bootstrapCurrentUserLocationRecipientKey({
@@ -251,6 +260,7 @@ export class UnlockWarmOrchestrator {
     userId: string;
     vaultOwnerToken: string;
   }): void {
+    if (shouldSkipReviewerBackgroundWritesForAutomation()) return;
     if (this.marketplaceKeyBootstrappedByUser.has(params.userId)) return;
     this.marketplaceKeyBootstrappedByUser.add(params.userId);
     void bootstrapCurrentUserMarketplaceRecipientKey({
@@ -278,6 +288,7 @@ export class UnlockWarmOrchestrator {
     vaultKey: string;
     vaultOwnerToken: string;
   }): void {
+    if (shouldSkipReviewerBackgroundWritesForAutomation()) return;
     if (this.marketplaceDeliverySweptByUser.has(params.userId)) return;
     this.marketplaceDeliverySweptByUser.add(params.userId);
     void runMarketplaceDeliverySweep({
@@ -294,11 +305,54 @@ export class UnlockWarmOrchestrator {
     });
   }
 
+  private static vaultPlaidRefreshedByUser = new Map<string, number>();
+
+  // Refresh on unlock for Plaid connections sealed in the owner's vault. The
+  // server holds no token and cannot refresh them, so the device does, once per
+  // session and on every route. It used to ride on the Kai finance loader, so a
+  // session that never opened the Kai dashboard never refreshed (seen on
+  // Android 2026-09-23: six connections still showing the iPhone's 3:52 sync at
+  // 7:57). refreshVaultConnections skips connections refreshed in the last 15
+  // minutes and saves under the connected-source receipt, never as a review.
+  private static queueVaultPlaidRefresh(params: {
+    userId: string;
+    vaultKey: string;
+    vaultOwnerToken: string;
+  }): void {
+    if (shouldSkipReviewerBackgroundWritesForAutomation()) return;
+    const vaultEpoch = snapshotVaultSessionEpoch();
+    if (this.vaultPlaidRefreshedByUser.get(params.userId) === vaultEpoch) return;
+    this.vaultPlaidRefreshedByUser.set(params.userId, vaultEpoch);
+    void loadFinancialForVault(params)
+      .then(async (financial) => {
+        // Fail closed: without a vault read we cannot tell a sealed link from
+        // an orphan, so pending links wait for the next unlock.
+        if (!financial || !isVaultSessionEpochCurrent(vaultEpoch)) return null;
+        const sealed = (financial.connections_v1 ?? {}) as Record<string, unknown>;
+        // Links that never reached the vault (app closed mid-link) are
+        // disconnected at Plaid before anything else reads the connections.
+        await recoverPendingSeals({ ...params, sealedItemIds: new Set(Object.keys(sealed)) }).catch(
+          () => undefined,
+        );
+        return isVaultSessionEpochCurrent(vaultEpoch) && Object.keys(sealed).length > 0
+          ? refreshVaultConnections({ ...params, financial })
+          : null;
+      })
+      .catch((error) => {
+        // Never block unlock warming; allow a later retry this session.
+        if (this.vaultPlaidRefreshedByUser.get(params.userId) === vaultEpoch) {
+          this.vaultPlaidRefreshedByUser.delete(params.userId);
+        }
+        console.warn("[UnlockWarmOrchestrator] Vault Plaid refresh failed:", error);
+      });
+  }
+
   private static queueConsentExportRefresh(params: {
     userId: string;
     vaultKey: string;
     vaultOwnerToken: string;
   }): void {
+    if (shouldSkipReviewerBackgroundWritesForAutomation()) return;
     void ConsentExportRefreshOrchestrator.ensureRunning({
       userId: params.userId,
       vaultKey: params.vaultKey,
@@ -404,17 +458,18 @@ export class UnlockWarmOrchestrator {
     const shouldWarmDashboardPicks =
       warmPriority === "dashboard" || warmPriority === "default";
     const shouldWarmMetadata =
+      warmPriority === "pkm" ||
       warmPriority === "profile" ||
       warmPriority === "dashboard" ||
       warmPriority === "analysis" ||
       warmPriority === "default";
     const shouldWarmConsents =
       warmPriority === "consents" || warmPriority === "default";
-    // The Consent Center's canonical summary/pending page cache is lightweight
-    // and must be ready after every successful unlock, regardless of the route
-    // that happened to unlock the vault. Legacy consent resources below remain
-    // route-prioritized because they are not used by the canonical screen.
-    const shouldWarmConsentCenter = Boolean(params.firebaseIdToken);
+    // The Consent Center's canonical summary/pending page cache belongs to the
+    // consent route. Root is the Chat workspace, so warming this database-heavy
+    // surface during Chat unlock only competes with the first agent turn.
+    const shouldWarmConsentCenter =
+      warmPriority === "consents" && Boolean(params.firebaseIdToken);
     const shouldWarmLocationState = warmPriority === "location";
     const shouldWarmVaultStatus =
       warmPriority === "consents" ||
@@ -477,30 +532,43 @@ export class UnlockWarmOrchestrator {
           );
           return false;
         });
-      const runtimeConfigurationWarmPromise = warmGeminiRuntimeConnection({
-        userId: params.userId,
-        vaultKey: params.vaultKey,
-        vaultOwnerToken: params.vaultOwnerToken,
-      }).catch((error) => {
-        console.warn(
-          "[UnlockWarmOrchestrator] Runtime configuration warm-up failed:",
-          error,
-        );
-      });
-      const agentHistoryWarmPromise = warmAgentChatHistoryCache({
-        userId: params.userId,
-        vaultOwnerToken: params.vaultOwnerToken,
-      }).catch((error) => {
-        console.warn(
-          "[UnlockWarmOrchestrator] Agent history warm-up failed:",
-          error,
-        );
-      });
+      const runtimeConfigurationWarmPromise =
+        warmPriority === "pkm"
+          ? Promise.resolve()
+          : warmGeminiRuntimeConnection({
+              userId: params.userId,
+              vaultKey: params.vaultKey,
+              vaultOwnerToken: params.vaultOwnerToken,
+            }).catch((error) => {
+              console.warn(
+                "[UnlockWarmOrchestrator] Runtime configuration warm-up failed:",
+                error,
+              );
+            });
+      const agentHistoryWarmPromise =
+        warmPriority === "pkm"
+          ? Promise.resolve()
+          : warmAgentChatHistoryCache({
+              userId: params.userId,
+              vaultOwnerToken: params.vaultOwnerToken,
+            }).catch((error) => {
+              console.warn(
+                "[UnlockWarmOrchestrator] Agent history warm-up failed:",
+                error,
+              );
+            });
       let symbols: string[] = [];
       let prewarmedFinancialDomain: Record<string, unknown> | null = null;
       let financialHydrated = false;
 
-      const syncPromise = shouldWarmMetadata
+      const skipBackgroundWrites = shouldSkipReviewerBackgroundWritesForAutomation();
+      const shouldSyncProfile =
+        warmPriority === "profile" ||
+        warmPriority === "dashboard" ||
+        warmPriority === "analysis" ||
+        warmPriority === "default";
+      const syncPromise =
+        shouldSyncProfile && shouldWarmMetadata && !skipBackgroundWrites
         ? KaiProfileSyncService.syncPendingToVault({
             userId: params.userId,
             vaultKey: params.vaultKey,
@@ -508,7 +576,7 @@ export class UnlockWarmOrchestrator {
           })
         : Promise.resolve({
             synced: false,
-            reason: "skipped_for_route",
+            reason: skipBackgroundWrites ? "skipped_for_reviewer_policy" : "skipped_for_route",
           } as const);
 
       if (shouldWarmFinancial || shouldHydrateFinancialCacheOnly) {
@@ -711,26 +779,39 @@ export class UnlockWarmOrchestrator {
       // surfaces but do NOT match the consent center page keys, so without this
       // step /consents always lands cold after unlock. ConsentCenterService
       // handles its own cache.set into CONSENT_CENTER_SUMMARY / CONSENT_CENTER_LIST,
-      // so calling it here populates the page-read keys directly. Requires a
-      // Firebase ID token (the consent center proxy is Firebase-authenticated).
+      // so calling it here populates the page-read keys directly. Do not warm
+      // the full pending list when the summary has no pending work: that list
+      // is a 31-query surface and competing with vault/profile bootstrap made
+      // unlock needlessly contend for the small development/Cloud Run pool.
+      // Requires a Firebase ID token (the consent center proxy is
+      // Firebase-authenticated), and is limited to the consent route so the
+      // canonical Chat entry remains responsive after unlock.
       if (shouldWarmConsentCenter && params.firebaseIdToken) {
         const idToken = params.firebaseIdToken;
-        await Promise.allSettled([
-          ConsentCenterService.getSummary({
-            idToken,
-            userId: params.userId,
-            mode: "consents",
-          }),
-          ConsentCenterService.listEntries({
-            idToken,
-            userId: params.userId,
-            mode: "consents",
-            surface: "pending",
-            q: "",
-            page: 1,
-            limit: CONSENT_CENTER_PAGE_SIZE,
-          }),
-        ]);
+        const summaryResult = await ConsentCenterService.getSummary({
+          idToken,
+          userId: params.userId,
+          mode: "consents",
+        }).then(
+          (value) => ({ status: "fulfilled" as const, value }),
+          () => ({ status: "rejected" as const }),
+        );
+        if (
+          summaryResult.status === "fulfilled" &&
+          Number(summaryResult.value.counts?.pending || 0) > 0
+        ) {
+          await Promise.allSettled([
+            ConsentCenterService.listEntries({
+              idToken,
+              userId: params.userId,
+              mode: "consents",
+              surface: "pending",
+              q: "",
+              page: 1,
+              limit: CONSENT_CENTER_PAGE_SIZE,
+            }),
+          ]);
+        }
         result.consentsWarmed = true;
       }
 
@@ -800,6 +881,11 @@ export class UnlockWarmOrchestrator {
       });
       // Deliver any slices an agent approved without a browser to seal.
       this.queueMarketplaceDeliverySweep({
+        userId: params.userId,
+        vaultKey: params.vaultKey,
+        vaultOwnerToken: params.vaultOwnerToken,
+      });
+      this.queueVaultPlaidRefresh({
         userId: params.userId,
         vaultKey: params.vaultKey,
         vaultOwnerToken: params.vaultOwnerToken,

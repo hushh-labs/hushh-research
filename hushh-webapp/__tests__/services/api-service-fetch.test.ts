@@ -75,10 +75,12 @@ vi.mock("@/lib/utils/request-timeouts", () => ({
 // ---------------------------------------------------------------------------
 
 import { ApiService } from "@/lib/services/api-service";
+import { GoogleConnectionService } from "@/lib/services/google-connection-service";
 import { AuthService } from "@/lib/services/auth-service";
 import { REQUEST_TIMESTAMP_HEADER } from "@/lib/observability/request-id";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { trackRequestStart } from "@/lib/motion/api-progress-tracker";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -136,9 +138,108 @@ describe("ApiService.apiFetch", () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
+  });
+
+  it("rechecks effect authority after asynchronous transport setup", async () => {
+    let current = true;
+    vi.mocked(trackRequestStart).mockImplementationOnce(() => { current = false; });
+    const beforeDispatch = vi.fn(async () => {
+      if (!current) throw new DOMException("Session changed", "AbortError");
+    });
+    await expect(ApiService.apiFetch("/api/pkm/store-domain", {
+      method: "POST", body: "{}", beforeDispatch,
+    })).rejects.toMatchObject({ name: "AbortError" });
+    expect(beforeDispatch).toHaveBeenCalledOnce();
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it.each(["unmount", "owner", "owner-round-trip"])("blocks Google completion at real transport dispatch after %s", async (change) => {
+    publishValidatedAuthSessionOwner("synthetic-owner");
+    let mounted = true;
+    vi.mocked(trackRequestStart).mockImplementationOnce(() => {
+      if (change === "unmount") mounted = false;
+      else {
+        publishValidatedAuthSessionOwner("synthetic-other");
+        if (change === "owner-round-trip") publishValidatedAuthSessionOwner("synthetic-owner");
+      }
+    });
+    await expect(GoogleConnectionService.completeConnect({
+      idToken: makeUnsignedToken({ sub: "synthetic-owner" }), userId: "synthetic-owner",
+      code: "synthetic-code", state: "synthetic-state", isEffectCurrent: () => mounted,
+    })).rejects.toMatchObject({ name: "AbortError" });
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(capacitorMocks.request).not.toHaveBeenCalled();
+  });
+
+  it("completes Google callbacks without sending presentation authority", async () => {
+    publishValidatedAuthSessionOwner("synthetic-owner");
+    mockFetch.mockResolvedValueOnce(jsonResponse({ connected: true, status: "connected", service: "calendar" }));
+    const result = await GoogleConnectionService.completeConnect({
+      idToken: makeUnsignedToken({ sub: "synthetic-owner" }), userId: "synthetic-owner",
+      code: "synthetic-code", state: "synthetic-state", isEffectCurrent: () => true,
+    });
+    expect(result.service).toBe("calendar");
+    expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toEqual({ user_id: "synthetic-owner", code: "synthetic-code", state: "synthetic-state" });
+    expect(mockFetch.mock.calls[0][1]).not.toHaveProperty("isEffectCurrent");
+  });
+
+  it.each([undefined, "unknown", "drive"])("refuses unverifiable Google callback service %s", async (service) => {
+    publishValidatedAuthSessionOwner("synthetic-owner");
+    mockFetch.mockResolvedValueOnce(jsonResponse({ connected: true, status: "connected", service }));
+    await expect(GoogleConnectionService.completeConnect({
+      idToken: makeUnsignedToken({ sub: "synthetic-owner" }), userId: "synthetic-owner",
+      code: "synthetic-code", state: "synthetic-state", isEffectCurrent: () => true,
+    })).rejects.toThrow("could not be verified");
+  });
+
+  it("does not send an application effect guard over the transport", async () => {
+    mockFetch.mockResolvedValueOnce(jsonResponse({ success: true }));
+    const beforeDispatch = vi.fn(async () => {});
+    await ApiService.apiFetch("/api/pkm/store-domain", { method: "POST", beforeDispatch });
+    expect(beforeDispatch).toHaveBeenCalledOnce();
+    expect(mockFetch.mock.calls[0][1]).not.toHaveProperty("beforeDispatch");
+  });
+
+  it("blocks a session change queued between an async guard and web dispatch", async () => {
+    let current = true;
+    await expect(ApiService.apiFetch("/api/pkm/memory/proposals", {
+      method: "POST",
+      beforeDispatch: async () => { queueMicrotask(() => { current = false; }); },
+      isEffectCurrent: () => current,
+    })).rejects.toMatchObject({ name: "AbortError" });
+    expect(mockFetch).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])("blocks the same native dispatch race (multipart=%s)", async (multipart) => {
+    vi.stubEnv("NEXT_PUBLIC_BACKEND_URL", "https://uat.example");
+    capacitorMocks.isNativePlatform.mockReturnValue(true);
+    let current = true;
+    await expect(ApiService.apiFetch("/api/pkm/memory/proposals", {
+      method: "POST", body: multipart ? new FormData() : "{}",
+      beforeDispatch: async () => { queueMicrotask(() => { current = false; }); },
+      isEffectCurrent: () => current,
+    })).rejects.toMatchObject({ name: "AbortError" });
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(capacitorMocks.request).not.toHaveBeenCalled();
   });
 
   // 1 – Web platform: calls fetch with relative path (no base URL)
+  it("keeps simultaneous reviewer sessions bound to their requested identities", async () => {
+    const first = deferred<Response>();
+    const second = deferred<Response>();
+    mockFetch.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const a = ApiService.createAppReviewModeSession("reviewer", { reviewerUid: "synthetic-a" });
+    const b = ApiService.createAppReviewModeSession("reviewer", { reviewerUid: "synthetic-b" });
+    await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2));
+    expect(mockFetch.mock.calls.map((call) => JSON.parse(call[1].body).reviewer_uid))
+      .toEqual(["synthetic-a", "synthetic-b"]);
+    second.resolve(jsonResponse({ token: "synthetic-token-b" }));
+    first.resolve(jsonResponse({ token: "synthetic-token-a" }));
+    expect(await a).toEqual({ token: "synthetic-token-a" });
+    expect(await b).toEqual({ token: "synthetic-token-b" });
+  });
+
   it("calls fetch with a relative path on web (no base URL prepended)", async () => {
     mockFetch.mockResolvedValueOnce(jsonResponse({ ok: true }));
 
@@ -1210,14 +1311,14 @@ describe("ApiService.apiFetch", () => {
     }
   });
 
-  it("sends native Plaid status requests to the configured backend URL", async () => {
+  it("sends native Plaid vault requests to the configured backend URL", async () => {
     capacitorMocks.isNativePlatform.mockReturnValue(true);
     capacitorMocks.getPlatform.mockReturnValue("ios");
     capacitorMocks.request.mockResolvedValueOnce({
       status: 200,
       headers: { "content-type": "application/json" },
       data: { ok: true },
-      url: "https://api.hushh.ai/api/kai/plaid/status/user-123",
+      url: "https://api.hushh.ai/api/kai/plaid/vault/link-token",
     });
     const previousBackendUrl = process.env.NEXT_PUBLIC_BACKEND_URL;
     const previousServerBackendUrl = process.env.BACKEND_URL;
@@ -1226,8 +1327,10 @@ describe("ApiService.apiFetch", () => {
 
     try {
       const response = await ApiService.apiFetch(
-        "/api/kai/plaid/status/user-123",
+        "/api/kai/plaid/vault/link-token",
         {
+          method: "POST",
+          body: "{}",
           headers: { Authorization: "Bearer HCT:vault-owner-token" },
         },
       );
@@ -1235,7 +1338,7 @@ describe("ApiService.apiFetch", () => {
       expect(response.status).toBe(200);
       expect(capacitorMocks.request).toHaveBeenCalledWith(
         expect.objectContaining({
-          url: "https://api.hushh.ai/api/kai/plaid/status/user-123",
+          url: "https://api.hushh.ai/api/kai/plaid/vault/link-token",
         }),
       );
     } finally {

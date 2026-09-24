@@ -145,56 +145,11 @@ class AccountService:
             ),
             "pwm_documents": text("DELETE FROM pwm_documents WHERE user_id = :user_id"),
             "kai_analyze_runs": text("DELETE FROM kai_analyze_runs WHERE user_id = :user_id"),
-            "kai_funding_ach_relationships": text(
-                "DELETE FROM kai_funding_ach_relationships WHERE user_id = :user_id"
-            ),
-            "kai_funding_alpaca_connect_sessions": text(
-                "DELETE FROM kai_funding_alpaca_connect_sessions WHERE user_id = :user_id"
-            ),
-            "kai_funding_brokerage_accounts": text(
-                "DELETE FROM kai_funding_brokerage_accounts WHERE user_id = :user_id"
-            ),
-            "kai_funding_consent_records": text(
-                "DELETE FROM kai_funding_consent_records WHERE user_id = :user_id"
-            ),
-            "kai_funding_plaid_accounts": text(
-                "DELETE FROM kai_funding_plaid_accounts WHERE user_id = :user_id"
-            ),
-            "kai_funding_plaid_items": text(
-                "DELETE FROM kai_funding_plaid_items WHERE user_id = :user_id"
-            ),
-            "kai_funding_reconciliation_runs": text(
-                "DELETE FROM kai_funding_reconciliation_runs WHERE user_id = :user_id"
-            ),
-            "kai_funding_support_escalations": text(
-                "DELETE FROM kai_funding_support_escalations WHERE user_id = :user_id"
-            ),
-            "kai_funding_trade_events": text(
-                "DELETE FROM kai_funding_trade_events WHERE user_id = :user_id"
-            ),
-            "kai_funding_trade_intents": text(
-                "DELETE FROM kai_funding_trade_intents WHERE user_id = :user_id"
-            ),
-            "kai_funding_transfer_events": text(
-                "DELETE FROM kai_funding_transfer_events WHERE user_id = :user_id"
-            ),
-            "kai_funding_transfers": text(
-                "DELETE FROM kai_funding_transfers WHERE user_id = :user_id"
-            ),
             "kai_gmail_connections": text(
                 "DELETE FROM kai_gmail_connections WHERE user_id = :user_id"
             ),
             "kai_gmail_receipts": text("DELETE FROM kai_gmail_receipts WHERE user_id = :user_id"),
             "kai_gmail_sync_runs": text("DELETE FROM kai_gmail_sync_runs WHERE user_id = :user_id"),
-            "kai_portfolio_source_preferences": text(
-                "DELETE FROM kai_portfolio_source_preferences WHERE user_id = :user_id"
-            ),
-            "kai_plaid_link_sessions": text(
-                "DELETE FROM kai_plaid_link_sessions WHERE user_id = :user_id"
-            ),
-            "kai_plaid_refresh_runs": text(
-                "DELETE FROM kai_plaid_refresh_runs WHERE user_id = :user_id"
-            ),
             "marketplace_public_profiles": text(
                 "DELETE FROM marketplace_public_profiles WHERE user_id = :user_id"
             ),
@@ -246,9 +201,6 @@ class AccountService:
                   SELECT run_id FROM pkm_upgrade_runs WHERE user_id = :user_id
                 )
                 """
-            ),
-            "kai_plaid_user_profile_cache": text(
-                "DELETE FROM kai_plaid_user_profile_cache WHERE user_id = :user_id"
             ),
             "kai_receipt_memory_artifacts": text(
                 "DELETE FROM kai_receipt_memory_artifacts WHERE user_id = :user_id"
@@ -1334,6 +1286,15 @@ class AccountService:
             requested_target=requested_target,
         )
 
+    @staticmethod
+    def _clear_external_connector_data(conn, user_id, results, *, permanent):
+        from hushh_mcp.services.drive_sharing_retention import erase_drive_account_in_transaction
+
+        lock_connection_graph_users(conn, user_ids=[user_id])
+        erase_drive_account_in_transaction(conn, user_id=user_id, permanent=permanent)
+        results["external_connectors"] = True
+        results["drive_private_data"] = True
+
     def _clear_user_data_tables(self, conn, user_id: str, results: dict[str, bool]) -> None:
         """Clear all per-user data tables EXCEPT the account spine.
 
@@ -1344,29 +1305,17 @@ class AccountService:
         One identity and vault survive a reset.
         """
         params = {"user_id": user_id}
+        self._clear_external_connector_data(conn, user_id, results, permanent=False)
         self._delete_optional_user_tables(
             conn,
             table_names=[
                 "one_action_directive_ledger",
                 "agent_chat_messages",
                 "agent_chat_conversations",
-                "kai_funding_trade_events",
-                "kai_funding_trade_intents",
-                "kai_funding_transfer_events",
-                "kai_funding_support_escalations",
-                "kai_funding_transfers",
-                "kai_funding_ach_relationships",
-                "kai_funding_consent_records",
-                "kai_funding_plaid_accounts",
-                "kai_funding_plaid_items",
-                "kai_funding_brokerage_accounts",
-                "kai_funding_alpaca_connect_sessions",
-                "kai_funding_reconciliation_runs",
                 "kai_gmail_receipts",
                 "kai_gmail_sync_runs",
                 "kai_gmail_connections",
                 "kai_receipt_memory_artifacts",
-                "kai_portfolio_source_preferences",
                 "kai_analyze_runs",
                 "consent_export_refresh_jobs",
                 "consent_exports",
@@ -1403,16 +1352,6 @@ class AccountService:
             params=params,
             results=results,
         )
-        conn.execute(text("DELETE FROM kai_plaid_refresh_runs WHERE user_id = :user_id"), params)
-        results["plaid_refresh_runs"] = True
-        conn.execute(text("DELETE FROM kai_plaid_link_sessions WHERE user_id = :user_id"), params)
-        results["plaid_link_sessions"] = True
-        conn.execute(text("DELETE FROM kai_plaid_items WHERE user_id = :user_id"), params)
-        results["plaid_items"] = True
-        self._delete_user_rows_if_table_exists(
-            conn, table_name="kai_plaid_user_profile_cache", params=params
-        )
-        results["plaid_profile_cache"] = True
         conn.execute(text("DELETE FROM pkm_events WHERE user_id = :user_id"), params)
         results["pkm_events"] = True
         conn.execute(text("DELETE FROM pkm_scope_registry WHERE user_id = :user_id"), params)
@@ -1716,28 +1655,11 @@ class AccountService:
             "pkm_domain_revision_segments": False,
             "pkm_domain_revisions": False,
             "world_model_index_v2": False,
-            "plaid_items": False,
-            "plaid_refresh_runs": False,
-            "plaid_link_sessions": False,
-            "plaid_profile_cache": False,
-            "kai_portfolio_source_preferences": False,
             "kai_analyze_runs": False,
             "kai_gmail_connections": False,
             "kai_gmail_receipts": False,
             "kai_gmail_sync_runs": False,
             "kai_receipt_memory_artifacts": False,
-            "kai_funding_trade_events": False,
-            "kai_funding_trade_intents": False,
-            "kai_funding_transfer_events": False,
-            "kai_funding_support_escalations": False,
-            "kai_funding_transfers": False,
-            "kai_funding_ach_relationships": False,
-            "kai_funding_consent_records": False,
-            "kai_funding_plaid_accounts": False,
-            "kai_funding_plaid_items": False,
-            "kai_funding_brokerage_accounts": False,
-            "kai_funding_alpaca_connect_sessions": False,
-            "kai_funding_reconciliation_runs": False,
             "consent_exports": False,
             "consent_export_refresh_jobs": False,
             "connected_system_audit_events": False,
@@ -1842,29 +1764,17 @@ class AccountService:
                     params=params,
                     results=results,
                 )
+                self._clear_external_connector_data(conn, user_id, results, permanent=True)
                 self._delete_optional_user_tables(
                     conn,
                     table_names=[
                         "one_action_directive_ledger",
                         "agent_chat_messages",
                         "agent_chat_conversations",
-                        "kai_funding_trade_events",
-                        "kai_funding_trade_intents",
-                        "kai_funding_transfer_events",
-                        "kai_funding_support_escalations",
-                        "kai_funding_transfers",
-                        "kai_funding_ach_relationships",
-                        "kai_funding_consent_records",
-                        "kai_funding_plaid_accounts",
-                        "kai_funding_plaid_items",
-                        "kai_funding_brokerage_accounts",
-                        "kai_funding_alpaca_connect_sessions",
-                        "kai_funding_reconciliation_runs",
                         "kai_gmail_receipts",
                         "kai_gmail_sync_runs",
                         "kai_gmail_connections",
                         "kai_receipt_memory_artifacts",
-                        "kai_portfolio_source_preferences",
                         "kai_analyze_runs",
                         "consent_export_refresh_jobs",
                         "consent_exports",
@@ -1906,22 +1816,6 @@ class AccountService:
                     params=params,
                     results=results,
                 )
-                conn.execute(
-                    text("DELETE FROM kai_plaid_refresh_runs WHERE user_id = :user_id"), params
-                )
-                results["plaid_refresh_runs"] = True
-                conn.execute(
-                    text("DELETE FROM kai_plaid_link_sessions WHERE user_id = :user_id"), params
-                )
-                results["plaid_link_sessions"] = True
-                conn.execute(text("DELETE FROM kai_plaid_items WHERE user_id = :user_id"), params)
-                results["plaid_items"] = True
-                self._delete_user_rows_if_table_exists(
-                    conn,
-                    table_name="kai_plaid_user_profile_cache",
-                    params=params,
-                )
-                results["plaid_profile_cache"] = True
                 conn.execute(text("DELETE FROM pkm_events WHERE user_id = :user_id"), params)
                 results["pkm_events"] = True
                 conn.execute(
@@ -2297,10 +2191,6 @@ class AccountService:
             "pkm_domain_commits": False,
             "pkm_domain_revision_segments": False,
             "pkm_domain_revisions": False,
-            "plaid_items": False,
-            "plaid_refresh_runs": False,
-            "plaid_link_sessions": False,
-            "plaid_profile_cache": False,
             "investor_relationships": False,
             "investor_invites": False,
             "investor_marketplace_profile": False,
@@ -2314,22 +2204,6 @@ class AccountService:
         try:
             with get_db_connection() as conn:
                 params = {"user_id": user_id}
-                conn.execute(
-                    text("DELETE FROM kai_plaid_refresh_runs WHERE user_id = :user_id"), params
-                )
-                results["plaid_refresh_runs"] = True
-                conn.execute(
-                    text("DELETE FROM kai_plaid_link_sessions WHERE user_id = :user_id"), params
-                )
-                results["plaid_link_sessions"] = True
-                conn.execute(text("DELETE FROM kai_plaid_items WHERE user_id = :user_id"), params)
-                results["plaid_items"] = True
-                self._delete_user_rows_if_table_exists(
-                    conn,
-                    table_name="kai_plaid_user_profile_cache",
-                    params=params,
-                )
-                results["plaid_profile_cache"] = True
                 conn.execute(text("DELETE FROM pkm_events WHERE user_id = :user_id"), params)
                 results["pkm_events"] = True
                 conn.execute(

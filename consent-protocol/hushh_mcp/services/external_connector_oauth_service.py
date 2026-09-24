@@ -61,6 +61,15 @@ class ExternalConnectorOAuthService:
         self._registry = registry or get_external_connector_registry_service()
         self._credentials = credentials or get_external_connector_credentials_service()
 
+    def drive(self):
+        # Import-safe adapter; shares registry, credentials, signed state and
+        # database with existing connectors, never the Mail credential domain.
+        from hushh_mcp.services.external_connector_google_oauth import ExternalConnectorGoogleOAuth
+
+        return ExternalConnectorGoogleOAuth(
+            db=self.db, registry=self._registry, credentials=self._credentials, state_codec=self
+        )
+
     async def _execute(
         self, sql: str, params: dict[str, Any] | None = None
     ) -> list[dict[str, Any]]:
@@ -95,7 +104,25 @@ class ExternalConnectorOAuthService:
             raise ExternalConnectorOAuthError("OAuth state is invalid")
         return attempt_id
 
-    async def start(self, *, user_id: str, connector_id: str, redirect_uri: str) -> dict[str, Any]:
+    async def start(
+        self,
+        *,
+        user_id: str,
+        connector_id: str,
+        redirect_uri: str,
+        flow: str = "web",
+        profile: str = "selected",
+    ) -> dict[str, Any]:
+        if connector_id == "google_drive":
+            return await self.drive().start(
+                user_id=user_id, redirect_uri=redirect_uri, flow=flow, profile=profile
+            )
+        if profile != "selected":
+            raise ExternalConnectorOAuthError("This connector does not support live access")
+        if flow != "web":
+            raise ExternalConnectorOAuthError(
+                "This connector does not support native authorization"
+            )
         connector = await self._registry.get_connector(connector_id)
         if connector is None or connector.auth_style != "oauth":
             raise ExternalConnectorOAuthError("This connector does not support OAuth")
@@ -154,6 +181,10 @@ class ExternalConnectorOAuthService:
             {"attempt_id": attempt_id},
         )
         row = rows[0] if rows else None
+        if row and row["connector_id"] == "google_drive":
+            return await self.drive().complete(
+                state=state, code=code, expected_user_id=expected_user_id
+            )
         if not row or row.get("consumed_at") is not None:
             raise ExternalConnectorOAuthError("This connection attempt has already been used")
         if _clean(row["user_id"]) != _clean(expected_user_id):

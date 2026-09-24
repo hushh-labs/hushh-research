@@ -11,9 +11,7 @@ import { resolveSlowRequestTimeoutMs } from "@/lib/utils/request-timeouts";
 const CONNECTOR_PROXY_TIMEOUT_MS = resolveSlowRequestTimeoutMs(45_000);
 
 function connectorPath(path: string[]): string {
-  const suffix = path
-    .map((segment) => encodeURIComponent(segment))
-    .join("/");
+  const suffix = path.map((segment) => encodeURIComponent(segment)).join("/");
   return suffix ? `/api/connectors/${suffix}` : "/api/connectors";
 }
 
@@ -52,11 +50,14 @@ export async function proxyExternalConnectorRequest(
     const payload = await response
       .json()
       .catch(async () => ({ detail: await response.text().catch(() => "") }));
-    return withRequestIdJson(requestId, payload, { status: response.status });
+    return withRequestIdJson(requestId, payload, {
+      status: response.status,
+      headers: { "Cache-Control": "no-store", Pragma: "no-cache" },
+    });
   } catch (error) {
     console.error(`[Connectors API] request_id=${requestId} proxy_error`, {
       path: connectorPath(path),
-      message: error instanceof Error ? error.message : String(error),
+      errorClass: error instanceof Error ? error.name : "unknown",
     });
     return withRequestIdJson(
       requestId,

@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useState,
   useMemo,
   useRef,
@@ -85,22 +86,37 @@ export function TopShellTabs({
   const tabWidth = `${100 / tabSet.tabs.length}%`;
   const tabSwipeState = useTopShellTabSwipeState(tabSet.id);
   const indicatorTransform = `translate3d(calc(var(${topShellTabSwipePositionVariable(tabSet.id)}, ${activeIndex}) * 100%), 0, 0)`;
+  // The segmented strip is the canonical style for every signed-in hub
+  // (founder directive, 2026-09-22: Finance joined Connect and Consent). The
+  // underline arm remains for the public knowledge tab sets only.
   const usesModuleSegmentedTabs =
     tabSet.id === "location" ||
     tabSet.id === "connect" ||
     tabSet.id === "consent" ||
+    tabSet.id === "finance" ||
     tabSet.id === "ria";
   const usesCompactLabels = usesModuleSegmentedTabs && tabSet.tabs.length > 3;
   const shouldResetScrollOnSelection = tabSet.id === "finance";
 
   const textRefs = useRef<Array<HTMLSpanElement | null>>([]);
-  const [activeTextWidth, setActiveTextWidth] = useState(0);
+  // The underline arm is a full-cell bar scaled on X to the label's width, so
+  // a tab change animates on the compositor instead of relayouting the strip
+  // through a width transition. Measured before paint so the first frame
+  // already has the right ratio; null (no layout yet, or jsdom) keeps the
+  // CSS width fallback and no transform.
+  const [underlineScale, setUnderlineScale] = useState<number | null>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const activeTextSpan = textRefs.current[activeIndex];
-    if (activeTextSpan) {
-      setActiveTextWidth(activeTextSpan.offsetWidth);
-    }
+    if (!activeTextSpan) return;
+    const cell =
+      activeTextSpan.closest<HTMLElement>('[role="tab"]') ??
+      activeTextSpan.parentElement;
+    const cellWidth = cell?.offsetWidth ?? 0;
+    if (cellWidth <= 0) return;
+    setUnderlineScale(
+      Math.min(1, Math.max(28, activeTextSpan.offsetWidth) / cellWidth),
+    );
   }, [activeIndex, tabSet.tabs.length]);
 
   // Keep the shared swipe-position variable in sync with the committed active
@@ -204,8 +220,8 @@ export function TopShellTabs({
               //
               // The cap is now the page column's own content width, so the two
               // cannot drift apart again. Both tokens already exist. Scoped to
-              // Location, Connect, Consent, and RIA by the module branch above — the
-              // other tab sets take the underline arm and do not move.
+              // Location, Connect, Consent, Finance, and RIA by the module branch
+              // above — the public tab sets take the underline arm and do not move.
               //
               // RIA joined 2026-09 (#6289's follow-up): this wrapper carries
               // no outer width constraint of its own (see top-app-bar.tsx),
@@ -310,18 +326,18 @@ export function TopShellTabs({
           >
             <span
               className={cn(
-                "transition-[width] duration-150",
+                "transition-transform duration-150 motion-reduce:transition-none",
                 usesModuleSegmentedTabs
                   ? "h-full w-[calc(100%-4px)] rounded-[8px] bg-[color:var(--app-card-surface-default-solid)] shadow-[0_1px_2px_rgba(0,0,0,0.10)]"
-                  : "h-[3px] rounded-full bg-[var(--app-accent)]",
+                  : "h-[3px] w-full origin-center rounded-full bg-[var(--app-accent)]",
               )}
-              style={{
-                width: usesModuleSegmentedTabs
+              style={
+                usesModuleSegmentedTabs
                   ? undefined
-                  : activeTextWidth
-                    ? `${Math.max(28, activeTextWidth)}px`
-                    : "max(28px, calc(100% - 2rem))",
-              }}
+                  : underlineScale !== null
+                    ? { transform: `scaleX(${underlineScale})` }
+                    : { width: "max(28px, calc(100% - 2rem))" }
+              }
             />
           </div>
         ) : null}

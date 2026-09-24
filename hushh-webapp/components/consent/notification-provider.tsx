@@ -51,6 +51,10 @@ import {
   CONSENT_STATE_CHANGED_EVENT,
   dispatchConsentStateChanged,
 } from "@/lib/consent/consent-events";
+import {
+  documentShareNotificationRequestId,
+  isDocumentShareNotificationCandidate,
+} from "@/lib/consent/document-share-consent";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { subscribeToRemotePkmDomainChanges } from "@/lib/pkm/pkm-domain-change-events";
 import { subscribeToRemoteOneLocationStateChanges } from "@/lib/one-location/one-location-state-events";
@@ -85,6 +89,10 @@ import { buildOneLocationNotificationPayloads } from "@/lib/one-location/notific
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { EmergencySmsNotificationToast } from "@/components/one-location/emergency-sms-notification-toast";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
+import {
+  markPeriodicTaskRan,
+  registerPeriodicTask,
+} from "@/lib/perf/idle-scheduler";
 
 // ============================================================================
 // Helpers
@@ -1290,6 +1298,7 @@ export function ConsentNotificationProvider({
                 payload.type === "connection_removed";
               const preservesDomainType =
                 preservesConnectionType ||
+                payload.type === "information_request_updated" ||
                 String(payload.type || "").startsWith("location_");
               const type = preservesDomainType
                 ? payload.type
@@ -1626,6 +1635,18 @@ export function ConsentNotificationProvider({
         return;
       }
 
+      // Drive-sharing notifications are an intentionally closed, opaque
+      // vocabulary. A new `document_share_*` producer cannot make the client
+      // refresh consent state or select a review until it is explicitly
+      // allowlisted and carries the exact request UUID.
+      const documentShareRequestId = documentShareNotificationRequestId(data);
+      if (
+        isDocumentShareNotificationCandidate(data) &&
+        !documentShareRequestId
+      ) {
+        return;
+      }
+
       // Validate typed payloads before acknowledging them to the web service
       // worker. An ACK suppresses the OS fallback, so malformed consent data
       // must remain unaccepted instead of disappearing from every surface.
@@ -1680,10 +1701,41 @@ export function ConsentNotificationProvider({
         return;
       }
 
+      if (msgType === "information_request_updated") {
+        // A requester-only doorbell, not a new Feed item or grant authority.
+        // The matching Chat card rereads current status before local decrypt.
+        if (user?.uid && data.user_id === user.uid && data.bundle_id) {
+          CacheSyncService.onConsentMutated(user.uid);
+          dispatchConsentStateChanged({
+            source: "information_request_updated",
+            bundleId: data.bundle_id,
+            requestId: data.request_id,
+            action: data.action,
+            messageId: data.message_id,
+          });
+        }
+        return;
+      }
+
       // Push is a wake-up signal; Feed remains the only routine in-app
       // presentation surface. This also covers notification families added in
       // the future even when they have no provider-specific branch yet.
       dispatchFeedStateChanged("action");
+
+      if (documentShareRequestId) {
+        // Do not render push copy or invoke a sharing action. The canonical
+        // Consent Center and its owner/Vault checks fetch the current review
+        // after a person has opened the fixed local route.
+        if (user?.uid) {
+          CacheSyncService.onConsentMutated(user.uid);
+        }
+        dispatchConsentStateChanged({
+          source: "fcm_document_share",
+          requestId: `document_share_request:${documentShareRequestId}`,
+          reconcile: true,
+        });
+        return;
+      }
 
       if (isOneLocationNotificationType(msgType)) {
         const notification = detail.notification || detail;
@@ -1971,6 +2023,7 @@ export function ConsentNotificationProvider({
         document.visibilityState !== "visible"
       )
         return;
+      markPeriodicTaskRan("consent:location-reconcile");
       void reconcileOneLocationNotifications();
     };
     const handleVisibilityChange = () => {
@@ -1991,14 +2044,22 @@ export function ConsentNotificationProvider({
         }
       });
 
+    // On the shared idle clock: one wake with every other poll, after a
+    // frame, never while hidden (lib/perf/idle-scheduler.ts).
     const intervalMs = deliveryMode === "push_active" ? 5 * 60_000 : 30_000;
-    const intervalId = window.setInterval(reconcileWhenVisible, intervalMs);
+    const unregister = registerPeriodicTask({
+      id: "consent:location-reconcile",
+      intervalMs,
+      run: () => {
+        void reconcileOneLocationNotifications();
+      },
+    });
 
     return () => {
       window.removeEventListener("focus", reconcileWhenVisible);
       window.removeEventListener("online", reconcileWhenVisible);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
-      window.clearInterval(intervalId);
+      unregister();
       removeLifecycleListener();
     };
   }, [
@@ -2173,6 +2234,7 @@ export function ConsentNotificationProvider({
       ) {
         return;
       }
+      markPeriodicTaskRan("consent:pending-reconcile");
       void reconcilePendingConsents();
     };
     const onVisibilityChange = () => {
@@ -2181,12 +2243,18 @@ export function ConsentNotificationProvider({
     window.addEventListener("focus", reconcileWhenVisible);
     window.addEventListener("online", reconcileWhenVisible);
     document.addEventListener("visibilitychange", onVisibilityChange);
-    const intervalId = window.setInterval(reconcileWhenVisible, 5 * 60_000);
+    const unregister = registerPeriodicTask({
+      id: "consent:pending-reconcile",
+      intervalMs: 5 * 60_000,
+      run: () => {
+        void reconcilePendingConsents();
+      },
+    });
     return () => {
       window.removeEventListener("focus", reconcileWhenVisible);
       window.removeEventListener("online", reconcileWhenVisible);
       document.removeEventListener("visibilitychange", onVisibilityChange);
-      window.clearInterval(intervalId);
+      unregister();
     };
   }, [deliveryMode, isVaultUnlocked, reconcilePendingConsents, user?.uid]);
 

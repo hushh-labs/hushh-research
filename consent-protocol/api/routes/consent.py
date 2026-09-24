@@ -911,15 +911,29 @@ async def approve_consent(
     # All validation passed - now safe to issue the token.  Scope is passed as
     # the original string (not the enum) so that 'attr.financial.*' is preserved
     # verbatim in the signed payload rather than being collapsed to 'pkm.read'.
-    token = issue_token(
-        user_id=userId,
-        # Keep agent_id aligned with consent_audit so DB revocation checks are
-        # deterministic across Cloud Run instances.
-        agent_id=pending_request["developer"],
-        scope=requested_scope,
-        expires_in_ms=expiry_hours * 60 * 60 * 1000,
-        expires_at_ms=exact_expires_at_ms,
-    )
+    try:
+        token = issue_token(
+            user_id=userId,
+            # Keep agent_id aligned with consent_audit so DB revocation checks are
+            # deterministic across Cloud Run instances.
+            agent_id=pending_request["developer"],
+            scope=requested_scope,
+            expires_in_ms=expiry_hours * 60 * 60 * 1000,
+            expires_at_ms=exact_expires_at_ms,
+        )
+    except ValueError as exc:
+        # A stale or structurally invalid catalog entry must not turn approval
+        # into an opaque server error. Discovery filters these entries, but the
+        # mutation boundary remains defensive for old pending requests and
+        # concurrent catalog changes.
+        logger.warning("consent.scope_not_requestable_on_approval: %s", type(exc).__name__)
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "error_code": "SCOPE_NOT_REQUESTABLE",
+                "message": "This information is no longer requestable. Refresh and try again.",
+            },
+        ) from exc
 
     if encryptedData and wrapped_key_bundle:
         payload_data, payload_iv, payload_tag = encrypted_export_payload or (
@@ -1183,6 +1197,7 @@ async def get_consent_center_list(
     top: int | None = Query(default=None, ge=1, le=10),
     page: int = Query(default=1, ge=1, le=1_000),
     limit: int = Query(default=20, ge=1, le=100),
+    request_view: str = Query(default="received", pattern="^(received|sent)$"),
     firebase_uid: str = Depends(require_firebase_auth),
 ):
     service = ConsentCenterService()
@@ -1195,6 +1210,7 @@ async def get_consent_center_list(
         top=top,
         page=page,
         limit=limit,
+        request_view=request_view,
     )
 
 

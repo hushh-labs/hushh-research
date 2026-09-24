@@ -9,14 +9,16 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import binascii
 import hashlib
 import hmac
 import json
 import logging
 import os
 import re
+import secrets
 import uuid
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from email.message import EmailMessage
 from email.policy import SMTP
@@ -24,6 +26,8 @@ from email.utils import getaddresses
 from typing import Any
 
 import httpx
+from cryptography.exceptions import InvalidTag
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from db.connection import get_pool
 from hushh_mcp.agents.email.runtime import EMAIL_DRAFT_SCHEMA, run_email_gene
@@ -33,6 +37,12 @@ from hushh_mcp.services.gmail_receipts_service import (
     GmailApiError,
     GmailReceiptsService,
     get_gmail_receipts_service,
+)
+from hushh_mcp.services.google_connection_service import GoogleConnectionError
+from hushh_mcp.services.google_drive_blob_attachment_service import (
+    MAX_BLOB_BYTES,
+    DriveBlobDescriptor,
+    GoogleDriveBlobAttachmentService,
 )
 
 logger = logging.getLogger(__name__)
@@ -206,7 +216,10 @@ def normalize_draft(payload: dict[str, Any]) -> NormalizedEmailDraft:
 
 
 def _message_for(
-    draft: NormalizedEmailDraft, *, reply_context: GmailReplyContext | None = None
+    draft: NormalizedEmailDraft,
+    *,
+    reply_context: GmailReplyContext | None = None,
+    attachment: tuple[DriveBlobDescriptor, bytes] | None = None,
 ) -> EmailMessage:
     message = EmailMessage(policy=SMTP)
     # Deliberately omit From: Gmail assigns the connected user's `me` sender.
@@ -224,16 +237,142 @@ def _message_for(
     message.set_content(draft.body)
     if draft.html_body:
         message.add_alternative(draft.html_body, subtype="html")
+    if attachment is not None:
+        descriptor, content = attachment
+        maintype, subtype = descriptor.mime_type.split("/", 1)
+        message.add_attachment(
+            content, maintype=maintype, subtype=subtype, filename=descriptor.filename
+        )
     return message
 
 
+def _attachment_ref(value: Any) -> tuple[str, str | None, str | None] | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict) or set(value) - {"file_id", "revision", "sha256"}:
+        raise GmailDeliveryError("INVALID_ATTACHMENT", "Choose one Drive file for review.")
+    file_id, revision, sha256 = value.get("file_id"), value.get("revision"), value.get("sha256")
+    if (
+        not isinstance(file_id, str)
+        or (revision is not None and not isinstance(revision, str))
+        or (sha256 is not None and not isinstance(sha256, str))
+    ):
+        raise GmailDeliveryError("INVALID_ATTACHMENT", "Choose one Drive file for review.")
+    return file_id, revision, sha256
+
+
+def _reviewed_attachment(value: Any) -> tuple[DriveBlobDescriptor, str, str] | None:
+    if value is None:
+        return None
+    fields = {
+        "file_id",
+        "filename",
+        "mime_type",
+        "size",
+        "revision",
+        "sha256",
+        "grant_binding",
+        "source_account_label",
+    }
+    if not isinstance(value, dict) or set(value) != fields:
+        raise GmailDeliveryError("INVALID_ATTACHMENT", "Review the Drive attachment again.")
+    if (
+        any(
+            not isinstance(value[key], str) or len(value[key]) > 256
+            for key in fields - {"size", "source_account_label"}
+        )
+        or not isinstance(value["source_account_label"], str)
+        or not re.fullmatch(r"[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+", value["source_account_label"])
+        or len(value["source_account_label"]) > 320
+        or type(value["size"]) is not int
+        or not 0 < value["size"] <= MAX_BLOB_BYTES
+        or not re.fullmatch(r"[0-9a-f]{64}", value["grant_binding"])
+    ):
+        raise GmailDeliveryError("INVALID_ATTACHMENT", "Review the Drive attachment again.")
+    return (
+        DriveBlobDescriptor(
+            **{key: value[key] for key in fields - {"grant_binding", "source_account_label"}}
+        ),
+        value["grant_binding"],
+        value["source_account_label"],
+    )
+
+
+def _safe_attachment_descriptor(
+    descriptor: DriveBlobDescriptor, source_account_label: str
+) -> dict[str, Any]:
+    return {
+        "filename": descriptor.filename,
+        "mime_type": descriptor.mime_type,
+        "size": descriptor.size,
+        "source_account_label": source_account_label,
+        "revision": descriptor.revision,
+        "sha256": descriptor.sha256,
+    }
+
+
 class GmailDeliveryService:
-    def __init__(self, *, gmail_service: GmailReceiptsService | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        gmail_service: GmailReceiptsService | None = None,
+        drive_blobs: GoogleDriveBlobAttachmentService | None = None,
+    ) -> None:
         self._gmail_service = gmail_service
+        self._drive_blobs = drive_blobs
 
     @property
     def gmail_service(self) -> GmailReceiptsService:
         return self._gmail_service or get_gmail_receipts_service()
+
+    @property
+    def drive_blobs(self) -> GoogleDriveBlobAttachmentService:
+        return self._drive_blobs or GoogleDriveBlobAttachmentService()
+
+    async def _resolve_attachment(
+        self, *, user_id: str, file_id: str, revision: str | None, sha256: str | None
+    ) -> tuple[DriveBlobDescriptor, bytes, str, str]:
+        # UAT's Drive connector grants access only to Picker-selected files.
+        # The older attachment resolver uses a separate account-wide grant,
+        # so it cannot serve a UAT attachment until it is migrated to the
+        # selected-document authority. Plain reviewed Gmail sends continue.
+        if os.getenv("ENVIRONMENT", "").strip().lower() == "uat":
+            raise GmailDeliveryError(
+                "DRIVE_ATTACHMENT_UNAVAILABLE",
+                "Drive attachments are temporarily unavailable. Send without the attachment.",
+                status_code=403,
+            )
+        try:
+            identity_before = await self.drive_blobs.grant_identity(
+                authenticated_owner_user_id=user_id
+            )
+            resolved = await self.drive_blobs.resolve(
+                file_id=file_id,
+                authenticated_owner_user_id=user_id,
+                expected_revision=revision,
+                expected_sha256=sha256,
+            )
+            identity_after = await self.drive_blobs.grant_identity(
+                authenticated_owner_user_id=user_id
+            )
+        except GoogleConnectionError as exc:
+            raise GmailDeliveryError(
+                "DRIVE_ATTACHMENT_UNAVAILABLE",
+                "The Drive attachment changed or is unavailable. Review it again.",
+                status_code=exc.status_code,
+            ) from None
+        if identity_before != identity_after:
+            raise GmailDeliveryError(
+                "DRIVE_ATTACHMENT_CHANGED",
+                "The Drive account or grant changed. Review the attachment again.",
+                status_code=409,
+            )
+        return (
+            resolved.descriptor,
+            resolved.content,
+            identity_after.binding,
+            identity_after.account_label,
+        )
 
     def _hmac(self, value: str, *, purpose: str) -> str:
         key = get_core_security_settings().app_signing_key.encode("utf-8")
@@ -242,24 +381,100 @@ class GmailDeliveryService:
         ).hexdigest()
 
     def _envelope_hmac(
-        self, draft: NormalizedEmailDraft, *, reply_context: GmailReplyContext | None = None
+        self,
+        draft: NormalizedEmailDraft,
+        *,
+        reply_context: GmailReplyContext | None = None,
+        attachment: DriveBlobDescriptor | None = None,
+        owner_user_id: str | None = None,
+        grant_binding: str | None = None,
+        source_account_label: str | None = None,
     ) -> str:
+        # Keep the text-only HMAC shape unchanged for existing prepared actions.
+        envelope: dict[str, Any] = {
+            "draft": json.loads(draft.canonical_json()),
+            "reply_context": json.loads(reply_context.canonical_json()) if reply_context else None,
+        }
+        if attachment is not None:
+            envelope["drive_attachment"] = asdict(attachment)
+            envelope["owner_user_id"] = owner_user_id
+            envelope["drive_grant_binding"] = grant_binding
+            envelope["drive_source_account_label"] = source_account_label
         return self._hmac(
-            json.dumps(
-                {
-                    "draft": json.loads(draft.canonical_json()),
-                    "reply_context": json.loads(reply_context.canonical_json())
-                    if reply_context
-                    else None,
-                },
-                separators=(",", ":"),
-                sort_keys=True,
-            ),
+            json.dumps(envelope, separators=(",", ":"), sort_keys=True),
             purpose="envelope",
         )
 
     def _idempotency_hmac(self, idempotency_key: str) -> str:
         return self._hmac(idempotency_key, purpose="idempotency")
+
+    @staticmethod
+    def _attachment_key() -> bytes:
+        signing_key = get_core_security_settings().app_signing_key.encode("utf-8")
+        return hmac.new(signing_key, b"gmail-drive-attachment-token-v1", hashlib.sha256).digest()
+
+    def _seal_attachment(
+        self,
+        *,
+        user_id: str,
+        action_id: str,
+        descriptor: DriveBlobDescriptor,
+        grant_binding: str,
+        source_account_label: str,
+    ) -> str:
+        payload = json.dumps(
+            {
+                "version": 1,
+                "owner_user_id": user_id,
+                "action_id": action_id,
+                "drive_attachment": {
+                    **asdict(descriptor),
+                    "grant_binding": grant_binding,
+                    "source_account_label": source_account_label,
+                },
+            },
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode()
+        nonce = secrets.token_bytes(12)
+        ciphertext = AESGCM(self._attachment_key()).encrypt(
+            nonce, payload, b"gmail-drive-attachment-v1"
+        )
+        return base64.urlsafe_b64encode(nonce + ciphertext).decode("ascii").rstrip("=")
+
+    def _open_attachment(
+        self, token: str, *, user_id: str, action_id: str
+    ) -> tuple[DriveBlobDescriptor, str, str]:
+        if not isinstance(token, str) or not 32 <= len(token) <= 2048:
+            raise GmailDeliveryError("INVALID_ATTACHMENT", "Review the Drive attachment again.")
+        try:
+            packed = base64.b64decode(
+                token + "=" * (-len(token) % 4), altchars=b"-_", validate=True
+            )
+            nonce, ciphertext = packed[:12], packed[12:]
+            raw = AESGCM(self._attachment_key()).decrypt(
+                nonce, ciphertext, b"gmail-drive-attachment-v1"
+            )
+            value = json.loads(raw)
+        except (ValueError, TypeError, binascii.Error, InvalidTag):
+            raise GmailDeliveryError(
+                "INVALID_ATTACHMENT", "Review the Drive attachment again.", status_code=409
+            ) from None
+        if (
+            not isinstance(value, dict)
+            or value.get("version") != 1
+            or value.get("owner_user_id") != user_id
+            or value.get("action_id") != action_id
+        ):
+            raise GmailDeliveryError(
+                "INVALID_ATTACHMENT", "Review the Drive attachment again.", status_code=409
+            )
+        reviewed = _reviewed_attachment(value.get("drive_attachment"))
+        if reviewed is None:
+            raise GmailDeliveryError(
+                "INVALID_ATTACHMENT", "Review the Drive attachment again.", status_code=409
+            )
+        return reviewed
 
     @staticmethod
     def _action_payload(row: dict[str, Any]) -> dict[str, Any]:
@@ -305,6 +520,13 @@ class GmailDeliveryService:
             )
         except GmailDeliveryError:
             raise
+        except ValueError as exc:
+            # The single-turn runtime has already exhausted its safe schema
+            # retry. This is a bad model draft, not a Gmail transport outage.
+            logger.warning("gmail.delivery.draft_failed category=invalid_model_output")
+            raise GmailDeliveryError(
+                "DRAFT_INVALID", "Email drafting returned an invalid draft.", status_code=502
+            ) from exc
         except Exception as exc:
             logger.warning("gmail.delivery.draft_failed error=%s", type(exc).__name__)
             raise GmailDeliveryError(
@@ -327,6 +549,12 @@ class GmailDeliveryService:
         if _is_email_agent_intro_instruction(instruction):
             draft["subject"] = "Meet your Hushh Email Agent"
             draft["body"] = _EMAIL_AGENT_INTRO_BODY
+        if not draft["body"].strip():
+            raise GmailDeliveryError(
+                "DRAFT_INVALID",
+                "Email drafting returned an incomplete draft.",
+                status_code=502,
+            )
         return draft
 
     async def prepare(
@@ -342,7 +570,31 @@ class GmailDeliveryService:
         if not 16 <= len(idempotency_key) <= 256:
             raise GmailDeliveryError("INVALID_IDEMPOTENCY_KEY", "Use a valid confirmation key.")
         await self.gmail_service.assert_send_ready(user_id=user_id)
-        envelope_hmac = self._envelope_hmac(draft, reply_context=reply_context)
+        attachment_ref = _attachment_ref(draft_payload.get("drive_attachment"))
+        attachment = None
+        grant_binding = None
+        source_account_label = None
+        if attachment_ref is not None:
+            (
+                attachment,
+                _content,
+                grant_binding,
+                source_account_label,
+            ) = await self._resolve_attachment(
+                user_id=user_id,
+                file_id=attachment_ref[0],
+                revision=attachment_ref[1],
+                sha256=attachment_ref[2],
+            )
+            del _content
+        envelope_hmac = self._envelope_hmac(
+            draft,
+            reply_context=reply_context,
+            attachment=attachment,
+            owner_user_id=user_id,
+            grant_binding=grant_binding,
+            source_account_label=source_account_label,
+        )
         idempotency_hmac = self._idempotency_hmac(idempotency_key)
         action_id = str(uuid.uuid4())
         expires_at = _utcnow() + timedelta(seconds=_ACTION_TTL_SECONDS)
@@ -375,7 +627,19 @@ class GmailDeliveryService:
                             "This confirmation key belongs to a different draft.",
                             status_code=409,
                         )
-                    return self._action_payload(row)
+                    result = self._action_payload(row)
+                    if attachment and grant_binding and source_account_label:
+                        result["drive_attachment"] = _safe_attachment_descriptor(
+                            attachment, source_account_label
+                        )
+                        result["attachment_token"] = self._seal_attachment(
+                            user_id=user_id,
+                            action_id=_text(row.get("action_id")),
+                            descriptor=attachment,
+                            grant_binding=grant_binding,
+                            source_account_label=source_account_label,
+                        )
+                    return result
                 await conn.execute(
                     """
                     INSERT INTO gmail_owner_send_actions (
@@ -390,13 +654,25 @@ class GmailDeliveryService:
                     draft.recipient_count,
                     expires_at,
                 )
-        return {
+        result: dict[str, Any] = {
             "action_id": action_id,
             "state": "prepared",
             "expires_at": expires_at,
             "sent_at": None,
             "outcome_unknown": False,
         }
+        if attachment is not None:
+            result["drive_attachment"] = _safe_attachment_descriptor(
+                attachment, source_account_label
+            )
+            result["attachment_token"] = self._seal_attachment(
+                user_id=user_id,
+                action_id=action_id,
+                descriptor=attachment,
+                grant_binding=grant_binding,
+                source_account_label=source_account_label,
+            )
+        return result
 
     async def execute(
         self,
@@ -410,8 +686,70 @@ class GmailDeliveryService:
         action_id = _text(action_id)
         if not action_id:
             raise GmailDeliveryError("MISSING_ACTION", "Choose the prepared email confirmation.")
-        envelope_hmac = self._envelope_hmac(draft, reply_context=reply_context)
+        attachment_token = draft_payload.get("attachment_token")
+        reviewed = (
+            self._open_attachment(attachment_token, user_id=user_id, action_id=action_id)
+            if attachment_token is not None
+            else None
+        )
+        attachment, grant_binding, source_account_label = (
+            reviewed if reviewed else (None, None, None)
+        )
+        envelope_hmac = self._envelope_hmac(
+            draft,
+            reply_context=reply_context,
+            attachment=attachment,
+            owner_user_id=user_id,
+            grant_binding=grant_binding,
+            source_account_label=source_account_label,
+        )
         pool = await get_pool()
+        resolved_attachment: tuple[DriveBlobDescriptor, bytes, str, str] | None = None
+        if attachment is not None:
+            # Check the action before reading a private blob. Sent retries keep
+            # their existing idempotent result even if Drive was disconnected.
+            async with pool.acquire() as conn:
+                initial = await conn.fetchrow(
+                    """SELECT action_id, state, expires_at, sent_at, envelope_hmac
+                       FROM gmail_owner_send_actions WHERE action_id = $1 AND user_id = $2""",
+                    action_id,
+                    user_id,
+                )
+            if initial is None:
+                raise GmailDeliveryError(
+                    "ACTION_NOT_FOUND", "That email confirmation is unavailable.", status_code=404
+                )
+            initial_row = dict(initial)
+            if not hmac.compare_digest(_text(initial_row.get("envelope_hmac")), envelope_hmac):
+                raise GmailDeliveryError(
+                    "DRAFT_CHANGED",
+                    "The draft changed. Review it again before sending.",
+                    status_code=409,
+                )
+            if _text(initial_row.get("state")) == "sent":
+                return self._action_payload(initial_row)
+            if _text(initial_row.get("state")) != "prepared":
+                raise GmailDeliveryError(
+                    "ACTION_NOT_SENDABLE",
+                    "This email confirmation can no longer be sent.",
+                    status_code=409,
+                )
+            resolved_attachment = await self._resolve_attachment(
+                user_id=user_id,
+                file_id=attachment.file_id,
+                revision=attachment.revision,
+                sha256=attachment.sha256,
+            )
+            if (
+                resolved_attachment[0] != attachment
+                or not hmac.compare_digest(resolved_attachment[2], grant_binding or "")
+                or resolved_attachment[3] != source_account_label
+            ):
+                raise GmailDeliveryError(
+                    "DRIVE_ATTACHMENT_CHANGED",
+                    "The Drive attachment changed. Review it again before sending.",
+                    status_code=409,
+                )
         async with pool.acquire() as conn:
             async with conn.transaction():
                 await conn.execute(
@@ -479,7 +817,11 @@ class GmailDeliveryService:
         try:
             access_token = await self.gmail_service.get_send_access_token(user_id=user_id)
             raw = base64.urlsafe_b64encode(
-                _message_for(draft, reply_context=reply_context).as_bytes()
+                _message_for(
+                    draft,
+                    reply_context=reply_context,
+                    attachment=resolved_attachment[:2] if resolved_attachment else None,
+                ).as_bytes()
             ).decode("ascii")
             send_payload: dict[str, str] = {"raw": raw}
             if reply_context:

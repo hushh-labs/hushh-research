@@ -196,6 +196,39 @@ async def test_build_status_prefers_known_summary_versions_when_present():
 
 
 @pytest.mark.asyncio
+async def test_build_status_reuses_metadata_manifest_headers():
+    service = PkmUpgradeService()
+    service._pkm_service = _FakePkmService()
+
+    async def _unexpected_manifest_read(_user_id: str, _domain: str):
+        raise AssertionError("metadata headers should avoid per-domain manifest reads")
+
+    async def _no_runs(_user_id: str):
+        return None
+
+    service._pkm_service.get_domain_manifest = _unexpected_manifest_read
+    service._get_latest_run = _no_runs  # type: ignore[method-assign]
+
+    status = await service.build_status(
+        "user_123",
+        index=service._pkm_service._index,
+        manifest_headers=[
+            {
+                "domain": "financial",
+                "path_count": 1,
+                "domain_contract_version": current_domain_contract_version("financial"),
+                "readable_summary_version": CURRENT_READABLE_SUMMARY_VERSION,
+                "pkm_contract_version": CURRENT_PKM_CONTRACT_VERSION,
+                "readable_projection_version": CURRENT_READABLE_PROJECTION_VERSION,
+            }
+        ],
+    )
+
+    assert status["upgrade_status"] == "current"
+    assert status["upgradable_domains"] == []
+
+
+@pytest.mark.asyncio
 async def test_build_status_prefers_manifest_versions_over_stale_summary_versions():
     service = PkmUpgradeService()
     service._pkm_service = _FakePkmService(

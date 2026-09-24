@@ -77,6 +77,7 @@ def build_single_turn_agent(
             model_name,
             response_mime_type="application/json",
             automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+            max_output_tokens=manifest_or_subagent.performance.max_output_tokens,
             thinking_config=thinking_config_for(model_name, config.thinking_level, types),
         ),
     )

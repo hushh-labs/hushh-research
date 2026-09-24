@@ -577,6 +577,36 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
     // runs on every scroll frame.
     let lastWrittenProgress: string | null = null;
     let lastWrittenCollapsePx: string | null = null;
+    // Per-frame writes go to the elements that read the collapse (the top
+    // shell, the top mask, registered sticky headers), never to <html>: a
+    // custom-property write on the root recomputes style for the whole
+    // document on every scroll frame. <html> receives the settled value once
+    // the scroll has been quiet for a beat, for anything unregistered
+    // (anchor scroll margins, desktop rails).
+    let consumers: HTMLElement[] = [];
+    let rootWriteTimer = 0;
+    const ROOT_SETTLE_MS = 160;
+    const collectConsumers = () => {
+      consumers = Array.from(
+        document.querySelectorAll<HTMLElement>(
+          '[data-testid="app-top-shell-layout"], .ambient-chrome-mask--top, [data-top-chrome-collapse-consumer]',
+        ),
+      );
+    };
+    const writeCollapse = (target: HTMLElement | CSSStyleDeclaration, progress: string, collapsePx: string) => {
+      const style = target instanceof HTMLElement ? target.style : target;
+      style.setProperty("--top-chrome-progress", progress);
+      style.setProperty("--top-chrome-collapse-px", collapsePx);
+    };
+    const scheduleRootWrite = () => {
+      window.clearTimeout(rootWriteTimer);
+      rootWriteTimer = window.setTimeout(() => {
+        rootWriteTimer = 0;
+        if (lastWrittenProgress !== null && lastWrittenCollapsePx !== null) {
+          writeCollapse(document.documentElement, lastWrittenProgress, lastWrittenCollapsePx);
+        }
+      }, ROOT_SETTLE_MS);
+    };
     // Routes with no primary page header (e.g. an immersive full-bleed
     // layout) never satisfy this query, so retrying must stop eventually.
     // 10 tries (~1.5s) is generous for a late-mounting header while still
@@ -618,23 +648,27 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
           '[data-testid="top-app-bar-row"]',
         );
       }
+      // Every layout read happens before any write, so a scroll event never
+      // forces a synchronous layout of its own.
       const rowHeight = barRow?.getBoundingClientRect().height ?? 0;
-      const root = document.documentElement;
+      const outOfView = isPrimaryHeaderOutOfView(header);
       const nextProgress = String(topChromeProgress);
-      if (nextProgress !== lastWrittenProgress) {
-        lastWrittenProgress = nextProgress;
-        root.style.setProperty("--top-chrome-progress", nextProgress);
-      }
       const nextCollapsePx = `${Math.max(0, rowHeight * topChromeProgress)}px`;
-      if (nextCollapsePx !== lastWrittenCollapsePx) {
+      if (nextProgress !== lastWrittenProgress || nextCollapsePx !== lastWrittenCollapsePx) {
+        lastWrittenProgress = nextProgress;
         lastWrittenCollapsePx = nextCollapsePx;
-        root.style.setProperty("--top-chrome-collapse-px", nextCollapsePx);
+        if (consumers.length === 0 || consumers.some((element) => !element.isConnected)) {
+          collectConsumers();
+        }
+        for (const element of consumers) {
+          writeCollapse(element, nextProgress, nextCollapsePx);
+        }
+        scheduleRootWrite();
       }
       const fullyCollapsed = topChromeProgress >= 0.999;
       setTopChromeFullyCollapsed((current) =>
         current === fullyCollapsed ? current : fullyCollapsed,
       );
-      const outOfView = isPrimaryHeaderOutOfView(header);
       setPrimaryHeaderOutOfView((current) =>
         current === outOfView ? current : outOfView,
       );
@@ -651,6 +685,13 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
       header = document.querySelector<HTMLElement>(
         '[data-slot="page-header"][data-page-primary="true"]',
       );
+      collectConsumers();
+      // A newly registered consumer must receive the current value at once.
+      if (lastWrittenProgress !== null && lastWrittenCollapsePx !== null) {
+        for (const element of consumers) {
+          writeCollapse(element, lastWrittenProgress, lastWrittenCollapsePx);
+        }
+      }
       updateHeaderVisibility();
     };
 
@@ -709,6 +750,12 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
           return;
         }
         lastMutationCheckAt = now;
+        collectConsumers();
+        if (lastWrittenProgress !== null && lastWrittenCollapsePx !== null) {
+          for (const element of consumers) {
+            writeCollapse(element, lastWrittenProgress, lastWrittenCollapsePx);
+          }
+        }
         updateHeaderVisibility();
       });
     };
@@ -773,11 +820,11 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
         window.cancelAnimationFrame(refreshFrame);
       }
       window.clearTimeout(retryTimer);
-      document.documentElement.style.setProperty("--top-chrome-progress", "0");
-      document.documentElement.style.setProperty(
-        "--top-chrome-collapse-px",
-        "0px",
-      );
+      window.clearTimeout(rootWriteTimer);
+      for (const element of consumers) {
+        if (element.isConnected) writeCollapse(element, "0", "0px");
+      }
+      writeCollapse(document.documentElement, "0", "0px");
     };
   }, []);
 
@@ -1039,7 +1086,12 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                   }}
                 >
                   {topShellBreadcrumb && !topShellBreadcrumb.hideBack ? (
-                    <div className="pointer-events-auto flex h-11 w-11 items-center justify-center">
+                    // The arrow's glyph sits on the content column (16 px),
+                    // where the page title and every card below start; the
+                    // 44 px target reaches toward the screen edge. Centred in
+                    // its box it read 30 px in, while the avatar opposite
+                    // sits at 16 (Galaxy S24 Ultra, 2026-09-22).
+                    <div className="pointer-events-auto -ml-3.5 flex h-11 w-11 items-center justify-center">
                       <ShellActionSurface
                         variant="icon"
                         aria-label={topShellBreadcrumb.backLabel ?? "Go back"}
@@ -1309,7 +1361,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
 function OnboardingRouteActions() {
   const router = useRouter();
   const { user, signOut } = useAuth();
-  const { vaultOwnerToken } = useVault();
+  const { vaultKey, vaultOwnerToken } = useVault();
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [vaultUnlockOpen, setVaultUnlockOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -1368,6 +1420,7 @@ function OnboardingRouteActions() {
             userId: user.uid,
             vaultOwnerToken: resolution.token,
             sessionUser: user,
+            vaultKey,
           }),
           {
             loading: "Deleting your account...",

@@ -84,6 +84,8 @@ import {
 } from "@/lib/navigation/connect-routes";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { CACHE_KEYS, CACHE_TTL, CacheService } from "@/lib/services/cache-service";
+import { Skeleton } from "@/components/ui/skeleton";
 import { subscribeToConnectionGraphChanges } from "@/lib/connections/connection-graph-events";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { Button } from "@/lib/morphy-ux/button";
@@ -100,6 +102,7 @@ import {
 } from "@/lib/services/connections-service";
 import { relationshipCta } from "@/lib/connections/relationship-label";
 import { TOP_SHELL_TAB_REGISTRY } from "@/lib/navigation/top-shell-tabs";
+import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 import {
   VOICE_CONFIRM_DATA_KEY,
   VOICE_DISAMBIGUATION_DATA_KEY,
@@ -505,6 +508,16 @@ export default function ConnectPageClient() {
   const surface: ConnectSurface = readConnectSurface(
     searchParams.get(CONNECT_SURFACE_PARAM),
   );
+  // A settled swipe between Connections and Circles commits the same route
+  // the tab pill pushes, so swiping and tapping stay one navigation.
+  const commitSurface = useCallback(
+    (value: string) => {
+      if (value === surface) return;
+      const target = CONNECT_SURFACE_TAB_DEFINITION.tabs.find((tab) => tab.value === value);
+      if (target) router.push(target.href, { scroll: false });
+    },
+    [router, surface],
+  );
   /** Which Circle flow, if any, the URL is asking for. Part of the scroll key
    *  below, because opening one is a new screen even though the path is not. */
   const circleFlowAction = readConnectCircleAction(
@@ -575,10 +588,36 @@ export default function ConnectPageClient() {
   const debouncedQuery = useDebouncedValue(query, 300);
 
   const [people, setPeople] = useState<DirectoryPerson[]>([]);
-  const [connections, setConnections] = useState<ConnectionSummaryEntry[]>([]);
-  const [connectionsPage, setConnectionsPage] = useState(1);
-  const [connectionsHasMore, setConnectionsHasMore] = useState(false);
-  const [connectionsTotalCount, setConnectionsTotalCount] = useState(0);
+  // The last first page this session saw, painted on the first render and
+  // replaced by the refresh below. Until either exists the list is unknown,
+  // not empty: it opened on "My connections (0) · No connections yet" and
+  // then jumped when nine connections landed (Galaxy S24 Ultra, 2026-09-22).
+  const [initialFirstPage] = useState<ConnectionPage | null>(() =>
+    user?.uid
+      ? CacheService.getInstance().get<ConnectionPage>(
+          CACHE_KEYS.CONNECTIONS_FIRST_PAGE(user.uid, "all"),
+        )
+      : null,
+  );
+  const [connections, setConnections] = useState<ConnectionSummaryEntry[]>(
+    () => initialFirstPage?.items ?? [],
+  );
+  const [connectionsPage, setConnectionsPage] = useState(
+    () => initialFirstPage?.page ?? 1,
+  );
+  const [connectionsHasMore, setConnectionsHasMore] = useState(
+    () => initialFirstPage?.hasMore ?? false,
+  );
+  const [connectionsTotalCount, setConnectionsTotalCount] = useState(
+    () => initialFirstPage?.totalCount ?? 0,
+  );
+  const [connectionsLoaded, setConnectionsLoaded] = useState(
+    () => initialFirstPage !== null,
+  );
+  // Whose rows are on screen, as "uid:audience"; null when there are none.
+  const connectionsListOwnerRef = useRef<string | null>(
+    initialFirstPage && user?.uid ? `${user.uid}:all` : null,
+  );
   // Open by default: My connections is the first thing a person opens
   // Connect to see, and a collapsed panel hid the list (and its only retry
   // affordance on refresh failure) behind one more tap.
@@ -788,7 +827,11 @@ export default function ConnectPageClient() {
         setConnectionsTotalCount(0);
         setConnectionsPage(1);
         setConnectionsHasMore(false);
+        setConnectionsLoaded(false);
       }
+      const cacheKey = user?.uid
+        ? CACHE_KEYS.CONNECTIONS_FIRST_PAGE(user.uid, audience)
+        : null;
 
       try {
         const result = await loadConnectionsPage(1, audience);
@@ -800,7 +843,12 @@ export default function ConnectPageClient() {
           setConnectionsPage(result.page);
           setConnectionsHasMore(result.hasMore);
           setConnectionsTotalCount(result.totalCount);
+          if (cacheKey) {
+            CacheService.getInstance().set(cacheKey, result, CACHE_TTL.MEDIUM);
+          }
         } else if (removedConnection) {
+          // The cached page still holds the removed row.
+          if (cacheKey) CacheService.getInstance().invalidate(cacheKey);
           // Do not keep a page-2 cursor over a shifted server list: the next
           // offset would skip the row that moved across the boundary. This
           // fallback is generation-guarded above, so a superseded removal read
@@ -820,10 +868,12 @@ export default function ConnectPageClient() {
         if (connectionsFirstPageRequestRef.current === requestId) {
           connectionsFirstPageRequestRef.current = null;
           setConnectionsRefreshingFirstPage(false);
+          // Answered, even if the answer was an error: the retry row shows.
+          setConnectionsLoaded(true);
         }
       }
     },
-    [loadConnectionsPage],
+    [loadConnectionsPage, user?.uid],
   );
 
   const reconcileConnectionSurfaces = useCallback(
@@ -903,14 +953,20 @@ export default function ConnectPageClient() {
     // Audience is part of the server-side truth for this list. Clear the
     // previous audience before loading so a failed RIAs request cannot leave
     // ordinary People rows displayed under the RIAs heading (or vice versa).
+    // Only when the rows on screen belong to someone or something else: the
+    // first run would otherwise wipe this person's cached page for the same
+    // audience, which is exactly what the seed is for.
+    const listOwner = `${user?.uid ?? ""}:${connectionAudience}`;
+    const clearBeforeLoad = connectionsListOwnerRef.current !== listOwner;
+    connectionsListOwnerRef.current = listOwner;
     void refreshConnectionsFirstPage({
       audience: connectionAudience,
-      clearBeforeLoad: true,
+      clearBeforeLoad,
     });
     return () => {
       connectionsRequestRef.current += 1;
     };
-  }, [connectionAudience, refreshConnectionsFirstPage]);
+  }, [connectionAudience, refreshConnectionsFirstPage, user?.uid]);
 
   useEffect(() => {
     void loadOutgoingRequestIds();
@@ -1011,9 +1067,11 @@ export default function ConnectPageClient() {
   // the same mistake as asking for page 3 of a query they just retyped.
   const directoryAudience = CONNECT_TAB_AUDIENCE[tab];
   const isAdvisorTab = tab === "advisors";
-  const connectionsHeading = isAdvisorTab
-    ? `My RIAs (${connectionsTotalCount})`
-    : `My connections (${connectionsTotalCount})`;
+  // No count until the list has answered: "(0)" is a claim, not a placeholder.
+  const connectionsHeadingLabel = isAdvisorTab ? "My RIAs" : "My connections";
+  const connectionsHeading = connectionsLoaded
+    ? `${connectionsHeadingLabel} (${connectionsTotalCount})`
+    : connectionsHeadingLabel;
   const handleRefreshConnections = useCallback(() => {
     if (connectionsRefreshingFirstPage) return;
     void refreshConnectionsFirstPage({ audience: connectionAudience });
@@ -2806,6 +2864,7 @@ export default function ConnectPageClient() {
                   <div
                     ref={stickyHeaderRef}
                     data-testid="connect-sticky-header"
+                    data-top-chrome-collapse-consumer=""
                     className={CONNECT_STICKY_HEADER_CLASSNAME}
                   >
                     <TopShellTabs
@@ -2817,18 +2876,19 @@ export default function ConnectPageClient() {
                     />
                   </div>
 
-                  {surface === "circles" ? (
-                    <ConnectCirclesTab
-                      onStateChange={setCirclesState}
-                      currentUserId={user?.uid ?? null}
-                      // The roster's Connect opens the SAME capability review the
-                      // directory opens, rather than sending outright.
-                      onRequestConnection={sendConnectRequest}
-                      onCancelConnectionRequest={cancelConnectionRequest}
-                      refreshToken={circleRefreshToken}
-                    />
-                  ) : (
-                    <>
+                  {/* Both surfaces live in one pager so the tab strip above is
+                      swipeable, the way Finance and Consent are; a swipe commits the
+                      same route the tab pill pushes. */}
+                  <SwipeViews
+                    tabSetId={CONNECT_SURFACE_TAB_DEFINITION.id}
+                    activeValue={surface}
+                    options={CONNECT_SURFACE_TAB_DEFINITION.tabs}
+                    onSelectionCommit={commitSurface}
+                    panelInset="none"
+                    viewportMinHeight="fill"
+                    heightMode="active"
+                  >
+                    <div data-connect-surface="all">
                       {tab === "nearby" ? (
                         <div className="space-y-3">
                           <div className="px-1">{directorySelector}</div>
@@ -2917,7 +2977,19 @@ export default function ConnectPageClient() {
                                 density="compact"
                               />
                             )}
-                            {sortedConnections.length === 0 ? (
+                            {sortedConnections.length === 0 && !connectionsLoaded ? (
+                              // The list's resting shape while its first page
+                              // is on the way: same rows, same height, no claim.
+                              Array.from({ length: 4 }, (_, index) => (
+                                <SettingsRow
+                                  key={`connection-placeholder-${index}`}
+                                  layout="person"
+                                  leading={<Skeleton className="h-10 w-10 rounded-full" />}
+                                  title={<Skeleton className="h-4 w-32 rounded" />}
+                                  disabled
+                                />
+                              ))
+                            ) : sortedConnections.length === 0 ? (
                               <SettingsRow
                                 // No description. "Connections appear here." explained what
                                 // an empty list already showed, and the obvious replacement
@@ -3163,6 +3235,7 @@ export default function ConnectPageClient() {
                     Held by e2e/connect-sticky-header.layout.spec.ts. */
                                 <div
                                   data-testid="connect-search-row"
+                                  data-top-chrome-collapse-consumer=""
                                   className={cn(
                                     CONNECT_STICKY_SEARCH_CLASSNAME,
                                     "block",
@@ -3610,8 +3683,19 @@ export default function ConnectPageClient() {
                           </div>
                         </div>
                       )}
-                    </>
-                  )}
+                    </div>
+                    <div data-connect-surface="circles">
+                    <ConnectCirclesTab
+                      onStateChange={setCirclesState}
+                      currentUserId={user?.uid ?? null}
+                      // The roster's Connect opens the SAME capability review the
+                      // directory opens, rather than sending outright.
+                      onRequestConnection={sendConnectRequest}
+                      onCancelConnectionRequest={cancelConnectionRequest}
+                      refreshToken={circleRefreshToken}
+                    />
+                    </div>
+                  </SwipeViews>
                 </div>
               </SurfaceStack>
             </AppPageContentRegion>

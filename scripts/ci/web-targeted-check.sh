@@ -69,6 +69,18 @@ if has_match '^hushh-webapp/(components/(consent/|profile/)|lib/(consent/|pkm/|p
   ran=1
 fi
 
+if has_match '^hushh-webapp/(components/consent/|lib/(consent/document-share-consent|services/drive-sharing-service|feed/use-feed-actionables)\.ts|e2e/(document-share-review\.layout\.spec\.ts|fixtures/document-share-)|__tests__/.*(document-share|drive-sharing|consent-center-page-deeplink))'; then
+  run_check "Drive exact-file review boundary" npm run test:drive-sharing-web
+  run_check "Drive mounted review layout" npm run test:drive-sharing-layout
+  ran=1
+fi
+
+if has_match '^hushh-webapp/(components/agent/(agent-connections-drawer|connectors-panel|agent-chat-workspace|agent-history-sidebar|connector-read-receipt|agent-structured-experience|agent-turn-stream-panel)\.tsx|components/agent/__tests__/agent-(chat-selection|turn-stream-panel)\.test\.tsx|lib/(profile/drive-oauth-popup|agent/(connector-read-receipt|agui-structured-experiences)|services/(external-connector-service|google-drive-picker-service|agent-chat-client))\.ts|app/one/(one-auth-gate\.tsx|profile/connectors/)|e2e/(connections-drawer\.layout\.spec\.ts|fixtures/connections-)|__tests__/.*(connections-panel|one-auth-gate|drive-popup|drive-oauth|google-drive-picker|connector-read-receipt|agent-chat-client))'; then
+  run_check "Connections web boundary" npm run test:connections-web
+  run_check "Connections mounted browser layout" npm run test:connections-layout
+  ran=1
+fi
+
 if has_match '^hushh-webapp/(lib/voice/|lib/one-voice/|components/one-voice/|components/agent/|components/one-location/onboarding/(location-command-device-bridge|location-onboarding-interaction-surface)\.tsx|lib/services/(gemini-live-client|one-location-onboarding-device-orchestrator|one-location-onboarding-run-client)\.ts|scripts/voice/|e2e/one-voice-panel\.layout\.spec\.ts|__tests__/.*(voice|agent)|app/api/(kai|one)/.*(voice|realtime)|\.voice-action-contract\.json)'; then
   run_check "voice gateway" npm run verify:voice-gateway
   run_check "One Voice runtime evaluations" npm run verify:one-voice
@@ -289,7 +301,7 @@ fi
 # globals.css changes -- which is what those specs are pinned to. The browsers
 # are installed in the workflow step, not here, so a local run of this script
 # uses whatever is already on the machine.
-if has_match '^hushh-webapp/(e2e/.*\.layout\.spec\.ts|playwright\.config\.ts|app/globals\.css|components/app-ui/|components/one-location/|components/feed/|components/connect/)'; then
+if has_match '^hushh-webapp/(e2e/(.*\.layout\.spec\.ts|fixtures/one-location-people-rows\.html)|scripts/testing/capture-one-location-people-fixture\.mjs|playwright\.config\.ts|app/globals\.css|components/app-ui/|components/one-location/|components/feed/|components/connect/)'; then
   run_check "layout contracts" npm run test:layout-contracts
   ran=1
 fi

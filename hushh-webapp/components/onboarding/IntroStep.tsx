@@ -113,9 +113,8 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
               aria-label="Claim your One"
               className={styles.cta}
             >
-              <span className={`relative z-0 inline-flex items-center gap-2 ${styles.ctaLabel}`}>
+              <span className={`relative z-0 inline-flex items-center justify-center ${styles.ctaLabel}`}>
                 Create your One
-                <span aria-hidden className={styles.ctaArrow}>&rarr;</span>
               </span>
               <MaterialRipple variant="gradient" effect="fill" className="z-10" />
             </button>

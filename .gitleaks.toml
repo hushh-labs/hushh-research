@@ -40,4 +40,8 @@ regexes = [
   '''^ECDH-P256-AES256-GCM$''',
   # HCT golden-vector deterministic test key; never used in production.
   '''golden_vector_signing_key_for_hct_parity_only_32\+''',
+  # Public financial subdomain identifiers, not credentials. The generic-key
+  # heuristic matched these exact `domain_key=` declarations in the merged
+  # branch history; do not allowlist the file or arbitrary domain keys.
+  '''^financial\.(holdings|securities|derived)_v1$''',
 ]

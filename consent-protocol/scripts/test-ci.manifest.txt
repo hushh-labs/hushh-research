@@ -1,6 +1,46 @@
 # Fundamental blocking backend tests for CI.
 # Keep this list small and stable. Full historical suites remain manual.
 
+# Mail/Drive connector lifecycle: real PostgreSQL in the existing test-only CI service.
+tests/services/test_external_connector_lifecycle_postgres.py
+tests/services/test_external_connector_credentials_service.py
+tests/services/test_external_connector_google_oauth.py
+tests/test_drive_uat_registry_provisioning.py
+tests/services/test_google_drive_adapter.py
+tests/services/test_drive_document_selection.py
+tests/services/test_drive_ingestion.py
+tests/services/test_drive_document_processor.py
+tests/services/test_drive_document_retrieval.py
+tests/services/test_drive_document_worker.py
+# Native selected-file staging, the privacy-only notification outbox, and the
+# bounded Scheduler coordinator each rely on real PostgreSQL leases.  Keep
+# these in the blocking manifest: collection-only coverage cannot catch a
+# migration, callback replay, or concurrent claim regression.
+tests/services/test_drive_native_picker.py
+tests/services/test_drive_share_notification_worker.py
+tests/services/test_drive_work_drain.py
+tests/services/test_connector_attempt_retention.py
+tests/test_drive_work_drain_routes.py
+tests/test_drive_work_drain_scheduler_contract.py
+tests/test_drive_worker_server.py
+tests/services/test_google_drive_permission_adapter.py
+tests/services/test_drive_sharing_contract.py
+tests/services/test_document_review_authority_postgres.py
+tests/services/test_drive_sharing_store.py
+tests/services/test_drive_permission_executor.py
+tests/services/test_drive_revocation_executor.py
+tests/test_documents_agent_a2a.py
+tests/services/test_connector_feature_admission.py
+tests/test_external_connector_oauth_routes.py
+tests/services/test_gmail_metadata_reader.py
+tests/services/test_email_delegated_read.py
+tests/test_email_agent_a2a.py
+tests/test_adk_specialist_chat_services.py
+tests/test_one_external_read_boundary.py
+tests/test_one_external_read_projection.py
+tests/test_private_agent_telemetry.py
+tests/test_mcp_log_redaction.py
+
 tests/quality/test_byok_encryption.py
 tests/test_developer_api_routes.py
 tests/test_encrypted_blob_bounds.py
@@ -9,6 +49,7 @@ tests/test_data_model_audit_postgres.py
 tests/services/test_gmail_cache_retention.py
 tests/services/test_consent_request_lock.py
 tests/test_scoped_export_download.py
+tests/test_financial_raw_records_not_shareable.py
 tests/test_partner_developer_apps.py
 tests/test_hushh_tech_client_migration.py
 tests/test_hushh_tech_synthetic_import.py
@@ -31,6 +72,10 @@ tests/test_kai_consent_grant_dynamic_scopes.py
 tests/test_kai_analyze_run_store.py
 tests/test_kai_analyze_durable_run_store_deploy_parity.py
 tests/services/test_pkm_service_store_domain_data.py
+tests/test_pkm_served_route_bounds.py
+tests/test_pkm_routes_path_bounds.py
+tests/test_pkm_shared_path_bounds_cwe400.py
+tests/test_pkm_upgrade_run_id_path_bounds.py
 tests/test_pkm_upgrade_routes.py
 tests/test_pkm_upgrade_service.py
 tests/test_vault_keys_metadata.py
@@ -248,6 +293,7 @@ tests/test_location_command_routes.py
 tests/test_location_command_workflow.py
 tests/test_one_location_named_circle_routes.py
 tests/test_location_requested_workflow_authority.py
+tests/test_pkm_connected_source_sync_receipt.py
 tests/test_location_workflow_compatibility.py
 tests/services/test_location_command_postgres.py
 tests/services/test_location_command_finalize_postgres.py
@@ -350,3 +396,5 @@ tests/one_voice/test_tools_account_lifecycle.py
 tests/one_voice/test_relay_account_lifecycle.py
 tests/one_voice/test_tools_onboarding.py
 tests/one_voice/test_one_voice_postgres.py
+tests/test_plaid_vault_routes.py
+tests/test_plaid_server_custody_retire.py

@@ -30,7 +30,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Textarea } from "@/components/ui/textarea";
+import { InformationRequestReviewFields } from "@/components/consent/information-request-review-fields";
+import { DocumentRequestButton } from "@/components/consent/document-request-button";
+import { usePersonInformationRequest } from "@/lib/consent/use-person-information-request";
+import { projectGrantPayload } from "@/lib/consent/project-grant-payload";
+import { isCurrentPersonExport } from "@/lib/consent/person-export-binding";
+import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
+import { FCM_MESSAGE_EVENT } from "@/lib/notifications";
 import {
   SectionCard,
   StatusPill,
@@ -40,11 +46,15 @@ import { ConsentScopeNestedList } from "@/components/consent/consent-scope-neste
 import { DecryptedGrantCard } from "@/components/connections/decrypted-grant-card";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { scopeItemsFromRequestable } from "@/lib/consent/consent-scope-items";
+import { selectedRequestScopes, toggleRequestScopes } from "@/lib/consent/request-scope-selection";
 import {
   PersonProfileService,
+  mergePersonScopePage,
   type PublicPersonProfile,
   type ViewerPersonProfile,
   type InformationRequestBundle,
+  type PersonInformationRequestHistory,
+  type PersonRequestHistoryPage,
 } from "@/lib/services/person-profile-service";
 import {
   resolvePersonRefFromProfilePathname,
@@ -52,7 +62,6 @@ import {
 } from "@/lib/navigation/routes";
 import {
   DEFAULT_REQUEST_DURATION_HOURS,
-  REQUEST_DURATION_OPTIONS,
   requestDurationLabel,
 } from "@/lib/agent/action-directive-summary";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
@@ -60,8 +69,21 @@ import { oneLocationErrorMessage } from "@/lib/one-location/error-message";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { VOICE_CONFIRM_DATA_KEY } from "@/lib/voice/voice-action-card";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { shouldSkipReviewerBackgroundWritesForAutomation } from "@/lib/testing/native-test";
 
 type Props = { personRef: string; initialProfile: PublicPersonProfile | null };
+
+const GRANT_DECRYPT_STEP_TIMEOUT_MS = 30_000;
+
+function withGrantDecryptTimeout<T>(operation: Promise<T>, message: string): Promise<T> {
+  let timeoutId: number | null = null;
+  const timeout = new Promise<T>((_, reject) => {
+    timeoutId = window.setTimeout(() => reject(new Error(message)), GRANT_DECRYPT_STEP_TIMEOUT_MS);
+  });
+  return Promise.race([operation, timeout]).finally(() => {
+    if (timeoutId !== null) window.clearTimeout(timeoutId);
+  });
+}
 
 export function PersonProfilePage({ personRef, initialProfile }: Props) {
   const router = useRouter();
@@ -81,19 +103,67 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
   const profile =
     profileState.personRef === resolvedPersonRef ? profileState.profile : null;
   const [publicProfileUnavailable, setPublicProfileUnavailable] = useState(false);
+  const [viewerLoadError, setViewerLoadError] = useState<{
+    personRef: string; viewerUid: string;
+  } | null>(null);
+  const viewerUnavailable = viewerLoadError?.personRef === resolvedPersonRef
+    && viewerLoadError.viewerUid === user?.uid;
   const [viewerProfileState, setViewerProfileState] = useState<{
     personRef: string;
+    viewerUid: string | null;
     profile: ViewerPersonProfile | null;
-  }>({ personRef: resolvedPersonRef, profile: null });
+  }>({ personRef: resolvedPersonRef, viewerUid: user?.uid ?? null, profile: null });
   const viewerProfile =
-    viewerProfileState.personRef === resolvedPersonRef
+    viewerProfileState.personRef === resolvedPersonRef && viewerProfileState.viewerUid === user?.uid
       ? viewerProfileState.profile
       : null;
+  const recentHistoryGroups = useMemo(() => {
+    const groups = new Map<string, { first: PersonInformationRequestHistory; items: PersonInformationRequestHistory[] }>();
+    for (const item of viewerProfile?.requestHistory ?? []) {
+      const key = item.bundleId || item.requestId;
+      const group = groups.get(key);
+      if (group) group.items.push(item);
+      else groups.set(key, { first: item, items: [item] });
+    }
+    return [...groups.entries()].map(([bundleId, group]) => ({ bundleId, ...group }));
+  }, [viewerProfile?.requestHistory]);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyCursors, setHistoryCursors] = useState<Array<string | null>>([null]);
+  const [historyState, setHistoryState] = useState<{
+    personRef: string; viewerUid: string; page: number; result: PersonRequestHistoryPage | null; failed: boolean;
+  } | null>(null);
+  const currentHistory = historyState?.personRef === resolvedPersonRef
+    && historyState.viewerUid === user?.uid && historyState.page === historyPage ? historyState : null;
+  const historyGroups = currentHistory?.result?.bundles.map((summary) => {
+    const recent = recentHistoryGroups.find((group) => group.bundleId === summary.bundleId);
+    return {
+      bundleId: summary.bundleId,
+      first: recent?.first ?? null,
+      items: recent?.items ?? [],
+      itemCount: summary.itemCount,
+      purpose: summary.purpose,
+      createdAt: summary.createdAt,
+    };
+  }) ?? recentHistoryGroups.slice((historyPage - 1) * 8, historyPage * 8).map((group) => ({
+    ...group,
+    itemCount: group.items.length,
+    purpose: group.first.purpose,
+    createdAt: group.first.createdAt,
+  }));
+  const visibleHistoryGroups = historyGroups;
+  const visibleHistoryPage = historyPage;
+  const historyPageCount = Math.max(1, Math.ceil(recentHistoryGroups.length / 8));
   const [selectedScopeRefs, setSelectedScopeRefs] = useState<Set<string>>(new Set());
   const [reviewOpen, setReviewOpen] = useState(false);
   const [purpose, setPurpose] = useState("");
   const [durationHours, setDurationHours] = useState<number>(DEFAULT_REQUEST_DURATION_HOURS);
-  const [bundleDetails, setBundleDetails] = useState<Record<string, InformationRequestBundle>>({});
+  const [bundleDetailsState, setBundleDetailsState] = useState<{
+    personRef: string;
+    viewerUid: string | null;
+    details: Record<string, InformationRequestBundle>;
+  }>({ personRef: resolvedPersonRef, viewerUid: user?.uid ?? null, details: {} });
+  const bundleDetails = bundleDetailsState.personRef === resolvedPersonRef
+    && bundleDetailsState.viewerUid === user?.uid ? bundleDetailsState.details : {};
   const [loadingBundleId, setLoadingBundleId] = useState<string | null>(null);
   const searchParams = useSearchParams();
   // /connect and the agent's discovery card land here with ?request=1: bring
@@ -103,16 +173,31 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
   const availableSectionRef = useRef<HTMLElement | null>(null);
   const sharedSectionRef = useRef<HTMLElement | null>(null);
   const [showUnlockDialog, setShowUnlockDialog] = useState(false);
-  const [requesting, setRequesting] = useState(false);
+  const request = usePersonInformationRequest(resolvedPersonRef);
+  const requesting = request.pending;
+  const requestGeneration = useRef(0);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState(false);
+  const catalogInFlight = useRef(false);
+  useEffect(() => {
+    requestGeneration.current += 1;
+    catalogInFlight.current = false;
+    setCatalogLoading(false);
+    setCatalogError(false);
+    return () => {
+      requestGeneration.current += 1;
+    };
+  }, [resolvedPersonRef, user?.uid, isVaultUnlocked]);
   const [relationshipBusy, setRelationshipBusy] = useState(false);
   const [decryptedByRequest, setDecryptedByRequest] = useState<Record<string, Record<string, unknown>>>({});
+  const [decryptedRevisionByRequest, setDecryptedRevisionByRequest] = useState<Record<string, number | null>>({});
+  const [decryptFailedByRequest, setDecryptFailedByRequest] = useState<Record<string, boolean>>({});
   const [decryptingRequestId, setDecryptingRequestId] = useState<string | null>(null);
   const [cancellingBundleId, setCancellingBundleId] = useState<string | null>(null);
   const [sharedSearchQuery, setSharedSearchQuery] = useState("");
   const [sharedActiveDomain, setSharedActiveDomain] = useState("all");
   const [sharedViewMode, setSharedViewMode] = useState<"cards" | "list">("cards");
   const [expandedRowId, setExpandedRowId] = useState<string | null>(null);
-  const [viewerProfileUnavailable, setViewerProfileUnavailable] = useState(false);
 
   useEffect(() => {
     if (profile) return;
@@ -136,20 +221,50 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
   useEffect(() => {
     if (authLoading || !user) return;
     let active = true;
-    setViewerProfileUnavailable(false);
+    const cursor = historyCursors[historyPage - 1];
+    if (historyPage > 1 && !cursor) return;
+    setHistoryState({ personRef: resolvedPersonRef, viewerUid: user.uid, page: historyPage, result: null, failed: false });
+    void user.getIdToken()
+      .then((idToken) => PersonProfileService.getRequestHistory({
+        personRef: resolvedPersonRef, idToken, cursor: cursor || undefined, limit: 8,
+      }))
+      .then((result) => {
+        if (active) setHistoryState({ personRef: resolvedPersonRef, viewerUid: user.uid, page: historyPage, result, failed: false });
+      })
+      .catch(() => {
+        if (active) setHistoryState({ personRef: resolvedPersonRef, viewerUid: user.uid, page: historyPage, result: null, failed: true });
+      });
+    return () => { active = false; };
+  }, [authLoading, resolvedPersonRef, user, historyPage, historyCursors, viewerReloadToken]);
+  useEffect(() => {
+    if (authLoading || !user) return;
+    requestGeneration.current += 1;
+    catalogInFlight.current = false;
+    setCatalogLoading(false);
+    setCatalogError(false);
+    setSelectedScopeRefs(new Set());
+    setReviewOpen(false);
+    let active = true;
+    setViewerLoadError(null);
     void user
       .getIdToken()
-      .then((token) => PersonProfileService.getViewer(resolvedPersonRef, token))
+      .then((token) => PersonProfileService.getViewer(resolvedPersonRef, token, { page: 1 }))
       .then((value) => {
         if (active) {
           setViewerProfileState({
             personRef: resolvedPersonRef,
+            viewerUid: user.uid,
             profile: value,
           });
         }
       })
       .catch(() => {
-        if (active) setViewerProfileUnavailable(true);
+        if (active) {
+          setViewerLoadError({ personRef: resolvedPersonRef, viewerUid: user.uid });
+          // Do not present an older eligibility catalog as current authority.
+          setViewerProfileState({ personRef: resolvedPersonRef, viewerUid: user.uid, profile: null });
+          setReviewOpen(false);
+        }
       });
     return () => {
       active = false;
@@ -181,14 +296,44 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     setReviewOpen(false);
     setPurpose("");
     setDurationHours(DEFAULT_REQUEST_DURATION_HOURS);
-    setBundleDetails({});
+    setBundleDetailsState({ personRef: resolvedPersonRef, viewerUid: user?.uid ?? null, details: {} });
+    setHistoryPage(1);
+    setHistoryCursors([null]);
+    setHistoryState(null);
     setDecryptedByRequest({});
-    setViewerProfileUnavailable(false);
-  }, [resolvedPersonRef]);
+    setDecryptedRevisionByRequest({});
+    setDecryptFailedByRequest({});
+    setDecryptingRequestId(null);
+  }, [resolvedPersonRef, user?.uid]);
+
+  useEffect(() => {
+    if (!user) return;
+    const refresh = () => {
+      requestGeneration.current += 1;
+      setDecryptedByRequest({});
+      setDecryptedRevisionByRequest({});
+      setViewerProfileState((current) => current.personRef === resolvedPersonRef && current.viewerUid === user.uid
+        ? { ...current, profile: null } : current);
+      setViewerReloadToken((value) => value + 1);
+    };
+    const onPush = (event: Event) => {
+      const detail = (event as CustomEvent<{ data?: { type?: string } }>).detail;
+      if (["consent_resolved", "shared_information_updated"].includes(String(detail?.data?.type || ""))) refresh();
+    };
+    window.addEventListener(CONSENT_STATE_CHANGED_EVENT, refresh);
+    window.addEventListener(FCM_MESSAGE_EVENT, onPush);
+    return () => {
+      window.removeEventListener(CONSENT_STATE_CHANGED_EVENT, refresh);
+      window.removeEventListener(FCM_MESSAGE_EVENT, onPush);
+    };
+  }, [resolvedPersonRef, user]);
 
   useEffect(() => {
     if (isVaultUnlocked) return;
     setDecryptedByRequest({});
+    setDecryptedRevisionByRequest({});
+    setDecryptFailedByRequest({});
+    setDecryptingRequestId(null);
   }, [isVaultUnlocked]);
 
   useEffect(() => {
@@ -212,6 +357,36 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
 
   const allScopes = useMemo(() => viewerProfile?.requestableScopes || [], [viewerProfile]);
 
+  async function loadMoreScopes() {
+    const catalog = viewerProfile?.scopeCatalog;
+    if (!user || !viewerProfile || !catalog?.nextPage || catalogInFlight.current) return;
+    const generation = requestGeneration.current;
+    const current = viewerProfile;
+    catalogInFlight.current = true;
+    setCatalogLoading(true);
+    setCatalogError(false);
+    try {
+      const token = await user.getIdToken();
+      const next = await PersonProfileService.getViewer(resolvedPersonRef, token, {
+        page: catalog.nextPage, revision: catalog.catalogRevision,
+      });
+      if (generation !== requestGeneration.current) return;
+      const merged = mergePersonScopePage(current, next);
+      if (next.scopeCatalog?.paginationReset || next.scopeCatalog?.catalogRevision !== catalog.catalogRevision) {
+        setSelectedScopeRefs(new Set());
+        setReviewOpen(false);
+      }
+      setViewerProfileState({ personRef: resolvedPersonRef, viewerUid: user.uid, profile: merged });
+    } catch {
+      if (generation === requestGeneration.current) setCatalogError(true);
+    } finally {
+      if (generation === requestGeneration.current) {
+        catalogInFlight.current = false;
+        setCatalogLoading(false);
+      }
+    }
+  }
+
   const grantedScopeRefs = useMemo(
     () =>
       new Set(
@@ -230,54 +405,50 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
    * page's own service. Search, grouping and the threshold moved with it, which
    * is why the local copies of all three are gone.
    */
-  const scopeItems = useMemo(() => scopeItemsFromRequestable(allScopes), [allScopes]);
+  const scopeItems = useMemo(
+    () =>
+      scopeItemsFromRequestable(allScopes).map((item) =>
+        grantedScopeRefs.has(item.id) ? { ...item, disabled: true } : item,
+      ),
+    [allScopes, grantedScopeRefs],
+  );
 
   const selectedScopes = useMemo(
     () =>
-      allScopes.filter(
-        (scope) =>
-          scope.scopeRef &&
-          selectedScopeRefs.has(scope.scopeRef) &&
-          !grantedScopeRefs.has(scope.scopeRef),
+      selectedRequestScopes(allScopes, selectedScopeRefs).filter(
+        (scope) => !grantedScopeRefs.has(scope.scopeRef),
       ),
     [allScopes, selectedScopeRefs, grantedScopeRefs],
   );
 
-  const submitRequest = async () => {
-    if (!user || !vaultKey || !vaultOwnerToken || !isVaultUnlocked) {
-      toast.error("Unlock your vault before requesting information.");
-      return;
+  const openRequestReview = () => {
+    if (!selectedScopes.length) {
+      toast.error("Choose at least one thing before reviewing the request.");
+      return false;
     }
-    if (!selectedScopes.length || purpose.trim().length < 8) return;
-    setRequesting(true);
-    try {
-      const connector = await OneKycClientZkService.ensureConnector({
-        userId: user.uid,
-        vaultKey,
-        vaultOwnerToken,
-      });
-      await PersonProfileService.createInformationRequest({
-        personRef: resolvedPersonRef,
-        scopeRefs: selectedScopes.map((scope) => scope.scopeRef),
-        purpose: purpose.trim(),
-        durationSeconds: durationHours * 3600,
-        connectorKeyId: connector.connector_key_id,
-        idempotencyKey: crypto.randomUUID(),
-        vaultOwnerToken,
-      });
+    if (!isVaultUnlocked) {
+      toast.error("Unlock your vault before requesting information.");
+      return false;
+    }
+    if (!request.available) {
+      toast.error("Your vault is still getting ready. Try again in a moment.");
+      return false;
+    }
+    setReviewOpen(true);
+    return true;
+  };
+
+  const submitRequest = async () => {
+    const sent = await request.submit({ scopeRefs: selectedScopes.map(scope => scope.scopeRef), purpose, durationHours });
+    if (sent) {
       setReviewOpen(false);
       setSelectedScopeRefs(new Set());
       setPurpose("");
-      const idToken = await user.getIdToken();
-      setViewerProfileState({
-        personRef: resolvedPersonRef,
-        profile: await PersonProfileService.getViewer(resolvedPersonRef, idToken),
-      });
       toast.success("Request sent for review");
-    } catch (reason) {
-      toast.error(oneLocationErrorMessage(reason, "Request could not be sent. Try again."));
-    } finally {
-      setRequesting(false);
+      // Refresh failure must not misreport a successful write or invite a duplicate.
+      setHistoryPage(1);
+      setHistoryCursors([null]);
+      setViewerReloadToken((value) => value + 1);
     }
   };
 
@@ -286,7 +457,17 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     setLoadingBundleId(bundleId);
     try {
       const bundle = await PersonProfileService.getInformationRequest({ bundleId, vaultOwnerToken });
-      setBundleDetails((current) => ({ ...current, [bundleId]: bundle }));
+      if (bundle.personRef !== resolvedPersonRef || bundle.bundleId !== bundleId) {
+        throw new Error("Request details did not match this person.");
+      }
+      setBundleDetailsState((current) => ({
+        personRef: resolvedPersonRef,
+        viewerUid: user?.uid ?? null,
+        details: {
+          ...(current.personRef === resolvedPersonRef && current.viewerUid === user?.uid ? current.details : {}),
+          [bundleId]: bundle,
+        },
+      }));
     } catch (reason) {
       toast.error(oneLocationErrorMessage(reason, "Request details are unavailable right now."));
     } finally {
@@ -317,9 +498,10 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
         CacheSyncService.onConnectionCapabilityMutated(user.uid);
       }
       setViewerProfileState((current) =>
-        current.personRef === resolvedPersonRef && current.profile
+        current.personRef === resolvedPersonRef && current.viewerUid === user.uid && current.profile
           ? {
               personRef: resolvedPersonRef,
+              viewerUid: user.uid,
               profile: { ...current.profile, relationship },
             }
           : current,
@@ -346,39 +528,103 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
         toast.error("Unlock your vault to view this grant.");
         return;
       }
-      if (decryptedByRequest[requestId]) return;
+      const grant = viewerProfile.grants.find((item) => item.requestId === requestId);
+      const expectedRevision = grant?.exportRevision;
       const history = viewerProfile.requestHistory.find((item) => item.requestId === requestId);
-      if (!history) {
+      const bundleId = grant?.bundleId || history?.bundleId;
+      if (!grant || !bundleId) {
         toast.error("This shared information is not available right now.");
         return;
       }
       setDecryptingRequestId(requestId);
+      setDecryptFailedByRequest((current) => {
+        if (!current[requestId]) return current;
+        const next = { ...current };
+        delete next[requestId];
+        return next;
+      });
+      const generation = requestGeneration.current;
       try {
-        const connector = await OneKycClientZkService.ensureConnector({
-          userId: user.uid,
-          vaultKey,
-          vaultOwnerToken,
-        });
-        const exports = await PersonProfileService.getInformationRequestExports({
-          bundleId: history.bundleId,
-          vaultOwnerToken,
-        });
+        const bundle = await withGrantDecryptTimeout(
+          PersonProfileService.getInformationRequest({ bundleId, vaultOwnerToken }),
+          "The request status took too long to check. Try again.",
+        );
+        if (generation !== requestGeneration.current) return;
+        const item = bundle.items.find((entry) => entry.requestId === requestId);
+        if (bundle.bundleId !== bundleId || bundle.personRef !== resolvedPersonRef || item?.status !== "granted") {
+          throw new Error("This access is no longer available.");
+        }
+        if (decryptedByRequest[requestId] && expectedRevision != null
+          && decryptedRevisionByRequest[requestId] === expectedRevision) return;
+        const connector = await withGrantDecryptTimeout(
+          OneKycClientZkService.readStoredConnector({
+            userId: user.uid,
+            vaultKey,
+            vaultOwnerToken,
+          }),
+          "The receiving device took too long to open. Try again.",
+        );
+        if (generation !== requestGeneration.current) return;
+        if (!connector) throw new Error("The receiving device is unavailable.");
+        const exports = await withGrantDecryptTimeout(
+          PersonProfileService.getInformationRequestExports({
+            bundleId,
+            vaultOwnerToken,
+          }),
+          "The shared information took too long to load. Try opening this again.",
+        );
+        if (generation !== requestGeneration.current) return;
         const exact = exports.find((item) => item.requestId === requestId);
-        if (!exact) throw new Error("This shared information is not available right now.");
-        const payload = await OneKycClientZkService.decryptScopedExport({
-          exportPackage: exact.encryptedExport,
-          connector,
-        });
-        setDecryptedByRequest((current) => ({ ...current, [requestId]: payload }));
+        if (!exact || !isCurrentPersonExport({ item, scopeRef: exact.scopeRef, exportPackage: exact.encryptedExport, nowMs: Date.now() })) {
+          throw new Error("This shared information is not available right now.");
+        }
+        const packageRevision = typeof exact.encryptedExport.export_revision === "number"
+          ? exact.encryptedExport.export_revision
+          : null;
+        if (expectedRevision != null && expectedRevision !== packageRevision) {
+          throw new Error("This shared information changed. Please check again.");
+        }
+        const payload = await withGrantDecryptTimeout(
+          OneKycClientZkService.decryptScopedExport({
+            exportPackage: exact.encryptedExport,
+            connector,
+          }),
+          "The shared information took too long to open. Try again.",
+        );
+        if (generation !== requestGeneration.current) return;
+        const latest = await PersonProfileService.getInformationRequest({ bundleId, vaultOwnerToken });
+        if (generation !== requestGeneration.current) return;
+        if (latest.bundleId !== bundleId || latest.personRef !== resolvedPersonRef
+          || !latest.items.some((entry) => entry.requestId === requestId && entry.status === "granted")) {
+          throw new Error("This access changed while opening information.");
+        }
+        if (generation !== requestGeneration.current) return;
+        setDecryptedByRequest((current) => ({
+          ...current,
+          [requestId]: projectGrantPayload(payload, grant?.domain),
+        }));
+        setDecryptedRevisionByRequest((current) => ({
+          ...current,
+          [requestId]: packageRevision ?? expectedRevision ?? null,
+        }));
       } catch (reason) {
-        toast.error(oneLocationErrorMessage(reason, "This shared information could not be opened."));
+        if (generation === requestGeneration.current) {
+          setDecryptFailedByRequest((current) => ({ ...current, [requestId]: true }));
+          toast.error(oneLocationErrorMessage(reason, "This shared information could not be opened."));
+        }
       } finally {
-        setDecryptingRequestId(null);
+        // A person/vault change invalidates the result, but it must not leave
+        // the old card permanently stuck in its busy state. Only clear the
+        // request that still owns the indicator; a newer decrypt remains
+        // untouched.
+        setDecryptingRequestId((current) => current === requestId ? null : current);
       }
     },
     [
       decryptedByRequest,
+      decryptedRevisionByRequest,
       isVaultUnlocked,
+      resolvedPersonRef,
       user,
       vaultKey,
       vaultOwnerToken,
@@ -430,23 +676,22 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
   }, [allGrants, sharedActiveDomain, sharedSearchQuery, decryptedByRequest]);
 
   useEffect(() => {
+    if (shouldSkipReviewerBackgroundWritesForAutomation()) return;
     if (!isVaultUnlocked || !vaultKey || !vaultOwnerToken || !allGrants.length || !user) return;
     if (decryptingRequestId) return;
     // Prioritize visible / filtered grants first (on-demand viewport scaling)
     const pendingFiltered = filteredGrants.filter(
-      (grant) => grant.requestId && !decryptedByRequest[grant.requestId] && decryptingRequestId !== grant.requestId
+      (grant) => grant.requestId
+        && !decryptedByRequest[grant.requestId]
+        && !decryptFailedByRequest[grant.requestId]
+        && decryptingRequestId !== grant.requestId,
     );
     if (pendingFiltered.length && pendingFiltered[0]?.requestId) {
       void revealGrant(pendingFiltered[0].requestId);
-      return;
     }
-    // Lazy background decryption for off-screen/unfiltered items
-    const pendingAll = allGrants.filter(
-      (grant) => grant.requestId && !decryptedByRequest[grant.requestId] && decryptingRequestId !== grant.requestId
-    );
-    if (pendingAll.length && pendingAll[0]?.requestId) {
-      void revealGrant(pendingAll[0].requestId);
-    }
+    // Do not serially decrypt unrelated cards in the background. Each grant
+    // stays encrypted until it is the visible filtered result or the user
+    // explicitly opens it, so one slow connector cannot block another card.
   }, [
     isVaultUnlocked,
     vaultKey,
@@ -454,7 +699,9 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     allGrants,
     filteredGrants,
     user,
+    decryptFailedByRequest,
     decryptedByRequest,
+    decryptedRevisionByRequest,
     decryptingRequestId,
     revealGrant,
   ]);
@@ -467,11 +714,11 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     setCancellingBundleId(bundleId);
     try {
       await PersonProfileService.cancelInformationRequest({ bundleId, vaultOwnerToken });
-      const idToken = await user.getIdToken();
-      setViewerProfileState({
-        personRef: resolvedPersonRef,
-        profile: await PersonProfileService.getViewer(resolvedPersonRef, idToken),
-      });
+      CacheSyncService.onConsentMutated(user.uid);
+      setBundleDetailsState((current) => ({ ...current, details: Object.fromEntries(
+        Object.entries(current.details).filter(([id]) => id !== bundleId),
+      ) }));
+      setViewerReloadToken((value) => value + 1);
       toast.success("Information request cancelled");
     } catch (reason) {
       toast.error(oneLocationErrorMessage(reason, "The request could not be cancelled. Try again."));
@@ -513,14 +760,9 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     };
   }, { enabled: viewerProfile?.relationship.status === "connected" });
   useLocalOnboardingActionHandler("people.profile.review_information_request", async () => {
-    if (!selectedScopeRefs.size) {
-      return { status: "blocked", summary: "Choose at least one thing before reviewing the request." };
-    }
-    if (!isVaultUnlocked) {
-      return { status: "blocked", summary: "Unlock the vault before reviewing an information request." };
-    }
-    setReviewOpen(true);
-    return { status: "succeeded", summary: "Information request review opened." };
+    return openRequestReview()
+      ? { status: "succeeded", summary: "Information request review opened." }
+      : { status: "blocked", summary: "The request review is not ready yet." };
   }, { enabled: Boolean(viewerProfile) });
   useLocalOnboardingActionHandler("people.profile.manage_consent", async () => {
     router.push(ROUTES.CONSENTS);
@@ -563,8 +805,8 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
           spokenSubject: null,
           sections: [
             { id: "shared", title: "Shared with you", summary: `${viewerProfile.grants.length} active grants` },
-            { id: "requestable", title: "Available to request", summary: `${viewerProfile.requestableScopes.length} things you can ask for` },
-            { id: "history", title: "Request history", summary: `${viewerProfile.requestHistory.length} request records` },
+            { id: "requestable", title: "Available to request", summary: `${viewerProfile.scopeCatalog?.totalCount ?? viewerProfile.requestableScopes.length} things you can ask for` },
+            { id: "history", title: "Request history", summary: `${historyGroups.length} ${historyGroups.length === 1 ? "request" : "requests"}` },
           ],
           actions: surfaceActions,
           availableActions: surfaceActions.flatMap((action) => action.actionId ? [action.actionId] : []),
@@ -690,6 +932,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                 <Button type="button" variant="none" effect="fade" data-voice-control-id="person-profile-manage-consent" onClick={() => router.push(ROUTES.CONSENTS)}>
                   Manage access
                 </Button>
+                {viewerProfile.relationship.status === "connected" ? <DocumentRequestButton personRef={resolvedPersonRef} personName={profile.displayName || "this person"} /> : null}
               </>
             ) : null}
             <Button
@@ -736,7 +979,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <PageHeader
                   title="Shared with you"
-                  description="Information this person has granted to your account. Values stay encrypted until you unlock your vault."
+                  description="End-to-end encrypted information shared with your account. Unlock your vault to view it."
                 />
 
                 {allGrants.length > 1 ? (
@@ -952,21 +1195,21 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                 testIdPrefix="person-profile-scope"
                 selection={{
                   selectedIds: selectedScopeRefs,
-                  // A branch arrives as every reference underneath it, so
-                  // "everything financial" is one gesture rather than four
-                  // folders and eleven taps.
                   onToggleMany: (ids, select) =>
-                    setSelectedScopeRefs((current) => {
-                      const next = new Set(current);
-                      for (const id of ids) {
-                        if (grantedScopeRefs.has(id)) continue;
-                        if (select) next.add(id);
-                        else next.delete(id);
-                      }
-                      return next;
-                    }),
+                    setSelectedScopeRefs((current) => toggleRequestScopes(
+                      allScopes, current, ids.filter((id) => !grantedScopeRefs.has(id)), select,
+                    )),
                 }}
               />
+              {viewerProfile.scopeCatalog?.hasMore ? (
+                <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                  <p className="text-muted-foreground">{allScopes.length} of {viewerProfile.scopeCatalog.totalCount} loaded. Search checks loaded information.</p>
+                  <Button type="button" variant="none" effect="fade" disabled={catalogLoading}
+                    onClick={() => void loadMoreScopes()}>
+                    {catalogLoading ? "Loading more…" : catalogError ? "Try loading more again" : "Load more information"}
+                  </Button>
+                </div>
+              ) : null}
               {allScopes.length ? (
                 <div className="flex justify-end pt-1">
                   <Button
@@ -974,13 +1217,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                     variant="blue-gradient"
                     effect="fill"
                     disabled={!selectedScopes.length}
-                    onClick={() => {
-                      if (!isVaultUnlocked) {
-                        toast.error("Unlock your vault before requesting information.");
-                        return;
-                      }
-                      setReviewOpen(true);
-                    }}
+                    onClick={openRequestReview}
                     data-voice-control-id="person-profile-review-information"
                   >
                     Review request{selectedScopes.length ? ` (${selectedScopes.length})` : ""}
@@ -992,58 +1229,82 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
             <section aria-labelledby="request-history" className="space-y-3">
               <PageHeader
                 title="Request history"
-                description="A viewer-relative record of requests to this person and their current consent state."
+                description="Requests you sent to this person and their current status."
               />
-              {viewerProfile.requestHistory.length ? (
+              {currentHistory?.failed ? (
+                <p role="status" className="text-sm text-muted-foreground">Older requests could not be loaded. Showing recent activity only.</p>
+              ) : null}
+              {historyGroups.length ? (
                 <SectionCard>
                   <div className="divide-y divide-border/60">
-                    {viewerProfile.requestHistory.map((item) => (
-                      <div key={item.requestId} className="flex flex-wrap items-start justify-between gap-4 py-3 first:pt-0 last:pb-0">
-                        <div>
-                          <p className="text-sm font-semibold">{item.label}</p>
-                          <p className="mt-1 text-sm text-muted-foreground">{item.purpose}</p>
-                          {item.createdAt ? (
-                            <p className="mt-1 text-xs text-muted-foreground">
-                              {new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(item.createdAt))}
+                    {visibleHistoryGroups.map(({ bundleId, first, items, itemCount, purpose: requestPurpose, createdAt }) => {
+                      const details = bundleDetails[bundleId];
+                      const statusItems = details?.items ?? (items.length === itemCount ? items : []);
+                      const statuses = new Set(statusItems.map((item) => item.status));
+                      const grantedCount = statusItems.filter((item) => item.status === "granted").length;
+                      const statusLabel = !statusItems.length ? "Check status"
+                        : statuses.size === 1 ? statusItems[0]!.status : `${grantedCount} of ${itemCount} granted`;
+                      return (
+                        <div key={bundleId} className="flex flex-wrap items-start justify-between gap-3 py-3 first:pt-0 last:pb-0">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-semibold">{itemCount === 1 && first ? first.label : `Request for ${itemCount} information items`}</p>
+                            <p className="mt-1 text-sm text-muted-foreground">{requestPurpose}</p>
+                            {createdAt ? (
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(createdAt))}
+                              </p>
+                            ) : null}
+                          </div>
+                          <div className="flex shrink-0 flex-wrap items-center gap-2">
+                            <StatusPill tone={statusItems.length === itemCount && grantedCount === itemCount ? "ready" : "neutral"}>
+                              {statusLabel}
+                            </StatusPill>
+                            {!details ? (
+                              <Button
+                                type="button"
+                                variant="none"
+                                effect="fade"
+                                disabled={loadingBundleId === bundleId}
+                                onClick={() => void loadBundleDetails(bundleId)}
+                                aria-label={`Details for ${itemCount === 1 && first ? first.label : `${itemCount} information items`}`}
+                              >
+                                {loadingBundleId === bundleId ? "Loading…" : "Details"}
+                              </Button>
+                            ) : null}
+                            {statusItems.some((item) => item.status === "pending") ? (
+                              <Button
+                                type="button"
+                                variant="none"
+                                effect="fade"
+                                disabled={cancellingBundleId === bundleId}
+                                onClick={() => void cancelInformationRequest(bundleId)}
+                              >
+                                {cancellingBundleId === bundleId ? "Withdrawing…" : "Withdraw pending"}
+                              </Button>
+                            ) : null}
+                          </div>
+                          {details ? (
+                            <p className="max-h-40 w-full overflow-y-auto text-xs text-muted-foreground" data-testid="person-profile-bundle-details">
+                              {details.items.map((entry) => `${entry.label} (${entry.status})`).join(", ")}
+                              {" · "}
+                              {requestDurationLabel(Math.round(details.durationSeconds / 3600))}
+                              {details.cancelled ? " · cancelled" : ""}
                             </p>
                           ) : null}
                         </div>
-                        <StatusPill tone={item.status === "granted" ? "ready" : "neutral"}>
-                          {item.status}
-                        </StatusPill>
-                        {bundleDetails[item.bundleId] ? (
-                          <p className="basis-full text-xs text-muted-foreground" data-testid="person-profile-bundle-details">
-                            {bundleDetails[item.bundleId]!.items.map((entry) => entry.label).join(", ")}
-                            {" · "}
-                            {requestDurationLabel(Math.round(bundleDetails[item.bundleId]!.durationSeconds / 3600))}
-                            {bundleDetails[item.bundleId]!.cancelled ? " · cancelled" : ""}
-                          </p>
-                        ) : (
-                          <Button
-                            type="button"
-                            variant="none"
-                            effect="fade"
-                            disabled={loadingBundleId === item.bundleId}
-                            onClick={() => void loadBundleDetails(item.bundleId)}
-                            aria-label={`Details for ${item.label}`}
-                          >
-                            {loadingBundleId === item.bundleId ? "Loading…" : "Details"}
-                          </Button>
-                        )}
-                        {item.status === "pending" ? (
-                          <Button
-                            type="button"
-                            variant="none"
-                            effect="fade"
-                            disabled={cancellingBundleId === item.bundleId}
-                            onClick={() => void cancelInformationRequest(item.bundleId)}
-                          >
-                            {cancellingBundleId === item.bundleId ? "Cancelling…" : "Cancel"}
-                          </Button>
-                        ) : null}
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
+                  {currentHistory?.result?.nextCursor || historyPage > 1 || (!currentHistory?.result && recentHistoryGroups.length > 8) ? (
+                    <div className="mt-3 flex items-center justify-between gap-3 border-t border-border/60 pt-3 text-sm">
+                      <Button type="button" variant="none" effect="fade" disabled={visibleHistoryPage <= 1} onClick={() => setHistoryPage((page) => Math.max(1, page - 1))}>Previous</Button>
+                      <span className="text-muted-foreground">{currentHistory?.result ? `Page ${visibleHistoryPage}` : `${visibleHistoryPage} of ${historyPageCount}`}</span>
+                      <Button type="button" variant="none" effect="fade" disabled={currentHistory?.result ? !currentHistory.result.nextCursor : visibleHistoryPage >= historyPageCount} onClick={() => {
+                        if (currentHistory?.result?.nextCursor) setHistoryCursors((cursors) => [...cursors.slice(0, historyPage), currentHistory.result!.nextCursor]);
+                        setHistoryPage((page) => page + 1);
+                      }}>Next</Button>
+                    </div>
+                  ) : null}
                 </SectionCard>
               ) : (
                 <SectionCard>
@@ -1052,9 +1313,9 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
               )}
             </section>
           </>
-        ) : viewerProfileUnavailable && user ? (
+        ) : viewerUnavailable && user ? (
           <SectionCard className="py-8 text-center">
-            <div className="flex flex-col items-center justify-center space-y-2">
+            <div role="alert" className="flex flex-col items-center justify-center space-y-2">
               <p className="text-sm font-semibold text-foreground">
                 We couldn&rsquo;t load your connection with {profile.displayName} right now.
               </p>
@@ -1074,51 +1335,21 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
         ) : null}
       </div>
       <Dialog modal open={reviewOpen} onOpenChange={setReviewOpen}>
-        <DialogContent>
-          <DialogHeader>
+        <DialogContent
+          className="w-[calc(100%-2rem)] max-w-[30rem] max-h-[min(32rem,calc(100dvh-2rem-var(--app-safe-area-top-effective,0px)-env(safe-area-inset-bottom,0px)))] gap-3 overflow-hidden p-4 sm:max-w-[30rem]"
+        >
+          <DialogHeader className="shrink-0 pr-8 text-left">
             <DialogTitle>Request information from {profile.displayName}</DialogTitle>
             <DialogDescription>
               They will see exactly what you asked for, why, and for how long.
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4">
-            <SectionCard title="What you are asking for">
-              <div className="space-y-2">
-                {selectedScopes.map((scope) => (
-                  <div key={scope.scopeRef} className="flex items-center justify-between gap-3 text-sm">
-                    <span>{scope.label || scope.scopeRef}</span>
-                    <StatusPill tone="neutral">{scope.sensitivity || "Standard"}</StatusPill>
-                  </div>
-                ))}
-              </div>
-            </SectionCard>
-            <label className="block space-y-2 text-sm font-medium">
-              Access duration
-              <select
-                className="block h-9 w-full rounded-md border border-input bg-background px-3 text-sm font-normal"
-                value={durationHours}
-                onChange={(event) => setDurationHours(Number(event.target.value))}
-                data-testid="person-profile-duration-select"
-              >
-                {REQUEST_DURATION_OPTIONS.map((option) => (
-                  <option key={option.hours} value={option.hours}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="block space-y-2 text-sm font-medium">
-              Purpose
-              <Textarea
-                value={purpose}
-                onChange={(event) => setPurpose(event.target.value)}
-                maxLength={500}
-                placeholder="Explain why you need these and how you will use them."
-                data-testid="person-profile-purpose"
-              />
-            </label>
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain pr-1">
+            <InformationRequestReviewFields scopes={selectedScopes} purpose={purpose} durationHours={durationHours}
+              onPurposeChange={setPurpose} onDurationChange={setDurationHours} disabled={requesting} />
+            {request.error ? <p role="alert" className="text-sm text-destructive">{request.error}</p> : null}
           </div>
-          <DialogFooter>
+          <DialogFooter className="shrink-0 flex-row items-center justify-end border-t border-border/60 pt-3">
             <Button type="button" variant="none" effect="fade" data-voice-control-id="person-profile-request-cancel" onClick={() => setReviewOpen(false)}>
               Cancel
             </Button>
@@ -1126,7 +1357,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
               type="button"
               variant="blue-gradient"
               effect="fill"
-              disabled={requesting || purpose.trim().length < 8}
+              disabled={requesting || purpose.trim().length < 8 || !selectedScopes.length || selectedScopes.length > 50 || !request.available}
               onClick={() => void submitRequest()}
               data-voice-control-id="person-profile-request-confirm"
             >

@@ -15,7 +15,7 @@ builds the Capacitor app against the **UAT backend + shared Firebase authority**
 **Android Release Upload Keystore**, and **uploads it to Google Play Console** (internal, alpha,
 beta, or production track).
 
-- **Workflow:** `.github/workflows/ship-android-playstore.yml` (`workflow_dispatch`).
+- **Workflow:** `.github/workflows/ship-android-playstore-v1.yml` (`workflow_dispatch`).
 - **CLI Dispatcher:** `node scripts/release/dispatch-android-playstore.mjs` (or `npm run android:release:playstore`).
 - **Runner:** GitHub-hosted `ubuntu-latest`.
 - **Target:** package `com.hussh.app` (Android only — iOS remains `com.hushh.app`), Google Play Console internal track (default), UAT backend + Firebase project `hushh-pda` (the Android Firebase config secret lives in `hushh-pda-uat` Secret Manager but its *content* is the `hushh-pda` project — there is one shared Firebase project across environments, not a separate UAT Firebase project).
@@ -38,6 +38,13 @@ cd android && ./gradlew bundleRelease
 ```
 
 Signing reads from `ANDROID_KEYSTORE_PATH`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD` supplied by Secret Manager / GitHub secrets.
+The signed AAB is retained for 14 live days in the dedicated `hushh-native-uat`
+project's private `hushh-native-uat-artifacts` bucket after bucket-policy and upload-integrity
+checks. GitHub Actions keeps only a redacted receipt, not the AAB. The bucket
+has a separate 7-day private soft-delete recovery window after lifecycle
+deletion. The project-attached deny policy blocks inherited organization-level
+object reads and developer-group mutations; the workflow checks it before and
+after upload. A dry run does not upload to Google Play.
 
 ## One-time setup (secret-touching — the operator does this)
 

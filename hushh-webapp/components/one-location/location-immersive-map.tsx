@@ -113,6 +113,7 @@ import type {
 } from "@/lib/one-location/types";
 import { getPlatform, isNative } from "@/lib/capacitor/platform";
 import { ROUTES } from "@/lib/navigation/routes";
+import { pushAndroidBackHandler } from "@/lib/navigation/android-back";
 import {
   isLocationMapDemoAvailable,
   isLocationMapDemoEnabled,
@@ -132,6 +133,8 @@ import {
   GOOGLE_MAPS_RENDERER_CONSENT_VERSION,
   writeCachedRendererConsentAccepted,
 } from "@/lib/one-location/map-renderer-consent";
+import { registerPeriodicTask } from "@/lib/perf/idle-scheduler";
+import { useCoarseClock } from "@/lib/perf/use-periodic-task";
 
 const MAP_ID = "one-location-private-map";
 
@@ -611,11 +614,9 @@ export function LocationImmersiveMap({
   // has to go grey while nothing at all is happening. The marker refresh alone
   // would never notice, because a phone that stopped publishing sends nothing
   // to notice.
-  const [staleClockMs, setStaleClockMs] = useState(() => Date.now());
-  useEffect(() => {
-    const timer = window.setInterval(() => setStaleClockMs(Date.now()), 15_000);
-    return () => window.clearInterval(timer);
-  }, []);
+  // One shared 15 s clock for every consumer of a coarse "now" (lib/perf),
+  // instead of a private interval that re-rendered this component alone.
+  const staleClockMs = useCoarseClock(15_000);
   const [selfMarker, setSelfMarker] = useState<RenderMarker | null>(null);
   /**
    * What the renderer is currently showing, so the HTML name pills can be put
@@ -1275,14 +1276,20 @@ export function LocationImmersiveMap({
     void refresh();
     if (demoMode) return;
     void refreshShareCount();
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") void refresh();
-    }, 5_000);
-    // The outgoing-share count changes far less often than live positions, so
-    // poll it on a much slower cadence than the 5s marker refresh.
-    const shareCountTimer = window.setInterval(() => {
-      if (document.visibilityState === "visible") void refreshShareCount();
-    }, 30_000);
+    // Both polls ride the shared idle clock: one wake, after a frame, never
+    // while hidden (lib/perf/idle-scheduler.ts). The outgoing-share count
+    // changes far less often than live positions, so it keeps the slower
+    // cadence.
+    const unregisterRefresh = registerPeriodicTask({
+      id: "location-map:markers",
+      intervalMs: 5_000,
+      run: () => refresh(),
+    });
+    const unregisterShareCount = registerPeriodicTask({
+      id: "location-map:share-count",
+      intervalMs: 30_000,
+      run: () => refreshShareCount(),
+    });
     // Returning to the app is exactly when the map is most wrong, and the
     // interval only ever checked visibility on its own schedule -- so coming
     // back showed a position up to five seconds stale before anything moved.
@@ -1304,8 +1311,8 @@ export function LocationImmersiveMap({
       });
     }
     return () => {
-      window.clearInterval(timer);
-      window.clearInterval(shareCountTimer);
+      unregisterRefresh();
+      unregisterShareCount();
       document.removeEventListener("visibilitychange", onVisibility);
       void appListener?.remove();
     };
@@ -1730,27 +1737,15 @@ export function LocationImmersiveMap({
   /**
    * What the native renderer is asked to draw.
    *
-   * Normally the HTML avatar replaces the owner pin. An active check-in is the
-   * compatibility exception: if camera listeners never report, HTML cannot
-   * project the avatar, so keep one blue renderer pin at the venue rather than
-   * leaving a live check-in completely unmarked. It disappears as soon as the
-   * avatar can project. The ordinary GPS surface keeps its no-flash behavior.
+   * The owner is an avatar on every map surface, including an active check-in.
+   * A renderer pin is not an acceptable compatibility substitute: it creates
+   * a second visual identity for the same person and can remain visible when a
+   * WebView never reports camera projection. If projection is late, wait for
+   * the avatar rather than drawing a generic location indicator.
    */
   const rendererMarkers = useMemo(
-    () =>
-      visibleMarkers.filter(
-        (marker) =>
-          marker.kind !== "self" ||
-          (isCheckInSurface &&
-            Boolean(displayedPlaceFocus?.active) &&
-            !selfPinDrawnAsAvatar),
-      ),
-    [
-      displayedPlaceFocus?.active,
-      isCheckInSurface,
-      selfPinDrawnAsAvatar,
-      visibleMarkers,
-    ],
+    () => visibleMarkers.filter((marker) => marker.kind !== "self"),
+    [visibleMarkers],
   );
 
   /**
@@ -2202,19 +2197,12 @@ export function LocationImmersiveMap({
       }
       if (generation !== markerGenerationRef.current) return;
       const mapMarkers: Marker[] = rendererMarkers.map((marker) => {
-        const isActiveCheckInOwnerFallback =
-          marker.kind === "self" &&
-          isCheckInSurface &&
-          Boolean(displayedPlaceFocus?.active) &&
-          !selfPinDrawnAsAvatar;
         // Labels stay in the local HTML tray/search index. The native Google
         // renderer receives coordinates and a generic accessibility title,
         // never the private recipient name.
         const title =
           marker.kind === "self"
-            ? isActiveCheckInOwnerFallback
-              ? "Your check-in place"
-              : "Your location"
+            ? "Your location"
             : marker.kind === "place"
               ? // A public venue the owner picked, so its name may reach the
                 // renderer -- unlike a private recipient's label.
@@ -2236,9 +2224,7 @@ export function LocationImmersiveMap({
                 title,
                 snippet:
                   marker.kind === "self"
-                    ? isActiveCheckInOwnerFallback
-                      ? "Checked in here"
-                      : "Your current location"
+                    ? "Your current location"
                     : marker.kind === "place"
                       ? "Your check-in place"
                       : "Sharing privately now",
@@ -2248,11 +2234,13 @@ export function LocationImmersiveMap({
           // per-pin styling this bridge exposes -- `title` cannot carry it,
           // because the web renderer paints titles across the map as a glyph
           // (see above) -- so the colour is where staleness has to be said.
-          tintColor:
-            !isActiveCheckInOwnerFallback &&
-            isStaleAt(marker.capturedAt, freshnessSeconds, staleClockMs)
-              ? STALE_TINT
-              : marker.tint,
+          tintColor: isStaleAt(
+            marker.capturedAt,
+            freshnessSeconds,
+            staleClockMs,
+          )
+            ? STALE_TINT
+            : marker.tint,
           zIndex: marker.kind === "self" ? 10 : marker.kind === "place" ? 9 : 1,
         };
       });
@@ -2301,8 +2289,6 @@ export function LocationImmersiveMap({
   }, [
     clusteringActive,
     entryLocationSettled,
-    displayedPlaceFocus?.active,
-    isCheckInSurface,
     mapReady,
     rendererMarkers,
     visibleMarkers,
@@ -2763,21 +2749,17 @@ export function LocationImmersiveMap({
     }, 1_200);
   }, [router]);
 
+  // Back goes through the app-wide owner (lib/navigation/android-back.ts),
+  // which closes an open sheet first; this screen only claims what is left.
   useEffect(() => {
     if (!isNative() || getPlatform() !== "android") return;
-    let listener: { remove: () => Promise<void> } | undefined;
-    void CapacitorApp.addListener("backButton", () => {
+    return pushAndroidBackHandler(() => {
       if (nearbyCheckInOpen) {
         closeNearbyCheckIn();
         return;
       }
       closeMap();
-    }).then((handle) => {
-      listener = handle;
     });
-    return () => {
-      void listener?.remove();
-    };
   }, [closeMap, closeNearbyCheckIn, nearbyCheckInOpen]);
 
   const toggleDemoPeople = useCallback(() => {
@@ -2901,8 +2883,8 @@ export function LocationImmersiveMap({
 
         Rendered after the pills so it paints over a name that lands on the same
         pixels, and only once the renderer has reported a camera to project
-        with. When it cannot draw, `selfPinDrawnAsAvatar` is false and the
-        renderer keeps its own pin — the marker is never simply missing.
+        with. When it cannot draw, `selfPinDrawnAsAvatar` is false and we wait
+        for a camera report rather than substituting a generic location pin.
       */}
       {selfPinDrawnAsAvatar &&
       mapSelfMarker &&

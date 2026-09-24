@@ -10,6 +10,13 @@ function read(relativePath: string) {
 }
 
 describe("private-agent chat shell contract", () => {
+  it("exposes connections from chat history in the shared drawer", () => {
+    const workspace = read("components/agent/agent-chat-workspace.tsx");
+    expect(workspace).toContain('setDrawerMode("connections")');
+    expect(workspace).toContain("<AgentConnectionsDrawer");
+    expect(workspace).toContain("<ConnectorsPanel");
+    expect(workspace).toContain('onBack={() => setDrawerMode("chats")}');
+  });
   it("keeps the floating frame singular and lets the workspace reach its edges", () => {
     const workspace = read("components/agent/agent-chat-workspace.tsx");
     const providers = read("app/providers.tsx");
@@ -29,7 +36,7 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain("ShellActionSurface");
     expect(workspace).toContain('"motion-step-enter flex w-full items-start gap-2"');
     expect(workspace).not.toContain("animate-in fade-in slide-in-from-bottom-1");
-    expect(workspace).toContain('data-testid="agent-chat-composer"');
+    expect(workspace).toContain('"agent-chat-composer"');
     expect(workspace).toContain("bottom-chrome-surface min-h-14 rounded-[var(--app-input-radius)]");
     expect(history).toContain("bg-[linear-gradient(180deg");
     expect(history).not.toContain('"border-r border-border/70');
@@ -61,10 +68,15 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain("agent-chat-composer-expanded");
     expect(workspace).toContain("agent-chat-composer-expanded-textarea");
     expect(workspace).toContain("overflow-y-auto");
-    expect(workspace).toContain("px-0 py-2.5");
+    expect(workspace).toContain("agent-chat-composer-surface");
+    expect(workspace).toContain("px-0 py-3");
+    expect(workspace).toContain("<Sparkles className=\"h-3.5 w-3.5\" />");
     expect(workspace).toContain("rounded-[var(--app-input-radius)]");
     expect(workspace).not.toContain("agent-chat-composer\"\n                      className=\"flex min-h-16 items-end gap-2 rounded-2xl border");
-    expect(workspace).toContain('className="flex shrink-0 items-center gap-1.5"');
+    expect(workspace).toContain('"flex shrink-0 items-center gap-1.5"');
+    // One text box serves both sizes: two separate ones were swapped when a
+    // long draft auto-expanded and keystrokes in that frame were lost.
+    expect(workspace.match(/ref=\{composerTextareaRef\}/g) ?? []).toHaveLength(1);
     expect(workspace).toContain("max-h-28");
     expect(workspace).toContain("sm:max-h-36");
     expect(workspace).toContain("h-[min(38dvh,18rem)]");
@@ -90,14 +102,20 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain("collapseComposer");
     expect(workspace).toContain("combineAttachmentAndComposerText");
     expect(workspace).toContain("await submitComposerText()");
+    expect(workspace).toContain("redactLikelyPans");
+    expect(workspace).toContain("const submittedText");
     expect(workspace).toContain('source: "agent_chat_auto_capture"');
-    expect(workspace).toContain("saveEligiblePkmCardsInBackground({");
+    expect(workspace).toContain("captureEligiblePkmFactsInBackground({");
+    expect(workspace).toContain("beforeEffect: guard.assertCurrent");
+    expect(workspace).toContain("mayPublish: guard.isCurrent");
     expect(workspace).not.toContain("Long paste detected — choose where it belongs.");
     expect(workspace).not.toContain("composerPurpose");
     expect(workspace).not.toContain("Review for Memory");
     expect(workspace).not.toContain("Send as chat");
     expect(workspace).not.toContain("AgentPkmReviewPanel");
-    expect(workspace).not.toContain("getPkmConfirmationCards");
+    expect(workspace).toContain("getPkmConfirmationCards");
+    expect(workspace).toContain("const reviewRequired =");
+    expect(workspace).toContain('phase: reviewRequired ? "review" : "skipped"');
   });
 
   it("keeps active assistant streams full-width and errors compact", () => {

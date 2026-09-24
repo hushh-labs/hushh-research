@@ -97,7 +97,6 @@ export const ROUTE_ID_VALUES = [
   "one_setup",
   "kai_import",
   "kai_plaid_oauth_return",
-  "kai_alpaca_oauth_return",
   "kai_dashboard",
   "kai_portfolio_holdings",
   "kai_portfolio_allocation",
@@ -368,12 +367,6 @@ export function resolveRouteId(rawPathname: string): RouteId {
     return "kai_plaid_oauth_return";
   }
   if (
-    pathname === ROUTES.KAI_ALPACA_OAUTH_RETURN ||
-    pathname === ROUTES.LEGACY_KAI_ALPACA_OAUTH_RETURN
-  ) {
-    return "kai_alpaca_oauth_return";
-  }
-  if (
     pathname === ROUTES.KAI_DASHBOARD ||
     pathname === ROUTES.LEGACY_KAI_PORTFOLIO ||
     pathname === "/one/kai/portfolio"
@@ -535,115 +528,6 @@ const API_TEMPLATE_RULES: Array<{ regex: RegExp; template: string }> = [
   {
     regex: /^\/api\/kai\/portfolio\/summary\/[^/?]+(?:\?.*)?$/i,
     template: "/api/kai/portfolio/summary/{user_id}",
-  },
-  {
-    regex: /^\/api\/kai\/plaid\/status\/[^/?]+(?:\?.*)?$/i,
-    template: "/api/kai/plaid/status/{user_id}",
-  },
-  {
-    regex: /^\/api\/kai\/plaid\/link-token(?:\?.*)?$/i,
-    template: "/api/kai/plaid/link-token",
-  },
-  {
-    regex: /^\/api\/kai\/plaid\/link-token\/update(?:\?.*)?$/i,
-    template: "/api/kai/plaid/link-token/update",
-  },
-  {
-    regex: /^\/api\/kai\/plaid\/oauth\/resume(?:\?.*)?$/i,
-    template: "/api/kai/plaid/oauth/resume",
-  },
-  {
-    regex: /^\/api\/kai\/plaid\/exchange-public-token(?:\?.*)?$/i,
-    template: "/api/kai/plaid/exchange-public-token",
-  },
-  {
-    regex: /^\/api\/kai\/plaid\/funding\/link-token(?:\?.*)?$/i,
-    template: "/api/kai/plaid/funding/link-token",
-  },
-  {
-    regex: /^\/api\/kai\/plaid\/funding\/exchange-public-token(?:\?.*)?$/i,
-    template: "/api/kai/plaid/funding/exchange-public-token",
-  },
-  {
-    regex: /^\/api\/kai\/plaid\/funding\/status\/[^/?]+(?:\?.*)?$/i,
-    template: "/api/kai/plaid/funding/status/{user_id}",
-  },
-  {
-    regex: /^\/api\/kai\/plaid\/funding\/transactions\/sync(?:\?.*)?$/i,
-    template: "/api/kai/plaid/funding/transactions/sync",
-  },
-  {
-    regex: /^\/api\/kai\/plaid\/funding\/default-account(?:\?.*)?$/i,
-    template: "/api/kai/plaid/funding/default-account",
-  },
-  {
-    regex: /^\/api\/kai\/plaid\/funding\/admin\/search(?:\?.*)?$/i,
-    template: "/api/kai/plaid/funding/admin/search",
-  },
-  {
-    regex: /^\/api\/kai\/plaid\/funding\/admin\/escalations(?:\?.*)?$/i,
-    template: "/api/kai/plaid/funding/admin/escalations",
-  },
-  {
-    regex:
-      /^\/api\/kai\/plaid\/funding\/admin\/transfers\/[^/?]+\/refresh(?:\?.*)?$/i,
-    template: "/api/kai/plaid/funding/admin/transfers/{transfer_id}/refresh",
-  },
-  {
-    regex: /^\/api\/kai\/plaid\/funding\/reconcile(?:\?.*)?$/i,
-    template: "/api/kai/plaid/funding/reconcile",
-  },
-  {
-    regex: /^\/api\/kai\/alpaca\/connect\/start(?:\?.*)?$/i,
-    template: "/api/kai/alpaca/connect/start",
-  },
-  {
-    regex: /^\/api\/kai\/alpaca\/connect\/complete(?:\?.*)?$/i,
-    template: "/api/kai/alpaca/connect/complete",
-  },
-  {
-    regex: /^\/api\/kai\/plaid\/transfers\/create(?:\?.*)?$/i,
-    template: "/api/kai/plaid/transfers/create",
-  },
-  {
-    regex: /^\/api\/kai\/plaid\/trades\/funded\/create(?:\?.*)?$/i,
-    template: "/api/kai/plaid/trades/funded/create",
-  },
-  {
-    regex: /^\/api\/kai\/plaid\/trades\/funded(?:\?.*)?$/i,
-    template: "/api/kai/plaid/trades/funded",
-  },
-  {
-    regex: /^\/api\/kai\/plaid\/trades\/funded\/[^/?]+(?:\?.*)?$/i,
-    template: "/api/kai/plaid/trades/funded/{intent_id}",
-  },
-  {
-    regex: /^\/api\/kai\/plaid\/trades\/funded\/[^/?]+\/refresh(?:\?.*)?$/i,
-    template: "/api/kai/plaid/trades/funded/{intent_id}/refresh",
-  },
-  {
-    regex: /^\/api\/kai\/plaid\/transfers\/[^/?]+(?:\?.*)?$/i,
-    template: "/api/kai/plaid/transfers/{transfer_id}",
-  },
-  {
-    regex: /^\/api\/kai\/plaid\/transfers\/[^/?]+\/cancel(?:\?.*)?$/i,
-    template: "/api/kai/plaid/transfers/{transfer_id}/cancel",
-  },
-  {
-    regex: /^\/api\/kai\/plaid\/refresh(?:\?.*)?$/i,
-    template: "/api/kai/plaid/refresh",
-  },
-  {
-    regex: /^\/api\/kai\/plaid\/refresh\/[^/?]+(?:\?.*)?$/i,
-    template: "/api/kai/plaid/refresh/{run_id}",
-  },
-  {
-    regex: /^\/api\/kai\/plaid\/refresh\/[^/?]+\/cancel(?:\?.*)?$/i,
-    template: "/api/kai/plaid/refresh/{run_id}/cancel",
-  },
-  {
-    regex: /^\/api\/kai\/plaid\/source(?:\?.*)?$/i,
-    template: "/api/kai/plaid/source",
   },
   {
     regex: /^\/api\/kai\/gmail\/connect\/start(?:\?.*)?$/i,

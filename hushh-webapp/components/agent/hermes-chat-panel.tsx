@@ -424,7 +424,7 @@ export function HermesChatPanel({
                 ? "Checking Puppy One…"
                 : composerPlaceholder(link)
           }
-          className="max-h-32 min-h-[2.5rem] flex-1 resize-none rounded-xl border border-border/70 bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:opacity-60"
+          className="max-h-32 min-h-[2.5rem] flex-1 resize-none rounded-xl border border-border/70 bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-accent/60 disabled:opacity-60 break-words [overflow-wrap:anywhere] [word-break:break-word]"
         />
         <Button
           type="button"

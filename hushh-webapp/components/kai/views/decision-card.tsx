@@ -47,6 +47,8 @@ import {
   ChartTooltip,
   ChartTooltipContent,
   type ChartConfig,
+  CHART_ANIMATION_ACTIVE,
+  CHART_TOOLTIP_TRIGGER,
 } from "@/components/ui/chart";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { toInvestorDecisionLabel } from "@/lib/copy/investor-language";
@@ -451,11 +453,11 @@ function AgentVoteBar({ result }: { result: DecisionResult }) {
             tickLine={false}
             tick={{ fontSize: 11, fill: "hsl(var(--foreground))" }}
           />
-          <ChartTooltip cursor={false} content={renderVoteTooltip} />
+          <ChartTooltip trigger={CHART_TOOLTIP_TRIGGER} cursor={false} content={renderVoteTooltip} />
           <ChartLegend content={<ChartLegendContent className="text-[11px] font-medium text-foreground/80 dark:text-foreground/80" />} />
-          <Bar dataKey="bullish" stackId="vote" fill="var(--color-bullish)" radius={[4, 0, 0, 4]} barSize={14} />
-          <Bar dataKey="neutral" stackId="vote" fill="var(--color-neutral)" barSize={14} />
-          <Bar dataKey="bearish" stackId="vote" fill="var(--color-bearish)" radius={[0, 4, 4, 0]} barSize={14} />
+          <Bar isAnimationActive={CHART_ANIMATION_ACTIVE} dataKey="bullish" stackId="vote" fill="var(--color-bullish)" radius={[4, 0, 0, 4]} barSize={14} />
+          <Bar isAnimationActive={CHART_ANIMATION_ACTIVE} dataKey="neutral" stackId="vote" fill="var(--color-neutral)" barSize={14} />
+          <Bar isAnimationActive={CHART_ANIMATION_ACTIVE} dataKey="bearish" stackId="vote" fill="var(--color-bearish)" radius={[0, 4, 4, 0]} barSize={14} />
         </BarChart>
       </ChartContainer>
     </ChartPanel>
@@ -601,7 +603,7 @@ function QuantMetricsBarChart({ data }: { data: QuantMetricChartEntry[] }) {
             axisLine={false}
             tickLine={false}
           />
-          <ChartTooltip
+          <ChartTooltip trigger={CHART_TOOLTIP_TRIGGER}
             cursor={false}
             content={
               <ChartTooltipContent
@@ -617,7 +619,7 @@ function QuantMetricsBarChart({ data }: { data: QuantMetricChartEntry[] }) {
               />
             }
           />
-          <Bar
+          <Bar isAnimationActive={CHART_ANIMATION_ACTIVE}
             dataKey="value"
             fill="var(--color-value)"
             radius={[0, 4, 4, 0]}
@@ -670,7 +672,7 @@ function PriceTargetsChart({ targets }: { targets: Record<string, number> }) {
             tickFormatter={(value) => `$${Number(value).toFixed(0)}`}
             width={56}
           />
-          <ChartTooltip
+          <ChartTooltip trigger={CHART_TOOLTIP_TRIGGER}
             cursor={false}
             content={
               <ChartTooltipContent
@@ -686,7 +688,7 @@ function PriceTargetsChart({ targets }: { targets: Record<string, number> }) {
               />
             }
           />
-          <Bar dataKey="value" radius={8} fill="var(--color-scenario)">
+          <Bar isAnimationActive={CHART_ANIMATION_ACTIVE} dataKey="value" radius={8} fill="var(--color-scenario)">
             <LabelList
               dataKey="value"
               position="top"
@@ -732,11 +734,11 @@ function ConfidenceGauge({ confidence }: { confidence: number }) {
     <div className="w-full">
       <ChartContainer config={confidenceChartConfig} className="mx-auto aspect-square max-h-[170px] w-full max-w-[210px]">
         <PieChart>
-          <ChartTooltip
+          <ChartTooltip trigger={CHART_TOOLTIP_TRIGGER}
             cursor={false}
             content={<ChartTooltipContent hideLabel nameKey="name" />}
           />
-          <Pie
+          <Pie isAnimationActive={CHART_ANIMATION_ACTIVE}
             data={chartData}
             dataKey="value"
             nameKey="name"

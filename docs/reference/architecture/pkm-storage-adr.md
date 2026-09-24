@@ -139,6 +139,15 @@ The write receipt records the distinction: a default write uses
 setting chosen by the owner continues to use `owner_auto_save_policy`. The PKM
 settings control and a chat receipt make the behavior visible and reversible.
 
+A refresh of a financial source the owner connected themselves (a Plaid link,
+or a statement they imported) uses a third distinct mode,
+`owner_connected_source_sync`, with `connected_source_provider` naming the
+source. The connection is the authority, so the receipt never claims the owner
+reviewed the write. It is valid only for the `financial` domain, cannot delete,
+cannot acknowledge sharing on the owner's behalf, and never triggers a memory
+upgrade from the background. Until 2026-09-23 this refresh was stamped
+`confirmedByUser: true`, which misstated consent.
+
 This does not turn every message into memory. Secrets, ambiguous or
 low-confidence claims, corrections/deletions, and facts with active sharing
 recipients remain review-first. Failed background writes do not change the

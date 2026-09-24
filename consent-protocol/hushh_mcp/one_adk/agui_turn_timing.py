@@ -20,7 +20,25 @@ from typing import Any, cast
 from ag_ui.core import BaseEvent, EventType, RunAgentInput
 from ag_ui_adk import ADKAgent
 
+from hushh_mcp.one_adk.drive_result_privacy import redact_drive_wire_event
+from hushh_mcp.one_adk.output_privacy import public_event
+
 logger = logging.getLogger(__name__)
+
+
+class _NoModelTextPreview(logging.Filter):
+    """The installed AG-UI adapter logs model text previews at INFO."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.getMessage().startswith("[ADK_EVENT]"):
+            record.msg = "[ADK_EVENT] content=[redacted]"
+            record.args = ()
+        return True
+
+
+_bridge_logger = logging.getLogger("ag_ui_adk.adk_agent")
+if not any(isinstance(item, _NoModelTextPreview) for item in _bridge_logger.filters):
+    _bridge_logger.addFilter(_NoModelTextPreview())
 
 HEAD_ONE = "one"
 HEAD_INTRO = "intro"
@@ -56,6 +74,9 @@ class TurnTiming:
     run: str
     started_at: float
     first_visible_at: float | None = None
+    first_activity_at: float | None = None
+    first_answer_token_at: float | None = None
+    first_tool_call_at: float | None = None
     events: int = 0
     tool_calls: int = 0
     specialist_calls: int = 0
@@ -67,6 +88,13 @@ class TurnTiming:
         event_type = getattr(event, "type", None)
         if self.first_visible_at is None and event_type in _FIRST_VISIBLE_EVENT_TYPES:
             self.first_visible_at = time.perf_counter()
+        if self.first_activity_at is None and event_type in {
+            EventType.ACTIVITY_SNAPSHOT,
+            EventType.ACTIVITY_DELTA,
+        }:
+            self.first_activity_at = time.perf_counter()
+        if self.first_answer_token_at is None and event_type == EventType.TEXT_MESSAGE_CONTENT:
+            self.first_answer_token_at = time.perf_counter()
         if event_type == EventType.RUN_ERROR:
             self.terminal_observed = True
             self.outcome = OUTCOME_ERROR
@@ -74,6 +102,8 @@ class TurnTiming:
             self.terminal_observed = True
         if event_type != EventType.TOOL_CALL_START:
             return
+        if self.first_tool_call_at is None:
+            self.first_tool_call_at = time.perf_counter()
         self.tool_calls += 1
         tool_name = str(getattr(event, "tool_call_name", "") or "")
         if tool_name.startswith(_SPECIALIST_TOOL_PREFIX):
@@ -81,11 +111,15 @@ class TurnTiming:
 
     def log(self) -> None:
         logger.info(
-            "one_agent_chat_turn_complete head=%s run=%s first_visible_ms=%s elapsed_ms=%s "
+            "one_agent_chat_turn_complete head=%s run=%s first_visible_ms=%s "
+            "first_activity_ms=%s first_answer_token_ms=%s first_tool_call_ms=%s elapsed_ms=%s "
             "events=%s tool_calls=%s specialist_calls=%s outcome=%s",
             self.head,
             self.run,
             _ms_since(self.started_at, self.first_visible_at),
+            _ms_since(self.started_at, self.first_activity_at),
+            _ms_since(self.started_at, self.first_answer_token_at),
+            _ms_since(self.started_at, self.first_tool_call_at),
             _ms_since(self.started_at, time.perf_counter()),
             self.events,
             self.tool_calls,
@@ -98,6 +132,13 @@ class TimedADKAgent(ADKAgent):
     """``ADKAgent`` that logs one timing line per run for the labelled head."""
 
     head: str = HEAD_UNLABELED
+
+    def _default_run_config(self, input: RunAgentInput):
+        from hushh_mcp.hushh_adk.telemetry import private_telemetry
+
+        config = super()._default_run_config(input)
+        config.telemetry = private_telemetry()
+        return config
 
     @classmethod
     def from_app(cls, app: Any, *, head: str, **kwargs: Any) -> TimedADKAgent:
@@ -114,10 +155,17 @@ class TimedADKAgent(ADKAgent):
     async def run(self, input: RunAgentInput) -> AsyncGenerator[BaseEvent, None]:
         timing = TurnTiming(head=self.head, run=run_label(input), started_at=time.perf_counter())
         interrupted = False
+        private_call_ids: set[str] = set()
         try:
             async for event in super().run(input):
+                if self.head == HEAD_ONE:
+                    event = redact_drive_wire_event(event, private_call_ids)
+                    if event is None:
+                        continue
                 timing.observe(event)
-                yield event
+                projected = public_event(event) if self.head in (HEAD_ONE, HEAD_INTRO) else event
+                if projected is not None:
+                    yield projected
         except (asyncio.CancelledError, GeneratorExit):
             interrupted = True
             # Consumers commonly close immediately after the terminal event.

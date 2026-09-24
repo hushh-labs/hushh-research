@@ -22,6 +22,8 @@ from ag_ui.core import (
     RunFinishedEvent,
     RunStartedEvent,
     TextMessageContentEvent,
+    ToolCallArgsEvent,
+    ToolCallResultEvent,
     ToolCallStartEvent,
     UserMessage,
 )
@@ -117,6 +119,9 @@ async def test_measures_first_visible_and_elapsed_and_counts(monkeypatch, caplog
     assert fields["head"] == HEAD_ONE
     assert fields["run"] == RUN_ID[:8]
     assert int(fields["first_visible_ms"]) >= 25
+    assert int(fields["first_answer_token_ms"]) >= 25
+    assert int(fields["first_tool_call_ms"]) >= int(fields["first_answer_token_ms"])
+    assert fields["first_activity_ms"] == "None"
     assert int(fields["elapsed_ms"]) >= int(fields["first_visible_ms"])
     assert fields["events"] == "6"
     assert fields["tool_calls"] == "2"
@@ -137,6 +142,27 @@ async def test_log_line_carries_no_identifying_records(monkeypatch, caplog):
     assert USER_ID not in line
     assert RUN_ID not in line, "only the eight-character run label may appear"
     assert "sealed" not in line, "state values never reach the log"
+
+
+@pytest.mark.asyncio
+async def test_drive_tool_arguments_and_result_do_not_stream(monkeypatch):
+    private_value = "PRIVATE_DRIVE_SENTINEL"
+    script = [
+        (0.0, ToolCallStartEvent(tool_call_id="drive-1", tool_call_name="read_google_drive")),
+        (0.0, ToolCallArgsEvent(tool_call_id="drive-1", delta=private_value)),
+        (
+            0.0,
+            ToolCallResultEvent(
+                message_id="result-1",
+                tool_call_id="drive-1",
+                content='{"source":"google_drive_mcp","result":"PRIVATE_DRIVE_SENTINEL"}',
+            ),
+        ),
+    ]
+    monkeypatch.setattr(ADKAgent, "run", _scripted_run(script))
+    events = await _drain(_agent())
+    assert len(events) == 2
+    assert private_value not in "".join(event.model_dump_json() for event in events)
 
 
 @pytest.mark.asyncio
@@ -329,4 +355,6 @@ def test_agent_chat_route_bounds_the_execution_registry():
         assert agent._max_concurrent == agent_chat._MAX_CONCURRENT_EXECUTIONS
         assert agent._execution_timeout == agent_chat._EXECUTION_TIMEOUT_SECONDS
     assert agent_chat._MAX_CONCURRENT_EXECUTIONS > 10
-    assert agent_chat._EXECUTION_TIMEOUT_SECONDS <= 120
+    # Cold, locally pinned Drive retrieval is bounded by its own 160s gate;
+    # One leaves a narrow orchestration margin without the bridge's 600s default.
+    assert 160 < agent_chat._EXECUTION_TIMEOUT_SECONDS <= 200

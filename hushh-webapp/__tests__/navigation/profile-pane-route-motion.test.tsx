@@ -30,3 +30,25 @@ it("does not replay the route enter when opening, drilling, or popping Profile",
   expect(document.documentElement.dataset.routeTransition).toBe("entering");
   view.unmount();
 });
+
+it("lets a pending exit hold the new route for two frames before the enter beat", () => {
+  vi.useFakeTimers();
+  try {
+    navigation.pathname = "/one";
+    navigation.query = "";
+    const view = renderHook(() => useRouteTransition());
+    // A full navigation's exit beat leaves the shell held at opacity 0.
+    document.documentElement.dataset.routeTransition = "pending";
+    navigation.pathname = "/one/feed";
+    view.rerender();
+    // The incoming page takes its first style/layout/paint frame hidden.
+    expect(document.documentElement.dataset.routeTransition).toBe("pending");
+    vi.advanceTimersByTime(20);
+    expect(document.documentElement.dataset.routeTransition).toBe("pending");
+    vi.advanceTimersByTime(20);
+    expect(document.documentElement.dataset.routeTransition).toBe("entering");
+    view.unmount();
+  } finally {
+    vi.useRealTimers();
+  }
+});

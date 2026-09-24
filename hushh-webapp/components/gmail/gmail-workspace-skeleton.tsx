@@ -19,24 +19,24 @@ export function GmailWorkspaceSkeleton() {
       width="reading"
       className="pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:pb-10 md:pb-8"
       aria-busy="true"
-      aria-label="Checking your Mail status"
+      aria-label="Checking your Gmail status"
     >
       <AppPageHeaderRegion>
         <PageHeader
-          title="Mail"
-          description="Checking your Mail status"
+          title="Gmail"
+          description="Checking your Gmail status"
           actions={<Skeleton className="h-10 w-36" />}
         />
       </AppPageHeaderRegion>
 
       <AppPageContentRegion>
         <SurfaceStack compact>
-          <SurfaceInset className="space-y-3 border border-accent-border bg-accent-surface px-4 py-4 sm:px-5 sm:py-5">
+          <SurfaceInset className="space-y-3 px-4 py-4 sm:px-5 sm:py-5">
             <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-              Mail
+              Gmail
             </p>
             <h2 className="text-lg font-semibold tracking-tight text-foreground">
-              Checking your Mail status
+              Checking your Gmail status
             </h2>
             <p className="text-sm text-muted-foreground">
               Your inbox and receipts will appear here as they are ready.

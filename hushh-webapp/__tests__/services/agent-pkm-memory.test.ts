@@ -14,14 +14,10 @@ vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
   },
 }));
 
-const pkmGetStaleFirstMock = vi.fn();
 const pkmGetManyStaleFirstMock = vi.fn();
-const pkmHydrateFromSecureCacheMock = vi.fn();
 vi.mock("@/lib/pkm/pkm-domain-resource", () => ({
   PkmDomainResourceService: {
-    getStaleFirst: (...args: unknown[]) => pkmGetStaleFirstMock(...args),
     getManyStaleFirst: (...args: unknown[]) => pkmGetManyStaleFirstMock(...args),
-    hydrateFromSecureCache: (...args: unknown[]) => pkmHydrateFromSecureCacheMock(...args),
   },
 }));
 
@@ -47,6 +43,38 @@ import {
   type AgentPkmPreviewCard,
 } from "@/lib/agent/agent-pkm-memory";
 import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { advanceVaultSessionEpoch } from "@/lib/vault/session-epoch";
+import { createAgentPkmCaptureGuard, isAgentPkmProcessingReady } from "@/lib/agent/agent-pkm-capture-runtime";
+
+it("keeps a confirmed old-generation receipt without invalidating the replacement owner context", async () => {
+  publishValidatedAuthSessionOwner("owner-a");
+  const guard = createAgentPkmCaptureGuard({
+    userId: "owner-a", signal: new AbortController().signal, isEnabled: () => true,
+  });
+  const invalidate = vi.spyOn(AgentPkmContextStore, "invalidateUser");
+  pkmSavePreparedDomainMock.mockImplementationOnce(async () => {
+    publishValidatedAuthSessionOwner("owner-b");
+    publishValidatedAuthSessionOwner("owner-a");
+    advanceVaultSessionEpoch();
+    return { success: true, saveState: "saved", fullBlob: {} };
+  });
+  try {
+    const result = await addToPKM({
+      userId: "owner-a", sourceMessage: "Synthetic preference", vaultKey: "test-key",
+      vaultOwnerToken: "test-token", beforeEffect: guard.assertCurrent, mayPublish: guard.isCurrent,
+      confirmation: { confirmedByUser: true, surface: "chat", source: "test" },
+      cards: [{ card_id: "test", write_mode: "can_save", target_domain: "preferences",
+        candidate_payload: { format: "brief" }, structure_decision: { target_domain: "preferences" } }],
+    });
+    expect(result.saved).toBe(1);
+    expect(guard.isCurrent()).toBe(false);
+    expect(invalidate).not.toHaveBeenCalled();
+  } finally {
+    invalidate.mockRestore();
+    publishValidatedAuthSessionOwner(null);
+  }
+});
 
 const METADATA = {
   userId: "user_1",
@@ -91,15 +119,6 @@ describe("agent PKM memory helpers", () => {
         },
       },
     };
-    pkmGetStaleFirstMock.mockResolvedValue({
-      data: {
-        identity_profile: {
-          full_name: "Akshat Kumar",
-          declared_age: "23",
-        },
-      },
-    });
-    pkmHydrateFromSecureCacheMock.mockResolvedValue(null);
     pkmGetManyStaleFirstMock.mockImplementation(async ({ domains }: { domains: string[] }) => ({
       snapshots: Object.fromEntries(
         domains
@@ -129,6 +148,7 @@ describe("agent PKM memory helpers", () => {
   it("keeps sharing and uncertain cards in review while exposing only private can-save cards", () => {
     const cards: AgentPkmPreviewCard[] = [
       { card_id: "auto", source_text: "", write_mode: "can_save" },
+      { card_id: "incomplete", source_text: "", write_mode: "can_save", preparation_requires_review: true },
       {
         card_id: "shared",
         source_text: "",
@@ -152,6 +172,82 @@ describe("agent PKM memory helpers", () => {
     ]);
   });
 
+  it("keeps degraded previews out of automatic writes", () => {
+    const cards: AgentPkmPreviewCard[] = [
+      { card_id: "verified", source_text: "", write_mode: "can_save" },
+      {
+        card_id: "degraded",
+        source_text: "",
+        write_mode: "can_save",
+        preview_degraded: true,
+      },
+    ];
+
+    expect(getPkmAutoSaveCards(cards).map((card) => card.card_id)).toEqual(["verified"]);
+  });
+
+  it("rejects a degraded preview even when a caller supplies explicit confirmation", async () => {
+    const result = await addToPKM({
+      userId: "user_1",
+      sourceMessage: "I prefer tea.",
+      vaultKey: "test-key",
+      vaultOwnerToken: "test-token",
+      confirmation: { confirmedByUser: true, surface: "web", source: "test" },
+      cards: [{
+        card_id: "degraded",
+        source_text: "I prefer tea.",
+        write_mode: "can_save",
+        preview_degraded: true,
+        target_domain: "preferences",
+        candidate_payload: { drink: "tea" },
+        structure_decision: { target_domain: "preferences" },
+      }],
+    });
+
+    expect(result).toMatchObject({ saved: 0, failed: 1 });
+    expect(result.results[0]?.message).toContain("prepared again");
+    expect(pkmSavePreparedDomainMock).not.toHaveBeenCalled();
+    expect(pkmSaveMergedDomainMock).not.toHaveBeenCalled();
+  });
+
+  it("rechecks token expiry without requiring a React render", () => {
+    vi.useFakeTimers();
+    const state = { authLoading: false, sessionVerificationRequired: false, isVaultUnlocked: true,
+      vaultOwnerToken: "test-token", tokenExpiresAt: Date.now() + 100 };
+    expect(isAgentPkmProcessingReady(state, "test-token")).toBe(true);
+    expect(isAgentPkmProcessingReady({ ...state, vaultOwnerToken: "replacement" }, "test-token")).toBe(false);
+    vi.advanceTimersByTime(100);
+    expect(isAgentPkmProcessingReady(state, "test-token")).toBe(false);
+    expect(isAgentPkmProcessingReady({ ...state, tokenExpiresAt: null }, "test-token")).toBe(false);
+  });
+
+  it.each(["owner", "product"])("rejects a direct %s automatic write with incomplete coverage but retains explicit manual review", async (mode) => {
+    const card: AgentPkmPreviewCard = {
+      card_id: "incomplete", source_text: "I prefer tea.", write_mode: "can_save",
+      preparation_requires_review: true, target_domain: "preferences",
+      candidate_payload: { drink: "tea" }, structure_decision: { target_domain: "preferences" },
+    };
+    const params = { userId: "user_1", cards: [card], sourceMessage: "I prefer tea. I prefer warm rooms.",
+      vaultKey: "test-key", vaultOwnerToken: "test-token", source: "test" };
+    const automatic = await addToPKM({ ...params, confirmation: mode === "owner" ? {
+      authorizationMode: "owner_auto_save_policy", surface: "chat", source: "test",
+      autoSavePolicyVersion: 1, autoSavePolicyEnabledAt: "2026-09-18T00:00:00Z",
+    } : {
+      authorizationMode: "product_default_auto_save_policy", surface: "chat",
+      source: "agent_chat_product_default_auto_save", autoSavePolicyVersion: 1,
+      productDefaultEffectiveAt: "2026-09-18T00:00:00Z",
+    } });
+    expect(automatic).toMatchObject({ saved: 0, failed: 1 });
+    expect(pkmSavePreparedDomainMock).not.toHaveBeenCalled();
+    expect(pkmSaveMergedDomainMock).not.toHaveBeenCalled();
+    const reviewed = await addToPKM({ ...params, confirmation: {
+      confirmedByUser: true, surface: "web", source: "test",
+    } });
+    expect(reviewed).toMatchObject({ saved: 1, failed: 0 });
+    expect(pkmSavePreparedDomainMock).toHaveBeenCalledTimes(1);
+    expect(card.write_mode).toBe("can_save");
+  });
+
   it("loads decrypted session PKM when the vault key is available", async () => {
     const context = await loadAgentPkmContext({
       userId: "user_1",
@@ -162,11 +258,13 @@ describe("agent PKM memory helpers", () => {
 
     expect(context.source).toBe("decrypted_session_pkm");
     expect(context.text).toContain("Source: decrypted locally");
+    expect(context.text).toContain("agent-safe-pkm/v1");
     expect(context.text).toContain("concise summaries");
     expect(context.coverage).toMatchObject({
       totalFactCount: 1,
       matchedFactCount: 1,
       selectedFactCount: 1,
+      inventoryOnly: false,
       budgetChars: 12000,
     });
     expect(pkmGetManyStaleFirstMock).toHaveBeenCalledWith(
@@ -178,13 +276,23 @@ describe("agent PKM memory helpers", () => {
     );
   });
 
-  it("uses encrypted device snapshots before detached chat revalidation", async () => {
-    pkmHydrateFromSecureCacheMock.mockImplementation(async ({ domain }) =>
-      domain === "preferences"
-        ? { data: pkmBlob.preferences }
-        : null,
-    );
+  it("fails closed for a recall turn when metadata is temporarily unavailable", async () => {
+    pkmGetMetadataMock.mockRejectedValue(new Error("metadata temporarily unavailable"));
 
+    await expect(
+      loadAgentPkmContext({
+        userId: "user_1",
+        vaultOwnerToken: "vault_token",
+        vaultKey: "vault_key",
+        message: "where do I study?",
+        requireDecrypted: true,
+      }),
+    ).rejects.toThrow("private memory could not be loaded");
+
+    expect(peekAgentPkmContext({ userId: "user_1", message: "where do I study?" })).toBeNull();
+  });
+
+  it("waits for the complete agent-safe batch before publishing a packet", async () => {
     const context = await loadAgentPkmContext({
       userId: "user_1",
       vaultOwnerToken: "vault_token",
@@ -193,15 +301,20 @@ describe("agent PKM memory helpers", () => {
     });
 
     expect(context.text).toContain("concise summaries");
-    expect(pkmHydrateFromSecureCacheMock).toHaveBeenCalledWith(
-      expect.objectContaining({ userId: "user_1", domain: "preferences", vaultKey: "vault_key" }),
-    );
     expect(pkmGetManyStaleFirstMock).toHaveBeenCalledWith(
-      expect.objectContaining({ forceRefresh: true, backgroundRefresh: false }),
+      expect.objectContaining({ forceRefresh: false, backgroundRefresh: false }),
     );
   });
 
-  it("loads only the identity profile segment for a targeted KYC lookup", async () => {
+  it("loads the full agent-safe profile for a KYC lookup", async () => {
+    pkmBlob = {
+      preferences: { writing: { default_style: "concise summaries" } },
+      identity: { identity_profile: { full_name: "Test Person", declared_age: "23" } },
+    };
+    pkmGetMetadataMock.mockResolvedValue({
+      ...METADATA,
+      domains: [...METADATA.domains, { ...METADATA.domains[0], key: "identity", displayName: "Identity" }],
+    });
     const context = await loadAgentPkmContext({
       userId: "user_1",
       vaultOwnerToken: "vault_token",
@@ -209,19 +322,17 @@ describe("agent PKM memory helpers", () => {
       message: "Find my legal name and age for this KYC request",
     });
 
-    expect(pkmGetStaleFirstMock).toHaveBeenCalledWith(
+    expect(pkmGetManyStaleFirstMock).toHaveBeenCalledWith(
       expect.objectContaining({
         userId: "user_1",
-        domain: "identity",
-        segmentIds: ["identity_profile"],
-        backgroundRefresh: false,
+        domains: ["preferences", "identity"],
       }),
     );
-    expect(pkmGetManyStaleFirstMock).not.toHaveBeenCalled();
-    expect(context.text).toContain("Akshat Kumar");
+    expect(context.text).toContain("Test Person");
+    expect(context.text).toContain("concise summaries");
   });
 
-  it("serves a warm targeted KYC lookup without another encrypted-segment request", async () => {
+  it("reuses the same full packet for unrelated requests", async () => {
     const params = {
       userId: "user_1",
       vaultOwnerToken: "vault_token",
@@ -229,11 +340,11 @@ describe("agent PKM memory helpers", () => {
       message: "Find my legal name and age for this KYC request",
     };
 
-    await loadAgentPkmContext(params);
-    await loadAgentPkmContext(params);
+    const first = await loadAgentPkmContext(params);
+    const second = await loadAgentPkmContext({ ...params, message: "What writing style do I prefer?" });
 
-    expect(pkmGetStaleFirstMock).toHaveBeenCalledTimes(1);
-    expect(pkmGetManyStaleFirstMock).not.toHaveBeenCalled();
+    expect(first.text).toBe(second.text);
+    expect(pkmGetManyStaleFirstMock).toHaveBeenCalledTimes(1);
   });
 
   it("checks duplicates only against an already-unlocked local inventory", async () => {
@@ -259,7 +370,7 @@ describe("agent PKM memory helpers", () => {
     ).toMatchObject({ kind: "exact", domain: "preferences" });
   });
 
-  it("treats the reported memory-summary wording as a broad PKM request", async () => {
+  it("returns the full agent-safe packet regardless of prompt wording", async () => {
     const context = await loadAgentPkmContext({
       userId: "user_1",
       vaultOwnerToken: "vault_token",
@@ -268,13 +379,32 @@ describe("agent PKM memory helpers", () => {
     });
 
     expect(context.source).toBe("decrypted_session_pkm");
-    expect(context.mode).toBe("broad");
-    expect(context.text).toContain("Preferences: 1 saved fact");
-    expect(context.text).not.toContain("concise summaries");
-    expect(context.coverage).toMatchObject({ inventoryOnly: true, selectedFactCount: 0 });
+    expect(context.mode).toBe("full");
+    expect(context.text).toContain("concise summaries");
+    expect(context.coverage).toMatchObject({ inventoryOnly: false, selectedFactCount: 1 });
   });
 
-  it("warms only PKM metadata until a chat request selects encrypted segments", async () => {
+  it("marks an oversized full packet incomplete instead of silently truncating a fact", async () => {
+    pkmBlob = { preferences: { writing: { long_note: "x".repeat(2_500) } } };
+
+    const context = await loadAgentPkmContext({
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      vaultKey: "vault_key",
+      maxChars: 2_000,
+    });
+
+    expect(context.coverage).toMatchObject({
+      totalFactCount: 1,
+      selectedFactCount: 0,
+      omittedFactCount: 1,
+      clipped: true,
+    });
+    expect(context.text).toContain("omitted because of the 2000-character packet limit");
+    expect(context.text).not.toContain("x".repeat(200));
+  });
+
+  it("warms the full agent-safe packet into browser RAM after unlock", async () => {
     await warmAgentPkmContext({
       userId: "user_1",
       vaultOwnerToken: "vault_token",
@@ -282,9 +412,10 @@ describe("agent PKM memory helpers", () => {
     });
 
     expect(pkmGetMetadataMock).toHaveBeenCalledTimes(1);
-    expect(pkmGetManyStaleFirstMock).not.toHaveBeenCalled();
-    expect(peekAgentPkmContext({ userId: "user_1", message: "writing preferences" }))
-      .toBeNull();
+    expect(pkmGetManyStaleFirstMock).toHaveBeenCalledTimes(1);
+    const packet = peekAgentPkmContext({ userId: "user_1", message: "unrelated request" });
+    expect(packet?.text).toContain("agent-safe-pkm/v1");
+    expect(packet?.text).toContain("concise summaries");
   });
 
   it("serves an expired session working set immediately while one refresh is shared", async () => {
@@ -300,7 +431,7 @@ describe("agent PKM memory helpers", () => {
     vi.setSystemTime(new Date("2026-07-20T12:06:00Z"));
     expect(
       peekAgentPkmContext({ userId: "user_1", message: "summarize my memory" })?.text,
-    ).toContain("Preferences: 1 saved fact");
+    ).toContain("concise summaries");
 
     let resolveMetadata: ((value: typeof METADATA) => void) | null = null;
     pkmGetMetadataMock.mockReturnValueOnce(
@@ -375,7 +506,7 @@ describe("agent PKM memory helpers", () => {
     expect(pkmGetManyStaleFirstMock).not.toHaveBeenCalled();
   });
 
-  it("never projects runtime secrets or quarantined information into an Agent Chat PKM context", async () => {
+  it("never projects secrets, regulated identifiers, source artifacts, or quarantined information into One's packet", async () => {
     pkmBlob = {
       preferences: {
         writing: { default_style: "concise summaries" },
@@ -389,7 +520,27 @@ describe("agent PKM memory helpers", () => {
       __quarantine_v1: {
         saved_but_never_shareable: "must-not-reach-agent-context",
       },
+      identity: {
+        student_id: "safe-student-id",
+        passport_number: "must-not-reach-agent-context",
+      },
+      financial: {
+        account_number: "must-not-reach-agent-context",
+        portfolio_name: "long-term holdings",
+      },
+      source_library: {
+        document_text: "must-not-reach-agent-context",
+      },
     };
+    pkmGetMetadataMock.mockResolvedValue({
+      ...METADATA,
+      domains: [
+        ...METADATA.domains,
+        { ...METADATA.domains[0], key: "identity", displayName: "Identity" },
+        { ...METADATA.domains[0], key: "financial", displayName: "Financial" },
+        { ...METADATA.domains[0], key: "source_library", displayName: "Source library" },
+      ],
+    });
 
     const context = await loadAgentPkmContext({
       userId: "user_1",
@@ -402,7 +553,9 @@ describe("agent PKM memory helpers", () => {
     expect(context.domains).toContain("preferences");
     expect(context.domains).not.toContain("runtime_secrets");
     expect(context.domains).not.toContain("__quarantine_v1");
-    expect(context.text).toContain("Preferences: 1 saved fact");
+    expect(context.text).toContain("concise summaries");
+    expect(context.text).toContain("safe-student-id");
+    expect(context.text).toContain("long-term holdings");
     expect(context.text).not.toContain("runtime_secrets");
     expect(context.text).not.toContain("gemini_api_key");
     expect(context.text).not.toContain("must-not-reach-agent-context");
@@ -484,6 +637,38 @@ describe("agent PKM memory helpers", () => {
     });
   });
 
+  it("carries a response-level fallback marker onto every preview card", async () => {
+    apiFetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        agent_id: "agent",
+        agent_name: "One",
+        model: "test",
+        used_fallback: true,
+        preview_cards: [{
+          card_id: "fallback-card",
+          source_text: "",
+          write_mode: "can_save",
+          target_domain: "preferences",
+          candidate_payload: { writing: { default_style: "concise" } },
+          structure_decision: { target_domain: "preferences" },
+        }],
+      }),
+    });
+
+    const preview = await previewAgentPkmMemory({
+      userId: "user_1",
+      vaultOwnerToken: "vault_token",
+      message: "remember that I prefer concise summaries",
+      currentDomains: ["preferences"],
+    });
+
+    expect(preview.cards[0]).toMatchObject({
+      card_id: "fallback-card",
+      preview_degraded: true,
+    });
+  });
+
   it("redacts rejected proposal payloads from the user-facing error", async () => {
     const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
     apiFetchMock.mockResolvedValue({
@@ -530,6 +715,7 @@ describe("agent PKM memory helpers", () => {
         source_text: "remember that I prefer concise summaries",
         write_mode: "can_save",
         target_domain: "preferences",
+        primary_json_path: "preferences.writing.default_style",
         candidate_payload: { writing: { default_style: "concise" } },
         structure_decision: { target_domain: "preferences" },
       },
@@ -567,6 +753,7 @@ describe("agent PKM memory helpers", () => {
     );
     expect(plan.summary).not.toHaveProperty("message_excerpt");
     expect(plan.summary).not.toHaveProperty("card_id");
+    expect(plan.scopePath).toBe("preferences.writing.default_style");
     expect(peekAgentPkmContext({ userId: "user_1", message: "writing" })).toBeNull();
   });
 

@@ -7,19 +7,47 @@ email workflows do not grow a second provider configuration path.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
-from google.adk.models import Gemini
+from pydantic import ValidationError
 
 from hushh_mcp.hushh_adk.manifest import AgentSubagentConfig, ManifestLoader
 from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent, run_single_turn
-from hushh_mcp.runtime_providers import build_managed_runtime_client
-from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
+from hushh_mcp.runtime_providers.vertex_failover import is_retryable_vertex_error
 
 _MANIFEST_PATH = Path(__file__).with_name("agent.yaml")
+
+
+def _is_retryable_email_gene_error(error: Exception) -> bool:
+    """Return whether a side-effect-free Email gene can be replayed once."""
+
+    if is_retryable_vertex_error(error) or isinstance(error, TimeoutError):
+        return True
+    current: BaseException | None = error
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        # The shared ADK runner preserves the underlying timeout as the cause
+        # of SpecialistAdkTurnError. Email genes have no tools, so one replay
+        # after that cancellation is safe.
+        if isinstance(current, TimeoutError):
+            return True
+        if isinstance(current, (json.JSONDecodeError, ValidationError)):
+            return True
+        if isinstance(current, ValueError) and str(current) in {
+            "single-turn agent returned an empty response",
+            "single-turn agent returned invalid JSON",
+            "single-turn agent returned a non-object response",
+            "single-turn response does not match output schema",
+        }:
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
 
 EMAIL_DRAFT_SCHEMA: dict[str, Any] = {
     "type": "OBJECT",
@@ -131,25 +159,31 @@ async def run_email_gene(
         raise ValueError("Email gene authority is required")
 
     gene = load_email_gene(gene_id)
-    model_config = gene.model
-    model_name = resolve_fleet_model_name(str(model_config.name))
-    client = build_managed_runtime_client(model_config.provider)
     agent = build_single_turn_agent(
         gene,
         output_schema=output_schema,
-        model=Gemini(model=model_name, client=client),
     )
-    result = await run_single_turn(
-        agent,
-        prompt_parts=str(prompt).strip(),
-        user_id=str(user_id),
-        consent_token=str(consent_token),
-        timeout_seconds=(
-            float(timeout_seconds)
-            if timeout_seconds is not None
-            else max(30.0, gene.performance.latency_p95_ms / 1000)
-        ),
+    request_timeout_seconds = (
+        float(timeout_seconds)
+        if timeout_seconds is not None
+        else max(30.0, gene.performance.latency_p95_ms / 1000)
     )
+    for attempt in range(2):
+        try:
+            result = await run_single_turn(
+                agent,
+                prompt_parts=str(prompt).strip(),
+                user_id=str(user_id),
+                consent_token=str(consent_token),
+                timeout_seconds=request_timeout_seconds,
+            )
+            break
+        except Exception as exc:
+            if attempt or not _is_retryable_email_gene_error(exc):
+                raise
+            # Email genes are schema-only and have no tools or side effects, so
+            # replaying a transient provider failure is safe.
+            await asyncio.sleep(0.5)
     payload = result.model_dump(mode="json") if hasattr(result, "model_dump") else result
     if not isinstance(payload, dict):
         raise ValueError("Email gene returned a non-object payload")

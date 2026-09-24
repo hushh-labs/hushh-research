@@ -21,7 +21,7 @@ const allowMutation = process.env.PKM_REVIEWER_REHEARSAL_ALLOW_MUTATION === "1";
 const allowDecryptedOutput = process.env.PKM_REVIEWER_REHEARSAL_ALLOW_DECRYPTED_OUTPUT === "1";
 const naturalPrompt =
   process.env.PKM_REVIEWER_REHEARSAL_PROMPT ||
-  "Remember that I prefer index funds for long-term investing.";
+  "Remember that I prefer concise summaries when my private agent responds.";
 const tmpRoot = path.resolve(repoRoot, "tmp");
 const encryptedOutput = path.resolve(
   process.env.PKM_REVIEWER_ENCRYPTED_OUTPUT ||
@@ -158,7 +158,9 @@ async function fetchExactFinancialPayload(ownerToken) {
 
 function assertFinancialScopes(scopePayload) {
   const scopes = Array.isArray(scopePayload?.scopes) ? scopePayload.scopes : [];
-  const requiredScope = "attr.financial.*";
+  // Financial exposure is intentionally emitted as bounded manifest branches;
+  // the retired broad domain wildcard is not a valid requestable scope.
+  const requiredScope = "attr.financial.portfolio.*";
   if (!scopes.includes(requiredScope)) {
     throw new Error(`Generated scope ${requiredScope} is missing.`);
   }
@@ -206,7 +208,10 @@ async function boundedResponseError(response) {
 
 async function loadSampleBrokerage(page) {
   await navigateInApp(page, "/one/kai/import");
-  const loadButton = page.getByRole("button", { name: /^Load Sample Brokerage$/i });
+  // SettingsRow exposes the title and supporting description as one accessible
+  // name. Use the route's stable test contract instead of an exact role-name
+  // match so the rehearsal follows the current shared settings-row primitive.
+  const loadButton = page.getByTestId("portfolio-import-load-sample");
   await loadButton.waitFor({ state: "visible", timeout: timeoutMs });
   await loadButton.click();
   await page.getByRole("heading", { name: /review portfolio/i }).waitFor({
@@ -229,23 +234,28 @@ async function loadSampleBrokerage(page) {
       `Sample brokerage PKM save failed with HTTP ${storeResponse.status()}: ${await boundedResponseError(storeResponse)}`
     );
   }
+  // The review component finalizes the successful save through KaiFlow after
+  // the store response. Wait for that same-session dashboard transition before
+  // requesting the next client navigation; otherwise the late completion can
+  // race this rehearsal's root-chat navigation and replace it with the
+  // import route's own dashboard destination.
+  await page.waitForURL(
+    (url) => url.pathname === "/one/kai" && url.searchParams.get("tab") === "portfolio",
+    { timeout: Math.min(timeoutMs, 60_000) },
+  );
   return holdingsCount;
 }
 
-function proposalDomain(payload) {
+function proposalCards(payload) {
   const cards = Array.isArray(payload?.preview_cards) ? payload.preview_cards : [];
-  const card = cards.find((candidate) => {
-    const domain =
-      candidate?.manifest_draft?.domain ||
-      candidate?.structure_decision?.target_domain ||
-      candidate?.target_domain;
-    return domain === "financial";
-  });
-  return card ? "financial" : "";
+  return cards;
 }
 
-async function saveNaturalFinancialMemory(page) {
-  await navigateInApp(page, "/agent");
+async function saveNaturalMemory(page) {
+  // `/agent` is a compatibility redirect; the active chat surface is the
+  // root route. Navigating to the canonical route preserves the vault key and
+  // avoids waiting for a URL that the app intentionally rewrites.
+  await navigateInApp(page, "/");
   const composer = page.getByRole("textbox", { name: "Message One" });
   await composer.waitFor({ state: "visible", timeout: timeoutMs });
 
@@ -255,6 +265,11 @@ async function saveNaturalFinancialMemory(page) {
       response.request().method() === "POST",
     { timeout: timeoutMs }
   );
+  // Chat's current contract is owner-authorized background capture. It does
+  // not mount the retired inline "Save to PKM?" panel; the explicit review
+  // surface remains the Memory workspace. A durable preference is expected to
+  // remain confirm_first, so only arm the store watcher when the returned
+  // proposal actually authorizes an automatic private write.
   await composer.fill(naturalPrompt);
   await page.getByRole("button", { name: "Send message" }).click();
   const proposalResponse = await proposalPromise;
@@ -262,17 +277,30 @@ async function saveNaturalFinancialMemory(page) {
     throw new Error(`Natural PKM proposal failed with HTTP ${proposalResponse.status()}.`);
   }
   const proposal = await proposalResponse.json();
-  if (proposalDomain(proposal) !== "financial") {
-    throw new Error("Natural prompt was not structured into the financial domain.");
+  const cards = proposalCards(proposal);
+  if (cards.length === 0) {
+    throw new Error("Natural prompt produced no reviewable PKM proposal cards.");
   }
-
-  const reviewTitle = page.getByText("Save to PKM?", { exact: true });
-  await reviewTitle.waitFor({ state: "visible", timeout: timeoutMs });
-  const reviewPanel = reviewTitle.locator(
-    "xpath=ancestor::div[.//button[normalize-space()='Save']][1]"
+  const reviewRequired = cards.some((card) =>
+    card?.write_mode === "confirm_first" ||
+    card?.requires_confirmation === true ||
+    card?.preparation_requires_review === true ||
+    card?.intent_frame?.requires_confirmation === true
   );
-  const storeResponsePromise = waitForFinancialStore(page);
-  await reviewPanel.getByRole("button", { name: /^Save$/i }).click();
+  const storeResponsePromise = reviewRequired ? null : waitForFinancialStore(page);
+
+  const memoryStatus = page.locator('[data-testid="memory-capture-status"]').last();
+  await memoryStatus.waitFor({ state: "visible", timeout: timeoutMs });
+  const statusText = (await memoryStatus.getByRole("status").textContent()) || "";
+  if (reviewRequired) {
+    if (!/details? need review before saving/i.test(statusText)) {
+      throw new Error("Natural Chat capture did not preserve the review-required status.");
+    }
+    return { phase: "review", cardCount: cards.length };
+  }
+  if (!/details? saved privately/i.test(statusText)) {
+    throw new Error("Natural Chat capture did not reach its saved-private status.");
+  }
   const storeResponse = await storeResponsePromise;
   if (!storeResponse.ok()) {
     throw new Error(
@@ -302,7 +330,11 @@ let freshSession;
 let firstVaultKey;
 let freshVaultKey;
 try {
-  firstSession = await openReviewerSession(browser, "/one/kai/import");
+  // Kai owns its stage query while the import route settles. The path remains
+  // stable, so allow only that route's query to change during admission.
+  firstSession = await openReviewerSession(browser, "/one/kai/import", {
+    allowQueryMutation: true,
+  });
   const firstVaultState = await firstSession.capture.vaultState();
   if (explicitOutputCrypto && explicitOutputIdentity) {
     firstVaultKey = explicitOutputCrypto.deriveVaultKeyForExplicitOutput(
@@ -319,7 +351,7 @@ try {
   );
   const canonicalScopes = assertFinancialScopes(scopesAfterBrokerage);
 
-  await saveNaturalFinancialMemory(firstSession.page);
+  await saveNaturalMemory(firstSession.page);
   await assertVaultContinuity(firstSession.page, "natural PKM save");
   const scopesAfterMemory = await fetchOwnerJson(
     `/api/pkm/scopes/${encodeURIComponent(reviewerUid)}`,
@@ -338,7 +370,9 @@ try {
   await firstSession.context.close();
   firstSession = null;
 
-  freshSession = await openReviewerSession(browser, "/one/kai/portfolio");
+  // The portfolio URL is a compatibility redirect; the active dashboard owns
+  // the tab in the canonical One/Kai route.
+  freshSession = await openReviewerSession(browser, "/one/kai?tab=portfolio");
   const freshVaultState = await freshSession.capture.vaultState();
   if (explicitOutputCrypto && explicitOutputIdentity) {
     freshVaultKey = explicitOutputCrypto.deriveVaultKeyForExplicitOutput(

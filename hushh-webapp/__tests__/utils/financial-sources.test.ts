@@ -4,12 +4,23 @@ import {
   getActiveStatementSnapshotId,
   getStatementPortfolio,
   getStatementSnapshotOptions,
-  isPlaidMirrorStale,
-  removePlaidSource,
   removeStatementSnapshot,
+  setActivePlaidSource,
   setActiveStatementSnapshot,
 } from "@/lib/kai/brokerage/financial-sources";
 import { resolvePreferredPortfolioSource } from "@/lib/kai/brokerage/portfolio-sources";
+import { applyConnectionLink, applySnapshot } from "@/lib/kai/plaid-vault/projection";
+
+import { FIRST_PLATYPUS, NOW, firstPlatypusSnapshot } from "../lib/plaid-vault/fixtures";
+
+function withVaultBank(base: Record<string, unknown>): Record<string, unknown> {
+  const linked = applyConnectionLink(
+    base,
+    { item_id: "item_fp", access_token: "access-sandbox-item-fp", institution: FIRST_PLATYPUS, products: ["investments"] },
+    NOW,
+  );
+  return applySnapshot(linked, "item_fp", firstPlatypusSnapshot("item_fp", "fp"), NOW);
+}
 
 describe("financial statement snapshots", () => {
   const financial = {
@@ -116,55 +127,42 @@ describe("financial statement snapshots", () => {
     expect((updated?.sources as Record<string, unknown>).active_source).toBe("statement");
   });
 
-  it("removes Plaid source data and restores the active statement snapshot", () => {
-    const withPlaid = {
-      ...financial,
-      portfolio: {
-        holdings: [{ symbol: "PLAID", name: "Plaid Holding", quantity: 1, market_value: 50 }],
-      },
-      sources: {
-        ...financial.sources,
-        active_source: "plaid",
-        plaid: {
-          signature: "old",
-          items: [{ item_id: "item_1", status: "active" }],
-          aggregate: {
-            portfolio_data: {
-              holdings: [
-                { symbol: "PLAID", name: "Plaid Holding", quantity: 1, market_value: 50 },
-              ],
-            },
-          },
-        },
-      },
+  it("makes the vault's holdings active and drops the retired Plaid copy", () => {
+    const withOldCopy = {
+      ...withVaultBank(financial),
+      sources: { ...financial.sources, plaid: { signature: "old", items: [{ item_id: "legacy" }] } },
     };
+    const next = setActivePlaidSource(withOldCopy, "2026-04-20T02:00:00.000Z");
 
-    const removed = removePlaidSource(withPlaid, "2026-04-20T02:00:00.000Z", {
-      clearActivePortfolio: true,
-    });
-
-    expect((removed.sources as Record<string, unknown>).plaid).toBeUndefined();
-    expect(getActiveStatementSnapshotId(removed)).toBe("stmt_b");
-    expect(getStatementPortfolio(removed)?.holdings?.[0]?.symbol).toBe("BETA");
+    expect(next).not.toBeNull();
+    const sources = next!.sources as Record<string, unknown>;
+    expect(sources.plaid).toBeUndefined();
+    expect(sources.active_source).toBe("plaid");
+    expect(((next!.portfolio as { holdings?: unknown[] }).holdings ?? []).length).toBeGreaterThan(0);
   });
 
-  it("does not persist an empty Plaid mirror when no local Plaid source exists", () => {
-    expect(
-      isPlaidMirrorStale(financial, {
-        configured: true,
-        user_id: "user_1",
-        source_preference: "statement",
-        items: [],
-        aggregate: {
-          item_count: 0,
-          account_count: 0,
-          holdings_count: 0,
-          institution_names: [],
-          sync_status: "idle",
-          portfolio_data: null,
-        },
-      })
-    ).toBe(false);
+  it("has nothing to activate without sealed Plaid holdings", () => {
+    expect(setActivePlaidSource(financial, "2026-04-20T02:00:00.000Z")).toBeNull();
+  });
+
+  it("falls back to the vault's holdings when the last statement is deleted", () => {
+    const statement = financial.sources.statement;
+    const single = withVaultBank({
+      ...financial,
+      sources: {
+        active_source: "statement",
+        plaid: { signature: "old" },
+        statement: { ...statement, snapshots: [statement.snapshots[0]] },
+      },
+    });
+    const next = removeStatementSnapshot(single, "stmt_b", "2026-04-20T02:00:00.000Z");
+
+    expect(next).not.toBeNull();
+    const sources = next!.sources as Record<string, unknown>;
+    expect(getStatementSnapshotOptions(next)).toHaveLength(0);
+    expect(sources.active_source).toBe("plaid");
+    expect(sources.plaid).toBeUndefined();
+    expect(((next!.portfolio as { holdings?: unknown[] }).holdings ?? []).length).toBeGreaterThan(0);
   });
 
   it("keeps a saved statement source active when backend preference is stale", () => {

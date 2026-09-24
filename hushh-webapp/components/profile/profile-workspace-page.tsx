@@ -12,34 +12,38 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   WarningIcon as AlertTriangle,
   BriefcaseIcon as BriefcaseBusiness,
-  CodeIcon as CodeXml,
   AddressBookIcon as ContactRound,
-  ExternalLinkIcon as ExternalLink,
   FingerprintIcon as Fingerprint,
-  FolderSimpleIcon as Folder,
   KeyIcon as KeyRound,
   LockIcon,
   SpinnerGapIcon as Loader2,
   LogOutIcon as LogOut,
   MailIcon as Mail,
-  MapPinIcon as MapPin,
   MicrophoneIcon as Mic,
-  QuestionIcon as MessageCircleQuestion,
-  UsersThreeIcon as Users,
   DesktopIcon as Monitor,
-  LaptopIcon as Laptop,
   PhoneIcon as Phone,
   PaletteIcon as Palette,
   ArrowsClockwiseIcon as RefreshCw,
-  ShareNetworkIcon as Share2,
   SendIcon as SendHorizontal,
-  ShieldIcon as ShieldCheck,
-  SlidersHorizontalIcon as SlidersHorizontal,
   TrashIcon as Trash2,
   UserCircleIcon as User,
-  UserIcon as UserRound,
-  WalletIcon as Wallet,
 } from "@/components/icons";
+import {
+  AccountProfileIcon,
+  ConsentAgentIcon,
+  DeveloperToolsProfileIcon,
+  DevicesProfileIcon,
+  FingerprintProfileIcon,
+  GmailAgentIcon,
+  LocationAgentIcon,
+  MemoryAgentIcon,
+  PreferencesProfileIcon,
+  RiaAgentIcon,
+  SecurityProfileIcon,
+  SignOutProfileIcon,
+  SupportProfileIcon,
+  WalletAgentIcon,
+} from "@/components/icons/agents";
 import { toast } from "sonner";
 
 import {
@@ -115,6 +119,7 @@ import {
   accountDeletionErrorMessage,
   executeVerifiedAccountDeletion,
   resolveDeleteAccountAuth,
+  revokeVaultBanksBeforeErasure,
 } from "@/lib/flows/delete-account";
 import { buildLoginRouteWithAuthSessionNotice } from "@/lib/auth/session-invalidation";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -1569,6 +1574,7 @@ function ProfilePageContent({
               userId: user.uid,
               vaultOwnerToken: token,
               sessionUser: user,
+              vaultKey,
             });
           })(),
           {
@@ -1676,6 +1682,11 @@ function ProfilePageContent({
       await morphyToast
         .promise(
           (async () => {
+            await revokeVaultBanksBeforeErasure({
+              userId: user.uid,
+              vaultKey,
+              vaultOwnerToken: resolution.token,
+            });
             const result = await AccountService.resetAccount(resolution.token);
             const resetOutcome = resolveResetOutcome(result);
             if (resetOutcome !== "reset") {
@@ -3365,7 +3376,8 @@ function ProfilePageContent({
 
       <SettingsGroup>
         <SettingsRow
-          icon={MapPin}
+          icon={LocationAgentIcon}
+          iconTone="capability"
           title="Location sharing"
           description="Manage live location."
           trailing={<Badge variant="secondary">One</Badge>}
@@ -3374,7 +3386,8 @@ function ProfilePageContent({
           onClick={() => router.push(ROUTES.ONE_LOCATION)}
         />
         <SettingsRow
-          icon={ExternalLink}
+          icon={ConsentAgentIcon}
+          iconTone="capability"
           title="Consent center"
           description="Review sharing."
           trailing={<Badge variant="secondary">Manage</Badge>}
@@ -3487,8 +3500,8 @@ function ProfilePageContent({
         />
         {walletCardEntryEnabled ? (
           <SettingsRow
-            icon={Wallet}
-            iconTone="purple"
+            icon={WalletAgentIcon}
+            iconTone="capability"
             className="profile-account-service-row"
             title={WALLET_CARD_COPY.profileEntry.title}
             description={WALLET_CARD_COPY.profileEntry.description}
@@ -3608,7 +3621,8 @@ function ProfilePageContent({
     <div className="space-y-4">
       <SettingsGroup>
         <SettingsRow
-          icon={Fingerprint}
+          icon={FingerprintProfileIcon}
+          iconTone="capability"
           title="Vault methods"
           description="Passphrase, passkey, and unlock method."
           chevron
@@ -3697,7 +3711,7 @@ function ProfilePageContent({
                 }}
                 options={SUPPORT_INTENT_OPTIONS}
                 disabled={sendingSupportMessage}
-                className="min-h-11 [&_[data-state=active]]:!border-[color:var(--app-accent)] [&_[data-state=active]]:!bg-[color:var(--app-accent)] [&_[data-state=active]]:!text-white [&_[data-state=active]]:!shadow-none [&_[data-ui-contract=required-title]]:whitespace-normal"
+                className="min-h-11 [&_[data-ui-contract=required-title]]:whitespace-normal"
               />
             </div>
             <p id="support-intent-description" className="sr-only">
@@ -4069,7 +4083,8 @@ function ProfilePageContent({
     <div className="space-y-4 sm:space-y-5">
       <SettingsGroup title="Connection">
         <SettingsRow
-          icon={Mail}
+          icon={GmailAgentIcon}
+          iconTone="capability"
           title="Status"
           description={gmailSettingsDescription}
           trailing={<Badge variant="secondary">{gmailStatusLabel}</Badge>}
@@ -4121,7 +4136,8 @@ function ProfilePageContent({
         />
       ) : (
         <SettingsRow
-          icon={Mail}
+          icon={GmailAgentIcon}
+          iconTone="capability"
           title={
             gmailPresentation.state === "needs_reauthentication"
               ? "Reconnect Mail"
@@ -4144,7 +4160,8 @@ function ProfilePageContent({
       />
 
       <SettingsRow
-        icon={Folder}
+        icon={MemoryAgentIcon}
+        iconTone="capability"
         title="Open receipts"
         description="Review synced receipts, merchants, and extracted totals."
         chevron
@@ -4539,24 +4556,24 @@ function ProfilePageContent({
           <div className="profile-home-content">
             <SettingsGroup title="Your settings" separatorInset>
               <SettingsRow
-                icon={UserRound}
-                iconTone="blue"
+                icon={AccountProfileIcon}
+                iconTone="capability"
                 title={PROFILE_LABELS.account}
                 chevron
                 density="compact"
                 onClick={openAccountPanel}
               />
               <SettingsRow
-                icon={SlidersHorizontal}
-                iconTone="purple"
+                icon={PreferencesProfileIcon}
+                iconTone="capability"
                 title={PROFILE_LABELS.preferences}
                 chevron
                 density="compact"
                 onClick={openPreferencesPanel}
               />
               <SettingsRow
-                icon={ShieldCheck}
-                iconTone="green"
+                icon={SecurityProfileIcon}
+                iconTone="capability"
                 title={PROFILE_LABELS.security}
                 chevron
                 density="compact"
@@ -4567,46 +4584,8 @@ function ProfilePageContent({
                 onClick={openSecurityPanel}
               />
               <SettingsRow
-                icon={Folder}
-                iconTone="indigo"
-                title="Memory"
-                description="Saved details and sharing."
-                chevron
-                density="compact"
-                onClick={() => openVaultBackedPanel("my-data")}
-              />
-              <SettingsRow
-                icon={Share2}
-                iconTone="blue"
-                title="Access & sharing"
-                description="Review live access and sharing."
-                chevron
-                density="compact"
-                onClick={() => openVaultBackedPanel("my-data", "sharing")}
-              />
-              {localCrmEnabled ? (
-                <SettingsRow
-                  icon={BriefcaseBusiness}
-                  iconTone="purple"
-                  title="Connected Systems"
-                  description="Connected CRM systems."
-                  chevron
-                  density="compact"
-                  onClick={() => openVaultBackedPanel("connected-systems")}
-                />
-              ) : null}
-              <SettingsRow
-                icon={Mail}
-                iconTone="orange"
-                title="Mail receipts"
-                description="Receipts and sync."
-                chevron
-                density="compact"
-                onClick={() => openVaultBackedPanel("gmail")}
-              />
-              <SettingsRow
-                icon={Laptop}
-                iconTone="indigo"
+                icon={DevicesProfileIcon}
+                iconTone="capability"
                 title="Trusted devices"
                 chevron
                 density="compact"
@@ -4615,8 +4594,8 @@ function ProfilePageContent({
                 }
               />
               <SettingsRow
-                icon={Users}
-                iconTone="orange"
+                icon={RiaAgentIcon}
+                iconTone="capability"
                 title={PROFILE_LABELS.referrals}
                 chevron
                 density="compact"
@@ -4632,8 +4611,8 @@ function ProfilePageContent({
                 }
               />
               <SettingsRow
-                icon={MessageCircleQuestion}
-                iconTone="blue"
+                icon={SupportProfileIcon}
+                iconTone="capability"
                 title={PROFILE_LABELS.support}
                 chevron
                 density="compact"
@@ -4643,8 +4622,8 @@ function ProfilePageContent({
               />
               {canShowPkmAgentLab ? (
                 <SettingsRow
-                  icon={CodeXml}
-                  iconTone="purple"
+                  icon={DeveloperToolsProfileIcon}
+                  iconTone="capability"
                   title={PROFILE_LABELS.developerTools}
                   trailing={<Badge variant="secondary">Local</Badge>}
                   chevron
@@ -4656,7 +4635,8 @@ function ProfilePageContent({
 
             <SettingsGroup title={PROFILE_LABELS.accountAccess} separatorInset>
               <SettingsRow
-                icon={LogOut}
+                icon={SignOutProfileIcon}
+                iconTone="capability"
                 title="Sign out"
                 tone="destructive"
                 chevron

@@ -12,6 +12,14 @@ import {
   LockKey,
   Storefront,
   PlugsConnected,
+  User,
+  Sliders,
+  ShieldCheck,
+  Laptop,
+  Question,
+  Code,
+  SignOut,
+  Fingerprint,
   type IconProps,
   type IconWeight,
 } from "@phosphor-icons/react";
@@ -281,3 +289,180 @@ export const AGENT_ICON_MAP = {
 } as const;
 
 export type AgentIconKey = keyof typeof AGENT_ICON_MAP;
+
+/**
+ * 12. Account Profile Icon
+ * Base: Phosphor User
+ */
+export function AccountProfileIcon({
+  size = "1em",
+  weight = "duotone",
+  color = "#2563EB",
+  className,
+  ...props
+}: AgentIconProps) {
+  return (
+    <User
+      size={size}
+      weight={weight}
+      color={color}
+      className={className}
+      {...props}
+    />
+  );
+}
+
+/**
+ * 13. Preferences Profile Icon
+ * Base: Phosphor Sliders
+ */
+export function PreferencesProfileIcon({
+  size = "1em",
+  weight = "duotone",
+  color = "#8B5CF6",
+  className,
+  ...props
+}: AgentIconProps) {
+  return (
+    <Sliders
+      size={size}
+      weight={weight}
+      color={color}
+      className={className}
+      {...props}
+    />
+  );
+}
+
+/**
+ * 14. Security Profile Icon
+ * Base: Phosphor ShieldCheck
+ */
+export function SecurityProfileIcon({
+  size = "1em",
+  weight = "duotone",
+  color = "#10B981",
+  className,
+  ...props
+}: AgentIconProps) {
+  return (
+    <ShieldCheck
+      size={size}
+      weight={weight}
+      color={color}
+      className={className}
+      {...props}
+    />
+  );
+}
+
+/**
+ * 15. Trusted Devices Profile Icon
+ * Base: Phosphor Laptop
+ */
+export function DevicesProfileIcon({
+  size = "1em",
+  weight = "duotone",
+  color = "#6366F1",
+  className,
+  ...props
+}: AgentIconProps) {
+  return (
+    <Laptop
+      size={size}
+      weight={weight}
+      color={color}
+      className={className}
+      {...props}
+    />
+  );
+}
+
+/**
+ * 16. Support Profile Icon
+ * Base: Phosphor Question
+ */
+export function SupportProfileIcon({
+  size = "1em",
+  weight = "duotone",
+  color = "#0284C7",
+  className,
+  ...props
+}: AgentIconProps) {
+  return (
+    <Question
+      size={size}
+      weight={weight}
+      color={color}
+      className={className}
+      {...props}
+    />
+  );
+}
+
+/**
+ * 17. Developer Tools Profile Icon
+ * Base: Phosphor Code
+ */
+export function DeveloperToolsProfileIcon({
+  size = "1em",
+  weight = "duotone",
+  color = "#8B5CF6",
+  className,
+  ...props
+}: AgentIconProps) {
+  return (
+    <Code
+      size={size}
+      weight={weight}
+      color={color}
+      className={className}
+      {...props}
+    />
+  );
+}
+
+/**
+ * 18. Sign Out Profile Icon
+ * Base: Phosphor SignOut
+ */
+export function SignOutProfileIcon({
+  size = "1em",
+  weight = "duotone",
+  color = "#EF4444",
+  className,
+  ...props
+}: AgentIconProps) {
+  return (
+    <SignOut
+      size={size}
+      weight={weight}
+      color={color}
+      className={className}
+      {...props}
+    />
+  );
+}
+
+/**
+ * 19. Vault / Fingerprint Profile Icon
+ * Base: Phosphor Fingerprint
+ */
+export function FingerprintProfileIcon({
+  size = "1em",
+  weight = "duotone",
+  color = "#10B981",
+  className,
+  ...props
+}: AgentIconProps) {
+  return (
+    <Fingerprint
+      size={size}
+      weight={weight}
+      color={color}
+      className={className}
+      {...props}
+    />
+  );
+}
+

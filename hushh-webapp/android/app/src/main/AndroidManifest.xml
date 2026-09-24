@@ -1,5 +1,11 @@
 <?xml version="1.0" encoding="utf-8" ?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <!-- Plaid's Link SDK declares a higher minSdk than the app. The app keeps
+         installing on API 24; HushhPlaidLinkPlugin reports unavailable below
+         API 26 (Plaid's documented minimum) and never touches the SDK there,
+         so the page falls back to web Link on those devices. -->
+    <uses-sdk tools:overrideLibrary="com.plaid.link" />
     <queries>
         <intent>
             <action android:name="android.intent.action.SENDTO" />
@@ -45,6 +51,27 @@
                 <data android:scheme="com.googleusercontent.apps.1006304528804-3dnrnqrga1nrv9p823bos2itrg5bra1c" />
             </intent-filter>
 
+            <!-- Drive OAuth uses the fixed backend HTTPS callback, which hands
+                 only an opaque result to this narrow app-owned scheme. This
+                 intent filter remains for Custom Tabs fallback; Auth Tab can
+                 deliver the same result directly to the registered callback. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="hushh" android:host="connectors" android:path="/return" />
+            </intent-filter>
+
+            <!-- Google selected-file Picker has a distinct opaque handoff.
+                 Do not broaden the connection route: a Picker return stages
+                 candidates only and cannot complete credential activation. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="hushh" android:host="connectors" android:path="/picker-return" />
+            </intent-filter>
+
             <!--
                 Android App Links for the OAuth returns. Without an autoVerify
                 https filter the system hands the redirect to the browser, and a
@@ -63,11 +90,9 @@
                 <data android:scheme="https" android:host="uat.one.hushh.ai" />
                 <data android:scheme="https" android:host="dev.one.hushh.ai" />
                 <data android:pathPrefix="/one/kai/plaid/oauth/return" />
-                <data android:pathPrefix="/one/kai/alpaca/oauth/return" />
                 <data android:pathPrefix="/one/profile/google/oauth/return" />
                 <data android:pathPrefix="/one/profile/gmail/oauth/return" />
                 <data android:pathPrefix="/kai/plaid/oauth/return" />
-                <data android:pathPrefix="/kai/alpaca/oauth/return" />
                 <data android:pathPrefix="/profile/google/oauth/return" />
                 <data android:pathPrefix="/profile/gmail/oauth/return" />
             </intent-filter>

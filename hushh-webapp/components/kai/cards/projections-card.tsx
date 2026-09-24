@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { BarChart, Bar, XAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
+import { CHART_ANIMATION_ACTIVE, CHART_TOOLTIP_TRIGGER, CHART_RESIZE_DEBOUNCE_MS } from "@/components/ui/chart";
 
 // =============================================================================
 // TYPES
@@ -116,15 +117,15 @@ export function ProjectionsCard({ projections, className, isLoading }: Projectio
             </div>
 
             <div className="h-[140px] w-full">
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer debounce={CHART_RESIZE_DEBOUNCE_MS} width="100%" height="100%">
                 <BarChart data={cashFlow}>
                   <XAxis dataKey="month" hide />
-                  <Tooltip cursor={{ fill: 'transparent' }} content={({ payload }) => (
+                  <Tooltip trigger={CHART_TOOLTIP_TRIGGER} cursor={{ fill: 'transparent' }} content={({ payload }) => (
                     <div className="bg-background border p-2 text-xs rounded shadow-md">
                       {payload?.[0]?.payload.month}: {formatCurrency(payload?.[0]?.value as number)}
                     </div>
                   )} />
-                  <Bar dataKey="projected_income" radius={[4, 4, 0, 0]}>
+                  <Bar isAnimationActive={CHART_ANIMATION_ACTIVE} dataKey="projected_income" radius={[4, 4, 0, 0]}>
                     {cashFlow.map((entry, i) => (
                       <Cell key={i} fill={entry.projected_income >= stats.avg ? "hsl(var(--primary))" : "hsl(var(--muted))"} />
                     ))}

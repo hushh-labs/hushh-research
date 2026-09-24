@@ -1,6 +1,7 @@
 {
   "$comment": "One shared truth table for which stored keys are internal plumbing and must never be offered as information a person can share. Read by the TypeScript predicate (hushh-webapp/lib/pkm/internal-path-keys.ts) and the Python one (consent-protocol/hushh_mcp/consent/internal_path_keys.py). The Memory route has filtered these since it was written; the consent catalogue never did, and offered a person's onboarding checkpoints and router telemetry to anyone who asked. Two implementations that must agree need one list of truths.",
   "version": 1,
+  "schema_collection_segments": ["_items", "_entities"],
   "why_this_exists": "Measured 2026-09-11 against live UAT: asking One for 'finance information' about a connected person returned 24 rows, of which roughly 5 were information about anybody. The rest were 'Profile Setup Completed At', 'Profile Setup Nav Skipped At' and six 'Domain Intent' rows. A later capture of the same catalogue showed 50. The Memory tab already hid the domain_intent ones by name.",
 
   "internal_keys": [
@@ -26,6 +27,12 @@
   "internal_branches": ["setup", "domain_intent", "nav", "onboarding_state"],
 
   "cases": [
+    {"path": "employment.observations._items", "internal": false, "why": "Scalar arrays have eligible leaf values at the terminal item marker."},
+    {"path": "employment.entities._entities.summary", "internal": false, "why": "The schema collection marker represents an entity map, not a private stored key."},
+    {"path": "employment.observations._items.summary", "internal": false, "why": "Array collection markers preserve the exact export path."},
+    {"path": "employment.entities._entities.api_key", "internal": true, "why": "A collection marker never makes secret-shaped children exposable."},
+    {"path": "_entities.summary", "internal": true, "why": "A collection marker without its structural parent is not an exposable path."},
+    {"path": "employment.entities._entities", "internal": true, "why": "Collection containers alone do not authorize all descendant fields."},
     {
       "path": "profile.setup.completed",
       "internal": true,

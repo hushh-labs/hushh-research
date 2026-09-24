@@ -136,7 +136,8 @@ describe("setup warm-transition contract", () => {
     expect(plaidConnect).toContain(
       "Resolved-root re-entry is explicit user intent",
     );
-    expect(plaidConnect).toContain("returnPath: shouldSettleSetupSource");
+    expect(plaidConnect).toContain("sealVaultPlaidConnection({");
+    expect(plaidConnect).toContain("vaultOwnerToken: effectiveVaultOwnerToken");
     expect(plaidConnect).toContain(
       "if (onSetupSourceSettled && !shouldSettleSetupSource)",
     );

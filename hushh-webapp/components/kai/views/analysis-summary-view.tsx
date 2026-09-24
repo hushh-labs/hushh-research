@@ -231,12 +231,12 @@ function ScoreBar({
       <div className="h-2 overflow-hidden rounded-full bg-muted">
         <div
           className={cn(
-            "h-full rounded-full transition-[width] duration-150",
+            "h-full w-full rounded-full transition-transform duration-150",
             tone === "positive" && "bg-emerald-500",
             tone === "warning" && "bg-blue-500",
             tone === "neutral" && "bg-zinc-900 dark:bg-zinc-100"
           )}
-          style={{ width: `${clamped === null ? 0 : clamped * 10}%` }}
+          style={{ transform: `translateX(-${100 - (clamped === null ? 0 : clamped * 10)}%)` }}
         />
       </div>
       <p className="text-xs leading-relaxed text-muted-foreground">{description}</p>

@@ -1,5 +1,7 @@
 "use client";
 
+import { memo } from "react";
+
 import {
   ArrowLeftIcon as ArrowLeft,
   XIcon as X,
@@ -22,6 +24,19 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 
+const PROFILE_DETAIL_TITLES: Record<string, string> = {
+  phone: "Phone number",
+  sharing: "Access & sharing",
+  "kai-preferences": "Finance preferences",
+  gemini: "Gemini",
+  voice: "Voice",
+  vault: "Vault methods",
+  session: "Account access",
+  "trusted-devices": "Trusted devices",
+  "gmail-connection": "Connection",
+  "gmail-actions": "Actions",
+};
+
 type ProfilePaneProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -32,15 +47,13 @@ type ProfilePaneProps = {
  * rows and route-aware stack; this component only supplies the immersive
  * right-side presentation used by the shell and native edge gesture.
  */
-export function ProfilePane({ open, onOpenChange }: ProfilePaneProps) {
+export const ProfilePane = memo(function ProfilePane({ open, onOpenChange }: ProfilePaneProps) {
   const { isVaultUnlocked } = useVault();
   const pathname = usePathname() || "/";
   const searchParams = useSearchParams();
   const paneState = resolveProfilePaneUrlState(searchParams);
   const canGoBack = canGoBackProfilePane(paneState.location);
-  const title = paneState.location.detail
-    ? "Profile detail"
-    : paneState.location.panel
+  const panelTitle = paneState.location.panel
       ? paneState.location.panel === "my-data"
         ? "Memory"
         : paneState.location.panel === "connected-systems"
@@ -57,6 +70,11 @@ export function ProfilePane({ open, onOpenChange }: ProfilePaneProps) {
                     ? "Invite friends"
                     : "Help & feedback"
       : "Profile";
+  // A detail is named for what it is ("Trusted devices"), matching its entry
+  // in the Profile stack; it used to read "Profile detail" for all of them.
+  // Details without a fixed name (a domain, a connection) keep the panel's.
+  const detail = paneState.location.detail;
+  const title = detail ? (PROFILE_DETAIL_TITLES[detail] ?? panelTitle) : panelTitle;
 
   // URL state requests a destination, not admission. Keep it for resume, but
   // unmount the modal while the vault gate owns the screen (including cold
@@ -82,14 +100,18 @@ export function ProfilePane({ open, onOpenChange }: ProfilePaneProps) {
                 onClick={() =>
                   popProfilePaneLocation(pathname, searchParams)
                 }
-                className="-ml-2 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
+                className="-ml-4 inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring motion-reduce:transition-none"
               >
                 <ArrowLeft className="h-5 w-5" />
               </button>
             ) : null}
             <SheetTitle className="truncate">{title}</SheetTitle>
           </div>
-          <SheetDescription>
+          {/* On a panel the page opens with its own description, so the
+           * generic line stays for assistive tech only (two subtitles, one
+           * line apart, read as clutter). The arrow's glyph sits on the
+           * content column, as the close button's edge does on the right. */}
+          <SheetDescription className={canGoBack ? "sr-only" : undefined}>
             {canGoBack
               ? "Profile settings"
               : "Your account, preferences, and privacy controls."}
@@ -117,4 +139,4 @@ export function ProfilePane({ open, onOpenChange }: ProfilePaneProps) {
       </SheetContent>
     </Sheet>
   );
-}
+});

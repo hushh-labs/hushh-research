@@ -2,6 +2,12 @@ export type QueuedAgentPrompt = {
   id: string;
   text: string;
   createdAtMs: number;
+  /**
+   * Large pasted context is captured by the guarded background PKM lane after
+   * the answer starts. It must not make the foreground turn wait for a full
+   * decrypted inventory to hydrate.
+   */
+  deferPkmContext?: boolean;
 };
 
 export function enqueueAgentPrompt(

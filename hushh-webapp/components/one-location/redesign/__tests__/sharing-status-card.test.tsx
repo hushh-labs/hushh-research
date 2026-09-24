@@ -3,6 +3,14 @@ import { describe, expect, it, vi } from "vitest";
 
 import { SharingStatusCard } from "@/components/one-location/redesign/sharing-status-card";
 
+vi.mock("@/hooks/use-auth", () => ({
+  useAuth: () => ({ user: null }),
+}));
+
+vi.mock("@/hooks/use-effective-avatar-url", () => ({
+  useEffectiveAvatarUrl: () => null,
+}));
+
 const baseProps = {
   isSharing: false,
   title: "Private right now",

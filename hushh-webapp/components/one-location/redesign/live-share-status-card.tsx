@@ -440,8 +440,8 @@ export function LiveShareStatusCard({
         <div aria-hidden="true" className={LIVE_SHARE_PROGRESS_TRACK_CLASSNAME}>
           <div
             data-testid="one-location-live-share-progress"
-            className={LIVE_SHARE_PROGRESS_FILL_CLASSNAME}
-            style={{ width: `${Math.round(progress * 100)}%` }}
+            className={cn(LIVE_SHARE_PROGRESS_FILL_CLASSNAME, "w-full")}
+            style={{ transform: `translateX(-${100 - Math.round(progress * 100)}%)` }}
           />
         </div>
       ) : null}
