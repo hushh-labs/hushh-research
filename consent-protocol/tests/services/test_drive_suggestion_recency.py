@@ -208,7 +208,9 @@ async def test_explicit_statement_period_keeps_content_coverage(plan):
     assert await service.run_one(user_id="owner", request_id=request_id) == "no_ready_files"
     # Content coverage searches without the file-activity window, then reads
     # exactly what it found.
-    reader.find.assert_awaited_once_with(query=["statement"], file_kind="any", shared_with_me=False)
+    reader.find.assert_awaited_once_with(
+        query=["statement"], file_kind="any", shared_with_me=False, recent=False
+    )
     reader.read_matches.assert_awaited_once_with(matches=[], truncated=False)
     reader.search.assert_not_awaited()
 
@@ -250,8 +252,41 @@ async def test_content_request_calls_the_real_reader_signature():
     )
     assert await service.run_one(user_id="owner", request_id=request_id) == "no_ready_files"
     reader.find.assert_awaited_once_with(
-        query=["tax return"], file_kind="pdf", shared_with_me=False
+        query=["tax return"], file_kind="pdf", shared_with_me=False, recent=False
     )
     reader.read_matches.assert_awaited_once_with(matches=[match], truncated=False)
     store.fail_preparation.assert_awaited_once()
     assert store.fail_preparation.await_args.kwargs["code"] == "no_ready_files"
+
+
+@pytest.mark.asyncio
+async def test_latest_file_request_asks_the_reader_for_the_newest_files():
+    """'Get my latest resume' must reach find(recent=True), as in the chat lane."""
+    job = {
+        "user_id": "owner",
+        "request_id": str(uuid4()),
+        "revision": 0,
+        "generation": 1,
+        "lease_id": str(uuid4()),
+        "purpose": {"purpose": "My latest resume", "periodStart": None, "periodEnd": None},
+        "live": True,
+        "foreground": True,
+    }
+    reader = create_autospec(DriveLiveReader, instance=True)
+    reader.find.return_value = {"matches": [], "truncated": False}
+    reader.read_matches.return_value = {"untrusted_external_content": [], "truncated": False}
+    store = SimpleNamespace(
+        claim_preparation=AsyncMock(return_value=job),
+        require_preparation_current=AsyncMock(),
+        fail_preparation=AsyncMock(),
+        indexing_pending=AsyncMock(return_value=False),
+    )
+    service = DriveSuggestionService(
+        oauth=SimpleNamespace(),
+        store=store,
+        search_planner=AsyncMock(return_value={"terms": ["resume"], "sort": "recent"}),
+        reader_factory=lambda **_: reader,
+        require_owner=AsyncMock(),
+    )
+    await service.run_one(user_id="owner", request_id=job["request_id"])
+    assert reader.find.await_args.kwargs["recent"] is True

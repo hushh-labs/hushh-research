@@ -126,6 +126,9 @@ describe("exact-file document review", () => {
       requestId,
       expect.objectContaining({ revision: 3, files: review().files }),
       expect.any(Function),
+      false,
+      undefined,
+      ["document-one"],
     );
     expect(changed).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("status")).toHaveFocus();
@@ -258,12 +261,34 @@ describe("exact-file document review", () => {
   it("requires explicit broad trust and sends its scope with approval", async () => {
     state.review.mockResolvedValue({ ...review(), canTrustFutureRequests: true });
     render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
-    const trust = await screen.findByRole("checkbox");
+    const trust = await screen.findByRole("checkbox", { name: /^Trust b@example\.invalid/ });
     expect(trust).not.toBeChecked();
     fireEvent.click(trust);
     fireEvent.click(screen.getByRole("button", { name: "Share files" }));
     await waitFor(() => expect(state.approve).toHaveBeenCalledWith(
-      "owner-a", requestId, expect.anything(), expect.any(Function), true, "any_requested_drive_file"));
+      "owner-a", requestId, expect.anything(), expect.any(Function), true, "any_requested_drive_file", ["document-one"]));
+  });
+
+  it("shares only the files A keeps selected, and never an empty selection", async () => {
+    const files = [
+      { documentId: "document-one", name: "March statement.pdf" },
+      { documentId: "document-two", name: "Meeting notes" },
+    ];
+    state.review.mockResolvedValue({ ...review(), files, canTrustFutureRequests: true });
+    render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+    const notes = await screen.findByRole("checkbox", { name: "Meeting notes" });
+    const all = screen.getByRole("checkbox", { name: "Select all" });
+    expect(notes).toBeChecked();
+    expect(all).toBeChecked();
+    fireEvent.click(all);
+    expect(notes).not.toBeChecked();
+    expect(screen.getByRole("button", { name: "Share 0 of 2 files" })).toBeDisabled();
+    fireEvent.click(screen.getByRole("checkbox", { name: "March statement.pdf" }));
+    // Trust for future requests follows a review accepted in full.
+    expect(screen.getByRole("checkbox", { name: /^Trust b@example\.invalid/ })).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Share 1 of 2 files" }));
+    await waitFor(() => expect(state.approve).toHaveBeenCalledWith(
+      "owner-a", requestId, expect.anything(), expect.any(Function), false, undefined, ["document-one"]));
   });
 
 });
