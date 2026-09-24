@@ -140,6 +140,38 @@ describe("private sharing transport", () => {
     });
     expect(options.isEffectCurrent()).toBe(true);
   });
+  it("keeps a known preparation result and drops anything else", async () => {
+    for (const code of [
+      "no_relevant_files",
+      "no_ready_files",
+      "narrow_selection_required",
+      "source_changed",
+      "preparation_unavailable",
+      "trust_revoked",
+    ]) {
+      fetcher.mockResolvedValueOnce(
+        reply({ ...rawReview(), coverage: null, preparationError: code }),
+      );
+      expect(
+        (await DriveSharingService.review("t", requestId, guard))
+          .preparationError,
+      ).toBe(code);
+    }
+    for (const value of ["drive_token_raw_error", 7, { code: "x" }, null]) {
+      fetcher.mockResolvedValueOnce(
+        reply({ ...rawReview(), preparationError: value }),
+      );
+      expect(
+        (await DriveSharingService.review("t", requestId, guard))
+          .preparationError,
+      ).toBeNull();
+    }
+    fetcher.mockResolvedValueOnce(reply(rawReview()));
+    expect(
+      (await DriveSharingService.review("t", requestId, guard))
+        .preparationError,
+    ).toBeNull();
+  });
   it("accepts the API bound of 25 files but rejects 26 or duplicate selections", async () => {
     const files = Array.from({ length: 25 }, (_, i) => ({
       documentId: `22222222-2222-4222-8222-${String(i).padStart(12, "0")}`,

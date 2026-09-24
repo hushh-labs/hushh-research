@@ -6,7 +6,6 @@ import asyncio
 import json
 import logging
 import re
-from collections import Counter
 from datetime import datetime
 from datetime import timezone as datetime_timezone
 from pathlib import Path
@@ -88,6 +87,7 @@ _NOT_READ_LABELS = {
     "unsupported_format": "this file type can't be read yet",
     "no_extractable_text": "no text I can read, like a scanned page",
     "source_unavailable": "not available to read",
+    "invalid_document": "the file looks damaged or isn't saved as plain text",
 }
 
 
@@ -446,7 +446,13 @@ class DriveChatService:
                         await require_access()
                         matches, selection = await select_matches(
                             selector=self.candidate_selector,
-                            request={"purpose": message},
+                            # Same bounded context the planner saw, so "the
+                            # first two" can be resolved; a connection's
+                            # question always has none.
+                            request={
+                                "purpose": message,
+                                "previous_answer": previous_answer[:2000],
+                            },
                             mode=plan.mode,
                             sort=plan.sort,
                             matches=matches,
@@ -463,6 +469,10 @@ class DriveChatService:
                                 "Try a more specific file name or period.",
                                 selection=selection,
                             )
+                        if selection.get("over_limit"):
+                            # The selector chose more than can be listed or
+                            # read: say more matches may exist.
+                            found = {**found, "truncated": True}
                     else:
                         # The skip is recorded, never silent (backend semantic
                         # boundary): an exact title was already resolved, or a
@@ -474,6 +484,13 @@ class DriveChatService:
                             "candidates": len(matches),
                             "selected": len(matches),
                         }
+                        # Enums and counts only: never titles, terms or the request.
+                        logger.info(
+                            "drive_select.skipped stage=%s mode=%s candidates=%d",
+                            selection["stage"],
+                            plan.mode,
+                            len(matches),
+                        )
                     if plan.mode == "find":
                         await reader.require_current()
                         return _files_outcome(
@@ -522,14 +539,17 @@ class DriveChatService:
                         prompt=json.dumps(
                             {
                                 "user_request": message,
-                                "current_time_utc": now_utc.isoformat(),
-                                "user_timezone": owner_timezone,
-                                # Unread files as counts by reason, never names:
-                                # this answer can reach a connection.
+                                # This answer can reach a connection: a local
+                                # day, never the owner's timezone, and one
+                                # unread total, never names or reasons. The
+                                # owner gets those from _not_read_note.
+                                "today_local": now_utc.astimezone(ZoneInfo(owner_timezone))
+                                .date()
+                                .isoformat(),
                                 "retrieved_documents": {
                                     "untrusted_external_content": content,
                                     "truncated": retrieved["truncated"],
-                                    "not_read": dict(Counter(item["reason"] for item in not_read)),
+                                    "not_read": len(not_read),
                                 },
                             },
                             ensure_ascii=False,

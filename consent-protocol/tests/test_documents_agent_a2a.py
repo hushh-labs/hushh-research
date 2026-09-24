@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
+from zoneinfo import ZoneInfo
 
 import pytest
 from google.adk.runners import Runner
@@ -493,9 +495,14 @@ async def test_read_mode_reads_only_selected_files_in_model_order(monkeypatch):
     assert outcome["status"] == "ok"
     source.read_matches.assert_awaited_once_with(matches=[matches[8], matches[9]], truncated=False)
     assert outcome["selection"] == {"stage": "completed", "candidates": 10, "selected": 2}
-    prompt = json.loads(interpreter.await_args.kwargs["prompt"])
-    assert prompt["user_timezone"] == "Asia/Kolkata"
-    assert datetime.fromisoformat(prompt["current_time_utc"]).tzinfo is not None
+    raw = interpreter.await_args.kwargs["prompt"]
+    prompt = json.loads(raw)
+    # A local calendar day resolves relative periods; the zone itself never
+    # reaches the interpreter, whose text can reach a connection.
+    today = datetime.now(ZoneInfo("Asia/Kolkata")).date()
+    assert date.fromisoformat(prompt["today_local"]) in {today - timedelta(days=1), today}
+    assert "user_timezone" not in prompt and "current_time_utc" not in prompt
+    assert "Asia/" not in raw
 
 
 async def test_an_empty_selection_is_an_honest_no_match_for_the_owner(monkeypatch):
@@ -607,8 +614,9 @@ async def test_interpreter_gets_unread_counts_never_names(monkeypatch):
     assert response.structured.status == "ok"
     raw = interpreter.await_args.kwargs["prompt"]
     prompt = json.loads(raw)
-    assert prompt["retrieved_documents"]["not_read"] == {"encrypted_document": 1}
+    assert prompt["retrieved_documents"]["not_read"] == 1
     assert "PRIVATE_LOCKED" not in raw and "unreadable" not in prompt["retrieved_documents"]
+    assert "encrypted" not in raw
     # The owner, and only the owner, sees which file and why.
     # Markdown-escaped, as every owner-facing filename is.
     assert "PRIVATE_LOCKED.pdf" in response.text.replace("\\", "")
@@ -692,7 +700,155 @@ def test_interpreter_and_suggestions_instructions_carry_the_honesty_rules():
         "differ",
         "not in the files read",
         "none_relevant",
-        "current_time_utc",
+        "today_local",
+        "say why they were not read",
     ):
         assert rule in interpreter
+    assert "user_timezone" not in interpreter
+    selector = genes["agent_documents_live_select"]
+    assert "previous_answer" in selector and "untrusted" in selector
+    select_gene = next(
+        gene for gene in manifest.subagents if gene.id == "agent_documents_live_select"
+    )
+    assert "documents.request.previous_answer" in select_gene.privacy.context_allowlist
     assert "unreadable" in genes["agent_documents_suggestions"]
+
+
+def statement_matches(count):
+    return [
+        {
+            "file_id": f"file-{index}",
+            "name": f"Bank statement {index:02d} 2025.pdf",
+            "mime_type": "application/pdf",
+            "modified_time": "2026-04-01T00:00:00Z",
+            "source_ref": "document:" + f"{index:032d}",
+            "open_url": f"https://drive.google.com/open?id=file-{index}",
+        }
+        for index in range(1, count + 1)
+    ]
+
+
+async def test_an_over_long_find_lists_eight_and_says_more_may_exist(monkeypatch):
+    source = reader()
+    source.find.return_value = {"matches": statement_matches(12), "truncated": False}
+    service = live_service(
+        monkeypatch,
+        source,
+        {"terms": ["statement"], "mode": "find"},
+        candidate_selector=pick(*[f"c{index}" for index in range(1, 13)]),
+        interpreter=AsyncMock(side_effect=AssertionError("interpreter reached")),
+    )
+    response = await documents_agent.DocumentsAgentA2A(service=service).handle(
+        task(message="Find all my 2025 bank statements")
+    )
+    assert response.structured.status == "ok"
+    assert "Bank statement 08 2025" in response.text.replace("\\", "")
+    assert "Bank statement 09 2025" not in response.text.replace("\\", "")
+    assert "More matches may exist" in response.text
+    assert response.structured.truncated is True
+
+
+@pytest.mark.parametrize(
+    ("plan", "message", "stage"),
+    [
+        (
+            {"terms": [], "mode": "find", "relative_days": 2, "time_intent": "file_activity"},
+            "What are my files from the last two days?",
+            "not_applicable_metadata_query",
+        ),
+        (
+            {"terms": ["March statement"], "mode": "find", "exact_title": "March statement.pdf"},
+            "Find March statement.pdf",
+            "exact_title",
+        ),
+    ],
+)
+async def test_a_skipped_selector_is_logged_with_enums_and_counts(
+    monkeypatch, caplog, plan, message, stage
+):
+    source = reader()
+    service = live_service(
+        monkeypatch,
+        source,
+        plan,
+        candidate_selector=AsyncMock(side_effect=AssertionError("selector reached")),
+    )
+    with caplog.at_level(logging.INFO):
+        outcome = await service.run_live_query(
+            user_id="owner",
+            consent_token="synthetic",  # noqa: S106
+            query=message,
+            require_access=AsyncMock(),
+        )
+    assert outcome["status"] == "ok"
+    logged = "\n".join(record.getMessage() for record in caplog.records)
+    assert f"drive_select.skipped stage={stage} mode=find candidates=1" in logged
+    for private in ("March", "statement", "owner", "file-1", "last two days"):
+        assert private not in logged
+
+
+async def test_a_follow_up_selector_sees_the_previous_answer(monkeypatch):
+    source = reader()
+    matches = [
+        {
+            "file_id": f"file-{index}",
+            "name": name,
+            "mime_type": "application/pdf",
+            "modified_time": "2026-04-01T00:00:00Z",
+            "source_ref": "document:" + f"{index:032d}",
+            "open_url": f"https://drive.google.com/open?id=file-{index}",
+        }
+        for index, name in enumerate(("A.pdf", "B.pdf", "C.pdf"), 1)
+    ]
+    source.find.return_value = {"matches": matches, "truncated": False}
+    selector = pick("c1", "c2")
+    previous = "1. A.pdf\n2. B.pdf\n3. C.pdf"
+    service = live_service(
+        monkeypatch,
+        source,
+        {"terms": ["pdf statement"], "mode": "read"},
+        candidate_selector=selector,
+        interpreter=AsyncMock(return_value={"answer": "A live answer", "source_refs": [REF]}),
+    )
+    outcome = await service.run_live_query(
+        user_id="owner",
+        consent_token="synthetic",  # noqa: S106
+        query="summarize the first two",
+        require_access=AsyncMock(),
+        previous_answer=previous,
+    )
+    assert outcome["status"] == "ok"
+    prompt = json.loads(selector.await_args.kwargs["prompt"])
+    assert prompt["document_request"] == {
+        "purpose": "summarize the first two",
+        "previous_answer": previous,
+    }
+    source.read_matches.assert_awaited_once_with(matches=matches[:2], truncated=False)
+
+
+async def test_the_previous_answer_given_to_the_selector_is_bounded(monkeypatch):
+    source = reader()
+    selector = pick("c1")
+    service = live_service(
+        monkeypatch,
+        source,
+        {"terms": ["statement"], "mode": "find"},
+        candidate_selector=selector,
+    )
+    await service.run_live_query(
+        user_id="owner",
+        consent_token="synthetic",  # noqa: S106
+        query="find them again",
+        require_access=AsyncMock(),
+        previous_answer="x" * 5000,
+    )
+    prompt = json.loads(selector.await_args.kwargs["prompt"])
+    assert prompt["document_request"]["previous_answer"] == "x" * 2000
+
+
+def test_a_damaged_file_is_named_damaged_for_the_owner_not_unsupported():
+    note = drive_chat_service._not_read_note(
+        [{"name": "Bank export.csv", "reason": "invalid_document"}]
+    )
+    assert "looks damaged" in note
+    assert "can't be read yet" not in note

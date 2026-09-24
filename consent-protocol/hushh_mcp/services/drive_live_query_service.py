@@ -6,10 +6,13 @@ stored question once and runs the owner's own bounded chat turn
 current authority and the claim. The requester receives answer text and file
 titles only: no Drive links, file ids, dates or owner-directed instructions.
 
-Before any title is released, a tool-less selector gene judges the files the
-keyword search found. The requester gets only the titles it chose, worded as
-what they are (judged from names, types and dates, not opened), or the
-no-clear-match text when it chose none.
+When the question has search words and no exact title, a tool-less selector
+gene judges the keyword-found files before any title is released. The requester
+gets only the titles it chose, worded as what they are (judged from names,
+types and dates, not opened), or the no-clear-match text when it chose none.
+A date-only listing (no search words) and an exact-title match skip the
+selector, record the skip (``not_applicable_metadata_query`` / ``exact_title``)
+and release the found titles worded as found, not judged.
 """
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
@@ -31,7 +34,7 @@ def requester_answer(outcome: dict) -> dict:
         stage = (outcome.get("selection") or {}).get("stage")
         if outcome["unreadable"]:
             text = "These files look like a match, but their contents couldn't be read."
-        elif stage == "completed":
+        elif stage in {"completed", "completed_over_limit"}:
             text = (
                 "These files in their Drive look like a match, going by file names, types "
                 "and dates. Their private agent didn't open them."

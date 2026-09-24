@@ -32,9 +32,12 @@ from hushh_mcp.services.google_drive_adapter import (
 from hushh_mcp.services.google_drive_mcp_service import _search_metadata
 
 REST_TOOLS = frozenset({"search_files", "list_recent_files", "read_file_content"})
-# Parse failures the owner can act on (unlock, use a text PDF, split a file).
-# Only these codes leave the transport; every other one stays unsupported.
-PARSE_REASONS = frozenset({"encrypted_document", "no_extractable_text", "file_too_large"})
+# Parse failures the owner can act on (unlock, use a text PDF, split a file,
+# re-save a damaged or mis-encoded file). Only these codes leave the transport;
+# every other one stays unsupported.
+PARSE_REASONS = frozenset(
+    {"encrypted_document", "no_extractable_text", "file_too_large", "invalid_document"}
+)
 _MAX_ARGUMENT_BYTES = 4_096
 _MAX_QUERY_CHARS = 1_800
 # A search may only rank by a file time, newest first; anything else is refused.

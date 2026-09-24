@@ -213,9 +213,10 @@ async def test_an_unparseable_file_is_unsupported_not_a_failure(monkeypatch):
             {"textFormattingNotSupported": True, "reason": "no_extractable_text"},
         ),
         ("file_too_large", {"textFormattingNotSupported": True, "reason": "file_too_large"}),
+        ("invalid_document", {"textFormattingNotSupported": True, "reason": "invalid_document"}),
         # Anything else keeps the exact old payload: no new vocabulary leaks out.
         ("unsupported_format", {"textFormattingNotSupported": True}),
-        ("invalid_document", {"textFormattingNotSupported": True}),
+        ("unexpected_code", {"textFormattingNotSupported": True}),
     ],
 )
 async def test_parse_errors_return_an_allowlisted_reason(monkeypatch, code, payload):

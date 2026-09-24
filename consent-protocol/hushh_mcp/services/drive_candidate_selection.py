@@ -4,8 +4,10 @@ A keyword search finds candidates; the manifest-owned gene
 ``agent_documents_live_select`` decides which of them are plausibly the
 requested document, from metadata only (title, type and file days). The host
 never judges relevance: it shows the gene opaque refs, resolves its answer back
-to the exact found files, drops duplicates, bounds the count, and fails closed
-on any ref it did not offer. There is no fallback to the unfiltered list.
+to the exact found files, drops duplicates, and fails closed on any ref it did
+not offer. An answer longer than MAX_SELECTED keeps the gene's first eight and
+is recorded (``completed_over_limit``) so callers can say more matches may
+exist. There is no fallback to the unfiltered list.
 """
 
 from __future__ import annotations
@@ -18,7 +20,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
 from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent, run_single_turn
@@ -33,17 +35,11 @@ Selector = Callable[..., Awaitable[Any]]
 
 
 # Flat and unbounded in the schema the model is given: Vertex rejected bounded
-# nested lists (#7062). The count is enforced here, after the model answers.
+# nested lists (#7062). The count is bounded in select_matches, after the model
+# answers, and recorded; a long answer is never a failed turn.
 class CandidateSelection(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     selected: list[str] = Field(default_factory=list)
-
-    @field_validator("selected")
-    @classmethod
-    def _bounded(cls, value: list[str]) -> list[str]:
-        if len(value) > MAX_SELECTED:
-            raise ValueError("at most 8 candidates may be selected")
-        return value
 
 
 def _day(value: object) -> str | None:
@@ -67,7 +63,7 @@ def candidate_view(matches: list[dict]) -> list[dict]:
 
 
 def resolve_selection(matches: list[dict], selection: CandidateSelection) -> list[dict]:
-    """Map the gene's refs to the exact found files, in the gene's order."""
+    """Map the gene's refs to the exact found files, in the gene's order, once each."""
     offered = {f"c{index}": match for index, match in enumerate(matches, 1)}
     if any(ref not in offered for ref in selection.selected):
         raise ValueError("invented candidate reference")
@@ -123,7 +119,20 @@ async def select_matches(
     )
     selection = CandidateSelection.model_validate(await selector(prompt=prompt, user_id=user_id))
     chosen = resolve_selection(matches, selection)
-    trace = {"stage": "completed", "candidates": len(matches), "selected": len(chosen)}
+    trace: dict[str, Any] = {"stage": "completed", "candidates": len(matches)}
+    if len(chosen) > MAX_SELECTED:
+        # The gene's own best-first order decides which are kept; the cut is
+        # recorded, never silent (backend semantic boundary).
+        logger.info(
+            "drive_select.over_limit mode=%s sort=%s selected=%d kept=%d",
+            mode,
+            sort,
+            len(chosen),
+            MAX_SELECTED,
+        )
+        chosen = chosen[:MAX_SELECTED]
+        trace.update(stage="completed_over_limit", over_limit=True)
+    trace["selected"] = len(chosen)
     # Enums and counts only: never titles, terms or the request.
     logger.info(
         "drive_select.completed mode=%s sort=%s candidates=%d selected=%d",

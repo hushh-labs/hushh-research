@@ -346,6 +346,8 @@ async def test_a_damaged_csv_releases_no_text(monkeypatch):
         user_id="owner", tool_name="read_file_content", arguments={"fileId": FILE_ID}
     )
     assert result.payload["textFormattingNotSupported"] is True
+    # The owner is told the file looks damaged, not that CSV is unsupported.
+    assert result.payload["reason"] == "invalid_document"
     assert "fileContent" not in result.payload
 
 

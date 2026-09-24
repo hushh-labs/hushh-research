@@ -20,6 +20,7 @@ from hushh_mcp.hushh_adk.manifest import ManifestLoader
 from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent, run_single_turn
 from hushh_mcp.services import drive_candidate_selection as selection_module
 from hushh_mcp.services.drive_candidate_selection import (
+    MAX_SELECTED,
     CandidateSelection,
     candidate_view,
     resolve_selection,
@@ -99,9 +100,10 @@ def test_resolve_dedupes_and_keeps_model_order():
     assert resolve_selection([first], CandidateSelection(selected=[])) == []
 
 
-def test_selection_schema_rejects_extra_keys_and_more_than_eight():
-    with pytest.raises(ValidationError):
-        CandidateSelection.model_validate({"selected": [f"c{index}" for index in range(1, 10)]})
+def test_selection_schema_rejects_extra_keys_but_not_a_long_list():
+    """A long answer is bounded host-side and recorded, never a failed turn."""
+    long = [f"c{index}" for index in range(1, 13)]
+    assert CandidateSelection.model_validate({"selected": long}).selected == long
     with pytest.raises(ValidationError):
         CandidateSelection.model_validate({"selected": [], "reason": "x"})
     with pytest.raises(ValidationError):
@@ -214,3 +216,71 @@ async def test_selection_logs_carry_only_enums_and_counts(caplog):
     assert "drive_select.completed" in logged
     for private in ("statement", "Notes by Gemini", "please", "owner", "1AbCdEfGh"):
         assert private not in logged
+
+
+def statements(count):
+    return [found(index, f"Bank statement {index:02d} 2025.pdf") for index in range(1, count + 1)]
+
+
+async def test_an_over_long_selection_keeps_the_models_first_eight_and_records_it(caplog):
+    matches = statements(12)
+    # Newest-first model order decides which eight are kept, not the search order.
+    answer = [f"c{index}" for index in range(12, 0, -1)]
+    with caplog.at_level(logging.INFO):
+        chosen, trace = await select_matches(
+            selector=AsyncMock(return_value={"selected": answer}),
+            request={"purpose": "all my 2025 bank statements"},
+            mode="find",
+            sort="recent",
+            matches=matches,
+            truncated=False,
+            now_utc=NOW,
+            timezone="UTC",
+            user_id="owner",
+        )
+    assert MAX_SELECTED == 8
+    assert chosen == [matches[index] for index in range(11, 3, -1)]
+    assert trace == {
+        "stage": "completed_over_limit",
+        "candidates": 12,
+        "selected": 8,
+        "over_limit": True,
+    }
+    logged = "\n".join(record.getMessage() for record in caplog.records)
+    assert "drive_select.over_limit mode=find sort=recent selected=12 kept=8" in logged
+    for private in ("statement", "Bank", "2025", "owner", "1AbCdEfGh"):
+        assert private not in logged
+
+
+async def test_duplicates_are_dropped_before_the_bound():
+    matches = statements(9)
+    answer = ["c1", "c1", "c2", "c2", "c3", "c4", "c5", "c6", "c7", "c8"]
+    chosen, trace = await select_matches(
+        selector=AsyncMock(return_value={"selected": answer}),
+        request={"purpose": "statements"},
+        mode="read",
+        sort="relevance",
+        matches=matches,
+        truncated=False,
+        now_utc=NOW,
+        timezone="UTC",
+        user_id="owner",
+    )
+    assert chosen == matches[:8]
+    assert trace == {"stage": "completed", "candidates": 9, "selected": 8}
+
+
+async def test_an_invented_ref_in_a_long_answer_still_fails_closed():
+    answer = [f"c{index}" for index in range(1, 13)] + ["c13"]
+    with pytest.raises(ValueError, match="invented candidate reference"):
+        await select_matches(
+            selector=AsyncMock(return_value={"selected": answer}),
+            request={"purpose": "statements"},
+            mode="find",
+            sort="relevance",
+            matches=statements(12),
+            truncated=False,
+            now_utc=NOW,
+            timezone="UTC",
+            user_id="owner",
+        )

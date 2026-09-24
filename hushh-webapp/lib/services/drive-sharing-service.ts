@@ -53,7 +53,24 @@ export type SharingReview = {
   expiresAt: string | null;
   canApprove: boolean;
   canTrustFutureRequests: boolean;
+  preparationError: SharingPreparationError | null;
 };
+const SHARING_PREPARATION_ERRORS = [
+  "no_relevant_files",
+  "no_ready_files",
+  "narrow_selection_required",
+  "source_changed",
+  "preparation_unavailable",
+  "trust_revoked",
+] as const;
+/** Why preparation ended without suggestions. Unknown codes are dropped. */
+export type SharingPreparationError =
+  (typeof SHARING_PREPARATION_ERRORS)[number];
+function preparationError(value: unknown): SharingPreparationError | null {
+  return (SHARING_PREPARATION_ERRORS as readonly unknown[]).includes(value)
+    ? (value as SharingPreparationError)
+    : null;
+}
 export type SharingDelivery = {
   status: string;
   files: {
@@ -489,6 +506,7 @@ export class DriveSharingService {
         !!expiresAt &&
         !!reviewDigest,
       canTrustFutureRequests: result.canTrustFutureRequests === true,
+      preparationError: preparationError(result.preparationError),
     };
   }
 

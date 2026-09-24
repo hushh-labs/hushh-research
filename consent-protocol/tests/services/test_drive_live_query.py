@@ -458,6 +458,8 @@ def test_requester_answer_withholds_links_dates_and_owner_instructions():
         "These files in their Drive look like a match, going by file names, types and dates. "
         "Their private agent didn't open them."
     )
+    over_limit = {**files, "unreadable": False, "selection": {"stage": "completed_over_limit"}}
+    assert requester_answer(over_limit)["text"].startswith(judged)
     # Older outcomes and unjudged listings (exact title, metadata-only) say only
     # that the files were found.
     for unjudged in (
@@ -841,12 +843,13 @@ async def test_allow_with_an_unreadable_file_tells_b_only_the_count(store, monke
             "source_refs": ["document:" + "b" * 32],
         }
     )
+    selector = AsyncMock(return_value={"selected": ["c1", "c2"]})
     chat = live_chat(
         monkeypatch,
         reader=reader,
         plan={"terms": ["bank", "statement"], "mode": "read"},
         interpreter=interpreter,
-        selector=AsyncMock(return_value={"selected": ["c1", "c2"]}),
+        selector=selector,
     )
     created = await ask(store, query="what is my closing balance")
     answered = await service(store, chat).allow(
@@ -854,9 +857,21 @@ async def test_allow_with_an_unreadable_file_tells_b_only_the_count(store, monke
         request_id=created["requestId"],
         revision=created["revision"],
         consent_token=OWNER_PROOF,
+        timezone="Asia/Kolkata",
     )
     assert "1 matching file couldn't be read." in answered["answer"]["text"]
     assert answered["answer"]["titles"] == ["March bank statement.pdf"]
     shown = json.dumps(answered)
     assert "PRIVATE" not in shown and "encrypted" not in shown
-    assert "PRIVATE" not in interpreter.await_args.kwargs["prompt"]
+    # The interpreter's text reaches B: it gets a local day and one unread
+    # total, never A's timezone or why a file could not be read.
+    raw = interpreter.await_args.kwargs["prompt"]
+    assert "PRIVATE" not in raw
+    for withheld in ("Asia/", "Kolkata", "encrypted", "user_timezone"):
+        assert withheld not in raw
+    prompt = json.loads(raw)
+    assert prompt["retrieved_documents"]["not_read"] == 1
+    assert len(prompt["today_local"]) == 10
+    # A connection's question carries no earlier owner conversation.
+    selector_prompt = json.loads(selector.await_args.kwargs["prompt"])
+    assert selector_prompt["document_request"]["previous_answer"] == ""

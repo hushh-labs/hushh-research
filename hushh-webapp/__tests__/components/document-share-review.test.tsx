@@ -291,4 +291,58 @@ describe("exact-file document review", () => {
       "owner-a", requestId, expect.anything(), expect.any(Function), false, undefined, ["document-one"]));
   });
 
+  it("tells A plainly when no file looks like what was asked for", async () => {
+    state.review.mockResolvedValue({
+      ...review(),
+      files: [],
+      coverage: null,
+      canApprove: false,
+      preparationError: "no_relevant_files",
+    });
+    render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+    expect(
+      await screen.findByText(
+        "Your private agent didn't find files that look like what they asked for. You can decline, or refresh after adding the files.",
+      ),
+    ).toBeVisible();
+    expect(screen.queryByText("Suggestions are not ready yet.")).toBeNull();
+    expect(screen.queryByText("Refresh suggestions before sharing.")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Refresh suggestions" }),
+    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "Decline" })).toBeVisible();
+  });
+
+  it("tells A when matching files couldn't be read", async () => {
+    state.review.mockResolvedValue({
+      ...review(),
+      files: [],
+      coverage: null,
+      canApprove: false,
+      preparationError: "no_ready_files",
+    });
+    render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+    expect(
+      await screen.findByText(
+        "Matching files couldn't be read, for example password-protected or scanned PDFs.",
+      ),
+    ).toBeVisible();
+    expect(screen.queryByText("Suggestions are not ready yet.")).toBeNull();
+  });
+
+  it("still says suggestions are not ready for any other result", async () => {
+    state.review.mockResolvedValue({
+      ...review(),
+      files: [],
+      coverage: null,
+      canApprove: false,
+      preparationError: null,
+    });
+    render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+    expect(
+      await screen.findByText("Suggestions are not ready yet."),
+    ).toBeVisible();
+    expect(screen.getByText("Refresh suggestions before sharing.")).toBeVisible();
+  });
+
 });
