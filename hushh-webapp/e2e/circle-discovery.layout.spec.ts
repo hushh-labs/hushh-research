@@ -340,6 +340,16 @@ for (const width of [320, 390, 640, 768, 1440]) {
       ).toBe(true);
     };
     await checkGeometry();
+    const primaryAction = await page
+      .getByTestId("circle-discovery-primary")
+      .boundingBox();
+    if (width < 640) {
+      // The card CTA is visually compact on phones without sacrificing the
+      // title column or overflowing the card.
+      expect(primaryAction!.height).toBeGreaterThanOrEqual(36);
+      expect(primaryAction!.height).toBeLessThanOrEqual(36);
+      expect(primaryAction!.width).toBeLessThanOrEqual(76);
+    }
     await page.getByRole("button", { name: "Explore Finance Circle" }).click();
     await expect(page.getByText(/help with your money and taxes/)).toBeVisible();
     await hero.screenshot({

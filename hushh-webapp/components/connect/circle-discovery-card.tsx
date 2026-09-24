@@ -396,7 +396,7 @@ export function CircleDiscoveryCard({
                       ? "Open circle"
                       : `Create ${starter.name}`
               }
-              className="row-start-1 col-start-2 !px-3 sm:!px-5 sm:mt-3 sm:w-full whitespace-normal"
+              className="row-start-1 col-start-2 !h-9 !min-h-9 !rounded-[var(--app-radius-md)] !px-2.5 !text-[13px] whitespace-nowrap sm:!h-11 sm:!min-h-11 sm:!rounded-full sm:!px-5 sm:!text-base sm:mt-3 sm:w-full sm:whitespace-normal"
               data-testid="circle-discovery-primary"
             >
               <span className="inline-flex items-center justify-center gap-2">
