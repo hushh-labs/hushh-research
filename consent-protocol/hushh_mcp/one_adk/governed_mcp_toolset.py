@@ -52,6 +52,15 @@ class McpConnectionBinding:
     generation: int
     credential_version: int
     endpoint: str = field(repr=False)
+    # Optional full observation from an existing provider credential owner.
+    # Separate account/service-grant revisions must not be collapsed to an int.
+    authority_revision: tuple[str, ...] = field(default=(), repr=False)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.authority_revision, tuple) or any(
+            not isinstance(part, str) or not part.strip() for part in self.authority_revision
+        ):
+            raise ValueError("Invalid MCP authority revision")
 
 
 @dataclass(frozen=True)

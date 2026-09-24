@@ -1,6 +1,7 @@
 """Each Chat run owns and closes its own authenticated MCP resources."""
 
 import asyncio
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -69,6 +70,35 @@ async def test_parallel_runs_never_share_authenticated_toolsets(runtime):
 
     first, second = await asyncio.gather(run("a"), run("b"))
     assert first is not second
+    first.close.assert_awaited_once()
+    second.close.assert_awaited_once()
+
+
+async def test_provider_revision_change_gets_distinct_turn_resources(runtime, monkeypatch):
+    binding = McpConnectionBinding(
+        "owner",
+        "provider",
+        1,
+        1,
+        "https://example.com/mcp",
+        authority_revision=("subject", "connection-1", "grant-1"),
+    )
+    changed = replace(binding, authority_revision=("subject", "connection-1", "grant-2"))
+    monkeypatch.setattr(
+        module,
+        "resolve_registered_connection",
+        AsyncMock(
+            side_effect=[
+                ResolvedMcpConnection(binding, {"Authorization": "synthetic"}),
+                ResolvedMcpConnection(changed, {"Authorization": "synthetic"}),
+            ]
+        ),
+    )
+    authorize = AsyncMock()
+    async with module.mcp_turn_scope("thread") as scope:
+        first = await scope.acquire(context(), "provider", authorize_call=authorize)
+        second = await scope.acquire(context(), "provider", authorize_call=authorize)
+        assert first is not second
     first.close.assert_awaited_once()
     second.close.assert_awaited_once()
 

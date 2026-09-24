@@ -166,6 +166,13 @@ and provider built-ins. This permits reviewed connector composition, not general
 post-read mutation authority. Curated-provider and explicit Memory-capture
 continuation parity remain separate acceptance work.
 
+The native MCP binding can retain an immutable credential-owner authority
+revision in addition to numeric connection/credential versions. When supplied,
+that complete snapshot participates in toolset reuse, call-time equality and the
+existing action ledger's resource-binding HMAC. It is not exposed in the review
+card or diagnostic representation. This adapter contract does not itself migrate
+Google providers onto native toolsets or establish live-provider acceptance.
+
 ### Runtime mapping
 
 1. Agents: consume only consent-approved data slices.

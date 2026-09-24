@@ -22,6 +22,36 @@ from hushh_mcp.services.external_mcp_client import ExternalMcpError
 _NATIVE_RUN = McpTool._run_async_impl
 
 
+@pytest.mark.parametrize("revision", [["revision"], ("",), (None,), (1,)])
+def test_binding_rejects_mutable_or_malformed_authority_revision(revision):
+    with pytest.raises(ValueError, match="Invalid MCP authority revision"):
+        McpConnectionBinding("owner", "provider", 1, 1, "https://example.com/mcp", revision)
+
+
+@pytest.mark.parametrize("index", [0, 1, 2])
+async def test_provider_authority_change_rejects_call_headers(index):
+    snapshot = ("subject", "connection-1", "grant-1")
+    binding = McpConnectionBinding("owner", "provider", 1, 1, "https://example.com/mcp", snapshot)
+    changed = list(snapshot)
+    changed[index] = "changed"
+    resolver = AsyncMock(
+        return_value=ResolvedMcpConnection(
+            replace(binding, authority_revision=tuple(changed)), {"Authorization": "synthetic"}
+        )
+    )
+    toolset = GovernedMcpToolset(
+        binding=binding, resolve_connection=resolver, authorize_call=AsyncMock()
+    )
+    try:
+        with pytest.raises(ExternalMcpError) as error:
+            await toolset._current_headers(SimpleNamespace(user_id="owner"))
+        assert error.value.code == "MCP_CONNECTION_CHANGED"
+        toolset.authorize_call.assert_not_called()
+        assert "subject" not in repr(binding)
+    finally:
+        await toolset.close()
+
+
 @pytest.fixture
 def registry_harness(monkeypatch):
     from hushh_mcp.one_adk import governed_mcp_toolset as module

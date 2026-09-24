@@ -218,6 +218,11 @@ class McpCallApproval:
                 "endpoint": self.binding.endpoint,
                 "connection_generation": self.binding.generation,
                 "credential_version": self.binding.credential_version,
+                **(
+                    {"authority_revision": list(self.binding.authority_revision)}
+                    if self.binding.authority_revision
+                    else {}
+                ),
             },
         )
 

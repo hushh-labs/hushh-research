@@ -1,5 +1,6 @@
 """Browser review prepares authority; only the native Chat tool executes."""
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -10,7 +11,10 @@ from google.adk.sessions import InMemorySessionService, Session
 from hushh_mcp.one_adk import mcp_review_service as module
 from hushh_mcp.one_adk import mcp_turn_scope
 from hushh_mcp.one_adk.governed_mcp_toolset import McpConnectionBinding, ResolvedMcpConnection
-from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
+from hushh_mcp.services.action_directive_ledger import (
+    ActionDirectiveAuthorityError,
+    ActionDirectiveStore,
+)
 from hushh_mcp.services.external_mcp_client import ExternalMcpError
 
 
@@ -112,6 +116,33 @@ async def test_review_and_confirmation_use_current_terms_without_executing(harne
     h.tool.run_async.assert_not_called()
     for instance in h.created:
         instance.close.assert_awaited_once()
+
+
+async def test_provider_snapshot_is_bound_to_review_and_confirmation(harness):
+    h = harness
+    original = h.resolver.return_value
+    snapshot = ("synthetic-subject", "connection-1", "grant-1")
+    h.resolver.return_value = replace(
+        original, binding=replace(original.binding, authority_revision=snapshot)
+    )
+    preview = await module.prepare_review(**h.request)
+    issued = h.ledger.issue.await_args.kwargs["resource_binding"]
+    assert issued["authority_revision"] == list(snapshot)
+    assert "synthetic-subject" not in str(preview)
+    h.resolver.return_value = replace(
+        original,
+        binding=replace(
+            original.binding, authority_revision=("synthetic-subject", "connection-1", "grant-2")
+        ),
+    )
+    await module.confirm_review(**h.request, directive_id=preview["directiveId"], confirmed=True)
+    current = h.ledger.confirm.await_args.kwargs["terms"].resource_binding
+    assert current != issued
+    assert current["authority_revision"][-1] == "grant-2"
+    # The real ledger hashes the complete binding, not just numeric versions.
+    ledger = ActionDirectiveStore(db=SimpleNamespace(), hmac_key="synthetic-key")
+    assert ledger._hmac(current) != ledger._hmac(issued)
+    h.tool.run_async.assert_not_called()
 
 
 @pytest.mark.parametrize(
