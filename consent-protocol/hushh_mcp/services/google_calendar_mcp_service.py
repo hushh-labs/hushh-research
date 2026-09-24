@@ -31,7 +31,12 @@ class GoogleCalendarMcpService:
         self._connections = connections or get_google_connection_service()
         self._catalog = McpCatalogCache(ttl_seconds=_CATALOG_TTL_SECONDS)
 
-    async def _catalog_for_token(self, token: str) -> list[dict[str, Any]]:
+    async def _catalog_for_token(
+        self, token: str, *, force_refresh: bool = False
+    ) -> list[dict[str, Any]]:
+        if force_refresh:
+            self._catalog.invalidate(token)
+        revision = self._catalog.revision
         cached = self._catalog.get(token)
         if cached is not None:
             return cached
@@ -42,16 +47,18 @@ class GoogleCalendarMcpService:
         result: list[dict[str, Any]] = admit_catalog(
             tools, allowed_names=GOOGLE_CALENDAR_READ_TOOLS
         )
-        self._catalog.put(token, result)
+        self._catalog.put(token, result, revision=revision)
         return result
 
-    async def discover_read_tools(self, *, user_id: str) -> list[dict[str, Any]]:
+    async def discover_read_tools(
+        self, *, user_id: str, force_refresh: bool = False
+    ) -> list[dict[str, Any]]:
         if not user_id:
             raise GoogleConnectionError("Connect Google Calendar first", status_code=403)
         token = await self._connections.access_token(
             user_id=user_id, service="calendar", access_level="read"
         )
-        return await self._catalog_for_token(token)
+        return await self._catalog_for_token(token, force_refresh=force_refresh)
 
     async def read_tool(
         self, *, user_id: str, tool_name: str, arguments: dict[str, Any]

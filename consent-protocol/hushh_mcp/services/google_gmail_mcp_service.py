@@ -148,7 +148,12 @@ class GoogleGmailMcpService:
         self._connections = connections or GmailReceiptsService()
         self._catalog = McpCatalogCache(ttl_seconds=_CATALOG_TTL_SECONDS)
 
-    async def _catalog_for_token(self, token: str) -> list[dict[str, Any]]:
+    async def _catalog_for_token(
+        self, token: str, *, force_refresh: bool = False
+    ) -> list[dict[str, Any]]:
+        if force_refresh:
+            self._catalog.invalidate(token)
+        revision = self._catalog.revision
         cached = self._catalog.get(token)
         if cached is not None:
             return cached
@@ -157,14 +162,16 @@ class GoogleGmailMcpService:
             headers={"Authorization": f"Bearer {token}"},
         )
         result: list[dict[str, Any]] = admit_catalog(tools, allowed_names=GOOGLE_GMAIL_READ_TOOLS)
-        self._catalog.put(token, result)
+        self._catalog.put(token, result, revision=revision)
         return result
 
-    async def discover_read_tools(self, *, user_id: str) -> list[dict[str, Any]]:
+    async def discover_read_tools(
+        self, *, user_id: str, force_refresh: bool = False
+    ) -> list[dict[str, Any]]:
         if not user_id:
             raise GmailApiError("Connect Gmail first", status_code=403)
         token = await self._connections.get_read_access_token(user_id=user_id)
-        catalog = await self._catalog_for_token(token)
+        catalog = await self._catalog_for_token(token, force_refresh=force_refresh)
         return [narrowed for item in catalog if (narrowed := _narrowed_capability(item))]
 
     async def read_tool(

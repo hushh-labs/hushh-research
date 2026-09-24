@@ -275,7 +275,10 @@ async def test_owner_discovery_requires_verified_live_oauth_and_stable_generatio
 
     assert result == [{"name": "search_files", "inputSchema": {"type": "object"}}]
     owner.current_credential.assert_awaited_once_with(user_id="owner", required_profile="live")
-    catalog.assert_awaited_once_with(access_token="synthetic-live-token")  # noqa: S106 - fake token
+    catalog.assert_awaited_once_with(
+        access_token="synthetic-live-token",  # noqa: S106 - fake token
+        force_refresh=False,
+    )
 
     owner.lifecycle.read.return_value = {"connection_generation": 5}
     with pytest.raises(DriveOAuthError, match="connection_changed"):

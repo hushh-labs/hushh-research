@@ -29,6 +29,9 @@ logger = logging.getLogger("external_mcp_client")
 
 _DEFAULT_TIMEOUT_SECONDS = 20.0
 _MAX_RESULT_BYTES = 32_000
+_MAX_CATALOG_PAGES = 20
+_MAX_CATALOG_TOOLS = 500
+_MAX_CATALOG_BYTES = 1_000_000
 
 
 class ExternalMcpError(RuntimeError):
@@ -126,6 +129,38 @@ def _normalize_and_cap(
     )
 
 
+async def _list_session_tools(session: Any) -> list[dict[str, Any]]:
+    """Read a complete bounded catalog; never present a partial list as complete."""
+    catalog: list[dict[str, Any]] = []
+    names: set[str] = set()
+    cursors: set[str] = set()
+    cursor: str | None = None
+    size = 0
+    for _ in range(_MAX_CATALOG_PAGES):
+        page = await session.list_tools(**({"cursor": cursor} if cursor else {}))
+        for tool in page.tools:
+            name = tool.name
+            if not isinstance(name, str) or not name or name in names:
+                raise ExternalMcpError("Invalid connector catalog.", code="MCP_CATALOG_INVALID")
+            item = {
+                "name": name,
+                "description": getattr(tool, "description", None) or "",
+                "inputSchema": getattr(tool, "inputSchema", None) or {},
+            }
+            size += len(json.dumps(item).encode("utf-8"))
+            if len(catalog) >= _MAX_CATALOG_TOOLS or size > _MAX_CATALOG_BYTES:
+                raise ExternalMcpError("Connector catalog is too large.", code="MCP_CATALOG_LIMIT")
+            names.add(name)
+            catalog.append(item)
+        cursor = getattr(page, "nextCursor", None)
+        if cursor is None:
+            return sorted(catalog, key=lambda item: item["name"])
+        if not isinstance(cursor, str) or not cursor or cursor in cursors:
+            raise ExternalMcpError("Invalid connector continuation.", code="MCP_CATALOG_INVALID")
+        cursors.add(cursor)
+    raise ExternalMcpError("Connector catalog is too large.", code="MCP_CATALOG_LIMIT")
+
+
 async def list_tools(
     *, endpoint: str, headers: dict[str, str] | None = None, timeout_seconds: float | None = None
 ) -> list[dict[str, Any]]:
@@ -143,18 +178,12 @@ async def list_tools(
         ):
             async with ClientSession(read_stream, write_stream) as session:
                 await session.initialize()
-                result = await session.list_tools()
-        return [
-            {
-                "name": tool.name,
-                "description": getattr(tool, "description", None) or "",
-                "inputSchema": getattr(tool, "inputSchema", None) or {},
-            }
-            for tool in result.tools
-        ]
+                return await _list_session_tools(session)
 
     try:
         return await asyncio.wait_for(_run(), timeout=timeout_seconds or _DEFAULT_TIMEOUT_SECONDS)
+    except ExternalMcpError:
+        raise
     except TimeoutError as error:
         raise ExternalMcpTimeoutError() from error
     except Exception as error:

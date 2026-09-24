@@ -68,12 +68,17 @@ class GoogleDriveMcpService:
         self._oauth = oauth or get_external_connector_oauth_service().drive()
         self._catalog = McpCatalogCache(ttl_seconds=_CATALOG_TTL_SECONDS)
 
-    async def discover_read_tools(self, *, access_token: str | None = None) -> list[dict[str, Any]]:
+    async def discover_read_tools(
+        self, *, access_token: str | None = None, force_refresh: bool = False
+    ) -> list[dict[str, Any]]:
         """Discover official tool descriptions/schemas without an owner grant.
 
         The public catalog is capability metadata. It supplies no execution
         authority, credential, or private file result.
         """
+        if force_refresh:
+            self._catalog.invalidate(access_token)
+        revision = self._catalog.revision
         cached = self._catalog.get(access_token)
         if cached is not None:
             return cached
@@ -82,10 +87,12 @@ class GoogleDriveMcpService:
             headers={"Authorization": f"Bearer {access_token}"} if access_token else None,
         )
         result: list[dict[str, Any]] = admit_catalog(tools, allowed_names=GOOGLE_DRIVE_READ_TOOLS)
-        self._catalog.put(access_token, result)
+        self._catalog.put(access_token, result, revision=revision)
         return result
 
-    async def discover_for_owner(self, *, user_id: str) -> list[dict[str, Any]]:
+    async def discover_for_owner(
+        self, *, user_id: str, force_refresh: bool = False
+    ) -> list[dict[str, Any]]:
         if not connector_feature_enabled("google_drive_live", user_id):
             raise DriveOAuthError("connector_unavailable", status_code=403)
         row, credential = await self._oauth.current_credential(
@@ -97,7 +104,9 @@ class GoogleDriveMcpService:
             or row["verified_policy_hash"] != LIVE_POLICY_HASH
         ):
             raise DriveOAuthError("reconnect_required", status_code=401)
-        result = await self.discover_read_tools(access_token=credential["accessToken"])
+        result = await self.discover_read_tools(
+            access_token=credential["accessToken"], force_refresh=force_refresh
+        )
         current = await self._oauth.lifecycle.read(user_id=user_id, connector_id="google_drive")
         if not current or current["connection_generation"] != row["connection_generation"]:
             raise DriveOAuthError("connection_changed", status_code=409)

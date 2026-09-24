@@ -20,6 +20,56 @@ def test_cached_catalogs_are_isolated_and_copied():
     assert cache.get("owner-a-token") == [{"name": "search_files"}]
 
 
+def test_refresh_preserves_other_credentials_and_rejects_stale_fill():
+    cache = McpCatalogCache(ttl_seconds=300)
+    cache.put("a", [{"name": "old"}])
+    cache.put("b", [{"name": "other"}])
+    old_revision = cache.revision
+    cache.invalidate("a")
+    assert cache.get("a") is None
+    assert cache.get("b") == [{"name": "other"}]
+    cache.put("a", [{"name": "fresh"}], revision=cache.revision)
+    cache.put("a", [{"name": "late"}], revision=old_revision)
+    assert cache.get("a") == [{"name": "fresh"}]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("module", "service", "tool"),
+    [
+        (drive, drive.GoogleDriveMcpService, "search_files"),
+        (gmail, gmail.GoogleGmailMcpService, "list_labels"),
+        (calendar, calendar.GoogleCalendarMcpService, "list_events"),
+    ],
+)
+async def test_explicit_refresh_replaces_catalog_and_failure_does_not_restore_it(
+    monkeypatch, module, service, tool
+):
+    catalog = [{"name": tool, "inputSchema": {"type": "object"}}]
+    listing = AsyncMock(side_effect=[catalog, [], RuntimeError("unavailable"), catalog])
+    monkeypatch.setattr(module, "list_tools", listing)
+    connector = service()
+    credential = "synthetic-catalog-credential"
+
+    async def discover(refresh=False):
+        if module is drive:
+            return await connector.discover_read_tools(
+                access_token=credential, force_refresh=refresh
+            )
+        return await connector._catalog_for_token(credential, force_refresh=refresh)
+
+    assert await discover()
+    assert await discover()
+    assert listing.await_count == 1
+    assert await discover(True) == []
+    assert await discover() == []
+    with pytest.raises(RuntimeError):
+        await discover(True)
+    assert connector._catalog.get(credential) is None
+    assert await discover()
+    assert listing.await_count == 4
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("module", "service", "first_tool", "second_tool"),

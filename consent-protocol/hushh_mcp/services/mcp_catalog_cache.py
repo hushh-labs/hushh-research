@@ -17,6 +17,11 @@ class McpCatalogCache:
         self._ttl_seconds = ttl_seconds
         self._max_entries = max_entries
         self._entries: dict[str, tuple[float, list[dict[str, Any]]]] = {}
+        self._revision = 0
+
+    @property
+    def revision(self) -> int:
+        return self._revision
 
     @staticmethod
     def _key(token: str | None) -> str:
@@ -32,7 +37,19 @@ class McpCatalogCache:
             return None
         return deepcopy(entry[1])
 
-    def put(self, token: str | None, catalog: list[dict[str, Any]]) -> None:
+    def invalidate(self, token: str | None) -> None:
+        """Forget only this credential's catalog before an explicit refresh."""
+        self._entries.pop(self._key(token), None)
+        self._revision += 1
+
+    def put(
+        self, token: str | None, catalog: list[dict[str, Any]], *, revision: int | None = None
+    ) -> None:
+        # A refresh must not be undone by an older in-flight discovery. A
+        # cache-wide epoch bounds memory and conservatively skips other pending
+        # fills too; existing catalogs for other credentials remain untouched.
+        if revision is not None and revision != self._revision:
+            return
         key = self._key(token)
         now = time.monotonic()
         self._entries = {
