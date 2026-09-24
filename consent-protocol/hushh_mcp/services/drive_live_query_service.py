@@ -1,6 +1,6 @@
 """A connection asks; the owner allows or denies; Allow runs one live Drive turn.
 
-Create and Deny never read Drive and wake no worker. Allow claims the exact
+Create, Deny and Cancel never read Drive and wake no worker. Allow claims the exact
 stored question once and runs the owner's own bounded chat turn
 (``DriveChatService.run_live_query``), fenced on every step by the owner's
 current authority and the claim. The requester receives answer text and file
@@ -79,6 +79,11 @@ class DriveLiveQueryService:
     async def deny(self, *, user_id, request_id, revision):
         await self._require_owner()
         return await self.store.deny(user_id=user_id, request_id=request_id, revision=revision)
+
+    async def cancel(self, *, user_id, request_id, revision):
+        """The asker withdraws their question; never touches the chat turn."""
+        await self._require_owner()
+        return await self.store.cancel(user_id=user_id, request_id=request_id, revision=revision)
 
     async def allow(self, *, user_id, request_id, revision, consent_token, timezone="UTC"):
         await self._require_owner()

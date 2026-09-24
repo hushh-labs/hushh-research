@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
@@ -10,6 +11,7 @@ import {
 import { useCoarseClock, usePeriodicTask } from "@/lib/perf/use-periodic-task";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { CONSENT_ACTION_COMPLETE_EVENT } from "@/lib/consent/consent-events";
+import { ROUTES } from "@/lib/navigation/routes";
 import { Button } from "@/lib/morphy-ux/button";
 import { FlowActionGroup } from "@/components/app-ui/flow-actions";
 import {
@@ -27,7 +29,8 @@ type Direction = DriveQueryView["direction"];
 type SessionGuard = () => void;
 /** `notice: undefined` keeps the current notice (a quiet background poll). */
 type Outcome = { view: DriveQueryView; notice?: string | null };
-type Phase = "idle" | "loading" | "allowing" | "denying";
+type Phase = "idle" | "loading" | "allowing" | "denying" | "cancelling";
+type Choice = "allow" | "deny" | "cancel";
 
 const POLL_MS = 5000;
 /** Three minutes: long enough to watch one allowed search finish. */
@@ -68,8 +71,9 @@ function loadFailureCopy(code: string): string {
 }
 
 /**
- * One question about the owner's Drive. The owner only allows or denies; this
- * card never reads Drive itself and never prepares or reviews files.
+ * One question about the owner's Drive. The owner only allows or denies; the
+ * asker can cancel while it waits. This card never reads Drive itself and
+ * never prepares or reviews files.
  */
 export function DriveQueryRequestCard({
   requestId,
@@ -229,9 +233,15 @@ function UnlockedDriveQueryCard({
   const showDecision =
     !!view && (view.canDecide || phase === "allowing" || phase === "denying") && !expired;
   const canDecide = showDecision && !!view?.canDecide && phase === "idle";
+  const canCancel =
+    !!view &&
+    view.direction === "outgoing" &&
+    (view.status === "pending" || view.status === "running") &&
+    !expired &&
+    phase === "idle";
 
-  const decide = (choice: "allow" | "deny") => {
-    if (!view || !canDecide) return;
+  const decide = (choice: Choice) => {
+    if (!view || !(choice === "cancel" ? canCancel : canDecide)) return;
     const revision = view.revision;
     void run(
       async (token, guard) => {
@@ -239,7 +249,9 @@ function UnlockedDriveQueryCard({
           const result =
             choice === "allow"
               ? await DriveSharingService.allowQuery(token, requestId, revision, guard)
-              : await DriveSharingService.denyQuery(token, requestId, revision, guard);
+              : choice === "deny"
+                ? await DriveSharingService.denyQuery(token, requestId, revision, guard)
+                : await DriveSharingService.cancelQuery(token, requestId, revision, guard);
           guard();
           announceChange();
           return { view: result, notice: null };
@@ -258,7 +270,7 @@ function UnlockedDriveQueryCard({
         }
       },
       "decide",
-      choice === "allow" ? "allowing" : "denying",
+      choice === "allow" ? "allowing" : choice === "deny" ? "denying" : "cancelling",
     );
   };
 
@@ -292,20 +304,28 @@ function UnlockedDriveQueryCard({
                   ? "You allowed this question."
                   : view.status === "denied"
                     ? "You declined this question."
-                    : null
-          : view.status === "running"
-            ? "Allowed — finding the answer"
-            : view.status === "answered"
-              ? "Answered"
-              : view.status === "denied"
-                ? "Declined"
-                : expired
-                  ? "Expired"
-                  : `Waiting for ${name ?? "them"} to allow`;
+                    : view.status === "cancelled"
+                      ? `${name ?? "They"} cancelled this question.`
+                      : null
+          : phase === "cancelling"
+            ? "Cancelling…"
+            : view.status === "cancelled"
+              ? "Cancelled"
+              : view.status === "running"
+                ? "Allowed — finding the answer"
+                : view.status === "answered"
+                  ? "Answered"
+                  : view.status === "denied"
+                    ? "Declined"
+                    : expired
+                      ? "Expired"
+                      : `Waiting for ${name ?? "them"} to allow`;
   const lastError =
     incoming && view?.status === "pending" && view.lastError && !notice
       ? LAST_ERROR_COPY[view.lastError]
       : null;
+  const showReconnect =
+    incoming && view?.status === "pending" && view.lastError === "reconnect_required";
   const showRefresh =
     phase === "idle" &&
     (!view ||
@@ -336,6 +356,11 @@ function UnlockedDriveQueryCard({
       ) : null}
       {notice ? <HelperText role="alert">{notice}</HelperText> : null}
       {lastError ? <HelperText>{lastError}</HelperText> : null}
+      {showReconnect ? (
+        <Button asChild size="standard">
+          <Link href={ROUTES.PROFILE_CONNECTORS}>Reconnect Google Drive</Link>
+        </Button>
+      ) : null}
       {view?.answer ? (
         <div className="min-w-0 space-y-2">
           <BodyText className="whitespace-pre-wrap break-words">
@@ -391,10 +416,19 @@ function UnlockedDriveQueryCard({
           />
         </>
       ) : null}
-      {showRefresh ? (
-        <Button size="standard" variant="none" onClick={refresh}>
-          Refresh
-        </Button>
+      {showRefresh || canCancel ? (
+        <div className="flex flex-wrap gap-2">
+          {showRefresh ? (
+            <Button size="standard" variant="none" onClick={refresh}>
+              Refresh
+            </Button>
+          ) : null}
+          {canCancel ? (
+            <Button size="standard" variant="none" onClick={() => decide("cancel")}>
+              Cancel question
+            </Button>
+          ) : null}
+        </div>
       ) : null}
     </section>
   );

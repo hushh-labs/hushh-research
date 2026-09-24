@@ -124,6 +124,7 @@ import { describeSelection } from "@/lib/agent/describe-selection";
 import { useEntryWelcome, type EntryWelcome } from "@/lib/agent/use-entry-welcome";
 import {
   parseAgentActivityExperience,
+  personSelectionPrompt,
   type AgentStructuredExperience,
   type AgentStructuredExperienceWithPresentation,
 } from "@/lib/agent/agui-structured-experiences";
@@ -5953,7 +5954,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       data-agent-history-drawer-open={isHistoryDrawerOpen ? "true" : undefined}
     >
       <AgentPersonSelectionContext.Provider value={hasChatAccess && !isStreaming
-        ? (handle, name) => enqueuePrompt(`Check what I can ask ${name} for.`, handle)
+        ? (handle, name, sourceTool) => enqueuePrompt(personSelectionPrompt(sourceTool, name), handle)
         : null}>
       <div
         className={cn(

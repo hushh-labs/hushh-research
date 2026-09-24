@@ -89,6 +89,7 @@ export type DriveQueryStatus =
   | "running"
   | "answered"
   | "denied"
+  | "cancelled"
   | "expired";
 /** One connection's question about the owner's Drive. No file ids or links. */
 export type DriveQueryView = {
@@ -180,6 +181,7 @@ const QUERY_STATUSES = new Set<DriveQueryStatus>([
   "running",
   "answered",
   "denied",
+  "cancelled",
   "expired",
 ]);
 
@@ -722,11 +724,23 @@ export class DriveSharingService {
     });
   }
 
+  /** The asker withdraws their own question; never reads Drive. */
+  static cancelQuery(
+    token: string,
+    requestId: string,
+    revisionValue: number,
+    guard: SharingSessionGuard,
+  ): Promise<DriveQueryView> {
+    return this.queryView(token, requestId, guard, "/cancel", {
+      revision: revisionValue,
+    });
+  }
+
   private static async queryView(
     token: string,
     requestId: string,
     guard: SharingSessionGuard,
-    action: "" | "/allow" | "/deny",
+    action: "" | "/allow" | "/deny" | "/cancel",
     body?: { revision: number; timeZone?: string },
   ): Promise<DriveQueryView> {
     if (

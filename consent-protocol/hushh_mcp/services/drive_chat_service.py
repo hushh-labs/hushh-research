@@ -596,7 +596,7 @@ class DriveChatService:
                     "connect_required",
                     "Connect Drive in Connectors to search and read files.",
                 )
-            if code in {"reconnect_required", "needs_reauth"}:
+            if code in {"reconnect_required", "needs_reauth", "grant_rejected"}:
                 return _outcome(
                     "reconnect_required",
                     "Reconnect Drive in Connectors to continue.",

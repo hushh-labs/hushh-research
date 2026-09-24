@@ -480,3 +480,15 @@ async def deny_query(request_id: UUID, body: DecisionRequest, owner: Owner = Dep
         request_id=str(request_id),
         revision=body.revision,
     )
+
+
+@router.post("/queries/{request_id}/cancel")
+async def cancel_query(request_id: UUID, body: DecisionRequest, owner: Owner = Depends(_owner)):
+    """B withdraws their own question. Never reads Drive; stops a running Allow's answer."""
+    return await _call(
+        "cancel",
+        owner=owner,
+        factory=_query_service,
+        request_id=str(request_id),
+        revision=body.revision,
+    )

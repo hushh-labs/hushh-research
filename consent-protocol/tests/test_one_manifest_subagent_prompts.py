@@ -106,3 +106,10 @@ def test_drive_read_tools_are_only_in_admitted_chat_roster(monkeypatch):
     assert agent_tree.read_google_drive not in agent_tree._one_roster_tools(
         specialist_model="test-model", allow_owner_drive_tools=True
     )
+
+
+def test_one_knows_a_question_needs_no_google_step():
+    composed = agent_tree._one_runtime_instruction(SimpleNamespace(state={}))
+    assert "Ask as a question gets an answer and file names only, with no Google step" in composed
+    assert "carry on with the request they were making" in composed
+    assert "The card sends only after a direct tap and fresh Google identity check" not in composed

@@ -24,7 +24,7 @@ def setup(monkeypatch):
     service = SimpleNamespace(
         **{
             name: AsyncMock(return_value={"status": "pending"})
-            for name in ("create", "list_requests", "status", "allow", "deny")
+            for name in ("create", "list_requests", "status", "allow", "deny", "cancel")
         }
     )
     monkeypatch.setattr(routes, "_query_service", lambda: service)
@@ -60,6 +60,7 @@ def create_body(**changes):
         ("get", f"/{REQUEST_ID}", None),
         ("post", f"/{REQUEST_ID}/allow", {"revision": 1}),
         ("post", f"/{REQUEST_ID}/deny", {"revision": 1}),
+        ("post", f"/{REQUEST_ID}/cancel", {"revision": 1}),
     ],
 )
 def test_every_question_route_requires_the_vault_owner(setup, method, suffix, body):
@@ -154,6 +155,22 @@ def test_deny_and_reads_are_owner_derived(setup):
     service.list_requests.assert_awaited_once_with(
         user_id="owner", direction="outgoing", limit=5, offset=0
     )
+
+
+def test_cancel_is_requester_derived_and_owner_gated(setup):
+    client, app, service, current = setup
+    unlock(app, current)
+    response = client.post(BASE + f"/{REQUEST_ID}/cancel", json={"revision": 2})
+    assert response.status_code == 200
+    assert response.headers["Cache-Control"] == "private, no-store"
+    service.cancel.assert_awaited_once_with(user_id="requester", request_id=REQUEST_ID, revision=2)
+    assert current.await_count == 2
+    assert client.post(BASE + f"/{REQUEST_ID}/cancel", json={"revision": -1}).status_code == 422
+    service.cancel.side_effect = DriveSharingError("request_already_decided")
+    refused = client.post(BASE + f"/{REQUEST_ID}/cancel", json={"revision": 2})
+    assert refused.status_code == 409
+    assert refused.json()["detail"]["code"] == "request_already_decided"
+    assert not service.allow.called and not service.deny.called
 
 
 @pytest.mark.parametrize(

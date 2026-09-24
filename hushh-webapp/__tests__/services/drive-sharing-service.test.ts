@@ -9,6 +9,7 @@ vi.mock("@/lib/services/api-service", () => ({
 import {
   DriveSharingService,
   DriveSharingError,
+  parseDriveQueryView,
   validDocumentRequestPeriod,
   validDriveQuery,
 } from "@/lib/services/drive-sharing-service";
@@ -386,6 +387,31 @@ describe("drive question transport", () => {
       zone.mockRestore();
     }
     expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({ revision: 1 });
+  });
+
+  it("parses a cancelled question and cancels with its revision", async () => {
+    const cancelled = rawView({
+      status: "cancelled",
+      revision: 5,
+      decidedAt: "2026-09-24T10:05:00Z",
+    });
+    expect(parseDriveQueryView(cancelled)).toMatchObject({
+      status: "cancelled",
+      answer: null,
+    });
+    fetcher.mockResolvedValueOnce(reply(cancelled));
+    await expect(
+      DriveSharingService.cancelQuery("vault", requestId, 4, guard),
+    ).resolves.toMatchObject({ requestId, status: "cancelled", answer: null });
+    expect(fetcher.mock.calls[0][0]).toBe(
+      `/api/connectors/google_drive/sharing/queries/${requestId}/cancel`,
+    );
+    expect(fetcher.mock.calls[0][1].method).toBe("POST");
+    expect(JSON.parse(fetcher.mock.calls[0][1].body)).toEqual({ revision: 4 });
+    await expect(
+      DriveSharingService.cancelQuery("vault", requestId, -1, guard),
+    ).rejects.toMatchObject({ code: "invalid_argument" });
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
   it("lists one direction with bounded paging", async () => {
