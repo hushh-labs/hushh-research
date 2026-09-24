@@ -6,6 +6,7 @@ import { Loader2, Mail, MailCheck, RefreshCw } from "@/components/icons";
 import { SurfaceInset } from "@/components/app-ui/surfaces";
 import { AdaptiveDetailSurface } from "@/components/app-ui/settings-ui";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -71,6 +72,87 @@ function fieldLabels(workflow: GmailInformationRequestWorkflow): string {
       .filter(Boolean)
       .join(", ") ||
     "Personal information"
+  );
+}
+
+function newestRequestsFirst(
+  left: GmailInformationRequestWorkflow,
+  right: GmailInformationRequestWorkflow,
+): number {
+  const timestamp = (workflow: GmailInformationRequestWorkflow) => {
+    const value = workflow.received_at || workflow.created_at;
+    const parsed = value ? Date.parse(value) : Number.NaN;
+    return Number.isNaN(parsed) ? 0 : parsed;
+  };
+  return timestamp(right) - timestamp(left) || right.workflow_id.localeCompare(left.workflow_id);
+}
+
+function mergeWorkflow(
+  current: GmailInformationRequestWorkflow[],
+  workflow: GmailInformationRequestWorkflow,
+): GmailInformationRequestWorkflow[] {
+  const withoutExisting = current.filter(
+    (item) => item.workflow_id !== workflow.workflow_id,
+  );
+  return [...withoutExisting, workflow].sort(newestRequestsFirst);
+}
+
+function KycRequestListSkeleton({
+  label = "KYC requests",
+}: {
+  label?: string;
+}) {
+  return (
+    <div
+      aria-busy="true"
+      aria-label={`Loading ${label}`}
+      className="space-y-2"
+      role="status"
+    >
+      <p className="sr-only">Loading {label}. Gmail remains available.</p>
+      {Array.from({ length: 2 }, (_, index) => (
+        <div
+          aria-hidden="true"
+          className="space-y-3 rounded-xl border border-[color:var(--app-card-border-standard)] bg-background/60 px-3.5 py-3"
+          key={index}
+        >
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1 space-y-2">
+              <Skeleton className="h-4 w-32" />
+              <Skeleton className="h-3 w-3/4" />
+              <Skeleton className="h-3 w-24" />
+            </div>
+            <Skeleton className="h-10 w-24 shrink-0" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function KycWorkspaceLoadingSkeleton() {
+  return (
+    <>
+      <div
+        aria-busy="true"
+        aria-label="Loading KYC workspace"
+        className="flex flex-col gap-3 rounded-[var(--app-card-radius-sm)] border border-primary/15 bg-primary/[0.045] px-3.5 py-3 sm:flex-row sm:items-center sm:justify-between"
+      >
+        <div className="flex min-w-0 items-center gap-3">
+          <Skeleton className="size-9 shrink-0 rounded-full" />
+          <div className="min-w-0 space-y-2">
+            <Skeleton className="h-4 w-36" />
+            <Skeleton className="h-3 w-56 max-w-full" />
+          </div>
+        </div>
+        <Skeleton className="h-11 w-full sm:w-28" />
+      </div>
+      <div aria-hidden="true" className="grid grid-cols-2 gap-3">
+        <Skeleton className="h-11 w-full" />
+        <Skeleton className="h-11 w-full" />
+      </div>
+      <KycRequestListSkeleton />
+    </>
   );
 }
 
@@ -231,9 +313,6 @@ function WorkflowCard({
               <p>
                 <span className="font-medium text-foreground">Subject:</span>{" "}
                 {draft.preview.subject}
-              </p>
-              <p className="pt-1">
-                This reply stays in the original Mail thread.
               </p>
             </div>
           ) : null}
@@ -404,7 +483,7 @@ export default function GmailInformationRequestsSection({
   const [activityWorkflows, setActivityWorkflows] = useState<
     GmailInformationRequestWorkflow[]
   >([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [needsGmailSend, setNeedsGmailSend] = useState(false);
@@ -442,23 +521,37 @@ export default function GmailInformationRequestsSection({
   const [scanSummary, setScanSummary] =
     useState<GmailInformationRequestScan | null>(null);
   const [scanningInbox, setScanningInbox] = useState(false);
+  const [scannedCount, setScannedCount] = useState<number | null>(null);
   const [selectedWorkflowId, setSelectedWorkflowId] = useState<string | null>(
     null,
   );
   const idTokenProviderRef = useRef(idTokenProvider);
   const activityLoadingRef = useRef(false);
   const scanInFlightRef = useRef(false);
+  const scanAbortControllerRef = useRef<AbortController | null>(null);
   const automaticScanSessionRef = useRef<string | null>(null);
+  const requestListVersionRef = useRef(0);
 
   useEffect(() => {
     idTokenProviderRef.current = idTokenProvider;
   }, [idTokenProvider]);
 
+  useEffect(
+    () => () => {
+      scanAbortControllerRef.current?.abort();
+    },
+    [],
+  );
+
   const load = useCallback(async () => {
     const tokenProvider = idTokenProviderRef.current;
-    if (!isConnected || !userId || !tokenProvider) return;
+    if (!isConnected || !userId || !tokenProvider) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
+    const requestListVersion = requestListVersionRef.current;
     try {
       const firebaseIdToken = await tokenProvider();
       const nextPreference =
@@ -481,9 +574,11 @@ export default function GmailInformationRequestsSection({
             view: "activity",
           }),
         ]);
-        setWorkflows(requests.workflows);
-        setNextOffset(requests.next_offset);
-        setTotalCount(requests.total_count);
+        if (requestListVersion === requestListVersionRef.current) {
+          setWorkflows(requests.workflows);
+          setNextOffset(requests.next_offset);
+          setTotalCount(requests.total_count);
+        }
         setActivityWorkflows(activity.workflows);
         setActivityNextOffset(activity.next_offset);
         setActivityTotalCount(activity.total_count);
@@ -525,14 +620,25 @@ export default function GmailInformationRequestsSection({
     scanInFlightRef.current = true;
     setLoading(true);
     setScanningInbox(true);
+    setScannedCount(0);
     setError(null);
     setNeedsGmailSend(false);
+    const controller = new AbortController();
+    scanAbortControllerRef.current = controller;
     try {
       const firebaseIdToken = await idTokenProvider();
-      const scan = await GmailInformationRequestsService.scan({
+      const scan = await GmailInformationRequestsService.scanStream({
         firebaseIdToken,
         vaultOwnerToken,
         maxResults: 30,
+        signal: controller.signal,
+        handlers: {
+          onProgress: setScannedCount,
+          onRequest: (workflow) => {
+            requestListVersionRef.current += 1;
+            setWorkflows((current) => mergeWorkflow(current, workflow));
+          },
+        },
       });
       setScanSummary(scan);
       const [requests, activity] = await Promise.all([
@@ -565,7 +671,11 @@ export default function GmailInformationRequestsSection({
       return false;
     } finally {
       scanInFlightRef.current = false;
+      if (scanAbortControllerRef.current === controller) {
+        scanAbortControllerRef.current = null;
+      }
       setScanningInbox(false);
+      setScannedCount(null);
       setLoading(false);
     }
   }, [idTokenProvider, vaultOwnerToken]);
@@ -949,6 +1059,8 @@ export default function GmailInformationRequestsSection({
   if (!isConnected) return null;
 
   const enabled = preference?.monitoring_enabled === true;
+  const isInitialWorkspaceLoading = preference === null && loading;
+  const visibleRequestCount = Math.max(totalCount, workflows.length);
   const selectedWorkflow = workflows.find(
     (workflow) => workflow.workflow_id === selectedWorkflowId,
   );
@@ -1031,6 +1143,10 @@ export default function GmailInformationRequestsSection({
         ) : null}
       </div>
 
+      {isInitialWorkspaceLoading ? (
+        <KycWorkspaceLoadingSkeleton />
+      ) : (
+        <>
       {enabled ? (
         <div className="flex flex-col gap-3 rounded-[var(--app-card-radius-sm)] border border-primary/15 bg-primary/[0.045] px-3.5 py-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-center gap-3">
@@ -1044,12 +1160,12 @@ export default function GmailInformationRequestsSection({
             <div className="min-w-0" aria-live="polite">
               <p className="font-medium text-foreground">
                 {scanningInbox
-                  ? "Looking for KYC-related emails…"
+                  ? `Scanning emails: ${scannedCount ?? 0}`
                   : "Gmail monitoring is on"}
               </p>
               <p className="text-xs leading-5 text-muted-foreground">
                 {scanningInbox
-                  ? "We’ll add any requests we find here."
+                  ? "New KYC requests appear here as we find them."
                   : "We’ll show you new requests here when they arrive."}
               </p>
             </div>
@@ -1106,11 +1222,6 @@ export default function GmailInformationRequestsSection({
               {scanSummary.matched_count}
             </p>
           </div>
-          {scanSummary.backfill_pending ? (
-            <p className="col-span-2 text-xs text-muted-foreground">
-              We’ll keep checking your Gmail emails in the background.
-            </p>
-          ) : null}
         </div>
       ) : null}
 
@@ -1140,7 +1251,7 @@ export default function GmailInformationRequestsSection({
           options={[
             {
               value: "requests",
-              label: `Active requests${totalCount ? ` (${totalCount})` : ""}`,
+              label: `Active requests${visibleRequestCount ? ` (${visibleRequestCount})` : ""}`,
             },
             {
               value: "activity",
@@ -1155,7 +1266,7 @@ export default function GmailInformationRequestsSection({
       {enabled && listView === "requests" && workflows.length ? (
         <div className="space-y-2" role="tabpanel" aria-label="KYC requests">
           <p className="text-xs text-muted-foreground">
-            Showing {workflows.length} of {totalCount} requests
+            Showing {workflows.length} of {visibleRequestCount} requests
           </p>
           {workflows.map((workflow) => (
             <WorkflowQueueCard
@@ -1177,6 +1288,8 @@ export default function GmailInformationRequestsSection({
             </Button>
           ) : null}
         </div>
+      ) : enabled && listView === "requests" && vaultOwnerToken && loading ? (
+        <KycRequestListSkeleton />
       ) : enabled && listView === "requests" && vaultOwnerToken && !loading ? (
         <p className="text-xs text-muted-foreground">
           No KYC requests found yet.
@@ -1205,15 +1318,15 @@ export default function GmailInformationRequestsSection({
             </Button>
           ) : null}
         </div>
-      ) : enabled && listView === "activity" && activityLoading ? (
-        <p aria-live="polite" className="text-xs text-muted-foreground">
-          Loading activity…
-        </p>
+      ) : enabled && listView === "activity" && (activityLoading || loading) ? (
+        <KycRequestListSkeleton label="KYC activity" />
       ) : enabled && listView === "activity" && activityLoaded ? (
         <p className="text-xs text-muted-foreground">
           No KYC activity yet. Sent messages remain available in Gmail.
         </p>
       ) : null}
+        </>
+      )}
 
       <AdaptiveDetailSurface
         open={Boolean(selectedWorkflow)}

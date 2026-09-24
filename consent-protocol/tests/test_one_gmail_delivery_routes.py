@@ -117,6 +117,73 @@ def test_send_passes_opaque_attachment_token_to_owner_service():
     assert service.execute.await_args.kwargs["draft_payload"]["attachment_token"] == token
 
 
+def test_source_bound_delivery_uses_the_common_routes_without_trusting_the_browser_envelope():
+    delivery = MagicMock()
+    delivery.prepare = AsyncMock(return_value={"action_id": "action", "state": "prepared"})
+    delivery.execute = AsyncMock(return_value={"action_id": "action", "state": "sent"})
+    reply_context = type("ReplyContext", (), {"thread_id": "thread-1"})()
+    source = MagicMock()
+    source.resolve_reply_delivery = AsyncMock(
+        return_value=(
+            {
+                "to": ["verified@example.com"],
+                "cc": [],
+                "bcc": [],
+                "subject": "Re: Verified request",
+                "body": "Approved details",
+            },
+            reply_context,
+        )
+    )
+    source.record_reply_delivery = AsyncMock(return_value={"action_id": "action", "state": "sent"})
+
+    with (
+        patch.object(module, "get_gmail_delivery_service", return_value=delivery),
+        patch.object(
+            module,
+            "get_personal_gmail_information_request_service",
+            return_value=source,
+        ),
+    ):
+        client = TestClient(_app())
+        prepared = client.post(
+            "/api/one/email/prepare",
+            json={
+                **_envelope(),
+                "to": "attacker@example.com",
+                "idempotency_key": "x" * 16,
+                "source_workflow_id": "workflow-1",
+            },
+        )
+        sent = client.post(
+            "/api/one/email/send",
+            json={
+                **_envelope(),
+                "to": "attacker@example.com",
+                "action_id": "action",
+                "source_workflow_id": "workflow-1",
+            },
+        )
+
+    assert prepared.status_code == 200
+    assert sent.status_code == 200
+    assert source.resolve_reply_delivery.await_args_list[0].kwargs == {
+        "user_id": "firebase-user",
+        "workflow_id": "workflow-1",
+        "body": "Message",
+        "html_body": "<p>Message</p>",
+    }
+    assert delivery.prepare.await_args.kwargs["draft_payload"]["to"] == ["verified@example.com"]
+    assert delivery.prepare.await_args.kwargs["reply_context"] is reply_context
+    assert delivery.execute.await_args.kwargs["draft_payload"]["to"] == ["verified@example.com"]
+    assert delivery.execute.await_args.kwargs["reply_context"] is reply_context
+    assert source.record_reply_delivery.await_args.kwargs == {
+        "user_id": "firebase-user",
+        "workflow_id": "workflow-1",
+        "result": {"action_id": "action", "state": "sent"},
+    }
+
+
 def test_route_rejects_multiple_attachments_and_caller_supplied_bytes():
     client = TestClient(_app())
     for payload in (

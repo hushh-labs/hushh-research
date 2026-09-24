@@ -23,7 +23,7 @@ describe("One capability availability", () => {
     expect(isOneCapabilityEnabled(calendar)).toBe(true);
   });
 
-  it("includes Gmail and Calendar while hiding local-only CRM", () => {
+  it("keeps Gmail and Calendar visible while hiding standalone KYC and local-only CRM", () => {
     expect(ONE_SETUP_CAPABILITIES.map((capability) => capability.id)).toEqual([
       "gmail",
       "calendar",
@@ -34,6 +34,13 @@ describe("One capability availability", () => {
     ]);
     expect(getAgentSections().map((section) => section.id)).toEqual(
       expect.arrayContaining(["gmail", "calendar"]),
+    );
+    expect(getOneCapability("email")).toMatchObject({
+      agentId: "agent_kyc",
+      isVisibleOnRoster: false,
+    });
+    expect(getAgentSections().map((section) => section.id)).not.toContain(
+      "email",
     );
     expect(getAgentSections().map((section) => section.id)).not.toContain(
       "connected-systems",

@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   toastError: vi.fn(),
   toastInfo: vi.fn(),
   toastSuccess: vi.fn(),
+  writeText: vi.fn(),
   vault: {
     isVaultUnlocked: false,
     vaultKey: null as string | null,
@@ -47,16 +48,37 @@ describe("KycIdentityPreface", () => {
     mocks.vault.vaultKey = null;
     mocks.vault.vaultOwnerToken = null;
     mocks.saveProfile.mockResolvedValue({ success: true });
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText: mocks.writeText },
+    });
+  });
+
+  it("leads with an external-agent import request", () => {
+    render(<KycIdentityPreface onComplete={vi.fn()} />);
+    enterIdentityForm();
+
+    expect(
+      screen.getByRole("heading", { name: "Import from ChatGPT or another AI" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "1. Copy this request" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "2. Paste the response" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Copy import request" }));
+
+    expect(mocks.writeText).toHaveBeenCalledWith(
+      "Can you share one to two pages of the information you have about me for an external agent? Organize it by domain, such as identity, contact details, education, work, finances, health, or preferences. Include any KYC-related information you have, and clearly note anything uncertain or missing.",
+    );
+    expect(mocks.toastSuccess).toHaveBeenCalledWith("Request copied to clipboard.");
   });
 
   it("keeps KYC on screen and opens vault setup before writing sensitive information", () => {
     const onComplete = vi.fn();
     render(<KycIdentityPreface onComplete={onComplete} />);
     enterIdentityForm();
-    fireEvent.change(screen.getByLabelText("Tell us about yourself"), {
+    fireEvent.change(screen.getByLabelText("Paste your profile export"), {
       target: { value: "Product designer in Pune, settling estate matters." },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save & Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Import & Continue" }));
 
     expect(onComplete).not.toHaveBeenCalled();
     expect(KycIdentityProfilePkmService.saveProfile).not.toHaveBeenCalled();
@@ -74,13 +96,13 @@ describe("KycIdentityPreface", () => {
     const onComplete = vi.fn();
     render(<KycIdentityPreface onComplete={onComplete} />);
     enterIdentityForm();
-    fireEvent.change(screen.getByLabelText("Tell us about yourself"), {
+    fireEvent.change(screen.getByLabelText("Paste your profile export"), {
       target: { value: "I study engineering and enjoy Rocket League." },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save & Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Import & Continue" }));
 
     expect(onComplete).toHaveBeenCalledTimes(1);
-    expect(mocks.toastInfo).toHaveBeenCalledWith("Saving your details to Memory in the background…");
+    expect(mocks.toastInfo).toHaveBeenCalledWith("Importing your profile into Memory in the background…");
     finishSave?.({ success: true, message: "Saved 2 separate memory details." });
     await waitFor(() => {
       expect(mocks.toastSuccess).toHaveBeenCalledWith("Saved 2 separate memory details.");

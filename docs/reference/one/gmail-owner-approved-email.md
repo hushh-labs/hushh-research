@@ -62,7 +62,10 @@ the existing vault dialog opens instead.
 2. The owner’s single explicit **Send** click immediately closes the card and
    prepares then sends the exact reviewed snapshot. Every field edit changes
    that snapshot. `POST /api/one/email/prepare` creates a ten-minute HMAC
-   action, and `POST /api/one/email/send` atomically claims it once.
+   action, and `POST /api/one/email/send` atomically claims it once. A selected
+   personal Gmail information request uses these same routes with only its
+   opaque workflow reference; the server derives the recipient, subject, and
+   original-thread headers rather than trusting the browser draft envelope.
 3. The server constructs RFC MIME itself and calls Gmail
    `users.messages.send` as `me`. The message always includes plain text and,
    when the owner used formatting, a restricted sanitized HTML alternative for

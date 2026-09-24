@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, patch
 
 from fastapi import FastAPI
@@ -132,6 +133,64 @@ def test_scan_route_never_exposes_a_gmail_history_cursor():
     assert response.json() == {"accepted": True, "scanned_count": 1, "matched_count": 1}
 
 
+def test_scan_stream_emits_progress_and_a_metadata_only_request_before_completion():
+    service = type("Service", (), {})()
+
+    async def scan_recent(**kwargs):
+        await kwargs["on_progress"](
+            2,
+            {
+                "workflow_id": "workflow-2",
+                "status": "detected",
+                "gmail_thread_id": "thread-2",
+                "received_at": datetime(2026, 9, 24, 12, tzinfo=timezone.utc),
+                "classification_confidence": 0.9,
+                "requested_field_labels": ["Passport number"],
+                "candidate_scopes": [],
+                "attachment_review_required": False,
+            },
+        )
+        return {
+            "accepted": True,
+            "scanned_count": 2,
+            "unchanged_count": 0,
+            "matched_count": 1,
+            "failed_count": 0,
+            "workflow_ids": ["workflow-2"],
+            "next_monitor_history_id": "private-cursor",
+        }
+
+    service.scan_recent = scan_recent
+    with patch.object(module, "_service", return_value=service):
+        response = _app().post("/api/one/email/information-requests/scan/stream", json={})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    assert response.headers["cache-control"] == "private, no-store, no-cache, no-transform"
+    assert 'event: progress\ndata: {"event":"progress","scanned_count":0}' in response.text
+    assert 'event: progress\ndata: {"event":"progress","scanned_count":2}' in response.text
+    assert 'event: request\ndata: {"event":"request","workflow"' in response.text
+    assert "2026-09-24T12:00:00+00:00" in response.text
+    assert 'event: complete\ndata: {"event":"complete","accepted":true' in response.text
+    assert "private-cursor" not in response.text
+    assert "subject" not in response.text
+    assert "body" not in response.text
+
+
+def test_scan_stream_reports_only_safe_error_copy_after_it_starts():
+    service = type("Service", (), {})()
+    service.scan_recent = AsyncMock(side_effect=RuntimeError("provider diagnostic"))
+    with patch.object(module, "_service", return_value=service):
+        response = _app().post("/api/one/email/information-requests/scan/stream", json={})
+
+    assert response.status_code == 200
+    assert "provider diagnostic" not in response.text
+    assert (
+        'event: error\ndata: {"event":"error","message":"Personal Gmail monitoring is temporarily unavailable. Please try again."}'
+        in response.text
+    )
+
+
 def test_reply_routes_bind_only_a_source_derived_envelope_to_the_owner():
     service = type("Service", (), {})()
     service.prepare_reply = AsyncMock(return_value={"action_id": "prepared-action"})
@@ -192,7 +251,12 @@ def test_refresh_candidates_uses_only_the_authenticated_vault_owner():
 def test_source_preview_fetches_only_the_current_owner_selected_workflow():
     service = type("Service", (), {})()
     service.get_source_preview = AsyncMock(
-        return_value={"from": "Sender", "subject": "Verification", "body": "Requested details"}
+        return_value={
+            "from": "Sender",
+            "reply_to": "Replies <reply@example.test>",
+            "subject": "Verification",
+            "body": "Requested details",
+        }
     )
     with patch.object(module, "_service", return_value=service):
         response = _app().get("/api/one/email/information-requests/workflow-1/source-preview")
@@ -201,6 +265,7 @@ def test_source_preview_fetches_only_the_current_owner_selected_workflow():
     assert response.headers["cache-control"] == "private, no-store"
     assert response.json() == {
         "from": "Sender",
+        "reply_to": "Replies <reply@example.test>",
         "subject": "Verification",
         "body": "Requested details",
     }

@@ -2,12 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import os
+from collections.abc import AsyncGenerator
 from typing import Any, Literal, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.concurrency import run_in_threadpool
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import StreamingResponse
 from google.auth.transport.requests import Request as GoogleAuthRequest
 from google.oauth2 import id_token as google_id_token
 from pydantic import BaseModel, ConfigDict, Field
@@ -163,10 +168,79 @@ def _public_scan_result(result: dict[str, Any]) -> dict[str, Any]:
         "workflow_ids",
         "baseline_established",
         "baseline_reestablished",
-        "backfill_pending",
         "retry_pending",
     )
     return {key: result[key] for key in allowed if key in result}
+
+
+def _sse_frame(event: str, payload: dict[str, Any]) -> bytes:
+    """Return one named, self-describing metadata-only SSE frame."""
+
+    body = json.dumps(jsonable_encoder({"event": event, **payload}), separators=(",", ":"))
+    return f"event: {event}\ndata: {body}\n\n".encode()
+
+
+def _stream_error_message(exc: Exception) -> str:
+    """Use the route's existing public error boundary after a stream starts."""
+
+    detail = _as_http_error(exc).detail
+    return str(detail.get("message") if isinstance(detail, dict) else "") or (
+        "We couldn’t check Gmail right now. Try again."
+    )
+
+
+async def _scan_stream(
+    *,
+    request: Request,
+    user_id: str,
+    payload: ScanRequest,
+) -> AsyncGenerator[bytes, None]:
+    """Emit a completed scan count and durable request card as each arrives."""
+
+    events: asyncio.Queue[tuple[str, dict[str, Any]]] = asyncio.Queue()
+
+    async def on_progress(scanned_count: int, workflow: dict[str, Any] | None) -> None:
+        await events.put(("progress", {"scanned_count": scanned_count}))
+        if workflow:
+            await events.put(("request", {"workflow": workflow}))
+
+    async def run_scan() -> None:
+        try:
+            result = await _service().scan_recent(
+                user_id=user_id,
+                max_results=payload.max_results,
+                include_recent_inbox=payload.include_recent_inbox,
+                on_progress=on_progress,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 - stream only public error copy
+            logger.warning(
+                "gmail.personal_information_request.scan_stream_failed error=%s",
+                type(exc).__name__,
+            )
+            await events.put(("error", {"message": _stream_error_message(exc)}))
+        else:
+            await events.put(("complete", _public_scan_result(cast(dict[str, Any], result))))
+
+    task = asyncio.create_task(run_scan())
+    try:
+        yield _sse_frame("progress", {"scanned_count": 0})
+        while True:
+            if await request.is_disconnected():
+                return
+            try:
+                event, stream_payload = await asyncio.wait_for(events.get(), timeout=15)
+            except TimeoutError:
+                yield _sse_frame("heartbeat", {})
+                continue
+            yield _sse_frame(event, stream_payload)
+            if event in {"complete", "error"}:
+                return
+    finally:
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
 
 
 @router.get("/preference")
@@ -262,6 +336,26 @@ async def scan_information_requests(
             type(exc).__name__,
         )
         raise _as_http_error(exc) from exc
+
+
+@router.post("/scan/stream")
+async def scan_information_requests_stream(
+    request: Request,
+    payload: ScanRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+    token_data: dict[str, Any] = Depends(require_vault_owner_token),
+) -> StreamingResponse:
+    user_id = _owner_user_id(firebase_uid=firebase_uid, token_data=token_data)
+    return StreamingResponse(
+        _scan_stream(request=request, user_id=user_id, payload=payload),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "private, no-store, no-cache, no-transform",
+            "Pragma": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @router.post("/{workflow_id}/refresh-candidates")

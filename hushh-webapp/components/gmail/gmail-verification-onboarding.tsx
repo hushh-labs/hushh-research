@@ -5,6 +5,7 @@ import { Check, Copy, ShieldCheck } from "@/components/icons";
 import { toast } from "sonner";
 
 import { SurfaceInset } from "@/components/app-ui/surfaces";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/lib/morphy-ux/button";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
@@ -146,14 +147,30 @@ export function GmailVerificationOnboarding({
 
   if (checking) {
     return (
-      <div
+      <SurfaceInset
         aria-busy="true"
         aria-live="polite"
         aria-label="Checking KYC setup"
-        className="sr-only"
+        className="space-y-4 px-4 py-4 text-sm sm:px-5 sm:py-5"
       >
-        Checking KYC setup
-      </div>
+        <div className="space-y-1">
+          <p className="font-semibold text-foreground">KYC requests</p>
+          <p className="text-sm leading-6 text-muted-foreground">
+            Getting your KYC workspace ready.
+          </p>
+        </div>
+        <div aria-hidden="true" className="space-y-3">
+          <div className="flex items-center justify-between gap-3 rounded-[var(--app-card-radius-sm)] border border-border/60 bg-background/60 px-3.5 py-3">
+            <div className="space-y-2">
+              <Skeleton className="h-4 w-36" />
+              <Skeleton className="h-3 w-52 max-w-full" />
+            </div>
+            <Skeleton className="h-10 w-24 shrink-0" />
+          </div>
+          <Skeleton className="h-11 w-full" />
+          <Skeleton className="h-24 w-full" />
+        </div>
+      </SurfaceInset>
     );
   }
   if (profileReady || deferred) return <>{children}</>;
