@@ -2,9 +2,10 @@
 set -euo pipefail
 
 # Idempotently configure the durable Firebase cleanup drain. The governed UAT
-# workflow invokes this only after its candidate has passed release
-# classification; operators may also use it for a bounded repair. Landing the
-# code alone does not mutate IAM or Scheduler.
+# and production workflows invoke this only after their candidate has passed
+# release classification, passing PROJECT_ID and JOB_NAME explicitly (the
+# defaults below are UAT's); operators may also use it for a bounded repair.
+# Landing the code alone does not mutate IAM or Scheduler.
 
 PROJECT_ID="${PROJECT_ID:-hushh-pda-uat}"
 SCHEDULER_LOCATION="${SCHEDULER_LOCATION:-us-central1}"

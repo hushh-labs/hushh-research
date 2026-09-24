@@ -53,11 +53,74 @@ The release owner must complete this sequence for each environment:
 7. Re-enable account deletion only after steps 1-6 are evidenced.
 
 Migration 201, its backend lifecycle runtime, and the web/native invalidation
-UX must deploy as `scope=all`. The UAT scope resolver rejects a narrower manual
-override whenever any account-lifecycle boundary file differs from either
-serving service. Production backend deploys containing migration 201 are hard
-blocked until the same fence, immutable bridge, completion-log, and drain
-controls are implemented in the production workflow.
+UX must deploy as `scope=all`. The shared scope resolver
+(`scripts/ci/resolve-deploy-scope.py`, used by UAT and production) rejects a
+narrower manual override whenever any account-lifecycle boundary file differs
+from either serving service.
+
+## Production procedure
+
+`.github/workflows/deploy-production.yml` runs the same controls as UAT. Every
+backend deploy does these steps in order:
+
+1. Build the backend image once and pin its exact linux/amd64 digest.
+2. Install the deletion fence on `hushh-pda:us-central1:hushh-vault-db`
+   (database `hushh_vault`).
+3. Install the fence again, run the production release migrations, then verify
+   the migration 201 boundary and record the tombstone count.
+4. Deploy that exact digest with no traffic, tagged
+   `account-deletion-<run id>`, and check the candidate's `v201` label, image,
+   SHA, and health before promotion.
+5. Only after the release is classified healthy, configure and verify the
+   Scheduler job, run it, and wait for a fresh HTTP 2xx `AttemptFinished` log.
+   Then retire every pre-v201 backend revision, verify the boundary again, and
+   remove the fence.
+
+The workflow does all of this itself. The step names and their order are
+pinned by `consent-protocol/tests/test_account_deletion_release_workflow.py`.
+
+Production dispatches share one global concurrency group, `deploy-production`,
+with `cancel-in-progress: false`. Two releases can never interleave the fence.
+
+Production facts:
+
+- Scheduler job: `account-deletion-cleanup-production` in `us-central1`,
+  target `POST https://api.hushh.ai/api/account/deletion-cleanup/drain?limit=10`,
+  OIDC audience `https://api.hushh.ai`.
+- Scheduler identity:
+  `account-deletion-cleanup@hushh-pda.iam.gserviceaccount.com`. It holds no
+  project roles; the Scheduler service agent mints its short-lived OIDC token.
+- Deploy-identity access beyond the normal deploy roles: the custom project
+  role `accountDeletionSchedulerOperator` (Scheduler jobs get, list, create,
+  update, run), `roles/logging.viewer` so the gate can read `AttemptFinished`
+  logs, and `iam.serviceAccounts.actAs` on the cleanup service account only.
+  Grant actAs through `roles/iam.serviceAccountUser` on that one account; the
+  setup script also needs its `iam.serviceAccounts.get` to describe the
+  account instead of trying to create it.
+
+A production release reports `healthy` only when activation succeeds. If a
+backend release is blocked or rolled back, the fence stays installed and
+account deletion keeps failing closed (SQLSTATE `55000`) until the next healthy
+backend release activates it.
+
+### Recovery when a failed deploy leaves the fence installed
+
+Prefer a new governed production deploy of a healthy SHA; its activation step
+removes the fence with all of its evidence. Remove the fence by hand only when a
+redeploy is not possible, and only in this order:
+
+1. Confirm that 100% of traffic is on a revision labelled
+   `account-deletion-contract=v201`, and that no pre-v201 backend revision
+   remains (use `gcloud run revisions list` and read the labels).
+2. Through the Cloud SQL Auth Proxy, run
+   `deploy/account-deletion/verify_release_boundary.sql` against `hushh_vault`
+   and confirm it succeeds.
+3. Only then run `deploy/account-deletion/remove_release_fence.sql`. It drops
+   both fence triggers in one transaction and refuses to commit if either one
+   remains.
+
+If the boundary check fails, leave the fence installed. Account deletion that
+fails closed is the safe state.
 
 Before step 7, also prove that operational scripts cannot delete and recreate
 `actor_profiles` or `vault_keys`. Migration 201 deliberately interprets either
