@@ -42,9 +42,12 @@ test.beforeAll(async () => {
           "@/lib/capacitor",
           "@/lib/profile/gmail-connector-store",
           "@/lib/services/gmail-receipts-service",
+          "@/lib/calendar/use-calendar-connection-status",
+          "@/lib/pkm/pkm-domain-resource",
+          "@/lib/kai/plaid-vault/vault-sync",
           "next/navigation",
         ].map((find) => ({
-          find,
+          find: new RegExp(`^${find.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`),
           replacement: path.join(
             root,
             "e2e/fixtures/connections-boundaries.tsx",
@@ -237,6 +240,19 @@ for (const width of [320, 390, 768, 1440])
       .fill("History filter");
     await page.getByLabel("Open Connectors", { exact: true }).click();
     const drawer = page.getByRole("dialog", { name: "Connectors", exact: true });
+    await expect(page.getByRole("dialog", { name: "Agent chat history", exact: true })).not.toBeVisible();
+    await expect(drawer).toHaveAttribute("data-slot", width < 768 ? "sheet-content" : "dialog-content");
+    if (width >= 768) {
+      await expect.poll(async () => {
+        const box = (await drawer.boundingBox())!;
+        return Math.abs(box.x + box.width / 2 - width / 2);
+      }).toBeLessThan(2);
+    } else {
+      await expect.poll(async () => {
+        const box = (await drawer.boundingBox())!;
+        return Math.abs(box.y + box.height - 820);
+      }).toBeLessThan(2);
+    }
     await expect(drawer.getByRole("heading", { name: "Connected" })).toBeVisible();
     await expect(drawer.getByRole("heading", { name: "Available" })).toBeVisible();
     await expect(drawer.getByRole("searchbox", { name: "Search connectors" })).toBeVisible();

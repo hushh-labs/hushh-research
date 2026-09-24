@@ -2117,7 +2117,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     useState(false);
   useEffect(() => {
     // `?panel=connectors` is the connector OAuth-return flow's landing signal
-    // -- connectors live in this sidebar panel now, not a dedicated route, so
+    // -- connectors live in the responsive modal, not a dedicated route, so
     // completing a connect has to reopen it here instead of navigating to one.
     if (searchParams?.get("panel") !== "connectors") return;
     setDrawerMode("connections");
@@ -2227,6 +2227,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     setComposerExpandedState(expanded);
   }, []);
   const historyDrawerTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const historyDrawerFallbackRef = useRef<HTMLButtonElement | null>(null);
   const historyLoadKeyRef = useRef<string | null>(null);
   const welcomePromptSetInitializedRef = useRef(false);
   const historyRestoreEpochRef = useRef(0);
@@ -6046,6 +6047,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       >
         <AgentConnectionsDrawer
           triggerRef={historyDrawerTriggerRef}
+          fallbackFocusRef={historyDrawerFallbackRef}
           open={isHistoryDrawerOpen}
           onOpenChange={handleHistoryDrawerOpenChange}
           mode={drawerMode}
@@ -6083,7 +6085,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
             <div className="flex min-w-0 items-center gap-3">
               <ShellActionSurface
                 variant="icon"
-                ref={historyDrawerTriggerRef}
+                ref={historyDrawerFallbackRef}
                 onClick={(event) => { historyDrawerTriggerRef.current = event.currentTarget; toggleHistoryDrawer(); }}
                 aria-label={isHistoryDrawerOpen ? "Close chat history" : "Open chat history"}
                 title={isHistoryDrawerOpen ? "Close chat history" : "Open chat history"}

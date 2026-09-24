@@ -97,7 +97,6 @@ function Fixture() {
   const triggerRef = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<ConnectionsDrawerMode>("chats");
-  const [available, setAvailable] = useState(false);
   const [external, setExternal] = useState(false);
   const [draft, setDraft] = useState("");
   const [turns, setTurns] = useState(1);
@@ -144,9 +143,7 @@ function Fixture() {
             hideCloseButton
             mode="mobile"
             className="h-full w-full"
-            onOpenConnectors={
-              available ? () => setMode("connections") : undefined
-            }
+            onOpenConnectors={() => setMode("connections")}
           />
         }
         connections={
@@ -154,7 +151,6 @@ function Fixture() {
             open={open && mode === "connections"}
             onBack={() => setMode("chats")}
             onClose={() => changeOpen(false)}
-            onAvailableChange={setAvailable}
             onExternalModalChange={setExternal}
             onPrepareRecovery={async (request) => {
               const fixtureWindow = window as RecoveryFixtureWindow;
