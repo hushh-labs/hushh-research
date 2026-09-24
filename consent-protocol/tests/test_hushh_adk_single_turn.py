@@ -193,3 +193,87 @@ async def test_single_turn_uses_agent_schema_and_full_caller_deadline(monkeypatc
     assert captured["first_event_timeout_s"] == 75
     assert captured["between_event_timeout_s"] == 75
     assert captured["total_timeout_s"] == 75
+
+
+async def test_single_turn_genes_fail_over_across_configured_vertex_locations(monkeypatch):
+    """A 429 on the primary endpoint replays the one tool-less request in the next.
+
+    Reproduced 2026-09-24: the global endpoint answered 429 RESOURCE_EXHAUSTED on
+    7 of 7 calls while `us` answered 3 of 3, yet single-turn genes were pinned to
+    global, so every Drive planner turn failed. The cooled-down location is then
+    skipped by the next gene instead of failing it first.
+    """
+    from types import SimpleNamespace
+
+    from google.genai import errors as genai_errors
+
+    from hushh_mcp.runtime_providers import factory
+    from hushh_mcp.services.drive_suggestion_service import LiveSearchPlan
+
+    for name, value in {
+        "HUSHH_GENAI_AUTH_MODE": "vertex_adc",
+        "GOOGLE_GENAI_USE_VERTEXAI": "true",
+        "GENAI_GOOGLE_CLOUD_PROJECT": "synthetic-genai-project",
+        "GOOGLE_CLOUD_LOCATION": "global",
+        "HUSHH_VERTEX_LOCATIONS": "global,us",
+    }.items():
+        monkeypatch.setenv(name, value)
+    calls: list[str] = []
+
+    class FakeClient:
+        def __init__(self, *, vertexai=True, project=None, location=None, **_options):
+            self.vertexai, self.project, self.location = vertexai, project, location
+            self.aio = SimpleNamespace(
+                models=SimpleNamespace(
+                    generate_content=self.generate_content,
+                    generate_content_stream=self.generate_content_stream,
+                )
+            )
+
+        def _answer(self):
+            calls.append(self.location)
+            if self.location == "global":
+                raise genai_errors.ClientError(
+                    429,
+                    {"error": {"code": 429, "status": "RESOURCE_EXHAUSTED", "message": "x"}},
+                )
+            return types.GenerateContentResponse(
+                candidates=[
+                    types.Candidate(
+                        content=types.Content(
+                            role="model",
+                            parts=[types.Part(text='{"terms":["bank statement"],"mode":"find"}')],
+                        ),
+                        finish_reason=types.FinishReason.STOP,
+                    )
+                ]
+            )
+
+        async def generate_content(self, **kwargs):
+            return self._answer()
+
+        async def generate_content_stream(self, **kwargs):
+            response = self._answer()
+
+            async def stream():
+                yield response
+
+            return stream()
+
+    monkeypatch.setattr("google.genai.Client", FakeClient)
+    monkeypatch.setattr(factory, "_REGIONAL_ADK_CLIENTS", {})
+    manifest = ManifestLoader.load(
+        str(Path(__file__).resolve().parents[1] / "hushh_mcp/agents/documents/agent.yaml")
+    )
+    gene = next(item for item in manifest.subagents if item.id == "agent_documents_live_search")
+
+    for _ in range(2):
+        plan = await run_single_turn(
+            build_single_turn_agent(gene, output_schema=LiveSearchPlan),
+            prompt_parts="potential bank statement",
+            user_id="owner",
+            consent_token="",
+            timeout_seconds=20,
+        )
+        assert plan.terms == ["bank statement"]
+    assert calls == ["global", "us", "us"]
