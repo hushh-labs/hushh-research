@@ -340,6 +340,15 @@ for (const width of [320, 390, 640, 768, 1440]) {
       ).toBe(true);
     };
     await checkGeometry();
+    const primaryAction = await page
+      .getByTestId("circle-discovery-primary")
+      .boundingBox();
+    if (width < 640) {
+      // Its blue treatment is compact, but the actual mobile tap target
+      // remains at the app-wide 44px minimum.
+      expect(primaryAction!.height).toBe(44);
+      expect(primaryAction!.width).toBeLessThanOrEqual(76);
+    }
     await page.getByRole("button", { name: "Explore Finance Circle" }).click();
     await expect(page.getByText(/help with your money and taxes/)).toBeVisible();
     await hero.screenshot({
