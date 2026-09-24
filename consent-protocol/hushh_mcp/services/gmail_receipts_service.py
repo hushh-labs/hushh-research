@@ -1427,6 +1427,31 @@ class GmailReceiptsService:
         access_token, _row = await self._ensure_access_token(user_id=user_id)
         return access_token
 
+    async def get_read_access_token(self, *, user_id: str) -> str:
+        """Admit owner-bound Gmail reads without granting send authority."""
+
+        row = await asyncio.to_thread(self._fetch_connection_row, user_id=user_id)
+        if not row or self._derive_connection_state(row) != "connected":
+            raise GmailApiError(
+                "Gmail is not connected for this user",
+                status_code=409,
+                code="GMAIL_NOT_CONNECTED",
+            )
+        if _GMAIL_READONLY_SCOPE not in self._granted_scopes(row):
+            raise GmailApiError(
+                "Reconnect Gmail to grant email reading permission.",
+                status_code=409,
+                code="GMAIL_READ_PERMISSION_REQUIRED",
+            )
+        access_token, current_row = await self._ensure_access_token(user_id=user_id)
+        if _GMAIL_READONLY_SCOPE not in self._granted_scopes(current_row):
+            raise GmailApiError(
+                "Reconnect Gmail to grant email reading permission.",
+                status_code=409,
+                code="GMAIL_READ_PERMISSION_REQUIRED",
+            )
+        return access_token
+
     def _derive_sync_state(
         self, *, row: dict[str, Any] | None, latest_run: dict[str, Any] | None
     ) -> str:

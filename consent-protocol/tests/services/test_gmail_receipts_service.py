@@ -239,6 +239,49 @@ async def test_send_ready_accepts_a_connected_account_with_the_granted_send_scop
     await service.assert_send_ready(user_id="user_123")
 
 
+@pytest.mark.asyncio
+async def test_read_token_requires_read_scope_before_token_refresh(monkeypatch):
+    service = GmailReceiptsService()
+    monkeypatch.setattr(service, "is_configured", lambda: True)
+    monkeypatch.setattr(
+        service,
+        "_fetch_connection_row",
+        lambda user_id: {
+            "status": "connected",
+            "revoked": False,
+            "scope_csv": "https://www.googleapis.com/auth/gmail.send",
+        },
+    )
+
+    async def unexpected_token(*, user_id):
+        pytest.fail("Token access must not happen without read permission")
+
+    monkeypatch.setattr(service, "_ensure_access_token", unexpected_token)
+    with pytest.raises(GmailApiError) as exc_info:
+        await service.get_read_access_token(user_id="user_123")
+    assert exc_info.value.code == "GMAIL_READ_PERMISSION_REQUIRED"
+
+
+@pytest.mark.asyncio
+async def test_read_token_rechecks_scope_after_refresh(monkeypatch):
+    service = GmailReceiptsService()
+    monkeypatch.setattr(service, "is_configured", lambda: True)
+    allowed = {
+        "status": "connected",
+        "revoked": False,
+        "scope_csv": "https://www.googleapis.com/auth/gmail.readonly",
+    }
+    monkeypatch.setattr(service, "_fetch_connection_row", lambda user_id: allowed)
+
+    async def refreshed_without_scope(*, user_id):
+        return "private-token", {**allowed, "scope_csv": ""}
+
+    monkeypatch.setattr(service, "_ensure_access_token", refreshed_without_scope)
+    with pytest.raises(GmailApiError) as exc_info:
+        await service.get_read_access_token(user_id="user_123")
+    assert exc_info.value.code == "GMAIL_READ_PERMISSION_REQUIRED"
+
+
 def test_oauth_redirect_rejects_caller_selected_origin(monkeypatch):
     _configure_gmail_oauth(monkeypatch)
     service = GmailReceiptsService()
