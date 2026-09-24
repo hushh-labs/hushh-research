@@ -43,7 +43,7 @@ export function ConnectorReadReceipt({ experience, onOpenConnections }: {
       <p role="status">{(drive ? DRIVE_STATUS : STATUS_TEXT)[experience.status]}</p>
       {experience.status === "ok" ? (
         <>
-          <p>{drive ? "Selected file excerpts" : "Metadata only"} · {experience.sourceRefs.length} cited {experience.sourceRefs.length === 1 ? "source" : "sources"}</p>
+          <p>{drive ? "Drive excerpts" : "Metadata only"} · {experience.sourceRefs.length} cited {experience.sourceRefs.length === 1 ? "source" : "sources"}</p>
           {experience.sourceRefs.length > 0 ? (
             <ul aria-label={drive ? "Document sources" : "Mail sources"} className="flex flex-wrap gap-x-3 gap-y-1">
               {experience.sourceRefs.map((ref, index) => <li key={ref}>{drive ? `Document excerpt ${index + 1}${experience.sourcePages?.[index] ? ` · page ${experience.sourcePages[index]}` : ""}` : `Mail ${ref.slice(5)}`}</li>)}

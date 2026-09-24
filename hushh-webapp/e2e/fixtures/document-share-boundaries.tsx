@@ -45,7 +45,7 @@ export const ApiService = {
 // Popup identity is synthetic here; Firebase's same-user semantics have their
 // own unit tests and live consent remains a separate acceptance requirement.
 export const AuthService = {
-  reauthenticateGoogleIdentity: async (
+  documentRequestIdentityToken: async (
     _uid: string,
     current: () => boolean,
   ) => {

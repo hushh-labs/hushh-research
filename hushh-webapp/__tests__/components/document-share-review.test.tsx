@@ -19,6 +19,7 @@ const state = vi.hoisted(() => ({
   approve: vi.fn(),
   decide: vi.fn(),
   prepareRevocation: vi.fn(),
+  prepare: vi.fn(),
   revoke: vi.fn(),
   periodic: vi.fn(),
 }));
@@ -241,4 +242,28 @@ describe("exact-file document review", () => {
     expect(state.revoke).toHaveBeenCalledOnce();
     expect(state.periodic.mock.lastCall?.[3]).toEqual({ enabled: true });
   });
+  it("prepares a pending owner request once and recovers after a transient failure", async () => {
+    state.status.mockResolvedValue({ requestId, revision: 0, direction: "incoming", status: "pending" });
+    state.prepare.mockRejectedValueOnce(new Error("temporary"));
+    render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+    await screen.findByRole("alert");
+    state.prepare.mockImplementationOnce(async () => {
+      state.status.mockResolvedValue({ requestId, revision: 3, direction: "incoming", status: "review_ready" });
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Refresh status" }));
+    await screen.findByText("<script>Untrusted.pdf</script>");
+    expect(state.prepare).toHaveBeenCalledTimes(2);
+  });
+
+  it("requires explicit broad trust and sends its scope with approval", async () => {
+    state.review.mockResolvedValue({ ...review(), canTrustFutureRequests: true });
+    render(<DocumentShareReview requestId={requestId} onChanged={vi.fn()} />);
+    const trust = await screen.findByRole("checkbox");
+    expect(trust).not.toBeChecked();
+    fireEvent.click(trust);
+    fireEvent.click(screen.getByRole("button", { name: "Share files" }));
+    await waitFor(() => expect(state.approve).toHaveBeenCalledWith(
+      "owner-a", requestId, expect.anything(), expect.any(Function), true, "any_requested_drive_file"));
+  });
+
 });

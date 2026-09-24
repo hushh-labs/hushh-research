@@ -14,21 +14,19 @@ def test_one_chat_receives_authored_cross_connector_semantic_policy():
     composed = agent_tree._one_runtime_instruction(SimpleNamespace(state={}))
     assert "When a request spans connected services" in authored
     assert authored.strip() in composed
-    assert "A connection or a read grant is not permission" in composed
-    assert "connecting or selecting files in Connectors does not establish that grant" in composed
-    assert "Never use the broader path to bypass" in composed
+    assert "An external read may inform an editable draft" in composed
+    assert "not permission to send, share, or change anything" in composed
+    assert "never call provider mutation tools directly" in composed
+    assert "Selected-file Drive and account-wide Drive reading are separate permissions" in composed
+    assert "Live access needs no file selection" in composed
+    assert "explicit document trust rule" in composed
     assert "share this file with Chris" in composed
     assert "One can stage a document request in chat using propose_document_request" in composed
-    assert "the owner reviews exact files in chat or Feed before any Viewer grant" in composed
-    assert "SELECTED-FILE DRIVE READ ADMISSION: disabled" in composed
-    assert "Do not claim the owner is disconnected" in composed
-    assert '"do you have my Drive access?"' in composed
-    assert "The owner's selection is account-level" in composed
+    assert "DRIVE READ ADMISSION: disabled" in composed
+    assert "Do not claim Drive is disconnected" in composed
 
 
-def test_admitted_drive_instruction_checks_generic_status_and_keeps_chat_referents_local(
-    monkeypatch,
-):
+def test_admitted_drive_instruction_uses_live_reads_and_keeps_chat_referents_local(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "test")
     monkeypatch.setenv("GOOGLE_DRIVE_CHAT_READS", "true")
     monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "owner")
@@ -40,11 +38,10 @@ def test_admitted_drive_instruction_checks_generic_status_and_keeps_chat_referen
             }
         )
     )
-    assert "file_name as an empty string" in composed
-    assert "without naming files" in composed
-    assert "earlier in this same conversation" in composed
-    assert "previous-chat references and transcript do not carry over" in composed
-    assert "Never infer disconnection or zero selected files" in composed
+    assert "call ask_documents_agent" in composed
+    assert "requires no selected files or index" in composed
+    assert "Resolve references only from this conversation" in composed
+    assert "Never infer disconnection or missing Drive files from an empty index" in composed
 
 
 def test_selected_drive_status_is_available_only_in_owner_chat_roster():

@@ -571,7 +571,7 @@ function OwnerConnectorsPanel({
         );
         if (finalized && !signal.aborted)
           setDriveMessage(
-            "Drive connected. Choose files to authorize them.",
+            "Drive connected. Ask One to find a file.",
           );
       },
       { clearMessage: false },
@@ -699,7 +699,7 @@ function OwnerConnectorsPanel({
     [drainQueuedNativePickerReconcile],
   );
 
-  const startDrive = (profile: "selected" | "live" = "selected") => {
+  const startDrive = (profile: "selected" | "live" = "live") => {
     if (!vaultOwnerToken || driveLock.current) return;
     if (Capacitor.isNativePlatform()) {
       void runDrive(async (token, signal) => {
@@ -787,7 +787,7 @@ function OwnerConnectorsPanel({
             finalized
               ? profile === "live"
                 ? "Live Drive access connected. Ask One to find files."
-                : "Drive connected. Choose files to authorize them."
+                : "Drive connected. Ask One to find a file."
               : "Drive authorization is still settling. Reopen Connectors to check it.",
           );
         }
@@ -861,7 +861,7 @@ function OwnerConnectorsPanel({
           setDriveMessage(
             profile === "live"
               ? "Live Drive connection checked. Ask One to find files."
-              : "Connection checked. Choose files if authorized, or retry Connect.",
+              : "Connection checked. Ask One to find a file.",
           );
       } finally {
         signal.removeEventListener("abort", close);
@@ -1113,7 +1113,8 @@ function OwnerConnectorsPanel({
   const canConnectDrive =
     statusChecked &&
     drive?.available !== false &&
-    overview?.features.google_drive_connection === true;
+    overview?.features.google_drive_connection === true &&
+    overview?.features.google_drive_live === true;
   const canPick =
     drive?.profile !== "live" &&
     drive?.available !== false &&
@@ -1204,8 +1205,8 @@ function OwnerConnectorsPanel({
       detail: hasDriveGrant
         ? drive?.status === "needs_reauth"
           ? "Reconnect needed"
-          : `${drive?.profile === "live" ? "Google Workspace MCP · Live account access" : "Selected files · Google Workspace MCP"} · ${drive?.accountLabel || "Choose files for One"}`
-        : "Google Workspace MCP · Selected-file access",
+          : `${drive?.profile === "live" ? "Google Workspace MCP · Live Drive read" : "Selected files · limited Drive access"} · ${drive?.accountLabel || (drive?.profile === "live" ? "Search your Drive" : "Choose files for One")}`
+        : "Google Workspace MCP · Connect for live read or selected files",
       connected: hasDriveGrant,
       onOpen: () => showConnector("google_drive"),
       action: hasDriveGrant
@@ -1214,7 +1215,7 @@ function OwnerConnectorsPanel({
             label: "Connect Google Drive",
             onClick: () => {
               showConnector("google_drive");
-              startDrive("selected");
+              startDrive("live");
             },
             disabled: driveBusy || loading || !canConnectDrive,
           },
@@ -1460,7 +1461,7 @@ function OwnerConnectorsPanel({
                 Google Drive
               </h3>
               <p className="break-all text-sm text-muted-foreground">
-                {drive?.accountLabel || "Only files you choose"}
+                {drive?.accountLabel || "Search and read files"}
               </p>
               <p role="status" className="text-sm">
                 {loading
@@ -1476,19 +1477,19 @@ function OwnerConnectorsPanel({
                   <Button
                     className={touch}
                     disabled={driveBusy || loading || !canConnectDrive}
-                    onClick={() => startDrive(drive?.profile === "live" ? "live" : "selected")}
+                    onClick={() => startDrive("live")}
                   >
                     {hasDriveGrant ? "Reconnect Drive" : "Connect Drive"}
                   </Button>
                 )}
                 {overview?.features.google_drive_live === true &&
-                  drive?.profile !== "live" && (
+                  drive?.status === "connected" && drive?.profile !== "live" && (
                     <Button
                       className={touch}
                       disabled={driveBusy || loading || !canConnectDrive}
                       onClick={() => startDrive("live")}
                     >
-                      Enable live Drive access
+                      Reconnect Drive
                     </Button>
                   )}
                 {hasDriveGrant && (
@@ -1499,16 +1500,6 @@ function OwnerConnectorsPanel({
                     onClick={() => setConfirm("drive")}
                   >
                     Disconnect Drive
-                  </Button>
-                )}
-                {canPick && (
-                  <Button
-                    ref={chooseRef}
-                    className={touch}
-                    disabled={driveBusy || Boolean(pending)}
-                    onClick={chooseFiles}
-                  >
-                    Choose files
                   </Button>
                 )}
                 <Button
@@ -1534,7 +1525,7 @@ function OwnerConnectorsPanel({
               )}
               {drive?.profile === "live" && drive.status === "connected" && (
                 <div className="space-y-3 rounded-lg border border-border p-3">
-                  <p className="text-sm">Background preparation lets One find candidate files after someone requests them, even while your app is closed. It does not share files; you still approve each review unless you separately trust that person for the same exact files and request purpose.</p>
+                  <p className="text-sm">Prepare document requests while you’re away. One reads relevant files on Hushh servers and sends excerpts to Gemini. Files are shared only after your approval or under document trust.</p>
                   <Button className={touch} disabled={driveBusy || liveBackground === null}
                     onClick={() => void runDrive(async (token) => {
                       const next = !liveBackground;
@@ -1542,14 +1533,14 @@ function OwnerConnectorsPanel({
                       setLiveBackground(next);
                       setDriveMessage(next ? "Background preparation enabled." : "Background preparation disabled.");
                     })}>
-                    {liveBackground ? "Disable background preparation" : "Enable background preparation"}
+                    {liveBackground ? "Stop background preparation" : "Prepare requests while away"}
                   </Button>
                 </div>
               )}
               {vaultOwnerToken ? <TrustedDocumentRules token={vaultOwnerToken} /> : null}
               {!canConnectDrive && (
                 <p className="text-sm text-muted-foreground">
-                  Drive connection is unavailable in this session. Try again after reconnecting.
+                  Drive connection is unavailable in this session. Try again later.
                 </p>
               )}
               <p
@@ -1662,8 +1653,20 @@ function OwnerConnectorsPanel({
                   </div>
                 </section>
               )}
-              {documents.length > 0 && (
-                <ul className="space-y-3" aria-label="Selected Drive files">
+              {(documents.length > 0 || canPick) && (
+                <details>
+                <summary className="cursor-pointer py-3 text-sm">Previously added files</summary>
+                {canPick && (
+                  <Button
+                    ref={chooseRef}
+                    className={touch}
+                    disabled={driveBusy || Boolean(pending)}
+                    onClick={chooseFiles}
+                  >
+                    Choose files
+                  </Button>
+                )}
+                {documents.length > 0 && <ul className="space-y-3" aria-label="Selected Drive files">
                   {documents.map((item) => (
                     <li
                       key={item.documentId}
@@ -1737,7 +1740,8 @@ function OwnerConnectorsPanel({
                       </Button>
                     </li>
                   ))}
-                </ul>
+                </ul>}
+                </details>
               )}
             </section>}
             {selectedCatalog && activeConnector !== "google_drive" && activeConnector !== "gmail" && (

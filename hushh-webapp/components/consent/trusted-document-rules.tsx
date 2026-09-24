@@ -45,10 +45,12 @@ export function TrustedDocumentRules({ token }: { token: string }) {
     {rules.length === 0 ? <p className="text-sm text-muted-foreground">No active document trust rules.</p> : null}
     <ul className="space-y-3">{rules.map((rule) => <li key={rule.ruleId} className="rounded-lg border border-border p-3 text-sm">
       <p className="break-all font-medium">{rule.recipientEmail}</p>
+      {rule.scope === "any_requested_drive_file" ? <p>Any requested Drive file, including future files.</p> : <>
       <p className="break-words">Purpose: {rule.purpose.purpose}</p>
       {rule.purpose.periodStart && rule.purpose.periodEnd ? <p className="text-muted-foreground">{rule.purpose.periodStart} to {rule.purpose.periodEnd}</p> : null}
       <p className="text-muted-foreground">Same request purpose and these exact files while their contents stay unchanged:</p>
-      <ul className="list-inside list-disc">{rule.fileNames.map((name, index) => <li key={`${index}:${name}`} className="break-all">{name}</li>)}</ul>
+      <ul className="list-inside list-disc">{rule.fileNames.map((name, index) => <li key={`${index}:${name}`} className="break-all">{name}</li>)}</ul></>}
+      {rule.readiness === "background_off" ? <p>Enable background preparation to handle requests while away.</p> : rule.readiness === "reconnect_required" ? <p>Reconnect Drive to resume.</p> : null}
       <Button size="standard" variant="none" disabled={busy} onClick={() => void revoke(rule)}>Revoke document trust</Button>
     </li>)}</ul>
     {message ? <p role="status" className="text-sm">{message}</p> : null}

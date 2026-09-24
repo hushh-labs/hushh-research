@@ -53,23 +53,12 @@ def test_google_identity_does_not_require_a_drive_connection(cipher):
     "change",
     [
         {"uid": "different-owner"},
-        {"email_verified": False},
-        {"email_verified": "true"},
-        {"auth_time": NOW.timestamp() - 301},
-        {"auth_time": NOW.timestamp() + 1},
-        {"auth_time": float("nan")},
-        {"email": "recipient@example.invalid\n"},
-        {
-            "firebase": {
-                "sign_in_provider": "apple.com",
-                "identities": {"google.com": ["123456789"]},
-            }
-        },
-        {"firebase": {"sign_in_provider": "google.com", "identities": {"google.com": ["1", "2"]}}},
+        {"firebase": {"identities": {"google.com": ["1", "2"]}}},
+        {"firebase": {"identities": {"google.com": ["999"]}}},
         {"firebase": None},
     ],
 )
-def test_recipient_requires_fresh_google_specific_verified_claims(change):
+def test_recipient_requires_matching_linked_google_identity(change):
     with pytest.raises(DriveSharingError, match="verify_google_identity_required"):
         recipient_from_verified_firebase_claims(
             {**claims(), **change}, owner_user_id="recipient", google_provider=provider(), now=NOW
@@ -90,7 +79,7 @@ def provider(**changes):
 @pytest.mark.parametrize(
     "change",
     [
-        {"email": "changed@example.invalid"},
+        {"email": "invalid\n@example.invalid"},
         {"provider_id": "apple.com"},
         {"uid": "987654321"},
     ],
@@ -100,6 +89,18 @@ def test_top_level_email_and_provider_hint_are_not_google_recipient_proof(change
         recipient_from_verified_firebase_claims(
             claims(), owner_user_id="recipient", google_provider=provider(**change), now=NOW
         )
+
+
+@pytest.mark.parametrize("sign_in_provider", ["google.com", "apple.com", "password"])
+def test_existing_session_uses_current_linked_google_without_reauthentication(sign_in_provider):
+    value = claims()
+    value.update(auth_time=1, email="different-primary@example.invalid", email_verified=False)
+    value["firebase"]["sign_in_provider"] = sign_in_provider
+    recipient = recipient_from_verified_firebase_claims(
+        value, owner_user_id="recipient", google_provider=provider(), now=NOW
+    )
+    assert recipient.email == "recipient@example.invalid"
+    assert recipient.verified_at == NOW
 
 
 def test_sharing_receipts_are_owner_resource_purpose_bound_and_independent(cipher, monkeypatch):
