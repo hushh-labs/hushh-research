@@ -14,6 +14,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import text
 
 from hushh_mcp.services.action_directive_ledger import ActionDirectiveStore, DocumentReviewAuthority
+from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
 from hushh_mcp.services.drive_permission_store import DrivePermissionStore
 from hushh_mcp.services.drive_sharing_contract import MAX_FILES, DriveSharingError
 
@@ -27,12 +28,27 @@ REVOCATION_ACTION = {
 
 
 class DriveRevocationStore(DrivePermissionStore):
+    def _request_source_kind(self, connection, user_id, request_id):
+        grant = self._row(
+            connection,
+            """SELECT * FROM drive_share_permission_operations
+               WHERE user_id=:user AND request_id=:request AND kind='grant' AND state='succeeded'
+               ORDER BY created_at DESC LIMIT 1""",
+            {"user": user_id, "request": request_id},
+        )
+        return self._plan(grant).get("source_kind") if grant else None
+
     def _management(self, connection, user_id, generation, request_id):
         self._owner_gate(connection, user_id)
         context = self._management_context(connection, user_id, request_id)
-        self._active(connection, user_id, generation)
-        # New grants may be disabled while an owner still removes recorded ACLs.
-        self._selection_policy(connection, user_id, feature="google_drive_connection")
+        if self._request_source_kind(connection, user_id, request_id) == "live":
+            DriveLivePreferences(db=self.db).live_active(
+                connection, user_id=user_id, generation=generation, management=True
+            )
+        else:
+            self._active(connection, user_id, generation)
+            # New grants may be disabled while an owner still removes recorded ACLs.
+            self._selection_policy(connection, user_id, feature="google_drive_connection")
         return context
 
     def _receipt(self, row):
@@ -97,6 +113,7 @@ class DriveRevocationStore(DrivePermissionStore):
                     "permission_id": created["permission_id"],
                     "recipient_email": created["email"],
                     "issuer": issuer,
+                    "source_kind": plan.get("source_kind", "indexed"),
                 }
             )
         return terms

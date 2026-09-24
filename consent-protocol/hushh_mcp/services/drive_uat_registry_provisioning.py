@@ -25,10 +25,10 @@ from db.db_client import get_db
 from hushh_mcp.services.external_connector_google_oauth import (
     AUTHORIZE_URL,
     CONNECTOR_ID,
-    SCOPES,
+    REGISTRY_SCOPES,
     TOKEN_URL,
 )
-from hushh_mcp.services.google_drive_adapter import DRIVE_BASE, POLICY_HASH, SELECTED_POLICY
+from hushh_mcp.services.google_drive_adapter import DRIVE_BASE, DRIVE_POLICY, LIVE_POLICY_HASH
 from hushh_mcp.services.hushh_tech_uat_database_attestation import (
     UAT_DATABASE_ATTESTATION_SQL,
     UAT_INSTANCE,
@@ -149,17 +149,17 @@ def _canonical_row() -> dict[str, Any]:
     return {
         "connector_id": CONNECTOR_ID,
         "display_name": "Google Drive",
-        "description": "Select Google Drive files you allow One to inspect. Connecting does not share files.",
+        "description": "Choose selected-file or live Drive access. Connecting does not share files.",
         "mcp_endpoint": DRIVE_BASE,
         "auth_style": "oauth",
         "oauth_authorize_url": AUTHORIZE_URL,
         "oauth_token_url": TOKEN_URL,
-        "oauth_scopes": " ".join(SCOPES),
+        "oauth_scopes": " ".join(REGISTRY_SCOPES),
         "oauth_client_id_env": "GOOGLE_DRIVE_OAUTH_CLIENT_ID",
         "oauth_client_secret_env": "GOOGLE_DRIVE_OAUTH_CLIENT_SECRET",
         "api_key_header_name": None,
         "transport_kind": "google_drive_rest",
-        "capability_policy": SELECTED_POLICY,
+        "capability_policy": DRIVE_POLICY,
         "registered_redirect_uris": REGISTERED_REDIRECT_URIS,
         "created_by": PROVISIONED_BY,
     }
@@ -185,9 +185,9 @@ def _row_matches_policy(row: Mapping[str, Any], *, require_active: bool) -> bool
             return False
 
     actual_scopes = str(row.get("oauth_scopes") or "").split()
-    if len(actual_scopes) != len(set(actual_scopes)) or set(actual_scopes) != set(SCOPES):
+    if len(actual_scopes) != len(set(actual_scopes)) or set(actual_scopes) != set(REGISTRY_SCOPES):
         return False
-    if _json_object(row.get("capability_policy")) != SELECTED_POLICY:
+    if _json_object(row.get("capability_policy")) != DRIVE_POLICY:
         return False
     actual_redirects = _json_string_sequence(row.get("registered_redirect_uris"))
     if (
@@ -211,7 +211,7 @@ class DriveUatRegistryProvisioner:
             "connectorId": CONNECTOR_ID,
             "status": status,
             "transportKind": "google_drive_rest",
-            "policyHash": POLICY_HASH,
+            "policyHash": LIVE_POLICY_HASH,
             "redirectCount": len(REGISTERED_REDIRECT_URIS),
         }
 

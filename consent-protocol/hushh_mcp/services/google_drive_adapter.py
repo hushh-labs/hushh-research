@@ -32,6 +32,21 @@ SELECTED_POLICY = {
     "maxSelection": MAX_SELECTION,
 }
 POLICY_HASH = hashlib.sha256(json.dumps(SELECTED_POLICY, sort_keys=True).encode()).hexdigest()
+LIVE_POLICY = {
+    "version": 1,
+    "access": "live_drive",
+    "readTransport": "google_drive_mcp",
+    "share": "exact_file_viewer",
+    "backgroundPreparation": "separate_owner_consent",
+}
+LIVE_POLICY_HASH = hashlib.sha256(json.dumps(LIVE_POLICY, sort_keys=True).encode()).hexdigest()
+DRIVE_POLICY = {"version": 2, "profiles": {"selected": SELECTED_POLICY, "live": LIVE_POLICY}}
+
+
+def supports_selected_policy(value: object) -> bool:
+    return value == SELECTED_POLICY or value == DRIVE_POLICY
+
+
 FILE_ID = re.compile(r"[A-Za-z0-9_-]{1,200}\Z")
 METADATA_FIELDS = (
     "id,name,mimeType,version,modifiedTime,size,md5Checksum,trashed,isAppAuthorized,"
@@ -197,7 +212,14 @@ class GoogleDriveAdapter:
         label = email if isinstance(email, str) and 1 <= len(email) <= 254 else "Google account"
         return {"identityKind": "drive_permission_id", "subject": subject, "accountLabel": label}
 
-    async def get_metadata(self, *, file_id: str, access_token: str) -> DriveMetadata:
+    async def get_metadata(
+        self,
+        *,
+        file_id: str,
+        access_token: str,
+        require_app_authorized: bool = True,
+        require_genai_eligibility: bool = True,
+    ) -> DriveMetadata:
         result = _decode_json(
             await self._get(
                 _file_path(file_id),
@@ -211,9 +233,11 @@ class GoogleDriveAdapter:
         if (
             result.get("id") != file_id
             or result.get("trashed") is not False
-            or result.get("isAppAuthorized") is not True
+            or require_app_authorized
+            and result.get("isAppAuthorized") is not True
             or not isinstance(capabilities, dict)
-            or capabilities.get("canAccessViaGenAi") is not True
+            or require_genai_eligibility
+            and capabilities.get("canAccessViaGenAi") is not True
             or capabilities.get("canDownload") is not True
             or (
                 encryption is not None
