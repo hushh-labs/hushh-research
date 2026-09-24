@@ -204,11 +204,16 @@ run_with_timeout() {
   local timeout_seconds="$1"
   shift
   python3 - "$timeout_seconds" "$@" <<'PY'
+import shutil
 import subprocess
 import sys
 
 timeout_seconds = float(sys.argv[1])
 cmd = sys.argv[2:]
+if cmd:
+    resolved = shutil.which(cmd[0])
+    if resolved:
+        cmd[0] = resolved
 
 try:
     completed = subprocess.run(
