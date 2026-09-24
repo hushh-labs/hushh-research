@@ -120,6 +120,8 @@ def test_drive_read_tools_are_only_in_admitted_chat_roster(monkeypatch):
     for tool in (agent_tree.discover_workspace_tools, agent_tree.read_workspace_tool):
         assert tool not in baseline
         assert tool in admitted
+    assert not any(isinstance(tool, agent_tree.RegisteredMcpToolset) for tool in baseline)
+    assert sum(isinstance(tool, agent_tree.RegisteredMcpToolset) for tool in admitted) == 1
     assert agent_tree._one_roster_tools(tool_mode="proposal", allow_workspace_tools=True) == [
         agent_tree.list_app_actions,
         agent_tree.propose_app_action,
