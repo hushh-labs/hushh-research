@@ -1,12 +1,6 @@
 /** Shared with the browser layout contract so it measures the shipped classes. */
 export const CONNECT_HERO_CLASSNAME =
-  "rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-6 sm:px-7 sm:py-7";
-
-export const CONNECT_HERO_ORBIT_CLASSNAME =
-  "relative mx-auto h-[13rem] w-full max-w-[32rem] sm:h-[17rem]";
-
-export const CONNECT_HERO_ACTIONS_CLASSNAME =
-  "mt-5 flex flex-col items-stretch justify-center gap-2.5 min-[440px]:flex-row min-[440px]:items-center";
+  "rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-3 py-2 sm:px-7 sm:py-7";
 
 export const CONNECT_CIRCLE_GRID_CLASSNAME =
   "grid grid-cols-1 gap-3 sm:grid-cols-2";

@@ -32,6 +32,7 @@ import {
 } from "@/components/app-ui/settings-ui";
 import { ConnectCirclesTab } from "@/components/connect/circles/connect-circles-tab";
 import { LivingConnections } from "@/components/connect/living-connections";
+import { EMPTY_CIRCLES_SNAPSHOT, type ConnectCirclesSnapshot } from "@/components/connect/circle-discovery";
 import { SurfaceStack } from "@/components/app-ui/surfaces";
 import { buildInviteToOneShare } from "@/lib/connect/invite-to-one";
 import {
@@ -558,11 +559,7 @@ export default function ConnectPageClient() {
   // relationship, so an open roster re-reads instead of waiting for a manual
   // refresh -- the request sent from a member row is the case that showed.
   const [circleRefreshToken, setCircleRefreshToken] = useState(0);
-  const [circlesState, setCirclesState] = useState<{
-    loading: boolean;
-    error: string | null;
-    count: number;
-  }>({ loading: true, error: null, count: 0 });
+  const [circlesState, setCirclesState] = useState<ConnectCirclesSnapshot>(EMPTY_CIRCLES_SNAPSHOT);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const connectStackRef = useRef<HTMLDivElement | null>(null);
   const stickyHeaderRef = useRef<HTMLDivElement | null>(null);
@@ -2903,6 +2900,9 @@ export default function ConnectPageClient() {
                         <div className="space-y-3 sm:space-y-4">
                           {tab === "people" ? (
                             <LivingConnections
+                              key={user?.uid ?? "signed-out"}
+                              currentUserId={user?.uid ?? null}
+                              circlesState={circlesState}
                               ownerName={
                                 user?.displayName ||
                                 user?.email ||
@@ -2932,14 +2932,8 @@ export default function ConnectPageClient() {
                                   scroll: false,
                                 })
                               }
-                              onOpenPerson={(personRef) =>
-                                router.push(
-                                  buildPersonProfileRoute(personRef, {
-                                    from: ROUTES.CONNECT,
-                                  }),
-                                )
-                              }
                               onRetry={handleRefreshConnections}
+                              onRetryCircles={() => setCircleRefreshToken((value) => value + 1)}
                             />
                           ) : null}
                           <SettingsGroup

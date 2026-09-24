@@ -478,12 +478,11 @@ describe("Connect — People", () => {
   it("welcomes a new member without hiding the real people directory", async () => {
     render(<ConnectPageClient />);
 
-    expect(await screen.findByText("Bring your people closer")).toBeTruthy();
+    expect(await screen.findByText("Your life, in circles")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Add connection" })).toBeTruthy();
     expect(screen.getByRole("textbox", { name: "Search people" })).toBeTruthy();
-    fireEvent.click(screen.getByText("How Connect works"));
-    expect(screen.getByText(/send a connection request/)).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Create circle" }));
+    expect(await screen.findByText(/Send a request, then add people after they accept/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Create your own circle" }));
     expect(mocks.routerPush).toHaveBeenCalledWith("/one/connect?tab=circles&action=create-circle", {
       scroll: false,
     });

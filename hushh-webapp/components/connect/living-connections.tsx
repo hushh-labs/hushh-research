@@ -1,129 +1,165 @@
 "use client";
 
-import { UserPlus, UsersRound } from "@/components/icons";
-import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
-import { Button } from "@/lib/morphy-ux/button";
-import type { ConnectionSummaryEntry } from "@/lib/services/connections-service";
+import { useContext, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import { CircleDiscoveryCard } from "./circle-discovery-card";
 import {
-  CONNECT_HERO_ACTIONS_CLASSNAME,
-  CONNECT_HERO_CLASSNAME,
-} from "./connect-living-layout";
-import { PeopleOrbit } from "./people-orbit";
+  EMPTY_CIRCLES_SNAPSHOT,
+  findStarterCircle,
+  type CircleStarter,
+  type CircleStarterId,
+  type ConnectCirclesSnapshot,
+} from "./circle-discovery";
+import type { ConnectionSummaryEntry } from "@/lib/services/connections-service";
+import { OneLocationService } from "@/lib/one-location/service";
+import { oneLocationErrorMessage } from "@/lib/one-location/error-message";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import {
+  CONNECT_CIRCLES_LIST_HREF,
+  CONNECT_CIRCLE_ACTION_PARAM,
+  CONNECT_CIRCLE_ID_PARAM,
+} from "@/lib/navigation/connect-routes";
+import { VaultContext } from "@/lib/vault/vault-context";
+import { morphyToast } from "@/lib/morphy-ux/morphy";
+import { trackEvent } from "@/lib/observability/client";
+import { ROUTES } from "@/lib/navigation/routes";
 
 type LivingConnectionsProps = {
+  currentUserId: string | null;
   ownerName: string;
   ownerPhotoUrl?: string | null;
   connections: readonly ConnectionSummaryEntry[];
   totalCount: number;
   loading: boolean;
   error: boolean;
+  circlesState: ConnectCirclesSnapshot;
   onFindPeople: () => void;
   onCreateCircle: () => void;
-  onOpenPerson: (personRef: string) => void;
   onRetry: () => void;
+  onRetryCircles: () => void;
 };
 
-/** A small visual summary of real connections; the directory remains the full roster. */
+/** The existing Circles tab owns the list and realtime subscription. This leaf
+ * adds an explicit starter action through the same service and detail route. */
 export function LivingConnections({
-  ownerName,
-  ownerPhotoUrl,
-  connections,
-  totalCount,
-  loading,
-  error,
-  onFindPeople,
-  onCreateCircle,
-  onOpenPerson,
-  onRetry,
+  currentUserId,
+  circlesState,
+  ...props
 }: LivingConnectionsProps) {
-  const isEmpty = !loading && !error && totalCount === 0;
+  const router = useRouter();
+  const vault = useContext(VaultContext);
+  const token = vault?.vaultOwnerToken ?? null;
+  const [creating, setCreating] = useState<CircleStarterId | null>(null);
+  const inFlight = useRef(false);
+  const session = useRef({ token, currentUserId });
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
+  useEffect(() => {
+    session.current = { token, currentUserId };
+    inFlight.current = false;
+    setCreating(null);
+  }, [token, currentUserId]);
+
+  const snapshot =
+    token && currentUserId && circlesState.ownerId === currentUserId
+      ? circlesState
+      : { ...EMPTY_CIRCLES_SNAPSHOT, loading: Boolean(token) };
+  const openCircle = (id: string) =>
+    router.push(
+      `${CONNECT_CIRCLES_LIST_HREF}&${CONNECT_CIRCLE_ACTION_PARAM}=circle-detail&${CONNECT_CIRCLE_ID_PARAM}=${encodeURIComponent(id)}`,
+      { scroll: false },
+    );
+
+  const handleStarter = async (starter: CircleStarter) => {
+    if (
+      inFlight.current ||
+      !token ||
+      !currentUserId ||
+      snapshot.loading ||
+      snapshot.error ||
+      !snapshot.available
+    )
+      return;
+    const existing = findStarterCircle(snapshot.circles, starter);
+    if (existing) {
+      openCircle(existing.id);
+      return;
+    }
+    // Held across navigation: fast taps cannot create a second named circle.
+    inFlight.current = true;
+    setCreating(starter.id);
+    const isCurrent = () =>
+      mounted.current &&
+      session.current.token === token &&
+      session.current.currentUserId === currentUserId;
+    const operation =
+      starter.id === "sms"
+        ? OneLocationService.ensureSmsSystemCircle({ vaultOwnerToken: token })
+        : OneLocationService.createNamedCircle({
+            vaultOwnerToken: token,
+            name: starter.name,
+            kind: starter.kind,
+          });
+    void morphyToast.promise(operation, {
+      loading: `Preparing ${starter.name}…`,
+      success: () =>
+        isCurrent()
+          ? `${starter.name} is ready. Add your people next.`
+          : "Circle saved.",
+      error: (error) =>
+        oneLocationErrorMessage(
+          error,
+          "Couldn't create your circle. Try again.",
+        ),
+    });
+    let circle;
+    try {
+      circle = await operation;
+    } catch {
+      if (isCurrent()) {
+        inFlight.current = false;
+        setCreating(null);
+      }
+      // Only a failed mutation permits retry; a saved circle must not be duplicated.
+      return;
+    }
+    if (!isCurrent()) return;
+    try {
+      CacheSyncService.onOneLocationStateMutated(
+        currentUserId,
+        ["workspace", "circles", "sms_roster"],
+        { notificationType: "location_circle_created", circleId: circle.id },
+      );
+    } catch {
+      // Cross-tab notification is best effort; detail still reads the saved circle.
+    }
+    try {
+      trackEvent("one_location_circle_created", {
+        route_id: "connect",
+        result: "success",
+        circle_kind: starter.kind,
+      });
+    } catch {
+      /* Telemetry cannot undo a saved circle. */
+    }
+    openCircle(circle.id);
+  };
 
   return (
-    <section
-      aria-label="Your connections at a glance"
-      data-testid="connect-living-connections"
-      className={CONNECT_HERO_CLASSNAME}
-    >
-      <div className="mx-auto max-w-[36rem] text-center">
-        <PeopleOrbit
-          people={connections.map((connection) => ({
-            id: connection.connectionId,
-            name: connection.displayName || connection.userId,
-            photoUrl: connection.photoUrl,
-            verified: Boolean(connection.isRia),
-            publicPersonRef: connection.publicPersonRef,
-          }))}
-          totalCount={isEmpty ? 0 : totalCount}
-          onOpenPerson={onOpenPerson}
-          emptyAdornment={isEmpty ? (
-            <span className="flex size-11 items-center justify-center rounded-full border border-dashed border-[color:var(--app-card-border-standard)] bg-[color:var(--app-secondary-fill)] text-[color:var(--app-secondary-label)]">
-              <UserPlus className="size-5" />
-            </span>
-          ) : undefined}
-          center={
-            <span className="flex flex-col items-center gap-1">
-              <span className="rounded-full border-2 border-[color:var(--app-accent)] bg-[color:var(--app-card-surface-default-solid)] p-1">
-                <ConnectionPersonAvatar size="profile" photoUrl={ownerPhotoUrl} label={ownerName} />
-              </span>
-              <span className="ui-text-row-description text-[color:var(--app-primary-label)]">You</span>
-            </span>
-          }
-        />
-
-        <h2 className="ui-text-major-section-title text-[color:var(--app-primary-label)]">
-          {loading
-            ? "Finding your people…"
-            : error && totalCount === 0
-              ? "Your people are unavailable"
-              : isEmpty
-                ? "Bring your people closer"
-                : "Your people, together"}
-        </h2>
-        <p className="ui-text-page-subtitle mx-auto mt-1 max-w-[30rem] text-[color:var(--app-secondary-label)]">
-          {loading
-            ? "Your connections will appear here in a moment."
-            : error && totalCount === 0
-              ? "We couldn't load your connections. Try again to see your people."
-              : isEmpty
-                ? "Connect with someone you trust, then create shared circles together."
-                : `${totalCount} ${totalCount === 1 ? "connection" : "connections"}. Bring people together in circles for what matters to you.`}
-        </p>
-        <div className={CONNECT_HERO_ACTIONS_CLASSNAME}>
-          <Button
-            type="button"
-            variant="blue"
-            effect="fill"
-            size="standard"
-            onClick={error && totalCount === 0 ? onRetry : onFindPeople}
-            disabled={loading}
-            className="gap-2"
-          >
-            <UserPlus aria-hidden="true" className="size-4" />
-            {error && totalCount === 0 ? "Try again" : "Add connection"}
-          </Button>
-          <Button
-            type="button"
-            variant="blue"
-            effect="fade"
-            size="standard"
-            onClick={onCreateCircle}
-            className="gap-2"
-          >
-            <UsersRound aria-hidden="true" className="size-4" />
-            Create circle
-          </Button>
-        </div>
-        <details className="mx-auto mt-4 max-w-[30rem] text-left text-[color:var(--app-secondary-label)]">
-          <summary className="ui-text-row-description mx-auto w-fit cursor-pointer rounded-full px-2 py-1 text-[color:var(--app-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]">
-            How Connect works
-          </summary>
-          <ol className="ui-text-row-description mt-3 space-y-2 rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-secondary-fill)] px-4 py-3">
-            <li>1. Find someone on One and send a connection request.</li>
-            <li>2. Make a circle for the people you choose.</li>
-            <li>3. Use that circle where One supports sharing with a group.</li>
-          </ol>
-        </details>
-      </div>
-    </section>
+    <CircleDiscoveryCard
+      {...props}
+      snapshot={snapshot}
+      creating={creating}
+      onUseStarter={(starter) => {
+        void handleStarter(starter);
+      }}
+      onOpenCircle={openCircle}
+      onSetupCircles={() => router.push(ROUTES.ONE_SETUP)}
+    />
   );
 }

@@ -551,11 +551,44 @@ describe("ConnectCirclesTab", () => {
 
     await waitFor(() =>
       expect(onStateChange).toHaveBeenCalledWith({
+        ownerId: null,
         loading: false,
         error: null,
         count: 1,
+        available: true,
+        circles: [circle("mine", "Roommates", 3)],
       }),
     );
+  });
+
+  it("never relays previous session summaries after a failed replacement read", async () => {
+    mocks.listCircles.mockResolvedValueOnce([circle("mine", "Private family", 3)]);
+    const onStateChange = vi.fn();
+    const view = render(<ConnectCirclesTab currentUserId="first-owner" onStateChange={onStateChange} />);
+    await screen.findByText("Private family");
+    onStateChange.mockClear();
+    mocks.vaultOwnerToken = "second-token";
+    mocks.listCircles.mockRejectedValueOnce(new Error("offline"));
+    view.rerender(<ConnectCirclesTab currentUserId="second-owner" onStateChange={onStateChange} />);
+    await screen.findByText("Circles are unavailable");
+    expect(screen.queryByText("Private family")).toBeNull();
+    for (const [state] of onStateChange.mock.calls) {
+      expect(state.ownerId).toBe("second-owner");
+      expect(state.circles).toEqual([]);
+    }
+    expect(onStateChange).toHaveBeenLastCalledWith(expect.objectContaining({ loading: false, error: expect.any(String), count: 0 }));
+  });
+
+  it("relays renamed circles and member counts even when list length is unchanged", async () => {
+    const onStateChange = vi.fn();
+    mocks.listCircles.mockResolvedValueOnce([circle("mine", "Finance Circle", 3)]);
+    const view = render(<ConnectCirclesTab currentUserId="owner" onStateChange={onStateChange} refreshToken={0} />);
+    await screen.findByText("Finance Circle");
+    mocks.listCircles.mockResolvedValueOnce([circle("mine", "My advisors", 4)]);
+    view.rerender(<ConnectCirclesTab currentUserId="owner" onStateChange={onStateChange} refreshToken={1} />);
+    await waitFor(() => expect(onStateChange).toHaveBeenLastCalledWith(expect.objectContaining({
+      circles: [circle("mine", "My advisors", 4)], count: 1,
+    })));
   });
 
   it("opens a circle without leaving Connect", async () => {

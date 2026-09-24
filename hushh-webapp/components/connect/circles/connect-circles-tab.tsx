@@ -24,6 +24,7 @@ import {
 } from "@/components/one-location/redesign/circles/named-circle-flows";
 import { SmsTextIcon } from "@/components/one-location/redesign/sms-text-icon";
 import { createConnectCircleActions } from "@/components/connect/circles/connect-circle-actions";
+import type { ConnectCirclesSnapshot } from "@/components/connect/circle-discovery";
 import {
   CONNECT_CIRCLE_GRID_CLASSNAME,
   CONNECT_CIRCLE_TILE_CLASSNAME,
@@ -303,11 +304,7 @@ export function ConnectCirclesTab({
 }: {
   /** Lets the page keep its native beacon and voice metadata truthful without
    *  hoisting circle state into a 2,400-line component. */
-  onStateChange?: (state: {
-    loading: boolean;
-    error: string | null;
-    count: number;
-  }) => void;
+  onStateChange?: (state: ConnectCirclesSnapshot) => void;
   currentUserId?: string | null;
   /**
    * Opens the SAME capability review the Connect directory opens.
@@ -339,7 +336,17 @@ export function ConnectCirclesTab({
   const vault = useContext(VaultContext);
   const vaultOwnerToken = vault?.vaultOwnerToken ?? null;
 
-  const [circles, setCircles] = useState<OneLocationCircleSummary[]>([]);
+  const [loaded, setLoaded] = useState<{
+    token: string | null;
+    ownerId: string | null;
+    circles: OneLocationCircleSummary[];
+  }>({ token: null, ownerId: null, circles: [] });
+  const loadedForSession = loaded.token === vaultOwnerToken && loaded.ownerId === currentUserId;
+  // Relayed summaries must never cross an unlock/account change, even for one render.
+  const circles = useMemo(
+    () => vaultOwnerToken && loadedForSession ? loaded.circles : [],
+    [loaded.circles, loadedForSession, vaultOwnerToken],
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -380,6 +387,8 @@ export function ConnectCirclesTab({
 
   useEffect(() => {
     if (!vaultOwnerToken) {
+      setLoaded({ token: null, ownerId: null, circles: [] });
+      setError(null);
       setLoading(false);
       return;
     }
@@ -422,11 +431,13 @@ export function ConnectCirclesTab({
       .then(() => OneLocationService.listCircles(vaultOwnerToken))
       .then((next) => {
         if (cancelled) return;
-        setCircles(next);
+        setLoaded({ token: vaultOwnerToken, ownerId: currentUserId, circles: next });
         setLoading(false);
       })
       .catch(() => {
         if (cancelled) return;
+        // Never relabel a previous session's retained list as this session's data.
+        setLoaded({ token: vaultOwnerToken, ownerId: currentUserId, circles: [] });
         setError("Circles are unavailable right now.");
         setLoading(false);
       });
@@ -434,11 +445,18 @@ export function ConnectCirclesTab({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [vaultOwnerToken, reloadToken, refreshToken]);
+  }, [vaultOwnerToken, currentUserId, reloadToken, refreshToken]);
 
   useEffect(() => {
-    onStateChange?.({ loading, error, count: circles.length });
-  }, [circles.length, error, loading, onStateChange]);
+    onStateChange?.({
+      ownerId: currentUserId,
+      loading: loading || Boolean(vaultOwnerToken && !loadedForSession),
+      error,
+      count: circles.length,
+      circles,
+      available: Boolean(vaultOwnerToken),
+    });
+  }, [circles, currentUserId, error, loadedForSession, loading, onStateChange, vaultOwnerToken]);
 
   const { owned, joined } = useMemo(() => orderCircles(circles), [circles]);
   const showingStarter =

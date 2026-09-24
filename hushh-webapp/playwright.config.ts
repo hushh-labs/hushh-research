@@ -81,6 +81,7 @@ export default defineConfig({
       // in a WKWebView; its source-coupled fixture is self-contained and does
       // not exercise either of the known app-shell WebKit failures above.
       testMatch: [
+        /circle-discovery\.layout\.spec\.ts/,
         /document-share-review\.layout\.spec\.ts/,
         /connections-drawer\.layout\.spec\.ts/,
         /connect-living-circles\.layout\.spec\.ts/,

@@ -7,27 +7,19 @@ import { pathToFileURL } from "node:url";
 import {
   CONNECT_CIRCLE_GRID_CLASSNAME,
   CONNECT_CIRCLE_TILE_CLASSNAME,
-  CONNECT_HERO_ACTIONS_CLASSNAME,
-  CONNECT_HERO_CLASSNAME,
 } from "../components/connect/connect-living-layout";
 import {
   CONNECT_SWIPE_CLIP_GUARD_CLASSNAME,
   CONNECT_SWIPE_PANE_INSET_CLASSNAME,
 } from "../app/connect/connect-surface-layout";
-import { buttonVariants } from "../lib/ui/button-variants";
-import { getVariantStyles } from "../lib/morphy-ux/utils";
 import { cn } from "../lib/utils";
 
 const widths = [320, 360, 390, 430, 768, 1440] as const;
-const primaryButtonClass = `${buttonVariants({ variant: "ghost", size: "standard" })} ${getVariantStyles("blue", "fill")} gap-2`;
-const secondaryButtonClass = `${buttonVariants({ variant: "ghost", size: "standard" })} ${getVariantStyles("blue", "fade")} gap-2`;
 const orbitClass = "relative mx-auto size-[14rem] sm:size-[17rem]";
 const growthCardClass = "overflow-hidden rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-4 py-6 sm:px-6";
 const candidateGridClass = "mt-4 grid grid-cols-1 gap-2 min-[430px]:grid-cols-2";
 const fixtureClasses = [
-  CONNECT_HERO_CLASSNAME,
   orbitClass,
-  CONNECT_HERO_ACTIONS_CLASSNAME,
   CONNECT_CIRCLE_GRID_CLASSNAME,
   CONNECT_CIRCLE_TILE_CLASSNAME,
   growthCardClass,
@@ -51,8 +43,6 @@ const fixtureClasses = [
   "ui-text-card-title mt-4 max-w-full [overflow-wrap:anywhere] text-[color:var(--app-primary-label)]",
   "ui-text-row-description mt-1 max-w-full text-[color:var(--app-secondary-label)]",
   "flex min-w-0 items-center gap-2 rounded-[var(--app-card-radius-compact)] px-2.5 py-2",
-  primaryButtonClass,
-  secondaryButtonClass,
   "size-4",
 ];
 
@@ -113,15 +103,6 @@ test.beforeAll(async () => {
     path.join(dir, "fixture.html"),
     `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="fixture.css"></head>
     <body style="margin:0;background:#f7f8ff"><main class="mx-auto w-full max-w-[50rem] space-y-4" style="padding:16px;box-sizing:border-box">
-      <section data-test="hero" class="${CONNECT_HERO_CLASSNAME}">
-        ${orbitMarkup()}
-        <h2>Bring your people closer</h2>
-        <p>Connect with someone you trust, then create shared circles together.</p>
-        <div data-test="actions" class="${CONNECT_HERO_ACTIONS_CLASSNAME}">
-          <button class="${primaryButtonClass}"><span class="size-4" aria-hidden="true"></span>Add connection</button>
-          <button class="${secondaryButtonClass}"><span class="size-4" aria-hidden="true"></span>Create circle</button>
-        </div>
-      </section>
       <section class="rounded-[var(--app-card-radius-standard)] bg-[color:var(--app-card-surface-default-solid)] px-[var(--surface-card-content-px)] py-4">
         <h2>Your circles</h2>
         <div data-test="grid" class="${CONNECT_CIRCLE_GRID_CLASSNAME}">
@@ -155,19 +136,15 @@ test.beforeAll(async () => {
 });
 
 for (const width of widths) {
-  test(`Connect hero and circle tiles fit without overlap at ${width}px`, async ({ page }) => {
+  test(`Circle tiles and member orbits fit without overlap at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
     await page.goto(fixtureUrl);
     const geometry = await page.evaluate(() => {
       const rect = (element: Element) => element.getBoundingClientRect();
-      const hero = rect(document.querySelector('[data-test="hero"]')!);
-      const orbit = rect(document.querySelector('[data-test="orbit"]')!);
-      const actions = rect(document.querySelector('[data-test="actions"]')!);
       const grid = rect(document.querySelector('[data-test="grid"]')!);
       const tiles = Array.from(document.querySelectorAll('[data-test="tile"]')).map(rect);
       const previews = Array.from(document.querySelectorAll('[data-test="circle-preview"]')).map(rect);
       const avatars = Array.from(document.querySelectorAll('[data-test="circle-avatar"]')).map(rect);
-      const buttons = Array.from(document.querySelectorAll('[data-test="actions"] button')).map(rect);
       const visibleOrbits = Array.from(document.querySelectorAll('[data-test="orbit"]')).map((orbit) => {
         const layout = Array.from(orbit.children).find((child) => getComputedStyle(child).display !== "none")!;
         return {
@@ -181,14 +158,10 @@ for (const width of widths) {
       return {
         viewport: document.documentElement.clientWidth,
         pageWidth: document.documentElement.scrollWidth,
-        hero: { left: hero.left, right: hero.right, bottom: hero.bottom },
-        orbit: { bottom: orbit.bottom },
-        actions: { top: actions.top },
         grid: { left: grid.left, right: grid.right, top: grid.top },
         tiles: tiles.map((r) => ({ left: r.left, right: r.right, top: r.top, bottom: r.bottom })),
         previews: previews.map((r) => ({ left: r.left, right: r.right })),
         avatars: avatars.map((r) => ({ left: r.left, right: r.right })),
-        buttons: buttons.map((r) => ({ left: r.left, right: r.right, top: r.top, bottom: r.bottom })),
         orbits: visibleOrbits.map(({ bounds, center, nodes }) => ({
           bounds: { left: bounds.left, right: bounds.right, top: bounds.top, bottom: bounds.bottom },
           center: { left: center.left, right: center.right, top: center.top, bottom: center.bottom },
@@ -199,8 +172,6 @@ for (const width of widths) {
       };
     });
     expect(geometry.pageWidth).toBeLessThanOrEqual(geometry.viewport);
-    expect(geometry.orbit.bottom).toBeLessThanOrEqual(geometry.actions.top);
-    expect(geometry.hero.bottom).toBeLessThanOrEqual(geometry.grid.top);
     for (const tile of geometry.tiles) {
       expect(tile.left).toBeGreaterThanOrEqual(geometry.grid.left - 1);
       expect(tile.right).toBeLessThanOrEqual(geometry.grid.right + 1);
@@ -228,9 +199,6 @@ for (const width of widths) {
       expect(candidate.left).toBeGreaterThanOrEqual(geometry.growth.left - 1);
       expect(candidate.right).toBeLessThanOrEqual(geometry.growth.right + 1);
     }
-    const [first, second] = geometry.buttons;
-    expect(first && second).toBeTruthy();
-    expect(first!.right <= second!.left || first!.bottom <= second!.top).toBe(true);
     if (width < 640) {
       expect(geometry.tiles[0].bottom).toBeLessThanOrEqual(geometry.tiles[1].top);
     } else {
