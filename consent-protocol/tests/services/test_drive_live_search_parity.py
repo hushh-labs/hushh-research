@@ -232,6 +232,12 @@ def test_plan_accepts_each_claude_style_boundary_on_its_own(payload):
 
 
 async def test_the_chat_turn_passes_type_sharing_recency_and_the_owners_day(monkeypatch):
+    class _FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return NOW if tz is None else NOW.astimezone(tz)
+
+    monkeypatch.setattr(drive_chat_service, "datetime", _FrozenDatetime)
     reader = SimpleNamespace(
         find=AsyncMock(
             return_value={

@@ -1106,13 +1106,6 @@ export default function GmailInformationRequestsSection({
               {scanSummary.matched_count}
             </p>
           </div>
-          {scanSummary.failed_count > 0 ? (
-            <p className="col-span-2 text-xs text-amber-700 dark:text-amber-300">
-              We couldn’t check {scanSummary.failed_count} email
-              {scanSummary.failed_count === 1 ? "" : "s"}. Try again in a
-              moment.
-            </p>
-          ) : null}
           {scanSummary.backfill_pending ? (
             <p className="col-span-2 text-xs text-muted-foreground">
               We’ll keep checking your Gmail emails in the background.

@@ -5,6 +5,7 @@ import {
   deletePkmDomainValue,
   pkmMemoryRowLabels,
   selectRelevantPkmMemoryCards,
+  shouldSkipPkmAgentContextKey,
   shouldSkipPkmMemoryKey,
   updatePkmDomainValue,
 } from "@/lib/pkm/pkm-memory-cards";
@@ -229,6 +230,16 @@ describe("PKM memory cards", () => {
       expect(rendered).toContain("Everyday Visa");
       expect(rendered).not.toContain("4111111111111111");
       expect(rendered).not.toContain("1234");
+    });
+  });
+
+  describe("shouldSkipPkmAgentContextKey", () => {
+    it("keeps restricted KYC identifiers out of One's automatic PKM context", () => {
+      expect(shouldSkipPkmAgentContextKey("aadhaar_number")).toBe(true);
+      expect(shouldSkipPkmAgentContextKey("aadhar_number")).toBe(true);
+      expect(shouldSkipPkmAgentContextKey("pan_number")).toBe(true);
+      expect(shouldSkipPkmAgentContextKey("passport_number")).toBe(true);
+      expect(shouldSkipPkmAgentContextKey("roll_number")).toBe(false);
     });
   });
 

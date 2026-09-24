@@ -151,7 +151,11 @@ import {
   warmAgentPkmContext,
   type AgentPkmContext,
 } from "@/lib/agent/agent-pkm-memory";
-import { prepareNaturalLanguagePkm } from "@/lib/pkm/pkm-natural-language-ingestion";
+import {
+  ingestNaturalLanguagePkm,
+  isExplicitKycIdentitySaveRequest,
+  prepareNaturalLanguagePkm,
+} from "@/lib/pkm/pkm-natural-language-ingestion";
 import {
   DEFAULT_AGENT_PKM_AUTO_SAVE_POLICY,
   AGENT_PKM_PRODUCT_DEFAULT_EFFECTIVE_AT,
@@ -3996,6 +4000,38 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           // Yield presentation without creating an untracked detached timer.
           await guard.assertCurrent();
           settle({ phase: "preparing", saved: 0 });
+          if (isExplicitKycIdentitySaveRequest(params.sourceMessage)) {
+            // A person explicitly asking to save supplied KYC details is an
+            // owner confirmation for the fixed, restricted KYC schema. This
+            // does not alter the normal background capture policy for chat.
+            const ingestion = await ingestNaturalLanguagePkm({
+              userId,
+              message: params.sourceMessage,
+              currentDomains: params.currentDomains,
+              vaultKey,
+              vaultOwnerToken: token,
+              source: "agent_chat_kyc_owner_confirmed",
+              memoryProfile: "kyc_identity_v1",
+              confirmation: {
+                confirmedByUser: true,
+                surface: "chat",
+                source: "agent_chat_kyc_owner_confirmed",
+              },
+              writePolicy: "reviewable",
+              batchSimpleDomainExtensions: true,
+            });
+            await guard.assertCurrent();
+            appendDebugEvent(params.turnId, "pkm_kyc_save_result", {
+              saved: ingestion.save.saved,
+              failed: ingestion.save.failed,
+            });
+            return settle({
+              phase: ingestion.save.saved > 0
+                ? (ingestion.save.failed ? "partial" : "saved")
+                : "failed",
+              saved: ingestion.save.saved,
+            });
+          }
           const labContext = await loadPkmAgentLabContext({ userId, vaultOwnerToken: token });
           await guard.assertCurrent();
           const prepared = await prepareNaturalLanguagePkm({
