@@ -434,6 +434,25 @@ class GoogleConnectionService:
                 status_code=400,
             )
         scopes = _clean(token.get("scope")) or " ".join(requested_scopes)
+        if existing and existing.get("status") == "connected":
+            # One credential row serves every connected Google service. A new
+            # token that omits an older grant must not leave that service
+            # displayed as connected while its bearer no longer authorizes it.
+            grants = await self._execute_raw_async(
+                """SELECT scope_csv FROM google_service_grants
+                   WHERE user_id = :user_id AND provider = 'google' AND status = 'connected'""",
+                {"user_id": user_id},
+            )
+            prior_scopes = {
+                scope for grant in grants.data for scope in _clean(grant.get("scope_csv")).split()
+            }
+            if prior_scopes and (
+                not _clean(token.get("scope")) or not prior_scopes.issubset(scopes.split())
+            ):
+                raise GoogleConnectionError(
+                    "Keep the existing Google permissions when connecting another service.",
+                    status_code=409,
+                )
         level = (
             "manage"
             if service == "calendar"

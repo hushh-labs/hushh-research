@@ -320,6 +320,15 @@ class HushhAuthPlugin : Plugin() {
         val gmailScopes = mutableListOf(Scope("https://www.googleapis.com/auth/gmail.readonly"))
         if (purpose == "send") {
             gmailScopes.add(Scope("https://www.googleapis.com/auth/gmail.send"))
+        } else if (purpose == "compose") {
+            gmailScopes.add(Scope("https://www.googleapis.com/auth/gmail.compose"))
+            if (call.getBoolean("preserveSend") == true) {
+                gmailScopes.add(Scope("https://www.googleapis.com/auth/gmail.send"))
+            }
+        } else if (purpose != "read") {
+            pendingGmailConnectCall = null
+            call.reject("Unsupported Mail access level")
+            return
         }
         val gmailOptions = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
             .requestServerAuthCode(serverClientId, true)

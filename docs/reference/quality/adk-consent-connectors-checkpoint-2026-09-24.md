@@ -32,12 +32,17 @@ The old `3001` / `8001` processes are not claimed as this verified runtime.
 Important integrated-source differences: legacy Drive OAuth was deliberately
 retired by `4802f7b39`; the old Drive wrapper was not registered in the live One
 roster. Existing selected-file access must not imply account-wide MCP permission.
-Official Gmail MCP does not supply send, and Calendar MCP does not document the
+Google's hosted Gmail MCP endpoint does not list send, although the separate
+Google Workspace CLI MCP exposes the Gmail API send method. Gmail send remains
+the app's separate reviewed action until its capability is specifically added;
+the current MCP Chat lane is read-only. Calendar MCP does not document the
 If-Match update contract used by the reviewed service. Preserve the current
 reviewed-action authorities until equivalent adapter guarantees are established.
 Consumer Plaid MCP, provider/native proof and the full sharing matrix remain open.
 
 Provider references: [Gmail MCP catalog](https://developers.google.com/workspace/gmail/api/guides/configure-mcp-server),
+[Workspace CLI MCP](https://github.com/googleworkspace/cli),
+[Gmail send OAuth scopes](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/send),
 [Gmail thread formats](https://developers.google.com/workspace/gmail/api/reference/mcp/tools_list/get_thread),
 and [Calendar update schema](https://developers.google.com/workspace/calendar/api/v3/reference/mcp/tools_list/update_event).
 Gmail metadata-only enforcement must occur before retrieval as well as in the
@@ -56,9 +61,32 @@ ledger and stored as a content-less, idempotent encrypted ADK event. It is not
 replayed to the model; readback still checks current authority. Actual browser
 remount and encrypted readback are not yet proven.
 
-The next adapter decision is whether to expose the existing reviewed Gmail send
-through a first-party MCP adapter; this extends the plan's Google-hosted MCP-only
-assumption and has been asked explicitly. Drive account-read can use the existing
+The ordinary Gmail OAuth flow requests `openid`, `email`, `profile`,
+`gmail.readonly`, and `gmail.send`. An explicit "Enable Gmail drafts" flow
+requests `gmail.readonly` and `gmail.compose` on web, iOS and Android.
+The Gmail API accepts either `gmail.send` or `gmail.compose` for
+`users.messages.send`, but the app intentionally checks the narrower send
+scope and owner setting. Per-account grants still require a live token/grant
+check; configured scopes do not prove a reviewer has granted them. The
+reviewed Chat editor now has a separate Save to Gmail Drafts action. It calls
+Google's hosted MCP `create_draft` only after the person clicks, projects
+only the draft ID from the provider response, and never auto-retries an
+ambiguous write. Attachments are excluded because the hosted draft tool's
+documented support is contradictory and the owner-bound Drive attachment
+send path remains separate. This is source/automated proof, not live provider
+or native-device acceptance. Final Send remains the existing reviewed Gmail
+API action and is not represented as a hosted Gmail MCP capability.
+
+Current draft checkpoint: 84 focused backend and 29 focused frontend tests pass;
+native static parity and documentation checks pass. No authorized live Gmail
+draft or native-device execution has been observed. The draft-save MCP tool is
+non-idempotent: after an ambiguous acknowledgement, the UI blocks automatic
+retry and asks the person to inspect Gmail Drafts. Sending remains separate.
+Google's [hosted create-draft contract](https://developers.google.com/workspace/gmail/api/reference/mcp/tools_list/create_draft)
+documents `gmail.compose` and currently describes attachment support
+inconsistently, so this path omits attachments.
+
+Drive account-read can use the existing
 Google service-grant store separately from selected-file grants, but needs
 explicit web/native mode routing. Current native `connectDrive` implementations
 serve selected-file selection, not proof of account-read server-code support.

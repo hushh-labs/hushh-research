@@ -195,7 +195,73 @@ async def test_legacy_readonly_connection_requires_reconnect_for_send(monkeypatc
     status = await service.get_status(user_id="user_123")
 
     assert status["send_permission_granted"] is False
+    assert status["compose_permission_granted"] is False
     assert status["send_reconnect_required"] is True
+
+
+def test_compose_uses_separate_explicit_scope_without_sending():
+    scopes = GmailReceiptsService._oauth_scopes_for_purpose("compose")
+    assert "https://www.googleapis.com/auth/gmail.compose" in scopes
+    assert "https://www.googleapis.com/auth/gmail.readonly" in scopes
+    assert "https://www.googleapis.com/auth/gmail.send" not in scopes
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("new_sub", "new_scopes", "expected_error"),
+    [
+        (
+            "different-google-account",
+            "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.compose",
+            "already connected",
+        ),
+        (
+            "same-google-account",
+            "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.compose",
+            "existing Mail permissions",
+        ),
+    ],
+)
+async def test_compose_reconnect_preserves_account_and_prior_scopes(
+    monkeypatch, new_sub, new_scopes, expected_error
+):
+    service = GmailReceiptsService()
+    monkeypatch.setattr(service, "is_configured", lambda: True)
+    monkeypatch.setattr(
+        service,
+        "_exchange_code",
+        lambda **kwargs: asyncio.sleep(
+            0,
+            result={
+                "access_token": "synthetic-access",
+                "refresh_token": "synthetic-refresh",
+                "scope": new_scopes,
+                "id_token": "synthetic-id",
+            },
+        ),
+    )
+    monkeypatch.setattr(service, "_decode_id_token_claims", lambda _: {"sub": new_sub})
+    monkeypatch.setattr(
+        service,
+        "_fetch_connection_row",
+        lambda **kwargs: {
+            "status": "connected",
+            "google_sub": "same-google-account",
+            "scope_csv": "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send",
+        },
+    )
+
+    async def unexpected_write(*args, **kwargs):
+        raise AssertionError("Rejected reconsent must not replace the connected account")
+
+    monkeypatch.setattr(service, "_execute_raw_async", unexpected_write)
+    with pytest.raises(GmailApiError, match=expected_error):
+        await service._complete_authorized_connect(
+            user_id="user_123",
+            code="synthetic-code",
+            redirect_uri="",
+            oauth_started_at=datetime.now(timezone.utc),
+        )
 
 
 @pytest.mark.asyncio

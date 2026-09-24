@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from hushh_mcp.services.gmail_delivery_service import GmailDeliveryError, get_gmail_delivery_service
 from hushh_mcp.services.gmail_receipts_service import GmailApiError
+from hushh_mcp.services.google_gmail_mcp_service import GoogleGmailMcpService
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,10 @@ class EmailPrepareRequest(EmailEnvelope):
 
     idempotency_key: str = Field(min_length=16, max_length=256)
     drive_attachment: DriveAttachmentRef | None = None
+
+
+class EmailSaveDraftRequest(EmailEnvelope):
+    model_config = ConfigDict(extra="forbid")
 
 
 class EmailSendRequest(EmailEnvelope):
@@ -140,6 +145,22 @@ async def gmail_email_prepare(
     except Exception as exc:
         logger.warning("one.gmail_delivery.prepare_failed error=%s", type(exc).__name__)
         raise _as_http_error(exc) from exc
+
+
+@router.post("/email/draft/save")
+async def gmail_save_draft(
+    payload: EmailSaveDraftRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+    token_data: dict[str, Any] = Depends(require_vault_owner_token),
+) -> dict[str, str]:
+    owner = _owner_user_id(firebase_uid=firebase_uid, token_data=token_data)
+    try:
+        return await GoogleGmailMcpService().create_reviewed_draft(
+            user_id=owner, draft_payload=payload.model_dump(exclude_none=True)
+        )
+    except Exception as exc:
+        logger.warning("one.gmail_delivery.save_draft_failed error=%s", type(exc).__name__)
+        raise _as_http_error(exc) from None
 
 
 @router.post("/email/send")

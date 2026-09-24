@@ -80,7 +80,8 @@ export class HushhAuthWeb implements HushhAuthPlugin {
 
   async connectGmail(_options: {
     serverClientId: string;
-    purpose: "read" | "send";
+    purpose: "read" | "send" | "compose";
+    preserveSend?: boolean;
   }): Promise<{ serverAuthCode: string }> {
     throw new Error("Native Mail consent is only available in the mobile app.");
   }

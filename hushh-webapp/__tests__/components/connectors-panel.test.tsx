@@ -10,6 +10,7 @@ const state = vi.hoisted(() => ({
   push: vi.fn(),
   calendar: { connected: false, loaded: true, error: null as string | null, status: { status: "disconnected" } },
   financial: { data: null as { data: Record<string, unknown> } | null, loading: false, error: null as string | null },
+  gmailStatus: { connected: false, compose_permission_granted: false },
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: state.push }) }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: state.user }) }));
@@ -18,7 +19,7 @@ vi.mock("@/lib/calendar/use-calendar-connection-status", () => ({ useCalendarCon
 vi.mock("@/lib/pkm/pkm-domain-resource", () => ({ usePkmDomainResource: () => state.financial }));
 vi.mock("@/lib/profile/gmail-connector-store", () => ({
   useGmailConnectorStatus: () => ({
-    status: { connected: false },
+    status: state.gmailStatus,
     loadingStatus: false,
     statusError: false,
     disconnectGmail: vi.fn(),
@@ -67,6 +68,7 @@ describe("supported connector catalog", () => {
     state.push.mockReset();
     state.calendar = { connected: false, loaded: true, error: null, status: { status: "disconnected" } };
     state.financial = { data: null, loading: false, error: null };
+    state.gmailStatus = { connected: false, compose_permission_granted: false };
     Object.values(callbacks).forEach((callback) => callback.mockClear());
   });
   afterEach(cleanup);
@@ -91,6 +93,18 @@ describe("supported connector catalog", () => {
   it("shows built-in Drive when the external registry is empty", async () => {
     render(panel());
     expect(await screen.findByText("Google Drive")).toBeInTheDocument();
+  });
+
+  it("offers explicit Gmail draft permission only for a connected account without it", async () => {
+    state.gmailStatus = { connected: true, compose_permission_granted: false };
+    render(panel());
+    fireEvent.click(await screen.findByRole("button", { name: "Gmail" }));
+    expect(screen.getByRole("button", { name: "Enable Gmail drafts" })).toBeInTheDocument();
+    state.gmailStatus = { connected: true, compose_permission_granted: true };
+    cleanup();
+    render(panel());
+    fireEvent.click(await screen.findByRole("button", { name: "Gmail" }));
+    expect(screen.queryByRole("button", { name: "Enable Gmail drafts" })).not.toBeInTheDocument();
   });
 
   it("never duplicates the built-in Drive connection", async () => {

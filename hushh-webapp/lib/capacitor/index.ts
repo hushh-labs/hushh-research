@@ -103,7 +103,8 @@ export interface HushhAuthPlugin {
    */
   connectGmail(options: {
     serverClientId: string;
-    purpose: "read" | "send";
+    purpose: "read" | "send" | "compose";
+    preserveSend?: boolean;
   }): Promise<{
     serverAuthCode: string;
   }>;

@@ -11,6 +11,7 @@ from copy import deepcopy
 from typing import Any
 
 from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult, call_tool, list_tools
+from hushh_mcp.services.gmail_delivery_service import normalize_draft
 from hushh_mcp.services.gmail_receipts_service import GmailApiError, GmailReceiptsService
 from hushh_mcp.services.mcp_capability_policy import (
     admit_catalog,
@@ -192,3 +193,45 @@ class GoogleGmailMcpService:
         return ExternalMcpToolResult(
             is_error=False, payload=metadata, truncated=result.truncated or truncated
         )
+
+    async def create_reviewed_draft(
+        self, *, user_id: str, draft_payload: dict[str, Any]
+    ) -> dict[str, str]:
+        """Save an explicitly reviewed, attachment-free draft via hosted Gmail MCP.
+
+        Never return provider-echoed recipients or bodies to Chat/history. A
+        missing acknowledgement has unknown outcome: callers must not auto-retry.
+        """
+        draft = normalize_draft(draft_payload)
+        token = await self._connections.get_compose_access_token(user_id=user_id)
+        tools = await list_tools(
+            endpoint=GOOGLE_GMAIL_MCP_ENDPOINT,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        catalog = admit_catalog(tools, allowed_names=frozenset({"create_draft"}))
+        capability = next((item for item in catalog if item["name"] == "create_draft"), None)
+        if capability is None:
+            raise GmailApiError("Gmail drafts are unavailable", status_code=503)
+        arguments: dict[str, Any] = {
+            "to": list(draft.to),
+            "cc": list(draft.cc),
+            "bcc": list(draft.bcc),
+            "subject": draft.subject,
+            "body": draft.body,
+        }
+        if draft.html_body:
+            arguments["htmlBody"] = draft.html_body
+        if not arguments_bounded(arguments) or not arguments_valid(capability, arguments):
+            raise GmailApiError("Gmail draft is invalid", status_code=400)
+        result = await call_tool(
+            "create_draft",
+            arguments,
+            endpoint=GOOGLE_GMAIL_MCP_ENDPOINT,
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        if result.is_error:
+            raise GmailApiError("Gmail could not save this draft", status_code=502)
+        draft_id = result.payload.get("id")
+        if not isinstance(draft_id, str) or not 1 <= len(draft_id) <= 256:
+            raise GmailApiError("Gmail draft outcome is unknown", status_code=502)
+        return {"status": "saved", "draft_id": draft_id}

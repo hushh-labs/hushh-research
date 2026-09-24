@@ -33,6 +33,7 @@ const ONE_STREAM_TIMEOUT_MS = resolveSlowRequestTimeoutMs(285_000, {
 
 function requestTimeoutMs(path: string, acceptHeader: string | null): number {
   if (path === "email/draft") return ONE_EMAIL_DRAFT_TIMEOUT_MS;
+  if (path === "email/draft/save") return ONE_EMAIL_DRAFT_TIMEOUT_MS;
   if (path === "email/information-requests/scan") return ONE_KYC_SCAN_TIMEOUT_MS;
   const acceptsEventStream =
     acceptHeader?.toLowerCase().includes("text/event-stream") ?? false;

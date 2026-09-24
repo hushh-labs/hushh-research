@@ -960,7 +960,7 @@ function OwnerConnectorsPanel({
       }
     });
   };
-  const connectMail = () => {
+  const connectMail = (purpose: "read" | "compose" = "read") => {
     const signal = controller.current?.signal;
     if (!user || !signal || signal.aborted || mailLock.current) return;
     const native = Capacitor.isNativePlatform();
@@ -984,12 +984,13 @@ function OwnerConnectorsPanel({
         if (native) {
           const start = await GmailReceiptsService.startNativeConnect({
             idToken,
-            purpose: "read",
+            purpose,
           });
           if (signal.aborted || !start.configured) return;
           const result = await HushhAuth.connectGmail({
             serverClientId: start.server_client_id,
             purpose: start.purpose,
+            preserveSend: purpose === "compose" && gmail.status?.send_permission_granted === true,
           });
           if (signal.aborted) return;
           await GmailReceiptsService.completeNativeConnect({
@@ -1001,8 +1002,8 @@ function OwnerConnectorsPanel({
           const start = await GmailReceiptsService.startConnect({
             idToken,
             userId: user.uid,
-            includeGrantedScopes: false,
-            purpose: "read",
+            includeGrantedScopes: purpose === "compose",
+            purpose,
           });
           if (signal.aborted) return;
           const url = new URL(start.authorize_url);
@@ -1034,7 +1035,11 @@ function OwnerConnectorsPanel({
           if (!signal.aborted)
             setMailMessage(
               status?.connected
-                ? "Mail connected."
+                ? purpose === "compose"
+                  ? status.compose_permission_granted
+                    ? "Gmail drafts enabled. Review your draft in Chat before saving."
+                    : "Gmail drafts permission was not granted. Try again."
+                  : "Mail connected."
                 : "Mail is not connected yet. You can retry.",
             );
         }
@@ -1337,11 +1342,21 @@ function OwnerConnectorsPanel({
                   <Button
                     className={touch}
                     disabled={mailBusy || gmail.loadingStatus}
-                    onClick={connectMail}
+                    onClick={() => connectMail()}
                   >
                     {gmail.status?.needs_reauth
                       ? "Reconnect Mail"
                       : "Connect Mail"}
+                  </Button>
+                )}
+                {gmail.status?.connected && !gmail.status.compose_permission_granted && (
+                  <Button
+                    className={touch}
+                    variant="outline"
+                    disabled={mailBusy || gmail.loadingStatus}
+                    onClick={() => connectMail("compose")}
+                  >
+                    Enable Gmail drafts
                   </Button>
                 )}
                 {(gmail.status?.connected || gmail.status?.needs_reauth) && (

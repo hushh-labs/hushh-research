@@ -9,6 +9,61 @@ from hushh_mcp.services.gmail_receipts_service import GmailApiError
 
 
 @pytest.mark.asyncio
+async def test_reviewed_draft_uses_compose_grant_and_projects_only_id(monkeypatch):
+    connections = SimpleNamespace(
+        get_compose_access_token=AsyncMock(return_value="synthetic-compose-token")
+    )
+    listing = AsyncMock(
+        return_value=[
+            {
+                "name": "create_draft",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "to": {"type": "array", "items": {"type": "string"}},
+                        "cc": {"type": "array", "items": {"type": "string"}},
+                        "bcc": {"type": "array", "items": {"type": "string"}},
+                        "subject": {"type": "string"},
+                        "body": {"type": "string"},
+                    },
+                    "additionalProperties": False,
+                },
+            }
+        ]
+    )
+    calling = AsyncMock(
+        return_value=ExternalMcpToolResult(
+            False,
+            {"id": "draft-1", "plaintextBody": "private body", "toRecipients": ["private"]},
+            False,
+        )
+    )
+    monkeypatch.setattr(gmail, "list_tools", listing)
+    monkeypatch.setattr(gmail, "call_tool", calling)
+    service = gmail.GoogleGmailMcpService(connections=connections)
+    result = await service.create_reviewed_draft(
+        user_id="owner-a",
+        draft_payload={"to": "recipient@example.com", "subject": "Hello", "body": "Reviewed body"},
+    )
+    assert result == {"status": "saved", "draft_id": "draft-1"}
+    calling.assert_awaited_once()
+    assert calling.await_args.args[0] == "create_draft"
+    assert calling.await_args.kwargs["headers"] == {
+        "Authorization": "Bearer synthetic-compose-token"
+    }
+    assert calling.await_args.args[1]["to"] == ["recipient@example.com"]
+    with pytest.raises(GmailApiError):
+        connections.get_compose_access_token.side_effect = GmailApiError(
+            "Permission required", status_code=409
+        )
+        await service.create_reviewed_draft(
+            user_id="owner-b",
+            draft_payload={"to": "recipient@example.com", "body": "No access"},
+        )
+    assert calling.await_count == 1
+
+
+@pytest.mark.asyncio
 async def test_exact_catalog_rejects_writes_invalid_arguments_and_other_owner(monkeypatch):
     async def token(*, user_id):
         if user_id != "owner-a":

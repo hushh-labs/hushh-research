@@ -15,8 +15,9 @@ from tests.google_oauth_test_support import TransactionEngine
 
 
 class _Db:
-    def __init__(self, existing=None, *, accept_connection=True, accept_grant=True):
+    def __init__(self, existing=None, *, accept_connection=True, accept_grant=True, grants=None):
         self.existing = existing
+        self.grants = grants or []
         self.accept_connection = accept_connection
         self.accept_grant = accept_grant
         self.calls = []
@@ -26,6 +27,8 @@ class _Db:
         self.calls.append((sql, params))
         if "SELECT * FROM google_provider_connections" in sql:
             return SimpleNamespace(data=[self.existing] if self.existing else [])
+        if "SELECT scope_csv FROM google_service_grants" in sql:
+            return SimpleNamespace(data=[{"scope_csv": value} for value in self.grants])
         if "INSERT INTO google_provider_connections" in sql:
             return SimpleNamespace(data=[{"user_id": "owner"}] if self.accept_connection else [])
         if "INSERT INTO google_service_grants" in sql:
@@ -90,6 +93,30 @@ async def test_verified_same_account_can_reuse_its_refresh_token(monkeypatch):
     await _store(service, token={"access_token": "synthetic-access"})
     service._decrypt.assert_called_once()
     assert service._encrypt.call_args_list[0].args == ("synthetic-old-refresh",)
+
+
+@pytest.mark.asyncio
+async def test_new_google_service_cannot_invalidate_existing_service_grant(monkeypatch):
+    db = _Db(
+        {
+            "status": "connected",
+            "provider_subject": "google-a",
+            "refresh_token_ciphertext": "old",
+            "refresh_token_iv": "iv",
+        },
+        grants=["https://www.googleapis.com/auth/calendar.events.readonly"],
+    )
+    service = _service(monkeypatch, db)
+    with pytest.raises(GoogleConnectionError, match="existing Google permissions"):
+        await _store(
+            service,
+            token={
+                "access_token": "synthetic-access",
+                "scope": "https://www.googleapis.com/auth/calendar.freebusy",
+            },
+        )
+    service._encrypt.assert_not_called()
+    assert not any("INSERT" in sql for sql, _ in db.calls)
 
 
 @pytest.mark.asyncio

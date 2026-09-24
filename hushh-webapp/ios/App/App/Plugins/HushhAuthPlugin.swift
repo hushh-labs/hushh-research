@@ -598,6 +598,15 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         var gmailScopes = ["https://www.googleapis.com/auth/gmail.readonly"]
         if purpose == "send" {
             gmailScopes.append("https://www.googleapis.com/auth/gmail.send")
+        } else if purpose == "compose" {
+            gmailScopes.append("https://www.googleapis.com/auth/gmail.compose")
+            if call.getBool("preserveSend") == true {
+                gmailScopes.append("https://www.googleapis.com/auth/gmail.send")
+            }
+        } else if purpose != "read" {
+            call.reject("Unsupported Mail access level")
+            googleInteractiveInFlight = false
+            return
         }
         GIDSignIn.sharedInstance.signIn(
             withPresenting: viewController,

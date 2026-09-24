@@ -117,6 +117,25 @@ def test_send_passes_opaque_attachment_token_to_owner_service():
     assert service.execute.await_args.kwargs["draft_payload"]["attachment_token"] == token
 
 
+def test_save_gmail_draft_is_explicit_and_rejects_attachments():
+    service = MagicMock()
+    service.create_reviewed_draft = AsyncMock(
+        return_value={"status": "saved", "draft_id": "draft-1"}
+    )
+    with patch.object(module, "GoogleGmailMcpService", return_value=service):
+        client = TestClient(_app())
+        response = client.post("/api/one/email/draft/save", json=_envelope())
+        rejected = client.post(
+            "/api/one/email/draft/save",
+            json={**_envelope(), "drive_attachment": {"file_id": "private-file"}},
+        )
+    assert response.status_code == 200
+    assert response.json() == {"status": "saved", "draft_id": "draft-1"}
+    assert rejected.status_code == 422
+    service.create_reviewed_draft.assert_awaited_once()
+    assert service.create_reviewed_draft.await_args.kwargs["user_id"] == "firebase-user"
+
+
 def test_route_rejects_multiple_attachments_and_caller_supplied_bytes():
     client = TestClient(_app())
     for payload in (

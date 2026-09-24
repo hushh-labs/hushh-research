@@ -76,7 +76,8 @@ _GMAIL_WATCH_URL = "https://gmail.googleapis.com/gmail/v1/users/me/watch"
 _GMAIL_OAUTH_RETURN_PATH = "/one/profile/gmail/oauth/return"
 _GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
 _GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
-GmailConnectPurpose = Literal["read", "send"]
+_GMAIL_COMPOSE_SCOPE = "https://www.googleapis.com/auth/gmail.compose"
+GmailConnectPurpose = Literal["read", "send", "compose"]
 
 # Bounds for the inbox scan behind "Needs a reply" nudges: how far back to look,
 # how many recent threads to inspect, and how many cards to return.
@@ -979,12 +980,17 @@ class GmailReceiptsService:
             raise GmailApiError("OAuth state is invalid", status_code=400)
         if issued_at_ms <= 0 or issued_at_ms > int(_utcnow().timestamp() * 1000):
             raise GmailApiError("OAuth state is invalid", status_code=400)
-        if payload.get("purpose", "read") not in {"read", "send"}:
+        if payload.get("purpose", "read") not in {"read", "send", "compose"}:
             raise GmailApiError("Invalid Gmail OAuth purpose", status_code=400)
         return payload
 
     @staticmethod
     def _oauth_scopes_for_purpose(purpose: GmailConnectPurpose) -> tuple[str, ...]:
+        if purpose == "compose":
+            # Provider-side draft creation is a distinct, explicitly selected
+            # capability. It does not silently opt every Mail connection into
+            # Gmail's broader draft-management permission.
+            return ("openid", "email", "profile", _GMAIL_READONLY_SCOPE, _GMAIL_COMPOSE_SCOPE)
         # `purpose` intentionally does not gate the send scope: no call site
         # in this codebase (web popup, native, or the connectors panel) ever
         # passes purpose="send" -- every real connect/reconnect defaults or
@@ -1427,6 +1433,26 @@ class GmailReceiptsService:
         access_token, _row = await self._ensure_access_token(user_id=user_id)
         return access_token
 
+    async def get_compose_access_token(self, *, user_id: str) -> str:
+        """Resolve a provider-draft token only for the connected owner."""
+        row = await asyncio.to_thread(self._fetch_connection_row, user_id=user_id)
+        if not row or self._derive_connection_state(row) != "connected":
+            raise GmailApiError("Connect Gmail first", status_code=409, code="GMAIL_NOT_CONNECTED")
+        if _GMAIL_COMPOSE_SCOPE not in self._granted_scopes(row):
+            raise GmailApiError(
+                "Enable Gmail drafts before saving a draft.",
+                status_code=409,
+                code="GMAIL_COMPOSE_PERMISSION_REQUIRED",
+            )
+        access_token, current = await self._ensure_access_token(user_id=user_id)
+        if _GMAIL_COMPOSE_SCOPE not in self._granted_scopes(current):
+            raise GmailApiError(
+                "Enable Gmail drafts before saving a draft.",
+                status_code=409,
+                code="GMAIL_COMPOSE_PERMISSION_REQUIRED",
+            )
+        return access_token
+
     async def assert_read_ready(self, *, user_id: str) -> None:
         """Recheck read admission without decrypting or refreshing a token."""
 
@@ -1538,6 +1564,8 @@ class GmailReceiptsService:
             "google_email": (_clean_text(row.get("google_email")) or None) if row else None,
             "google_sub": (_clean_text(row.get("google_sub")) or None) if row else None,
             "scope_csv": _clean_text(row.get("scope_csv")) if row else "",
+            "compose_permission_granted": connected
+            and _GMAIL_COMPOSE_SCOPE in self._granted_scopes(row),
             "send_permission_granted": self._send_permission_granted(row),
             "send_reconnect_required": connected and not self._send_permission_granted(row),
             "last_sync_at": row.get("last_sync_at") if row else None,
@@ -1639,13 +1667,23 @@ class GmailReceiptsService:
         # in Uvicorn's event loop, so every connector read/write here must be
         # offloaded; a slow Cloud SQL query must never freeze OAuth, health
         # checks, or unrelated Agent One turns.
-        # Google normally returns a refresh token on the first grant. Only
-        # read the stored connection when a re-consent response omits it, so
-        # we can safely preserve the existing durable grant without adding a
-        # database round trip to the normal callback path.
-        existing = None
-        if not refresh_token:
-            existing = await asyncio.to_thread(self._fetch_connection_row, user_id=user_id)
+        # A compose reconnect must not swap another Google account into the
+        # owner's Mail connector or silently drop an already granted scope.
+        existing = await asyncio.to_thread(self._fetch_connection_row, user_id=user_id)
+        if existing and self._derive_connection_state(existing) == "connected":
+            old_sub = _clean_text(existing.get("google_sub"))
+            new_sub = _clean_text(claims.get("sub"))
+            if not old_sub or not new_sub or old_sub != new_sub:
+                raise GmailApiError(
+                    "Choose the Google account already connected to Mail.", status_code=409
+                )
+            if not self._granted_scopes(existing).issubset(
+                {value for value in re.split(r"[\s,]+", scope_csv) if value}
+            ):
+                raise GmailApiError(
+                    "Keep existing Mail permissions when enabling another capability.",
+                    status_code=409,
+                )
         if not refresh_token and existing:
             refresh_token = (
                 self._decrypt_token(
