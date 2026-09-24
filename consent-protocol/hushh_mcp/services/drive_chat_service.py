@@ -107,6 +107,48 @@ def _metadata_sources(matches: list[dict]) -> list[dict]:
     ]
 
 
+def _outcome(
+    status,
+    answer=None,
+    *,
+    files=None,
+    unreadable=False,
+    found_truncated=False,
+    time_window="",
+    sources=(),
+    titles=(),
+    truncated=False,
+    metadata_only=False,
+):
+    """Presentation-free turn result; each caller decides what its reader may see."""
+    return {
+        "status": status,
+        "answer": answer,
+        "files": files,
+        "unreadable": unreadable,
+        "found_truncated": found_truncated,
+        "time_window": time_window,
+        "sources": list(sources),
+        "titles": list(titles),
+        "truncated": truncated,
+        "metadata_only": metadata_only,
+    }
+
+
+def _files_outcome(matches, found, *, unreadable, time_window):
+    return _outcome(
+        "ok",
+        files=matches,
+        unreadable=unreadable,
+        found_truncated=found["truncated"],
+        time_window=time_window,
+        sources=_metadata_sources(matches),
+        titles=[item["name"] for item in matches[:10]],
+        truncated=True if unreadable else found["truncated"] or len(matches) > 10,
+        metadata_only=True,
+    )
+
+
 _EXPLICIT_FILE_REFERENCE = re.compile(
     r"\b(?:(?:first|second|third|fourth|fifth|last|\d+(?:st|nd|rd|th)?)\s+"
     r"(?:one|file|document|result|recording))\b|"
@@ -142,11 +184,54 @@ class DriveChatService:
         timezone="UTC",
     ):
         await require_access()
+        outcome = await self.run_live_query(
+            user_id=user_id,
+            consent_token=consent_token,
+            query=message,
+            require_access=require_access,
+            previous_answer=previous_answer,
+            timezone=timezone,
+        )
+        text = (
+            outcome["answer"]
+            if outcome["files"] is None
+            else _found_files(
+                outcome["files"],
+                truncated=outcome["found_truncated"],
+                unreadable=outcome["unreadable"],
+                time_window=outcome["time_window"],
+            )
+        )
+        return result(
+            conversation_id,
+            text,
+            outcome["status"],
+            sources=outcome["sources"],
+            truncated=outcome["truncated"],
+            metadata_only=outcome["metadata_only"],
+        )
+
+    async def run_live_query(
+        self,
+        *,
+        user_id,
+        consent_token,
+        query,
+        require_access,
+        previous_answer="",
+        timezone="UTC",
+        require_live=False,
+    ):
+        """One bounded owner-authorized turn: plan, find, read, interpret, fence.
+
+        The owner's chat and an owner-approved question from a connection share
+        this path, so both get the same caps, fences and fallbacks.
+        """
+        message = query
         if not message.strip() or len(message.encode()) > 2048:
-            return result(
-                conversation_id,
-                "What would you like to know about your Drive files? Please keep the question brief.",
+            return _outcome(
                 "input_required",
+                "What would you like to know about your Drive files? Please keep the question brief.",
             )
         stage = "connection"
         try:
@@ -158,6 +243,11 @@ class DriveChatService:
                     oauth = self.oauth or get_external_connector_oauth_service().drive()
                     _, credential = await oauth.current_credential(user_id=user_id)
                     live = credential.get("profile") == "live"
+                    if require_live and not live:
+                        # A connection's question needs live search, not selected files.
+                        return _outcome(
+                            "reconnect_required", "Reconnect Drive in Connectors to continue."
+                        )
                     reader = (DriveLiveReader if live else DriveDocumentReader)(
                         user_id=user_id, require_access=require_access, oauth=oauth
                     )
@@ -190,10 +280,9 @@ class DriveChatService:
                         or plan.exact_title.casefold()
                         not in previous_answer.replace("\\", "").casefold()
                     ):
-                        return result(
-                            conversation_id,
-                            "Which file do you mean? Please give me its title.",
+                        return _outcome(
                             "input_required",
+                            "Which file do you mean? Please give me its title.",
                         )
                     stage = "search_files"
                     bounds = plan.time_bounds(now_utc=now_utc)
@@ -225,28 +314,19 @@ class DriveChatService:
                             if item["name"].casefold() == plan.exact_title.strip().casefold()
                         ]
                         if len(matches) != 1:
-                            return result(
-                                conversation_id,
-                                "I couldn't identify that exact file in the current Drive results. Please give me its title or a more specific date.",
+                            return _outcome(
                                 "input_required",
+                                "I couldn't identify that exact file in the current Drive results. Please give me its title or a more specific date.",
                             )
                     if not matches:
-                        return result(
-                            conversation_id,
-                            "I couldn't find a matching Drive file. Try a more specific filename or period.",
+                        return _outcome(
                             "input_required",
+                            "I couldn't find a matching Drive file. Try a more specific filename or period.",
                         )
                     if plan.mode == "find":
                         await reader.require_current()
-                        return result(
-                            conversation_id,
-                            _found_files(
-                                matches, truncated=found["truncated"], time_window=time_window
-                            ),
-                            "ok",
-                            sources=_metadata_sources(matches),
-                            truncated=found["truncated"] or len(matches) > 10,
-                            metadata_only=True,
+                        return _files_outcome(
+                            matches, found, unreadable=False, time_window=time_window
                         )
                 await require_access()
                 stage = "read_file_content"
@@ -259,27 +339,16 @@ class DriveChatService:
                 if not content:
                     await reader.require_current()
                     if live:
-                        return result(
-                            conversation_id,
-                            _found_files(
-                                matches,
-                                truncated=found["truncated"],
-                                unreadable=True,
-                                time_window=time_window,
-                            ),
-                            "ok",
-                            sources=_metadata_sources(matches),
-                            truncated=True,
-                            metadata_only=True,
+                        return _files_outcome(
+                            matches, found, unreadable=True, time_window=time_window
                         )
-                    return result(
-                        conversation_id,
+                    return _outcome(
+                        "input_required",
                         (
                             "I couldn't find a readable match. Try a more specific filename or request."
                             if live
                             else "This connection only covers previously selected files. Reconnect Drive to search your Drive."
                         ),
-                        "input_required",
                     )
                 stage = "interpret"
                 answer = DocumentAnswer.model_validate(
@@ -312,8 +381,12 @@ class DriveChatService:
                     text += (
                         "\n\nThis answer uses bounded excerpts; some document content was omitted."
                     )
-                return result(
-                    conversation_id, text, "ok", sources=sources, truncated=retrieved["truncated"]
+                return _outcome(
+                    "ok",
+                    text,
+                    sources=sources,
+                    titles=[known[ref]["name"] for ref in dict.fromkeys(answer.source_refs)],
+                    truncated=retrieved["truncated"],
                 )
         except PermissionError:
             raise
@@ -321,40 +394,34 @@ class DriveChatService:
             code = str(error)
             logger.warning("drive_chat.read_failed stage=%s code=%s", stage, code)
             if code in {"connect_required", "not_connected"}:
-                return result(
-                    conversation_id,
-                    "Connect Drive in Connectors to search and read files.",
+                return _outcome(
                     "connect_required",
+                    "Connect Drive in Connectors to search and read files.",
                 )
             if code in {"reconnect_required", "needs_reauth"}:
-                return result(
-                    conversation_id,
-                    "Reconnect Drive in Connectors to continue.",
+                return _outcome(
                     "reconnect_required",
+                    "Reconnect Drive in Connectors to continue.",
                 )
             if code == "narrow_selection_required":
-                return result(
-                    conversation_id,
-                    "Ask for a more specific document or period.",
+                return _outcome(
                     "input_required",
+                    "Ask for a more specific document or period.",
                 )
             if code == "invalid_argument":
-                return result(
-                    conversation_id,
-                    "Please ask a shorter question about your Drive files.",
+                return _outcome(
                     "input_required",
+                    "Please ask a shorter question about your Drive files.",
                 )
             if code in {"source_changed", "connection_changed", "source_unavailable"}:
-                return result(
-                    conversation_id,
-                    "Drive access or the file changed. Try again.",
+                return _outcome(
                     "source_changed",
+                    "Drive access or the file changed. Try again.",
                 )
         except Exception as error:
             # Only the stage and exception type are safe operational evidence.
             logger.warning("drive_chat.read_failed stage=%s type=%s", stage, type(error).__name__)
-        return result(
-            conversation_id,
-            "Drive document reading is temporarily unavailable. Please try again.",
+        return _outcome(
             "unavailable",
+            "Drive document reading is temporarily unavailable. Please try again.",
         )

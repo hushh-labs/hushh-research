@@ -109,13 +109,29 @@ test.beforeAll(async () => {
 });
 
 for (const width of [320, 390, 768, 1440])
-  test(`request creation preserves chat and bounds the form at ${width}px`, async ({
+  test(`asking a question preserves chat and bounds the form at ${width}px`, async ({
     page,
   }) => {
     await page.setViewportSize({ width, height: 820 });
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
     const submissions: unknown[] = [];
+    const questionId = "11111111-1111-4111-8111-111111111111";
+    const pendingQuestion = (query: string) => ({
+      requestId: questionId,
+      direction: "outgoing",
+      status: "pending",
+      revision: 1,
+      query,
+      counterpartName: "A",
+      createdAt: "2026-09-24T10:00:00Z",
+      expiresAt: "2099-10-01T10:00:00Z",
+      decidedAt: null,
+      answer: null,
+      canDecide: false,
+      lastError: null,
+    });
+    let asked = "";
     await page.route("http://localhost/document-request-fixture", (route) =>
       route.fulfill({
         contentType: "text/html",
@@ -123,25 +139,30 @@ for (const width of [320, 390, 768, 1440])
       }),
     );
     await page.route(
-      "**/api/connectors/google_drive/sharing/requests",
+      "**/api/connectors/google_drive/sharing/queries",
       async (route) => {
-        submissions.push(route.request().postDataJSON());
+        const body = route.request().postDataJSON();
+        submissions.push(body);
+        asked = body.query;
+        // The asker proves only vault ownership; no Google identity is sent.
         expect(route.request().headers().authorization).toBe(
-          "Bearer synthetic-firebase-proof",
+          "Bearer synthetic-vault-owner",
         );
-        expect(route.request().headers()["x-hushh-consent"]).toBe(
-          "synthetic-vault-owner",
-        );
+        expect(route.request().headers()["x-hushh-consent"]).toBeUndefined();
         await route.fulfill({
           status: 202,
           contentType: "application/json",
-          body: JSON.stringify({
-            requestId: "11111111-1111-4111-8111-111111111111",
-            status: "pending",
-            revision: 0,
-          }),
+          body: JSON.stringify(pendingQuestion(asked)),
         });
       },
+    );
+    await page.route(
+      `**/api/connectors/google_drive/sharing/queries/${questionId}`,
+      (route) =>
+        route.fulfill({
+          contentType: "application/json",
+          body: JSON.stringify(pendingQuestion(asked)),
+        }),
     );
     await page.goto("http://localhost/document-request-fixture");
     await page.addScriptTag({ content: script });
@@ -150,25 +171,19 @@ for (const width of [320, 390, 768, 1440])
     await draft.fill("Keep this chat draft");
     const original = await draft.elementHandle();
     await page
-      .getByRole("button", { name: "Request documents", exact: true })
+      .getByRole("button", { name: "Ask about files", exact: true })
       .click();
     const panel = page.getByRole("dialog", {
-      name: "Request documents",
+      name: "Ask about their Drive",
       exact: true,
     });
-    const purpose = `${"UntrustedLongPurpose".repeat(20)} <script>text only</script>`;
-    await panel.getByLabel("What do you need?").fill(purpose);
-    await panel.getByLabel("Start date").fill("2026-01-01");
-    await expect(
-      panel.getByRole("button", { name: "Send request" }),
-    ).toBeDisabled();
-    await panel.getByLabel("End date").fill("2026-06-30");
+    const question = `${"UntrustedLongQuestion".repeat(20)} <script>text only</script>`;
+    await expect(panel.getByRole("button", { name: "Send" })).toBeDisabled();
+    await panel.getByLabel("Your question").fill(question);
     expect(submissions).toHaveLength(0);
     for (const control of [
-      panel.getByLabel("What do you need?"),
-      panel.getByLabel("Start date"),
-      panel.getByLabel("End date"),
-      panel.getByRole("button", { name: "Send request" }),
+      panel.getByLabel("Your question"),
+      panel.getByRole("button", { name: "Send" }),
       panel.getByRole("button", { name: "Cancel" }),
     ]) {
       await control.scrollIntoViewIfNeeded();
@@ -180,22 +195,27 @@ for (const width of [320, 390, 768, 1440])
     expect(
       await panel.evaluate((node) => node.scrollWidth <= node.clientWidth + 1),
     ).toBe(true);
-    const submit = panel.getByRole("button", { name: "Send request" });
+    const submit = panel.getByRole("button", { name: "Send" });
     await submit.focus();
     await page.keyboard.press("Enter");
-    await expect(
-      panel.getByText(
-        "Request sent. No files have been shared by this action.",
-      ),
-    ).toBeVisible();
+    await expect(panel.getByText("Waiting for A to allow")).toBeVisible();
+    await expect(panel.getByText(`“${question}”`)).toBeVisible();
     expect(submissions).toHaveLength(1);
     expect(submissions[0]).toMatchObject({
       ownerPersonRef: "33333333-3333-4333-8333-333333333333",
-      purpose: { purpose, periodStart: "2026-01-01", periodEnd: "2026-06-30" },
+      query: question,
     });
+    expect(Object.keys(submissions[0] as object).sort()).toEqual([
+      "clientRequestId",
+      "ownerPersonRef",
+      "query",
+    ]);
     await expect(
-      panel.getByRole("link", { name: "View request" }),
+      panel.getByRole("link", { name: "View question" }),
     ).toHaveAttribute("href", /requestView=sent/);
+    expect(
+      await panel.evaluate((node) => node.scrollWidth <= node.clientWidth + 1),
+    ).toBe(true);
     await page.keyboard.press("Escape");
     await expect(draft).toHaveValue("Keep this chat draft");
     expect(
