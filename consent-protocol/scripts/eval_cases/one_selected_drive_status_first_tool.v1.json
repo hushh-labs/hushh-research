@@ -13,6 +13,18 @@
       "family": "drive",
       "prompt": "Is AlexCV.pdf selected and ready to use?",
       "expected": ["inspect_selected_drive_files"]
+    },
+    {
+      "id": "drive.generic_account_access",
+      "family": "drive",
+      "prompt": "Do you have my Drive access?",
+      "expected": ["inspect_selected_drive_files"]
+    },
+    {
+      "id": "drive.new_chat_named_selection",
+      "family": "drive",
+      "prompt": "This is a new chat. I selected resume.pdf in Connectors earlier. Can you access that file here?",
+      "expected": ["inspect_selected_drive_files"]
     }
   ]
 }

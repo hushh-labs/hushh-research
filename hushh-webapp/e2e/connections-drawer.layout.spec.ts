@@ -300,6 +300,27 @@ for (const width of [320, 390, 768, 1440])
     await expect(page.getByTestId("stream")).toHaveText("Streaming turn 2");
   });
 
+test("dismissing Connectors returns the next hamburger open to chat history", async ({ page }) => {
+  await page.setViewportSize({ width: 768, height: 820 });
+  const hamburger = page.getByRole("button", { name: "Open drawer", exact: true });
+  const connectors = page.getByRole("dialog", { name: "Connectors", exact: true });
+  const chats = page.getByRole("dialog", { name: "Agent chat history", exact: true });
+
+  await hamburger.click();
+  await page.getByLabel("Open Connectors", { exact: true }).click();
+  await expect(connectors).toBeVisible();
+  await page.mouse.click(24, 400);
+  await expect(connectors).not.toBeVisible();
+  await hamburger.click();
+  await expect(chats.getByRole("searchbox", { name: "Search chats" })).toBeVisible();
+
+  await page.getByLabel("Open Connectors", { exact: true }).click();
+  await page.keyboard.press("Escape");
+  await expect(connectors).not.toBeVisible();
+  await hamburger.click();
+  await expect(chats.getByRole("searchbox", { name: "Search chats" })).toBeVisible();
+});
+
 test("Picker focus, explicit admission, removal, and independent disconnect", async ({
   page,
 }) => {
