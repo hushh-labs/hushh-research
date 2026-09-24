@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
+import { LivingCirclePanelFixture } from "./living-circle-panel";
 import { CircleDiscoveryCard } from "../../components/connect/circle-discovery-card";
 import type {
   CircleStarter,
@@ -168,4 +169,10 @@ function Fixture() {
     </>
   );
 }
-createRoot(document.getElementById("root")!).render(<Fixture />);
+createRoot(document.getElementById("root")!).render(
+  document.documentElement.dataset.circleDetail === "true" ? (
+    <LivingCirclePanelFixture />
+  ) : (
+    <Fixture />
+  ),
+);

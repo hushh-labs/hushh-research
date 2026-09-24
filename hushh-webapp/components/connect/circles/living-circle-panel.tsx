@@ -54,6 +54,18 @@ export function LivingCirclePanel({
   const [overCircle, setOverCircle] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const shownCandidates = expanded ? candidates : candidates.slice(0, 6);
+  // Keep the first four positions stable while a new circle grows. These are
+  // illustrations, not member records or a representation of the circle limit.
+  const emptySlots =
+    canInvite &&
+    members.length === memberCount &&
+    memberCount > 0 &&
+    (loading || !error)
+      ? Math.min(
+          Math.max(0, 4 - memberCount),
+          loading ? 3 : Math.max(0, remainingCapacity),
+        )
+      : 0;
   const addFromDrop = (userId: string) => {
     if (!canInvite || addingUserId || remainingCapacity <= 0) return;
     if (candidates.some((candidate) => candidate.userId === userId)) onAdd(userId);
@@ -91,6 +103,7 @@ export function LivingCirclePanel({
             verified: Boolean(member.isRia),
           }))}
           totalCount={memberCount}
+          emptySlots={emptySlots}
           center={
             <span className="flex size-16 items-center justify-center rounded-full border-2 border-[color:var(--app-accent)] bg-[color:var(--app-card-surface-default-solid)] text-[color:var(--app-accent)] shadow-sm">
               <UsersRound aria-hidden="true" className="size-7" />
@@ -102,9 +115,14 @@ export function LivingCirclePanel({
         {overCircle
           ? "Release to add this person"
           : memberCount <= 1
-            ? "Your circle starts here"
+            ? "Your circle starts with you"
             : `${memberCount} people in this circle`}
       </p>
+      {memberCount === 1 && emptySlots > 0 ? (
+        <p className="mt-1 text-center text-xs text-[color:var(--app-secondary-label)]">
+          Room for the people you choose.
+        </p>
+      ) : null}
 
       {canInvite ? (
         <div className="mx-auto mt-6 max-w-[34rem] border-t border-[color:var(--app-card-border-standard)] pt-5">

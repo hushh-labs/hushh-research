@@ -95,6 +95,94 @@ test.beforeAll(async () => {
       .join("\n");
 });
 
+for (const width of [320, 390, 768, 1440]) {
+  test(`new circle placeholders stay responsive and give way to members at ${width}px`, async ({
+    page,
+  }, testInfo) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.setContent(
+      `<html data-circle-detail="true"><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`,
+    );
+    await page.addScriptTag({ content: script });
+    await awaitProductFont(page);
+    const panel = page.getByTestId("connect-living-circle-detail");
+    const spots = panel.locator("[data-circle-empty-spot]:visible");
+    const orbit = page.getByTestId("people-orbit");
+    const checkGeometry = async () => {
+      const bounds = (await orbit.boundingBox())!;
+      const card = (await panel.boundingBox())!;
+      expect(bounds.x).toBeGreaterThanOrEqual(card.x);
+      expect(bounds.x + bounds.width).toBeLessThanOrEqual(card.x + card.width);
+      const nodes = await orbit
+        .locator(
+          "[data-circle-empty-spot]:visible, [data-orbit-center]:visible, [title]:visible, [data-testid='people-orbit-overflow']:visible",
+        )
+        .all();
+      const boxes = await Promise.all(nodes.map((node) => node.boundingBox()));
+      for (let i = 0; i < boxes.length; i++) {
+        const box = boxes[i]!;
+        expect(box.x).toBeGreaterThanOrEqual(bounds.x);
+        expect(box.x + box.width).toBeLessThanOrEqual(bounds.x + bounds.width);
+        expect(box.y).toBeGreaterThanOrEqual(bounds.y);
+        expect(box.y + box.height).toBeLessThanOrEqual(
+          bounds.y + bounds.height,
+        );
+        for (const other of boxes.slice(i + 1)) {
+          expect(
+            box.x + box.width <= other!.x ||
+              other!.x + other!.width <= box.x ||
+              box.y + box.height <= other!.y ||
+              other!.y + other!.height <= box.y,
+          ).toBe(true);
+        }
+      }
+      expect(
+        await page.evaluate(
+          () => document.documentElement.scrollWidth <= innerWidth,
+        ),
+      ).toBe(true);
+    };
+    await expect(spots).toHaveCount(3);
+    await expect(panel.getByText("Your circle starts with you")).toBeVisible();
+    await checkGeometry();
+    await panel.screenshot({
+      path: testInfo.outputPath("new-circle-spots.png"),
+      animations: "disabled",
+    });
+    await panel
+      .getByRole("button", { name: "Add Asha Rao to Investor Circle" })
+      .click();
+    await expect(spots).toHaveCount(2);
+    await expect(panel.getByText("2 people in this circle")).toBeVisible();
+    await expect(orbit.locator('[title="Asha Rao"]:visible')).toBeVisible();
+    await checkGeometry();
+    const state = page.getByLabel("Circle detail fixture state");
+    await state.selectOption("populated");
+    await expect(spots).toHaveCount(0);
+    await expect(
+      orbit.locator("[data-testid='people-orbit-overflow']:visible"),
+    ).toHaveText(width < 640 ? "+9" : "+7");
+    await checkGeometry();
+    await state.selectOption("no-connections");
+    await expect(spots).toHaveCount(3);
+    await expect(
+      panel.getByRole("link", { name: "Find people" }),
+    ).toBeVisible();
+    await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
+    await page.evaluate(() => document.documentElement.classList.add("dark"));
+    await checkGeometry();
+    await panel.screenshot({
+      path: testInfo.outputPath("empty-circle-dark.png"),
+      animations: "disabled",
+    });
+    for (const value of ["loading", "error", "full", "read-only"]) {
+      await state.selectOption(value);
+      await expect(spots).toHaveCount(value === "loading" ? 3 : 0);
+      await checkGeometry();
+    }
+  });
+}
+
 for (const width of [320, 390, 640, 768, 1440]) {
   test(`circle discovery fits and stays actionable at ${width}px`, async ({
     page,

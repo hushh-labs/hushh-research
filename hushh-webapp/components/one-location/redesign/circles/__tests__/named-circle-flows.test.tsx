@@ -125,6 +125,7 @@ describe("named Circle flows", () => {
       });
       render(<CircleDetailFlow circleId="family" livingCircleExperience {...props} />);
       const addButton = await screen.findByRole("button", { name: "Add Asha Rao to Family" });
+      expect(screen.getByTestId("people-orbit").querySelectorAll("[data-circle-empty-spot]")).toHaveLength(6);
       expect(screen.queryByTestId("one-location-circle-add-people-row")).toBeNull();
       expect(screen.queryByRole("dialog", { name: "Add people" })).toBeNull();
       expect(screen.getByTestId("one-location-circle-invite-code-row")).toBeTruthy();
@@ -147,6 +148,7 @@ describe("named Circle flows", () => {
       await waitFor(() => expect(within(screen.getByTestId("one-location-circle-members")).getByText("Asha Rao")).toBeTruthy());
       await waitFor(() => expect(screen.getByText("2 people in this circle")).toBeTruthy());
       expect(within(screen.getByTestId("people-orbit")).getAllByTitle("Asha Rao")).toHaveLength(2);
+      expect(screen.getByTestId("people-orbit").querySelectorAll("[data-circle-empty-spot]")).toHaveLength(4);
       await waitFor(() => expect(screen.queryByRole("button", { name: "Add Asha Rao to Family" })).toBeNull());
       expect(props.onInviteConnections).toHaveBeenCalledTimes(1);
     },
