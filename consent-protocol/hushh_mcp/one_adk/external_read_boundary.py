@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from google.genai import types
+
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 
 STATE_EXECUTION_SURFACE = "temp:one_execution_surface"
@@ -29,7 +31,27 @@ def external_read_active(context: Any) -> bool:
     return bool(invocation) and context.state.get(STATE_EXTERNAL_READ) == invocation
 
 
+def _reviewed_mcp_tool(tool: Any) -> bool:
+    # Identity comes from application-owned objects, never a remote tool name
+    # or its read-only annotation. Every continued call must use our exact-call
+    # confirmation authority, including a read that could disclose arguments.
+    from hushh_mcp.one_adk.governed_mcp_toolset import _GovernedMcpTool
+    from hushh_mcp.one_adk.mcp_call_approval import review_or_resume_call
+
+    return type(tool) is _GovernedMcpTool and tool.toolset.authorize_call is review_or_resume_call
+
+
 def before_external_read_tool(tool: Any, args: dict, tool_context: Any) -> dict | None:
+    if _reviewed_mcp_tool(tool):
+        invocation = getattr(tool_context, "invocation_id", None)
+        if (
+            not isinstance(invocation, str)
+            or not invocation
+            or tool_context.state.get(STATE_EXECUTION_SURFACE) != "typed_chat"
+        ):
+            return {"status": "blocked", "reason": "invocation_required"}
+        tool_context.state[STATE_EXTERNAL_READ] = invocation
+        return None
     if external_read_active(tool_context):
         return {"status": "blocked", "reason": "external_content_answer_only"}
     if (
@@ -51,6 +73,15 @@ def before_external_read_tool(tool: Any, args: dict, tool_context: Any) -> dict 
 
 def before_external_read_model(callback_context: Any, llm_request: Any) -> None:
     if external_read_active(callback_context):
+        admitted = {
+            name: tool for name, tool in llm_request.tools_dict.items() if _reviewed_mcp_tool(tool)
+        }
+        declarations = [tool._get_declaration() for tool in admitted.values()]
         llm_request.tools_dict.clear()
-        llm_request.config.tools = []
+        llm_request.tools_dict.update(admitted)
+        # Rebuild from the admitted objects; do not preserve provider built-ins
+        # or stale function declarations that bypass the callback boundary.
+        llm_request.config.tools = (
+            [types.Tool(function_declarations=declarations)] if declarations else []
+        )
         llm_request.config.tool_config = None

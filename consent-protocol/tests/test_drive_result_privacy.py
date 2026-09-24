@@ -49,6 +49,102 @@ def confirmation_arguments():
     }
 
 
+def test_blocked_followup_cannot_copy_private_arguments_to_wire():
+    projection = ConfirmationWireProjection()
+    projection.project(ToolCallStartEvent(tool_call_id="read", tool_call_name="mcp_" + "a" * 40))
+    projection.project(ToolCallStartEvent(tool_call_id="blocked", tool_call_name="send_email"))
+    assert (
+        projection.project(ToolCallArgsEvent(tool_call_id="blocked", delta='{"body":"PRIVATE"}'))
+        == []
+    )
+    result = projection.project(
+        ToolCallResultEvent(
+            tool_call_id="blocked",
+            message_id="result",
+            content='{"status":"blocked","body":"PRIVATE"}',
+        )
+    )
+    assert "PRIVATE" not in result[0].model_dump_json()
+    # A safe MCP review remains usable after the first read.
+    projection.project(
+        ToolCallStartEvent(tool_call_id="confirm", tool_call_name="adk_request_confirmation")
+    )
+    projection.project(
+        ToolCallArgsEvent(tool_call_id="confirm", delta=json.dumps(confirmation_arguments()))
+    )
+    review = projection.project(ToolCallEndEvent(tool_call_id="confirm"))
+    assert "pendingHandle" in review[1].delta
+    assert "PRIVATE_SENTINEL" not in review[1].delta
+    assert (
+        projection.project(
+            ToolCallChunkEvent(
+                tool_call_id="chunk_only", tool_call_name="send_email", delta="PRIVATE"
+            )
+        )
+        == []
+    )
+    projection.project(
+        ToolCallStartEvent(tool_call_id="unsafe_confirm", tool_call_name="adk_request_confirmation")
+    )
+    projection.project(
+        ToolCallArgsEvent(tool_call_id="unsafe_confirm", delta='{"private":"PRIVATE"}')
+    )
+    unsafe = projection.project(ToolCallEndEvent(tool_call_id="unsafe_confirm"))
+    assert unsafe[1].delta == "{}"
+
+
+def test_durable_post_read_calls_redacted_without_erasing_earlier_or_next_turn():
+    def event(invocation, name, identity, value):
+        return {
+            "invocationId": invocation,
+            "content": {
+                "parts": [
+                    {"functionCall": {"name": name, "id": identity, "args": {"value": value}}}
+                ]
+            },
+        }
+
+    document = {
+        "events": [
+            event("turn", "safe_card", "earlier", "KEEP_EARLIER"),
+            event("turn", "mcp_" + "a" * 40, "read", "PRIVATE"),
+            event("turn", "blocked_action", "blocked", "PRIVATE"),
+            event("next", "safe_card", "next", "KEEP_NEXT"),
+        ]
+    }
+    serialized = redact_drive_session_json(json.dumps(document))
+    assert "PRIVATE" not in serialized
+    assert "KEEP_EARLIER" in serialized and "KEEP_NEXT" in serialized
+
+
+def test_snapshot_blocks_post_read_arguments_but_preserves_next_user_turn():
+    from ag_ui.core import UserMessage
+
+    def assistant(identity, name, value):
+        return AssistantMessage(
+            id=identity,
+            tool_calls=[
+                ToolCall(
+                    id=identity,
+                    function=FunctionCall(name=name, arguments=json.dumps({"value": value})),
+                )
+            ],
+        )
+
+    event = MessagesSnapshotEvent(
+        messages=[
+            assistant("early", "safe_card", "KEEP_EARLIER"),
+            assistant("read", "mcp_" + "a" * 40, "PRIVATE"),
+            assistant("blocked", "send_email", "PRIVATE"),
+            UserMessage(id="user", content="A fresh instruction"),
+            assistant("next", "safe_card", "KEEP_NEXT"),
+        ]
+    )
+    serialized = redact_drive_wire_event(event, set()).model_dump_json()
+    assert "PRIVATE" not in serialized
+    assert "KEEP_EARLIER" in serialized and "KEEP_NEXT" in serialized
+
+
 @pytest.mark.parametrize("split", [1, 40, 100])
 def test_fragmented_native_confirmation_only_exposes_typed_review_reference(split):
     projection = ConfirmationWireProjection()
@@ -477,6 +573,58 @@ def test_dynamic_mcp_snapshot_before_call_and_storage_are_private():
         ]
     }
     assert private not in redact_drive_session_json(json.dumps(document))
+
+
+def test_owner_encrypted_history_keeps_reviewed_success_not_approval_authority():
+    name = "mcp_" + "a" * 40
+    document = {
+        "events": [
+            {
+                "invocationId": "turn",
+                "content": {
+                    "parts": [
+                        {
+                            "functionCall": {
+                                "id": "read",
+                                "name": name,
+                                "args": {"q": "PRIVATE_ARGUMENT"},
+                            }
+                        },
+                        {
+                            "functionResponse": {
+                                "id": "read",
+                                "name": name,
+                                "response": {
+                                    "status": "ok",
+                                    "isError": False,
+                                    "result": {
+                                        "content": [
+                                            {"type": "text", "text": "OWNER_CONNECTOR_INFORMATION"}
+                                        ]
+                                    },
+                                    "approvalReceipt": "DO_NOT_RETAIN_AUTHORITY",
+                                },
+                            }
+                        },
+                        {
+                            "functionResponse": {
+                                "id": "failed",
+                                "name": name,
+                                "response": {
+                                    "status": "blocked",
+                                    "result": "DO_NOT_RETAIN_ERROR_BODY",
+                                },
+                            }
+                        },
+                    ]
+                },
+            }
+        ]
+    }
+    retained = redact_drive_session_json(json.dumps(document))
+    assert "OWNER_CONNECTOR_INFORMATION" in retained
+    assert "PRIVATE_ARGUMENT" not in retained
+    assert "DO_NOT_RETAIN" not in retained
 
 
 def test_dynamic_mcp_start_metadata_and_argument_chunks_are_private():

@@ -745,7 +745,9 @@ def test_consent_center_list_route_returns_page_contract(monkeypatch):
         top: int | None = None,
         page: int = 1,
         limit: int = 20,
+        request_view: str = "received",
     ):
+        assert request_view == "received"
         assert user_id == "user_test_123"
         assert actor == "investor"
         assert surface == "pending"
@@ -794,7 +796,9 @@ def test_consent_center_list_route_treats_actor_one_as_compatible(monkeypatch):
         top: int | None = None,
         page: int = 1,
         limit: int = 20,
+        request_view: str = "received",
     ):
+        assert request_view == "received"
         assert user_id == "user_test_123"
         assert actor == "one"
         assert surface == "pending"
@@ -839,7 +843,9 @@ def test_consent_center_list_route_supports_top_preview(monkeypatch):
         top: int | None = None,
         page: int = 1,
         limit: int = 20,
+        request_view: str = "received",
     ):
+        assert request_view == "received"
         assert user_id == "user_test_123"
         assert actor == "ria"
         assert surface == "pending"

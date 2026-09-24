@@ -32,6 +32,13 @@ class McpTurnResources:
         self._owner: str | None = None
         self._closed = False
         self._toolsets: dict[McpConnectionBinding, GovernedMcpToolset] = {}
+        self._catalog_views: list[Any] = []
+
+    def track_catalog_view(self, view: Any) -> None:
+        if self._closed:
+            raise ExternalMcpError("Connector turn is unavailable.", code="MCP_TURN_UNAVAILABLE")
+        if not any(item is view for item in self._catalog_views):
+            self._catalog_views.append(view)
 
     async def acquire(
         self, context: Any, connector_id: str, *, authorize_call: AuthorizeCall
@@ -60,6 +67,9 @@ class McpTurnResources:
 
     async def close(self) -> None:
         self._closed = True
+        views, self._catalog_views = self._catalog_views, []
+        for view in views:
+            view.clear_invocation_catalog()
         toolsets, self._toolsets = list(self._toolsets.values()), {}
         if not toolsets:
             return

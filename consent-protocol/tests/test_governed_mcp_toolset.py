@@ -154,6 +154,75 @@ async def test_native_adk_toolset_defaults_to_app_review(harness):
     assert h.approve.await_args.args[4] == {"q": "fixture"}
 
 
+async def test_catalog_policy_cannot_invent_provider_tool(harness):
+    h = harness
+    h.toolset.catalog_policy = lambda catalog: [{**catalog[0], "name": "invented"}]
+    with pytest.raises(ExternalMcpError, match="Invalid connector policy"):
+        await h.toolset.get_tools(h.context)
+    h.native.assert_not_called()
+
+
+async def test_catalog_policy_cannot_erase_provider_schema_constraints(harness):
+    h = harness
+    h.toolset.catalog_policy = lambda catalog: [{**catalog[0], "inputSchema": {"type": "object"}}]
+    tool = (await h.toolset.get_tools(h.context))[0]
+    assert (await tool.run_async(args={}, tool_context=h.context))[
+        "error"
+    ] == "MCP_ARGUMENTS_INVALID"
+    h.approve.assert_not_called()
+    h.native.assert_not_called()
+
+
+async def test_provider_result_policy_uses_native_call_without_second_dispatch(harness):
+    h = harness
+    h.approve.return_value = None
+    h.native.return_value = {
+        "content": [],
+        "structuredContent": {"count": 1, "excluded": "synthetic"},
+    }
+    h.toolset.result_policy = lambda name, payload: {"count": payload["count"]}
+    tool = (await h.toolset.get_tools(h.context))[0]
+    result = await tool.run_async(args={"q": "fixture"}, tool_context=h.context)
+    assert result["result"] == {"count": 1}
+    h.native.assert_awaited_once()
+
+
+async def test_policy_narrowing_keeps_local_provider_refs_and_revision_binding(harness):
+    h = harness
+    descriptor = h.session.list_tools.return_value.tools[0]
+    descriptor.inputSchema = {
+        "type": "object",
+        "$defs": {"query": {"type": "string", "minLength": 2}},
+        "properties": {"q": {"$ref": "#/$defs/query"}},
+        "required": ["q"],
+    }
+    h.toolset.catalog_policy = lambda catalog: [
+        {
+            **catalog[0],
+            "inputSchema": {
+                "type": "object",
+                "properties": {"q": {"type": "string", "enum": ["a", "allowed"]}},
+                "required": ["q"],
+            },
+        }
+    ]
+    tool = (await h.toolset.get_tools(h.context))[0]
+    assert (await tool.run_async(args={"q": "a"}, tool_context=h.context))[
+        "error"
+    ] == "MCP_ARGUMENTS_INVALID"
+    assert (await tool.run_async(args={"q": "other"}, tool_context=h.context))[
+        "error"
+    ] == "MCP_ARGUMENTS_INVALID"
+    assert await tool.run_async(args={"q": "allowed"}, tool_context=h.context) == {
+        "status": "approval_required"
+    }
+    descriptor.inputSchema["$defs"]["query"]["minLength"] = 3
+    assert (await tool.run_async(args={"q": "allowed"}, tool_context=h.context))[
+        "error"
+    ] == "MCP_CATALOG_CHANGED"
+    h.native.assert_not_called()
+
+
 async def test_approved_call_uses_native_implementation_once(harness):
     h = harness
     h.approve.return_value = None

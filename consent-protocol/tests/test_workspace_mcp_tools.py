@@ -12,7 +12,10 @@ from hushh_mcp.one_adk.external_read_boundary import before_external_read_tool
 from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
 from hushh_mcp.services.gmail_receipts_service import GmailApiError
 from hushh_mcp.services.google_calendar_mcp_service import GOOGLE_CALENDAR_READ_TOOLS
-from hushh_mcp.services.google_connection_service import GoogleConnectionError
+from hushh_mcp.services.google_connection_service import (
+    GoogleConnectionError,
+    GoogleConnectionService,
+)
 from hushh_mcp.services.google_drive_mcp_service import GOOGLE_DRIVE_READ_TOOLS
 from hushh_mcp.services.google_gmail_mcp_service import GOOGLE_GMAIL_READ_TOOLS
 
@@ -208,7 +211,14 @@ async def test_discovery_rejects_schema_enum_prompt_injection(admission):
 @pytest.mark.asyncio
 async def test_grant_binding_is_owned_by_connector_services(monkeypatch):
     gmail_binding = ("owner-a", "gmail", "google-sub", "connected-at", "revision-1")
-    calendar_binding = ("owner-a", "calendar", "google-sub", "connected-at", "revision-2")
+    calendar_binding = (
+        "owner-a",
+        "calendar",
+        "google-sub",
+        "connected-at",
+        "connection-1",
+        "revision-2",
+    )
     gmail = SimpleNamespace(read_grant_binding=AsyncMock(return_value=gmail_binding))
     google = SimpleNamespace(read_grant_binding=AsyncMock(return_value=calendar_binding))
     monkeypatch.setattr(tools, "GmailReceiptsService", lambda: gmail)
@@ -217,6 +227,69 @@ async def test_grant_binding_is_owned_by_connector_services(monkeypatch):
     assert await tools._grant_binding("owner-a", "calendar") == calendar_binding
     gmail.read_grant_binding.assert_awaited_once_with(user_id="owner-a")
     google.read_grant_binding.assert_awaited_once_with(user_id="owner-a", service="calendar")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["discover", "read"])
+@pytest.mark.parametrize("changed_revision", [None, "connection_revision", "grant_revision"])
+async def test_calendar_uses_actual_service_binding_and_rechecks_both_revisions(
+    monkeypatch, operation, changed_revision
+):
+    google = object.__new__(GoogleConnectionService)
+    row = {
+        "provider_subject": "synthetic-subject",
+        "connection_status": "connected",
+        "connected_at": "synthetic-time",
+        "connection_revision": "connection-1",
+        "grant_status": "connected",
+        "scope_csv": " ".join(google.scopes("calendar", "read")),
+        "grant_revision": "grant-1",
+    }
+    after = dict(row)
+    if changed_revision:
+        after[changed_revision] = "revision-2"
+    google._execute_raw_async = AsyncMock(
+        side_effect=[SimpleNamespace(data=[row]), SimpleNamespace(data=[after])]
+    )
+    monkeypatch.setattr(tools, "get_google_connection_service", lambda: google)
+    monkeypatch.setattr(tools, "_owner", AsyncMock(return_value="owner-a"))
+    service = SimpleNamespace(
+        discover_read_tools=AsyncMock(
+            return_value=[{"name": "list_events", "inputSchema": {"type": "object"}}]
+        ),
+        read_tool=AsyncMock(return_value=ExternalMcpToolResult(False, {"text": "PRIVATE"}, False)),
+    )
+    monkeypatch.setattr(tools, "_service", lambda _: service)
+    if operation == "discover":
+        result = await tools.discover_workspace_tools("calendar", context())
+        service.discover_read_tools.assert_awaited_once_with(user_id="owner-a")
+    else:
+        result = await tools.read_workspace_tool("calendar", "list_events", {}, context())
+        service.read_tool.assert_awaited_once_with(
+            user_id="owner-a", tool_name="list_events", arguments={}
+        )
+    assert result["status"] == ("blocked" if changed_revision else "ok")
+    assert google._execute_raw_async.await_count == 2
+    if changed_revision:
+        assert "PRIVATE" not in str(result)
+        assert "tools" not in result
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "binding",
+    [
+        ("owner-a", "calendar", "subject", "time", "grant-only"),
+        ("owner-b", "calendar", "subject", "time", "connection", "grant"),
+        ("owner-a", "drive", "subject", "time", "connection", "grant"),
+        ("owner-a", "calendar", "subject", "time", "", "grant"),
+        ("owner-a", "calendar", "subject", "time", "connection", None),
+    ],
+)
+async def test_calendar_binding_rejects_missing_revisions_and_wrong_identity(monkeypatch, binding):
+    google = SimpleNamespace(read_grant_binding=AsyncMock(return_value=binding))
+    monkeypatch.setattr(tools, "get_google_connection_service", lambda: google)
+    assert await tools._grant_binding("owner-a", "calendar") is None
 
 
 @pytest.mark.asyncio

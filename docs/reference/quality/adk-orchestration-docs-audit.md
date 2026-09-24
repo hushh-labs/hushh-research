@@ -1,5 +1,19 @@
 # ADK Orchestration Documentation Audit
 
+## Visual Map
+
+```mermaid
+flowchart LR
+  manifest["AgentManifestV2"] --> roster["One ADK roster"]
+  registry["Owner connector registry"] --> roster
+  roster --> review["Exact-call review authority"]
+  review --> mcp["Native MCP invocation"]
+  mcp --> projection["Private wire and history projection"]
+```
+
+The [One agent hierarchy](../one/one-agent-hierarchy.md) maps the runtime owners.
+This audit records revision-specific implementation and verification beneath that map.
+
 **Review basis:** 2026-09-23 local pod integration, refreshed through pod base `812deaae16c26eccf4b80509021931d5cc467952`, remote ADK `b48a85d5bcff39f225e421bf033b38480c02ce7c` (contained in main), local ADK reviewer change `53aa5386dd3ac63eaf36ddbbf9c9ab1338f954f1`, and remote main `c7586798aef46797db8fda528fda164ba3daf8da`. The final source revision is the commit containing this report. Source inspection does not establish per-environment rollout or cleanup.
 
 ## Shared MCP transport checkpoint — 2026-09-24
@@ -47,9 +61,27 @@ Response normalization limits are not proof of a wire-level response-byte limit.
 uses native `McpTool` invocation, with bounded complete discovery, namespaced
 tools, call-time connection resolution, stale catalog/connection rejection, and
 an application-owned approval callback. Native tool errors are sanitized without
-retrying an uncertain mutation. This is a reusable adapter, **not yet attached
-to the Chat roster**; its credential resolver and approval callback must be wired
-to existing authorities before activation. No custom OAuth or UI proof is implied.
+retrying an uncertain mutation. `RegisteredMcpToolset` now joins the admitted
+typed-Chat roster for owner-private registrations and uses the existing exact-call
+approval callback. It discovers through the owner registry within task-local
+resources (32 connectors, four concurrent discoveries, 20-second discovery bound,
+500 aggregate tools). It disables ADK's invocation-ID-only cache and clears its
+retained catalog at turn teardown. Curated Google adapters remain separate until
+parity is verified; custom OAuth and live browser/native proof remain open.
+Native calls now establish the existing external-content barrier before dispatch;
+continued calls are limited to actual native tools using exact-call review.
+Tool names/annotations cannot admit an unreviewed downstream action. This does
+not yet establish same-turn first-party Memory capture or curated-action parity.
+
+The shared toolset accepts application-owned catalog and result policy ports for
+curated-provider migration. Discovery remains native MCP; a catalog policy cannot
+invent tools, and call arguments must satisfy both the original provider schema
+and its narrowed advertised schema, each at its own local-reference root. Catalog
+revisions include both views so changing either requires fresh review. Result
+projection runs within the existing bounded normalization path, without a second
+provider dispatch. These ports do not yet migrate Google's credential owners or
+activate curated providers through this toolset. Pending reviews created with the
+older revision digest require review again rather than silent compatibility.
 
 The existing action ledger now requires exact current contract, argument and
 resource-binding HMAC matches at confirmation and consumption for
@@ -72,8 +104,9 @@ owner-scoped registration, connection status, expiry and the same-row credential
 generation/version before opening its encrypted envelope. It covers registry-owned
 credentials; Google account credentials in other services still need their owning
 adapters. Forty-eight focused tests cover these paths and the existing ledger,
-including native SDK session-creation failure privacy. Chat roster, confirmation
-endpoint/card and live proof remain open. Dynamic-tool wire/history redaction
+including native SDK session-creation failure privacy. The confirmation endpoint,
+transient Chat review card, and private-registry roster now have implementations;
+live proof remains open. Dynamic-tool wire/history redaction
 was subsequently verified in `6cd38b9a9`; per-turn resource cleanup and owner
 isolation were committed in `06a4ef2dc`.
 

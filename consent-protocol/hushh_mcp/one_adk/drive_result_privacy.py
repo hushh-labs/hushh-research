@@ -67,9 +67,48 @@ class ConfirmationWireProjection:
     def __init__(self):
         self._pending: dict[str, tuple[BaseEvent, list[str], int]] = {}
         self._private_confirmations: set[str] = set()
+        self._private_followups: set[str] = set()
+        self._external_content = False
 
     def project(self, event: BaseEvent) -> list[BaseEvent]:
+        if _private_tool_name(getattr(event, "tool_call_name", None)):
+            self._external_content = True
         call_id = str(getattr(event, "tool_call_id", ""))
+        if event.type == EventType.MESSAGES_SNAPSHOT:
+            for message in getattr(event, "messages", []):
+                if getattr(message, "role", None) == "user":
+                    self._external_content = False
+                if any(
+                    _private_tool_name(call.function.name)
+                    for call in (getattr(message, "tool_calls", None) or [])
+                ):
+                    self._external_content = True
+        if (
+            self._external_content
+            and event.type == EventType.TOOL_CALL_START
+            and getattr(event, "tool_call_name", None) != "adk_request_confirmation"
+        ):
+            self._private_followups.add(call_id)
+        if (
+            self._external_content
+            and event.type == EventType.TOOL_CALL_CHUNK
+            and call_id not in self._pending
+        ):
+            self._private_followups.add(call_id)
+        if call_id in self._private_followups:
+            if event.type in {EventType.TOOL_CALL_ARGS, EventType.TOOL_CALL_CHUNK}:
+                return []
+            if event.type == EventType.TOOL_CALL_RESULT:
+                return [
+                    event.model_copy(
+                        update={
+                            "content": json.dumps(_safe_result(getattr(event, "content", None))),
+                            "raw_event": None,
+                            "metadata": None,
+                        }
+                    )
+                ]
+            return [event.model_copy(update={"raw_event": None, "metadata": None})]
         if event.type == EventType.RUN_FINISHED and self._pending:
             raise ValueError("Connector confirmation was incomplete.")
         if event.type == EventType.TOOL_CALL_RESULT and call_id in self._private_confirmations:
@@ -113,6 +152,10 @@ class ConfirmationWireProjection:
         except (TypeError, ValueError):
             raise ValueError("Connector confirmation is malformed.") from None
         safe = _confirmation_view(arguments)
+        if safe is None and self._external_content:
+            # A model can hallucinate another confirmation despite the tool
+            # filter. Its copied provider content must not escape as arguments.
+            safe = {}
         if safe is not None:
             self._private_confirmations.add(call_id)
         return [
@@ -145,10 +188,12 @@ def _safe_result(value: object) -> dict[str, Any]:
 
 
 def redact_drive_session_json(serialized: str) -> str:
-    """Remove the raw function response from the serialized storage copy.
+    """Project session content for the existing owner-bound encrypted store.
 
-    The live ADK session remains untouched until the model finishes this turn.
-    Restored sessions retain the invocation and safe outcome, not provider text.
+    Reviewed native MCP successes are owner information, not diagnostics.
+    Keep their normalized result for recall; never retain approval authority,
+    private call arguments, error bodies or blocked downstream payloads.
+    Legacy provider projections retain their existing separate contracts.
     """
     if "mcp_" not in serialized and not any(name in serialized for name in _PRIVATE_TOOLS):
         return serialized
@@ -156,9 +201,23 @@ def redact_drive_session_json(serialized: str) -> str:
     changed = False
     private_ids: set[str] = set()
     confirmation_ids: set[str] = set()
+    private_invocations: set[str] = set()
     # ADK duplicates a pending call inside its confirmation envelope. Index
     # both identities before projecting, including out-of-order responses.
     for event in document.get("events", []):
+        parts = (event.get("content") or {}).get("parts") or []
+        invocation = event.get("invocationId")
+        if isinstance(invocation, str) and any(
+            _private_tool_name((part.get("functionCall") or {}).get("name"))
+            or _private_tool_name((part.get("functionResponse") or {}).get("name"))
+            for part in parts
+        ):
+            private_invocations.add(invocation)
+        if invocation in private_invocations:
+            for part in parts:
+                call = part.get("functionCall")
+                if isinstance(call, dict) and isinstance(call.get("id"), str):
+                    private_ids.add(call["id"])
         for part in (event.get("content") or {}).get("parts") or []:
             call = part.get("functionCall")
             if not isinstance(call, dict):
@@ -189,6 +248,10 @@ def redact_drive_session_json(serialized: str) -> str:
                 }
                 call["partialArgs"] = None
                 changed = True
+            elif invocation in private_invocations:
+                call["args"] = {}
+                call["partialArgs"] = None
+                changed = True
     for event in document.get("events", []):
         confirmations = (event.get("actions") or {}).get("requestedToolConfirmations")
         if isinstance(confirmations, dict):
@@ -197,15 +260,42 @@ def redact_drive_session_json(serialized: str) -> str:
                 changed = True
         for part in (event.get("content") or {}).get("parts") or []:
             call = part.get("functionCall")
-            if isinstance(call, dict) and _private_tool_name(call.get("name")):
+            if isinstance(call, dict) and (
+                _private_tool_name(call.get("name"))
+                or (
+                    call.get("id") in private_ids and call.get("name") != "adk_request_confirmation"
+                )
+            ):
                 call["args"] = {}
                 call["partialArgs"] = None
                 changed = True
             response = part.get("functionResponse")
             if isinstance(response, dict) and (
-                _private_tool_name(response.get("name")) or response.get("id") in confirmation_ids
+                _private_tool_name(response.get("name"))
+                or response.get("id") in confirmation_ids
+                or response.get("id") in private_ids
             ):
-                response["response"] = _safe_result(response.get("response"))
+                result = response.get("response")
+                if (
+                    isinstance(response.get("name"), str)
+                    and _DYNAMIC_MCP_TOOL.fullmatch(response["name"])
+                    and isinstance(result, dict)
+                    and result.get("status") == "ok"
+                    and result.get("isError") is False
+                    and "result" in result
+                ):
+                    # This is the application-normalized success envelope,
+                    # after owner/connection/schema/receipt validation. Persist
+                    # content only in the caller's encrypted session, not raw
+                    # protocol fields or executable confirmation references.
+                    response["response"] = {
+                        "status": "ok",
+                        "isError": False,
+                        "result": result["result"],
+                        "truncated": result.get("truncated") is True,
+                    }
+                else:
+                    response["response"] = _safe_result(result)
                 response["parts"] = None
                 changed = True
     return json.dumps(document, separators=(",", ":")) if changed else serialized
@@ -256,9 +346,15 @@ def redact_drive_wire_event(event: BaseEvent, private_call_ids: set[str]) -> Bas
         # A resumed snapshot may arrive without TOOL_CALL_START, and messages
         # need not put the function call before its response. Index identities
         # first so provider content cannot escape through that ordering.
+        external_content = False
         for message in getattr(event, "messages", []):
+            if getattr(message, "role", None) == "user":
+                external_content = False
             for call in getattr(message, "tool_calls", None) or []:
                 if _private_tool_name(getattr(call.function, "name", None)):
+                    external_content = True
+                    private_call_ids.add(str(getattr(call, "id", "")))
+                elif external_content:
                     private_call_ids.add(str(getattr(call, "id", "")))
                 if getattr(call.function, "name", None) == "adk_request_confirmation":
                     try:
