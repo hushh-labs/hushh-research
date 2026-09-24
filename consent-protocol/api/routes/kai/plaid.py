@@ -23,7 +23,19 @@ from hushh_mcp.services.plaid_portfolio_service import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["Kai Plaid"])
+
+async def _refuse_retired_server_custody() -> None:
+    """Refuse every legacy entrypoint before any table-backed dependency runs."""
+    raise HTTPException(
+        status_code=410,
+        detail={
+            "code": "PLAID_SERVER_CUSTODY_RETIRED",
+            "message": "This bank connection needs to be linked again through your vault.",
+        },
+    )
+
+
+router = APIRouter(tags=["Kai Plaid"], dependencies=[Depends(_refuse_retired_server_custody)])
 require_transfer_scope_token = require_consent_scope("brokerage.transfer.write")
 
 
