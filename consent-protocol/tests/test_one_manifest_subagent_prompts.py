@@ -14,8 +14,15 @@ def test_one_chat_receives_authored_cross_connector_semantic_policy():
     composed = agent_tree._one_runtime_instruction(SimpleNamespace(state={}))
     assert "When a request spans connected services" in authored
     assert authored.strip() in composed
-    assert "An external read may inform an editable draft" in composed
-    assert "not permission to send, share, or change anything" in composed
+    assert "You may combine read results with a draft or another supported action" in composed
+    assert (
+        "A connection or a read grant is not permission to publish, attach, send, or change sharing"
+        in composed
+    )
+    assert (
+        "Any outward mutation needs its own reviewed details and explicit app confirmation"
+        in composed
+    )
     assert "never call provider mutation tools directly" in composed
     assert "Selected-file Drive and account-wide Drive reading are separate permissions" in composed
     assert "Live access needs no file selection" in composed
