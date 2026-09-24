@@ -439,6 +439,26 @@ describe("ConnectCirclesTab", () => {
     expect(screen.getByText("Find people")).toBeTruthy();
   });
 
+  it("keeps create and join available while circles are still loading", async () => {
+    mocks.ensureTrusted.mockReturnValue(new Promise(() => {}));
+
+    render(<ConnectCirclesTab />);
+
+    expect(screen.getByText("Loading circles…")).toBeTruthy();
+    fireEvent.click(screen.getByText("New circle"));
+    await waitFor(() => expect(mocks.routerPush).toHaveBeenCalled());
+    expect(String(mocks.routerPush.mock.calls[0][0])).toContain(
+      "action=create-circle",
+    );
+
+    mocks.routerPush.mockClear();
+    fireEvent.click(screen.getByText("Join with code"));
+    await waitFor(() => expect(mocks.routerPush).toHaveBeenCalled());
+    expect(String(mocks.routerPush.mock.calls[0][0])).toContain(
+      "action=join-circle",
+    );
+  });
+
   it("keeps the starter alongside empty product circles, without inventing member photos", async () => {
     mocks.listCircles.mockResolvedValue([
       circle("trusted", "Trusted", 1, "trusted"),
@@ -613,7 +633,8 @@ describe("ConnectCirclesTab", () => {
   it("keeps New circle and Join with code on Connect", async () => {
     render(<ConnectCirclesTab />);
 
-    fireEvent.click(await screen.findByTestId("connect-circle-create"));
+    const starter = await screen.findByTestId("connect-circle-starter");
+    fireEvent.click(within(starter).getByTestId("connect-circle-create"));
     await waitFor(() => expect(mocks.routerPush).toHaveBeenCalled());
     const createHref = String(mocks.routerPush.mock.calls[0][0]);
     expect(createHref).toContain("/one/connect");

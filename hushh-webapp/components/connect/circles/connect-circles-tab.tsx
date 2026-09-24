@@ -938,7 +938,7 @@ export function ConnectCirclesTab({
       {/* Its own group, below the list, so it does not move as the list grows
           -- and 56px rows rather than the 16px header links Location uses,
           which shift with the heading when it wraps. */}
-      {vaultOwnerToken && !loading && !showingStarter ? (
+      {vaultOwnerToken && !showingStarter ? (
         <SettingsGroup separatorInset>
           <SettingsRow
             icon={Plus}
