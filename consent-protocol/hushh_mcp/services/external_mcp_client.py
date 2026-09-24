@@ -92,7 +92,12 @@ def _normalize_and_cap(result: Any) -> ExternalMcpToolResult:
         text = getattr(item, "text", None)
         if isinstance(text, str):
             texts.append(text)
-    if len(texts) == 1:
+    structured = getattr(result, "structuredContent", None)
+    if isinstance(structured, dict):
+        # MCP structured output is authoritative when supplied. Do not discard
+        # it when a provider omits the compatibility TextContent block.
+        payload = structured
+    elif len(texts) == 1:
         try:
             parsed = json.loads(texts[0])
         except json.JSONDecodeError:
