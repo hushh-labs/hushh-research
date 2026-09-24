@@ -486,3 +486,20 @@ def test_same_revision_cannot_be_reissued_with_different_terms(ledger_db):
         approve(connection, issued, terms)
     with pytest.raises(ActionDirectiveAuthorityError):
         issue(ledger_db, terms)
+
+
+def test_release_replay_of_the_ledger_migrations_keeps_document_review_rows(ledger_db):
+    """UAT deploys replay every ordered migration. With a real document_review
+    directive present, re-running 212 failed with CheckViolationError
+    (one_action_directive_ledger_channel_check) and blocked every deploy."""
+    issue(ledger_db, authority())
+    with ledger_db.connect() as connection:
+        for name in ("212_location_command_runtime.sql", "231_document_review_authority.sql"):
+            connection.exec_driver_sql((MIGRATIONS / name).read_text())
+        connection.commit()
+        channels = (
+            connection.exec_driver_sql("SELECT channel FROM one_action_directive_ledger")
+            .scalars()
+            .all()
+        )
+    assert channels == ["document_review"]

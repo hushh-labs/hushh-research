@@ -29,7 +29,6 @@ _ALLOWED_FIELD_NAMES = frozenset(
     {
         "accepted",
         "attempt",
-        "backfill_pending",
         "candidate_count",
         "candidate_scope_count",
         "classifier_policy_refresh",

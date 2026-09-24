@@ -23,13 +23,24 @@ describe("agent chat prompt queue", () => {
 
   it("edits in place without moving a pending prompt", () => {
     const queue = editQueuedAgentPrompt(
-      [first, { ...second, deferPkmContext: true }, third],
+      [
+        first,
+        {
+          ...second,
+          deferPkmContext: true,
+          gmailInformationRequestWorkflowId: "workflow-1",
+          kycInformationSaveConfirmed: true,
+        },
+        third,
+      ],
       "second",
       "Updated",
     );
     expect(queue.map((prompt) => prompt.id)).toEqual(["first", "second", "third"]);
     expect(queue[1].text).toBe("Updated");
     expect(queue[1].deferPkmContext).toBe(true);
+    expect(queue[1].gmailInformationRequestWorkflowId).toBe("workflow-1");
+    expect(queue[1].kycInformationSaveConfirmed).toBe(true);
   });
 
   it("removes a pending prompt without affecting the remaining order", () => {

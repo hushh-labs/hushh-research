@@ -22,12 +22,13 @@ import {
   DriveSharingService,
   type DriveQueryView,
 } from "@/lib/services/drive-sharing-service";
+import { DocumentShareReview } from "@/components/consent/document-share-review";
 
 type Direction = DriveQueryView["direction"];
 type SessionGuard = () => void;
 /** `notice: undefined` keeps the current notice (a quiet background poll). */
 type Outcome = { view: DriveQueryView; notice?: string | null };
-type Phase = "idle" | "loading" | "allowing" | "denying";
+type Phase = "idle" | "loading" | "allowing" | "denying" | "sharing";
 
 const POLL_MS = 5000;
 /** Three minutes: long enough to watch one allowed search finish. */
@@ -37,6 +38,32 @@ const LAST_ERROR_COPY: Record<NonNullable<DriveQueryView["lastError"]>, string> 
   reconnect_required: "Reconnect Google Drive, then allow again.",
   drive_query_unavailable: "Drive didn't answer. Try again.",
 };
+
+function shareFailureCopy(code: string, name: string | null): string {
+  switch (code) {
+    case "recipient_google_identity_required":
+      return `${name ?? "They"} need to add a Google account to One before you can share files.`;
+    case "request_already_decided":
+      return "These files were already shared.";
+    case "reconnect_required":
+    case "connection_changed":
+      return "Reconnect Google Drive, then share again.";
+    case "connection_required":
+      return "You're no longer connected with this person.";
+    case "request_changed":
+      return "This answer changed. Refresh and choose the files again.";
+    default:
+      return "Couldn't share these files. Try again.";
+  }
+}
+
+function shortDate(value: string | null): string | null {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime())
+    ? null
+    : parsed.toLocaleDateString(undefined, { day: "numeric", month: "short", year: "numeric" });
+}
 
 function codeOf(cause: unknown): string {
   return cause instanceof DriveSharingError ? cause.code : "request_failed";
@@ -118,6 +145,11 @@ function UnlockedDriveQueryCard({
   const [view, setView] = useState<DriveQueryView | null>(initial ?? null);
   const [phase, setPhase] = useState<Phase>(initial ? "idle" : "loading");
   const [notice, setNotice] = useState<string | null>(null);
+  // Files the owner left unticked for this answer; every file starts selected.
+  const [unshared, setUnshared] = useState<{ key: string; refs: string[] }>({
+    key: "",
+    refs: [],
+  });
   const alive = useRef(false);
   const serial = useRef(0);
   const busy = useRef<"none" | "load" | "decide">("none");
@@ -267,6 +299,43 @@ function UnlockedDriveQueryCard({
     void run(load, "load", "loading");
   };
 
+  const shareKey = view ? `${view.requestId}:${view.revision}` : "";
+  const shareable =
+    view?.direction === "incoming" && view.status === "answered" && !view.answer?.shareRequestId
+      ? (view.answer?.files ?? [])
+      : [];
+  const unsharedRefs = unshared.key === shareKey ? unshared.refs : [];
+  const selectedRefs = shareable
+    .map((file) => file.ref)
+    .filter((ref) => !unsharedRefs.includes(ref));
+
+  const shareFiles = () => {
+    if (!view || phase !== "idle" || selectedRefs.length === 0) return;
+    const refs = [...selectedRefs];
+    void run(
+      async (token, guard) => {
+        try {
+          const result = await DriveSharingService.shareQueryFiles(token, requestId, refs, guard);
+          guard();
+          announceChange();
+          return { view: result, notice: null };
+        } catch (cause) {
+          const code = codeOf(cause);
+          if (code === "session_changed") throw cause;
+          guard();
+          const fresh = await DriveSharingService.getQuery(token, requestId, guard);
+          guard();
+          return {
+            view: fresh,
+            notice: fresh.answer?.shareRequestId ? null : shareFailureCopy(code, view.counterpartName),
+          };
+        }
+      },
+      "decide",
+      "sharing",
+    );
+  };
+
   const incoming = (view?.direction ?? direction) === "incoming";
   const name = view?.counterpartName?.trim() || null;
   const heading = !view
@@ -360,6 +429,75 @@ function UnlockedDriveQueryCard({
             </>
           ) : null}
         </div>
+      ) : null}
+      {shareable.length > 0 ? (
+        <fieldset className="min-w-0 space-y-2" disabled={phase !== "idle"}>
+          <legend>
+            <MediumRowLabel as="span">Share files with {name ?? "them"}</MediumRowLabel>
+          </legend>
+          {shareable.length > 1 ? (
+            <label className="flex min-h-11 items-center gap-3 text-sm">
+              <input
+                type="checkbox"
+                checked={selectedRefs.length === shareable.length}
+                onChange={(event) =>
+                  setUnshared({
+                    key: shareKey,
+                    refs: event.target.checked ? [] : shareable.map((file) => file.ref),
+                  })
+                }
+              />
+              <span>Select all</span>
+            </label>
+          ) : null}
+          <ul aria-label="Files you can share" className="min-w-0 space-y-1">
+            {shareable.map((file) => (
+              <li key={file.ref}>
+                <label className="flex min-h-11 min-w-0 items-center gap-3">
+                  <input
+                    type="checkbox"
+                    checked={selectedRefs.includes(file.ref)}
+                    onChange={(event) =>
+                      setUnshared({
+                        key: shareKey,
+                        refs: event.target.checked
+                          ? unsharedRefs.filter((ref) => ref !== file.ref)
+                          : [...unsharedRefs, file.ref],
+                      })
+                    }
+                  />
+                  <span className="min-w-0 break-all">
+                    {file.name}
+                    {shortDate(file.modifiedTime) ? (
+                      <HelperText as="span"> · {shortDate(file.modifiedTime)}</HelperText>
+                    ) : null}
+                  </span>
+                </label>
+              </li>
+            ))}
+          </ul>
+          <HelperText>
+            {name ?? "They"} get Viewer access to the original files in Google Drive. You can
+            remove access anytime.
+          </HelperText>
+          <Button
+            size="prominent"
+            disabled={phase !== "idle" || selectedRefs.length === 0}
+            onClick={shareFiles}
+          >
+            {phase === "sharing"
+              ? "Sharing…"
+              : selectedRefs.length === 1
+                ? "Share 1 file"
+                : `Share ${selectedRefs.length} files`}
+          </Button>
+        </fieldset>
+      ) : null}
+      {view?.answer?.shareRequestId ? (
+        <DocumentShareReview
+          requestId={view.answer.shareRequestId}
+          onChanged={announceChange}
+        />
       ) : null}
       {showDecision ? (
         <>

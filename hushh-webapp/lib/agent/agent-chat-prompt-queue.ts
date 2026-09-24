@@ -3,6 +3,17 @@ export type QueuedAgentPrompt = {
   text: string;
   createdAtMs: number;
   /**
+   * An opaque, owner-selected Gmail information-request reference. It is
+   * session-only and is revalidated by agent-chat ingress for this turn.
+   */
+  gmailInformationRequestWorkflowId?: string;
+  /**
+   * The owner typed this reply while completing the selected KYC request.
+   * This is the explicit confirmation required for the restricted on-device
+   * PKM writer; no email content is used as a write source.
+   */
+  kycInformationSaveConfirmed?: boolean;
+  /**
    * Large pasted context is captured by the guarded background PKM lane after
    * the answer starts. It must not make the foreground turn wait for a full
    * decrypted inventory to hydrate.

@@ -516,6 +516,11 @@ class DriveSharingStore(DriveDocumentStore):
         return None
 
     def _queue_grants(self, connection, *, request, approval, sources, batch, rule=None):
+        # A plan's approval must name exactly the files queued in this batch.
+        if sorted(str(source["document_id"]) for source in sources) != sorted(
+            str(source.document_id) for source in approval.sources
+        ):
+            raise DriveSharingError("invalid_selection")
         recipient = self._open_request(request)["recipient"]
         for source in sources:
             metadata = self._source_metadata(source)
@@ -832,10 +837,14 @@ class DriveSharingStore(DriveDocumentStore):
                 purpose="review",
             )
             approval = SharingApproval.model_validate(payload["approval"])
-            if len(document_ids) != len(approval.sources) or set(document_ids) != {
-                str(source.document_id) for source in approval.sources
-            }:
-                raise DriveSharingError("review_changed")
+            reviewed_ids = [str(source.document_id) for source in approval.sources]
+            # A confirms the complete reviewed set and shares a non-empty subset
+            # of it: a file outside the review can never be granted.
+            chosen = approval.narrowed_to(document_ids)
+            selected_ids = {str(source.document_id) for source in chosen.sources}
+            # Trust for future requests follows a review A accepted in full.
+            if trust_future_requests and len(chosen.sources) != len(approval.sources):
+                raise DriveSharingError("rule_not_covered")
             self._admit_sources(
                 connection, user_id=user_id, generation=generation, sources=approval.sources
             )
@@ -843,7 +852,7 @@ class DriveSharingStore(DriveDocumentStore):
                 connection,
                 user_id=user_id,
                 generation=generation,
-                document_ids=document_ids,
+                document_ids=reviewed_ids,
                 request_id=request_id,
             )
             current = SharingApproval.model_validate(
@@ -873,8 +882,12 @@ class DriveSharingStore(DriveDocumentStore):
             batch = ledger.claim_document_review_in_transaction(
                 directive_id=review["directive_id"], authority=authority, receipt=receipt.receipt
             )
+            selected = [source for source in sources if str(source["document_id"]) in selected_ids]
+            # Each plan names only what A shares, so dispatch rechecks only those
+            # files and a change to an unselected file cannot withdraw them.
+            granted = current.narrowed_to([str(source["document_id"]) for source in selected])
             self._queue_grants(
-                connection, request=request, approval=current, sources=sources, batch=batch
+                connection, request=request, approval=granted, sources=selected, batch=batch
             )
             if trust_future_requests:
                 rule_id = str(uuid4())
@@ -935,7 +948,7 @@ class DriveSharingStore(DriveDocumentStore):
             return {
                 **self._summary(updated),
                 "sharingStatus": "pending",
-                "fileCount": len(sources),
+                "fileCount": len(selected),
                 "trustedForDocuments": trust_future_requests,
             }
 

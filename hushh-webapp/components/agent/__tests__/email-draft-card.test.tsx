@@ -248,7 +248,6 @@ describe("EmailDraftCard", () => {
     render(
       <EmailDraftCard
         initialInstruction="Reply to this Gmail KYC request"
-        sourceBoundContext="This request asks for: full name and educational institution."
         initialDraft={{
           to: "",
           cc: "",
@@ -261,16 +260,20 @@ describe("EmailDraftCard", () => {
         onDismiss={vi.fn()}
         onSent={vi.fn()}
         sourceBoundReply={{ send }}
+        sourceBoundEnvelope={{
+          to: "Verifier <verify@example.com>",
+          subject: "Re: KYC details",
+        }}
       />,
     );
 
-    expect(screen.getByTestId("one-email-draft-source-bound-notice")).toHaveTextContent(
-      "original Mail thread",
+    expect(screen.queryByTestId("one-email-draft-source-bound-notice")).not.toBeInTheDocument();
+    expect(screen.getByTestId("one-email-draft-source-bound-to")).toHaveValue(
+      "Verifier <verify@example.com>",
     );
-    expect(screen.getByTestId("one-email-draft-source-bound-notice")).toHaveTextContent(
-      "full name and educational institution",
+    expect(screen.getByTestId("one-email-draft-source-bound-subject")).toHaveValue(
+      "Re: KYC details",
     );
-    expect(screen.queryByTestId("one-email-draft-to")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByTestId("one-email-draft-send"));
 

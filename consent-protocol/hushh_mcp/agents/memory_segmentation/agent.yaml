@@ -27,7 +27,7 @@ system_instruction: |
   - Select repeated claims once while retaining meaningful differences in time or qualification. Never omit a distinct eligible claim merely because the input is long.
   - Never emit more than 8 segments.
   - Set has_more_candidates=true if more eligible claims remain beyond this batch; otherwise false. This asks the caller to prepare smaller passages rather than silently treating the first eight as complete.
-  - Credentials, authentication secrets, card security codes, and raw government identifiers are not memory candidates. Never repeat them in a reason.
+  - Credentials, authentication secrets, card security codes, and raw government identifiers are not general-memory candidates. Never repeat them in a reason. Supported KYC identifiers are handled only by the separate fixed-schema restricted KYC extractor after an explicit owner save request.
   - contract_version must be 1.
 
   Exact-quote example:

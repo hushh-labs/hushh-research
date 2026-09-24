@@ -1,4 +1,6 @@
 import { apiJson } from "@/lib/services/api-client";
+import { nativeStreamFetch } from "@/lib/services/native-sse-fetch";
+import { parseSSEBlocks } from "@/lib/streaming/sse-parser";
 
 export type GmailInformationRequestPreference = {
   user_id: string;
@@ -50,8 +52,12 @@ export type GmailInformationRequestScan = {
   workflow_ids: string[];
   baseline_established?: boolean;
   baseline_reestablished?: boolean;
-  backfill_pending?: boolean;
   retry_pending?: boolean;
+};
+
+export type GmailInformationRequestScanStreamHandlers = {
+  onProgress: (scannedCount: number) => void;
+  onRequest: (workflow: GmailInformationRequestWorkflow) => void;
 };
 
 export type GmailInformationRequestCandidateRefresh = {
@@ -61,6 +67,8 @@ export type GmailInformationRequestCandidateRefresh = {
 
 export type GmailInformationRequestSourcePreview = {
   from: string;
+  /** A source-provided Reply-To address, when Gmail supplied one. */
+  reply_to?: string;
   subject: string;
   body: string;
 };
@@ -97,6 +105,42 @@ function ownerHeaders(
     ...accountHeaders(firebaseIdToken),
     "X-Hushh-Consent": `Bearer ${vaultOwnerToken}`,
   };
+}
+
+function messageForStreamResponse(payload: unknown): string {
+  const record = payload && typeof payload === "object"
+    ? (payload as Record<string, unknown>)
+    : {};
+  const detail = record.detail && typeof record.detail === "object"
+    ? (record.detail as Record<string, unknown>)
+    : record;
+  return typeof detail.message === "string" && detail.message
+    ? detail.message
+    : "We couldn’t check Gmail right now. Try again.";
+}
+
+function isScan(value: unknown): value is GmailInformationRequestScan {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  return (
+    record.accepted === true &&
+    ["scanned_count", "unchanged_count", "matched_count", "failed_count"].every(
+      (key) => typeof record[key] === "number",
+    ) &&
+    Array.isArray(record.workflow_ids)
+  );
+}
+
+function isWorkflow(value: unknown): value is GmailInformationRequestWorkflow {
+  if (!value || typeof value !== "object") return false;
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.workflow_id === "string" &&
+    record.status === "detected" &&
+    Array.isArray(record.requested_field_labels) &&
+    Array.isArray(record.candidate_scopes) &&
+    typeof record.attachment_review_required === "boolean"
+  );
 }
 
 export class GmailInformationRequestsService {
@@ -165,6 +209,81 @@ export class GmailInformationRequestsService {
   }
 
   /**
+   * Scan a connected inbox while delivering metadata-only progress and newly
+   * durable KYC requests as they are found. The normal JSON scan stays intact
+   * for callers that only need the final result.
+   */
+  static async scanStream(input: {
+    firebaseIdToken: string;
+    vaultOwnerToken: string;
+    maxResults?: number;
+    includeRecentInbox?: boolean;
+    signal?: AbortSignal;
+    handlers: GmailInformationRequestScanStreamHandlers;
+  }): Promise<GmailInformationRequestScan> {
+    const response = await nativeStreamFetch(
+      "/api/one/email/information-requests/scan/stream",
+      {
+        method: "POST",
+        headers: ownerHeaders(input.firebaseIdToken, input.vaultOwnerToken),
+        body: JSON.stringify({
+          max_results: input.maxResults ?? 30,
+          include_recent_inbox: input.includeRecentInbox === true,
+        }),
+        signal: input.signal,
+      },
+    );
+    if (!response.ok) {
+      throw new Error(messageForStreamResponse(await response.json().catch(() => null)));
+    }
+    const contentType = response.headers.get("content-type") || "";
+    if (!contentType.includes("text/event-stream")) {
+      throw new Error("We couldn’t check Gmail right now. Try again.");
+    }
+    const reader = response.body?.getReader();
+    if (!reader) throw new Error("We couldn’t check Gmail right now. Try again.");
+
+    let completed: GmailInformationRequestScan | null = null;
+    let buffer = "";
+    const decoder = new TextDecoder();
+    const dispatch = (frame: { event: string; data: string }) => {
+      let payload: Record<string, unknown>;
+      try {
+        payload = JSON.parse(frame.data) as Record<string, unknown>;
+      } catch {
+        return;
+      }
+      if (payload.event !== frame.event) return;
+      if (frame.event === "progress" && typeof payload.scanned_count === "number") {
+        input.handlers.onProgress(Math.max(0, Math.floor(payload.scanned_count)));
+      } else if (frame.event === "request" && isWorkflow(payload.workflow)) {
+        input.handlers.onRequest(payload.workflow);
+      } else if (frame.event === "complete" && isScan(payload)) {
+        completed = payload;
+      } else if (frame.event === "error") {
+        throw new Error(messageForStreamResponse(payload));
+      }
+    };
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const parsed = parseSSEBlocks(decoder.decode(value, { stream: true }), buffer);
+        buffer = parsed.remainder;
+        for (const frame of parsed.events) dispatch(frame);
+      }
+      if (buffer.trim()) {
+        for (const frame of parseSSEBlocks("\n\n", buffer).events) dispatch(frame);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    if (!completed) throw new Error("We couldn’t check Gmail right now. Try again.");
+    return completed;
+  }
+
+  /**
    * Re-resolve the detected request against the owner's current PKM manifest.
    * This returns scope metadata only; decrypted values remain in the unlocked client.
    */
@@ -213,7 +332,7 @@ export class GmailInformationRequestsService {
         gmail_thread_id: string;
       };
     }>(
-      `/api/one/email/information-requests/${encodeURIComponent(input.workflowId)}/prepare-reply`,
+      "/api/one/email/prepare",
       {
         method: "POST",
         headers: ownerHeaders(input.firebaseIdToken, input.vaultOwnerToken),
@@ -221,6 +340,7 @@ export class GmailInformationRequestsService {
           body: input.body,
           html_body: input.htmlBody ?? null,
           idempotency_key: input.idempotencyKey,
+          source_workflow_id: input.workflowId,
         }),
       },
     ).then((response) => ({
@@ -259,7 +379,7 @@ export class GmailInformationRequestsService {
     htmlBody?: string | null;
   }): Promise<GmailSentInformationRequestReply> {
     return apiJson<{ state: string; outcome_unknown?: boolean }>(
-      `/api/one/email/information-requests/${encodeURIComponent(input.workflowId)}/send-reply`,
+      "/api/one/email/send",
       {
         method: "POST",
         headers: ownerHeaders(input.firebaseIdToken, input.vaultOwnerToken),
@@ -267,6 +387,7 @@ export class GmailInformationRequestsService {
           action_id: input.actionId,
           body: input.body,
           html_body: input.htmlBody ?? null,
+          source_workflow_id: input.workflowId,
         }),
       },
     ).then((response) => ({

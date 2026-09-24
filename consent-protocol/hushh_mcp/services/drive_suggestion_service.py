@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
 from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent, run_single_turn
@@ -36,10 +36,28 @@ from hushh_mcp.services.google_drive_adapter import DriveReadError
 logger = logging.getLogger(__name__)
 
 
+MAX_SOURCE_REFS = 8
+
+
+def _bounded_source_refs(value: list[str]) -> list[str]:
+    if not 1 <= len(value) <= MAX_SOURCE_REFS:
+        raise ValueError("source_refs must hold 1 to 8 refs")
+    return value
+
+
+# Vertex rejects this response schema (400 INVALID_ARGUMENT, measured
+# 2026-09-25) when both nested lists also bound their source_refs arrays: the
+# item limits multiply past its schema limit. The bound is enforced here, after
+# the model answers, instead of inside the schema the model is given.
 class SuggestedFile(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     document_ref: str = Field(min_length=36, max_length=36)
-    source_refs: list[str] = Field(min_length=1, max_length=8)
+    source_refs: list[str]
+
+    @field_validator("source_refs")
+    @classmethod
+    def _refs(cls, value: list[str]) -> list[str]:
+        return _bounded_source_refs(value)
 
 
 class DocumentSuggestions(BaseModel):
@@ -55,7 +73,12 @@ class CoveredPeriod(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     period_start: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
     period_end: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
-    source_refs: list[str] = Field(min_length=1, max_length=8)
+    source_refs: list[str]
+
+    @field_validator("source_refs")
+    @classmethod
+    def _refs(cls, value: list[str]) -> list[str]:
+        return _bounded_source_refs(value)
 
 
 def period_covered(
@@ -123,6 +146,8 @@ def explicitly_requests_file_activity(purpose: str) -> bool:
 
 
 MAX_DATE_RANGE_DAYS = 366
+# Start of the metadata window for files the owner picked by hand.
+OWNER_SELECTION_START = "2000-01-01T00:00:00Z"
 
 
 def _zone(timezone: str) -> ZoneInfo:
@@ -308,9 +333,14 @@ class DriveSuggestionService:
             store=DriveSuggestionRetrievalStore(db=self.store.db, cipher=self.store.cipher),
         )
 
-    async def run_one(self, *, user_id, request_id):
+    async def run_one(self, *, user_id, request_id, owner_selected=None):
+        """Prepare one review. owner_selected: files A chose from B's answered
+        question; they are bound by metadata only, with no planner, model or read.
+        """
         if self.require_owner is not None:
             await self.require_owner()
+        if owner_selected is not None and self.require_owner is None:
+            raise DriveSharingError("owner_authority_required")
         job = await self.store.claim_preparation(
             user_id=user_id,
             request_id=request_id,
@@ -326,7 +356,22 @@ class DriveSuggestionService:
                 if len(query.encode()) > 2048:
                     raise DriveSharingError("narrow_selection_required")
                 metadata_recency = False
-                if job.get("live"):
+                if owner_selected is not None:
+                    if not job.get("live"):
+                        raise DriveSharingError("sharing_unavailable")
+                    await self._require_current(job)
+                    stage = "bind_owner_selection"
+                    # Metadata-only binding needs a window; any current file is in it.
+                    retrieved = await reader.bind_matches(
+                        matches=owner_selected,
+                        truncated=False,
+                        time_field="modifiedTime",
+                        start_time=OWNER_SELECTION_START,
+                        end_time=_utc_text(
+                            (datetime.now(UTC) + timedelta(days=1)).replace(microsecond=0)
+                        ),
+                    )
+                elif job.get("live"):
                     await self._require_current(job)
                     stage = "search_plan"
                     requested_at = job.get("requested_at")
@@ -379,6 +424,8 @@ class DriveSuggestionService:
                         "query": plan.terms,
                         "file_kind": plan.file_kind,
                         "shared_with_me": plan.shared_with_me,
+                        # "latest" is the planner's sort, as in the chat lane.
+                        "recent": plan.sort == "recent",
                     }
                     if bounds is not None:
                         search_args.update(
@@ -431,7 +478,26 @@ class DriveSuggestionService:
                     return "no_ready_files"
                 await reader.require_current()
                 await self._require_current(job)
-                if metadata_recency:
+                if owner_selected is not None:
+                    # A's own explicit choice, not a model or host judgement.
+                    bound = retrieved["untrusted_external_content"]
+                    answer = DocumentSuggestions(
+                        files=[
+                            SuggestedFile(
+                                document_ref=item["document_ref"],
+                                source_refs=[item["source_ref"]],
+                            )
+                            for item in bound
+                        ],
+                        coverage_summary=f"{len(bound)} files you chose to share.",
+                        gaps=(
+                            ["Some chosen files changed or can no longer be shared."]
+                            if retrieved["truncated"]
+                            else []
+                        ),
+                        coverage_status="unknown",
+                    )
+                elif metadata_recency:
                     # This request is about when files changed, not dates inside
                     # their contents. Every candidate came from the bounded Drive
                     # date query and was verified again by bind_matches.
@@ -492,6 +558,7 @@ class DriveSuggestionService:
                 if (
                     answer.coverage_status == "complete"
                     and not metadata_recency
+                    and owner_selected is None
                     and not period_covered(job["purpose"], answer.covered_periods, known, ids)
                 ):
                     raise ValueError("unsupported coverage")

@@ -36,7 +36,7 @@ export type FileRequestTerms = {
 };
 
 export const FILE_REQUEST_HELPER =
-  "They choose the exact files. You get the original Drive links only after they approve.";
+  "You get original Drive links for the files they share with you.";
 
 const IDENTITY_REQUIRED = new Set([
   "verify_google_identity_required",
@@ -218,7 +218,7 @@ export function fileRequestLabel(
   return needsGoogle ? "Add Google account" : "Request files";
 }
 
-/** Asks a connection for exact files; their original links arrive only after approval. */
+/** Asks a connection for files; the requester gets original links for the files shared. */
 export function RequestFilesButton({
   userId,
   personRef,

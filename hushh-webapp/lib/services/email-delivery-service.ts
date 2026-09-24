@@ -15,6 +15,8 @@ export type EmailDraft = {
   htmlBody?: string;
   /** An untrusted selection hint; the server resolves and binds the exact file. */
   driveFileId?: string;
+  /** Opaque Gmail information-request reference; the server derives the reply envelope. */
+  sourceWorkflowId?: string;
 };
 
 export type DriveAttachmentPreview = {
@@ -221,6 +223,9 @@ export class EmailDeliveryService {
       ...(input.draft.driveFileId
         ? { drive_attachment: { file_id: input.draft.driveFileId } }
         : {}),
+      ...(input.draft.sourceWorkflowId
+        ? { source_workflow_id: input.draft.sourceWorkflowId }
+        : {}),
     });
     const record = asRecord(payload);
     const attachment = asRecord(record?.drive_attachment);
@@ -254,6 +259,9 @@ export class EmailDeliveryService {
       html_body: input.draft.htmlBody,
       ...(input.attachmentToken
         ? { attachment_token: input.attachmentToken }
+        : {}),
+      ...(input.draft.sourceWorkflowId
+        ? { source_workflow_id: input.draft.sourceWorkflowId }
         : {}),
     });
     const record = asRecord(payload);
