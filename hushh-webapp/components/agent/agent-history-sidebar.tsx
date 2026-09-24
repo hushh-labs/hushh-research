@@ -62,7 +62,7 @@ type AgentHistorySidebarProps = {
   surface?: "one" | "puppy";
   onClose?: () => void;
   onToggleCollapsed?: () => void;
-  onOpenConnectors?: () => void;
+  onOpenConnectors?: (trigger: HTMLButtonElement) => void;
   onCreateNew: () => void;
   onSelectConversation: (conversationId: string) => void;
   onRenameConversation: (conversationId: string, title: string) => Promise<void> | void;
@@ -605,7 +605,7 @@ export function AgentHistorySidebar({
                     ? "rounded-full bg-black/[0.035] hover:bg-black/[0.055] dark:bg-white/[0.05] dark:hover:bg-white/[0.08]"
                     : "rounded-[14px] hover:bg-foreground/[0.06] dark:hover:bg-white/[0.06]"
                 )}
-                onClick={onOpenConnectors}
+                onClick={(event) => onOpenConnectors(event.currentTarget)}
                 aria-label="Open Connectors"
               >
                 <PlugIcon className="h-4 w-4" aria-hidden="true" />

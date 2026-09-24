@@ -3402,11 +3402,18 @@
   },
   {
     "route": "/one/profile/connectors",
-    "mode": "redirect",
-    "exemptionReason": "Connectors moved into the chat sidebar's MCP connections panel; this route only forwards to / with ?panel=connectors.",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/one/profile/connectors/page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion"
+      ]
+    },
     "voicePlaybook": {
       "playbookId": "route.profile.connectors",
-      "purpose": "Help the person connect and manage external MCP connectors (Notion, HubSpot, ...) so Kai can use their own data from them.",
+      "purpose": "Help the person view and manage available Google Workspace connectors and finance connections for the private agent.",
       "screen": "profile_connectors",
       "entryCue": "",
       "proactivity": "ambient",
@@ -3422,8 +3429,8 @@
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
       "completionBoundary": "Completion is shown only after the correlated browser settlement succeeds.",
-      "nextRoute": "/",
-      "returnPolicy": "navigate",
+      "nextRoute": null,
+      "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },

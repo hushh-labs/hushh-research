@@ -5180,16 +5180,20 @@
       "page_file": "app/one/profile/connectors/page.tsx",
       "physical_page_exists": true,
       "route_contract": {
-        "mode": "redirect",
-        "exemption_reason": "Connectors moved into the chat sidebar's MCP connections panel; this route only forwards to / with ?panel=connectors.",
-        "shell_verification_file": null,
-        "shell_verification_includes": [],
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "app/one/profile/connectors/page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion"
+        ],
         "interaction_layer_policy": {
           "allowed_families": []
         },
         "voice_playbook": {
           "playbook_id": "route.profile.connectors",
-          "purpose": "Help the person connect and manage external MCP connectors (Notion, HubSpot, ...) so Kai can use their own data from them.",
+          "purpose": "Help the person view and manage available Google Workspace connectors and finance connections for the private agent.",
           "screen": "profile_connectors",
           "entry_cue": "",
           "proactivity": "ambient",
@@ -5205,8 +5209,8 @@
             "route_mismatch": "Use the verified current route and its generated actions only."
           },
           "completion_boundary": "Completion is shown only after the correlated browser settlement succeeds.",
-          "next_route": "/",
-          "return_policy": "navigate",
+          "next_route": null,
+          "return_policy": "stay",
           "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
         }
       },
@@ -5226,11 +5230,11 @@
         ]
       },
       "shell": {
-        "app_page_shell": false,
-        "page_header": false,
+        "app_page_shell": true,
+        "page_header": true,
         "settings_ui": false,
-        "shared_loader": true,
-        "back_button_pattern": "shared-shell"
+        "shared_loader": false,
+        "back_button_pattern": "route-local-check-required"
       },
       "voice_action_contract_file": null,
       "voice_action_contract_ids": [],
@@ -9466,5 +9470,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "d3a6be87371f62f47c95daac9d54472c1e74ea366d63865fd54b2a1869df6faa"
+  "content_sha256": "39f19d65fa6cfcaf670b7d4c7aa42bb8445d485bac3ae87ae2e5ddedd0de202c"
 }

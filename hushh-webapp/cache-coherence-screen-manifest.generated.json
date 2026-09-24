@@ -16,8 +16,8 @@
     "surface_map_count": 139,
     "class_counts": {
       "public/auth-split": 1,
-      "redirect/alias": 48,
-      "vault-backed": 53,
+      "redirect/alias": 47,
+      "vault-backed": 54,
       "hidden flow": 17,
       "auth/pre-vault": 5,
       "RIA/provider": 8,
@@ -3324,23 +3324,26 @@
     {
       "route": "/one/profile/connectors",
       "page_file": "app/one/profile/connectors/page.tsx",
-      "route_contract_mode": "redirect",
-      "screen_class": "redirect/alias",
-      "cache_policy": "none",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
       "cache_keys": [],
       "resource_classes": [
         "unknown"
       ],
       "sensitivity_class": "app-metadata",
-      "ttl_class": "none",
-      "warm_source": "none",
-      "refresh_trigger": "none",
-      "mutation_invalidator": "none",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
       "best_available_ux_path": [
-        "static render"
+        "fresh memory",
+        "cold loader"
       ],
       "readiness_kpis": [
-        "route_readiness_completed"
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
       ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Fconnectors",
@@ -3359,7 +3362,9 @@
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": []
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
     },
     {
       "route": "/one/profile/connectors/oauth/return",
@@ -6237,5 +6242,5 @@
       ]
     }
   ],
-  "content_sha256": "28b709353014888ad3cd39d724f63545b2edaee72b120165f79659b09f0014e3"
+  "content_sha256": "bddd2723b5eccd0c05765a184ab8d44013d7514e4af6cab67adb3c9841a9034a"
 }

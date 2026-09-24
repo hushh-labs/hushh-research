@@ -95,6 +95,21 @@ describe("supported connector catalog", () => {
     expect(await screen.findByText("Google Drive")).toBeInTheDocument();
   });
 
+  it("opens the requested provider directly from the Settings catalog", async () => {
+    render(
+      <ConnectorsPanel
+        open
+        surface="settings"
+        initialConnector="gmail"
+        {...callbacks}
+      />,
+    );
+    expect((await screen.findAllByRole("heading", { name: "Gmail" })).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Back to connectors" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Close connectors" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Connect Mail" })).toBeInTheDocument();
+  });
+
   it("offers explicit Gmail draft permission only for a connected account without it", async () => {
     state.gmailStatus = { connected: true, compose_permission_granted: false };
     render(panel());

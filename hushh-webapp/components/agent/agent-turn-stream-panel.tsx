@@ -12,6 +12,7 @@ import type {
   AgentStructuredExperienceWithPresentation,
 } from "@/lib/agent/agui-structured-experiences";
 import type { AgentChatToolEvent, AgentSource } from "@/lib/services/agent-chat-client";
+import type { WorkspaceConnectorProvider } from "@/lib/agent/connector-read-receipt";
 
 export type AgentVisibleStreamStatus = "running" | "done" | "blocked" | "error";
 
@@ -37,7 +38,7 @@ export type AgentTurnStreamPanelProps = {
     id: string;
     experience: AgentStructuredExperienceWithPresentation;
   }>;
-  onOpenConnections?: (trigger: HTMLButtonElement) => void;
+  onOpenConnections?: (provider: WorkspaceConnectorProvider, trigger: HTMLButtonElement) => void;
   onInformationRequestSubmitted?: (activityId: string, receipt: InformationRequestSubmissionReceipt) => Promise<void>;
 };
 

@@ -1161,7 +1161,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                       No information shared yet
                     </p>
                     <p className="text-xs text-muted-foreground max-w-sm">
-                      Information granted by this person will appear here once shared. Values remain end-to-end encrypted until unlocked.
+                      Information granted by this person will appear here once shared.
                     </p>
                   </div>
                 </SectionCard>

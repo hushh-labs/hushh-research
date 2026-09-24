@@ -44,4 +44,36 @@ describe("connector read receipts", () => {
     expect(parseConnectorReadReceipt({ ...receipt, sources: [], status: "reconnect_required" }))
       .toMatchObject({ status: "reconnect_required", sourceRefs: [] });
   });
+
+  it("projects a provider-specific setup card only for an explicit Workspace MCP permission result", () => {
+    expect(parseAgentToolResultExperience(
+      "discover_workspace_tools",
+      { status: "permission_required", provider: "drive", tools: [] },
+      { provider: "drive" },
+    )).toEqual({
+      type: "one.workspace_connector_setup.v1",
+      provider: "drive",
+      status: "connect_required",
+    });
+    expect(parseAgentToolResultExperience(
+      "read_workspace_tool",
+      { status: "permission_required" },
+      { provider: "gmail", query: "private search terms" },
+    )).toMatchObject({ provider: "gmail", status: "connect_required" });
+    expect(parseAgentToolResultExperience(
+      "discover_workspace_tools",
+      { status: "permission_required", provider: "drive" },
+      { provider: "gmail" },
+    )).toBeNull();
+    expect(parseAgentToolResultExperience(
+      "discover_workspace_tools",
+      { status: "ok", provider: "drive" },
+      { provider: "drive" },
+    )).toBeNull();
+    expect(parseAgentToolResultExperience(
+      "untrusted_tool",
+      { status: "permission_required", provider: "drive" },
+      { provider: "drive" },
+    )).toBeNull();
+  });
 });

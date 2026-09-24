@@ -128,6 +128,39 @@ describe("AG-UI Agent One client", () => {
     expect(onToolResult.mock.calls[0][0].message).toBe("Drive status checked.");
   });
 
+  it("renders only a safe setup receipt for Workspace MCP permission results", async () => {
+    const onStructuredExperience = vi.fn();
+    const onToolResult = vi.fn();
+    const onToolWaiting = vi.fn();
+    mockTransport.emitEvents = (subscriber) => {
+      subscriber.onToolCallStartEvent({ event: { toolCallId: "workspace-call", toolCallName: "discover_workspace_tools" } });
+      subscriber.onToolCallEndEvent({
+        event: { toolCallId: "workspace-call" },
+        toolCallName: "discover_workspace_tools",
+        toolCallArgs: { provider: "drive", query: "PRIVATE SEARCH" },
+      });
+      subscriber.onToolCallResultEvent({ event: { toolCallId: "workspace-call", content: JSON.stringify({
+        status: "permission_required", provider: "drive", message: "PRIVATE PROVIDER RESPONSE",
+      }) } });
+    };
+
+    await streamAgentChat({
+      userId: "u1",
+      message: "Find a file",
+      vaultOwnerToken: "fixture",
+      handlers: { onStructuredExperience, onToolResult, onToolWaiting },
+    });
+
+    expect(onStructuredExperience).toHaveBeenCalledWith({
+      type: "one.workspace_connector_setup.v1",
+      provider: "drive",
+      status: "connect_required",
+    }, "workspace-call");
+    expect(JSON.stringify(onToolWaiting.mock.calls)).not.toContain("PRIVATE SEARCH");
+    expect(JSON.stringify(onToolResult.mock.calls)).not.toContain("PRIVATE PROVIDER RESPONSE");
+    expect(JSON.stringify(onToolResult.mock.calls)).not.toContain("PRIVATE SEARCH");
+  });
+
   it.each([
     { toolName: "ask_email_agent", connector: "mail", sourceRef: "mail:1", kind: "metadata", label: "Mail" },
     { toolName: "ask_documents_agent", connector: "drive", sourceRef: `document:${"a".repeat(32)}`, kind: "document", label: "Document" },

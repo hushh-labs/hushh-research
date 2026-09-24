@@ -15,9 +15,70 @@ export type ConnectorReadExperience = {
   sourcePages?: (number | null)[];
 };
 
+export const WORKSPACE_CONNECTOR_SETUP_EXPERIENCE_TYPE =
+  "one.workspace_connector_setup.v1" as const;
+
+export type WorkspaceConnectorProvider = "drive" | "gmail" | "calendar";
+
+export type WorkspaceConnectorSetupExperience = {
+  type: typeof WORKSPACE_CONNECTOR_SETUP_EXPERIENCE_TYPE;
+  provider: WorkspaceConnectorProvider;
+  status: "connect_required";
+};
+
 function record(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown> : null;
+}
+
+function parseRecord(value: unknown): Record<string, unknown> | null {
+  if (typeof value === "string") {
+    try {
+      return record(JSON.parse(value));
+    } catch {
+      return null;
+    }
+  }
+  return record(value);
+}
+
+/**
+ * Project only the authenticated tool's explicit missing-grant state into a
+ * provider-specific setup card. Provider data never authorizes the connection
+ * or starts OAuth; the person must tap through the existing connector UI.
+ */
+export function parseWorkspaceConnectorSetup(
+  toolName: string,
+  value: unknown,
+  toolArguments?: unknown,
+): WorkspaceConnectorSetupExperience | null {
+  if (toolName !== "discover_workspace_tools" && toolName !== "read_workspace_tool") {
+    return null;
+  }
+
+  const outer = parseRecord(value);
+  if (!outer) return null;
+  const result = [outer.result, outer.content, outer.data]
+    .map(parseRecord)
+    .find((candidate) => candidate?.status) ?? outer;
+  if (result.status !== "permission_required") return null;
+
+  const args = parseRecord(toolArguments);
+  const resultProvider = result.provider;
+  const argumentProvider = args?.provider;
+  if (resultProvider && argumentProvider && resultProvider !== argumentProvider) {
+    return null;
+  }
+  const provider = resultProvider ?? argumentProvider;
+  if (provider !== "drive" && provider !== "gmail" && provider !== "calendar") {
+    return null;
+  }
+
+  return {
+    type: WORKSPACE_CONNECTOR_SETUP_EXPERIENCE_TYPE,
+    provider,
+    status: "connect_required",
+  };
 }
 
 export function parseConnectorReadReceipt(value: unknown): ConnectorReadExperience | null {

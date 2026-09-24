@@ -115,6 +115,7 @@ export function ConsentScopeNestedList({
       <SettingsRow
         key={key}
         title={item.label}
+        density="compact"
         description={item.description || undefined}
         disabled={item.disabled}
         stackTrailingOnMobile
@@ -151,7 +152,7 @@ export function ConsentScopeNestedList({
 
   return (
     <div
-      className={cn("space-y-5", className)}
+      className={cn("space-y-3", className)}
       data-testid={testIdPrefix}
       data-consent-scope-level="true"
     >
@@ -200,7 +201,7 @@ export function ConsentScopeNestedList({
 
       {searching ? (
         matches.length ? (
-          <SettingsGroup separatorInset testId={`${testIdPrefix}-results`}>
+          <SettingsGroup density="compact" separatorInset testId={`${testIdPrefix}-results`}>
             {matches.map((item) => renderLeafRow(item, `match-${item.id}`))}
           </SettingsGroup>
         ) : (
@@ -217,7 +218,7 @@ export function ConsentScopeNestedList({
           <p>Go back and open it again.</p>
         </SurfaceInset>
       ) : level.entries.length ? (
-        <SettingsGroup separatorInset testId={`${testIdPrefix}-level`}>
+        <SettingsGroup density="compact" separatorInset testId={`${testIdPrefix}-level`}>
           {level.entries.map((entry) => {
             if (entry.kind === "leaf") return renderLeafRow(entry.item, entry.key);
 
@@ -229,6 +230,7 @@ export function ConsentScopeNestedList({
               <SettingsRow
                 key={entry.key}
                 title={entry.label}
+                density="compact"
                 onClick={() => setPathStack((stack) => [...stack, entry.segment])}
                 chevron
                 ariaLabel={`Open ${entry.label}`}

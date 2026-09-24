@@ -48,6 +48,7 @@ import { requestProfilePaneOpen } from "@/lib/navigation/profile-pane";
 import { Button } from "@/components/ui/button";
 import { AgentHistorySidebar } from "@/components/agent/agent-history-sidebar";
 import { ConnectorsPanel } from "@/components/agent/connectors-panel";
+import type { WorkspaceConnectorProvider } from "@/lib/agent/connector-read-receipt";
 import {
   AgentConnectionsDrawer,
   transitionConnectionsDrawer,
@@ -1531,7 +1532,7 @@ function AgentBubble({
   gmailInformationRequestAttachment,
 }: {
   message: AgentMessage;
-  onOpenConnections?: (trigger: HTMLButtonElement) => void;
+  onOpenConnections?: (provider: WorkspaceConnectorProvider, trigger: HTMLButtonElement) => void;
   onInformationRequestSubmitted?: (activityId: string, receipt: InformationRequestSubmissionReceipt) => Promise<void>;
   userAvatarUrl?: string | null;
   userInitials?: string;
@@ -2061,6 +2062,8 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isHistoryDrawerOpen, setIsHistoryDrawerOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState<ConnectionsDrawerMode>("chats");
+  const [connectorPanelInitialConnector, setConnectorPanelInitialConnector] =
+    useState<"google_drive" | "gmail" | null>(null);
   const handleHistoryDrawerOpenChange = useCallback((open: boolean) => {
     const next = transitionConnectionsDrawer(
       { open: isHistoryDrawerOpen, mode: drawerMode },
@@ -2068,7 +2071,23 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     );
     setIsHistoryDrawerOpen(next.open);
     setDrawerMode(next.mode);
+    if (!next.open) setConnectorPanelInitialConnector(null);
   }, [drawerMode, isHistoryDrawerOpen]);
+  const openConnectorSurface = useCallback((
+    provider?: WorkspaceConnectorProvider,
+    trigger?: HTMLButtonElement,
+  ) => {
+    if (trigger) historyDrawerTriggerRef.current = trigger;
+    if (provider === "calendar") {
+      router.push(ROUTES.CALENDAR);
+      return;
+    }
+    setConnectorPanelInitialConnector(
+      provider === "drive" ? "google_drive" : provider === "gmail" ? "gmail" : null,
+    );
+    setDrawerMode("connections");
+    setIsHistoryDrawerOpen(true);
+  }, [router]);
   const [recoveryCheckedForUid, setRecoveryCheckedForUid] = useState<string | null>(null);
   const pendingDriveRecoveryRef = useRef<{
     ownerUid: string;
@@ -2093,7 +2112,6 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     window.addEventListener(DRIVE_CHAT_RECOVERY_RETURN_EVENT, onReturn);
     return () => window.removeEventListener(DRIVE_CHAT_RECOVERY_RETURN_EVENT, onReturn);
   }, []);
-  const [connectionsAvailable, setConnectionsAvailable] = useState(false);
   const [connectorExternalModalOpen, setConnectorExternalModalOpen] =
     useState(false);
   useEffect(() => {
@@ -5878,6 +5896,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     );
     setIsHistoryDrawerOpen(next.open);
     setDrawerMode(next.mode);
+    if (next.mode === "chats") setConnectorPanelInitialConnector(null);
     if (next.open && !isPuppySurface)
       void loadConversationList().catch(() => undefined);
   }, [drawerMode, isHistoryDrawerOpen, isPuppySurface, loadConversationList]);
@@ -5900,11 +5919,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       surface={agentSurface}
       onClose={onClose}
       onToggleCollapsed={toggleHistoryDrawer}
-      onOpenConnectors={
-        !isPuppySurface && connectionsAvailable
-          ? () => setDrawerMode("connections")
-          : undefined
-      }
+      onOpenConnectors={!isPuppySurface
+        ? (trigger) => openConnectorSurface(undefined, trigger)
+        : undefined}
       onCreateNew={handleSidebarCreateNewChat}
       onSelectConversation={handleSidebarSelectConversation}
       onRenameConversation={isPuppySurface ? handleRenamePuppyConversation : handleRenameConversation}
@@ -6014,9 +6031,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
           connections={
             <ConnectorsPanel
               open={isHistoryDrawerOpen && drawerMode === "connections"}
+              initialConnector={connectorPanelInitialConnector}
               onBack={() => setDrawerMode("chats")}
               onClose={() => handleHistoryDrawerOpenChange(false)}
-              onAvailableChange={setConnectionsAvailable}
               onExternalModalChange={setConnectorExternalModalOpen}
               onPrepareRecovery={prepareDriveChatRecovery}
               onClearRecovery={clearPreparedDriveChatRecovery}
@@ -6417,7 +6434,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                           toast.error("Request sent, but Chat history could not be saved.");
                         }
                       }}
-                      onOpenConnections={(trigger) => { historyDrawerTriggerRef.current = trigger; setDrawerMode("connections"); setIsHistoryDrawerOpen(true); }}
+                      onOpenConnections={openConnectorSurface}
                       userAvatarUrl={userAvatarUrl}
                       userInitials={userInitials}
                       gmailInformationRequestAttachment={
@@ -7246,7 +7263,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
                 <AgentBubble
                   key={message.id}
                   message={message}
-                  onOpenConnections={(trigger) => { historyDrawerTriggerRef.current = trigger; setDrawerMode("connections"); setIsHistoryDrawerOpen(true); }}
+                  onOpenConnections={openConnectorSurface}
                   retryDisabled={isChatLoading || isStreaming}
                 />
               ))}
