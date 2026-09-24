@@ -180,6 +180,57 @@ def test_untrusted_workspace_provider_is_not_projected():
     assert "provider" not in json.loads(safe.content)
 
 
+def test_dynamic_mcp_snapshot_before_call_and_storage_are_private():
+    name = "mcp_" + "a" * 40
+    private = "SYNTHETIC_PRIVATE_CONNECTOR_VALUE"
+    snapshot = MessagesSnapshotEvent(
+        messages=[
+            ToolMessage(id="result", tool_call_id="dynamic-1", content=private),
+            AssistantMessage(
+                id="call",
+                tool_calls=[
+                    ToolCall(id="dynamic-1", function=FunctionCall(name=name, arguments=private))
+                ],
+            ),
+        ]
+    )
+    safe = redact_drive_wire_event(snapshot, set())
+    assert private not in safe.model_dump_json()
+    assert private in snapshot.model_dump_json()  # live model event is unchanged
+    document = {
+        "events": [
+            {
+                "content": {
+                    "parts": [
+                        {"functionCall": {"name": name, "args": {"secret": private}}},
+                        {"functionResponse": {"name": name, "response": {"result": private}}},
+                    ]
+                }
+            }
+        ]
+    }
+    assert private not in redact_drive_session_json(json.dumps(document))
+
+
+def test_dynamic_mcp_start_metadata_and_argument_chunks_are_private():
+    name = "mcp_" + "b" * 40
+    private = "SYNTHETIC_PRIVATE_CONNECTOR_VALUE"
+    known = set()
+    start = ToolCallStartEvent(
+        tool_call_id="dynamic",
+        tool_call_name=name,
+        metadata={"secret": private},
+        raw_event={"secret": private},
+    )
+    assert private not in redact_drive_wire_event(start, known).model_dump_json()
+    assert (
+        redact_drive_wire_event(ToolCallArgsEvent(tool_call_id="dynamic", delta=private), known)
+        is None
+    )
+    ordinary = ToolCallStartEvent(tool_call_id="other", tool_call_name="mcp_help")
+    assert redact_drive_wire_event(ordinary, known) is ordinary
+
+
 @pytest.mark.parametrize("status", ["ok", "blocked", "unavailable"])
 def test_storage_keeps_safe_outcome_and_truncation(status):
     document = {

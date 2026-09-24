@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from ag_ui.core import BaseEvent, EventType
@@ -16,6 +17,14 @@ _PRIVATE_TOOLS = frozenset(
     {DRIVE_READ_TOOL_NAME, "inspect_selected_drive_files", "read_workspace_tool"}
 )
 _PRIVATE_SOURCES = frozenset({DRIVE_PRIVATE_SOURCE, SELECTED_STATUS_SOURCE, "workspace_mcp"})
+_DYNAMIC_MCP_TOOL = re.compile(r"mcp_[0-9a-f]{40}\Z")
+
+
+def _private_tool_name(name: object) -> bool:
+    """Recognize the governed namespace without importing the runtime toolset."""
+    return isinstance(name, str) and (
+        name in _PRIVATE_TOOLS or _DYNAMIC_MCP_TOOL.fullmatch(name) is not None
+    )
 
 
 def _safe_result(value: object) -> dict[str, Any]:
@@ -44,19 +53,19 @@ def redact_drive_session_json(serialized: str) -> str:
     The live ADK session remains untouched until the model finishes this turn.
     Restored sessions retain the invocation and safe outcome, not provider text.
     """
-    if not any(name in serialized for name in _PRIVATE_TOOLS):
+    if "mcp_" not in serialized and not any(name in serialized for name in _PRIVATE_TOOLS):
         return serialized
     document: dict[str, Any] = json.loads(serialized)
     changed = False
     for event in document.get("events", []):
         for part in (event.get("content") or {}).get("parts") or []:
             call = part.get("functionCall")
-            if isinstance(call, dict) and call.get("name") in _PRIVATE_TOOLS:
+            if isinstance(call, dict) and _private_tool_name(call.get("name")):
                 call["args"] = {}
                 call["partialArgs"] = None
                 changed = True
             response = part.get("functionResponse")
-            if isinstance(response, dict) and response.get("name") in _PRIVATE_TOOLS:
+            if isinstance(response, dict) and _private_tool_name(response.get("name")):
                 response["response"] = _safe_result(response.get("response"))
                 response["parts"] = None
                 changed = True
@@ -77,12 +86,13 @@ def redact_drive_wire_event(event: BaseEvent, private_call_ids: set[str]) -> Bas
     """Project a safe AG-UI event while preserving model-visible tool output."""
     event_type = getattr(event, "type", None)
     if event_type == EventType.TOOL_CALL_START:
-        if getattr(event, "tool_call_name", None) in _PRIVATE_TOOLS:
+        if _private_tool_name(getattr(event, "tool_call_name", None)):
             private_call_ids.add(str(getattr(event, "tool_call_id", "")))
+            return event.model_copy(update={"raw_event": None, "metadata": None})
         return event
     if event_type == EventType.TOOL_CALL_CHUNK:
         if (
-            getattr(event, "tool_call_name", None) in _PRIVATE_TOOLS
+            _private_tool_name(getattr(event, "tool_call_name", None))
             or str(getattr(event, "tool_call_id", "")) in private_call_ids
         ):
             return None
@@ -104,6 +114,13 @@ def redact_drive_wire_event(event: BaseEvent, private_call_ids: set[str]) -> Bas
             )
         return event
     if event_type == EventType.MESSAGES_SNAPSHOT:
+        # A resumed snapshot may arrive without TOOL_CALL_START, and messages
+        # need not put the function call before its response. Index identities
+        # first so provider content cannot escape through that ordering.
+        for message in getattr(event, "messages", []):
+            for call in getattr(message, "tool_calls", None) or []:
+                if _private_tool_name(getattr(call.function, "name", None)):
+                    private_call_ids.add(str(getattr(call, "id", "")))
         safe = []
         changed = False
         for message in getattr(event, "messages", []):
@@ -113,7 +130,7 @@ def redact_drive_wire_event(event: BaseEvent, private_call_ids: set[str]) -> Bas
                 call_changed = False
                 for call in calls:
                     if (
-                        getattr(call.function, "name", None) in _PRIVATE_TOOLS
+                        _private_tool_name(getattr(call.function, "name", None))
                         or str(getattr(call, "id", "")) in private_call_ids
                     ):
                         safe_calls.append(

@@ -9,7 +9,7 @@ Use this pattern for any new Kai, One Voice, Agent Chat, or portfolio-import str
 
 ## 1. Backend Producer
 
-- Emit SSE using canonical envelope from `consent-protocol/api/routes/kai/_streaming.py`.
+- Kai producers emit SSE using the canonical envelope from `consent-protocol/api/routes/kai/_streaming.py`. Agent Chat uses its existing AG-UI bridge; do not wrap AG-UI events in a second Kai envelope.
 - Always set explicit `event:` and canonical JSON `data`.
 - Mark terminal events with `terminal=true`.
 - Keep payload object-only.
@@ -36,7 +36,18 @@ Use this pattern for any new Kai, One Voice, Agent Chat, or portfolio-import str
 - Validate envelopes with `hushh-webapp/lib/streaming/kai-stream-types.ts`.
 - Consume streams with `hushh-webapp/lib/streaming/kai-stream-client.ts`.
 - Never add route-specific ad hoc parsers.
-- In Agent Chat, consume the Agent SSE protocol through `hushh-webapp/lib/services/agent-chat-client.ts`; `token` frames are the only source of incremental assistant response text.
+- In Agent Chat, consume the existing AG-UI protocol through `hushh-webapp/lib/services/agent-chat-client.ts`; assistant text deltas are the source of incremental response text, not tool progress or provider payloads.
+
+### Private connector events
+
+The existing `one_adk/drive_result_privacy.py` projection also covers governed
+dynamic MCP names (`mcp_` followed by a 40-character lowercase hexadecimal digest).
+Strip their argument chunks, raw start metadata and raw results from browser
+events and persisted session copies. Preserve safe invocation identity and outcome.
+For resumed snapshots, collect private call identities before projecting messages;
+a result may precede its call and no start event may have been observed. The live
+model-turn object remains unchanged. This redaction does not authorize a tool,
+prove receipt consumption, or activate the shared toolset on the Chat roster.
 
 ## 4.1 UI Stream Mapping
 
