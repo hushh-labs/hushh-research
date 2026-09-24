@@ -73,6 +73,7 @@ subagents:
       provider: gemini
       name: gemini-default
       mode: hushh_managed_vertex
+      thinking_level: low
     runtime:
       kind: adk
       adk_mode: single_turn
@@ -95,7 +96,7 @@ subagents:
     telemetry_namespace: agent.email.read_planner
     performance:
       latency_p95_ms: 20000
-      max_output_tokens: 500
+      max_output_tokens: 2048
     rollout:
       strategy: internal
       kill_switch: GMAIL_CHAT_READS
@@ -111,6 +112,7 @@ subagents:
       provider: gemini
       name: gemini-default
       mode: hushh_managed_vertex
+      thinking_level: low
     runtime:
       kind: adk
       adk_mode: single_turn
@@ -137,7 +139,7 @@ subagents:
     telemetry_namespace: agent.email.read_interpreter
     performance:
       latency_p95_ms: 20000
-      max_output_tokens: 1500
+      max_output_tokens: 4096
     rollout:
       strategy: internal
       kill_switch: GMAIL_CHAT_READS
@@ -153,6 +155,7 @@ subagents:
       provider: gemini
       name: gemini-default
       mode: hushh_managed_vertex
+      thinking_level: low
     runtime:
       kind: adk
       adk_mode: single_turn
@@ -186,7 +189,7 @@ subagents:
     telemetry_namespace: agent.email.request_classifier
     performance:
       latency_p95_ms: 15000
-      max_output_tokens: 300
+      max_output_tokens: 2048
     rollout:
       strategy: internal
       rollback: Disable personal-information classification and retain fail-closed scanning.
@@ -202,6 +205,7 @@ subagents:
       provider: gemini
       name: gemini-default
       mode: hushh_managed_vertex
+      thinking_level: low
     runtime:
       kind: adk
       adk_mode: single_turn
@@ -230,7 +234,7 @@ subagents:
     telemetry_namespace: agent.email.receipt_extractor
     performance:
       latency_p95_ms: 15000
-      max_output_tokens: 400
+      max_output_tokens: 2048
     rollout:
       strategy: internal
       rollback: Disable receipt fallback extraction and retain deterministic classification.
@@ -246,6 +250,7 @@ subagents:
       provider: gemini
       name: gemini-default
       mode: hushh_managed_vertex
+      thinking_level: low
     runtime:
       kind: adk
       adk_mode: single_turn
@@ -278,7 +283,7 @@ subagents:
     telemetry_namespace: agent.email.draft
     performance:
       latency_p95_ms: 30000
-      max_output_tokens: 1200
+      max_output_tokens: 4096
     rollout:
       strategy: internal
       rollback: Disable the draft gene and return a temporary drafting-unavailable response.
@@ -294,6 +299,7 @@ subagents:
       provider: gemini
       name: gemini-default
       mode: hushh_managed_vertex
+      thinking_level: low
     runtime:
       kind: adk
       adk_mode: single_turn
@@ -322,7 +328,7 @@ subagents:
     telemetry_namespace: agent.email.receipt_memory_enrichment
     performance:
       latency_p95_ms: 8000
-      max_output_tokens: 600
+      max_output_tokens: 2048
     rollout:
       strategy: internal
       rollback: Disable receipt-memory enrichment and retain deterministic summaries.

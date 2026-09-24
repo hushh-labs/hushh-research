@@ -59,7 +59,7 @@ def test_three_eight_flash_shares_the_flash_contract_and_has_a_vertex_location()
     assert not gemini_config.is_gemini_flash_v3("gemini-embedding-001")
     assert not gemini_config.is_gemini_flash_v3("gemini-3.8-flash-live-preview")
     entry = registry.resolve_model_entry("gemini", "gemini-3.8-flash")
-    assert entry.supported_vertex_locations == ("global",)
+    assert entry.supported_vertex_locations == ("global", "us", "eu")
     assert entry.supports_prompt_caching is True
 
 

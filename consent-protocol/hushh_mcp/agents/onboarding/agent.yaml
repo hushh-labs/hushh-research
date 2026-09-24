@@ -94,7 +94,7 @@ privacy:
 telemetry_namespace: agent.onboarding
 performance:
   latency_p95_ms: 50
-  max_output_tokens: 256
+  max_output_tokens: 4096
 rollout:
   kill_switch: HUSHH_ONBOARDING_GOALS_DISABLED
   strategy: internal

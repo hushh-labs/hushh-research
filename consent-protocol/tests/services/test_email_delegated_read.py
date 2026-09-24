@@ -140,7 +140,9 @@ def test_interpreter_is_manifest_owned_and_has_no_tools():
         model="gemini-3.7-flash",
     )
     assert agent.tools == []
-    assert agent.generate_content_config.max_output_tokens == 1500
+    # Low thinking plus headroom: thinking tokens count against the cap.
+    assert agent.generate_content_config.max_output_tokens == 4096
+    assert agent.generate_content_config.thinking_config.thinking_level.value == "LOW"
     assert agent.disallow_transfer_to_parent and agent.disallow_transfer_to_peers
     assert "untrusted external content" in agent.instruction
 

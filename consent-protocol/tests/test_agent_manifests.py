@@ -257,3 +257,27 @@ def test_every_declared_kill_switch_is_actually_read_in_code() -> None:
             if switch not in haystack:
                 unread.append(f"{path.parent.name}: {switch}")
     assert unread == [], f"declared kill switches that no code reads: {unread}"
+
+
+@pytest.mark.parametrize("path", sorted(MANIFEST_ROOT.glob("*/agent.yaml")))
+def test_single_turn_genes_leave_room_for_thinking(path: Path) -> None:
+    """Thinking tokens count against max_output_tokens on the fleet model.
+
+    A gene with provider-default thinking and a small cap can spend the whole
+    budget thinking and return truncated prose instead of JSON: measured
+    2026-09-24 (64-token cap -> 60 thinking tokens, empty answer), seen on UAT
+    as receipt_memory "single-turn agent returned invalid JSON", and in every
+    live Drive planner turn at 150 tokens. Bound the thinking or keep headroom.
+    """
+    manifest = ManifestLoader.load(str(path))
+    genes = [manifest, *(manifest.subagents or [])]
+    for gene in genes:
+        if getattr(gene.runtime, "adk_mode", None) != "single_turn":
+            continue
+        model = gene.model
+        thinking = None if isinstance(model, str) else getattr(model, "thinking_level", None)
+        budget = gene.performance.max_output_tokens
+        assert thinking is not None or budget >= 4096, (
+            f"{gene.id}: set model.thinking_level or give max_output_tokens >= 4096 (is {budget})"
+        )
+        assert budget >= 2048 or thinking == "low", f"{gene.id}: {budget} tokens is too tight"

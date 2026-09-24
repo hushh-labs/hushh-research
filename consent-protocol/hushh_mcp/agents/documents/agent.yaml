@@ -53,6 +53,7 @@ subagents:
       provider: gemini
       name: gemini-default
       mode: hushh_managed_vertex
+      thinking_level: low
     runtime:
       kind: adk
       adk_mode: single_turn
@@ -90,7 +91,7 @@ subagents:
     telemetry_namespace: agent.documents.live_search
     performance:
       latency_p95_ms: 20000
-      max_output_tokens: 150
+      max_output_tokens: 2048
     rollout:
       strategy: internal
       kill_switch: GOOGLE_DRIVE_LIVE
@@ -104,6 +105,7 @@ subagents:
       provider: gemini
       name: gemini-default
       mode: hushh_managed_vertex
+      thinking_level: low
     runtime:
       kind: adk
       adk_mode: single_turn
@@ -133,7 +135,7 @@ subagents:
     telemetry_namespace: agent.documents.suggestions
     performance:
       latency_p95_ms: 20000
-      max_output_tokens: 2000
+      max_output_tokens: 8192
     rollout:
       strategy: internal
       kill_switch: DRIVE_DOCUMENT_SHARING
@@ -147,6 +149,7 @@ subagents:
       provider: gemini
       name: gemini-default
       mode: hushh_managed_vertex
+      thinking_level: low
     runtime:
       kind: adk
       adk_mode: single_turn
@@ -168,7 +171,7 @@ subagents:
     telemetry_namespace: agent.documents.interpreter
     performance:
       latency_p95_ms: 20000
-      max_output_tokens: 1800
+      max_output_tokens: 8192
     rollout:
       strategy: internal
       kill_switch: GOOGLE_DRIVE_CHAT_READS
