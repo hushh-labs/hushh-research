@@ -59,6 +59,22 @@ installed ADK invocation against a synthetic session and actual disposable
 PostgreSQL rejection of changed arguments, schema revision, connection generation,
 missing terms and replay. Provider/network, browser and release proof remain open.
 
+Follow-up review fixes serialize catalog publication by discovery sequence and
+recheck discovery before review and dispatch; a slower discovery cannot supersede
+a later one. Native session creation is single-attempt without ADK's raw-error
+retry logger. Provider error payloads are not returned, and private calls refuse
+SDK HTTP-exchange diagnostics. Reserved framework tool names are excluded from
+the callable set. Provider descriptions remain untrusted tool metadata, never
+permission or an instruction-layer replacement.
+
+The registry credential resolver now verifies current owner-token authority,
+owner-scoped registration, connection status, expiry and the same-row credential
+generation/version before opening its encrypted envelope. It covers registry-owned
+credentials; Google account credentials in other services still need their owning
+adapters. Forty-eight focused tests cover these paths and the existing ledger,
+including native SDK session-creation failure privacy. Chat roster, confirmation
+endpoint/card, dynamic-tool wire/history redaction and live proof remain open.
+
 Source baseline: ADK `6ae5a2a5965a79d75ec72e4fdf5e90b667df1a2b`.
 Read-only comparison: infrastructure branch
 `5e0ade416f8b76fb81b472e762258401fb0d1250`. Neither branch was switched

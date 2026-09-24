@@ -1,6 +1,8 @@
 """The shared ADK adapter never treats discovery as execution authority."""
 
+import asyncio
 from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -13,10 +15,92 @@ from hushh_mcp.one_adk.governed_mcp_toolset import (
     GovernedMcpToolset,
     McpConnectionBinding,
     ResolvedMcpConnection,
+    resolve_registered_connection,
 )
 from hushh_mcp.services.external_mcp_client import ExternalMcpError
 
 _NATIVE_RUN = McpTool._run_async_impl
+
+
+@pytest.fixture
+def registry_harness(monkeypatch):
+    from hushh_mcp.one_adk import governed_mcp_toolset as module
+
+    context = SimpleNamespace(
+        user_id="owner",
+        state={
+            "hussh:user_id": "owner",
+            "temp:one_execution_surface": "typed_chat",
+            "hussh:consent_token": "synthetic-reference",
+        },
+    )
+    definition = SimpleNamespace(
+        is_active=True,
+        transport_kind="mcp",
+        mcp_endpoint="https://example.com/mcp",
+        auth_style="api_key",
+        api_key_header_name="Authorization",
+    )
+    registry = SimpleNamespace(get_connector=AsyncMock(return_value=definition))
+    row = dict(
+        status="connected",
+        credential_ciphertext="synthetic-ciphertext",
+        connection_generation=3,
+        credential_version=4,
+        credential_expires_at=None,
+    )
+    lifecycle = SimpleNamespace(read=AsyncMock(return_value=row))
+    credentials = SimpleNamespace(open_credential=Mock(return_value={"apiKey": "synthetic-key"}))
+    authenticate = AsyncMock(return_value=True)
+    monkeypatch.setattr(module, "validate_first_party_owner_token", authenticate)
+    monkeypatch.setattr(module, "resolve_request_secret", lambda _: "synthetic-owner-token")
+    monkeypatch.setattr(module, "get_external_connector_registry_service", lambda: registry)
+    monkeypatch.setattr(module, "ExternalConnectorLifecycleStore", lambda: lifecycle)
+    monkeypatch.setattr(module, "get_external_connector_credentials_service", lambda: credentials)
+    return SimpleNamespace(
+        context=context,
+        registry=registry,
+        row=row,
+        lifecycle=lifecycle,
+        credentials=credentials,
+        authenticate=authenticate,
+    )
+
+
+async def test_registered_resolver_uses_authenticated_owner_and_same_credential_snapshot(
+    registry_harness,
+):
+    h = registry_harness
+    result = await resolve_registered_connection(h.context, "custom_one")
+    h.authenticate.assert_awaited_once_with("owner", "synthetic-owner-token")
+    h.registry.get_connector.assert_awaited_once_with("custom_one", user_id="owner")
+    h.lifecycle.read.assert_awaited_once_with(user_id="owner", connector_id="custom_one")
+    h.credentials.open_credential.assert_called_once_with(
+        user_id="owner", connector_id="custom_one", row=h.row
+    )
+    assert result.binding.generation == 3 and result.binding.credential_version == 4
+    assert result.headers == {"Authorization": "synthetic-key"}
+    assert "synthetic-key" not in repr(result)
+
+
+@pytest.mark.parametrize("failure", ["owner", "token", "hidden", "revoked", "expired"])
+async def test_registered_resolver_rejects_invalid_authority_before_decryption(
+    registry_harness, failure
+):
+    h = registry_harness
+    if failure == "owner":
+        h.context.user_id = "another"
+    elif failure == "token":
+        h.authenticate.return_value = False
+    elif failure == "hidden":
+        h.registry.get_connector.return_value = None
+    elif failure == "revoked":
+        h.row["status"] = "revoked"
+    else:
+        h.row["credential_expires_at"] = datetime.now(UTC) - timedelta(seconds=1)
+    with pytest.raises(ExternalMcpError):
+        await resolve_registered_connection(h.context, "custom_one")
+    h.credentials.open_credential.assert_not_called()
 
 
 @pytest.fixture
@@ -207,3 +291,83 @@ async def test_catalog_uses_all_pages_and_rejects_cross_owner_discovery(harness)
     tools = await h.toolset.get_tools(h.context)
     assert len(tools) == 2 and len({tool.name for tool in tools}) == 2
     assert h.session.list_tools.await_count == 2
+
+
+async def test_older_overlapping_discovery_cannot_replace_fresh_catalog(harness):
+    h = harness
+    started, release = asyncio.Event(), asyncio.Event()
+    old_page = h.session.list_tools.return_value
+
+    async def discover():
+        if not started.is_set():
+            started.set()
+            await release.wait()
+            return old_page
+        return SimpleNamespace(tools=[], nextCursor=None)
+
+    h.session.list_tools.side_effect = discover
+    old = asyncio.create_task(h.toolset.get_tools(h.context))
+    await started.wait()
+    try:
+        assert await h.toolset.get_tools(h.context) == []
+        fresh_digest = h.toolset._catalog_digest
+    finally:
+        release.set()
+    with pytest.raises(ExternalMcpError) as error:
+        await old
+    assert error.value.code == "MCP_CATALOG_CHANGED"
+    assert h.toolset._catalog_digest == fresh_digest
+
+
+async def test_provider_error_payload_is_not_published(harness):
+    h = harness
+    h.approve.return_value = None
+    h.native.return_value = {
+        "isError": True,
+        "content": [],
+        "structuredContent": {"token": "synthetic-secret"},
+    }
+    tool = (await h.toolset.get_tools(h.context))[0]
+    result = await tool.run_async(args={"q": "fixture"}, tool_context=h.context)
+    assert result == {"error": "MCP_PROVIDER_ERROR", "outcome": "unknown", "retryable": False}
+
+
+async def test_native_session_failure_does_not_log_or_retry(harness, monkeypatch, caplog):
+    h = harness
+    h.approve.return_value = None
+    h.context._invocation_context = SimpleNamespace(user_id="owner")
+    monkeypatch.setattr(McpTool, "_run_async_impl", _NATIVE_RUN)
+    tool = (await h.toolset.get_tools(h.context))[0]
+    h.toolset._mcp_session_manager.create_session.reset_mock()
+    h.toolset._mcp_session_manager.create_session.side_effect = [
+        h.session,
+        h.session,
+        ConnectionError("synthetic-private-session-error"),
+    ]
+    result = await tool.run_async(args={"q": "fixture"}, tool_context=h.context)
+    assert result["outcome"] == "unknown" and result["retryable"] is False
+    assert h.toolset._mcp_session_manager.create_session.await_count == 3
+    assert "synthetic-private-session-error" not in caplog.text
+
+
+async def test_reserved_tool_does_not_hide_other_tools(harness):
+    from google.adk.tools.mcp_tool.mcp_tool import _RESERVED_TOOL_NAMES
+
+    h = harness
+    h.session.list_tools.return_value.tools.append(
+        SimpleNamespace(name=next(iter(_RESERVED_TOOL_NAMES)), inputSchema={"type": "object"})
+    )
+    tools = await h.toolset.get_tools(h.context)
+    assert len(tools) == 1 and tools[0].descriptor["name"] == "search"
+
+
+async def test_http_body_diagnostics_block_before_credentials(harness, monkeypatch):
+    h = harness
+    monkeypatch.setattr(
+        "hushh_mcp.one_adk.governed_mcp_toolset._should_report_mcp_http_exchanges", lambda: True
+    )
+    with pytest.raises(ExternalMcpError) as error:
+        await h.toolset.get_tools(h.context)
+    assert error.value.code == "MCP_UNSAFE_TELEMETRY"
+    h.resolve.assert_not_called()
+    h.session.list_tools.assert_not_called()

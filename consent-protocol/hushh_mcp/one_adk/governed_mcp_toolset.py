@@ -14,14 +14,28 @@ import json
 from collections.abc import Awaitable, Callable
 from copy import deepcopy
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import Any
 
-from google.adk.tools.mcp_tool.mcp_session_manager import StreamableHTTPConnectionParams
-from google.adk.tools.mcp_tool.mcp_tool import McpTool
+from google.adk.telemetry.tracing import _should_report_mcp_http_exchanges
+from google.adk.tools.mcp_tool.mcp_session_manager import (
+    StreamableHTTPConnectionParams,
+    _http_debug_var,
+)
+from google.adk.tools.mcp_tool.mcp_tool import _RESERVED_TOOL_NAMES, McpTool
 from google.adk.tools.mcp_tool.mcp_toolset import McpToolset
 from jsonschema import Draft202012Validator
 from mcp.types import CallToolResult, Tool
 
+from hushh_mcp.adk_bridge.delegation import validate_first_party_owner_token
+from hushh_mcp.one_adk.request_secrets import resolve_request_secret
+from hushh_mcp.services.external_connector_credentials_service import (
+    get_external_connector_credentials_service,
+)
+from hushh_mcp.services.external_connector_lifecycle_store import ExternalConnectorLifecycleStore
+from hushh_mcp.services.external_connector_registry_service import (
+    get_external_connector_registry_service,
+)
 from hushh_mcp.services.external_mcp_client import (
     ExternalMcpError,
     _list_session_tools,
@@ -43,6 +57,70 @@ class McpConnectionBinding:
 class ResolvedMcpConnection:
     binding: McpConnectionBinding
     headers: dict[str, str] = field(repr=False)
+
+
+async def resolve_registered_connection(context: Any, connector_id: str) -> ResolvedMcpConnection:
+    """Resolve an existing registry credential under current Chat owner authority.
+
+    Google account grants owned by other services still require their existing
+    credential adapters; this port never substitutes selected-file credentials
+    for account-wide Workspace access. No credential is retained in tool state.
+    """
+    owner = context.user_id
+    state = context.state
+    if (
+        not owner
+        or owner != state.get("hussh:user_id")
+        or state.get("temp:one_execution_surface") != "typed_chat"
+        or not await validate_first_party_owner_token(
+            owner, resolve_request_secret(state.get("hussh:consent_token"))
+        )
+    ):
+        raise ExternalMcpError(
+            "Connector owner authority is unavailable.", code="MCP_OWNER_MISMATCH"
+        )
+    connector = await get_external_connector_registry_service().get_connector(
+        connector_id, user_id=owner
+    )
+    if connector is None or not connector.is_active or connector.transport_kind != "mcp":
+        raise ExternalMcpError("Connector unavailable.", code="MCP_CONNECTION_CHANGED")
+    row = await ExternalConnectorLifecycleStore().read(user_id=owner, connector_id=connector_id)
+    if not row or row.get("status") != "connected" or not row.get("credential_ciphertext"):
+        raise ExternalMcpError("Connect this service first.", code="MCP_CONNECTION_CHANGED")
+    expiry = row.get("credential_expires_at")
+    if expiry is not None and (
+        not isinstance(expiry, datetime) or expiry.tzinfo is None or expiry <= datetime.now(UTC)
+    ):
+        raise ExternalMcpError("Reconnect this service.", code="MCP_CREDENTIAL_EXPIRED")
+    binding = McpConnectionBinding(
+        owner,
+        connector_id,
+        int(row["connection_generation"]),
+        int(row["credential_version"]),
+        connector.mcp_endpoint,
+    )
+    validate_mcp_endpoint(binding.endpoint)
+    secret = get_external_connector_credentials_service().open_credential(
+        user_id=owner, connector_id=connector_id, row=row
+    )
+    if connector.auth_style == "api_key":
+        header = connector.api_key_header_name or "Authorization"
+        if header.lower() not in {"authorization", "x-api-key", "api-key"}:
+            raise ExternalMcpError("Unsupported credential header.", code="MCP_CREDENTIAL_INVALID")
+        credential = secret.get("apiKey")
+    elif connector.auth_style == "oauth":
+        header = "Authorization"
+        token = secret.get("accessToken")
+        credential = f"Bearer {token}" if isinstance(token, str) and token else None
+    else:
+        raise ExternalMcpError("Unsupported credential type.", code="MCP_CREDENTIAL_INVALID")
+    if (
+        not isinstance(credential, str)
+        or not credential.strip()
+        or any(ord(c) < 32 or ord(c) == 127 for c in credential)
+    ):
+        raise ExternalMcpError("Reconnect this service.", code="MCP_CREDENTIAL_INVALID")
+    return ResolvedMcpConnection(binding, {header: credential})
 
 
 ResolveConnection = Callable[[Any], Awaitable[ResolvedMcpConnection]]
@@ -87,6 +165,7 @@ class GovernedMcpToolset(McpToolset):
         self.timeout_seconds = timeout_seconds
         self.catalog_epoch = 0
         self._catalog_digest: str | None = None
+        self._discovery_sequence = 0
         super().__init__(
             connection_params=StreamableHTTPConnectionParams(
                 url=binding.endpoint,
@@ -101,6 +180,13 @@ class GovernedMcpToolset(McpToolset):
         self.catalog_epoch += 1
 
     async def _current_headers(self, context: Any) -> dict[str, str]:
+        # The pinned SDK's HTTP diagnostics can capture custom credentials and
+        # private response bodies independently of normal no-content telemetry.
+        # Refuse this mode; do not mutate process-wide telemetry configuration.
+        if _http_debug_var.get(None) is not None or _should_report_mcp_http_exchanges():
+            raise ExternalMcpError(
+                "Private connector diagnostics are disabled.", code="MCP_UNSAFE_TELEMETRY"
+            )
         if context is None or context.user_id != self.binding.owner_id:
             raise ExternalMcpError("Connector owner mismatch.", code="MCP_OWNER_MISMATCH")
         current = await self.resolve_connection(context)
@@ -109,6 +195,8 @@ class GovernedMcpToolset(McpToolset):
         return dict(current.headers)
 
     async def get_tools(self, readonly_context=None):
+        self._discovery_sequence += 1
+        sequence = self._discovery_sequence
         epoch = self.catalog_epoch
         manager = self._mcp_session_manager
         try:
@@ -127,7 +215,7 @@ class GovernedMcpToolset(McpToolset):
             raise ExternalMcpError(
                 "Connector discovery failed.", code="MCP_DISCOVERY_FAILED"
             ) from None
-        if epoch != self.catalog_epoch:
+        if epoch != self.catalog_epoch or sequence != self._discovery_sequence:
             raise ExternalMcpError("Connector tools changed.", code="MCP_CATALOG_CHANGED")
         revision = _digest(catalog)
         if self._catalog_digest is not None and self._catalog_digest != revision:
@@ -137,6 +225,7 @@ class GovernedMcpToolset(McpToolset):
         return [
             _GovernedMcpTool(toolset=self, descriptor=item, revision=revision, epoch=epoch)
             for item in catalog
+            if item["name"] not in _RESERVED_TOOL_NAMES
         ]
 
 
@@ -155,6 +244,11 @@ class _GovernedMcpTool(McpTool):
         # interpolation. Native MCPTool retains the original wire tool name.
         self.name = "mcp_" + _digest([toolset.binding.connector_id, descriptor["name"]])[:40]
 
+    async def _create_session(self, *, headers):
+        # ADK's decorated implementation logs raw exception text before a
+        # setup retry. Keep one attempt and let our sanitized boundary handle it.
+        return await self._mcp_session_manager.create_session(headers=headers)
+
     async def run_async(self, *, args, tool_context):
         try:
             async with asyncio.timeout(self.toolset.timeout_seconds):
@@ -166,7 +260,7 @@ class _GovernedMcpTool(McpTool):
         owner = self.toolset
         dispatched = False
         try:
-            await owner._current_headers(tool_context)
+            await owner.get_tools(tool_context)
             if self.epoch != owner.catalog_epoch:
                 raise ExternalMcpError("Connector tools changed.", code="MCP_CATALOG_CHANGED")
             arguments = deepcopy(args)
@@ -185,7 +279,7 @@ class _GovernedMcpTool(McpTool):
             )
             if pending is not None:
                 return pending
-            await owner._current_headers(tool_context)
+            await owner.get_tools(tool_context)
             if self.epoch != owner.catalog_epoch:
                 return {"error": "MCP_CATALOG_CHANGED"}
             # Call the native implementation exactly once. Bypass its optional
@@ -199,6 +293,8 @@ class _GovernedMcpTool(McpTool):
             if self.epoch != owner.catalog_epoch:
                 return {"error": "MCP_CATALOG_CHANGED", "outcome": "unknown", "retryable": False}
             normalized = _normalize_and_cap(CallToolResult.model_validate(result))
+            if normalized.is_error:
+                return {"error": "MCP_PROVIDER_ERROR", "outcome": "unknown", "retryable": False}
             return {
                 "isError": normalized.is_error,
                 "result": normalized.payload,
