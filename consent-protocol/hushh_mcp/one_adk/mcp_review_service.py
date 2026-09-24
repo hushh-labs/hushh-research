@@ -13,7 +13,10 @@ from google.adk.agents.invocation_context import InvocationContext
 from google.adk.sessions import Session
 
 from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionService
-from hushh_mcp.one_adk.governed_mcp_toolset import validated_mcp_arguments
+from hushh_mcp.one_adk.governed_mcp_toolset import (
+    native_registration_admitted,
+    validated_mcp_arguments,
+)
 from hushh_mcp.one_adk.mcp_call_approval import McpCallApproval
 from hushh_mcp.one_adk.mcp_pending_call import pending_call_details, restore_pending_call
 from hushh_mcp.one_adk.mcp_turn_scope import mcp_turn_scope
@@ -43,9 +46,9 @@ async def review_tool(
     owner = str(token["user_id"])
     registry = get_external_connector_registry_service()
     definition = await registry.get_connector(connector_id, user_id=owner)
-    # Curated providers retain their existing adapters/admission until parity.
-    # In particular, selected-file credentials cannot become account-wide access.
-    if definition is None or definition.owner_user_id != owner:
+    # Registration admission is shared with Chat; the same resolver below
+    # checks provider profile, current credentials and capabilities for review.
+    if not native_registration_admitted(definition, owner):
         raise ExternalMcpError(
             "Connector unavailable.", code="MCP_CONNECTION_CHANGED", status_code=404
         )
@@ -71,6 +74,7 @@ async def review_tool(
                 "hussh:conversation_id": conversation_id,
                 "hussh:consent_token": store_request_secret(token["token"]),
                 "temp:one_execution_surface": "typed_chat",
+                "temp:hussh:workspace_chat_admission": True,
                 "temp:mcp_connector_label": definition.display_name,
             },
         ),

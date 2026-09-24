@@ -55,6 +55,26 @@ async def test_scope_reuses_only_exact_authority_and_closes_once(runtime):
         module.current_mcp_turn()
 
 
+async def test_scope_passes_provider_policies_to_native_toolset(runtime, monkeypatch):
+    def catalog_policy(catalog):
+        return catalog
+
+    def result_policy(name, payload):
+        return payload
+
+    resolved = ResolvedMcpConnection(
+        McpConnectionBinding("owner", "provider", 1, 1, "https://example.com/mcp"),
+        {"Authorization": "synthetic"},
+        catalog_policy=catalog_policy,
+        result_policy=result_policy,
+    )
+    monkeypatch.setattr(module, "resolve_registered_connection", AsyncMock(return_value=resolved))
+    async with module.mcp_turn_scope("thread") as scope:
+        native = await scope.acquire(context(), "provider", authorize_call=AsyncMock())
+        assert native.catalog_policy is catalog_policy
+        assert native.result_policy is result_policy
+
+
 async def test_parallel_runs_never_share_authenticated_toolsets(runtime):
     barrier = asyncio.Event()
     authorize = AsyncMock()

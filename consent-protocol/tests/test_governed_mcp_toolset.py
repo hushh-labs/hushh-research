@@ -65,6 +65,8 @@ def registry_harness(monkeypatch):
         },
     )
     definition = SimpleNamespace(
+        owner_user_id="owner",
+        connector_id="custom_one",
         is_active=True,
         transport_kind="mcp",
         mcp_endpoint="https://example.com/mcp",
@@ -111,6 +113,30 @@ async def test_registered_resolver_uses_authenticated_owner_and_same_credential_
     assert result.binding.generation == 3 and result.binding.credential_version == 4
     assert result.headers == {"Authorization": "synthetic-key"}
     assert "synthetic-key" not in repr(result)
+
+
+async def test_curated_drive_resolver_uses_live_adapter_not_generic_credential(
+    registry_harness, monkeypatch
+):
+    from hushh_mcp.one_adk import workspace_mcp_tools
+
+    h = registry_harness
+    definition = h.registry.get_connector.return_value
+    definition.owner_user_id = None
+    definition.connector_id = "google_drive"
+    definition.transport_kind = "google_drive_rest"
+    resolved = ResolvedMcpConnection(
+        McpConnectionBinding(
+            "owner", "google_drive", 3, 4, "https://drivemcp.googleapis.com/mcp/v1"
+        ),
+        {"Authorization": "Bearer synthetic"},
+    )
+    adapter = AsyncMock(return_value=resolved)
+    monkeypatch.setattr(workspace_mcp_tools, "resolve_native_drive_connection", adapter)
+    assert await resolve_registered_connection(h.context, "google_drive") is resolved
+    adapter.assert_awaited_once_with(h.context)
+    h.credentials.open_credential.assert_not_called()
+    h.lifecycle.read.assert_not_called()
 
 
 @pytest.mark.parametrize("failure", ["owner", "token", "hidden", "revoked", "expired"])

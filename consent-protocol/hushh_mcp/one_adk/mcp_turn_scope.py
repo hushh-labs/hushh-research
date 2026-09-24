@@ -61,6 +61,8 @@ class McpTurnResources:
             binding=resolved.binding,
             resolve_connection=partial(resolve_registered_connection, connector_id=connector_id),
             authorize_call=authorize_call,
+            catalog_policy=resolved.catalog_policy,
+            result_policy=resolved.result_policy,
         )
         self._toolsets[resolved.binding] = toolset
         return toolset

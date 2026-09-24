@@ -173,6 +173,14 @@ existing action ledger's resource-binding HMAC. It is not exposed in the review
 card or diagnostic representation. This adapter contract does not itself migrate
 Google providers onto native toolsets or establish live-provider acceptance.
 
+The curated Drive registration now has native admission through its existing
+verified live-grant authority: subject, policy, connection generation and
+credential version bind discovery, review and execution. Selected-file access
+does not satisfy that admission. The shared metadata projector rejects malformed
+listing payloads rather than forwarding unexpected content. This is source-level
+integration; duplicate legacy tool exposure and Gmail/Calendar migration remain
+open, and live provider acceptance must be proved separately.
+
 ### Runtime mapping
 
 1. Agents: consume only consent-approved data slices.

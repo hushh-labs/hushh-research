@@ -7,7 +7,7 @@ These tools never execute provider writes or accept an owner from model input.
 from __future__ import annotations
 
 import re
-from functools import lru_cache
+from functools import lru_cache, partial
 from typing import Any, Literal
 
 from google.adk.tools.tool_context import ToolContext
@@ -17,13 +17,20 @@ from hushh_mcp.one_adk.request_secrets import resolve_request_secret
 from hushh_mcp.runtime_settings import pod_mode
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
+from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
+from hushh_mcp.services.external_mcp_client import ExternalMcpError
 from hushh_mcp.services.gmail_receipts_service import GmailApiError, GmailReceiptsService
 from hushh_mcp.services.google_calendar_mcp_service import GoogleCalendarMcpService
 from hushh_mcp.services.google_connection_service import (
     GoogleConnectionError,
     get_google_connection_service,
 )
-from hushh_mcp.services.google_drive_mcp_service import GoogleDriveMcpService
+from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH
+from hushh_mcp.services.google_drive_mcp_service import (
+    GOOGLE_DRIVE_MCP_ENDPOINT,
+    GoogleDriveMcpService,
+    _search_metadata,
+)
 from hushh_mcp.services.google_gmail_mcp_service import GoogleGmailMcpService
 
 WorkspaceProvider = Literal["drive", "gmail", "calendar"]
@@ -91,6 +98,65 @@ _SCHEMA_IDENTIFIER = re.compile(r"[A-Za-z][A-Za-z0-9_.-]{0,63}\Z")
 _SCHEMA_ENUM_TOKEN = re.compile(r"[A-Za-z0-9_.:/@+-]{1,100}\Z")
 _SCHEMA_FORMATS = frozenset({"date", "date-time", "email", "time", "uri", "uuid"})
 _SCHEMA_TYPES = frozenset({"array", "boolean", "integer", "null", "number", "object", "string"})
+
+
+def _drive_result_policy(tool_name: str, payload: dict[str, Any]) -> dict[str, Any]:
+    return (
+        _search_metadata(payload) if tool_name in {"search_files", "list_recent_files"} else payload
+    )
+
+
+async def resolve_native_drive_connection(tool_context: ToolContext):
+    """Adapt the existing live grant to the shared native MCP core, without dispatch."""
+    from hushh_mcp.one_adk.governed_mcp_toolset import McpConnectionBinding, ResolvedMcpConnection
+
+    owner = await _owner(tool_context, "drive")
+    if owner is None or not connector_feature_enabled("google_drive_live", owner):
+        raise ExternalMcpError("Drive unavailable.", code="MCP_OWNER_MISMATCH")
+    try:
+        row, credential = (
+            await get_external_connector_oauth_service()
+            .drive()
+            .current_credential(user_id=owner, required_profile="live")
+        )
+        if (
+            row.get("status") != "connected"
+            or row.get("validation_state") != "verified"
+            or row.get("verified_policy_hash") != LIVE_POLICY_HASH
+            or credential.get("profile") != "live"
+            or not isinstance(credential.get("subject"), str)
+            or not credential["subject"].strip()
+        ):
+            raise ExternalMcpError("Reconnect Drive.", code="MCP_CONNECTION_CHANGED")
+        token = credential.get("accessToken")
+        if (
+            not isinstance(token, str)
+            or not token.strip()
+            or any(ord(char) < 32 or ord(char) == 127 for char in token)
+        ):
+            raise ExternalMcpError("Reconnect Drive.", code="MCP_CREDENTIAL_INVALID")
+        if await _owner(tool_context, "drive") != owner:
+            raise ExternalMcpError("Drive owner changed.", code="MCP_OWNER_MISMATCH")
+        binding = McpConnectionBinding(
+            owner,
+            "google_drive",
+            int(row["connection_generation"]),
+            int(row["credential_version"]),
+            GOOGLE_DRIVE_MCP_ENDPOINT,
+            (credential["subject"], LIVE_POLICY_HASH, "live"),
+        )
+        return ResolvedMcpConnection(
+            binding,
+            {"Authorization": f"Bearer {token}"},
+            catalog_policy=partial(_trusted_catalog, "drive"),
+            result_policy=_drive_result_policy,
+        )
+    except ExternalMcpError:
+        raise
+    except Exception:
+        raise ExternalMcpError(
+            "Drive connection unavailable.", code="MCP_CONNECTION_CHANGED"
+        ) from None
 
 
 @lru_cache(maxsize=3)
