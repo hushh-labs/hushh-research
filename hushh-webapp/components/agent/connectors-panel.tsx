@@ -29,6 +29,9 @@ import {
 } from "@/lib/navigation/use-deep-link-return";
 import { ROUTES } from "@/lib/navigation/routes";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
+import { useCalendarConnectionStatus } from "@/lib/calendar/use-calendar-connection-status";
+import { usePkmDomainResource } from "@/lib/pkm/pkm-domain-resource";
+import { vaultConnections } from "@/lib/kai/plaid-vault/vault-sync";
 import {
   createGmailOAuthPopupAttempt,
   openGmailOAuthPopup,
@@ -221,7 +224,7 @@ function OwnerConnectorsPanel({
 }: Props) {
   const router = useRouter();
   const { user } = useAuth();
-  const { vaultOwnerToken } = useVault();
+  const { vaultOwnerToken, vaultKey } = useVault();
   const [overview, setOverview] = useState<ConnectorOverview | null>(null);
   const [documents, setDocuments] = useState<DriveDocument[]>([]);
   const [allowBackground, setAllowBackground] = useState(false);
@@ -286,6 +289,21 @@ function OwnerConnectorsPanel({
     idTokenProvider: user ? mailToken : null,
     routeHref: ROUTES.HOME,
   });
+  const calendar = useCalendarConnectionStatus({
+    userId: user?.uid ?? null,
+    idTokenProvider: user ? mailToken : null,
+    enabled: open && Boolean(vaultOwnerToken),
+  });
+  const financial = usePkmDomainResource({
+    userId: user?.uid ?? "",
+    domain: "financial",
+    vaultKey,
+    vaultOwnerToken,
+    enabled: open && Boolean(vaultKey && vaultOwnerToken),
+  });
+  const plaidConnections = vaultKey && vaultOwnerToken && financial.data
+    ? Object.values(vaultConnections(financial.data.data))
+    : [];
   const refresh = useCallback(async (signal?: AbortSignal) => {
     const token = currentToken.current;
     if (!token) return false;
@@ -1126,8 +1144,8 @@ function OwnerConnectorsPanel({
       detail: hasDriveGrant
         ? drive?.status === "needs_reauth"
           ? "Reconnect needed"
-          : drive?.accountLabel || "Choose files for One"
-        : undefined,
+          : "Selected files · " + (drive?.accountLabel || "Choose files for One")
+        : "Selected-file access",
       connected: hasDriveGrant,
       onOpen: () => showConnector("google_drive"),
       action: hasDriveGrant
@@ -1144,7 +1162,16 @@ function OwnerConnectorsPanel({
     {
       id: "calendar",
       name: "Calendar",
-      connected: false,
+      connected: calendar.connected,
+      detail: calendar.error
+        ? "Status unavailable"
+        : !calendar.loaded
+          ? "Checking connection…"
+          : calendar.status?.status === "needs_reauth"
+            ? "Reconnect needed"
+            : calendar.connected
+              ? "Read your calendar · changes need confirmation"
+              : "Not connected",
       action: {
         label: "Manage Calendar",
         onClick: () => {
@@ -1156,7 +1183,16 @@ function OwnerConnectorsPanel({
     {
       id: "plaid",
       name: "Plaid",
-      connected: false,
+      connected: plaidConnections.length > 0,
+      detail: financial.error
+        ? "Status unavailable"
+        : financial.loading
+          ? "Checking connection…"
+          : plaidConnections.some((item) => item.status === "needs_relink")
+            ? "Reconnect needed"
+            : plaidConnections.length > 0
+              ? "Vault-connected accounts · sharing needs approval"
+              : "Not connected",
       action: {
         label: "Manage Plaid",
         onClick: () => {
@@ -1166,7 +1202,10 @@ function OwnerConnectorsPanel({
       },
     },
     ...(overview?.connectors ?? [])
-      .filter((item) => !["google_drive", "gmail"].includes(item.connectorId))
+      .filter((item, index, items) =>
+        !["google_drive", "gmail", "calendar", "plaid"].includes(item.connectorId) &&
+        items.findIndex((candidate) => candidate.connectorId === item.connectorId) === index,
+      )
       .map((item): ConnectorListEntry => ({
         id: item.connectorId,
         name: item.displayName,

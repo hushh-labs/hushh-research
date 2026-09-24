@@ -1,5 +1,5 @@
 import React from "react";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
@@ -8,10 +8,14 @@ const state = vi.hoisted(() => ({
   overview: vi.fn(),
   documents: vi.fn(),
   push: vi.fn(),
+  calendar: { connected: false, loaded: true, error: null as string | null, status: { status: "disconnected" } },
+  financial: { data: null as { data: Record<string, unknown> } | null, loading: false, error: null as string | null },
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: state.push }) }));
 vi.mock("@/hooks/use-auth", () => ({ useAuth: () => ({ user: state.user }) }));
-vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultOwnerToken: state.token }) }));
+vi.mock("@/lib/vault/vault-context", () => ({ useVault: () => ({ vaultOwnerToken: state.token, vaultKey: state.token ? "synthetic-key" : null }) }));
+vi.mock("@/lib/calendar/use-calendar-connection-status", () => ({ useCalendarConnectionStatus: () => state.calendar }));
+vi.mock("@/lib/pkm/pkm-domain-resource", () => ({ usePkmDomainResource: () => state.financial }));
 vi.mock("@/lib/profile/gmail-connector-store", () => ({
   useGmailConnectorStatus: () => ({
     status: { connected: false },
@@ -61,6 +65,8 @@ describe("supported connector catalog", () => {
     state.overview.mockReset().mockResolvedValue(overview());
     state.documents.mockReset().mockResolvedValue([]);
     state.push.mockReset();
+    state.calendar = { connected: false, loaded: true, error: null, status: { status: "disconnected" } };
+    state.financial = { data: null, loading: false, error: null };
     Object.values(callbacks).forEach((callback) => callback.mockClear());
   });
   afterEach(cleanup);
@@ -93,6 +99,22 @@ describe("supported connector catalog", () => {
     await waitFor(() => expect(state.overview).toHaveBeenCalled());
     expect(screen.getAllByText("Google Drive")).toHaveLength(1);
     expect(screen.queryByText("Duplicate Drive")).not.toBeInTheDocument();
+  });
+
+  it("uses Calendar and vault Plaid status without duplicate built-ins", async () => {
+    state.calendar = { connected: true, loaded: true, error: null, status: { status: "connected" } };
+    state.financial.data = { data: { connections_v1: { synthetic: { status: "active" } } } };
+    state.overview.mockResolvedValue(overview([
+      { ...catalogItem, connectorId: "calendar", displayName: "Duplicate Calendar" },
+      { ...catalogItem, connectorId: "plaid", displayName: "Duplicate Plaid" },
+    ]));
+    render(panel());
+    await waitFor(() => expect(state.overview).toHaveBeenCalled());
+    const connected = within(screen.getByRole("region", { name: "Connected" }));
+    expect(connected.getByText("Calendar")).toBeInTheDocument();
+    expect(connected.getByText("Plaid")).toBeInTheDocument();
+    expect(screen.queryByText("Duplicate Calendar")).not.toBeInTheDocument();
+    expect(screen.queryByText("Duplicate Plaid")).not.toBeInTheDocument();
   });
 
   it("filters the real connector list and restores it when search is cleared", async () => {
