@@ -274,6 +274,7 @@ async def test_the_chat_turn_passes_type_sharing_recency_and_the_owners_day(monk
                 "time_intent": "file_activity",
             }
         ),
+        candidate_selector=AsyncMock(return_value={"selected": ["c1"]}),
     )
     outcome = await chat.run_live_query(
         user_id="owner",
@@ -295,6 +296,7 @@ async def test_the_chat_turn_passes_type_sharing_recency_and_the_owners_day(monk
     assert outcome["status"] == "ok" and outcome["titles"] == [
         "Standup - 2026/09/24 10:00 PDT - Recording"
     ]
+    assert outcome["selection"] == {"stage": "completed", "candidates": 1, "selected": 1}
     # The owner sees the day the recording was made, in their own window text.
     text = drive_chat_service._found_files(
         outcome["files"],

@@ -5,6 +5,11 @@ stored question once and runs the owner's own bounded chat turn
 (``DriveChatService.run_live_query``), fenced on every step by the owner's
 current authority and the claim. The requester receives answer text and file
 titles only: no Drive links, file ids, dates or owner-directed instructions.
+
+Before any title is released, a tool-less selector gene judges the files the
+keyword search found. The requester gets only the titles it chose, worded as
+what they are (judged from names, types and dates, not opened), or the
+no-clear-match text when it chose none.
 """
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
@@ -22,9 +27,17 @@ def requester_answer(outcome: dict) -> dict:
     if outcome["status"] != "ok":
         return {"text": NO_CLEAR_MATCH, "titles": [], "truncated": False}
     if outcome["files"] is not None:
-        text = "These Drive files match your question."
+        # Older outcomes carry no selection trace.
+        stage = (outcome.get("selection") or {}).get("stage")
         if outcome["unreadable"]:
-            text += " Their contents couldn't be read."
+            text = "These files look like a match, but their contents couldn't be read."
+        elif stage == "completed":
+            text = (
+                "These files in their Drive look like a match, going by file names, types "
+                "and dates. Their private agent didn't open them."
+            )
+        else:
+            text = "These files were found in their Drive for this question."
         if outcome["found_truncated"] or len(outcome["files"]) > 10:
             text += " More matches may exist."
         return {"text": text, "titles": outcome["titles"], "truncated": outcome["truncated"]}

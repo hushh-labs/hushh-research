@@ -11,10 +11,14 @@ from datetime import timezone as datetime_timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
 from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent, run_single_turn
+from hushh_mcp.services.drive_candidate_selection import (
+    interpret_candidate_selection,
+    select_matches,
+)
 from hushh_mcp.services.drive_document_retrieval import DriveDocumentReader
 from hushh_mcp.services.drive_live_reader import DriveLiveReader
 from hushh_mcp.services.drive_suggestion_service import LiveSearchPlan, interpret_live_search
@@ -29,6 +33,14 @@ class DocumentAnswer(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     answer: str = Field(min_length=1, max_length=5000)
     source_refs: list[str] = Field(default_factory=list, max_length=8)
+    # The honest negative: none of the supplied documents answers the request.
+    none_relevant: bool = False
+
+    @model_validator(mode="after")
+    def _negative_cites_nothing(self):
+        if self.none_relevant and self.source_refs:
+            raise ValueError("a none_relevant answer cites no documents")
+        return self
 
 
 async def interpret(*, prompt, user_id, consent_token):
@@ -136,8 +148,13 @@ def _outcome(
     titles=(),
     truncated=False,
     metadata_only=False,
+    selection=None,
 ):
-    """Presentation-free turn result; each caller decides what its reader may see."""
+    """Presentation-free turn result; each caller decides what its reader may see.
+
+    ``selection`` traces the live selector: ``completed`` with counts, or the
+    recorded reason it was not asked (exact title, metadata-only listing).
+    """
     return {
         "status": status,
         "answer": answer,
@@ -151,11 +168,19 @@ def _outcome(
         "titles": list(titles),
         "truncated": truncated,
         "metadata_only": metadata_only,
+        "selection": selection,
     }
 
 
 def _files_outcome(
-    matches, found, *, unreadable, time_window, date_field="modified_time", timezone="UTC"
+    matches,
+    found,
+    *,
+    unreadable,
+    time_window,
+    date_field="modified_time",
+    timezone="UTC",
+    selection=None,
 ):
     return _outcome(
         "ok",
@@ -169,6 +194,7 @@ def _files_outcome(
         titles=[item["name"] for item in matches[:10]],
         truncated=True if unreadable else found["truncated"] or len(matches) > 10,
         metadata_only=True,
+        selection=selection,
     )
 
 
@@ -189,11 +215,13 @@ class DriveChatService:
         interpreter=interpret,
         oauth=None,
         search_planner=interpret_live_search,
+        candidate_selector=interpret_candidate_selection,
     ):
         self.reader_factory = reader_factory
         self.interpreter = interpreter
         self.oauth = oauth
         self.search_planner = search_planner
+        self.candidate_selector = candidate_selector
 
     async def handle_delegated_turn(
         self,
@@ -277,14 +305,16 @@ class DriveChatService:
                         user_id=user_id, require_access=require_access, oauth=oauth
                     )
                 query = message
+                # Pure computation: the interpreter needs it on both paths.
+                now_utc = datetime.now(datetime_timezone.utc)
+                try:
+                    owner_timezone = ZoneInfo(timezone or "UTC").key
+                except (ValueError, ZoneInfoNotFoundError):
+                    owner_timezone = "UTC"
+                selection = None
                 if live:
                     stage = "search_plan"
                     await require_access()
-                    now_utc = datetime.now(datetime_timezone.utc)
-                    try:
-                        owner_timezone = ZoneInfo(timezone or "UTC").key
-                    except (ValueError, ZoneInfoNotFoundError):
-                        owner_timezone = "UTC"
                     plan = LiveSearchPlan.model_validate(
                         await self.search_planner(
                             prompt=json.dumps(
@@ -359,6 +389,43 @@ class DriveChatService:
                             "input_required",
                             "I couldn't find a matching Drive file. Try a more specific filename or period.",
                         )
+                    if plan.terms and not plan.exact_title:
+                        # Keyword hits are candidates; the tool-less selector
+                        # gene judges which are the requested document. A
+                        # failure or invented ref fails closed below, never to
+                        # the unfiltered list.
+                        stage = "select_candidates"
+                        await require_access()
+                        matches, selection = await select_matches(
+                            selector=self.candidate_selector,
+                            request={"purpose": message},
+                            mode=plan.mode,
+                            sort=plan.sort,
+                            matches=matches,
+                            truncated=found["truncated"],
+                            now_utc=now_utc,
+                            timezone=owner_timezone,
+                            user_id=user_id,
+                        )
+                        if not matches:
+                            await reader.require_current()
+                            return _outcome(
+                                "input_required",
+                                "None of the Drive files I found look like what you asked for. "
+                                "Try a more specific file name or period.",
+                                selection=selection,
+                            )
+                    else:
+                        # The skip is recorded, never silent (backend semantic
+                        # boundary): an exact title was already resolved, or a
+                        # metadata-only listing has no words to judge against.
+                        selection = {
+                            "stage": "exact_title"
+                            if plan.exact_title
+                            else "not_applicable_metadata_query",
+                            "candidates": len(matches),
+                            "selected": len(matches),
+                        }
                     if plan.mode == "find":
                         await reader.require_current()
                         return _files_outcome(
@@ -368,6 +435,7 @@ class DriveChatService:
                             time_window=time_window,
                             date_field=date_field,
                             timezone=owner_timezone,
+                            selection=selection,
                         )
                 await require_access()
                 stage = "read_file_content"
@@ -387,6 +455,7 @@ class DriveChatService:
                             time_window=time_window,
                             date_field=date_field,
                             timezone=owner_timezone,
+                            selection=selection,
                         )
                     return _outcome(
                         "input_required",
@@ -401,7 +470,12 @@ class DriveChatService:
                     # The interpreter has no tools and receives bounded text.
                     await self.interpreter(
                         prompt=json.dumps(
-                            {"user_request": message, "retrieved_documents": retrieved},
+                            {
+                                "user_request": message,
+                                "current_time_utc": now_utc.isoformat(),
+                                "user_timezone": owner_timezone,
+                                "retrieved_documents": retrieved,
+                            },
                             ensure_ascii=False,
                         ),
                         user_id=user_id,
@@ -411,8 +485,30 @@ class DriveChatService:
                 stage = "source_fence"
                 await reader.require_current()
                 known = {item["source_ref"]: item for item in content}
-                if not answer.source_refs or set(answer.source_refs) - known.keys():
+                if set(answer.source_refs) - known.keys() or (
+                    not answer.source_refs and not answer.none_relevant
+                ):
                     raise ValueError("invalid document citations")
+                text = answer.answer
+                if retrieved["truncated"]:
+                    text += (
+                        "\n\nThis answer uses bounded excerpts; some document content was omitted."
+                    )
+                logger.info(
+                    "drive_chat.answered selection=%s read=%d cited=%d none_relevant=%s",
+                    (selection or {}).get("stage", "none"),
+                    len(content),
+                    len(set(answer.source_refs)),
+                    answer.none_relevant,
+                )
+                if answer.none_relevant:
+                    # An explicit, cited-nothing negative is an answer, not a failure.
+                    return _outcome(
+                        "ok",
+                        text,
+                        truncated=retrieved["truncated"],
+                        selection=selection,
+                    )
                 sources = [
                     {
                         "source_ref": ref,
@@ -422,17 +518,13 @@ class DriveChatService:
                     }
                     for ref in dict.fromkeys(answer.source_refs)
                 ]
-                text = answer.answer
-                if retrieved["truncated"]:
-                    text += (
-                        "\n\nThis answer uses bounded excerpts; some document content was omitted."
-                    )
                 return _outcome(
                     "ok",
                     text,
                     sources=sources,
                     titles=[known[ref]["name"] for ref in dict.fromkeys(answer.source_refs)],
                     truncated=retrieved["truncated"],
+                    selection=selection,
                 )
         except PermissionError:
             raise

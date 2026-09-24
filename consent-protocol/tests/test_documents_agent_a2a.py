@@ -22,12 +22,21 @@ from hushh_mcp.hushh_adk.manifest import ManifestLoader
 from hushh_mcp.one_adk import agent_tree
 from hushh_mcp.one_adk.external_read_boundary import STATE_EXECUTION_SURFACE
 from hushh_mcp.one_adk.external_read_projection import durable_external_read_projection
-from hushh_mcp.services import drive_chat_service, drive_suggestion_service
+from hushh_mcp.services import (
+    drive_candidate_selection,
+    drive_chat_service,
+    drive_suggestion_service,
+)
 from hushh_mcp.services.drive_chat_service import DriveChatService
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 from tests.test_one_external_read_boundary import _Model
 
 REF = "document:" + "a" * 32
+
+
+def pick(*refs):
+    """The live selector gene, answered: which found files are worth using."""
+    return AsyncMock(return_value={"selected": list(refs)})
 
 
 @pytest.fixture(autouse=True)
@@ -124,10 +133,18 @@ async def test_documents_genes_construct_with_multiregion_vertex_configuration(m
     )
     await drive_suggestion_service.interpret_live_search(prompt="synthetic", user_id="owner")
     await drive_suggestion_service.interpret_suggestions(prompt="synthetic", user_id="owner")
+    monkeypatch.setattr(
+        drive_candidate_selection,
+        "run_single_turn",
+        AsyncMock(return_value={"selected": ["c1"]}),
+    )
     await drive_chat_service.interpret(
         prompt="synthetic",
         user_id="owner",
         consent_token="synthetic",  # noqa: S106
+    )
+    await drive_candidate_selection.interpret_candidate_selection(
+        prompt="synthetic", user_id="owner"
     )
 
 
@@ -169,6 +186,7 @@ async def test_revoked_after_interpretation_releases_no_answer():
         {"answer": "Injected", "source_refs": [REF], "tool": "send_email"},
         {"answer": "Invented", "source_refs": ["document:unknown"]},
         {"answer": "Uncited", "source_refs": []},
+        {"answer": "Contradictory", "source_refs": [REF], "none_relevant": True},
     ],
 )
 async def test_interpreter_cannot_add_tools_or_invent_sources(answer):
@@ -200,6 +218,7 @@ async def test_real_root_dispatch_and_toolless_gene_preserve_identity_and_redact
     service = DriveChatService(
         oauth=SimpleNamespace(current_credential=AsyncMock(return_value=({}, {"profile": "live"}))),
         search_planner=AsyncMock(return_value={"terms": ["statement"], "mode": "read"}),
+        candidate_selector=pick("c1"),
     )
     monkeypatch.setattr(documents_agent, "DriveChatService", lambda: service)
     root_model = _Model(
@@ -275,6 +294,7 @@ async def test_live_profile_uses_mcp_without_selected_index_or_fallback(monkeypa
         oauth=oauth,
         search_planner=planner,
         interpreter=AsyncMock(return_value={"answer": "A live answer", "source_refs": [REF]}),
+        candidate_selector=pick("c1"),
     )
     response = await documents_agent.DocumentsAgentA2A(service=service).handle(task())
     source.find.assert_awaited_once_with(
@@ -306,6 +326,7 @@ async def test_live_find_lists_recording_with_open_action_without_content_read(m
         oauth=SimpleNamespace(current_credential=AsyncMock(return_value=({}, {"profile": "live"}))),
         search_planner=AsyncMock(return_value={"terms": ["Board recording"], "mode": "find"}),
         interpreter=AsyncMock(side_effect=AssertionError("find must not interpret content")),
+        candidate_selector=pick("c1"),
     )
     response = await documents_agent.DocumentsAgentA2A(service=service).handle(
         task(
@@ -389,6 +410,7 @@ async def test_missing_planner_mode_can_only_find_metadata(monkeypatch):
     service = DriveChatService(
         oauth=SimpleNamespace(current_credential=AsyncMock(return_value=({}, {"profile": "live"}))),
         search_planner=AsyncMock(return_value={"terms": ["statement"]}),
+        candidate_selector=pick("c1"),
     )
     response = await documents_agent.DocumentsAgentA2A(service=service).handle(
         task(message="Find my statement")
@@ -411,6 +433,7 @@ def test_every_document_gene_has_a_thinking_level_and_room_to_answer():
     genes = {gene.id: gene for gene in manifest.subagents}
     assert {
         "agent_documents_live_search",
+        "agent_documents_live_select",
         "agent_documents_interpreter",
         "agent_documents_suggestions",
     } <= genes.keys()
@@ -419,3 +442,135 @@ def test_every_document_gene_has_a_thinking_level_and_room_to_answer():
             continue
         assert gene.model.thinking_level == "low", gene.id
         assert gene.performance.max_output_tokens >= 2048, gene.id
+
+
+def ten_matches():
+    return [
+        {
+            "file_id": f"file-{index}",
+            "name": "Notes by Gemini" if index < 9 else f"Statement {index}.pdf",
+            "mime_type": "application/pdf",
+            "modified_time": "2026-04-01T00:00:00Z",
+            "source_ref": "document:" + f"{index:032d}",
+            "open_url": f"https://drive.google.com/open?id=file-{index}",
+        }
+        for index in range(1, 11)
+    ]
+
+
+def live_service(monkeypatch, source, plan, **changes):
+    monkeypatch.setattr(drive_chat_service, "DriveLiveReader", lambda **kwargs: source)
+    monkeypatch.setattr(
+        drive_chat_service, "DriveDocumentReader", Mock(side_effect=AssertionError("selected"))
+    )
+    return DriveChatService(
+        oauth=SimpleNamespace(current_credential=AsyncMock(return_value=({}, {"profile": "live"}))),
+        search_planner=AsyncMock(return_value=plan),
+        **changes,
+    )
+
+
+async def test_read_mode_reads_only_selected_files_in_model_order(monkeypatch):
+    source = reader()
+    matches = ten_matches()
+    source.find.return_value = {"matches": matches, "truncated": False}
+    selector = pick("c9", "c10")
+    interpreter = AsyncMock(return_value={"answer": "A live answer", "source_refs": [REF]})
+    service = live_service(
+        monkeypatch,
+        source,
+        {"terms": ["statement"], "mode": "read"},
+        candidate_selector=selector,
+        interpreter=interpreter,
+    )
+    outcome = await service.run_live_query(
+        user_id="owner",
+        consent_token="synthetic",  # noqa: S106
+        query="Summarize my statements",
+        require_access=AsyncMock(),
+        timezone="Asia/Kolkata",
+    )
+    assert outcome["status"] == "ok"
+    source.read_matches.assert_awaited_once_with(matches=[matches[8], matches[9]], truncated=False)
+    assert outcome["selection"] == {"stage": "completed", "candidates": 10, "selected": 2}
+    prompt = json.loads(interpreter.await_args.kwargs["prompt"])
+    assert prompt["user_timezone"] == "Asia/Kolkata"
+    assert datetime.fromisoformat(prompt["current_time_utc"]).tzinfo is not None
+
+
+async def test_an_empty_selection_is_an_honest_no_match_for_the_owner(monkeypatch):
+    source = reader()
+    source.find.return_value = {"matches": ten_matches()[:8], "truncated": False}
+    service = live_service(
+        monkeypatch,
+        source,
+        {"terms": ["statement"], "mode": "find"},
+        candidate_selector=pick(),
+        interpreter=AsyncMock(side_effect=AssertionError("interpreter reached")),
+    )
+    response = await documents_agent.DocumentsAgentA2A(service=service).handle(
+        task(message="Find my bank statements")
+    )
+    assert response.structured.status == "input_required"
+    assert "None of the Drive files I found look like what you asked for" in response.text
+    assert "Notes by Gemini" not in response.text
+    source.read_matches.assert_not_awaited()
+    source.require_current.assert_awaited()
+
+
+@pytest.mark.parametrize(
+    ("plan", "message", "previous_answer", "stage"),
+    [
+        (
+            {"terms": [], "mode": "find", "relative_days": 2, "time_intent": "file_activity"},
+            "What are my files from the last two days?",
+            "",
+            "not_applicable_metadata_query",
+        ),
+        (
+            {"terms": ["March statement"], "mode": "read", "exact_title": "March statement.pdf"},
+            "Read the second one",
+            "1. Other.pdf\n2. March statement.pdf",
+            "exact_title",
+        ),
+    ],
+)
+async def test_metadata_only_and_exact_title_plans_never_call_the_selector(
+    monkeypatch, plan, message, previous_answer, stage
+):
+    source = reader()
+    selector = AsyncMock(side_effect=AssertionError("selector reached"))
+    service = live_service(
+        monkeypatch,
+        source,
+        plan,
+        candidate_selector=selector,
+        interpreter=AsyncMock(return_value={"answer": "A live answer", "source_refs": [REF]}),
+    )
+    outcome = await service.run_live_query(
+        user_id="owner",
+        consent_token="synthetic",  # noqa: S106
+        query=message,
+        require_access=AsyncMock(),
+        previous_answer=previous_answer,
+    )
+    assert outcome["status"] == "ok"
+    assert selector.called is False
+    assert outcome["selection"] == {"stage": stage, "candidates": 1, "selected": 1}
+
+
+async def test_a_none_relevant_answer_is_honest_not_unavailable():
+    service = DriveChatService(
+        reader_factory=lambda **kwargs: reader(),
+        interpreter=AsyncMock(
+            return_value={
+                "answer": "None of these files mention a closing balance.",
+                "source_refs": [],
+                "none_relevant": True,
+            }
+        ),
+    )
+    response = await documents_agent.DocumentsAgentA2A(service=service).handle(task())
+    assert response.structured.status == "ok"
+    assert not response.structured.sources
+    assert response.text.startswith("None of these files mention a closing balance.")

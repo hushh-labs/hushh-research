@@ -18,6 +18,10 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
 from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent, run_single_turn
+from hushh_mcp.services.drive_candidate_selection import (
+    interpret_candidate_selection,
+    select_matches,
+)
 from hushh_mcp.services.drive_document_retrieval import (
     DriveDocumentReader,
     DriveSuggestionRetrievalStore,
@@ -301,11 +305,13 @@ class DriveSuggestionService:
         search_planner=interpret_live_search,
         reader_factory=None,
         require_owner=None,
+        candidate_selector=interpret_candidate_selection,
     ):
         self.oauth = oauth or get_external_connector_oauth_service().drive()
         self.store = store or DriveSuggestionStore(db=self.oauth.lifecycle.db)
         self.interpreter = interpreter
         self.search_planner = search_planner
+        self.candidate_selector = candidate_selector
         self.reader_factory = reader_factory
         self.require_owner = require_owner
 
@@ -349,6 +355,7 @@ class DriveSuggestionService:
                 if len(query.encode()) > 2048:
                     raise DriveSharingError("narrow_selection_required")
                 metadata_recency = False
+                selection = None
                 if job.get("live"):
                     await self._require_current(job)
                     stage = "search_plan"
@@ -426,6 +433,13 @@ class DriveSuggestionService:
                                 "matches": matches,
                                 "truncated": found["truncated"] or len(matches) > 1,
                             }
+                        # Recorded skip: the selector is not asked about a
+                        # file-activity window in this slice.
+                        selection = {
+                            "stage": "skipped_file_activity_window",
+                            "candidates": len(found["matches"]),
+                            "selected": len(found["matches"]),
+                        }
                         stage = "bind_files"
                         retrieved = await reader.bind_matches(
                             matches=found["matches"],
@@ -440,9 +454,44 @@ class DriveSuggestionService:
                         # exactly the files it found.
                         stage = "search_files"
                         found = await reader.find(**search_args)
+                        matches = found["matches"]
+                        if plan.terms and matches:
+                            # Read only what the tool-less selector judged to
+                            # be the requested records; never the first eight
+                            # keyword hits. A failure fails the preparation.
+                            stage = "select_candidates"
+                            await self._require_current(job)
+                            matches, selection = await select_matches(
+                                selector=self.candidate_selector,
+                                request=job["purpose"],
+                                mode="read",
+                                sort=plan.sort,
+                                matches=matches,
+                                truncated=found["truncated"],
+                                now_utc=now_utc,
+                                timezone="UTC",
+                                user_id=user_id,
+                            )
+                            if not matches:
+                                logger.info(
+                                    "drive_suggestion.no_relevant_files candidates=%d",
+                                    selection["candidates"],
+                                )
+                                await self.store.fail_preparation(
+                                    job, code="no_relevant_files", retryable=False
+                                )
+                                return "no_ready_files"
+                        else:
+                            selection = {
+                                "stage": "not_applicable_metadata_query"
+                                if not plan.terms
+                                else "no_candidates",
+                                "candidates": len(matches),
+                                "selected": len(matches),
+                            }
                         stage = "read_file_content"
                         retrieved = await reader.read_matches(
-                            matches=found["matches"], truncated=found["truncated"]
+                            matches=matches, truncated=found["truncated"]
                         )
                 else:
                     stage = "search_files"
@@ -542,6 +591,7 @@ class DriveSuggestionService:
                         **payload,
                         "truncated": retrieved["truncated"],
                         "semanticStage": "completed",
+                        **({"selection": selection} if selection else {}),
                     },
                     preparation_lease_id=job["lease_id"],
                     read_sources=list(observed.values()),

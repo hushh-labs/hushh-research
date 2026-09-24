@@ -119,6 +119,7 @@ async def live_journey(sharing, monkeypatch):
             interpreter=interpret,
             search_planner=AsyncMock(return_value={"terms": ["records"]}),
             require_owner=owner,
+            candidate_selector=AsyncMock(return_value={"selected": ["c1"]}),
         )
 
     async def create(purpose):

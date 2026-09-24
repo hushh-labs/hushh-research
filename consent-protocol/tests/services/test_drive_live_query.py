@@ -39,7 +39,6 @@ from tests.services.test_drive_sharing_store import MIGRATIONS, sharing  # noqa:
 
 QUESTION = "potential bank statement"
 FILE_ID = "1AbCdEfGhIjKlMnOpQrStUvWxYz012345"
-OPEN_URL = f"https://drive.google.com/file/d/{FILE_ID}/view"
 OWNER_PROOF = "synthetic-owner-proof"
 
 
@@ -82,18 +81,22 @@ def no_drive(monkeypatch):
         monkeypatch.setattr(drive_chat_service, name, spy)
     planner = AsyncMock(side_effect=AssertionError("planner reached"))
     interpreter = AsyncMock(side_effect=AssertionError("interpreter reached"))
-    chat = DriveChatService(search_planner=planner, interpreter=interpreter)
+    selector = AsyncMock(side_effect=AssertionError("selector reached"))
+    chat = DriveChatService(
+        search_planner=planner, interpreter=interpreter, candidate_selector=selector
+    )
     chat.run_live_query = AsyncMock(wraps=chat.run_live_query)
     chat.untouched = lambda: (
         not any(spy.called for spy in spies.values())
         and not planner.called
         and not interpreter.called
+        and not selector.called
         and not chat.run_live_query.called
     )
     return chat
 
 
-def live_chat(monkeypatch, *, reader, plan, interpreter=None):
+def live_chat(monkeypatch, *, reader, plan, interpreter=None, selector=None):
     monkeypatch.setattr(drive_chat_service, "DriveLiveReader", lambda **kwargs: reader)
     monkeypatch.setattr(
         drive_chat_service, "DriveDocumentReader", Mock(side_effect=AssertionError("selected lane"))
@@ -102,16 +105,17 @@ def live_chat(monkeypatch, *, reader, plan, interpreter=None):
         oauth=SimpleNamespace(current_credential=AsyncMock(return_value=({}, {"profile": "live"}))),
         search_planner=AsyncMock(return_value=plan),
         interpreter=interpreter or AsyncMock(side_effect=AssertionError("interpreter reached")),
+        candidate_selector=selector or AsyncMock(return_value={"selected": ["c1"]}),
     )
 
 
-def match(name="March bank statement.pdf"):
+def match(name="March bank statement.pdf", file_id=FILE_ID):
     return {
-        "file_id": FILE_ID,
+        "file_id": file_id,
         "name": name,
         "mime_type": "application/pdf",
         "modified_time": "2026-03-31T10:00:00Z",
-        "open_url": OPEN_URL,
+        "open_url": f"https://drive.google.com/file/d/{file_id}/view",
         "source_ref": "document:" + "a" * 32,
     }
 
@@ -447,6 +451,191 @@ def test_requester_answer_withholds_links_dates_and_owner_instructions():
     assert FILE_ID not in json.dumps(projected) and "2026" not in json.dumps(projected)
     for status in ("input_required", "connect_required"):
         assert requester_answer({"status": status})["text"] == NO_CLEAR_MATCH
+    judged = requester_answer({**files, "unreadable": False, "selection": {"stage": "completed"}})[
+        "text"
+    ]
+    assert judged == (
+        "These files in their Drive look like a match, going by file names, types and dates. "
+        "Their private agent didn't open them."
+    )
+    # Older outcomes and unjudged listings (exact title, metadata-only) say only
+    # that the files were found.
+    for unjudged in (
+        {**files, "unreadable": False},
+        {**files, "unreadable": False, "selection": {"stage": "exact_title"}},
+    ):
+        assert requester_answer(unjudged)["text"] == (
+            "These files were found in their Drive for this question."
+        )
+    for outcome in (files, {**files, "selection": {"stage": "completed"}}):
+        assert "match your question" not in requester_answer(outcome)["text"]
+    more = requester_answer({**files, "unreadable": False, "found_truncated": True})["text"]
+    assert more.endswith(" More matches may exist.")
+
+
+INCIDENT_TITLES = [
+    "Notes by Gemini - Sync 2026/09/01",
+    "Notes by Gemini - Sync 2026/09/08",
+    "Notes by Gemini - Bank review",
+    "Notes by Gemini - Statement walkthrough",
+    "Notes by Gemini - Planning",
+    "LP Master LPA",
+    "Employee Existence Verification",
+    "Bank details.txt",
+    "Bank details.txt",
+    "Meeting doc: bank statement process",
+    "HDFC_Statement_Apr2026.pdf",
+    "e-Stmt_XX1234_0526.pdf",
+]
+
+
+def incident_matches():
+    return [
+        {
+            **match(title, file_id=f"1AbCdEfGhIjKlMnOpQrStUvWxYz0{index:05d}"),
+            "source_ref": "document:" + f"{index:032d}",
+        }
+        for index, title in enumerate(INCIDENT_TITLES, 1)
+    ]
+
+
+async def test_allow_lists_only_the_files_the_selector_chose(store, monkeypatch):
+    matches = incident_matches()
+    reader = fake_reader(find=AsyncMock(return_value={"matches": matches, "truncated": False}))
+    selector = AsyncMock(return_value={"selected": ["c11", "c12"]})
+    chat = live_chat(
+        monkeypatch,
+        reader=reader,
+        plan={"terms": ["bank", "statement"], "mode": "find"},
+        selector=selector,
+    )
+    created = await ask(store, query="Lat 6 months Bank statement")
+    answered = await service(store, chat).allow(
+        user_id="owner",
+        request_id=created["requestId"],
+        revision=created["revision"],
+        consent_token=OWNER_PROOF,
+    )
+    assert answered["status"] == "answered"
+    selector.assert_awaited_once()
+    seen = await store.status(user_id="recipient", request_id=created["requestId"])
+    assert seen["answer"]["titles"] == ["HDFC_Statement_Apr2026.pdf", "e-Stmt_XX1234_0526.pdf"]
+    shown = json.dumps(seen)
+    for leaked in (
+        "LP Master LPA",
+        "Employee Existence Verification",
+        "Notes by Gemini",
+        "Bank details",
+        "match your question",
+        "drive.google.com",
+    ):
+        assert leaked not in shown
+    assert "didn't open them" in seen["answer"]["text"]
+    reader.read_matches.assert_not_called()
+
+
+async def test_empty_selection_answers_no_clear_match_without_titles(store, monkeypatch):
+    read_matches = AsyncMock(side_effect=AssertionError("content read"))
+    reader = fake_reader(
+        find=AsyncMock(return_value={"matches": incident_matches()[:10], "truncated": False}),
+        read_matches=read_matches,
+    )
+    chat = live_chat(
+        monkeypatch,
+        reader=reader,
+        plan={"terms": ["statement"], "mode": "read"},
+        selector=AsyncMock(return_value={"selected": []}),
+    )
+    created = await ask(store)
+    answered = await service(store, chat).allow(
+        user_id="owner",
+        request_id=created["requestId"],
+        revision=created["revision"],
+        consent_token=OWNER_PROOF,
+    )
+    assert answered["status"] == "answered"
+    assert answered["answer"]["text"] == NO_CLEAR_MATCH
+    assert answered["answer"]["titles"] == []
+    assert read_matches.called is False
+    assert "Notes by Gemini" not in json.dumps(answered)
+
+
+@pytest.mark.parametrize(
+    "selector",
+    [
+        AsyncMock(side_effect=RuntimeError("model unavailable")),
+        AsyncMock(return_value={"selected": ["c99"]}),
+    ],
+    ids=["raises", "invents"],
+)
+async def test_selector_failure_discloses_nothing_and_releases_the_claim(
+    store, monkeypatch, selector
+):
+    selector.reset_mock()
+    read_matches = AsyncMock(side_effect=AssertionError("content read"))
+    reader = fake_reader(
+        find=AsyncMock(return_value={"matches": incident_matches(), "truncated": False}),
+        read_matches=read_matches,
+    )
+    chat = live_chat(
+        monkeypatch, reader=reader, plan={"terms": ["statement"], "mode": "find"}, selector=selector
+    )
+    created = await ask(store)
+    with pytest.raises(DriveSharingError, match="drive_query_unavailable"):
+        await service(store, chat).allow(
+            user_id="owner",
+            request_id=created["requestId"],
+            revision=created["revision"],
+            consent_token=OWNER_PROOF,
+        )
+    stored = row(store, created["requestId"])
+    assert stored["status"] == "pending" and stored["answer_envelope"] is None
+    selector.assert_awaited_once()
+    assert read_matches.called is False
+
+
+async def test_none_relevant_is_an_honest_answered_state(store, monkeypatch):
+    content = [
+        {
+            "source_ref": "document:" + "b" * 32,
+            "document_ref": str(uuid4()),
+            "name": "Bank details.txt",
+            "page": None,
+            "text": "IFSC and account holder name",
+            "source_version": "7",
+        }
+    ]
+    reader = fake_reader(
+        read_matches=AsyncMock(
+            return_value={"untrusted_external_content": content, "truncated": False}
+        )
+    )
+    interpreter = AsyncMock(
+        return_value={
+            "answer": "None of these are bank statements.",
+            "source_refs": [],
+            "none_relevant": True,
+        }
+    )
+    chat = live_chat(
+        monkeypatch,
+        reader=reader,
+        plan={"terms": ["bank", "statement"], "mode": "read"},
+        interpreter=interpreter,
+    )
+    created = await ask(store, query="what is my closing balance")
+    answered = await service(store, chat).allow(
+        user_id="owner",
+        request_id=created["requestId"],
+        revision=created["revision"],
+        consent_token=OWNER_PROOF,
+    )
+    assert answered["status"] == "answered"
+    assert answered["answer"] == {
+        "text": "None of these are bank statements.",
+        "titles": [],
+        "truncated": False,
+    }
 
 
 def abandon(store, request_id, *, expired=False):
@@ -521,15 +710,31 @@ def disconnect(store):
         connection.execute(text("UPDATE connections SET status='removed'"))
 
 
-async def test_a_disconnect_during_the_run_releases_no_answer(store, monkeypatch):
+@pytest.mark.parametrize(
+    ("plan", "error", "message"),
+    [
+        # The claim fence before the selector stops the run first.
+        ({"terms": ["bank"], "mode": "find"}, PermissionError, "authority"),
+        # With nothing for the selector to judge, completion refuses the answer.
+        (
+            {"terms": [], "mode": "find", "file_kind": "pdf"},
+            DriveSharingError,
+            "connection_required",
+        ),
+    ],
+)
+async def test_a_disconnect_during_the_run_releases_no_answer(
+    store, monkeypatch, plan, error, message
+):
     async def find(**kwargs):
         disconnect(store)
         return {"matches": [match()], "truncated": False}
 
     reader = fake_reader(find=AsyncMock(side_effect=find))
-    chat = live_chat(monkeypatch, reader=reader, plan={"terms": ["bank"], "mode": "find"})
+    selector = AsyncMock(return_value={"selected": ["c1"]})
+    chat = live_chat(monkeypatch, reader=reader, plan=plan, selector=selector)
     created = await ask(store)
-    with pytest.raises(DriveSharingError, match="connection_required"):
+    with pytest.raises(error, match=message):
         await service(store, chat).allow(
             user_id="owner",
             request_id=created["requestId"],
@@ -538,6 +743,7 @@ async def test_a_disconnect_during_the_run_releases_no_answer(store, monkeypatch
         )
     stored = row(store, created["requestId"])
     assert stored["status"] == "pending" and stored["answer_envelope"] is None
+    assert selector.called is False
 
 
 async def test_the_answer_is_stored_only_while_the_connection_is_active(store):

@@ -158,6 +158,7 @@ class DriveSuggestionStore(DriveSharingProjectionStore):
             "preparation_unavailable",
             "narrow_selection_required",
             "no_ready_files",
+            "no_relevant_files",
             "source_changed",
         }
         code = code if code in allowed else "preparation_unavailable"
