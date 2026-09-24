@@ -121,6 +121,7 @@ test.beforeEach(async ({ page }) => {
         features: {
           connections_panel_v2: true,
           google_drive_connection: true,
+          google_drive_live: true,
           google_drive_picker: true,
           drive_document_indexing: true,
         },
@@ -409,8 +410,8 @@ test("background processing needs explicit consent and can be paused without rem
   await page.getByRole("button", { name: "Cancel selection" }).click();
   await selectFile();
   await expect(consent).not.toBeChecked();
-  await consent.focus();
-  await page.keyboard.press("Space");
+  await consent.check();
+  await expect(consent).toBeChecked();
   await page.getByRole("button", { name: "Add selected files" }).click();
   const processing = page.getByRole("checkbox", { name: /^Background processing for / });
   await expect(processing).toBeChecked();

@@ -1574,7 +1574,7 @@ function OwnerConnectorsPanel({
                     Choose files
                   </Button>
                 )}
-                <ul className="space-y-3" aria-label="Selected Drive files">
+                {documents.length > 0 && <ul className="space-y-3" aria-label="Selected Drive files">
                   {documents.map((item) => (
                     <li
                       key={item.documentId}
@@ -1648,7 +1648,7 @@ function OwnerConnectorsPanel({
                       </Button>
                     </li>
                   ))}
-                </ul>
+                </ul>}
                 </details>
               )}
             </section>}
