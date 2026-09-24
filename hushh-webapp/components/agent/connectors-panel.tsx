@@ -1181,11 +1181,7 @@ function OwnerConnectorsPanel({
     {
       id: "gmail",
       name: "Gmail",
-      detail: mailConnected
-        ? gmail.status?.needs_reauth
-          ? "Reconnect needed"
-          : `Google Workspace MCP · ${gmail.status?.google_email || "Connected"}`
-        : "Google Workspace MCP · Read access after connection",
+      detail: gmail.status?.needs_reauth ? "Reconnect needed" : undefined,
       connected: mailConnected,
       onOpen: () => showConnector("gmail"),
       action: mailConnected
@@ -1202,11 +1198,7 @@ function OwnerConnectorsPanel({
     {
       id: "google_drive",
       name: "Google Drive",
-      detail: hasDriveGrant
-        ? drive?.status === "needs_reauth"
-          ? "Reconnect needed"
-          : `${drive?.profile === "live" ? "Google Workspace MCP · Live Drive read" : "Selected files · limited Drive access"} · ${drive?.accountLabel || (drive?.profile === "live" ? "Search your Drive" : "Choose files for One")}`
-        : "Google Workspace MCP · Connect for live read or selected files",
+      detail: drive?.status === "needs_reauth" ? "Reconnect needed" : undefined,
       connected: hasDriveGrant,
       onOpen: () => showConnector("google_drive"),
       action: hasDriveGrant
@@ -1230,9 +1222,7 @@ function OwnerConnectorsPanel({
           ? "Checking connection…"
           : calendar.status?.status === "needs_reauth"
             ? "Reconnect needed"
-          : calendar.connected
-              ? "Google Workspace MCP · Connected"
-              : "Google Workspace MCP · Not connected",
+            : undefined,
       action: {
         label: "Manage Calendar",
         onClick: () => {
@@ -1251,9 +1241,7 @@ function OwnerConnectorsPanel({
           ? "Checking connection…"
           : plaidConnections.some((item) => item.status === "needs_relink")
             ? "Reconnect needed"
-          : plaidConnections.length > 0
-              ? "Finance connection · sharing needs approval (not MCP)"
-              : "Finance connection · not connected (not MCP)",
+            : undefined,
       action: {
         label: "Manage Plaid",
         onClick: () => {
@@ -1270,7 +1258,7 @@ function OwnerConnectorsPanel({
       .map((item): ConnectorListEntry => ({
         id: item.connectorId,
         name: item.displayName,
-        detail: item.accountLabel || item.description || undefined,
+        detail: item.status === "needs_reauth" ? "Reconnect needed" : undefined,
         connected: !["not_connected", "revoked"].includes(item.status),
         onOpen: !["not_connected", "revoked"].includes(item.status)
           ? () => showConnector(item.connectorId)

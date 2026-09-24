@@ -85,6 +85,8 @@ describe("supported connector catalog", () => {
     expect(screen.getByRole("searchbox", { name: "Search connectors" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Connected" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Available" })).toBeInTheDocument();
+    expect(screen.queryByText(/Google Workspace MCP|Finance connection|Read access after connection/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Read selected files")).not.toBeInTheDocument();
     for (const label of ["Coming soon", "Notion", "HubSpot", "Shopify", "Circle"]) {
       expect(screen.queryByText(label)).not.toBeInTheDocument();
     }

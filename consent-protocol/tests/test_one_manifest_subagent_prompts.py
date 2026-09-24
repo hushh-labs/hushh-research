@@ -9,6 +9,20 @@ from google.adk.tools.google_search_tool import GoogleSearchTool
 from hushh_mcp.one_adk import agent_tree
 
 
+def test_chat_connection_guidance_is_authored_and_not_limited_to_voice():
+    from hushh_mcp.one_adk.agent_tree import ONE_IDENTITY_INSTRUCTION
+
+    assert "use discover_workspace_tools for that provider" in ONE_IDENTITY_INSTRUCTION
+    assert "person must tap Connect and approve access" in ONE_IDENTITY_INSTRUCTION
+    assert "not a limit on typed Chat capabilities" in ONE_IDENTITY_INSTRUCTION
+    assert (
+        "Never promise a capability that is not in the list below" not in ONE_IDENTITY_INSTRUCTION
+    )
+    assert (
+        "Anything else is something a person still does by tapping" not in ONE_IDENTITY_INSTRUCTION
+    )
+
+
 def test_consent_routing_is_not_reauthored_by_runtime_instruction():
     authored = str(agent_tree._ONE_MANIFEST.system_instruction).strip()
     composed = agent_tree.ONE_IDENTITY_INSTRUCTION
