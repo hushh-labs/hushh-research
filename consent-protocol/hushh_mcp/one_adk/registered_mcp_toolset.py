@@ -64,25 +64,31 @@ class RegisteredMcpToolset(BaseToolset):
         scope.track_catalog_view(self)
         async with asyncio.timeout(20):
             definitions = await get_external_connector_registry_service().list_active_connectors(
-                user_id=context.user_id
+                user_id=None if scope.has_vault_configurations else context.user_id
             )
             admitted = [
-                item for item in definitions if native_registration_admitted(item, context.user_id)
+                (item.connector_id, item.display_name)
+                for item in definitions
+                if native_registration_admitted(item, context.user_id)
+                and (not scope.has_vault_configurations or item.owner_user_id is None)
             ]
+            if scope.has_vault_configurations:
+                admitted.extend(scope.vault_catalog(context.user_id))
             if len(admitted) > 32:
                 raise ExternalMcpError("Connector limit reached.", code="MCP_TURN_LIMIT")
             semaphore = asyncio.Semaphore(4)
 
             async def discover(definition):
+                connector_id, display_name = definition
                 async with semaphore:
                     try:
                         toolset = await scope.acquire(
-                            context, definition.connector_id, authorize_call=review_or_resume_call
+                            context, connector_id, authorize_call=review_or_resume_call
                         )
                         tools = await toolset.get_tools(context)
                         for tool in tools:
                             tool.description = (
-                                f"Connected app: {json.dumps(definition.display_name)}. "
+                                f"Connected app: {json.dumps(display_name)}. "
                                 f"{tool.description or ''}"
                             )
                         return tools

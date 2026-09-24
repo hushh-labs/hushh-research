@@ -41,7 +41,31 @@ const configurationSchema = z.object({
 }).strict();
 
 export type CustomConnectorConfiguration = z.infer<typeof configurationSchema>;
+type Authentication = CustomConnectorConfiguration["authentication"];
+export type CustomConnectorTurnConfiguration = Omit<CustomConnectorConfiguration, "authentication"> & {
+  authentication: Exclude<Authentication, { kind: "oauth" }> | Omit<Extract<Authentication, { kind: "oauth" }>, "refreshToken">;
+};
 type VaultAccess = { userId: string; vaultKey: string; vaultOwnerToken: string };
+
+/** Memory-only request projection. Never serialize vault keys or refresh tokens
+ * into ADK state/history. The caller must fence the request to its vault session.
+ * OAuth expiresAt is Unix time in seconds, checked again by the hosted resolver.
+ */
+export function projectCustomConnectorTurnConfigurations(
+  configurations: CustomConnectorConfiguration[],
+): CustomConnectorTurnConfiguration[] {
+  if (configurations.length > 32) throw invalidConfiguration();
+  const seen = new Set<string>();
+  return configurations.map(configuration => {
+    const record = parseCustomConnectorConfiguration(configuration);
+    if (seen.has(record.connectorId)) throw invalidConfiguration();
+    seen.add(record.connectorId);
+    const auth = record.authentication;
+    return { ...record, authentication: auth.kind === "oauth"
+      ? { kind: auth.kind, accessToken: auth.accessToken, expiresAt: auth.expiresAt }
+      : auth };
+  });
+}
 
 function invalidConfiguration(): Error {
   // Never forward Zod/JSON errors that can include private configuration.

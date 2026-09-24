@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const storage = vi.hoisted(() => ({ loadDomainData: vi.fn(), storeRuntimeSecret: vi.fn(), removeRuntimeSecret: vi.fn() }));
 vi.mock("@/lib/services/personal-knowledge-model-service", () => ({ PersonalKnowledgeModelService: storage }));
-import { loadCustomConnectorConfigurations, saveCustomConnectorConfiguration, removeCustomConnectorConfiguration, parseCustomConnectorConfiguration } from "@/lib/connections/custom-connector-configuration";
+import { loadCustomConnectorConfigurations, saveCustomConnectorConfiguration, removeCustomConnectorConfiguration, parseCustomConnectorConfiguration, projectCustomConnectorTurnConfigurations } from "@/lib/connections/custom-connector-configuration";
 
 const access = { userId: "synthetic-owner", vaultKey: "synthetic-key", vaultOwnerToken: "synthetic-token" };
 const confirmation = { confirmedByUser: true as const, surface: "web" as const, source: "connector_test" };
@@ -14,6 +14,20 @@ const record = {
 };
 
 describe("vault-backed custom connector configuration", () => {
+  it("projects only transient access credentials without mutating vault configuration", () => {
+    const oauth = { ...record, enabled: false, authentication: { kind: "oauth" as const,
+      accessToken: "synthetic-access", expiresAt: 2000000000, refreshToken: "synthetic-refresh" } };
+    const projected = projectCustomConnectorTurnConfigurations([oauth]);
+    expect(projected[0]?.authentication).toEqual({ kind: "oauth", accessToken: "synthetic-access", expiresAt: 2000000000 });
+    expect(JSON.stringify(projected)).not.toContain("synthetic-refresh");
+    expect(oauth.authentication.refreshToken).toBe("synthetic-refresh");
+    // Retain explicit disabled state so the server never falls back to an old registration.
+    expect(projected[0]?.enabled).toBe(false);
+  });
+  it("rejects duplicate or oversized turn catalogs", () => {
+    expect(() => projectCustomConnectorTurnConfigurations([record, record])).toThrow();
+    expect(() => projectCustomConnectorTurnConfigurations(Array(33).fill(record))).toThrow();
+  });
   beforeEach(() => {
     vi.resetAllMocks();
     storage.loadDomainData.mockResolvedValue(null);

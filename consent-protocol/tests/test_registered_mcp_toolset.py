@@ -103,6 +103,32 @@ async def test_curated_drive_uses_same_native_discovery_and_approval(registry):
         assert scope.acquire.await_args.kwargs["authorize_call"] is review_or_resume_call
 
 
+async def test_vault_catalog_replaces_private_db_definitions(registry):
+    registry.list_active_connectors.return_value = [definition("legacy_private")]
+    record = {
+        "version": 1,
+        "connectorId": "custom_" + "a" * 32,
+        "revision": "00000000-0000-4000-8000-000000000001",
+        "displayName": "Vault app",
+        "endpoint": "https://example.com/mcp",
+        "enabled": True,
+        "authentication": {"kind": "none"},
+    }
+    async with mcp_turn_scope("thread", owner_id="owner", configurations=[record]) as scope:
+        tool = SimpleNamespace(name="mcp_vault", description="Read")
+        scope.acquire = AsyncMock(
+            return_value=SimpleNamespace(get_tools=AsyncMock(return_value=[tool]))
+        )
+        assert await module.RegisteredMcpToolset().get_tools(context()) == [tool]
+        registry.list_active_connectors.assert_awaited_with(user_id=None)
+        assert scope.acquire.await_args.args[1] == record["connectorId"]
+        assert scope.acquire.await_count == 1
+    async with mcp_turn_scope("thread", owner_id="owner", configurations=[]) as scope:
+        scope.acquire = AsyncMock()
+        assert await module.RegisteredMcpToolset().get_tools(context()) == []
+        scope.acquire.assert_not_awaited()
+
+
 async def test_disconnected_connector_does_not_hide_working_connector(registry):
     registry.list_active_connectors.return_value = [definition("revoked"), definition("working")]
     tool = SimpleNamespace(name="mcp_working", description="Read")

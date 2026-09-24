@@ -84,7 +84,9 @@ def native_registration_admitted(connector: Any, owner: str) -> bool:
     )
 
 
-async def resolve_registered_connection(context: Any, connector_id: str) -> ResolvedMcpConnection:
+async def resolve_registered_connection(
+    context: Any, connector_id: str, *, curated_only: bool = False
+) -> ResolvedMcpConnection:
     """Resolve an existing registry credential under current Chat owner authority.
 
     Google account grants owned by other services still require their existing
@@ -105,9 +107,11 @@ async def resolve_registered_connection(context: Any, connector_id: str) -> Reso
             "Connector owner authority is unavailable.", code="MCP_OWNER_MISMATCH"
         )
     connector = await get_external_connector_registry_service().get_connector(
-        connector_id, user_id=owner
+        connector_id, user_id=None if curated_only else owner
     )
-    if not native_registration_admitted(connector, owner):
+    if not native_registration_admitted(connector, owner) or (
+        curated_only and connector.owner_user_id is not None
+    ):
         raise ExternalMcpError("Connector unavailable.", code="MCP_CONNECTION_CHANGED")
     if connector.owner_user_id is None:
         # Narrow provider authentication/policy adapter, never another tool

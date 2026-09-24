@@ -148,3 +148,146 @@ async def test_cleanup_failure_is_sanitized_without_masking_turn_failure(runtime
             raise ValueError("turn failure")
     assert "mcp_turn_cleanup_incomplete" in caplog.text
     assert "synthetic-private-cleanup-error" not in caplog.text
+
+
+def configuration():
+    return {
+        "version": 1,
+        "connectorId": "custom_" + "a" * 32,
+        "revision": "00000000-0000-4000-8000-000000000001",
+        "displayName": "Synthetic app",
+        "endpoint": "https://example.com/mcp",
+        "enabled": True,
+        "authentication": {"kind": "api_key", "header": "X-API-Key", "value": "synthetic-secret"},
+    }
+
+
+def authorized_context(owner="owner", thread="thread"):
+    value = context(owner, thread)
+    value.state.update(
+        {
+            "hussh:user_id": owner,
+            "temp:one_execution_surface": "typed_chat",
+            "hussh:consent_token": "synthetic-owner-token",
+        }
+    )
+    return value
+
+
+async def test_vault_config_is_request_only_and_revalidates_owner_per_call(runtime, monkeypatch):
+    validate = AsyncMock(return_value=True)
+    monkeypatch.setattr(module, "validate_first_party_owner_token", validate)
+    registry = AsyncMock(side_effect=AssertionError("must not read private DB registration"))
+    monkeypatch.setattr(module, "resolve_registered_connection", registry)
+    record = configuration()
+    async with module.mcp_turn_scope("thread", owner_id="owner", configurations=[record]) as scope:
+        native = await scope.acquire(
+            authorized_context(), record["connectorId"], authorize_call=AsyncMock()
+        )
+        record["authentication"]["value"] = "changed-after-admission"
+        resolved = await native.resolve_connection(authorized_context())
+        assert resolved.headers == {"X-API-Key": "synthetic-secret"}
+        assert "synthetic-secret" not in repr(resolved)
+        assert validate.await_count == 2
+        validate.return_value = False
+        with pytest.raises(ExternalMcpError):
+            await native.resolve_connection(authorized_context())
+        with pytest.raises(ExternalMcpError):
+            await native.resolve_connection(authorized_context("other"))
+        with pytest.raises(ExternalMcpError):
+            await native.resolve_connection(authorized_context(thread="other"))
+    assert scope._configurations == {}
+    with pytest.raises(ExternalMcpError):
+        await native.resolve_connection(authorized_context())
+    registry.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"endpoint": "https://127.0.0.1/mcp"},
+        {"endpoint": "https://example.com/mcp?secret=synthetic"},
+        {"connectorId": "google_drive"},
+        {"revision": "invalid"},
+        {"enabled": "yes"},
+        {"version": True},
+        {"extra": "synthetic-private"},
+        {
+            "authentication": {
+                "kind": "oauth",
+                "accessToken": "synthetic",
+                "expiresAt": 123,
+                "refreshToken": "never-forward",
+            }
+        },
+        {"authentication": {"kind": "api_key", "header": "Cookie", "value": "synthetic"}},
+        {"authentication": {"kind": "api_key", "header": "Authorization", "value": None}},
+        {
+            "authentication": {
+                "kind": "api_key",
+                "header": "Authorization",
+                "value": "synthetic\r\nsecret",
+            }
+        },
+    ],
+)
+def test_invalid_vault_projection_fails_without_echo(change):
+    with pytest.raises(ExternalMcpError) as caught:
+        module.McpTurnResources(
+            "thread", owner_id="owner", configurations=[{**configuration(), **change}]
+        )
+    assert str(caught.value) == "Connector configuration unavailable."
+    assert caught.value.__suppress_context__ is True
+
+
+@pytest.mark.parametrize("records", [[configuration()] * 2, [configuration()] * 33, {}])
+def test_vault_catalog_bounds_and_duplicates(records):
+    with pytest.raises(ExternalMcpError):
+        module.McpTurnResources("thread", owner_id="owner", configurations=records)
+
+
+async def test_disabled_or_omitted_vault_connector_never_falls_back_to_registry(monkeypatch):
+    monkeypatch.setattr(module, "validate_first_party_owner_token", AsyncMock(return_value=True))
+    registry = AsyncMock()
+    monkeypatch.setattr(module, "resolve_registered_connection", registry)
+    record = configuration()
+    record["enabled"] = False
+    for configurations in ([record], []):
+        async with module.mcp_turn_scope(
+            "thread", owner_id="owner", configurations=configurations
+        ) as scope:
+            assert scope.vault_catalog("owner") == []
+            with pytest.raises(ExternalMcpError):
+                await scope.resolve_connection(authorized_context(), record["connectorId"])
+    registry.assert_not_awaited()
+
+
+async def test_vault_oauth_expiry_is_rechecked(runtime, monkeypatch):
+    monkeypatch.setattr(module, "validate_first_party_owner_token", AsyncMock(return_value=True))
+    monkeypatch.setattr(module.time, "time", lambda: 100)
+    record = configuration()
+    record["authentication"] = {"kind": "oauth", "accessToken": "synthetic", "expiresAt": 101}
+    async with module.mcp_turn_scope("thread", owner_id="owner", configurations=[record]) as scope:
+        resolved = await scope.resolve_connection(authorized_context(), record["connectorId"])
+        assert resolved.headers == {"Authorization": "Bearer synthetic"}
+        monkeypatch.setattr(module.time, "time", lambda: 101)
+        with pytest.raises(ExternalMcpError) as caught:
+            await scope.resolve_connection(authorized_context(), record["connectorId"])
+        assert caught.value.code == "MCP_CREDENTIAL_EXPIRED"
+
+
+async def test_changed_configuration_cannot_reuse_binding_with_same_revision(runtime, monkeypatch):
+    monkeypatch.setattr(module, "validate_first_party_owner_token", AsyncMock(return_value=True))
+    bindings = []
+    for secret in ("first", "second"):
+        record = configuration()
+        record["authentication"]["value"] = secret
+        async with module.mcp_turn_scope(
+            "thread", owner_id="owner", configurations=[record]
+        ) as scope:
+            bindings.append(
+                (
+                    await scope.resolve_connection(authorized_context(), record["connectorId"])
+                ).binding
+            )
+    assert bindings[0] != bindings[1]
