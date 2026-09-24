@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
 from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent, run_single_turn
@@ -36,10 +36,28 @@ from hushh_mcp.services.google_drive_adapter import DriveReadError
 logger = logging.getLogger(__name__)
 
 
+MAX_SOURCE_REFS = 8
+
+
+def _bounded_source_refs(value: list[str]) -> list[str]:
+    if not 1 <= len(value) <= MAX_SOURCE_REFS:
+        raise ValueError("source_refs must hold 1 to 8 refs")
+    return value
+
+
+# Vertex rejects this response schema (400 INVALID_ARGUMENT, measured
+# 2026-09-25) when both nested lists also bound their source_refs arrays: the
+# item limits multiply past its schema limit. The bound is enforced here, after
+# the model answers, instead of inside the schema the model is given.
 class SuggestedFile(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     document_ref: str = Field(min_length=36, max_length=36)
-    source_refs: list[str] = Field(min_length=1, max_length=8)
+    source_refs: list[str]
+
+    @field_validator("source_refs")
+    @classmethod
+    def _refs(cls, value: list[str]) -> list[str]:
+        return _bounded_source_refs(value)
 
 
 class DocumentSuggestions(BaseModel):
@@ -55,7 +73,12 @@ class CoveredPeriod(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     period_start: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
     period_end: str = Field(pattern=r"^\d{4}-\d{2}-\d{2}$")
-    source_refs: list[str] = Field(min_length=1, max_length=8)
+    source_refs: list[str]
+
+    @field_validator("source_refs")
+    @classmethod
+    def _refs(cls, value: list[str]) -> list[str]:
+        return _bounded_source_refs(value)
 
 
 def period_covered(
