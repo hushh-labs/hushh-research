@@ -23,8 +23,19 @@ and public answers, TLS host preservation, redirect/proxy refusal, timeouts, and
 both MCP discovery and call factory wiring. This is automated evidence, not a
 live provider, custom-registration, browser, native or release acceptance claim.
 
-Still open: owner-private registration ingress and account-erasure proof,
-OAuth discovery protections, shared ADK toolset admission/approval, Settings/Chat
+Subsequent bounded checkpoints: `8b8a5a661` verifies private-registration erasure
+on disposable PostgreSQL; `5ce3f3453` adds owner-private REST registration with
+29 focused checks. Neither establishes private connector UI or live execution.
+
+Catalog admission now validates bounded JSON Schema 2020-12 object schemas,
+retains their constraints, and rejects remote references, rebasing IDs and
+unsupported dialects explicitly. Literal `$ref`/`$id` properties in example or
+constant information are not interpreted as schema directives. Refresh rejects
+late discovery at the caller boundary, not only at cache insertion. Fifty focused
+catalog, refresh, privacy and Workspace tests passed; the final ordering-only
+change was rechecked with 25 catalog/cache tests. This remains automated proof.
+
+Still open: OAuth discovery protections, shared ADK toolset admission/approval, Settings/Chat
 catalog refresh, governed continuation, and the approved live/release gates.
 Response normalization limits are not proof of a wire-level response-byte limit.
 

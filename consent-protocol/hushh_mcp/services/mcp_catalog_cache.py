@@ -12,6 +12,8 @@ from collections.abc import Awaitable, Callable
 from copy import deepcopy
 from typing import Any
 
+from hushh_mcp.services.external_mcp_client import ExternalMcpError
+
 
 class McpCatalogCache:
     def __init__(self, *, ttl_seconds: float, max_entries: int = 16) -> None:
@@ -58,6 +60,15 @@ class McpCatalogCache:
         if cached is not None:
             return cached
         catalog = await discover()
+        if revision != self.revision:
+            # A stale response is unsafe even when it never enters the cache:
+            # its original caller may otherwise admit a removed/changed tool.
+            # Do not silently retry discovery or replace the caller's revision.
+            raise ExternalMcpError(
+                "Connector tools changed during discovery. Refresh and try again.",
+                code="MCP_CATALOG_CHANGED",
+                status_code=409,
+            )
         self.put(token, catalog, revision=revision)
         return catalog
 

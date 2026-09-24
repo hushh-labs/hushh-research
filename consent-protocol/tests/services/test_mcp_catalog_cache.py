@@ -1,5 +1,6 @@
 """MCP capability discovery must follow the current credential."""
 
+import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
@@ -7,7 +8,38 @@ import pytest
 from hushh_mcp.services import google_calendar_mcp_service as calendar
 from hushh_mcp.services import google_drive_mcp_service as drive
 from hushh_mcp.services import google_gmail_mcp_service as gmail
+from hushh_mcp.services.external_mcp_client import ExternalMcpError
 from hushh_mcp.services.mcp_catalog_cache import McpCatalogCache
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("refresh_succeeds", [True, False])
+async def test_refresh_rejects_late_catalog_at_call_boundary(refresh_succeeds):
+    cache = McpCatalogCache(ttl_seconds=300)
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def old_discovery():
+        started.set()
+        await release.wait()
+        return [{"name": "removed_tool"}]
+
+    pending = asyncio.create_task(cache.load("owner", old_discovery))
+    await started.wait()
+    try:
+        fresh = AsyncMock(return_value=[{"name": "current_tool"}])
+        if not refresh_succeeds:
+            fresh.side_effect = RuntimeError("unavailable")
+            with pytest.raises(RuntimeError):
+                await cache.load("owner", fresh, force_refresh=True)
+        else:
+            await cache.load("owner", fresh, force_refresh=True)
+    finally:
+        release.set()
+    with pytest.raises(ExternalMcpError) as error:
+        await pending
+    assert error.value.code == "MCP_CATALOG_CHANGED"
+    assert cache.get("owner") == ([{"name": "current_tool"}] if refresh_succeeds else None)
 
 
 def test_cached_catalogs_are_isolated_and_copied():

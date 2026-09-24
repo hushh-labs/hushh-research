@@ -9,6 +9,7 @@ from hushh_mcp.services.external_mcp_client import (
     ExternalMcpError,
     _list_session_tools,
     _normalize_and_cap,
+    validate_tool_schema,
 )
 from hushh_mcp.services.google_drive_mcp_service import _search_metadata
 
@@ -18,6 +19,54 @@ def catalog_page(names, cursor=None):
         tools=[SimpleNamespace(name=name, inputSchema={"type": "object"}) for name in names],
         nextCursor=cursor,
     )
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        {},
+        {"type": "array"},
+        {"type": "object", "required": "not-an-array"},
+        {"type": "object", "$ref": "https://private.invalid/schema"},
+        {"type": "object", "$defs": {"nested": {"$id": "https://private.invalid"}}},
+        {"type": "object", "$schema": "https://unknown.invalid/schema"},
+    ],
+)
+async def test_invalid_schema_rejects_entire_catalog(schema):
+    page = catalog_page(["valid", "invalid"])
+    page.tools[1].inputSchema = schema
+    with pytest.raises(ExternalMcpError) as error:
+        await _list_session_tools(SimpleNamespace(list_tools=AsyncMock(return_value=page)))
+    assert error.value.code == "MCP_SCHEMA_INVALID"
+
+
+def test_local_schema_constraints_are_preserved():
+    schema = {
+        "type": "object",
+        "$defs": {"label": {"type": "string", "minLength": 1}},
+        "properties": {"label": {"$ref": "#/$defs/label"}},
+        "required": ["label"],
+        "additionalProperties": False,
+    }
+    assert validate_tool_schema(schema) == schema
+
+
+def test_literal_reference_properties_are_information_not_schema_directives():
+    schema = {
+        "type": "object",
+        "properties": {"$id": {"type": "string"}},
+        "const": {"$ref": "https://example.invalid/literal", "$id": "literal"},
+    }
+    assert validate_tool_schema(schema) == schema
+
+
+def test_deep_schema_fails_with_sanitized_limit():
+    schema = {"type": "object"}
+    for _ in range(40):
+        schema = {"type": "object", "properties": {"child": schema}}
+    with pytest.raises(ExternalMcpError) as error:
+        validate_tool_schema(schema)
+    assert error.value.code == "MCP_SCHEMA_LIMIT"
 
 
 @pytest.mark.asyncio
