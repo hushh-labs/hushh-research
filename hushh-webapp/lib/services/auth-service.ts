@@ -23,6 +23,7 @@ import {
   OAuthProvider,
   PhoneAuthProvider,
   linkWithCredential,
+  linkWithPopup,
   setPersistence,
   signInWithCredential,
   signInWithCustomToken as firebaseSignInWithCustomToken,
@@ -478,6 +479,56 @@ export class AuthService {
       return this.nativeGoogleSignIn();
     } else {
       return this.webGoogleSignIn();
+    }
+  }
+
+  /** Existing One session; the server resolves the linked delivery identity. */
+  static async documentRequestIdentityToken(
+    expectedUserId: string,
+    isCurrent: () => boolean,
+  ): Promise<string> {
+    if (!expectedUserId || !isCurrent()) throw new Error("session_changed");
+    if (Capacitor.isNativePlatform()) {
+      const token = await this.resolveLiveNativeIdToken("", true, expectedUserId);
+      if (!isCurrent()) throw new Error("session_changed");
+      if (!token) throw new Error("identity_verification_failed");
+      return token;
+    }
+    const user = auth.currentUser;
+    if (!user || user.uid !== expectedUserId) throw new Error("session_changed");
+    const token = await user.getIdToken(true);
+    if (!isCurrent() || auth.currentUser !== user) throw new Error("session_changed");
+    return token;
+  }
+
+  /** Explicit one-time account linking. Never switches or merges One accounts. */
+  static async linkGoogleIdentity(
+    expectedUserId: string,
+    isCurrent: () => boolean,
+  ): Promise<string> {
+    if (!expectedUserId || !isCurrent()) throw new Error("session_changed");
+    try {
+      if (Capacitor.isNativePlatform()) {
+        throw new Error("identity_link_web_required");
+      } else {
+        const user = auth.currentUser;
+        if (!user || user.uid !== expectedUserId) throw new Error("session_changed");
+        if (user.providerData?.some((provider) => provider.providerId === "google.com")) {
+          return await this.documentRequestIdentityToken(expectedUserId, isCurrent);
+        }
+        // Keep the popup on the explicit Add Google account gesture.
+        const result = await linkWithPopup(user, this.createWebProvider("google"));
+        if (!isCurrent() || auth.currentUser !== user || result.user.uid !== expectedUserId) throw new Error("session_changed");
+      }
+      return await this.documentRequestIdentityToken(expectedUserId, isCurrent);
+    } catch (error) {
+      if (!isCurrent() || error instanceof Error && error.message === "session_changed") throw new Error("session_changed");
+      if (error instanceof Error && error.message === "identity_link_web_required") throw error;
+      if (this.isExpectedPopupClose(error)) throw new Error("identity_cancelled");
+      const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
+      if (code === "auth/credential-already-in-use" || code === "auth/account-exists-with-different-credential") throw new Error("identity_already_linked");
+      if (code === "auth/popup-blocked") throw new Error("identity_popup_blocked");
+      throw new Error("identity_verification_failed");
     }
   }
 

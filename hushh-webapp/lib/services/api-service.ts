@@ -496,6 +496,7 @@ const KYC_SCAN_WEB_FETCH_TIMEOUT_MS = 95_000;
  */
 export function webFetchTimeoutMsForPath(path: string): number {
   const pathname = path.split("?", 1)[0];
+  if (/^\/api\/connectors\/google_drive\/sharing\/requests\/[0-9a-f-]{36}\/prepare$/.test(pathname ?? "")) return 180_000;
   return pathname === "/api/one/email/information-requests/scan"
     ? KYC_SCAN_WEB_FETCH_TIMEOUT_MS
     : WEB_FETCH_TIMEOUT_MS;

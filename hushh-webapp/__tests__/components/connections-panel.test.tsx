@@ -85,6 +85,7 @@ const overview = (label = "drive@example.invalid") => ({
   features: {
     connections_panel_v2: true,
     google_drive_connection: true,
+    google_drive_live: true,
     google_drive_picker: true,
   },
   connectors: [
@@ -207,6 +208,7 @@ describe("Connectors owner and mutation fences", () => {
     await openDriveDetail();
     fireEvent.click(await screen.findByRole("button", { name: "Connect Drive" }));
     await screen.findByText(message);
+    expect(state.nativeStart).toHaveBeenCalledWith(expect.objectContaining({ profile: "live" }));
     expect(p.onPrepareRecovery).toHaveBeenCalledWith({
       attemptId: "attempt_123456789012", reason: "web_full_page",
     });

@@ -16,6 +16,7 @@ const state = vi.hoisted(() => ({
   getToken: vi.fn(),
   overview: vi.fn(),
   reauthenticate: vi.fn(),
+  linkGoogle: vi.fn(),
   create: vi.fn(),
   lookupClient: vi.fn(),
   invalidate: vi.fn(),
@@ -41,7 +42,7 @@ vi.mock("@/lib/services/external-connector-service", () => ({
   ExternalConnectorService: { overview: state.overview },
 }));
 vi.mock("@/lib/services/auth-service", () => ({
-  AuthService: { reauthenticateGoogleIdentity: state.reauthenticate },
+  AuthService: { linkGoogleIdentity: state.linkGoogle, documentRequestIdentityToken: state.reauthenticate },
 }));
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: { apiFetch: vi.fn() },
@@ -65,7 +66,7 @@ async function open() {
   });
 }
 const send = () =>
-  fireEvent.click(screen.getByRole("button", { name: "Verify Google & send" }));
+  fireEvent.click(screen.getByRole("button", { name: "Send request" }));
 describe("recipient document request", () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -96,7 +97,7 @@ describe("recipient document request", () => {
     }} />);
     expect(await screen.findByText("Requested period: 2026-03-01 – 2026-08-31")).toBeTruthy();
     expect(state.create).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole("button", { name: "Verify Google & send request" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send request" }));
     await waitFor(() => expect(state.create).toHaveBeenCalledWith(
       "owner-b", "fresh-proof",
       { ownerPersonRef: personRef, clientRequestId,
@@ -109,7 +110,7 @@ describe("recipient document request", () => {
     mount();
     await open();
     expect(state.create).not.toHaveBeenCalled();
-    const submit = screen.getByRole("button", { name: "Verify Google & send" });
+    const submit = screen.getByRole("button", { name: "Send request" });
     fireEvent.click(submit);
     fireEvent.click(submit);
     expect(state.reauthenticate).toHaveBeenCalledOnce();
@@ -268,7 +269,7 @@ describe("recipient document request", () => {
       target: { value: "2026-01-01" },
     });
     expect(
-      screen.getByRole("button", { name: "Verify Google & send" }),
+      screen.getByRole("button", { name: "Send request" }),
     ).toBeDisabled();
     expect(state.reauthenticate).not.toHaveBeenCalled();
     expect(state.create).not.toHaveBeenCalled();
@@ -294,4 +295,45 @@ describe("recipient document request", () => {
       screen.queryByRole("button", { name: "Request documents" }),
     ).toBeNull();
   });
+});
+
+
+it("asks to link only when missing, preserves cancellation and retries the same request", async () => {
+  vi.clearAllMocks(); state.uid = "b"; state.unlocked = true; state.epoch = 1; state.token = "owner-b";
+  state.getToken.mockImplementation(() => state.token); state.overview.mockResolvedValue({features: {drive_document_sharing: true}, connectors: []}); state.lookupClient.mockResolvedValue(null); state.reauthenticate.mockResolvedValue("session");
+  const { DriveSharingError } = await import("@/lib/services/drive-sharing-service");
+  state.create.mockRejectedValueOnce(new DriveSharingError("verify_google_identity_required"));
+  mount(); await open(); send();
+  const add = await screen.findByRole("button", { name: "Add Google account" });
+  const firstId = state.create.mock.calls.at(-1)![2].clientRequestId;
+  state.linkGoogle.mockRejectedValueOnce(new Error("identity_cancelled"));
+  fireEvent.click(add);
+  await screen.findByRole("alert");
+  expect(screen.getByLabelText("What do you need?")).toHaveValue("Six months of statements");
+  state.linkGoogle.mockResolvedValueOnce("linked-proof");
+  state.create.mockResolvedValueOnce({ requestId, status: "pending", revision: 0 });
+  fireEvent.click(await screen.findByRole("button", { name: "Add Google account" }));
+  await screen.findByText("Request sent. No files have been shared by this action.");
+  expect(state.create.mock.calls.at(-1)![2].clientRequestId).toBe(firstId);
+});
+
+it("keeps a successful Google link when submission fails, then retries silently", async () => {
+  vi.clearAllMocks(); state.uid = "b"; state.unlocked = true; state.epoch = 1; state.token = "owner-b";
+  state.getToken.mockImplementation(() => state.token);
+  state.overview.mockResolvedValue({features: {drive_document_sharing: true}, connectors: []});
+  state.lookupClient.mockResolvedValue(null); state.reauthenticate.mockResolvedValue("session");
+  const { DriveSharingError } = await import("@/lib/services/drive-sharing-service");
+  state.create.mockRejectedValueOnce(new DriveSharingError("verify_google_identity_required"));
+  mount(); await open(); send();
+  await screen.findByRole("button", { name: "Add Google account" });
+  const firstId = state.create.mock.calls.at(-1)![2].clientRequestId;
+  state.linkGoogle.mockResolvedValueOnce("linked-proof");
+  state.create.mockRejectedValueOnce(new Error("network"));
+  fireEvent.click(await screen.findByRole("button", { name: "Add Google account" }));
+  await screen.findByRole("alert");
+  state.create.mockResolvedValueOnce({requestId, status: "pending", revision: 0});
+  fireEvent.click(await screen.findByRole("button", {name: "Send request"}));
+  await screen.findByText("Request sent. No files have been shared by this action.");
+  expect(state.linkGoogle).toHaveBeenCalledOnce();
+  expect(state.create.mock.calls.at(-1)![2].clientRequestId).toBe(firstId);
 });

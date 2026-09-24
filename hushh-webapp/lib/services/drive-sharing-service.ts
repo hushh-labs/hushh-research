@@ -79,6 +79,8 @@ export type TrustedDocumentRule = {
   recipientEmail: string;
   purpose: { purpose: string; periodStart: string | null; periodEnd: string | null };
   fileNames: string[];
+  scope: "exact_files_same_request_purpose" | "any_requested_drive_file";
+  readiness: "ready" | "background_off" | "reconnect_required";
   status: "Trusted for documents";
 };
 
@@ -265,7 +267,14 @@ export class DriveSharingService {
     guard();
     if (!Array.isArray(payload.items) || payload.items.length > 50)
       throw new DriveSharingError("invalid_response");
-    return payload.items.map((value) => { const item = record(value); return ({
+    return payload.items.map((value) => { const item = record(value);
+      const scope = item.scope ?? "exact_files_same_request_purpose";
+      const readiness = item.readiness ?? "reconnect_required";
+      if (scope !== "exact_files_same_request_purpose" && scope !== "any_requested_drive_file" ||
+          readiness !== "ready" && readiness !== "background_off" && readiness !== "reconnect_required")
+        throw new DriveSharingError("invalid_response");
+      return ({
+      scope, readiness,
       ruleId: id(item.ruleId),
       version: revision(item.version),
       recipientEmail: string(item.recipientEmail, 320),
@@ -390,12 +399,17 @@ export class DriveSharingService {
     };
   }
 
+  static prepare(token: string, requestId: string, guard: SharingSessionGuard) {
+    return this.request(token, requestId, guard, "/prepare", {});
+  }
+
   static approve(
     token: string,
     requestId: string,
     review: SharingReview,
     guard: SharingSessionGuard,
     trustFutureRequests = false,
+    trustScope?: "any_requested_drive_file",
   ) {
     if (
       !review.canApprove ||
@@ -409,6 +423,7 @@ export class DriveSharingService {
       documentIds: review.files.map((file) => file.documentId),
       confirmed: true,
       ...(trustFutureRequests ? {trustFutureRequests: true} : {}),
+      ...(trustScope ? {trustScope, trustDisclosureVersion: "drive-any-requested-file-including-future-v1"} : {}),
     });
   }
   static decide(

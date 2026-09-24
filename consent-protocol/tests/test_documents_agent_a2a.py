@@ -6,7 +6,7 @@ import json
 import time
 from dataclasses import replace
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from google.adk.runners import Runner
@@ -51,7 +51,7 @@ def task(**changes):
                 tenant_id="owner",
                 task_id="task",
                 caller_kind="first_party",
-                invocation_capabilities=("cap.documents.selected.read",),
+                invocation_capabilities=("cap.documents.read",),
                 expires_at_ms=int(time.time() * 1000) + 60000,
             ),
             expected_tenant_id="owner",
@@ -145,7 +145,13 @@ async def test_real_root_dispatch_and_toolless_gene_preserve_identity_and_redact
     )
     monkeypatch.setattr(drive_chat_service, "build_managed_runtime_client", lambda _: object())
     monkeypatch.setattr(drive_chat_service, "Gemini", lambda **kwargs: gene)
-    service = DriveChatService(reader_factory=lambda **kwargs: source)
+    monkeypatch.setattr(drive_chat_service, "DriveLiveReader", lambda **kwargs: source)
+    selected = Mock(side_effect=AssertionError("Live root must not use the selected index"))
+    monkeypatch.setattr(drive_chat_service, "DriveDocumentReader", selected)
+    service = DriveChatService(
+        oauth=SimpleNamespace(current_credential=AsyncMock(return_value=({}, {"profile": "live"}))),
+        search_planner=AsyncMock(return_value={"terms": ["statement"]}),
+    )
     monkeypatch.setattr(documents_agent, "DriveChatService", lambda: service)
     root_model = _Model(
         [
@@ -200,3 +206,31 @@ async def test_real_root_dispatch_and_toolless_gene_preserve_identity_and_redact
         assert session.state[agent_tree.STATE_CONVERSATION_ID] == "original"
     finally:
         await runner.close()
+
+
+@pytest.mark.parametrize("failure", [False, True])
+async def test_live_profile_uses_mcp_without_selected_index_or_fallback(monkeypatch, failure):
+    from unittest.mock import Mock
+
+    source = reader()
+    source.search.return_value["untrusted_external_content"][0]["page"] = None
+    if failure:
+        source.search.side_effect = DriveReadError("provider_unavailable")
+    live = Mock(return_value=source)
+    selected = Mock(side_effect=AssertionError("Selected index must not be opened"))
+    monkeypatch.setattr(drive_chat_service, "DriveLiveReader", live)
+    monkeypatch.setattr(drive_chat_service, "DriveDocumentReader", selected)
+    oauth = SimpleNamespace(current_credential=AsyncMock(return_value=({}, {"profile": "live"})))
+    planner = AsyncMock(return_value={"terms": ["statement"]})
+    service = DriveChatService(
+        oauth=oauth,
+        search_planner=planner,
+        interpreter=AsyncMock(return_value={"answer": "A live answer", "source_refs": [REF]}),
+    )
+    response = await documents_agent.DocumentsAgentA2A(service=service).handle(task())
+    source.search.assert_awaited_once_with(query=["statement"])
+    selected.assert_not_called()
+    assert response.structured.status == ("unavailable" if failure else "ok")
+    if not failure:
+        assert response.structured.sources[0].page is None
+    assert "select" not in response.text.lower()

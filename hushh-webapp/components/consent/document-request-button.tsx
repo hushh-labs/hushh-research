@@ -78,6 +78,7 @@ function UnlockedRequestButton({
   const [end, setEnd] = useState(draft?.periodEnd ?? "");
   const [phase, setPhase] = useState<"idle" | "verifying" | "sending">("idle");
   const [error, setError] = useState<string | null>(null);
+  const [needsGoogle, setNeedsGoogle] = useState(false);
   const [created, setCreated] = useState<string | null>(null);
   const alive = useRef(false);
   const serial = useRef(0);
@@ -133,7 +134,7 @@ function UnlockedRequestButton({
     setPhase("idle");
     setOpen(false);
   };
-  const send = async () => {
+  const send = async (linkGoogle = false) => {
     if (inFlight.current || !valid || !alive.current) return;
     const token = getToken();
     if (!token) return;
@@ -160,12 +161,11 @@ function UnlockedRequestButton({
     setError(null);
     setPhase("verifying");
     try {
-      // Called directly from the gesture; no fetch/await before the popup.
-      const firebaseToken = await AuthService.reauthenticateGoogleIdentity(
-        userId,
-        current,
-      );
+      const firebaseToken = await (linkGoogle
+        ? AuthService.linkGoogleIdentity(userId, current)
+        : AuthService.documentRequestIdentityToken(userId, current));
       guard();
+      if (linkGoogle) setNeedsGoogle(false);
       setPhase("sending");
       const result = await DriveSharingService.create(
         token,
@@ -174,6 +174,7 @@ function UnlockedRequestButton({
         guard,
       );
       guard();
+      setNeedsGoogle(false);
       setCreated(result.requestId);
       if (!draft) {
         setPurpose("");
@@ -195,8 +196,15 @@ function UnlockedRequestButton({
           : cause instanceof Error
             ? cause.message
             : "request_failed";
+      if (code === "verify_google_identity_required" || code === "google_identity_required") setNeedsGoogle(true);
       setError(
-        code === "identity_cancelled"
+        code === "verify_google_identity_required" || code === "google_identity_required"
+          ? "Add a Google account once to receive original files."
+          : code === "identity_link_web_required"
+            ? "Open One on the web to add your Google account once."
+          : code === "identity_already_linked"
+            ? "That Google account belongs to another One account. Choose another."
+          : code === "identity_cancelled"
           ? "Google verification was cancelled. No new attempt was sent. Check Sent documents for any earlier request."
           : code === "identity_busy"
             ? "Finish the verification already open, then retry."
@@ -229,10 +237,10 @@ function UnlockedRequestButton({
     <div className="space-y-3">
       <BodyText>Ask {personName} for: {purpose}</BodyText>
       {start && end ? <HelperText>Requested period: {start} – {end}</HelperText> : null}
-      <HelperText>They choose the exact files. Verify your Google identity before sending; you do not need Drive access to open approved originals.</HelperText>
+      <HelperText>Files are shared after approval or under document trust.</HelperText>
       {error ? <HelperText role="alert">{error}</HelperText> : null}
-      <Button size="prominent" disabled={!valid || phase !== "idle"} onClick={() => void send()}>
-        {phase === "verifying" ? "Verifying…" : phase === "sending" ? "Sending…" : "Verify Google & send request"}
+      <Button size="prominent" disabled={!valid || phase !== "idle"} onClick={() => void send(needsGoogle)}>
+        {phase === "verifying" ? "Sending…" : phase === "sending" ? "Sending…" : needsGoogle ? "Add Google account" : "Send request"}
       </Button>
     </div>
   );
@@ -288,7 +296,7 @@ function UnlockedRequestButton({
               className="min-w-0 space-y-4"
               onSubmit={(event) => {
                 event.preventDefault();
-                void send();
+                void send(needsGoogle);
               }}
             >
               <div className="space-y-2">
@@ -335,8 +343,7 @@ function UnlockedRequestButton({
                 </HelperText>
               ) : null}
               <HelperText as="p">
-                Verify the Google identity that should receive access. You don’t
-                need to connect Drive to open approved files in Google.
+                Receive approved originals through your linked Google account.
               </HelperText>
               {error ? (
                 <HelperText as="p" role="alert">
@@ -353,10 +360,10 @@ function UnlockedRequestButton({
                     }
                   >
                     {phase === "verifying"
-                      ? "Verifying…"
+                      ? "Sending…"
                       : phase === "sending"
                         ? "Sending…"
-                        : "Verify Google & send"}
+                        : needsGoogle ? "Add Google account" : "Send request"}
                   </Button>
                 }
                 secondary={

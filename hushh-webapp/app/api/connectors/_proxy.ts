@@ -45,7 +45,10 @@ export async function proxyExternalConnectorRequest(
       method: request.method,
       headers,
       body,
-      signal: AbortSignal.timeout(CONNECTOR_PROXY_TIMEOUT_MS),
+      signal: AbortSignal.timeout(
+        request.method === "POST" && /^google_drive\/sharing\/requests\/[0-9a-f-]{36}\/prepare$/.test(path.join("/"))
+          ? 170_000 : CONNECTOR_PROXY_TIMEOUT_MS,
+      ),
     });
     const payload = await response
       .json()

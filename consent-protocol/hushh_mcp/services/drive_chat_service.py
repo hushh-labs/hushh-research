@@ -1,4 +1,4 @@
-"""Nonpersisting selected-document read; the interpreter has no executable tools."""
+"""Nonpersisting owner-authorized Drive read; the interpreter has no executable tools."""
 
 from __future__ import annotations
 
@@ -14,7 +14,10 @@ from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent, run_single_
 from hushh_mcp.runtime_providers import build_managed_runtime_client
 from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
 from hushh_mcp.services.drive_document_retrieval import DriveDocumentReader
+from hushh_mcp.services.drive_live_reader import DriveLiveReader
+from hushh_mcp.services.drive_suggestion_service import LiveSearchPlan, interpret_live_search
 from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
+from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 
 
@@ -66,9 +69,18 @@ def result(conversation_id, answer, status, *, sources=(), truncated=False):
 
 
 class DriveChatService:
-    def __init__(self, *, reader_factory=DriveDocumentReader, interpreter=interpret):
+    def __init__(
+        self,
+        *,
+        reader_factory=None,
+        interpreter=interpret,
+        oauth=None,
+        search_planner=interpret_live_search,
+    ):
         self.reader_factory = reader_factory
         self.interpreter = interpreter
+        self.oauth = oauth
+        self.search_planner = search_planner
 
     async def handle_delegated_turn(
         self, *, user_id, consent_token, conversation_id, message, require_access
@@ -77,19 +89,45 @@ class DriveChatService:
         if not message.strip() or len(message.encode()) > 2048:
             return result(
                 conversation_id,
-                "What would you like to know about your selected Drive files? Please keep the question brief.",
+                "What would you like to know about your Drive files? Please keep the question brief.",
                 "input_required",
             )
         try:
             async with asyncio.timeout(160):
-                reader = self.reader_factory(user_id=user_id, require_access=require_access)
-                retrieved = await reader.search(query=message)
+                live = False
+                if self.reader_factory:
+                    reader = self.reader_factory(user_id=user_id, require_access=require_access)
+                else:
+                    oauth = self.oauth or get_external_connector_oauth_service().drive()
+                    _, credential = await oauth.current_credential(user_id=user_id)
+                    live = credential.get("profile") == "live"
+                    reader = (DriveLiveReader if live else DriveDocumentReader)(
+                        user_id=user_id, require_access=require_access, oauth=oauth
+                    )
+                query = message
+                if live:
+                    await require_access()
+                    plan = LiveSearchPlan.model_validate(
+                        await self.search_planner(
+                            prompt=json.dumps(
+                                {"document_request": {"purpose": message}}, ensure_ascii=False
+                            ),
+                            user_id=user_id,
+                        )
+                    )
+                    query = plan.terms
+                await require_access()
+                retrieved = await reader.search(query=query)
                 content = retrieved["untrusted_external_content"]
                 if not content:
                     await reader.require_current()
                     return result(
                         conversation_id,
-                        "I can't read a selected file yet. In Connectors, check that it is selected and processing has finished.",
+                        (
+                            "I couldn't find a readable match. Try a more specific filename or request."
+                            if live
+                            else "This connection only covers previously selected files. Reconnect Drive to search your Drive."
+                        ),
                         "input_required",
                     )
                 answer = DocumentAnswer.model_validate(
@@ -130,7 +168,7 @@ class DriveChatService:
             if code in {"connect_required", "not_connected"}:
                 return result(
                     conversation_id,
-                    "Connect your own Drive in Connectors, then choose the files One may read.",
+                    "Connect Drive in Connectors to search and read files.",
                     "connect_required",
                 )
             if code in {"reconnect_required", "needs_reauth"}:
@@ -142,19 +180,19 @@ class DriveChatService:
             if code == "narrow_selection_required":
                 return result(
                     conversation_id,
-                    "This selected library is too large for one bounded read. Narrow your selected files in Connectors.",
+                    "Ask for a more specific document or period.",
                     "input_required",
                 )
             if code == "invalid_argument":
                 return result(
                     conversation_id,
-                    "Please ask a shorter question about your selected Drive files.",
+                    "Please ask a shorter question about your Drive files.",
                     "input_required",
                 )
             if code in {"source_changed", "connection_changed", "source_unavailable"}:
                 return result(
                     conversation_id,
-                    "Drive access or a selected file changed. Sync or reselect it, then try again.",
+                    "Drive access or the file changed. Try again.",
                     "source_changed",
                 )
         except Exception:

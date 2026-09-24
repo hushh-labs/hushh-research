@@ -13,6 +13,7 @@ from hushh_mcp.one_adk.external_read_boundary import STATE_EXECUTION_SURFACE
 from hushh_mcp.one_adk.request_secrets import resolve_request_secret
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.drive_selection_service import DriveSelectionService
+from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH
 
 PRIVATE_SOURCE = "google_drive_selected_status"
 MAX_MATCHES = 3
@@ -74,12 +75,13 @@ async def inspect_selected_drive_files(file_name: str, tool_context: ToolContext
     try:
         service = _service()
         before = await service.oauth.lifecycle.read(user_id=owner, connector_id="google_drive")
-        documents = await service.documents(user_id=owner) if before else []
+        live = bool(before and before.get("verified_policy_hash") == LIVE_POLICY_HASH)
+        documents = await service.documents(user_id=owner) if before and not live else []
         after = await service.oauth.lifecycle.read(user_id=owner, connector_id="google_drive")
         # Selection, removal and processing changes do not advance the OAuth
         # generation. Recheck the catalog after the first read before naming a
         # file, and fail closed when the two snapshots differ.
-        latest_documents = await service.documents(user_id=owner) if after else []
+        latest_documents = await service.documents(user_id=owner) if after and not live else []
         final = await service.oauth.lifecycle.read(user_id=owner, connector_id="google_drive")
     except Exception:  # noqa: BLE001 - never surface provider or storage diagnostics
         # Provider, database and encrypted-metadata diagnostics stay private.
@@ -111,6 +113,21 @@ async def inspect_selected_drive_files(file_name: str, tool_context: ToolContext
         if final["status"] == "connected"
         else "reconnect_required"
     )
+    if live:
+        return {
+            "source": PRIVATE_SOURCE,
+            "status": "ok",
+            "connection": connection,
+            "accessMode": "live",
+            "liveReadAvailable": connection == "connected"
+            and connector_feature_enabled("google_drive_live", owner),
+            "message": (
+                "Use ask_documents_agent to find or read files. No file selection is required."
+                if connection == "connected"
+                and connector_feature_enabled("google_drive_live", owner)
+                else "Live Drive reading is unavailable. Check the connection."
+            ),
+        }
     selected = documents if connection == "connected" else []
     # The empty name is the aggregate status request. Never enumerate selected
     # filenames merely to answer whether Drive is connected or has selections.

@@ -121,6 +121,7 @@ test.beforeEach(async ({ page }) => {
         features: {
           connections_panel_v2: true,
           google_drive_connection: true,
+          google_drive_live: true,
           google_drive_picker: true,
           drive_document_indexing: true,
         },
@@ -252,6 +253,10 @@ for (const width of [320, 390, 768, 1440])
       await drawer.getByRole("button", { name: connector, exact: true }).click();
       await expect(drawer.getByRole("button", { name: "Back to connectors" })).toBeFocused();
       await expect(drawer.getByText(account)).toBeVisible();
+      if (connector === "Google Drive") {
+        await expect(drawer.getByRole("button", { name: "Choose files", exact: true })).not.toBeVisible();
+        await drawer.getByText("Previously added files", { exact: true }).click();
+      }
       for (const name of names) {
         const button = drawer.getByRole("button", { name, exact: true });
         await button.scrollIntoViewIfNeeded();
@@ -327,6 +332,8 @@ test("Picker focus, explicit admission, removal, and independent disconnect", as
   await page.getByRole("button", { name: "Open drawer", exact: true }).click();
   await page.getByLabel("Open Connectors", { exact: true }).click();
   await page.getByRole("button", { name: "Google Drive", exact: true }).click();
+  await expect(page.getByRole("button", { name: "Choose files", exact: true })).not.toBeVisible();
+  await page.getByText("Previously added files", { exact: true }).click();
   await page.getByRole("button", { name: "Choose files", exact: true }).click();
   await expect(
     page.getByRole("dialog", { name: "Synthetic Google Picker" }),
@@ -388,6 +395,7 @@ test("background processing needs explicit consent and can be paused without rem
   await page.getByRole("button", { name: "Open drawer", exact: true }).click();
   await page.getByLabel("Open Connectors", { exact: true }).click();
   await page.getByRole("button", { name: "Google Drive", exact: true }).click();
+  await page.getByText("Previously added files", { exact: true }).click();
   const selectFile = async () => {
     await page.getByRole("button", { name: "Choose files", exact: true }).click();
     await page.getByRole("button", { name: "Pick synthetic file" }).click();
@@ -402,8 +410,8 @@ test("background processing needs explicit consent and can be paused without rem
   await page.getByRole("button", { name: "Cancel selection" }).click();
   await selectFile();
   await expect(consent).not.toBeChecked();
-  await consent.focus();
-  await page.keyboard.press("Space");
+  await consent.check();
+  await expect(consent).toBeChecked();
   await page.getByRole("button", { name: "Add selected files" }).click();
   const processing = page.getByRole("checkbox", { name: /^Background processing for / });
   await expect(processing).toBeChecked();

@@ -25,6 +25,13 @@ tests/test_drive_work_drain_scheduler_contract.py
 tests/test_drive_worker_server.py
 tests/services/test_google_drive_permission_adapter.py
 tests/services/test_drive_sharing_contract.py
+tests/test_runtime_settings_maps.py
+tests/test_drive_sharing_routes.py
+tests/services/test_drive_live_reader.py
+tests/services/test_drive_live_rule_contract.py
+tests/services/test_drive_live_journey.py
+tests/services/test_drive_suggestions.py
+tests/services/test_drive_suggestion_coverage.py
 tests/services/test_document_review_authority_postgres.py
 tests/services/test_drive_sharing_store.py
 tests/services/test_drive_permission_executor.py
