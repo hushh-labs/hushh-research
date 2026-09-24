@@ -59,24 +59,36 @@ function reference(connectorId: string): string {
   return `pkm:runtime_secrets.connectors.${connectorId}`;
 }
 
+async function storedRecords(access: VaultAccess): Promise<Record<string, unknown>> {
+  const domain = await PersonalKnowledgeModelService.loadDomainData({ ...access, domain: "runtime_secrets" });
+  if (domain === null) return {};
+  if (!domain || typeof domain !== "object" || Array.isArray(domain)) throw invalidConfiguration();
+  if (domain.connectors === undefined) return {};
+  if (!domain.connectors || typeof domain.connectors !== "object" || Array.isArray(domain.connectors)) throw invalidConfiguration();
+  if (Object.keys(domain.connectors).length > 32) throw invalidConfiguration();
+  return domain.connectors as Record<string, unknown>;
+}
+
+function parseStoredRecord(key: string, serialized: unknown): CustomConnectorConfiguration {
+  if (typeof serialized !== "string" || serialized.length > 32000) throw invalidConfiguration();
+  let value: unknown;
+  try { value = JSON.parse(serialized); } catch { throw invalidConfiguration(); }
+  const record = parseCustomConnectorConfiguration(value);
+  if (record.connectorId !== key) throw invalidConfiguration();
+  return record;
+}
+
+async function expectedRecord(access: VaultAccess, connectorId: string, expectedRevision: string | null): Promise<string | null> {
+  const records = await storedRecords(access);
+  const stored = records[connectorId];
+  const currentRevision = stored === undefined ? null : parseStoredRecord(connectorId, stored).revision;
+  if (currentRevision !== expectedRevision) throw new Error("This connector changed. Reload before editing again.");
+  return stored === undefined ? null : stored as string;
+}
+
 /** Caller owns unlocked-session validity; no decrypted configuration is cached here. */
 export async function loadCustomConnectorConfigurations(access: VaultAccess): Promise<CustomConnectorConfiguration[]> {
-  const domain = await PersonalKnowledgeModelService.loadDomainData({
-    ...access, domain: "runtime_secrets",
-  });
-  if (domain?.connectors === undefined) return [];
-  const branch = domain.connectors;
-  if (!branch || typeof branch !== "object" || Array.isArray(branch)) throw invalidConfiguration();
-  const entries = Object.entries(branch);
-  if (entries.length > 32) throw invalidConfiguration();
-  return entries.map(([key, serialized]) => {
-    if (typeof serialized !== "string" || serialized.length > 32000) throw invalidConfiguration();
-    let value: unknown;
-    try { value = JSON.parse(serialized); } catch { throw invalidConfiguration(); }
-    const record = parseCustomConnectorConfiguration(value);
-    if (record.connectorId !== key) throw invalidConfiguration();
-    return record;
-  });
+  return Object.entries(await storedRecords(access)).map(([key, value]) => parseStoredRecord(key, value));
 }
 
 /** One encrypted record per edit; conflict recovery preserves sibling records. */
@@ -84,22 +96,27 @@ export async function saveCustomConnectorConfiguration(
   access: VaultAccess,
   configuration: CustomConnectorConfiguration,
   confirmation: PkmUserConfirmation,
+  expectedRevision: string | null,
 ) {
   const record = parseCustomConnectorConfiguration(configuration);
+  const expectedValue = await expectedRecord(access, record.connectorId, expectedRevision);
   // Every save invalidates prior call-review bindings, even if the caller
   // mistakenly reuses a draft revision. The generated revision is encrypted.
   record.revision = crypto.randomUUID();
   await PersonalKnowledgeModelService.storeRuntimeSecret({
     ...access, confirmation, credentialRef: reference(record.connectorId),
-    secret: JSON.stringify(record),
+    secret: JSON.stringify(record), expectedValue,
   });
   return record;
 }
 
 export async function removeCustomConnectorConfiguration(
   access: VaultAccess, connectorId: string, confirmation: PkmUserConfirmation,
+  expectedRevision: string,
 ) {
+  const credentialRef = reference(connectorId);
+  const expectedValue = await expectedRecord(access, connectorId, expectedRevision);
   return PersonalKnowledgeModelService.removeRuntimeSecret({
-    ...access, confirmation, credentialRef: reference(connectorId),
+    ...access, confirmation, credentialRef, expectedValue,
   });
 }

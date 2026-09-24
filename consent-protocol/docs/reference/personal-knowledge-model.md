@@ -401,6 +401,16 @@ checks the 32-record bound again after conflict recovery. The client keeps no
 module-level decrypted cache; consumers must still fence results against the
 current owner and vault session. Client URL syntax checks are not SSRF admission:
 the hosted MCP boundary must independently validate every endpoint and credential.
+Connector edits/removals name the revision the owner reviewed. The client rejects
+a mismatch, and the writer rechecks the exact serialized prior record whenever
+it reapplies a mutation after a domain conflict. Malformed non-null settings roots
+fail closed rather than becoming a new empty domain. Runtime-setting writes load
+one coherent domain snapshot and carry its content revision as both the mutation
+plan source revision and the server's expected data version. Conflict recovery
+loads another snapshot; it never pairs older ciphertext with a separately fetched
+newer manifest. Only authoritative absence permits a revision-zero create.
+These client checks complement, rather than replace, the server's atomic commit
+authority.
 
 Connections-owned Gemini configuration uses the existing encrypted PKM store,
 not a new database table or native secret store. The primary references are

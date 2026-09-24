@@ -14,13 +14,16 @@ const record = {
 };
 
 describe("vault-backed custom connector configuration", () => {
-  beforeEach(() => vi.resetAllMocks());
+  beforeEach(() => {
+    vi.resetAllMocks();
+    storage.loadDomainData.mockResolvedValue(null);
+  });
   it("saves one encrypted record with fresh revision and explicit confirmation", async () => {
-    const saved = await saveCustomConnectorConfiguration(access, record, confirmation);
+    const saved = await saveCustomConnectorConfiguration(access, record, confirmation, null);
     expect(saved.revision).not.toBe(record.revision);
     expect(record.revision).toBe("11111111-1111-4111-8111-111111111111");
     expect(storage.storeRuntimeSecret).toHaveBeenCalledWith({ ...access, confirmation,
-      credentialRef: `pkm:runtime_secrets.connectors.${record.connectorId}`, secret: JSON.stringify(saved) });
+      credentialRef: `pkm:runtime_secrets.connectors.${record.connectorId}`, secret: JSON.stringify(saved), expectedValue: null });
   });
   it("reads without retaining a module-level cache", async () => {
     storage.loadDomainData.mockResolvedValueOnce({ connectors: { [record.connectorId]: JSON.stringify(record) } })
@@ -47,9 +50,23 @@ describe("vault-backed custom connector configuration", () => {
     expect(() => parseCustomConnectorConfiguration({ ...record, authentication: { ...record.authentication, value: "a\r\nb" } })).toThrow();
   });
   it("removes only the validated encrypted record", async () => {
-    await removeCustomConnectorConfiguration(access, record.connectorId, confirmation);
-    expect(storage.removeRuntimeSecret).toHaveBeenCalledWith({ ...access, confirmation, credentialRef: `pkm:runtime_secrets.connectors.${record.connectorId}` });
-    await expect(removeCustomConnectorConfiguration(access, "__proto__.bad", confirmation)).rejects.toThrow();
+    storage.loadDomainData.mockResolvedValue({ connectors: { [record.connectorId]: JSON.stringify(record) } });
+    await removeCustomConnectorConfiguration(access, record.connectorId, confirmation, record.revision);
+    expect(storage.removeRuntimeSecret).toHaveBeenCalledWith({ ...access, confirmation, credentialRef: `pkm:runtime_secrets.connectors.${record.connectorId}`, expectedValue: JSON.stringify(record) });
+    await expect(removeCustomConnectorConfiguration(access, "__proto__.bad", confirmation, record.revision)).rejects.toThrow();
     expect(storage.removeRuntimeSecret).toHaveBeenCalledTimes(1);
+  });
+  it.each([[], 4, "corrupt", false])("rejects malformed roots instead of claiming no connectors", async root => {
+    storage.loadDomainData.mockResolvedValue(root);
+    await expect(loadCustomConnectorConfigurations(access)).rejects.toThrow("Connector settings could not be read.");
+    await expect(saveCustomConnectorConfiguration(access, record, confirmation, null)).rejects.toThrow();
+    expect(storage.storeRuntimeSecret).not.toHaveBeenCalled();
+  });
+  it("rejects stale edits and removals before writing", async () => {
+    storage.loadDomainData.mockResolvedValue({ connectors: { [record.connectorId]: JSON.stringify(record) } });
+    await expect(saveCustomConnectorConfiguration(access, record, confirmation, null)).rejects.toThrow("This connector changed.");
+    await expect(removeCustomConnectorConfiguration(access, record.connectorId, confirmation, "stale")).rejects.toThrow("This connector changed.");
+    expect(storage.storeRuntimeSecret).not.toHaveBeenCalled();
+    expect(storage.removeRuntimeSecret).not.toHaveBeenCalled();
   });
 });
