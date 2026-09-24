@@ -237,6 +237,12 @@ describe("PeopleHub requests sent manage surface", () => {
       name: "Share your location with Roopmann V",
     }));
 
+    const askIcon = group.querySelector('[data-location-menu-icon="ask"]');
+    const shareIcon = group.querySelector('[data-location-menu-icon="share"]');
+    expect(askIcon?.parentElement).toHaveClass("inline-flex", "shrink-0");
+    expect(shareIcon?.parentElement).toHaveClass("inline-flex", "shrink-0");
+    expect(askIcon?.parentElement).not.toHaveClass("hidden");
+    expect(shareIcon?.parentElement).not.toHaveClass("hidden");
     expect(onStartAsk).toHaveBeenCalledExactlyOnceWith("owner_roopmann");
     expect(onStartShare).toHaveBeenCalledExactlyOnceWith("owner_roopmann");
     expect(peopleList.querySelector("button button")).toBeNull();
@@ -261,6 +267,50 @@ describe("PeopleHub requests sent manage surface", () => {
     expect(counter?.textContent).toBe("+2");
     expect(counter?.parentElement).toBe(stack?.parentElement);
     expect(stack?.contains(counter)).toBe(false);
+    expect(counter).not.toHaveClass(
+      "h-9",
+      "min-w-10",
+      "rounded-full",
+      "bg-[color:var(--app-accent-tint)]",
+      "px-2",
+    );
+  });
+
+  it("keeps the mobile add-people sheet named without a visible People header", async () => {
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 390,
+    });
+
+    try {
+      renderPeopleHub();
+      const trigger = screen.getByRole("button", {
+        name: "Add or manage people",
+      });
+      fireEvent.click(trigger);
+
+      const sheet = await screen.findByTestId("one-location-add-people-sheet");
+      const accessibleTitle = within(sheet).getByRole("heading", {
+        name: "People",
+      });
+      expect(accessibleTitle).toHaveClass("sr-only");
+      expect(sheet.querySelector('[data-slot="sheet-header"]')).toBeNull();
+      expect(
+        within(sheet).getByRole("button", { name: "Find contacts" }),
+      ).toBeTruthy();
+      expect(
+        within(sheet).getByRole("button", { name: "Invite to One" }),
+      ).toBeTruthy();
+      expect(
+        within(sheet).getByRole("button", { name: "Manage connections" }),
+      ).toBeTruthy();
+    } finally {
+      Object.defineProperty(window, "innerWidth", {
+        configurable: true,
+        value: originalWidth,
+      });
+    }
   });
 
   it("keeps pending request cancellation in the person actions sheet", () => {

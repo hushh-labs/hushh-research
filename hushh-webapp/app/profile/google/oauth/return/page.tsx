@@ -18,6 +18,7 @@ import {
 } from "@/lib/google/google-oauth-popup";
 import { ROUTES } from "@/lib/navigation/routes";
 import { ApiService } from "@/lib/services/api-service";
+import { trackEvent } from "@/lib/observability/client";
 import {
   GoogleConnectionService,
   type GoogleConnectionCompletion,
@@ -203,6 +204,14 @@ function GoogleOAuthReturnContent() {
         if (attempt) {
           settleGoogleOAuthPopup(attempt, "succeeded");
         } else {
+          // Same-window OAuth (for example, a blocked popup on mobile web)
+          // has no Calendar page settlement listener. Count it here only
+          // after the owner-bound completion confirms the connection.
+          trackEvent("one_calendar_action", {
+            route_id: "one_calendar",
+            action: "connected",
+            result: "success",
+          });
           router.replace(
             active.returnToSetup ? ROUTES.ONE_SETUP_CALENDAR : ROUTES.CALENDAR,
           );

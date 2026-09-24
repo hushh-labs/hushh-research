@@ -386,6 +386,67 @@ describe("SwipeViews", () => {
     expect(onSelectionCommit).not.toHaveBeenCalled();
   });
 
+  it("does not apply the edge fallback to a click dismissing an open Radix popover/select", () => {
+    // Regression: Location > Links' Duration <Select> renders its open
+    // listbox through a Radix portal, so it is never a descendant of the
+    // pager root. Clicking away from it to dismiss without picking an
+    // option is ordinary page interaction, but its pointerup can land 48px+
+    // sideways from where the click went down -- indistinguishable from a
+    // real edge swipe to this handler, which silently navigated Links (the
+    // last pane) back to People.
+    const onSelectionChange = vi.fn();
+    const onSelectionCommit = vi.fn();
+    const root = embla.rootNode!;
+    root.dataset.swipeViewsRoot = "true";
+    const dismissTarget = document.createElement("button");
+    root.append(dismissTarget);
+
+    const popper = document.createElement("div");
+    popper.setAttribute("data-radix-popper-content-wrapper", "");
+    document.body.append(popper);
+
+    render(
+      <SwipeViews
+        tabSetId="popper-edge"
+        activeValue="second"
+        options={OPTIONS}
+        onSelectionChange={onSelectionChange}
+        onSelectionCommit={onSelectionCommit}
+      >
+        <div>first panel content</div>
+        <div>second panel content</div>
+      </SwipeViews>,
+    );
+
+    const dispatchDismissClick = () => {
+      dismissTarget.dispatchEvent(
+        new MouseEvent("pointerdown", {
+          bubbles: true,
+          clientX: 60,
+          clientY: 20,
+        }),
+      );
+      dismissTarget.dispatchEvent(
+        new MouseEvent("pointerup", {
+          bubbles: true,
+          clientX: 200,
+          clientY: 20,
+        }),
+      );
+    };
+
+    dispatchDismissClick();
+    expect(onSelectionChange).not.toHaveBeenCalled();
+    expect(onSelectionCommit).not.toHaveBeenCalled();
+
+    // Same gesture, popover gone: proves the guard -- not an unrelated
+    // reason -- is what suppressed the tab change above.
+    popper.remove();
+    dispatchDismissClick();
+    expect(onSelectionChange).toHaveBeenCalledWith("first");
+    expect(onSelectionCommit).toHaveBeenCalledWith("first");
+  });
+
   describe("viewport resize", () => {
     // The engine measures width once. When the container narrows without the
     // window changing — a vertical scrollbar appearing as pane content streams

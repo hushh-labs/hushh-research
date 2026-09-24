@@ -41,6 +41,7 @@ import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { buildConnectedSystemRoute, ROUTES } from "@/lib/navigation/routes";
 import { resolveCrmLogoAsset } from "@/lib/branding/crm-logo-registry";
 import { cn } from "@/lib/utils";
+import { trackEvent } from "@/lib/observability/client";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { ConnectedSystemsResourceService } from "@/lib/services/connected-systems-resource-service";
 import {
@@ -1207,6 +1208,10 @@ export function ConnectedSystemsPanel({
     );
     try {
       const result = await promise;
+      if (isCurrentPanelRequest(requestContext) && (state === "create" || state === "update" || state === "delete")) {
+        const action = state === "create" ? "record_created" : state === "update" ? "record_updated" : "record_deleted";
+        trackEvent("one_crm_action", { route_id: "connected_systems", action, result: "success" });
+      }
       return isCurrentPanelRequest(requestContext) ? result : null;
     } catch (err) {
       if (!isCurrentPanelRequest(requestContext)) return null;

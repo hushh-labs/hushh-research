@@ -6,15 +6,15 @@ import asyncio
 import json
 import logging
 import re
+from datetime import datetime
+from datetime import timezone as datetime_timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from google.adk.models import Gemini
 from pydantic import BaseModel, ConfigDict, Field
 
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
 from hushh_mcp.hushh_adk.single_turn import build_single_turn_agent, run_single_turn
-from hushh_mcp.runtime_providers import build_managed_runtime_client
-from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
 from hushh_mcp.services.drive_document_retrieval import DriveDocumentReader
 from hushh_mcp.services.drive_live_reader import DriveLiveReader
 from hushh_mcp.services.drive_suggestion_service import LiveSearchPlan, interpret_live_search
@@ -45,10 +45,6 @@ async def interpret(*, prompt, user_id, consent_token):
     agent = build_single_turn_agent(
         gene,
         output_schema=DocumentAnswer,
-        model=Gemini(
-            model=resolve_fleet_model_name(str(gene.model.name)),
-            client=build_managed_runtime_client(gene.model.provider),
-        ),
     )
     result = await run_single_turn(
         agent, prompt_parts=prompt, user_id=user_id, consent_token=consent_token, timeout_seconds=20
@@ -72,13 +68,17 @@ def result(conversation_id, answer, status, *, sources=(), truncated=False, meta
     }
 
 
-def _found_files(matches: list[dict], *, truncated: bool, unreadable: bool = False) -> str:
+def _found_files(
+    matches: list[dict], *, truncated: bool, unreadable: bool = False, time_window: str = ""
+) -> str:
     """Render safe owner-only opening actions from validated provider IDs."""
     lines = [
         "I found these Drive files. I couldn't read their contents here, but you can open them:"
         if unreadable
         else "I found these Drive files:"
     ]
+    if time_window:
+        lines.append(time_window)
     for index, match in enumerate(matches[:10], 1):
         title = re.sub(r"\s+", " ", match["name"]).strip()[:180]
         title = re.sub(r"([\\`*_{}\[\]()#+.!>|~-])", r"\\\1", title)
@@ -139,6 +139,7 @@ class DriveChatService:
         message,
         require_access,
         previous_answer="",
+        timezone="UTC",
     ):
         await require_access()
         if not message.strip() or len(message.encode()) > 2048:
@@ -164,12 +165,19 @@ class DriveChatService:
                 if live:
                     stage = "search_plan"
                     await require_access()
+                    now_utc = datetime.now(datetime_timezone.utc)
+                    try:
+                        owner_timezone = ZoneInfo(timezone or "UTC").key
+                    except (ValueError, ZoneInfoNotFoundError):
+                        owner_timezone = "UTC"
                     plan = LiveSearchPlan.model_validate(
                         await self.search_planner(
                             prompt=json.dumps(
                                 {
                                     "document_request": {"purpose": message},
                                     "previous_answer": previous_answer[:2000],
+                                    "current_time_utc": now_utc.isoformat(),
+                                    "user_timezone": owner_timezone,
                                 },
                                 ensure_ascii=False,
                             ),
@@ -188,7 +196,27 @@ class DriveChatService:
                             "input_required",
                         )
                     stage = "search_files"
-                    found = await reader.find(query=query)
+                    bounds = plan.time_bounds(now_utc=now_utc)
+                    search_kwargs = {"query": query}
+                    time_window = ""
+                    if bounds is not None:
+                        search_kwargs.update(
+                            time_field=plan.file_time_field,
+                            start_time=bounds[0],
+                            end_time=bounds[1],
+                        )
+                        start_local = datetime.fromisoformat(
+                            bounds[0].replace("Z", "+00:00")
+                        ).astimezone(ZoneInfo(owner_timezone))
+                        end_local = datetime.fromisoformat(
+                            bounds[1].replace("Z", "+00:00")
+                        ).astimezone(ZoneInfo(owner_timezone))
+                        action = "created" if plan.file_time_field == "createdTime" else "modified"
+                        time_window = (
+                            f"Files {action} from {start_local:%Y-%m-%d %H:%M} through "
+                            f"{end_local:%Y-%m-%d %H:%M} ({owner_timezone})."
+                        )
+                    found = await reader.find(**search_kwargs)
                     matches = found["matches"]
                     if plan.exact_title:
                         matches = [
@@ -212,7 +240,9 @@ class DriveChatService:
                         await reader.require_current()
                         return result(
                             conversation_id,
-                            _found_files(matches, truncated=found["truncated"]),
+                            _found_files(
+                                matches, truncated=found["truncated"], time_window=time_window
+                            ),
                             "ok",
                             sources=_metadata_sources(matches),
                             truncated=found["truncated"] or len(matches) > 10,
@@ -231,7 +261,12 @@ class DriveChatService:
                     if live:
                         return result(
                             conversation_id,
-                            _found_files(matches, truncated=found["truncated"], unreadable=True),
+                            _found_files(
+                                matches,
+                                truncated=found["truncated"],
+                                unreadable=True,
+                                time_window=time_window,
+                            ),
                             "ok",
                             sources=_metadata_sources(matches),
                             truncated=True,

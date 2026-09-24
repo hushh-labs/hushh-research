@@ -91,6 +91,7 @@ class DriveSuggestionStore(DriveSharingProjectionStore):
                 "generation": generation,
                 "lease_id": lease,
                 "purpose": self._open_request(row)["purpose"],
+                "requested_at": row["created_at"],
                 "live": live,
                 "foreground": foreground,
             }

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import time
 from dataclasses import replace
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -15,10 +16,11 @@ from google.genai import types
 
 from hushh_mcp.adk_bridge import documents_agent
 from hushh_mcp.adk_bridge.contract import A2AAuthorityContext, A2ATask, SpecialistReadResult
+from hushh_mcp.hushh_adk import single_turn
 from hushh_mcp.one_adk import agent_tree
 from hushh_mcp.one_adk.external_read_boundary import STATE_EXECUTION_SURFACE
 from hushh_mcp.one_adk.external_read_projection import durable_external_read_projection
-from hushh_mcp.services import drive_chat_service
+from hushh_mcp.services import drive_chat_service, drive_suggestion_service
 from hushh_mcp.services.drive_chat_service import DriveChatService
 from hushh_mcp.services.google_drive_adapter import DriveReadError
 from tests.test_one_external_read_boundary import _Model
@@ -103,6 +105,30 @@ def reader():
     )
 
 
+async def test_documents_genes_construct_with_multiregion_vertex_configuration(monkeypatch):
+    monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "vertex_adc")
+    monkeypatch.setenv("HUSHH_VERTEX_LOCATIONS", "global,us,eu")
+    monkeypatch.setenv("GENAI_GOOGLE_CLOUD_PROJECT", "synthetic-test-project")
+    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "global")
+    monkeypatch.setattr(
+        drive_suggestion_service,
+        "run_single_turn",
+        AsyncMock(return_value={"terms": ["statement"]}),
+    )
+    monkeypatch.setattr(
+        drive_chat_service,
+        "run_single_turn",
+        AsyncMock(return_value={"answer": "Synthetic", "source_refs": [REF]}),
+    )
+    await drive_suggestion_service.interpret_live_search(prompt="synthetic", user_id="owner")
+    await drive_suggestion_service.interpret_suggestions(prompt="synthetic", user_id="owner")
+    await drive_chat_service.interpret(
+        prompt="synthetic",
+        user_id="owner",
+        consent_token="synthetic",  # noqa: S106
+    )
+
+
 @pytest.mark.parametrize(
     "changes",
     [
@@ -165,8 +191,7 @@ async def test_real_root_dispatch_and_toolless_gene_preserve_identity_and_redact
             ]
         ]
     )
-    monkeypatch.setattr(drive_chat_service, "build_managed_runtime_client", lambda _: object())
-    monkeypatch.setattr(drive_chat_service, "Gemini", lambda **kwargs: gene)
+    monkeypatch.setattr(single_turn, "build_managed_gemini_adk_model", lambda _: gene)
     monkeypatch.setattr(drive_chat_service, "DriveLiveReader", lambda **kwargs: source)
     selected = Mock(side_effect=AssertionError("Live root must not use the selected index"))
     monkeypatch.setattr(drive_chat_service, "DriveDocumentReader", selected)
@@ -290,6 +315,37 @@ async def test_live_find_lists_recording_with_open_action_without_content_read(m
     assert "[Open in Drive](https://drive.google.com/open?id=video-1)" in response.text
     source.read_matches.assert_not_awaited()
     assert "previous_answer" in service.search_planner.await_args.kwargs["prompt"]
+
+
+async def test_owner_date_only_find_uses_live_drive_without_content_or_index(monkeypatch):
+    source = reader()
+    monkeypatch.setattr(drive_chat_service, "DriveLiveReader", lambda **kwargs: source)
+    selected = Mock(side_effect=AssertionError("Date discovery must not open selected index"))
+    monkeypatch.setattr(drive_chat_service, "DriveDocumentReader", selected)
+    service = DriveChatService(
+        oauth=SimpleNamespace(current_credential=AsyncMock(return_value=({}, {"profile": "live"}))),
+        search_planner=AsyncMock(
+            return_value={
+                "terms": [],
+                "mode": "find",
+                "relative_days": 2,
+                "time_intent": "file_activity",
+            }
+        ),
+    )
+    response = await documents_agent.DocumentsAgentA2A(service=service).handle(
+        task(message="What are my files from the last two days?", timezone="Asia/Kolkata")
+    )
+    assert response.structured.status == "ok"
+    assert response.structured.metadata_only is True
+    assert "Asia/Kolkata" in response.text
+    search = source.find.await_args.kwargs
+    assert search["query"] == [] and search["time_field"] == "modifiedTime"
+    assert datetime.fromisoformat(
+        search["end_time"].replace("Z", "+00:00")
+    ) - datetime.fromisoformat(search["start_time"].replace("Z", "+00:00")) == timedelta(days=2)
+    source.read_matches.assert_not_awaited()
+    selected.assert_not_called()
 
 
 async def test_live_followup_requires_exact_current_title(monkeypatch):

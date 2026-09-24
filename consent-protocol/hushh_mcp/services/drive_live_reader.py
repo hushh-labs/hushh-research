@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from datetime import datetime
 from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
@@ -27,6 +28,8 @@ MAX_READS = 8
 MAX_CONTEXT_BYTES = 16 * 1024
 SEARCH_PAGE_SIZE = 8
 MAX_SEARCH_PAGES = 6
+UTC_TIMESTAMP = re.compile(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z")
+SEARCH_TIME_FIELDS = frozenset({"modifiedTime", "createdTime"})
 
 
 def _open_url(file_id: str, value: object) -> str:
@@ -93,13 +96,26 @@ class DriveLiveReader:
         credential = await self._credential()
         for observed in self._rows:
             await self.require_access()
-            actual = await self.adapter.get_metadata(
-                file_id=observed["file_id"],
-                access_token=credential["accessToken"],
-                require_app_authorized=False,
-                require_genai_eligibility=False,
-            )
+            if observed.get("metadata_only"):
+                actual = await self.adapter.get_share_metadata(
+                    file_id=observed["file_id"],
+                    access_token=credential["accessToken"],
+                )
+            else:
+                actual = await self.adapter.get_metadata(
+                    file_id=observed["file_id"],
+                    access_token=credential["accessToken"],
+                    require_app_authorized=False,
+                    require_genai_eligibility=False,
+                )
             if actual.version != observed["source_version"] or actual.name != observed["name"]:
+                raise DriveReadError("source_changed")
+            if observed.get("metadata_only") and not self._in_time_bounds(
+                actual,
+                time_field=observed.get("time_field"),
+                start_time=observed.get("start_time"),
+                end_time=observed.get("end_time"),
+            ):
                 raise DriveReadError("source_changed")
         await self.require_access()
 
@@ -119,10 +135,10 @@ class DriveLiveReader:
         raise DriveReadError("unsupported_format")
 
     @staticmethod
-    def _validate_query(query: list[str]) -> list[str]:
+    def _validate_query(query: list[str], *, date_bounded: bool = False) -> list[str]:
         if (
             not isinstance(query, list)
-            or not 1 <= len(query) <= 3
+            or not (0 if date_bounded else 1) <= len(query) <= 3
             or any(
                 not isinstance(term, str) or not re.fullmatch(r"[\w -]{2,50}", term.strip())
                 for term in query
@@ -131,20 +147,86 @@ class DriveLiveReader:
             raise DriveReadError("narrow_selection_required")
         return list(dict.fromkeys(item.strip() for item in query))
 
-    async def find(self, *, query: list[str]) -> dict:
+    @staticmethod
+    def _search_query(
+        term: str | None,
+        *,
+        time_field: str | None,
+        start_time: str | None,
+        end_time: str | None,
+    ) -> str:
+        if time_field is None and start_time is None and end_time is None:
+            if term is None:
+                raise DriveReadError("narrow_selection_required")
+            return f"(title contains '{term}' or fullText contains '{term}')"
+        if time_field not in SEARCH_TIME_FIELDS or not all(
+            isinstance(value, str) and UTC_TIMESTAMP.fullmatch(value)
+            for value in (start_time, end_time)
+        ):
+            raise DriveReadError("narrow_selection_required")
+        try:
+            start = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+            end = datetime.fromisoformat(end_time.replace("Z", "+00:00"))
+        except ValueError:
+            raise DriveReadError("narrow_selection_required") from None
+        if start >= end:
+            raise DriveReadError("narrow_selection_required")
+        date_clause = f"({time_field} >= '{start_time}' and {time_field} < '{end_time}')"
+        if term is None:
+            return date_clause
+        return f"(title contains '{term}' or fullText contains '{term}') and {date_clause}"
+
+    @classmethod
+    def _in_time_bounds(
+        cls,
+        metadata,
+        *,
+        time_field: str | None,
+        start_time: str | None,
+        end_time: str | None,
+    ) -> bool:
+        cls._search_query(None, time_field=time_field, start_time=start_time, end_time=end_time)
+        timestamp = (
+            metadata.modified_time if time_field == "modifiedTime" else metadata.created_time
+        )
+        try:
+            observed_time = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        except (AttributeError, ValueError):
+            raise DriveReadError("provider_response_invalid") from None
+        if observed_time.tzinfo is None:
+            raise DriveReadError("provider_response_invalid")
+        start = datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+        end = datetime.fromisoformat(end_time.replace("Z", "+00:00"))
+        return start <= observed_time < end
+
+    async def find(
+        self,
+        *,
+        query: list[str],
+        time_field: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+    ) -> dict:
         """Search bounded file metadata; no content read, selection, or index."""
-        terms = self._validate_query(query)
+        date_bounded = time_field is not None or start_time is not None or end_time is not None
+        terms = self._validate_query(query, date_bounded=date_bounded)
+        searches = [
+            self._search_query(
+                term, time_field=time_field, start_time=start_time, end_time=end_time
+            )
+            for term in (terms or [None])
+        ]
         await self._credential()
         matches: list[dict] = []
         seen: set[str] = set()
         truncated = False
         pages = 0
-        for term in terms:
+        for drive_query in searches:
             page_token = None
             while pages < MAX_SEARCH_PAGES and len(matches) < MAX_SEARCH_RESULTS:
                 await self.require_access()
                 arguments = {
-                    "query": f"(title contains '{term}' or fullText contains '{term}')",
+                    "query": drive_query,
                     "pageSize": SEARCH_PAGE_SIZE,
                     "excludeContentSnippets": True,
                 }
@@ -219,13 +301,26 @@ class DriveLiveReader:
         await self.require_current()
         return {"matches": matches, "truncated": truncated}
 
-    async def search(self, *, query: list[str]) -> dict:
-        terms = self._validate_query(query)
+    async def search(
+        self,
+        *,
+        query: list[str],
+        time_field: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+    ) -> dict:
+        date_bounded = time_field is not None or start_time is not None or end_time is not None
+        terms = self._validate_query(query, date_bounded=date_bounded)
+        searches = [
+            self._search_query(
+                term, time_field=time_field, start_time=start_time, end_time=end_time
+            )
+            for term in (terms or [None])
+        ]
         credential = await self._credential()
         files = []
         truncated = False
-        for term in terms:
-            drive_query = f"(title contains '{term}' or fullText contains '{term}')"
+        for drive_query in searches:
             result = await self.mcp.read_tool(
                 user_id=self.user_id,
                 tool_name="search_files",
@@ -259,6 +354,93 @@ class DriveLiveReader:
         return await self._read_file_ids(
             file_ids=unique_files[:MAX_READS], credential=credential, truncated=truncated
         )
+
+    async def bind_matches(
+        self,
+        *,
+        matches: list[dict],
+        truncated: bool = False,
+        time_field: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+    ) -> dict:
+        """Bind a recent-file preview to verified metadata without reading contents."""
+        if not isinstance(matches, list) or len(matches) > MAX_SEARCH_RESULTS:
+            raise DriveReadError("narrow_selection_required")
+        self._search_query(None, time_field=time_field, start_time=start_time, end_time=end_time)
+        credential = await self._credential()
+        content: list[dict] = []
+        self._rows = []
+        seen: set[str] = set()
+        truncated = truncated or len(matches) > MAX_READS
+        for match in matches[:MAX_READS]:
+            if not isinstance(match, dict):
+                truncated = True
+                continue
+            file_id, name = match.get("file_id"), match.get("name")
+            if (
+                not isinstance(file_id, str)
+                or not FILE_ID.fullmatch(file_id)
+                or not isinstance(name, str)
+                or not 1 <= len(name) <= 1024
+                or file_id in seen
+            ):
+                truncated = True
+                continue
+            seen.add(file_id)
+            if match.get("mime_type") == "application/vnd.google-apps.folder":
+                truncated = True
+                continue
+            await self.require_access()
+            try:
+                metadata = await self.adapter.get_share_metadata(
+                    file_id=file_id,
+                    access_token=credential["accessToken"],
+                )
+            except DriveReadError as error:
+                if str(error) in {"source_unavailable", "unsupported_format"}:
+                    truncated = True
+                    continue
+                raise
+            if metadata.name != name or metadata.mime_type == "application/vnd.google-apps.folder":
+                truncated = True
+                continue
+            if not self._in_time_bounds(
+                metadata, time_field=time_field, start_time=start_time, end_time=end_time
+            ):
+                truncated = True
+                continue
+            document_id = str(uuid4())
+            entry = {
+                "source_ref": "document:" + hashlib.sha256(document_id.encode()).hexdigest()[:32],
+                "document_ref": document_id,
+                "name": metadata.name,
+                "page": None,
+                "text": f"File metadata only: {metadata.name}. Modified: {metadata.modified_time}.",
+                "source_version": metadata.version,
+                "metadata_only": True,
+            }
+            if len(json.dumps(content + [entry], ensure_ascii=False).encode()) > MAX_CONTEXT_BYTES:
+                truncated = True
+                break
+            content.append(entry)
+            self._rows.append(
+                {
+                    "document_id": document_id,
+                    "file_id": metadata.file_id,
+                    "name": metadata.name,
+                    "source_version": metadata.version,
+                    "content_fingerprint": None,
+                    "connection_generation": self._generation,
+                    "metadata_only": True,
+                    "time_field": time_field,
+                    "start_time": start_time,
+                    "end_time": end_time,
+                    "_live": True,
+                }
+            )
+        await self.require_current()
+        return {"untrusted_external_content": content, "truncated": truncated}
 
     async def read_matches(self, *, matches: list[dict], truncated: bool = False) -> dict:
         """Read only the already-found, supported files for an explicit read request."""
