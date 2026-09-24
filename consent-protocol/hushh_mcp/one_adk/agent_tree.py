@@ -88,10 +88,13 @@ from hushh_mcp.one_adk.action_tools import (
     set_preferred_model,
     start_app_goal,
 )
+from hushh_mcp.one_adk.agui_turn_timing import (
+    timed_one_after_model,
+    timed_one_before_model,
+)
 from hushh_mcp.one_adk.drive_tools import discover_google_drive_tools, read_google_drive
 from hushh_mcp.one_adk.external_read_boundary import (
     STATE_EXECUTION_SURFACE,
-    before_external_read_model,
     before_external_read_tool,
 )
 from hushh_mcp.one_adk.one_persona import build_one_persona_grounding
@@ -233,7 +236,7 @@ _SPECIALIST_MODEL = _KAI_MANIFEST.model_config_for_runtime().name.strip()
 _ONE_CHAT_THINKING_LEVEL_ENV = "HUSHH_ONE_CHAT_THINKING_LEVEL"
 
 
-def _one_chat_thinking_config() -> genai_types.ThinkingConfig:
+def _one_chat_thinking_config(model: Any | None = None) -> genai_types.ThinkingConfig:
     """Keep One's model thinking policy while withholding thought summaries.
 
     An unset value preserves the provider's thinking budget. ``low`` remains
@@ -243,7 +246,10 @@ def _one_chat_thinking_config() -> genai_types.ThinkingConfig:
     configured = os.getenv(_ONE_CHAT_THINKING_LEVEL_ENV, "").strip()
     if not configured or configured.lower() in {"default", "provider"}:
         return genai_types.ThinkingConfig(include_thoughts=False)
-    resolved = thinking_config_for(_SPECIALIST_MODEL, configured, genai_types)
+    selected_model = model if isinstance(model, str) else getattr(model, "model", None)
+    resolved = thinking_config_for(
+        str(selected_model or _SPECIALIST_MODEL), configured, genai_types
+    )
     if resolved is None:
         return genai_types.ThinkingConfig(include_thoughts=False)
     return genai_types.ThinkingConfig(
@@ -2131,10 +2137,11 @@ def build_one_text_agent(
             allow_owner_drive_tools=allow_owner_drive_tools,
         ),
         before_tool_callback=before_external_read_tool,
-        before_model_callback=before_external_read_model,
+        before_model_callback=timed_one_before_model,
+        after_model_callback=timed_one_after_model,
         # Preserve the configured Chat thinking level for measured comparison.
         generate_content_config=genai_types.GenerateContentConfig(
-            thinking_config=_one_chat_thinking_config(),
+            thinking_config=_one_chat_thinking_config(model),
         ),
     )
 

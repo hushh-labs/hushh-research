@@ -2150,6 +2150,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       return undefined;
     }
     if (peekAgentPkmContext({ userId: user.uid })?.text) {
+      performance.mark("hushh:agent-chat:pkm-warm-ready");
       return undefined;
     }
 
@@ -2161,7 +2162,9 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         userId: user.uid,
         vaultKey,
         vaultOwnerToken,
-      }).catch(() => undefined);
+      })
+        .then(() => performance.mark("hushh:agent-chat:pkm-warm-ready"))
+        .catch(() => undefined);
     }, 180);
     return () => window.clearTimeout(timeoutId);
   }, [isVaultUnlocked, user?.uid, vaultKey, vaultOwnerToken]);
@@ -4019,6 +4022,15 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     textInput: string,
     options: AgentRunTurnOptions = { source: "typed" },
   ) => {
+    for (const name of [
+      "send-handler-entry",
+      "pkm-prepare-start",
+      "pkm-prepare-end",
+      "dispatch-start",
+    ]) {
+      performance.clearMarks(`hushh:agent-chat:${name}`);
+    }
+    performance.mark("hushh:agent-chat:send-handler-entry");
     const text = textInput.trim();
     if (!text || !hasChatAccess || !user?.uid) return;
     // Pre-model paste guard: a message that appears to contain a full card
@@ -4508,6 +4520,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
     const streamAbortController = new AbortController();
     streamAbortControllerRef.current = streamAbortController;
     const pkmContextStartedAt = performance.now();
+    performance.mark("hushh:agent-chat:pkm-prepare-start");
 
     const loadTurnPkmContext = async (): Promise<AgentPkmContext> => {
       if (!vaultKey) {
@@ -4570,6 +4583,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
       let agentPkmContext = EMPTY_PKM_CONTEXT;
       try {
         agentPkmContext = await loadTurnPkmContext();
+        performance.mark("hushh:agent-chat:pkm-prepare-end");
         turnPkmContext = agentPkmContext;
         if (streamAbortController.signal.aborted) {
           finishCanceledTurn();
@@ -4627,6 +4641,7 @@ export function AgentChatWorkspace({ className }: AgentChatWorkspaceProps) {
         return;
       }
 
+      performance.mark("hushh:agent-chat:dispatch-start");
       const streamResult = await streamAgentChat({
         userId,
         message: text,

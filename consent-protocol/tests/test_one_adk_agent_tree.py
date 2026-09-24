@@ -77,6 +77,10 @@ from hushh_mcp.one_adk.agent_tree import (
     open_gmail_email_draft,
     open_screen,
 )
+from hushh_mcp.one_adk.agui_turn_timing import (
+    timed_one_after_model,
+    timed_one_before_model,
+)
 from hushh_mcp.services.action_gateway import get_action_gateway_action, list_action_gateway_actions
 from hushh_mcp.services.connections_service import ConnectionsError, ConnectionsService
 from hushh_mcp.services.live_voice_context import (
@@ -112,9 +116,20 @@ class TestAgentTreeShape:
         assert config.include_thoughts is False
         assert getattr(getattr(config, "thinking_level", None), "value", None) == "LOW"
 
+    @pytest.mark.parametrize("model", ["gemini-3.7-flash", "gemini-3.8-flash"])
+    def test_chat_thinking_policy_uses_selected_flash_model(self, monkeypatch, model):
+        monkeypatch.setenv("HUSHH_ONE_CHAT_THINKING_LEVEL", "low")
+
+        config = _one_chat_thinking_config(model)
+
+        assert config.include_thoughts is False
+        assert getattr(getattr(config, "thinking_level", None), "value", None) == "LOW"
+
     def test_root_agent_is_one_with_full_roster(self):
         agent = build_one_root_agent()
         assert agent.name == "one"
+        assert agent.before_model_callback is timed_one_before_model
+        assert agent.after_model_callback is timed_one_after_model
         tool_names = {
             getattr(t, "name", getattr(t, "__name__", type(t).__name__)) for t in agent.tools
         }
