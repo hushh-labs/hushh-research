@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 241,
+  "expected_migration_version": 242,
   "migration_version_policy": "exact",
   "required_functions": [
     "ensure_drive_share_management_context",
@@ -599,6 +599,22 @@
       "disclosure_version",
       "revision",
       "updated_at"
+    ],
+    "drive_live_query_requests": [
+      "request_id",
+      "user_id",
+      "requester_user_id",
+      "client_request_id",
+      "query_envelope",
+      "query_digest",
+      "answer_envelope",
+      "status",
+      "revision",
+      "last_error_code",
+      "created_at",
+      "updated_at",
+      "decided_at",
+      "expires_at"
     ],
     "drive_native_picker_attempts": [
       "attempt_id",

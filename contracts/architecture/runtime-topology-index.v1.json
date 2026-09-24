@@ -796,6 +796,16 @@
       "primary_access_path": "Vault Owner turns background live Drive preparation on or off separately from the live OAuth grant. The suggestion worker checks the current consent and generation before each read and publication."
     },
     {
+      "data_class": "personal_encrypted",
+      "exact_tables": [
+        "drive_live_query_requests"
+      ],
+      "id": "drive_live_questions",
+      "lifecycle_status": "customer0",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "A connection sends one question about the owner's Drive through vault-owner routes. It stays pending with no Drive read and no worker wake. Only the owner's explicit Allow claims it once and runs the owner's own bounded live chat turn; Deny never reads Drive."
+    },
+    {
       "data_class": "workflow_state",
       "exact_tables": [
         "drive_native_picker_attempts"
@@ -5635,7 +5645,7 @@
     "action_gateway": "f64403d3031e97fd519101bf242c5072cc94d592a44197277cb1870324990160",
     "agent_registry": "68b0f451f7f4e66e2fe1b57b14b9ad0bfee6c85b41dcac22488460210097c126",
     "cache_manifest": "7e06bffcb92862a81614bcc30d40e6593942eedce8f9eea9f900302d76a478b7",
-    "data_plane": "3bd1534c40b6a0c87d38a79f45604e1da6b7d77b3d101c6a165ab091a1363a4a",
+    "data_plane": "f8dac06aa54f0b3c71ffbe982bb5ad7db28c4f19d23fc04afd8cd99f7520fac5",
     "in_process_dispatch": "11ad2e84c6953e3788b1221d422d60bc105401eb7028e0eb64f9a794b6094dc7",
     "one_specialist_tools": "54a1bb92d4008e2e05209996bf4da8e3e27f7242d7515620efbbc8eed9acf1a6",
     "route_index": "c99892f37570c3b151b066b26ef3f71f481d5782bbbd6c6f41606524217c2363",
@@ -5654,6 +5664,6 @@
     "one_specialist_tools": 6,
     "physical_routes": 139,
     "semantic_routes": 14,
-    "table_families": 72
+    "table_families": 73
   }
 }
