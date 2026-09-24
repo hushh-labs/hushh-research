@@ -30,6 +30,18 @@ class ActionDirectiveAuthorityError(RuntimeError):
     """A directive could not advance through its one-time authority state."""
 
 
+MCP_ACTION_ID = "connector.mcp.invoke"
+
+
+@dataclass(frozen=True)
+class BoundActionTerms:
+    """Fresh server-derived terms, never client-supplied digests or authority."""
+
+    action_contract: dict[str, Any] = field(repr=False)
+    slots: dict[str, Any] = field(repr=False)
+    resource_binding: dict[str, Any] = field(repr=False)
+
+
 @dataclass(frozen=True)
 class IssuedActionDirective:
     directive_id: str
@@ -123,6 +135,16 @@ class ActionDirectiveStore:
             _canonical_json(value).encode("utf-8"),
             hashlib.sha256,
         ).hexdigest()
+
+    def _bound_term_params(self, action_id: str, terms: BoundActionTerms | None) -> dict:
+        if action_id == MCP_ACTION_ID and terms is None:
+            raise ActionDirectiveAuthorityError("MCP approval requires exact current terms.")
+        return {
+            "check_bound_terms": terms is not None,
+            "expected_contract": self._hmac(terms.action_contract) if terms else None,
+            "expected_slots": self._hmac(terms.slots) if terms else None,
+            "expected_binding": self._hmac(terms.resource_binding) if terms else None,
+        }
 
     def _document_transaction(self):
         connection = self._connection
@@ -674,6 +696,7 @@ class ActionDirectiveStore:
         conversation_id: str | None = None,
         session_id: str | None = None,
         trusted_activation: bool = False,
+        terms: BoundActionTerms | None = None,
     ) -> ActionConfirmationReceipt:
         receipt = secrets.token_urlsafe(32)
         receipt_hash = hashlib.sha256(receipt.encode("utf-8")).hexdigest()
@@ -686,6 +709,10 @@ class ActionDirectiveStore:
               AND user_id = :user_id
               AND action_id = :action_id
               AND context_revision = :context_revision
+              AND (NOT :check_bound_terms OR (
+                action_contract_digest = :expected_contract
+                AND slots_hmac = :expected_slots
+                AND resource_binding_hmac = :expected_binding))
               AND conversation_id IS NOT DISTINCT FROM :conversation_id
               AND session_id IS NOT DISTINCT FROM :session_id
               AND (trusted_activation_required = FALSE OR :trusted_activation = TRUE)
@@ -702,6 +729,7 @@ class ActionDirectiveStore:
                 "session_id": session_id,
                 "trusted_activation": trusted_activation,
                 "receipt_hash": receipt_hash,
+                **self._bound_term_params(action_id, terms),
             },
         )
         rows = result.data or []
@@ -725,6 +753,7 @@ class ActionDirectiveStore:
         context_revision: str,
         conversation_id: str | None = None,
         session_id: str | None = None,
+        terms: BoundActionTerms | None = None,
     ) -> None:
         result = await self._execute(
             """
@@ -736,6 +765,10 @@ class ActionDirectiveStore:
               AND user_id = :user_id
               AND action_id = :action_id
               AND context_revision = :context_revision
+              AND (NOT :check_bound_terms OR (
+                action_contract_digest = :expected_contract
+                AND slots_hmac = :expected_slots
+                AND resource_binding_hmac = :expected_binding))
               AND conversation_id IS NOT DISTINCT FROM :conversation_id
               AND session_id IS NOT DISTINCT FROM :session_id
               AND state = 'confirmed'
@@ -750,6 +783,7 @@ class ActionDirectiveStore:
                 "context_revision": context_revision,
                 "conversation_id": conversation_id,
                 "session_id": session_id,
+                **self._bound_term_params(action_id, terms),
             },
         )
         if not (result.data or []):

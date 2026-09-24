@@ -41,6 +41,24 @@ Response normalization limits are not proof of a wire-level response-byte limit.
 
 ## Product-agent hierarchy audit — 2026-09-24
 
+### Shared native toolset integration checkpoint
+
+`one_adk/governed_mcp_toolset.py` now subclasses installed ADK `McpToolset` and
+uses native `McpTool` invocation, with bounded complete discovery, namespaced
+tools, call-time connection resolution, stale catalog/connection rejection, and
+an application-owned approval callback. Native tool errors are sanitized without
+retrying an uncertain mutation. This is a reusable adapter, **not yet attached
+to the Chat roster**; its credential resolver and approval callback must be wired
+to existing authorities before activation. No custom OAuth or UI proof is implied.
+
+The existing action ledger now requires exact current contract, argument and
+resource-binding HMAC matches at confirmation and consumption for
+`connector.mcp.invoke`. No second approval table was added. Existing non-MCP
+callers retain their contracts. Thirty-seven focused tests passed, including
+installed ADK invocation against a synthetic session and actual disposable
+PostgreSQL rejection of changed arguments, schema revision, connection generation,
+missing terms and replay. Provider/network, browser and release proof remain open.
+
 Source baseline: ADK `6ae5a2a5965a79d75ec72e4fdf5e90b667df1a2b`.
 Read-only comparison: infrastructure branch
 `5e0ade416f8b76fb81b472e762258401fb0d1250`. Neither branch was switched

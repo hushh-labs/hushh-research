@@ -10,8 +10,10 @@ import pytest
 from sqlalchemy import create_engine, text
 
 from hushh_mcp.services.action_directive_ledger import (
+    MCP_ACTION_ID,
     ActionDirectiveAuthorityError,
     ActionDirectiveStore,
+    BoundActionTerms,
     DocumentReviewAuthority,
 )
 from hushh_mcp.services.drive_sharing_contract import SHARING_ACTION
@@ -20,6 +22,67 @@ from tests.services.test_external_connector_lifecycle_postgres import (
 )
 
 MIGRATIONS = Path(__file__).resolve().parents[2] / "db" / "migrations"
+
+
+@pytest.mark.asyncio
+async def test_mcp_receipt_checks_exact_terms_before_confirm_and_consume(ledger_db):
+    conversation = str(uuid4())
+    terms = BoundActionTerms(
+        action_contract={"connector": "synthetic", "tool": "search", "schemaRevision": "v1"},
+        slots={"query": "synthetic-private-query"},
+        resource_binding={"owner": "owner", "connectionGeneration": 1},
+    )
+    with ledger_db.begin() as connection:
+        connection.execute(
+            text("INSERT INTO agent_chat_conversations(id) VALUES (:id)"), {"id": conversation}
+        )
+        ledger = store(connection)
+        issued = await ledger.issue(
+            user_id="owner",
+            channel="typed_chat",
+            action_id=MCP_ACTION_ID,
+            context_revision="catalog-v1",
+            conversation_id=conversation,
+            action_contract=terms.action_contract,
+            slots=terms.slots,
+            resource_binding=terms.resource_binding,
+            trusted_activation_required=True,
+        )
+        identity = dict(
+            directive_id=issued.directive_id,
+            user_id="owner",
+            action_id=MCP_ACTION_ID,
+            context_revision="catalog-v1",
+            conversation_id=conversation,
+        )
+        changed = [
+            None,
+            replace(terms, slots={"query": "different"}),
+            replace(terms, action_contract={**terms.action_contract, "schemaRevision": "v2"}),
+            replace(terms, resource_binding={"owner": "owner", "connectionGeneration": 2}),
+        ]
+        for stale in changed:
+            with pytest.raises(ActionDirectiveAuthorityError):
+                await ledger.confirm(**identity, terms=stale, trusted_activation=True)
+        receipt = await ledger.confirm(**identity, terms=terms, trusted_activation=True)
+        for stale in changed:
+            with pytest.raises(ActionDirectiveAuthorityError):
+                await ledger.consume(**identity, receipt=receipt.receipt, terms=stale)
+        await ledger.consume(**identity, receipt=receipt.receipt, terms=terms)
+        with pytest.raises(ActionDirectiveAuthorityError):
+            await ledger.consume(**identity, receipt=receipt.receipt, terms=terms)
+        stored = (
+            connection.execute(
+                text(
+                    "SELECT slots_hmac,resource_binding_hmac,state FROM one_action_directive_ledger WHERE directive_id=:id"
+                ),
+                {"id": issued.directive_id},
+            )
+            .mappings()
+            .one()
+        )
+        assert stored["state"] == "consumed"
+        assert "synthetic-private-query" not in str(stored)
 
 
 @pytest.fixture
