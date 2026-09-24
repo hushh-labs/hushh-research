@@ -147,7 +147,7 @@ def explicitly_requests_file_activity(purpose: str) -> bool:
 
 MAX_DATE_RANGE_DAYS = 366
 # Start of the metadata window for files the owner picked by hand.
-OWNER_SELECTION_START = "2000-01-01T00:00:00Z"
+OWNER_SELECTION_START = "1970-01-01T00:00:00Z"
 
 
 def _zone(timezone: str) -> ZoneInfo:
@@ -345,6 +345,7 @@ class DriveSuggestionService:
             user_id=user_id,
             request_id=request_id,
             **({"foreground": True} if self.require_owner is not None else {}),
+            **({"owner_selected": True} if owner_selected is not None else {}),
         )
         if job is None:
             return "not_claimed"
@@ -473,7 +474,7 @@ class DriveSuggestionService:
                     await self.store.fail_preparation(
                         job,
                         code="no_ready_files",
-                        retryable=await self.store.indexing_pending(job),
+                        retryable=owner_selected is None and await self.store.indexing_pending(job),
                     )
                     return "no_ready_files"
                 await reader.require_current()
@@ -603,6 +604,10 @@ class DriveSuggestionService:
                     type(error).__name__,
                 )
             await self.store.fail_preparation(
-                job, code=code, retryable=not isinstance(error, DriveReadError) or error.retryable
+                job,
+                code=code,
+                # A's hand-picked selection is never re-run by the background worker.
+                retryable=owner_selected is None
+                and (not isinstance(error, DriveReadError) or error.retryable),
             )
             return "unavailable"
