@@ -13,7 +13,11 @@ from hushh_mcp.services.connector_feature_admission import connector_feature_ena
 STATE_EXECUTION_SURFACE = "temp:one_execution_surface"
 STATE_EXTERNAL_READ = "temp:one_external_read_invocation"
 MAIL_TOOL = "ask_email_agent"
-READ_TOOLS = {MAIL_TOOL: "gmail_chat_reads", "ask_documents_agent": "google_drive_chat_reads"}
+READ_TOOLS = {
+    MAIL_TOOL: "gmail_chat_reads",
+    "ask_documents_agent": "google_drive_chat_reads",
+    "inspect_selected_drive_files": "google_drive_chat_reads",
+}
 
 
 def external_read_active(context: Any) -> bool:

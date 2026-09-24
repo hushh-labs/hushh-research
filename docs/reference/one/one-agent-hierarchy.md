@@ -167,7 +167,7 @@ The `adk_bridge/__init__.py` registration includes exactly `agent_documents`,
 `agent_location`, `agent_email`, `agent_nav`, and `agent_personal_information`.
 Memory is reached through `ask_memory_agent`; Marketplace pages remain standalone
 product surfaces. Email's `ask_email_agent` path admits only owner-authorized
-typed-chat metadata reads when the Mail read flag and internal cohort both allow
+typed-chat metadata reads when the Mail read flag and UAT rollout admission both allow
 them. It preserves One's conversation, permits only `list_needs_reply` /
 `search_inbox`, and closes further tool execution for that invocation before
 exposing external content. Its interpreter has no tools; durable tool history

@@ -322,6 +322,10 @@ const SERVER_TOOL_PRESENTATION: Record<
     label: "Connections",
     message: "Checking your current connections.",
   },
+  inspect_selected_drive_files: {
+    label: "Google Drive",
+    message: "Checking selected file status.",
+  },
   list_pending_connection_requests: {
     label: "Connection requests",
     message: "Checking your pending connection requests.",
@@ -398,6 +402,8 @@ export async function streamAgentChat(input: {
   vaultOwnerToken: string;
   pkmContext?: string;
   personSelectionHandle?: string;
+  /** Opaque owner-selected KYC workflow; Gmail content stays server-side. */
+  gmailInformationRequestWorkflowId?: string;
   screenContext?: Record<string, unknown> | null;
   signal?: AbortSignal;
   handlers?: AgentChatStreamHandlers;
@@ -518,6 +524,7 @@ export async function streamAgentChat(input: {
               timezone,
               pkmContext: input.pkmContext,
               personSelectionHandle: input.personSelectionHandle,
+              gmailInformationRequestWorkflowId: input.gmailInformationRequestWorkflowId,
               screenContext: input.screenContext,
             },
             resume: [{ interruptId, status, payload }],
@@ -544,7 +551,7 @@ export async function streamAgentChat(input: {
       handlers.onToolStart?.(toolPayload(event.toolCallId, event.toolCallName));
     },
     onToolCallEndEvent: ({ event, toolCallName, toolCallArgs }) => {
-      const safeArgs = toolCallName === "ask_email_agent" || toolCallName === "ask_documents_agent"
+      const safeArgs = toolCallName === "ask_email_agent" || toolCallName === "ask_documents_agent" || toolCallName === "inspect_selected_drive_files"
         ? {} : toolCallArgs;
       toolArgs.set(event.toolCallId, safeArgs);
       handlers.onToolWaiting?.(
@@ -555,12 +562,13 @@ export async function streamAgentChat(input: {
       const toolName = toolNames.get(event.toolCallId) || "";
       // External-read receipts are display-only, even if an invalid result attempts to
       // smuggle a parked navigation/send directive alongside it.
-      if (toolName === "ask_email_agent" || toolName === "ask_documents_agent") {
+      if (toolName === "ask_email_agent" || toolName === "ask_documents_agent" || toolName === "inspect_selected_drive_files") {
         const experience = parseAgentToolResultExperience(toolName, event.content);
         const payload = toolPayload(event.toolCallId, toolName);
         payload.execution = "server";
         const source = toolName === "ask_email_agent" ? "Mail" : "Drive";
-        payload.message = experience ? `${source} read finished.` : `${source} could not complete that read.`;
+        const statusChecked = toolName === "inspect_selected_drive_files" && parseRecord(event.content)?.status === "ok";
+        payload.message = statusChecked ? "Drive status checked." : experience ? `${source} read finished.` : `${source} could not complete that read.`;
         payload.raw = { protocol: "ag-ui", toolName };
         handlers.onToolResult?.(payload);
         if (experience) {
@@ -762,6 +770,7 @@ export async function streamAgentChat(input: {
         timezone,
         pkmContext: input.pkmContext,
         personSelectionHandle: input.personSelectionHandle,
+        gmailInformationRequestWorkflowId: input.gmailInformationRequestWorkflowId,
         screenContext: input.screenContext,
       },
     }, subscriber);

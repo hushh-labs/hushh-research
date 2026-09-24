@@ -56,6 +56,7 @@ DROPPED_TABLES = (
     "kai_funding_brokerage_accounts",
     "kai_funding_plaid_items",
     "kai_funding_plaid_accounts",
+    "kai_funding_plaid_link_sessions",
     "kai_funding_consent_records",
     "kai_funding_ach_relationships",
     "kai_funding_transfers",

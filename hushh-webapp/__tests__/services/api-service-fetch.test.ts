@@ -174,17 +174,17 @@ describe("ApiService.apiFetch", () => {
 
   it("completes Google callbacks without sending presentation authority", async () => {
     publishValidatedAuthSessionOwner("synthetic-owner");
-    mockFetch.mockResolvedValueOnce(jsonResponse({ connected: true, status: "connected", service: "drive" }));
+    mockFetch.mockResolvedValueOnce(jsonResponse({ connected: true, status: "connected", service: "calendar" }));
     const result = await GoogleConnectionService.completeConnect({
       idToken: makeUnsignedToken({ sub: "synthetic-owner" }), userId: "synthetic-owner",
       code: "synthetic-code", state: "synthetic-state", isEffectCurrent: () => true,
     });
-    expect(result.service).toBe("drive");
+    expect(result.service).toBe("calendar");
     expect(JSON.parse(mockFetch.mock.calls[0][1].body)).toEqual({ user_id: "synthetic-owner", code: "synthetic-code", state: "synthetic-state" });
     expect(mockFetch.mock.calls[0][1]).not.toHaveProperty("isEffectCurrent");
   });
 
-  it.each([undefined, "unknown"])("refuses unverifiable Google callback service %s", async (service) => {
+  it.each([undefined, "unknown", "drive"])("refuses unverifiable Google callback service %s", async (service) => {
     publishValidatedAuthSessionOwner("synthetic-owner");
     mockFetch.mockResolvedValueOnce(jsonResponse({ connected: true, status: "connected", service }));
     await expect(GoogleConnectionService.completeConnect({

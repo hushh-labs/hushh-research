@@ -12,8 +12,10 @@ import subprocess
 import sys
 from collections import Counter
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+from google.adk.tools.function_tool import FunctionTool
 
 from scripts import eval_one_consent_tool_selection as wrapper
 from scripts import eval_one_first_tool as harness
@@ -129,6 +131,46 @@ def test_drive_email_first_tool_must_identify_file_before_draft(cases):
     assert not harness.is_hit("open_gmail_email_draft", case.expected)
 
 
+def test_selected_drive_share_status_has_its_own_first_tool_fixture(roster_names):
+    path = (
+        harness.CONSENT_PROTOCOL_ROOT
+        / "scripts/eval_cases/one_selected_drive_status_first_tool.v1.json"
+    )
+    cases = harness.load_cases(path)
+    assert len(cases) == 4
+    assert {case.id for case in cases} >= {
+        "drive.generic_account_access",
+        "drive.new_chat_named_selection",
+    }
+    assert {case.expected for case in cases} == {("inspect_selected_drive_files",)}
+    assert "inspect_selected_drive_files" in roster_names
+    assert not harness.is_hit("list_my_connections", cases[0].expected)
+    assert not harness.is_hit("open_gmail_email_draft", cases[0].expected)
+
+
+def test_generic_drive_case_is_admitted_by_actual_one_head_and_tool_schema(monkeypatch):
+    from hushh_mcp.one_adk import agent_tree
+
+    monkeypatch.setenv("ENVIRONMENT", "test")
+    monkeypatch.setenv("GOOGLE_DRIVE_CHAT_READS", "true")
+    monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "owner")
+    agent = agent_tree.build_one_text_agent(model="test-model")
+    instruction = agent.instruction(
+        SimpleNamespace(
+            state={
+                agent_tree.STATE_EXECUTION_SURFACE: "typed_chat",
+                agent_tree.STATE_USER_ID: "owner",
+            }
+        )
+    )
+    assert "file_name as an empty string" in instruction
+    assert agent_tree.inspect_selected_drive_files in agent.tools
+    declaration = FunctionTool(func=agent_tree.inspect_selected_drive_files)._get_declaration()
+    assert declaration.name == "inspect_selected_drive_files"
+    assert 'file_name=""' in declaration.description
+    assert "file_name" in str(declaration.parameters_json_schema)
+
+
 def test_granted_readback_uses_grant_authority_not_open_outgoing_requests(cases):
     case = next(case for case in cases if case.id == "consent.granted_readback")
     assert case.expected == ("list_information_shared_with_me",)
@@ -173,7 +215,7 @@ def test_production_instruction_preserves_identity_and_disables_reads_under_empt
     assert text == (
         agent_tree.ONE_IDENTITY_INSTRUCTION
         + "\n\nMAIL READ ADMISSION: disabled. Do not call ask_email_agent or claim inbox access."
-        + "\n\nSELECTED-FILE DRIVE READ ADMISSION: disabled. Do not call ask_documents_agent or claim access to the selected-file library. Drive MCP tools, if present, require their separate read grant and must not bypass this disabled capability."
+        + "\n\nSELECTED-FILE DRIVE READ ADMISSION: disabled. Do not call ask_documents_agent or inspect_selected_drive_files. Do not claim the owner is disconnected or that a named file is absent without a current status check. Drive MCP tools, if present, require their separate read grant and must not bypass this disabled capability."
     )
     assert "discover_person_information" in text
     assert "Preserve the selected recipient and selection handle" in text

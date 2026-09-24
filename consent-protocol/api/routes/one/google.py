@@ -1,4 +1,4 @@
-"""Shared callback completion for existing Google service-grant attempts."""
+"""Calendar-only callback completion for existing Google service-grant attempts."""
 
 import logging
 
@@ -30,7 +30,13 @@ async def complete_connect(
     verify_user_id_match(owner, payload.user_id)
     try:
         return await get_google_connection_service().complete(
-            user_id=owner, code=payload.code, state=payload.state, redirect_uri=payload.redirect_uri
+            user_id=owner,
+            code=payload.code,
+            state=payload.state,
+            redirect_uri=payload.redirect_uri,
+            # The generic Drive route is retired. Bind this compatibility
+            # callback to Calendar before a provider code can be exchanged.
+            expected_service="calendar",
         )
     except GoogleConnectionError as error:
         raise HTTPException(

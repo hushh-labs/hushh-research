@@ -308,6 +308,26 @@ async def test_delivery_service_rejects_an_empty_model_draft(monkeypatch) -> Non
 
 
 @pytest.mark.asyncio
+async def test_delivery_service_classifies_exhausted_schema_retries_as_invalid_draft(
+    monkeypatch,
+) -> None:
+    async def fake_run_email_gene(**_kwargs):
+        raise ValueError("single-turn response does not match output schema")
+
+    monkeypatch.setattr(gmail_delivery_service, "run_email_gene", fake_run_email_gene)
+
+    with pytest.raises(gmail_delivery_service.GmailDeliveryError) as error:
+        await GmailDeliveryService().draft_from_instruction(
+            instruction="Write a partnership note to Mat",
+            user_id="owner-1",
+            consent_token=_TEST_CONSENT_TOKEN,
+        )
+
+    assert error.value.code == "DRAFT_INVALID"
+    assert error.value.status_code == 502
+
+
+@pytest.mark.asyncio
 async def test_delivery_service_rejects_missing_owner_authority() -> None:
     with pytest.raises(gmail_delivery_service.GmailDeliveryError) as error:
         await GmailDeliveryService().draft_from_instruction(

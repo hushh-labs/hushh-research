@@ -107,6 +107,67 @@ async def test_actual_one_runner_blocks_parallel_followup_and_restores_next_user
     assert first[0].invocation_id != second[0].invocation_id
 
 
+async def test_selected_file_status_is_answer_only_and_redacted_from_durable_history(monkeypatch):
+    from hushh_mcp.one_adk.external_read_projection import durable_external_read_projection
+
+    monkeypatch.setenv("GOOGLE_DRIVE_CHAT_READS", "true")
+    executed = []
+
+    async def inspect_selected_drive_files(file_name: str, tool_context: ToolContext) -> dict:
+        executed.append(("status", file_name))
+        return {
+            "source": "google_drive_selected_status",
+            "status": "ok",
+            "matches": [{"name": "PRIVATE_FILENAME.pdf", "status": "parsing"}],
+        }
+
+    async def forbidden_action() -> dict:
+        executed.append(("action", ""))
+        return {"status": "ok"}
+
+    model = _Model(
+        [
+            [
+                types.Part(
+                    function_call=types.FunctionCall(
+                        name="inspect_selected_drive_files",
+                        args={"file_name": "PRIVATE_FILENAME.pdf"},
+                    )
+                ),
+                _call("forbidden_action"),
+            ],
+            [types.Part(text="The selected file is still processing.")],
+        ]
+    )
+    agent = agent_tree.build_one_text_agent(model=model)
+    agent.instruction = "Fixture root."
+    agent.tools = [inspect_selected_drive_files, forbidden_action]
+    sessions = InMemorySessionService()
+    await sessions.create_session(app_name="one", user_id="owner", session_id="selected")
+    runner = Runner(agent=agent, app_name="one", session_service=sessions)
+    try:
+        events = [
+            event
+            async for event in runner.run_async(
+                user_id="owner",
+                session_id="selected",
+                new_message=types.Content(role="user", parts=[types.Part(text="Share my CV")]),
+                state_delta={STATE_EXECUTION_SURFACE: "typed_chat"},
+            )
+        ]
+        assert executed == [("status", "PRIVATE_FILENAME.pdf")]
+        assert model._advertised == [{"inspect_selected_drive_files", "forbidden_action"}, set()]
+        responses = [response for event in events for response in event.get_function_responses()]
+        assert (
+            next(r for r in responses if r.name == "forbidden_action").response["status"]
+            == "blocked"
+        )
+        session = await sessions.get_session(app_name="one", user_id="owner", session_id="selected")
+        assert "PRIVATE_FILENAME" not in durable_external_read_projection(session).model_dump_json()
+    finally:
+        await runner.close()
+
+
 def test_post_read_guard_refuses_an_invented_tool_even_if_model_ignores_empty_tools():
     context = SimpleNamespace(
         invocation_id="turn", state={STATE_EXTERNAL_READ: "turn"}, user_id="owner"

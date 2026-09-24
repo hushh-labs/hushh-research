@@ -199,7 +199,10 @@ def test_cross_project_vertex_fallback_is_dev_or_exact_uat_personal_project_only
     assert 'if [[ "${_DEPLOY_ENV}" == "dev" ]]; then' in backend_build
     assert 'genai_project_id="hushh-pda-uat"' in backend_build
     assert backend_build.count('case "${_DEPLOY_ENV}:${genai_project_id}" in') == 1
-    assert "dev:hushh-pda-uat|uat:hushh-vertex-personal54)" in backend_build
+    assert (
+        "dev:hushh-pda-uat|uat:hushh-vertex-personal54|production:hushh-vertex-personal54)"
+        in backend_build
+    )
     assert "Cross-project managed Vertex target is not allowlisted." in backend_build
     assert "##_GENAI_PROJECT_ID=hushh-vertex-personal54" in uat_workflow
     assert "hushh-gemini-bridge" not in uat_workflow

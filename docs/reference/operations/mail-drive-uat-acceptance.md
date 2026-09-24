@@ -1,6 +1,6 @@
 # Mail + Drive UAT acceptance
 
-Status: post-merge UAT deployment verified; Mail/Drive acceptance remains incomplete.
+Status: historical post-merge UAT deployment verified; verify the current live rollout and two-account acceptance separately. Mail/Drive acceptance remains incomplete.
 Runtime remains in `hushh-pda-uat`; the isolated Drive OAuth project is `hushh-drive-uat`.
 Mail/Calendar/Firebase clients and existing grants are unchanged.
 
@@ -51,8 +51,8 @@ parsing, embeddings and document access control remain outside Google AI service
 - Catalog concurrency tests cover single-use selection, wrong owner, expiry, policy drift,
   disconnect/account switch, removal during in-flight selection, and removal after reauth failure.
   Source metadata uses a separate server-processing key, not a vault key or OAuth key.
-- Existing hosted feature config has independent default-off flags plus a strict
-  internal owner cohort. No registry seed, grant, transport, or feature is enabled.
+- Hosted feature config has independent default-off flags. UAT admission requires
+  either exact Firebase UIDs or the explicit all-signed-in-UAT-users mode.
 - Web checkpoint: existing left drawer has mounted Chats/Connections views and exactly
   Mail/Drive cards. Web OAuth uses retained popups, exact settlement checks and status
   reconciliation; blocked popups keep chat/drafts in place. The Google web Picker keeps its
@@ -71,7 +71,7 @@ parsing, embeddings and document access control remain outside Google AI service
   API startup hook or live scheduler is activated by this source checkpoint.
 - Mail chat checkpoint: the registered typed-chat Email specialist now performs only
   metadata-only `list_needs_reply` / `search_inbox`, behind the default-off Mail flag,
-  internal cohort and owner/task/call-bound invocation authority. It reuses Gmail grants,
+  UAT rollout admission and owner/task/call-bound invocation authority. It reuses Gmail grants,
   skips body/ICS enrichment, preserves One's conversation and does not persist an Email turn.
   The interpreter has no tools; One's tool gate closes before reading external data.
   Disconnect/credential changes suppress late answers. Existing receipts and reviewed Send
@@ -270,7 +270,7 @@ no endpoint, scope, redirect, OAuth client or secret argument, serialize on a
 connector-specific advisory lock, and refuse registry drift rather than
 rewriting it. Their output contains only connector ID, transport, policy hash
 and redirect count. Registry activation does not enable Drive: the independent
-feature flags and named internal owner cohort remain default-off.
+feature flags and UAT admission mode remain default-off.
 
 ## Required UAT Drive work-drain configuration
 
@@ -287,9 +287,12 @@ DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE=https://<exact-backend-origin>
 ```
 
 The feature flags remain independently default-off: `GOOGLE_DRIVE_CONNECTION`,
-`DRIVE_DOCUMENT_INDEXING`, and `DRIVE_DOCUMENT_SHARING` must be enabled only for the named
-synthetic/internal accounts in `CONNECTOR_INTERNAL_OWNER_COHORT`. Do not use `*`, `all`, or a
-production environment. The Scheduler identity must be the exact same-project address above;
+`DRIVE_DOCUMENT_INDEXING`, and `DRIVE_DOCUMENT_SHARING` each require explicit activation.
+UAT admission can use exact Firebase UIDs in `CONNECTOR_INTERNAL_OWNER_COHORT` or
+`CONNECTOR_UAT_ALL_USERS=true` for every signed-in UAT user. These modes are mutually exclusive;
+`*` and `all` remain invalid cohort values, and production cannot enable either mode.
+Google's OAuth app audience must independently allow the intended Google accounts.
+The Scheduler identity must be the exact same-project address above;
 the route rejects missing/non-OIDC tokens, a non-Google issuer, another project, a mismatched
 audience or an unverified service-account email.
 
