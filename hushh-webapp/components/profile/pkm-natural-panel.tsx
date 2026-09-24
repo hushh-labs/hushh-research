@@ -178,7 +178,11 @@ export function PkmNaturalPanel({
         vaultKey,
         vaultOwnerToken,
       });
-      if (result.saved) trackEvent("one_memory_action", { route_id: "pkm", action: "export_saved", result: "success" });
+      trackEvent("one_memory_action", {
+        route_id: "pkm",
+        action: "export_saved",
+        result: result.saved ? "success" : "expected_error",
+      });
       // On a phone the file only exists once the share sheet accepts it, so the
       // two outcomes are reported differently rather than both as success.
       setExportStatus(
@@ -189,6 +193,7 @@ export function PkmNaturalPanel({
           : "Nothing was saved. You can try again whenever you like.",
       );
     } catch (error) {
+      trackEvent("one_memory_action", { route_id: "pkm", action: "export_saved", result: "error" });
       setExportError(
         error instanceof Error ? error.message : "The file could not be prepared.",
       );
@@ -794,6 +799,11 @@ export function PkmNaturalPanel({
       setSelectedCard(null);
       setMemoryCardsNonce((value) => value + 1);
     } catch (error) {
+      trackEvent("one_memory_action", {
+        route_id: "pkm",
+        action: params.action === "edited" ? "detail_edited" : "detail_deleted",
+        result: "error",
+      });
       setMemoryActionError(
         error instanceof Error ? error.message : "This saved detail couldn’t be updated."
       );
@@ -830,6 +840,7 @@ export function PkmNaturalPanel({
       setAutoSavePolicyError(null);
       setAutoSavePolicyRetryValue(null);
     } catch {
+      trackEvent("one_memory_action", { route_id: "pkm", action: "auto_save_changed", result: "error" });
       // ApiService asks VaultLockGuard to re-open the existing vault unlock
       // dialog when a VAULT_OWNER token is rejected. Other failures are not
       // evidence that the vault is locked, so keep the recovery local and
@@ -885,7 +896,11 @@ export function PkmNaturalPanel({
       });
       if (!guard.isCurrent()) return;
       setCaptureCards(prepared.cards);
-      if (prepared.cards.length > 0) trackEvent("one_memory_action", { route_id: "pkm", action: "capture_prepared", result: "success" });
+      trackEvent("one_memory_action", {
+        route_id: "pkm",
+        action: "capture_prepared",
+        result: prepared.cards.length > 0 ? "success" : "expected_error",
+      });
       setCaptureSharingImpactAcknowledged(false);
       const hasUnresolvedSource = prepared.sourceCoverage.some((block) =>
         Boolean(block.preparationIssue) || block.disposition === "failed" ||
@@ -903,6 +918,7 @@ export function PkmNaturalPanel({
       );
     } catch {
       if (!guard.isCurrent()) return;
+      trackEvent("one_memory_action", { route_id: "pkm", action: "capture_prepared", result: "error" });
       setCaptureMessage("That note couldn’t be prepared. Nothing was saved. Please try again.");
     } finally {
       if (revision === captureRevision.current) setCaptureLoading(false);
@@ -991,6 +1007,8 @@ export function PkmNaturalPanel({
           setCaptureSharingImpactAcknowledged(false);
         }
         setRefreshNonce((value) => value + 1);
+      } else {
+        trackEvent("one_memory_action", { route_id: "pkm", action: "capture_saved", result: "expected_error" });
       }
     } catch {
       if (!guard.isCurrent()) {
@@ -1000,6 +1018,7 @@ export function PkmNaturalPanel({
         }
         return;
       }
+      trackEvent("one_memory_action", { route_id: "pkm", action: "capture_saved", result: "error" });
       setCaptureMessage("Memory couldn’t be saved. Your note is still here; please try again.");
     } finally {
       if (pkmCaptureSaveInFlight.get(operationOwnerId) === operationId) {

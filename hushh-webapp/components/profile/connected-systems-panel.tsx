@@ -1215,6 +1215,10 @@ export function ConnectedSystemsPanel({
       return isCurrentPanelRequest(requestContext) ? result : null;
     } catch (err) {
       if (!isCurrentPanelRequest(requestContext)) return null;
+      if (state === "create" || state === "update" || state === "delete") {
+        const action = state === "create" ? "record_created" : state === "update" ? "record_updated" : "record_deleted";
+        trackEvent("one_crm_action", { route_id: "connected_systems", action, result: "error" });
+      }
       const message = err instanceof Error ? err.message : messages.error;
       setError(message);
       return null;

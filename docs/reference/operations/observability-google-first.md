@@ -281,6 +281,14 @@ Operational emitters:
   - `hushh-webapp/lib/services/account-service.ts`
   - `hushh-webapp/lib/services/vault-method-service.ts`
 
+One feature-outcome policy:
+
+1. Gmail web and native OAuth emit the same start and completion stages.
+2. A Gmail sync request, an accepted queue job, and a terminal sync outcome are separate facts and must not be added as one KPI.
+3. Memory, Wallet, Calendar, and KYC action events emit `success`, `expected_error`, or `error` without content or identifiers.
+4. CRM mutation events are development-only and remain excluded from public production KPIs.
+5. Runtime schema validation rejects undeclared action/result values even if a dynamic caller bypasses TypeScript.
+
 ### Backend (`consent-protocol`)
 
 - request middleware:

@@ -1205,6 +1205,7 @@ export function OneKycWorkspace({
               input,
             });
             if (!result.ok) {
+              trackEvent("one_kyc_action", { route_id: "one_kyc", action: "redraft_completed", result: "expected_error" });
               setError("Redraft failed — please try again.");
               return;
             }
@@ -1216,6 +1217,7 @@ export function OneKycWorkspace({
             setRedraftInstructions("");
             toast.success("Draft revised.");
           } catch (err) {
+            trackEvent("one_kyc_action", { route_id: "one_kyc", action: "redraft_completed", result: "error" });
             setError(
               oneKycErrorMessage(err, "Redraft failed — please try again."),
             );
@@ -1353,6 +1355,13 @@ export function OneKycWorkspace({
         }
         updateWorkflow(next);
       } catch (err) {
+        const failedAction =
+          action === "approve"
+            ? "reply_sent"
+            : action === "reject"
+              ? "reply_rejected"
+              : "workflow_refreshed";
+        trackEvent("one_kyc_action", { route_id: "one_kyc", action: failedAction, result: "error" });
         setError(oneKycErrorMessage(err, "KYC action failed."));
       } finally {
         setBusy(null);
@@ -1417,6 +1426,7 @@ export function OneKycWorkspace({
           },
         });
         if (!result.ok) {
+          trackEvent("one_kyc_action", { route_id: "one_kyc", action: "redraft_completed", result: "expected_error" });
           return {
             status: "failed" as const,
             summary: "Redraft failed. Try again.",
@@ -1427,12 +1437,14 @@ export function OneKycWorkspace({
           [selected.workflow_id]: result.draft,
         }));
         setRedraftInstructions("");
+        trackEvent("one_kyc_action", { route_id: "one_kyc", action: "redraft_completed", result: "success" });
         toast.success("Draft revised.");
         return {
           status: "succeeded" as const,
           summary: "The current response draft was revised for review.",
         };
       } catch (err) {
+        trackEvent("one_kyc_action", { route_id: "one_kyc", action: "redraft_completed", result: "error" });
         const message = oneKycErrorMessage(err, "Redraft failed. Try again.");
         setError(message);
         return { status: "failed" as const, summary: message };
@@ -1573,6 +1585,7 @@ export function OneKycWorkspace({
           );
         }
       } catch (err) {
+        trackEvent("one_kyc_action", { route_id: "one_kyc", action: "access_approved", result: "error" });
         setError(oneKycErrorMessage(err, "Unable to approve access."));
       } finally {
         setBusy(null);
@@ -1618,6 +1631,7 @@ export function OneKycWorkspace({
         }
         await refreshWorkflowState(withRequests);
       } catch (err) {
+        trackEvent("one_kyc_action", { route_id: "one_kyc", action: "access_denied", result: "error" });
         setError(err instanceof Error ? err.message : "Unable to deny access.");
       } finally {
         setBusy(null);

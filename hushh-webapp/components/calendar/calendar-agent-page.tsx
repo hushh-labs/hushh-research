@@ -136,12 +136,16 @@ export function CalendarAgentPage({
           trackEvent("one_calendar_action", { route_id: "one_calendar", action: "connected", result: "success" });
           morphyToast.success("Google Calendar connected.");
         } else {
+          trackEvent("one_calendar_action", { route_id: "one_calendar", action: "connected", result: "expected_error" });
           morphyToast.error(
             "Google authorization finished, but Calendar is still connecting. Check again in a moment.",
           );
         }
       } else if (outcome === "failed") {
+        trackEvent("one_calendar_action", { route_id: "one_calendar", action: "connected", result: "error" });
         morphyToast.error(message || "Google Calendar could not be connected.");
+      } else {
+        trackEvent("one_calendar_action", { route_id: "one_calendar", action: "connected", result: "expected_error" });
       }
     };
     const onMessage = (event: MessageEvent) => {
@@ -170,6 +174,7 @@ export function CalendarAgentPage({
         morphyToast.success("Google Calendar connected.");
         return;
       }
+      trackEvent("one_calendar_action", { route_id: "one_calendar", action: "connected", result: "expected_error" });
       morphyToast.error(message);
     };
     const popupWatcher = window.setInterval(() => {
@@ -270,6 +275,7 @@ export function CalendarAgentPage({
       popupStartedAtRef.current = Date.now();
       navigateGoogleOAuthPopup(popup, start.authorize_url);
     } catch (error) {
+      trackEvent("one_calendar_action", { route_id: "one_calendar", action: "connected", result: "error" });
       popupRef.current?.close();
       expectedPopupAttempt.current = null;
       popupRef.current = null;
@@ -298,6 +304,9 @@ export function CalendarAgentPage({
       trackEvent("one_calendar_action", { route_id: "one_calendar", action: "disconnected", result: "success" });
       setStatus(next);
       setDisconnectConfirmOpen(false);
+    } catch (error) {
+      trackEvent("one_calendar_action", { route_id: "one_calendar", action: "disconnected", result: "error" });
+      throw error;
     } finally {
       setBusy(false);
     }

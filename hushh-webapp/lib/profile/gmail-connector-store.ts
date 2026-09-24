@@ -11,6 +11,7 @@ import {
   type GmailSyncRun,
 } from "@/lib/services/gmail-receipts-service";
 import { getSessionItem, setSessionItem } from "@/lib/utils/session-storage";
+import { trackEvent } from "@/lib/observability/client";
 import {
   resolveGmailConnectionPresentation,
   sanitizeGmailUserMessage,
@@ -858,6 +859,15 @@ async function pollSyncRun(params: {
       });
 
       if (isTerminalRunStatus(run.status)) {
+        trackEvent("gmail_sync_result", {
+          action: "complete",
+          result:
+            run.status === "completed"
+              ? "success"
+              : run.status === "canceled"
+                ? "expected_error"
+                : "error",
+        });
         finishTaskFromRun(taskId, run, { taskKind });
         updateEntry(normalizedUserId, {
           isPolling: false,
@@ -901,6 +911,10 @@ async function pollSyncRun(params: {
       });
     }
   } catch (error) {
+    trackEvent("gmail_sync_result", {
+      action: "poll",
+      result: "error",
+    });
     console.error(
       "[gmail-connector-store] Failed to poll Gmail sync run:",
       error,

@@ -1,6 +1,12 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const trackEventMock = vi.hoisted(() => vi.fn());
+
+vi.mock("@/lib/observability/client", () => ({
+  trackEvent: trackEventMock,
+}));
+
 vi.mock("@/lib/services/app-background-task-service", () => ({
   AppBackgroundTaskService: {
     getTask: vi.fn(() => null),
@@ -611,6 +617,13 @@ describe("gmail-connector-store", () => {
         userId: "user-hook",
         runId: "run_backfill",
       });
+      await waitFor(() => {
+        expect(trackEventMock).toHaveBeenCalledTimes(2);
+      });
+      expect(trackEventMock.mock.calls).toEqual([
+        ["gmail_sync_result", { action: "complete", result: "success" }],
+        ["gmail_sync_result", { action: "complete", result: "success" }],
+      ]);
       clearConnectorStatus("user-hook");
     } finally {
       setTimeoutSpy.mockRestore();

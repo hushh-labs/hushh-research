@@ -151,6 +151,9 @@ export function WalletWorkspace() {
       });
       trackEvent("one_wallet_action", { route_id: "one_wallet", action: "card_deleted", result: "success" });
       await refresh();
+    } catch (error) {
+      trackEvent("one_wallet_action", { route_id: "one_wallet", action: "card_deleted", result: "error" });
+      throw error;
     } finally {
       setBusyCardId(null);
     }
@@ -302,14 +305,19 @@ export function WalletWorkspace() {
           onSubmit={async (card) => {
             const context = vaultContext();
             if (!context) throw new Error("Unlock your vault to save a card.");
-            await WalletService.addCard({
-              ...context,
-              card,
-              surface: "web",
-              source: "one_wallet_add",
-            });
-            trackEvent("one_wallet_action", { route_id: "one_wallet", action: "card_added", result: "success" });
-            await refresh();
+            try {
+              await WalletService.addCard({
+                ...context,
+                card,
+                surface: "web",
+                source: "one_wallet_add",
+              });
+              trackEvent("one_wallet_action", { route_id: "one_wallet", action: "card_added", result: "success" });
+              await refresh();
+            } catch (error) {
+              trackEvent("one_wallet_action", { route_id: "one_wallet", action: "card_added", result: "error" });
+              throw error;
+            }
           }}
           onCancel={() => setView({ kind: "list" })}
         />

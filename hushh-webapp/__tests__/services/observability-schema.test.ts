@@ -21,6 +21,66 @@ describe("observability schema", () => {
     expect(result.droppedKeys).toEqual(expect.arrayContaining(["email", "wallet_token", "workflow_id"]));
     expect(JSON.stringify(result.sanitized)).not.toContain("example.test");
   });
+
+  it.each([
+    "one_memory_action",
+    "one_wallet_action",
+    "one_calendar_action",
+    "one_kyc_action",
+    "one_crm_action",
+  ] as const)("rejects undeclared %s action and result values at runtime", (eventName) => {
+    const result = validateAndSanitizeEvent(eventName, {
+      env: "production",
+      platform: "web",
+      event_category: "feature",
+      app_version: "1.1.0",
+      route_id: "one_home",
+      action: "invented_action",
+      result: "invented_result",
+    } as any);
+
+    expect(result.ok).toBe(false);
+    expect(result.droppedKeys).toEqual(expect.arrayContaining(["action", "result"]));
+    expect(result.sanitized).not.toHaveProperty("action");
+    expect(result.sanitized).not.toHaveProperty("result");
+  });
+
+  it("accepts bounded Gmail terminal-sync outcomes and rejects arbitrary stages", () => {
+    const valid = validateAndSanitizeEvent("gmail_sync_result", {
+      env: "production",
+      platform: "ios",
+      event_category: "system",
+      app_version: "1.1.0",
+      action: "complete",
+      result: "success",
+    });
+    const invalid = validateAndSanitizeEvent("gmail_sync_result", {
+      env: "production",
+      platform: "ios",
+      event_category: "system",
+      app_version: "1.1.0",
+      action: "provider_job_123",
+      result: "success",
+    } as any);
+
+    expect(valid.ok).toBe(true);
+    expect(invalid.ok).toBe(false);
+    expect(invalid.sanitized).not.toHaveProperty("action");
+  });
+
+  it("keeps Gmail connection stage and result enums bounded at runtime", () => {
+    const invalid = validateAndSanitizeEvent("gmail_connect_started", {
+      env: "production",
+      platform: "ios",
+      event_category: "system",
+      app_version: "1.1.0",
+      action: "provider_specific_stage",
+      result: "error",
+    } as any);
+
+    expect(invalid.ok).toBe(false);
+    expect(invalid.droppedKeys).toEqual(expect.arrayContaining(["action", "result"]));
+  });
   it("accepts metadata-only api payloads", () => {
     const result = validateAndSanitizeEvent("api_request_completed", {
       env: "uat",
