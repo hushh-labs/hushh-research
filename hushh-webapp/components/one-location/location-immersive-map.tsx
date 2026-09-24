@@ -445,7 +445,7 @@ function zoomForAccuracy(accuracyM: number | null | undefined): number {
 async function frameMarkers(
   map: GoogleMap,
   markers: RenderMarker[],
-  prepareCamera?: (targetZoom: number | null) => void,
+  prepareCamera?: (targetZoom: number) => void,
 ): Promise<void> {
   if (markers.length === 0) return;
   if (markers.length === 1) {
@@ -477,9 +477,9 @@ async function frameMarkers(
     lat: (southwest.lat + northeast.lat) / 2,
     lng: (southwest.lng + northeast.lng) / 2,
   };
-  // fitBounds chooses its own zoom. Suppress a size derived from the previous
-  // camera until the renderer reports the new authoritative value.
-  prepareCamera?.(null);
+  // fitBounds chooses its own zoom. Keep the last known-safe fallback scale
+  // until idle reports the replacement: older bridges may never send that
+  // callback, and clearing it here would remove the only visible self marker.
   await map.fitBounds(new LatLngBounds({ southwest, northeast, center }), 24);
 }
 

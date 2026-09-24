@@ -3075,6 +3075,48 @@ describe("LocationImmersiveMap reported map defects", () => {
     });
   });
 
+  it("keeps the self dot through multi-marker framing without camera callbacks", async () => {
+    stubPhoneGeometry();
+    mapHarness.map.setOnBoundsChangedListener.mockRejectedValueOnce(
+      new Error("camera listeners unavailable"),
+    );
+    serviceHarness.captureCurrentPosition.mockResolvedValue({
+      latitude: 25.46,
+      longitude: 81.85,
+      accuracyM: 12,
+      capturedAt: "2026-09-25T00:00:00.000Z",
+      sourcePlatform: "android",
+    });
+    serviceHarness.getMapState.mockResolvedValue({
+      markers: [
+        incomingMarker(ANKIT, 25.4358, 81.8463),
+        incomingMarker(ABDUL, 25.4501, 81.8201),
+      ],
+      preferences: { presenceMode: "ghost" },
+    });
+
+    await renderReadyMap();
+
+    await waitFor(() => {
+      const fallback = mapHarness.map.addCircles.mock.calls
+        .flatMap((call) => call[0] as Array<Record<string, unknown>>)
+        .reverse()
+        .find((circle) => circle.title === "Your location");
+      expect(fallback).toBeDefined();
+      expect(Number(fallback?.radius)).toBeGreaterThan(0);
+      expect(Number(fallback?.radius)).toBeLessThan(100);
+    });
+
+    mapHarness.map.fitBounds.mockClear();
+    mapHarness.map.removeCircles.mockClear();
+    fireEvent.click(screen.getByTestId("one-location-map-show-everyone"));
+    await waitFor(() => expect(mapHarness.map.fitBounds).toHaveBeenCalled());
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    });
+    expect(mapHarness.map.removeCircles).not.toHaveBeenCalledWith(["circle-0"]);
+  });
+
   it("names each pin by first name, and draws you as your own avatar", async () => {
     // The reported gap: two pins and no way to tell who is who without opening
     // the tray. "Ankit Kumar Singh" is what the tray says; a pill over a pin
