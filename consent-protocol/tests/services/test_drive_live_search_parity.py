@@ -269,6 +269,7 @@ async def test_the_chat_turn_passes_type_sharing_recency_and_the_owners_day(monk
                 "shared_with_me": False,
                 "sort": "recent",
                 "date_from": "2026-09-24",
+                "date_to": "2026-09-24",
                 "file_time_field": "createdTime",
                 "time_intent": "file_activity",
             }

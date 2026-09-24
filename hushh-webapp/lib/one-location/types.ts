@@ -742,6 +742,8 @@ export type OneLocationNearbyPresenceState = {
   presence: OneLocationNearbyPresence | null;
   attendees: OneLocationNearbyAttendee[];
   checkedOut?: boolean;
+  /** True only when the server actually ended an active Nearby presence. */
+  checkoutTransitioned?: boolean;
   /**
    * On checkout only: the place just left, and whether it can be rated.
    *

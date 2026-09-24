@@ -9,6 +9,7 @@ import type { AutoApproveScope } from "@/lib/one-location/location-control-state
 import { resolveRuntimeFrontendUrl } from "@/lib/runtime/settings";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
 import { ApiError, apiErrorCode, apiJson } from "@/lib/services/api-client";
+import { trackNearbyCheckOutCompleted } from "@/lib/observability/location-events";
 import type { CircleManagementBinding, CircleManagementReceipt } from "./command-circle-management";
 import type {
   ActionResult,
@@ -1961,7 +1962,7 @@ export class OneLocationService {
     presenceId?: string | null;
     presenceVersion?: number;
   }): Promise<OneLocationNearbyPresenceState> {
-    return apiJson<OneLocationNearbyPresenceState>(
+    const result = await apiJson<OneLocationNearbyPresenceState>(
       "/api/one/location/nearby-presence",
       {
         method: "DELETE",
@@ -1973,6 +1974,12 @@ export class OneLocationService {
         }) } : {}),
       },
     );
+    // All checkout entry points (drawer, Location pause, reconciliation) use
+    // this service. A successful idempotent DELETE is not necessarily an end.
+    if (result.checkoutTransitioned === true) {
+      trackNearbyCheckOutCompleted();
+    }
+    return result;
   }
 
   static async extendNearbyPresence(params: {

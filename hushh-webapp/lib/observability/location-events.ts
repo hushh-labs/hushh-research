@@ -128,6 +128,18 @@ export function trackLocationShareReceived(): void {
   trackLocationActivationCompleted({ activationPath: "share_received" });
 }
 
+/** Count only a confirmed end of an active Nearby check-in, never a no-op. */
+export function trackNearbyCheckOutCompleted(): void {
+  try {
+    trackEvent("one_location_check_out_completed", {
+      route_id: "one_location_check_in",
+      result: "success",
+    });
+  } catch {
+    // Analytics must not turn a successful privacy action into a failed one.
+  }
+}
+
 /**
  * A rated visit, and the Google hand-off it can lead to.
  *
