@@ -6,6 +6,7 @@ Input is private and must not be logged, even on malformed parser exceptions.
 
 from __future__ import annotations
 
+import csv
 import io
 import json
 import resource
@@ -19,6 +20,10 @@ from defusedxml import ElementTree
 MAX_INPUT_BYTES = 4 * 1024 * 1024
 MAX_TEXT_BYTES = 256 * 1024
 MAX_PAGES = 100
+# Live lane only: a Google Sheets CSV export or an uploaded .csv.
+MAX_CSV_ROWS = 2000
+MAX_CSV_COLUMNS = 64
+MAX_CSV_CELL_CHARS = 1000
 DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
 
 
@@ -126,6 +131,57 @@ def parse_document(content: bytes, mime_type: str) -> ParsedText:
         raise
     except Exception:
         raise ParseError("invalid_document") from None
+
+
+def parse_live_csv(content: bytes) -> ParsedText:
+    """Bounded CSV rows as plain ``a | b`` text lines for the live lane.
+
+    Cells are data, never formulas or links: nothing is evaluated. Stops at the
+    row, column, cell and text caps and fails closed on anything not clean
+    UTF-8 CSV. Never calls csv.field_size_limit, which is process-global; a
+    field over its default limit is a damaged file here.
+    """
+    if not content or len(content) > MAX_INPUT_BYTES:
+        raise ParseError("file_too_large" if content else "no_extractable_text")
+    try:
+        text = content.decode("utf-8-sig", errors="strict")
+    except UnicodeDecodeError:
+        raise ParseError("invalid_document") from None
+    if "\x00" in text:
+        raise ParseError("invalid_document")
+    lines: list[str] = []
+    size = 0
+    truncated = False
+    try:
+        for number, row in enumerate(csv.reader(io.StringIO(text, newline=""), strict=True)):
+            if number >= MAX_CSV_ROWS or size > MAX_TEXT_BYTES:
+                truncated = True
+                break
+            cells = [" ".join(cell.split()) for cell in row]
+            if any(cells[MAX_CSV_COLUMNS:]):
+                truncated = True
+            cells = cells[:MAX_CSV_COLUMNS]
+            while cells and not cells[-1]:
+                cells.pop()  # Sheets pads short rows with empty cells.
+            if not cells:
+                continue
+            if any(len(cell) > MAX_CSV_CELL_CHARS for cell in cells):
+                truncated = True
+                cells = [cell[:MAX_CSV_CELL_CHARS] for cell in cells]
+            line = " | ".join(cells)
+            lines.append(line)
+            size += len(line.encode("utf-8")) + 1
+    except csv.Error:
+        raise ParseError("invalid_document") from None
+    parsed = _bounded(("\n".join(lines),))
+    return ParsedText(parsed.pages, parsed.truncated or truncated)
+
+
+def parse_live_document(content: bytes, mime_type: str) -> ParsedText:
+    """Live lane: ``parse_document`` plus CSV. The selected lane never reads CSV."""
+    if mime_type == "text/csv":
+        return parse_live_csv(content)
+    return parse_document(content, mime_type)
 
 
 def main() -> None:

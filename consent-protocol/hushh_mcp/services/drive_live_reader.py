@@ -17,6 +17,7 @@ from uuid import uuid4
 from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
 from hushh_mcp.services.google_drive_adapter import (
     FILE_ID,
+    LIVE_PARTIAL_EXPORTS,
     LIVE_POLICY_HASH,
     DriveReadError,
     GoogleDriveAdapter,
@@ -652,7 +653,7 @@ class DriveLiveReader:
                 "text": body[:4000],
                 "source_version": metadata.version,
             }
-            if len(body) > 4000:
+            if len(body) > 4000 or metadata.mime_type in LIVE_PARTIAL_EXPORTS:
                 truncated = True
             if len(json.dumps(content + [entry], ensure_ascii=False).encode()) > MAX_CONTEXT_BYTES:
                 truncated = True

@@ -15,7 +15,11 @@ import re
 from typing import Any
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
-from hushh_mcp.services.drive_document_parser import ParseError, parse_document
+from hushh_mcp.services.drive_document_parser import ParseError
+
+# The live lane parses what the selected lane does, plus CSV (a Google Sheets
+# export or an uploaded .csv). Bound to this name so the read path is unchanged.
+from hushh_mcp.services.drive_document_parser import parse_live_document as parse_document
 from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
 from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
 from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult
