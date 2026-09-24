@@ -242,6 +242,33 @@ for (const width of [320, 390, 640, 768, 1440]) {
       return colours.map((icon) => icon.background);
     };
     const lightColours = await checkIconColours();
+    const checkNeutralSurfaces = async () => {
+      const preview = page.getByTestId("circle-discovery-preview");
+      const background = await preview.evaluate(
+        (element) => getComputedStyle(element).backgroundColor,
+      );
+      for (const name of [
+        "Family",
+        "Finance",
+        "Investor",
+        "Business",
+        "Location",
+        "SMS",
+      ]) {
+        await page
+          .getByRole("button", { name: new RegExp(`^Explore ${name} Circle`) })
+          .click();
+        expect(
+          await preview.evaluate(
+            (element) => getComputedStyle(element).backgroundColor,
+          ),
+        ).toBe(background);
+        await expect(
+          page.getByTestId("circle-discovery-orbit").locator(":scope > svg > circle"),
+        ).toHaveAttribute("fill", "none");
+      }
+    };
+    await checkNeutralSurfaces();
     const checkGeometry = async () => {
       const bounds = await hero.boundingBox();
       expect(bounds!.x).toBeGreaterThanOrEqual(0);
@@ -314,6 +341,7 @@ for (const width of [320, 390, 640, 768, 1440]) {
     await checkGeometry();
     await page.emulateMedia({ reducedMotion: "reduce", colorScheme: "dark" });
     await page.evaluate(() => document.documentElement.classList.add("dark"));
+    await checkNeutralSurfaces();
     await page.getByRole("button", { name: "Explore Investor Circle" }).click();
     await expect(page.getByText(/investor and RIA/)).toBeVisible();
     expect(await checkIconColours()).not.toEqual(lightColours);

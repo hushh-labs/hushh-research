@@ -107,12 +107,7 @@ export function CircleDiscoveryCard({
     <section
       aria-labelledby={headingId}
       data-testid="connect-living-connections"
-      className={cn(
-        CONNECT_HERO_CLASSNAME,
-        STARTER_TONE_CLASSNAME,
-        "motion-step-enter",
-      )}
-      style={STARTER_ICON_STYLES[selected]}
+      className={cn(CONNECT_HERO_CLASSNAME, "motion-step-enter")}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
@@ -153,7 +148,7 @@ export function CircleDiscoveryCard({
               cx="50"
               cy="50"
               r="35"
-              fill="color-mix(in oklab, var(--circle-tint) 28%, transparent)"
+              fill="none"
               stroke="var(--app-card-border-standard)"
               strokeWidth="0.4"
             />
@@ -166,11 +161,13 @@ export function CircleDiscoveryCard({
                   y1="50"
                   x2={50 + Math.cos(angle) * 35}
                   y2={50 + Math.sin(angle) * 35}
-                  className={STARTER_TONE_CLASSNAME}
-                  style={STARTER_ICON_STYLES[item.id]}
-                  stroke="var(--circle-ink)"
+                  stroke={
+                    item.id === selected
+                      ? "var(--app-accent)"
+                      : "var(--app-card-border-standard)"
+                  }
                   strokeWidth="0.5"
-                  opacity={item.id === selected ? 0.45 : 0.15}
+                  opacity={item.id === selected ? 0.45 : 0.5}
                 />
               );
             })}
@@ -259,7 +256,7 @@ export function CircleDiscoveryCard({
         <div
           key={selected}
           id={descriptionId}
-          className="motion-step-enter grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 min-w-0 rounded-[var(--app-card-radius-compact)] bg-[color:color-mix(in_oklab,var(--circle-tint)_55%,var(--app-card-surface-default-solid))] px-3 py-2 sm:block sm:p-5"
+          className="motion-step-enter grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 min-w-0 rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-secondary-surface)] px-3 py-2 sm:block sm:p-5"
           data-testid="circle-discovery-preview"
         >
           <div
@@ -267,7 +264,7 @@ export function CircleDiscoveryCard({
             aria-live="polite"
             aria-atomic="true"
           >
-            <p className="hidden sm:block text-xs font-medium text-[color:var(--circle-ink)]">
+            <p className="hidden sm:block text-xs font-medium text-[color:var(--app-secondary-label)]">
               {circle ? "Your circle" : "Make it yours"}
             </p>
             <h3 className="ui-text-card-title !text-base sm:!text-xl row-start-1 col-start-1 sm:mt-1 break-words text-[color:var(--app-label)]">

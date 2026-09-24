@@ -124,7 +124,13 @@ describe("circle discovery actions", () => {
         screen
           .getByTestId("connect-living-connections")
           .style.getPropertyValue("--agent-icon-profile-bg"),
-      ).toBe(style["--agent-icon-profile-bg"]);
+      ).toBe("");
+      expect(
+        screen.getByTestId("circle-discovery-preview").className,
+      ).toContain("bg-[color:var(--app-secondary-surface)]");
+      expect(
+        screen.getByTestId("circle-discovery-orbit").querySelector("circle"),
+      ).toHaveAttribute("fill", "none");
     }
     expect(mocks.create).not.toHaveBeenCalled();
     expect(mocks.sms).not.toHaveBeenCalled();
