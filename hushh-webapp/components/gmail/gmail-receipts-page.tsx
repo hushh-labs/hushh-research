@@ -1800,7 +1800,7 @@ export default function GmailReceiptsPage({
           // Named for the source, not the artefact: the breadcrumb on both
           // routes that render this page says "Gmail", and the setup checklist
           // row that leads here says "Connect Gmail".
-          title="Mail"
+          title="Gmail"
           description={pageTitle}
           actions={
             isConnected &&
@@ -1859,21 +1859,21 @@ export default function GmailReceiptsPage({
               {loadingStatus ? (
                 <div
                   aria-busy="true"
-                  aria-label="Checking your Mail status"
+                  aria-label="Checking your Gmail status"
                   className="space-y-3"
                 >
                   <div className="space-y-1">
                     <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-                      Mail
+                      Gmail
                     </p>
                     <h2 className="text-lg font-semibold tracking-tight text-foreground">
                       {oauthCompletionPending
-                        ? "Finishing Mail connection"
-                        : "Checking your Mail status"}
+                        ? "Finishing Gmail connection"
+                        : "Checking your Gmail status"}
                     </h2>
                     <p className="text-sm text-muted-foreground">
                       {oauthCompletionPending
-                        ? "Your Mail page is ready. Inbox details and receipts will appear here in the background."
+                        ? "Your Gmail page is ready. Inbox details and receipts will appear here in the background."
                         : "Your inbox and receipts will appear here as they are ready."}
                     </p>
                   </div>

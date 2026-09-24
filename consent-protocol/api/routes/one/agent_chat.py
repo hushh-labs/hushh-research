@@ -24,6 +24,8 @@ from hushh_mcp.one_adk.agent_tree import (
     ONE_APP_NAME,
     STATE_CONSENT_TOKEN,
     STATE_CONVERSATION_ID,
+    STATE_GMAIL_INFORMATION_REQUEST_CONTEXT,
+    STATE_GMAIL_INFORMATION_REQUEST_WORKFLOW_ID,
     STATE_PKM_CONTEXT,
     STATE_SCREEN,
     STATE_TIMEZONE,
@@ -39,6 +41,10 @@ from hushh_mcp.one_adk.external_read_boundary import READ_TOOLS, STATE_EXECUTION
 from hushh_mcp.one_adk.external_read_projection import redacted_read_receipt
 from hushh_mcp.one_adk.request_secrets import store_request_secret
 from hushh_mcp.services.action_gateway import get_action_gateway_action, list_action_gateway_actions
+from hushh_mcp.services.gmail_personal_information_request_service import (
+    PersonalGmailInformationRequestError,
+    get_personal_gmail_information_request_service,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Agent One"])
@@ -95,6 +101,37 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
     session_user_id = (
         user_id or f"anonymous:{hashlib.sha256(anonymous_seed.encode()).hexdigest()[:24]}"
     )
+    workflow_id = str(forwarded.get("gmailInformationRequestWorkflowId") or "").strip()
+    if workflow_id and (len(workflow_id) > 128 or not re.fullmatch(r"[A-Za-z0-9-]+", workflow_id)):
+        raise HTTPException(status_code=400, detail="Selected Gmail request is invalid.")
+    gmail_information_request_context = ""
+    if workflow_id:
+        if not token or not user_id:
+            raise HTTPException(
+                status_code=403,
+                detail="Unlock your vault before replying to the selected Gmail request.",
+            )
+        try:
+            gmail_information_request_context = (
+                await get_personal_gmail_information_request_service().get_chat_reply_context(
+                    user_id=user_id,
+                    workflow_id=workflow_id,
+                )
+            )
+        except PersonalGmailInformationRequestError as exc:
+            logger.info(
+                "one.gmail_information_request_context_unavailable code=%s",
+                exc.code,
+            )
+            raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+        except Exception as exc:  # noqa: BLE001 - do not surface provider details to chat
+            logger.warning(
+                "one.gmail_information_request_context_failed error=%s", type(exc).__name__
+            )
+            raise HTTPException(
+                status_code=503,
+                detail="The selected Gmail request is temporarily unavailable. Please try again.",
+            ) from exc
     return {
         STATE_EXECUTION_SURFACE: "typed_chat",
         STATE_USER_ID: session_user_id,
@@ -117,6 +154,10 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         STATE_SCREEN: str(screen_context.get("screen") or "")[:64],
         STATE_VOICE_CONTEXT: screen_context,
         STATE_PKM_CONTEXT: store_request_secret(str(forwarded.get("pkmContext") or "")[:20000]),
+        STATE_GMAIL_INFORMATION_REQUEST_WORKFLOW_ID: workflow_id,
+        STATE_GMAIL_INFORMATION_REQUEST_CONTEXT: store_request_secret(
+            gmail_information_request_context
+        ),
     }
 
 
