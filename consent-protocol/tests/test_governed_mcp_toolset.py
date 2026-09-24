@@ -159,9 +159,20 @@ async def test_approved_call_uses_native_implementation_once(harness):
     h.approve.return_value = None
     tool = (await h.toolset.get_tools(h.context))[0]
     result = await tool.run_async(args={"q": "fixture"}, tool_context=h.context)
-    assert result == {"isError": False, "result": {"count": 1}, "truncated": False}
+    assert result == {"status": "ok", "isError": False, "result": {"count": 1}, "truncated": False}
     h.native.assert_awaited_once()
     assert h.resolve.await_count >= 5  # discovery, admission, dispatch, publication
+
+
+async def test_rejected_app_receipt_never_dispatches_or_claims_uncertain_write(harness):
+    from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
+
+    h = harness
+    h.approve.side_effect = ActionDirectiveAuthorityError("private-ledger-diagnostic")
+    tool = (await h.toolset.get_tools(h.context))[0]
+    result = await tool.run_async(args={"q": "fixture"}, tool_context=h.context)
+    assert result == {"status": "blocked", "error": "MCP_APPROVAL_INVALID", "retryable": False}
+    h.native.assert_not_called()
 
 
 async def test_installed_adk_invokes_wire_name_with_call_time_headers(harness, monkeypatch):

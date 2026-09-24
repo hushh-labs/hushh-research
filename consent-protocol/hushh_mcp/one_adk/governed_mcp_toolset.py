@@ -29,6 +29,7 @@ from mcp.types import CallToolResult, Tool
 
 from hushh_mcp.adk_bridge.delegation import validate_first_party_owner_token
 from hushh_mcp.one_adk.request_secrets import resolve_request_secret
+from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
 from hushh_mcp.services.external_connector_credentials_service import (
     get_external_connector_credentials_service,
 )
@@ -296,10 +297,13 @@ class _GovernedMcpTool(McpTool):
             if normalized.is_error:
                 return {"error": "MCP_PROVIDER_ERROR", "outcome": "unknown", "retryable": False}
             return {
+                "status": "ok",
                 "isError": normalized.is_error,
                 "result": normalized.payload,
                 "truncated": normalized.truncated,
             }
+        except ActionDirectiveAuthorityError:
+            return {"status": "blocked", "error": "MCP_APPROVAL_INVALID", "retryable": False}
         except ExternalMcpError as error:
             if dispatched:
                 return {"error": error.code, "outcome": "unknown", "retryable": False}

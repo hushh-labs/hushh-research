@@ -1,6 +1,6 @@
 {
   "contract_name": "uat_integrated_schema",
-  "expected_migration_version": 243,
+  "expected_migration_version": 244,
   "migration_version_policy": "exact",
   "required_functions": [
     "ensure_drive_share_management_context",
@@ -1092,6 +1092,7 @@
       "metadata"
     ],
     "one_action_directive_ledger": [
+      "adk_app_name",
       "document_request_id",
       "document_request_revision",
       "directive_id",

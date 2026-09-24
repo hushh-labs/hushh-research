@@ -73,7 +73,34 @@ generation/version before opening its encrypted envelope. It covers registry-own
 credentials; Google account credentials in other services still need their owning
 adapters. Forty-eight focused tests cover these paths and the existing ledger,
 including native SDK session-creation failure privacy. Chat roster, confirmation
-endpoint/card, dynamic-tool wire/history redaction and live proof remain open.
+endpoint/card and live proof remain open. Dynamic-tool wire/history redaction
+was subsequently verified in `6cd38b9a9`; per-turn resource cleanup and owner
+isolation were committed in `06a4ef2dc`.
+
+The exact-call approval adapter now derives the existing ledger's HMAC terms
+from current connector, endpoint, credential generation/version, catalog, tool,
+arguments and owner session. The execution callback requires committed receipt
+consumption before provider dispatch; caller-owned database transactions are
+rejected. Expiry checks use wall-clock time, not a transaction-start timestamp.
+
+Integration inspection found that the old `typed_chat` foreign key targets
+legacy `agent_chat_conversations`, not current encrypted ADK sessions. Migration
+244 adds an `adk_chat` reference to the existing ledger, with an exact
+`(app_name,user_id,session_id)` foreign key to `one_adk_sessions`. It preserves
+legacy workflows and accepts native TEXT thread identities without creating
+shadow legacy conversations. The rollback intentionally retains this additive
+schema and receipts; roll back callers, not historical authority evidence.
+Explicit conversation deletion cascades its approval metadata, matching the
+legacy conversation-ledger lifetime; this is not a separate permanent audit
+archive. It also invalidates outstanding receipts. No conversation was deleted
+outside the disposable synthetic test schema.
+
+Verification: 66 focused tests passed, including disposable PostgreSQL
+owner/session binding, one-time consumption, argument/catalog/grant changes,
+session deletion and expiry in a long-running transaction. Migration 244 is
+registered in release/schema contracts but **has not been applied to shared
+environments**. Approval endpoint, live review card and root-roster activation
+remain required; this checkpoint does not claim live connector acceptance.
 
 Source baseline: ADK `6ae5a2a5965a79d75ec72e4fdf5e90b667df1a2b`.
 Read-only comparison: infrastructure branch
