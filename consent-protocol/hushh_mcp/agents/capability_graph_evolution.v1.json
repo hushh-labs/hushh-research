@@ -1,5 +1,8 @@
 {
   "schema_version": "one.capability_graph_evolution.v1",
+  "workflow_predecessor_refs": [
+    "812deaae16c26eccf4b80509021931d5cc467952"
+  ],
   "deprecations": [
     {
       "schema_version": "one.capability_deprecation.v1",
