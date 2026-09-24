@@ -254,7 +254,7 @@ describe("personal Gmail information-request scope boundary", () => {
     ).toBeNull();
   });
 
-  it("shows partial scan progress and tells the owner that a retry is pending", async () => {
+  it("keeps partial scan retries out of the owner-facing KYC screen", async () => {
     gmailServiceMocks.getPreference.mockResolvedValue({
       user_id: "owner",
       monitoring_enabled: true,
@@ -288,11 +288,10 @@ describe("personal Gmail information-request scope boundary", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Check now" }));
 
+    await waitFor(() => expect(gmailServiceMocks.scan).toHaveBeenCalled());
     expect(
-      await screen.findByText(
-        "We couldn’t check 1 email. Try again in a moment.",
-      ),
-    ).toBeVisible();
+      screen.queryByText(/We couldn’t check \d+ emails?\. Try again/i),
+    ).toBeNull();
     expect(
       screen.getByText("Emails checked").nextElementSibling,
     ).toHaveTextContent("1");

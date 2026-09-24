@@ -180,7 +180,47 @@ async def test_kyc_identity_profile_keeps_safe_unmapped_facts_on_general_pkm_pat
 
 
 @pytest.mark.asyncio
-async def test_kyc_identity_profile_blocks_secret_input_before_model_extraction(
+async def test_kyc_identity_profile_marks_explicit_aadhaar_as_restricted_and_confirm_first(
+    monkeypatch,
+) -> None:
+    service = PKMAgentLabService()
+    extraction = AsyncMock(
+        return_value={
+            "facts": [
+                {
+                    "field_id": "identity.identity_documents.aadhaar_number",
+                    "value": "1234 5678 9012",
+                    "source_text": "My Aadhaar number is 1234 5678 9012.",
+                    "confidence": 0.99,
+                }
+            ],
+            "general_fallback_facts": [],
+        }
+    )
+    monkeypatch.setattr(service, "_run_agent_contract", extraction)
+
+    result = await service.generate_structure_preview(
+        user_id="owner",
+        message="My Aadhaar number is 1234 5678 9012.",
+        current_domains=["identity"],
+        memory_profile="kyc_identity_v1",
+    )
+
+    assert extraction.await_count == 1
+    card = result["preview_cards"][0]
+    assert card["canonical_field_id"] == "identity.identity_documents.aadhaar_number"
+    assert card["write_mode"] == "confirm_first"
+    assert card["requires_confirmation"] is True
+    assert (
+        card["structure_decision"]["sensitivity_labels"]["identity_documents.aadhaar_number"]
+        == "restricted"
+    )
+    assert "restricted_kyc_identifier" in card["validation_hints"]
+    assert result["error"] is None
+
+
+@pytest.mark.asyncio
+async def test_kyc_identity_profile_blocks_authentication_secrets_before_model_extraction(
     monkeypatch,
 ) -> None:
     service = PKMAgentLabService()
@@ -189,7 +229,7 @@ async def test_kyc_identity_profile_blocks_secret_input_before_model_extraction(
 
     result = await service.generate_structure_preview(
         user_id="owner",
-        message="My passport number is X12345678.",
+        message="My API key is sk_test_abcdefghij1234.",
         current_domains=["identity"],
         memory_profile="kyc_identity_v1",
     )
@@ -198,7 +238,7 @@ async def test_kyc_identity_profile_blocks_secret_input_before_model_extraction(
     assert result["preview_cards"] == []
     assert result["write_mode"] == "do_not_save"
     assert result["error"] == "sensitive_input_rejected"
-    assert "sensitive_government_id_rejected" in result["validation_hints"]
+    assert "sensitive_credential_rejected" in result["validation_hints"]
 
 
 def test_reserved_preview_target_is_rejected_without_a_fallback_domain() -> None:
