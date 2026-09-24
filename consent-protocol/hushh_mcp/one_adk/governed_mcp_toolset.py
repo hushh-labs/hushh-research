@@ -157,6 +157,10 @@ def validated_mcp_arguments(schema: dict, args: Any) -> dict[str, Any]:
     return arguments
 
 
+def mcp_tool_name(connector_id: str, wire_name: str) -> str:
+    return "mcp_" + _digest([connector_id, wire_name])[:40]
+
+
 class GovernedMcpToolset(McpToolset):
     """Use ADK's native session/tool machinery without ambient owner authority.
 
@@ -262,7 +266,7 @@ class _GovernedMcpTool(McpTool):
         self.epoch = epoch
         # Opaque, stable ADK-safe names avoid collisions and provider name
         # interpolation. Native MCPTool retains the original wire tool name.
-        self.name = "mcp_" + _digest([toolset.binding.connector_id, descriptor["name"]])[:40]
+        self.name = mcp_tool_name(toolset.binding.connector_id, descriptor["name"])
 
     async def _create_session(self, *, headers):
         # ADK's decorated implementation logs raw exception text before a

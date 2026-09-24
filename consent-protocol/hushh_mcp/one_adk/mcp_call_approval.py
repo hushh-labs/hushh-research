@@ -8,11 +8,18 @@ Only HMACs enter the ledger. Review arguments stay in request/browser memory.
 
 from __future__ import annotations
 
+import json
+import re
 from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any
 
-from hushh_mcp.one_adk.governed_mcp_toolset import AuthorizeCall, McpConnectionBinding
+from hushh_mcp.one_adk.governed_mcp_toolset import (
+    AuthorizeCall,
+    McpConnectionBinding,
+    mcp_tool_name,
+)
+from hushh_mcp.one_adk.request_secrets import resolve_request_secret, store_request_secret
 from hushh_mcp.services.action_directive_ledger import (
     MCP_ACTION_ID,
     ActionConfirmationReceipt,
@@ -21,6 +28,58 @@ from hushh_mcp.services.action_directive_ledger import (
     BoundActionTerms,
     IssuedActionDirective,
 )
+
+STATE_MCP_APPROVAL = "temp:hussh:mcp_approval"
+
+
+def admit_resume_receipt(forwarded: dict, *, owner_id: str, conversation_id: str) -> str:
+    """Remove the browser receipt from forwarded props before ADK sees them.
+
+    Shape validation is not approval. The ledger remains the authority when
+    the native tool attempts to consume the exact current call.
+    """
+    value = forwarded.pop("mcpApproval", None)
+    if value is None:
+        return ""
+    if not owner_id or not conversation_id or not isinstance(value, dict):
+        raise ActionDirectiveAuthorityError("Unlock before confirming a connector call.")
+    patterns = {
+        "directiveId": r"dir_[0-9a-f]{32}",
+        "toolName": r"mcp_[0-9a-f]{40}",
+        "connectorId": r"[A-Za-z0-9_-]{1,128}",
+        "receipt": r"[A-Za-z0-9_-]{32,128}",
+    }
+    if set(value) != set(patterns) or any(
+        not isinstance(value[key], str) or re.fullmatch(pattern, value[key]) is None
+        for key, pattern in patterns.items()
+    ):
+        raise ActionDirectiveAuthorityError("Invalid connector confirmation.")
+    return store_request_secret(json.dumps({**value, "owner": owner_id, "thread": conversation_id}))
+
+
+async def consume_resume_receipt(context, binding, tool_name, revision, arguments):
+    """Native tool approval port for a current authenticated browser resume."""
+    reference = context.state.get(STATE_MCP_APPROVAL)
+    if not isinstance(reference, str) or not reference.startswith("one_secret_ref:"):
+        raise ActionDirectiveAuthorityError("Connector review is required.")
+    try:
+        value = json.loads(resolve_request_secret(reference))
+    except (TypeError, ValueError):
+        raise ActionDirectiveAuthorityError("Connector review expired.") from None
+    if not isinstance(value, dict) or any(
+        (
+            value.get("owner") != context.user_id,
+            value.get("owner") != binding.owner_id,
+            value.get("thread") != context.state.get("hussh:conversation_id"),
+            value.get("connectorId") != binding.connector_id,
+            value.get("toolName") != mcp_tool_name(binding.connector_id, tool_name),
+        )
+    ):
+        raise ActionDirectiveAuthorityError("Connector review changed.")
+    authorize = receipt_authorizer(
+        ActionDirectiveStore(), directive_id=value["directiveId"], receipt=value["receipt"]
+    )
+    return await authorize(context, binding, tool_name, revision, arguments)
 
 
 @dataclass(frozen=True)

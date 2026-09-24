@@ -41,8 +41,10 @@ from hushh_mcp.one_adk.agui_turn_timing import HEAD_INTRO, HEAD_ONE, TimedADKAge
 from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionService
 from hushh_mcp.one_adk.external_read_boundary import READ_TOOLS, STATE_EXECUTION_SURFACE
 from hushh_mcp.one_adk.external_read_projection import redacted_read_receipt
+from hushh_mcp.one_adk.mcp_call_approval import STATE_MCP_APPROVAL, admit_resume_receipt
 from hushh_mcp.one_adk.request_secrets import store_request_secret
 from hushh_mcp.one_adk.workspace_mcp_tools import WORKSPACE_CHAT_ADMISSION_STATE
+from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
 from hushh_mcp.services.action_gateway import get_action_gateway_action, list_action_gateway_actions
 from hushh_mcp.services.gmail_personal_information_request_service import (
     PersonalGmailInformationRequestError,
@@ -105,6 +107,15 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
         f"{request.client.host if request.client else ''}|{request.headers.get('user-agent', '')}"
     )
     user_id = str((token or {}).get("user_id") or firebase_uid).strip()
+    try:
+        mcp_approval = admit_resume_receipt(
+            forwarded, owner_id=user_id if token else "", conversation_id=input_data.thread_id
+        )
+    except ActionDirectiveAuthorityError:
+        raise HTTPException(
+            status_code=403,
+            detail="Connector confirmation is unavailable. Unlock and review again.",
+        ) from None
     session_user_id = (
         user_id or f"anonymous:{hashlib.sha256(anonymous_seed.encode()).hexdigest()[:24]}"
     )
@@ -141,6 +152,7 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
             ) from exc
     return {
         STATE_EXECUTION_SURFACE: "typed_chat",
+        STATE_MCP_APPROVAL: mcp_approval,
         WORKSPACE_CHAT_ADMISSION_STATE: bool(token and user_id),
         STATE_USER_ID: session_user_id,
         STATE_CONSENT_TOKEN: store_request_secret(str((token or {}).get("token") or "")),

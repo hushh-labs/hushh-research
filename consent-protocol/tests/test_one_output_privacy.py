@@ -8,6 +8,8 @@ from ag_ui.core import (
     EventType,
     MessagesSnapshotEvent,
     RunFinishedEvent,
+    StateDeltaEvent,
+    StateSnapshotEvent,
     TextMessageContentEvent,
 )
 from ag_ui_adk import ADKAgent
@@ -17,6 +19,27 @@ from google.genai import types
 from hushh_mcp.one_adk.agui_turn_timing import HEAD_INTRO, HEAD_ONE
 from hushh_mcp.one_adk.output_privacy import public_event, public_text
 from tests.test_agui_turn_timing import _agent, _input, _scripted_run
+
+
+def test_approval_reference_never_enters_wire_state():
+    key = "temp:hussh:mcp_approval"
+    private = "one_secret_ref:private"
+    snapshot = StateSnapshotEvent(snapshot={key: private, "visible": 1})
+    assert public_event(snapshot).snapshot == {"visible": 1}
+    assert snapshot.snapshot[key] == private
+    event = StateDeltaEvent(
+        delta=[
+            {"op": "add", "path": "/" + key, "value": private},
+            {"op": "copy", "from": "/" + key, "path": "/copied"},
+            {"op": "replace", "path": "", "value": {key: private, "visible": 2}},
+            {"op": "add", "path": "/visible", "value": 3},
+        ]
+    )
+    projected = public_event(event)
+    assert private not in projected.model_dump_json()
+    assert len(projected.delta) == 2
+    assert projected.delta[0]["value"] == {"visible": 2}
+    assert event.delta[0]["value"] == private
 
 
 @pytest.mark.parametrize("head", [HEAD_ONE, HEAD_INTRO])
