@@ -238,6 +238,86 @@ def test_private_registry_migration_and_rollback_preserve_curated_rows(lifecycle
     )
 
 
+@pytest.mark.parametrize("permanent", [False, True])
+def test_private_registry_erasure_preserves_other_owner_and_curated(lifecycle, permanent):
+    from hushh_mcp.services.drive_sharing_retention import erase_drive_account_in_transaction
+
+    with lifecycle.db.engine.connect() as connection:
+        connection.exec_driver_sql((MIGRATIONS / "243_private_mcp_registration.sql").read_text())
+    for user in ("owner", "other"):
+        sql(
+            lifecycle,
+            """INSERT INTO external_mcp_connectors
+            (connector_id, display_name, description, mcp_endpoint, auth_style,
+             created_by, user_id, is_active, owner_enabled, api_key_header_name)
+            VALUES (:id, 'Private label', 'Private description', 'https://private.example/mcp',
+                    'api_key', :user, :user, FALSE, TRUE, 'Authorization')""",
+            {"id": f"private-{user}", "user": user},
+        )
+        sql(
+            lifecycle,
+            """INSERT INTO user_external_connector_connections
+            (user_id, connector_id, status, credential_ciphertext, credential_iv,
+             connection_generation, credential_version)
+            VALUES (:user, :id, 'connected', 'synthetic-ciphertext', 'iv', 3, 4)""",
+            {"user": user, "id": f"private-{user}"},
+        )
+        sql(
+            lifecycle,
+            """INSERT INTO external_connector_oauth_attempts
+            (attempt_id, user_id, connector_id, code_verifier_ciphertext, code_verifier_iv,
+             redirect_uri, expires_at)
+            VALUES (:id, :user, :id, 'synthetic-verifier', 'iv',
+                    'https://example.invalid/return', now() + interval '5 minutes')""",
+            {"user": user, "id": f"private-{user}"},
+        )
+    with lifecycle.db.engine.begin() as connection:
+        erase_drive_account_in_transaction(connection, user_id="owner", permanent=permanent)
+    assert (
+        sql(
+            lifecycle,
+            "SELECT count(*) FROM external_connector_oauth_attempts WHERE user_id='owner'",
+        ).scalar()
+        == 0
+    )
+    other = sql(
+        lifecycle,
+        "SELECT mcp_endpoint, owner_enabled FROM external_mcp_connectors WHERE user_id='other'",
+    ).one()
+    assert other == ("https://private.example/mcp", True)
+    assert (
+        sql(
+            lifecycle, "SELECT count(*) FROM external_mcp_connectors WHERE user_id IS NULL"
+        ).scalar()
+        == 3
+    )
+    if permanent:
+        assert (
+            sql(
+                lifecycle, "SELECT count(*) FROM external_mcp_connectors WHERE user_id='owner'"
+            ).scalar()
+            == 0
+        )
+        assert (
+            sql(
+                lifecycle,
+                "SELECT count(*) FROM user_external_connector_connections WHERE user_id='owner'",
+            ).scalar()
+            == 0
+        )
+    else:
+        assert sql(
+            lifecycle,
+            """SELECT owner_enabled, display_name, description,
+            mcp_endpoint, api_key_header_name FROM external_mcp_connectors WHERE user_id='owner'""",
+        ).one() == (False, "Removed connector", None, "https://removed.invalid", None)
+        assert sql(
+            lifecycle,
+            """SELECT status, credential_ciphertext, connection_generation,
+            credential_version FROM user_external_connector_connections WHERE user_id='owner'""",
+        ).one() == ("revoked", None, 4, 5)
+
+
 @pytest.mark.asyncio
 async def test_callback_replay_has_one_winner_and_wrong_owner_cannot_consume(lifecycle):
     await start(lifecycle)
