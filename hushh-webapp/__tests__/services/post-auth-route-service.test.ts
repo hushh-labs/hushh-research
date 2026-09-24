@@ -557,7 +557,7 @@ describe("PostAuthRouteService", () => {
         phoneNumber: null,
         hostname: "dev.one.hushh.ai",
       })
-    ).resolves.toBe(buildPhoneMandateRoute(ROUTES.ONE_HOME));
+    ).resolves.toBe(buildPhoneMandateRoute(ROUTES.HOME));
   });
 
   describe("first-run One Setup gate", () => {

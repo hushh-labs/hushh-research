@@ -15,7 +15,7 @@ function fixture(state = fresh) {
   const browser = { close: vi.fn(async () => undefined) };
   const reviewer = {
     reviewerUid: fresh.userId,
-    assertVaultContinuity: vi.fn(async () => undefined),
+    assertAuthenticatedContinuity: vi.fn(async () => undefined),
     openSession: vi.fn(async (_browser, redirect, options) => {
       expect(redirect).toBe("/one/setup");
       expect(options.requireVaultUnlocked).toBe(false);
@@ -53,6 +53,7 @@ describe("first-run evidence boundaries", () => {
     expect(report).toMatchObject({ passed: true, actual_tile_click: true, reached: true, first_run_state: true, account_creation_proven: false, database_pool_measured: false });
     expect(f.page.locator.mock.results[0].value.click).toHaveBeenCalledOnce();
     expect(f.context.close).toHaveBeenCalledOnce();
+    expect(f.reviewer.assertAuthenticatedContinuity).toHaveBeenCalledWith(f.page, "first-run cloud choice");
     expect(JSON.stringify(report)).not.toContain("synthetic-owner");
     expect(JSON.stringify(report)).not.toContain("synthetic-in-memory-token");
   });
@@ -95,7 +96,7 @@ it("closes a late session without requests or changes to the returned failure", 
 
 it("does not credit a chooser left mounted after session loss", async () => {
   const f = fixture();
-  f.reviewer.assertVaultContinuity.mockRejectedValue(new Error("private owner state"));
+  f.reviewer.assertAuthenticatedContinuity.mockRejectedValue(new Error("private owner state"));
   const report = await auditFirstRun({ ...f, origin, budgetMs: 1000 });
   expect(report.passed).toBe(false);
   expect(JSON.stringify(report)).not.toContain("private owner state");

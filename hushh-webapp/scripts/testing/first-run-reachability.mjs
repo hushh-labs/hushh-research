@@ -107,7 +107,7 @@ export async function auditFirstRun({ reviewer, browser, origin, budgetMs = 60_0
         .waitFor({ state: "visible", timeout: remaining() });
       assertActive();
       await page.waitForFunction(() => window.location.pathname === "/one/setup/cloud", undefined, { timeout: remaining() });
-      await reviewer.assertVaultContinuity(page, "first-run cloud choice");
+      await reviewer.assertAuthenticatedContinuity(page, "first-run cloud choice");
       assertActive();
       readOnlyGuard.assertNoBlockedMutation();
       capture.assertNoCriticalApiFailures("first-run");

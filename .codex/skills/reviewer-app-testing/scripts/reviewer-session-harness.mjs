@@ -69,6 +69,7 @@ export async function installReadOnlyMutationGuard(context, {
   admitMutation = null,
 } = {}) {
   const blockedMutations = [];
+  let suppressedAnalytics = 0;
   if (process.env.REVIEWER_ALLOW_SHARED_MUTATIONS === "true" && !admitMutation) {
     return {
       assertNoBlockedMutation() {},
@@ -80,6 +81,15 @@ export async function installReadOnlyMutationGuard(context, {
     const request = route.request();
     const method = request.method().toUpperCase();
     const pathname = requestPathname(request);
+    const hostname = requestHostname(request);
+    if (method === "POST" && pathname === "/g/collect" &&
+      (hostname === "www.google-analytics.com" ||
+        hostname === "region1.google-analytics.com" ||
+        hostname === "analytics.google.com")) {
+      suppressedAnalytics += 1;
+      await route.fulfill({ status: 204, body: "" });
+      return;
+    }
     // Preparation sends source text for authorized processing but cannot save
     // Memory. Grant only this exact method/path/origin, not a mutation bypass.
     const memoryPreparation = allowMemoryPreparation && method === "POST" &&
@@ -126,6 +136,7 @@ export async function installReadOnlyMutationGuard(context, {
   });
 
   return {
+    suppressedAnalyticsRequests() { return suppressedAnalytics; },
     assertNoBlockedMutation() {
       if (blockedMutations.length === 0) return;
       throw new Error(
@@ -287,17 +298,19 @@ export async function createReviewerSessionHarness({
     };
   }
 
-  async function waitForUnlock(page, readOnlyGuard, unlockTimeoutMs = timeoutMs) {
+  async function waitForUnlock(page, readOnlyGuard, unlockTimeoutMs = timeoutMs, requireVaultUnlocked = true) {
     const reviewerButton = page.getByRole("button", { name: /continue as reviewer/i });
     const unlockInput = page.locator("#unlock-passphrase");
+    const passphraseFallback = page.locator('[data-testid="vault-use-passphrase-instead"]');
     const unlockButton = page
-      .getByRole("button", { name: /unlock with passphrase/i })
+      .getByRole("button", { name: /^unlock/i })
       .first();
     const terminalFailures = new Set(["auth_error", "uid_mismatch", "vault_error"]);
     const deadline = Date.now() + unlockTimeoutMs;
     let reviewerLoginSubmitted = false;
     let manualPassphraseFilled = false;
     let manualUnlockSubmitted = false;
+    let passphraseFallbackClicked = false;
 
     const safeBootstrapState = async () =>
       page.evaluate((expectedUserId) => {
@@ -314,7 +327,9 @@ export async function createReviewerSessionHarness({
     while (Date.now() < deadline) {
       readOnlyGuard.assertNoBlockedMutation();
       const bootstrap = await safeBootstrapState();
-      if (bootstrap.state === "vault_unlocked" && bootstrap.userMatches) return;
+      if (bootstrap.userMatches &&
+        (bootstrap.state === "vault_unlocked" ||
+          (!requireVaultUnlocked && bootstrap.state === "authenticated"))) return;
       if (terminalFailures.has(bootstrap.state)) {
         const error = new Error(
           `Reviewer vault bootstrap failed (state=${bootstrap.state}, error_class=${bootstrap.errorClass || "unknown"}, path=${bootstrap.path}, user_match=${bootstrap.userMatches}).`
@@ -328,7 +343,14 @@ export async function createReviewerSessionHarness({
         reviewerLoginSubmitted = true;
       }
 
-      if (!manualUnlockSubmitted && await unlockInput.isVisible().catch(() => false)) {
+      if (requireVaultUnlocked && !passphraseFallbackClicked &&
+        !(await unlockInput.isVisible().catch(() => false)) &&
+        await passphraseFallback.isVisible().catch(() => false)) {
+        await passphraseFallback.click({ noWaitAfter: true });
+        passphraseFallbackClicked = true;
+      }
+
+      if (requireVaultUnlocked && !manualUnlockSubmitted && await unlockInput.isVisible().catch(() => false)) {
         if (!manualPassphraseFilled) {
           await unlockInput.fill(reviewerPassphrase);
           manualPassphraseFilled = true;
@@ -359,6 +381,20 @@ export async function createReviewerSessionHarness({
     }
   }
 
+  async function assertAuthenticatedContinuity(page, label) {
+    const bootstrap = await page.evaluate((expectedUserId) => {
+      const bridge = window.__HUSHH_NATIVE_TEST__;
+      return {
+        state: String(bridge?.bootstrapState || ""),
+        userMatches: bridge?.bootstrapUserId === expectedUserId,
+      };
+    }, reviewerUid);
+    if (!bootstrap.userMatches ||
+      !["authenticated", "vault_unlocked"].includes(bootstrap.state)) {
+      throw new Error(`${label} lost the expected reviewer session.`);
+    }
+  }
+
   async function navigateInApp(page, href) {
     await page.evaluate((targetHref) => {
       window.dispatchEvent(
@@ -375,7 +411,11 @@ export async function createReviewerSessionHarness({
     await assertVaultContinuity(page, href);
   }
 
-  async function openSession(browser, redirect, { allowQueryMutation = false } = {}) {
+  async function openSession(browser, redirect, {
+    allowQueryMutation = false,
+    requireVaultUnlocked = true,
+    onPageCreated,
+  } = {}) {
     const maxAttempts = 3;
     const attemptTimeoutMs = Math.max(20_000, Math.floor(timeoutMs / maxAttempts));
     let lastError = null;
@@ -388,14 +428,15 @@ export async function createReviewerSessionHarness({
       const page = await context.newPage();
       page.setDefaultTimeout(attemptTimeoutMs);
       page.setDefaultNavigationTimeout(attemptTimeoutMs);
-      const readOnlyGuard = await installReadOnlyMutationGuard(context, { appOrigin: normalizedOrigin, allowMemoryPreparation, admitMutation });
-      const capture = attachMemoryOnlyCapture(page);
-      await installBridge(page);
       try {
+        const readOnlyGuard = await installReadOnlyMutationGuard(context, { appOrigin: normalizedOrigin, allowMemoryPreparation, admitMutation });
+        const capture = attachMemoryOnlyCapture(page);
+        await installBridge(page, { includePassphrase: requireVaultUnlocked });
+        if (onPageCreated) onPageCreated(page);
         await page.goto(`${normalizedOrigin}/login?redirect=${encodeURIComponent(redirect)}`, {
           waitUntil: "domcontentloaded",
         });
-        await waitForUnlock(page, readOnlyGuard, attemptTimeoutMs);
+        await waitForUnlock(page, readOnlyGuard, attemptTimeoutMs, requireVaultUnlocked);
         // Unlock can finish before the login component's pending redirect.
         // Do not race that redirect with the first same-session navigation.
         await page.waitForFunction(
@@ -492,6 +533,7 @@ export async function createReviewerSessionHarness({
 
   return {
     assertVaultContinuity,
+    assertAuthenticatedContinuity,
     assertVisibleVaultChallenge,
     chromium,
     endpointPath,

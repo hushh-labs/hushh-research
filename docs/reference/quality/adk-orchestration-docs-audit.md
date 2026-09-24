@@ -1,6 +1,6 @@
 # ADK Orchestration Documentation Audit
 
-**Review basis:** 2026-09-23 local integration of pod base `11d293dbf7d514c59afa26f8e2a979c5b8539554`, remote ADK `2018cc2dba21b066485318b8053824893f7600c6`, local ADK `253ac50f24fac7b46e1db61b0634134525648052`, and remote main `e4056d1255ce0af88fe98cafaa4bfce4c2631f47`. The final integration revision is the commit containing this report. Source inspection does not establish per-environment rollout or cleanup.
+**Review basis:** 2026-09-23 local pod integration, refreshed through pod base `812deaae16c26eccf4b80509021931d5cc467952`, remote ADK `2018cc2dba21b066485318b8053824893f7600c6`, local ADK `53aa5386dd3ac63eaf36ddbbf9c9ab1338f954f1`, and remote main `623fb8a2551d0e73870d0c270c0d5bd8082655b4`. The final source revision is the commit containing this report. Source inspection does not establish per-environment rollout or cleanup.
 
 ## Visual Context
 
@@ -30,6 +30,9 @@ flowchart LR
 | Cloud Build environment | Fixed in inspected source | The deploy script accepts a bounded packed Drive secret setting so the backend build step stays below Cloud Build's 100-entry environment limit. The image build contract test passed; no image was built or deployed here. |
 | Native parity reports | Follow-up required | Static parity validation passed, but the report-verification command found stale generated report artifacts. Refresh them through the native parity workflow before treating those artifacts as current. |
 | Runtime model claims | Repo defaults verified; deployment selection varies | [`model_catalog.py`](../../../consent-protocol/hushh_mcp/runtime_providers/model_catalog.py) lists `gemini-3.8-flash` and `gemini-3.7-flash`; manifests can use `gemini-default`, and [`live_compatibility.py`](../../../consent-protocol/hushh_mcp/runtime_providers/live_compatibility.py) documents Live model compatibility. Voice model selection is environment/configuration dependent. These sources do not support describing One as entirely model-agnostic or proving a deployed model selection. |
+| Pod refresh toward main | Source integrated; rollout unverified | The pod candidate contains the 2026-09-23 main Drive drawer changes and the local ADK reviewer identity capture. The capability graph now records the previous pod workflow revision as an additive predecessor. Shared-runtime `/health/ready` checks dependencies; the private pod reports process readiness without hub database credentials. The reviewed pod ingress allowlist includes upgrade routes behind the machine wall. Source and focused contract checks do not prove a deployed pod image or recovery rehearsal. |
+| Reviewer and native test contracts | Corrected in candidate | First-run reviewer authentication now uses an owner-bound authenticated state without injecting a vault passphrase; established-vault continuity still requires unlock. The harness installs its read-only guard before navigation and suppresses only listed analytics collection hosts. Native test artifact output resolves absolute or relative selected directories. These checks are local, not a live browser or device rehearsal. |
+| Drive work-drain deploy settings | Restored in source; rollout unverified | The UAT workflow's four scheduler substitutions again reach the backend deploy script through one validated Cloud Build entry, under the 100-entry step limit. The script forwards the flag and OIDC identity to the runtime. Contract tests passed; no Cloud Build or scheduler run was performed. |
 
 ## Follow-up ownership
 
@@ -37,6 +40,7 @@ flowchart LR
 - **Plaid retry, vault sync, and grant boundaries:** use the existing vault/PKM and IAM/consent owner workflows for single-use exchange recovery, Item-scoped projection keys, concurrent cursor/retention behavior, and summary export inspection. Preserve sealed records during any key migration.
 - **Plaid retirement rollout:** verify migration 239 through [`data-model-audit`](../../../.codex/workflows/data-model-audit/workflow.json), then prove migration and environment cleanup/disconnection through [`uat-scoped-deploy`](../../../.codex/workflows/uat-scoped-deploy/workflow.json) and the repo-operations owner. Evidence required: migration ledger and environment-specific cleanup results. Until then, retirement is present in inspected source, not a completed rollout.
 - **Mail/Drive acceptance:** keep the acceptance record open until live rollout and the end-to-end two-account document-sharing journey pass.
+- **Main promotion:** complete full branch and restored-work checks, refresh real native parity reports through the mobile workflow, and verify the serving pod image and recovery before proposing a main merge. Source ancestry alone is not deployment evidence.
 
 ## Canonical evidence
 

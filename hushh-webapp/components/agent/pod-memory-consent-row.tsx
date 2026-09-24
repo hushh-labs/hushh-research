@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Loader2 } from "lucide-react";
+import { Loader2 } from "@/components/icons";
 
 import { ApiService } from "@/lib/services/api-service";
 import { cn } from "@/lib/utils";

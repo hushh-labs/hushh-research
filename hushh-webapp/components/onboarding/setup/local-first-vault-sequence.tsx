@@ -1,8 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Eye, LockKeyhole, PauseCircle, Sparkles } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
+import { Eye, LockKeyhole, PauseCircle, Sparkles, type LucideIcon } from "@/components/icons";
 
 import { Button } from "@/lib/morphy-ux/button";
 

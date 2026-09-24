@@ -35,7 +35,7 @@ describe("Drive chat recovery capsule", () => {
       ownerUserId, vaultKey, attemptId, reason: "web_full_page", state,
     });
     const raw = await new Promise<unknown>((resolve, reject) => {
-      const open = indexedDB.open("hushh-secure-resource-cache", 1);
+      const open = indexedDB.open("hushh-secure-resource-cache");
       open.onerror = () => reject(open.error);
       open.onsuccess = () => {
         const database = open.result;

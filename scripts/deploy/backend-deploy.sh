@@ -122,6 +122,37 @@ for _required in _GOOGLE_DRIVE_OAUTH_CLIENT_ID_SECRET _GOOGLE_DRIVE_OAUTH_CLIENT
     echo "Drive secret settings are missing ${_required}." >&2; exit 1
   fi
 done
+# UAT's Drive work-drain scheduler identity is packed into one Cloud Build
+# entry. Keep all four values explicit so a missing substitution cannot enable
+# the drain or silently drop its OIDC identity.
+IFS=',' read -r -a _drive_work_pairs <<< "${_DRIVE_WORK_DRAIN_SETTINGS:?missing Drive work-drain settings}"
+for _pair in "${_drive_work_pairs[@]}"; do
+  [[ "${_pair}" == *=* ]] || { echo "Invalid Drive work-drain settings." >&2; exit 1; }
+  _key="${_pair%%=*}"; _value="${_pair#*=}"
+  case "${_key}" in
+    enabled) _DRIVE_WORK_DRAIN_ENABLED="${_value}" ;;
+    project) _DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID="${_value}" ;;
+    service_account) _DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL="${_value}" ;;
+    audience) _DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE="${_value}" ;;
+    *) echo "Drive work-drain settings carry an unknown key." >&2; exit 1 ;;
+  esac
+done
+if [[ "${#_drive_work_pairs[@]}" -ne 4 ]] ||
+  [[ "${_DRIVE_WORK_DRAIN_ENABLED:-}" != "true" && "${_DRIVE_WORK_DRAIN_ENABLED:-}" != "false" ]]; then
+  echo "Drive work-drain settings require four keys and an explicit enabled boolean." >&2; exit 1
+fi
+for _required in _DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID _DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL _DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE; do
+  if ! declare -p "${_required}" >/dev/null 2>&1; then
+    echo "Drive work-drain settings are missing ${_required}." >&2; exit 1
+  fi
+done
+if [[ "${_DRIVE_WORK_DRAIN_ENABLED}" == "true" ]]; then
+  for _required in _DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID _DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL _DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE; do
+    if [[ -z "${!_required}" ]]; then
+      echo "Enabled Drive work-drain settings require ${_required}." >&2; exit 1
+    fi
+  done
+fi
 # The runtime-IAM preflight -- runtime service-account validity, the cross-project
 # managed Vertex allowlist, and the aiplatform.user / serviceUsageConsumer role
 # checks -- runs in the dedicated `verify-runtime-iam` build step BEFORE this one,
@@ -322,6 +353,10 @@ append_optional_env "ACCOUNT_DELETION_CLEANUP_AUDIENCE" "${_ACCOUNT_DELETION_CLE
 append_optional_env "ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL" "${_ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL}"
 append_optional_env "ONE_EMAIL_ADDRESS" "${_ONE_EMAIL_ADDRESS}"
 append_optional_env "ONE_EMAIL_DELEGATED_USER" "${_ONE_EMAIL_DELEGATED_USER}"
+append_optional_env "DRIVE_WORK_DRAIN_ENABLED" "${_DRIVE_WORK_DRAIN_ENABLED}"
+append_optional_env "DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID" "${_DRIVE_WORK_DRAIN_SCHEDULER_PROJECT_ID}"
+append_optional_env "DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL" "${_DRIVE_WORK_DRAIN_SCHEDULER_SERVICE_ACCOUNT_EMAIL}"
+append_optional_env "DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE" "${_DRIVE_WORK_DRAIN_SCHEDULER_AUDIENCE}"
 append_optional_env "ONE_EMAIL_PUBSUB_TOPIC" "${_ONE_EMAIL_PUBSUB_TOPIC}"
 append_optional_env "ONE_EMAIL_WEBHOOK_AUDIENCE" "${_ONE_EMAIL_WEBHOOK_AUDIENCE}"
 append_optional_env "ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL" "${_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL}"

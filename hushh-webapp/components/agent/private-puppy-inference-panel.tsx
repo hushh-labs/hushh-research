@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Laptop, Loader2 } from "lucide-react";
+import { Laptop, Loader2 } from "@/components/icons";
 
 import { useAuth } from "@/lib/firebase";
 import { useVault } from "@/lib/vault/vault-context";

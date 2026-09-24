@@ -291,11 +291,11 @@ async def health_ready(request: Request):
 
     Wire this (not ``/health``) as the deploy/load-balancer readiness gate so a
     DB-down instance is pulled from rotation instead of accepting traffic it
-    cannot honor. The DB is a hard gate everywhere; Firebase Admin is a hard gate
-    only in production (auth cannot work without it), and reported otherwise.
-    The optional pod-fleet signal is a third tier: reported everywhere, gating
-    nowhere (see :func:`_pod_fleet_check`), and absent from the body entirely
-    unless ``POD_FLEET_HEALTH_SIGNAL_ENABLED`` is on.
+    cannot honor. The shared runtime gates on its DB and, in production, Firebase
+    Admin. A private pod reports process readiness without hub dependencies.
+    The optional pod-fleet signal is reported for the shared runtime but does
+    not gate readiness (see :func:`_pod_fleet_check`); it is absent unless
+    ``POD_FLEET_HEALTH_SIGNAL_ENABLED`` is on.
     """
     # A private pod has no database credential or fleet registry. Its deploy
     # liveness probe is /health; this endpoint reports process readiness only.

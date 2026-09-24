@@ -105,7 +105,9 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
     anonymous_seed = (
         f"{request.client.host if request.client else ''}|{request.headers.get('user-agent', '')}"
     )
-    user_id = str((token or {}).get("user_id") or firebase_uid).strip()
+    # Consent tokens were rejected above; only Firebase identity may seed this
+    # shared-runtime session.
+    user_id = firebase_uid.strip()
     session_user_id = (
         user_id or f"anonymous:{hashlib.sha256(anonymous_seed.encode()).hexdigest()[:24]}"
     )

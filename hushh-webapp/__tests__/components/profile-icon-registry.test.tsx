@@ -41,6 +41,6 @@ it("keeps Codex and Claude icon skill bridges identical and resolvable", () => {
   expect(bridges[0]).toBe(bridges[1]);
   for (const bridge of bridges) {
     expect(bridge.startsWith(frontmatter!)).toBe(true);
-    expect(bridge).toContain("../../../skills/hushh-icon-theme/SKILL.md");
+    expect(bridge).toContain("Read `skills/hushh-icon-theme/SKILL.md` and follow it.");
   }
 });

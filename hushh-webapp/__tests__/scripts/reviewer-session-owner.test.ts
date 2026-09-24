@@ -13,15 +13,19 @@ async function harness() {
   return createReviewerSessionHarness({ repoRoot: resolve(process.cwd(), ".."), appOrigin: "https://synthetic.example" });
 }
 function browser(state = "authenticated") {
-  const window = { location: { pathname: "/one/setup" }, __HUSHH_NATIVE_TEST__: { bootstrapState: state, bootstrapUserId: "synthetic-owner" } };
+  const window = { location: { pathname: "/one/setup", search: "" }, __HUSHH_NATIVE_TEST__: { bootstrapState: state, bootstrapUserId: "synthetic-owner" } };
   const fill = vi.fn();
   const control = { first() { return this; }, isVisible: async () => false, isEnabled: async () => false, fill, click: vi.fn() };
   const page = Object.assign(new EventEmitter(), {
     addInitScript: vi.fn(async () => undefined), setDefaultTimeout() {}, setDefaultNavigationTimeout() {},
     getByRole: () => control, locator: () => control,
     evaluate: async (fn, argument) => runInNewContext(`(${fn.toString()})(argument)`, { window, argument }),
-    waitForFunction: async (fn) => { expect(runInNewContext(`(${fn.toString()})()`, { window })).toBe(true); },
-    goto: vi.fn(async () => undefined),
+    waitForFunction: async (fn, argument) => {
+      expect(runInNewContext(`(${fn.toString()})(argument)`, { window, argument })).toBe(true);
+    },
+    goto: vi.fn(async (url: string) => {
+      window.location.pathname = new URL(url).searchParams.get("redirect") || "/";
+    }), waitForTimeout: vi.fn(async () => undefined),
   });
   const context = { newPage: async () => page, route: vi.fn(async () => undefined), close: vi.fn(async () => undefined) };
   return { newContext: async () => context, page, window, fill, context };
@@ -35,9 +39,9 @@ describe("reviewer session authority", () => {
     expect(observe).toHaveBeenCalledOnce();
     expect(b.page.addInitScript.mock.calls[0][1].vaultPassphrase).toBe("");
     expect(b.fill).not.toHaveBeenCalled();
-    await reviewer.assertVaultContinuity(b.page, "synthetic");
+    await reviewer.assertAuthenticatedContinuity(b.page, "synthetic");
     b.window.__HUSHH_NATIVE_TEST__.bootstrapUserId = "foreign-owner";
-    await expect(reviewer.assertVaultContinuity(b.page, "synthetic")).rejects.toThrow("expected reviewer session");
+    await expect(reviewer.assertAuthenticatedContinuity(b.page, "synthetic")).rejects.toThrow("expected reviewer session");
   });
   it("rejects terminal authentication errors in first-run mode", async () => {
     const reviewer = await harness();
@@ -51,7 +55,7 @@ describe("reviewer session authority", () => {
     await reviewer.openSession(first, "/one/setup", { requireVaultUnlocked: false });
     const established = browser("vault_unlocked");
     await reviewer.openSession(established, "/one");
-    await reviewer.assertVaultContinuity(first.page, "first-run");
+    await reviewer.assertAuthenticatedContinuity(first.page, "first-run");
     established.window.__HUSHH_NATIVE_TEST__.bootstrapState = "authenticated";
     await expect(reviewer.assertVaultContinuity(established.page, "established")).rejects.toThrow();
   });
@@ -65,7 +69,10 @@ describe("read-only request admission", () => {
     let release;
     b.context.route.mockImplementation(() => new Promise(resolve => { release = resolve; }));
     const opened = reviewer.openSession(b, "/one/setup", { requireVaultUnlocked: false });
-    await new Promise(resolve => setImmediate(resolve));
+    for (let attempt = 0; attempt < 10 && !b.context.route.mock.calls.length; attempt += 1) {
+      await new Promise(resolve => setImmediate(resolve));
+    }
+    expect(b.context.route).toHaveBeenCalledOnce();
     expect(b.page.goto).not.toHaveBeenCalled();
     release();
     await opened;
