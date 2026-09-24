@@ -4,6 +4,7 @@
 
 import asyncio
 import json
+from threading import Barrier
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
@@ -356,11 +357,26 @@ async def test_finite_drains_rotate_persistently_unclaimable_requests(suggestion
 
 
 @pytest.mark.asyncio
-async def test_concurrent_scanners_do_not_change_preparation_authority(suggestions):
+async def test_concurrent_scanners_do_not_change_preparation_authority(suggestions, monkeypatch):
     service, _, _ = suggestions
     for _ in range(3):
         await request(service.store)
-    scanned = await asyncio.gather(*(service.store.due_preparations(1) for _ in range(4)))
+    transaction = service.store._transaction
+    scans_locked = Barrier(4, timeout=10)
+
+    async def overlapping_transaction(operation):
+        def hold_scan_locks(connection):
+            result = operation(connection)
+            # SKIP LOCKED guarantees distinct rows only while those locks overlap.
+            # A committed scan may be selected again by an older READ COMMITTED snapshot.
+            scans_locked.wait()
+            return result
+
+        return await transaction(hold_scan_locks)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(service.store, "_transaction", overlapping_transaction)
+        scanned = await asyncio.gather(*(service.store.due_preparations(1) for _ in range(4)))
     assert len({str(batch[0]["request_id"]) for batch in scanned}) == 4
     assert all(
         row["preparation_lease_id"] is None and row["revision"] == 0
