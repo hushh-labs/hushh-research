@@ -73,6 +73,16 @@ continued calls are limited to actual native tools using exact-call review.
 Tool names/annotations cannot admit an unreviewed downstream action. This does
 not yet establish same-turn first-party Memory capture or curated-action parity.
 
+The shared toolset accepts application-owned catalog and result policy ports for
+curated-provider migration. Discovery remains native MCP; a catalog policy cannot
+invent tools, and call arguments must satisfy both the original provider schema
+and its narrowed advertised schema, each at its own local-reference root. Catalog
+revisions include both views so changing either requires fresh review. Result
+projection runs within the existing bounded normalization path, without a second
+provider dispatch. These ports do not yet migrate Google's credential owners or
+activate curated providers through this toolset. Pending reviews created with the
+older revision digest require review again rather than silent compatibility.
+
 The existing action ledger now requires exact current contract, argument and
 resource-binding HMAC matches at confirmation and consumption for
 `connector.mcp.invoke`. No second approval table was added. Existing non-MCP

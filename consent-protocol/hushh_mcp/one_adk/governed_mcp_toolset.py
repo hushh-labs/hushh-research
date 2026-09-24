@@ -130,6 +130,8 @@ ResolveConnection = Callable[[Any], Awaitable[ResolvedMcpConnection]]
 AuthorizeCall = Callable[
     [Any, McpConnectionBinding, str, str, dict[str, Any]], Awaitable[dict[str, Any] | None]
 ]
+CatalogPolicy = Callable[[list[dict[str, Any]]], list[dict[str, Any]]]
+ResultPolicy = Callable[[str, dict[str, Any]], dict[str, Any]]
 
 
 def _digest(value: Any) -> str:
@@ -177,6 +179,8 @@ class GovernedMcpToolset(McpToolset):
         resolve_connection: ResolveConnection,
         authorize_call: AuthorizeCall,
         timeout_seconds: float = 20,
+        catalog_policy: CatalogPolicy | None = None,
+        result_policy: ResultPolicy | None = None,
     ) -> None:
         validate_mcp_endpoint(binding.endpoint)
         if not binding.owner_id or not binding.connector_id or binding.generation < 1:
@@ -187,6 +191,11 @@ class GovernedMcpToolset(McpToolset):
         self.resolve_connection = resolve_connection
         self.authorize_call = authorize_call
         self.timeout_seconds = timeout_seconds
+        # Application-owned provider restrictions, not model/server callbacks.
+        # Custom connectors retain generic discovery; curated integrations can
+        # narrow capabilities/results without a second MCP dispatcher.
+        self.catalog_policy = catalog_policy
+        self.result_policy = result_policy
         self.catalog_epoch = 0
         self._catalog_digest: str | None = None
         self._discovery_sequence = 0
@@ -230,6 +239,15 @@ class GovernedMcpToolset(McpToolset):
                 manager._begin_session_use(headers)
                 try:
                     catalog = await _list_session_tools(session)
+                    discovered = {item["name"]: deepcopy(item) for item in catalog}
+                    if self.catalog_policy is not None:
+                        catalog = self.catalog_policy(deepcopy(catalog))
+                        for item in catalog:
+                            original = discovered.get(item["name"])
+                            if original is None:
+                                raise ExternalMcpError(
+                                    "Invalid connector policy.", code="MCP_CATALOG_CHANGED"
+                                )
                 finally:
                     manager._end_session_use(headers)
                 await self._current_headers(readonly_context)
@@ -241,20 +259,26 @@ class GovernedMcpToolset(McpToolset):
             ) from None
         if epoch != self.catalog_epoch or sequence != self._discovery_sequence:
             raise ExternalMcpError("Connector tools changed.", code="MCP_CATALOG_CHANGED")
-        revision = _digest(catalog)
+        revision = _digest({"admitted": catalog, "provider": discovered})
         if self._catalog_digest is not None and self._catalog_digest != revision:
             self.refresh()
         self._catalog_digest = revision
         epoch = self.catalog_epoch
         return [
-            _GovernedMcpTool(toolset=self, descriptor=item, revision=revision, epoch=epoch)
+            _GovernedMcpTool(
+                toolset=self,
+                descriptor=item,
+                revision=revision,
+                epoch=epoch,
+                provider_schema=discovered[item["name"]]["inputSchema"],
+            )
             for item in catalog
             if item["name"] not in _RESERVED_TOOL_NAMES
         ]
 
 
 class _GovernedMcpTool(McpTool):
-    def __init__(self, *, toolset, descriptor, revision, epoch):
+    def __init__(self, *, toolset, descriptor, revision, epoch, provider_schema=None):
         super().__init__(
             mcp_tool=Tool.model_validate(descriptor),
             mcp_session_manager=toolset._mcp_session_manager,
@@ -264,6 +288,9 @@ class _GovernedMcpTool(McpTool):
         self.descriptor = deepcopy(descriptor)
         self.revision = revision
         self.epoch = epoch
+        self.provider_schema = deepcopy(
+            provider_schema if provider_schema is not None else descriptor["inputSchema"]
+        )
         # Opaque, stable ADK-safe names avoid collisions and provider name
         # interpolation. Native MCPTool retains the original wire tool name.
         self.name = mcp_tool_name(toolset.binding.connector_id, descriptor["name"])
@@ -295,6 +322,10 @@ class _GovernedMcpTool(McpTool):
             # No coercion or dropped constraints; invalid calls never reach
             # approval or the provider. No remote schema retrieval is admitted.
             arguments = validated_mcp_arguments(self.descriptor["inputSchema"], args)
+            # Validate independently at each schema's own root so local $refs
+            # retain their meaning. A narrowed advertised schema cannot erase
+            # an original provider constraint or silently rewrite arguments.
+            validated_mcp_arguments(self.provider_schema, arguments)
             pending = await owner.authorize_call(
                 tool_context,
                 owner.binding,
@@ -317,7 +348,14 @@ class _GovernedMcpTool(McpTool):
             await owner._current_headers(tool_context)
             if self.epoch != owner.catalog_epoch:
                 return {"error": "MCP_CATALOG_CHANGED", "outcome": "unknown", "retryable": False}
-            normalized = _normalize_and_cap(CallToolResult.model_validate(result))
+            projection = (
+                (lambda payload: owner.result_policy(self.descriptor["name"], payload))
+                if owner.result_policy is not None
+                else None
+            )
+            normalized = _normalize_and_cap(
+                CallToolResult.model_validate(result), project=projection
+            )
             if normalized.is_error:
                 return {"error": "MCP_PROVIDER_ERROR", "outcome": "unknown", "retryable": False}
             return {
