@@ -115,6 +115,16 @@ def _local_date(value: object, timezone: str) -> str | None:
         return value[:10]
 
 
+def _share_file(item: dict) -> dict:
+    """Owner-only identity of a file A was shown; never part of B's answer."""
+    return {
+        "file_id": item["file_id"],
+        "name": item["name"],
+        "mime_type": item.get("mime_type") or "",
+        "modified_time": item.get("modified_time"),
+    }
+
+
 def _metadata_sources(matches: list[dict]) -> list[dict]:
     return [
         {"source_ref": item["source_ref"], "label": "Document", "kind": "metadata", "page": None}
@@ -136,6 +146,7 @@ def _outcome(
     titles=(),
     truncated=False,
     metadata_only=False,
+    share_files=(),
 ):
     """Presentation-free turn result; each caller decides what its reader may see."""
     return {
@@ -151,6 +162,7 @@ def _outcome(
         "titles": list(titles),
         "truncated": truncated,
         "metadata_only": metadata_only,
+        "share_files": list(share_files),
     }
 
 
@@ -169,6 +181,7 @@ def _files_outcome(
         titles=[item["name"] for item in matches[:10]],
         truncated=True if unreadable else found["truncated"] or len(matches) > 10,
         metadata_only=True,
+        share_files=[_share_file(item) for item in matches[:10]],
     )
 
 
@@ -427,12 +440,24 @@ class DriveChatService:
                     text += (
                         "\n\nThis answer uses bounded excerpts; some document content was omitted."
                     )
+                # The cited files, so A can share exactly what answered B.
+                # Sharing is optional: anything missing means nothing to share,
+                # never a failed answer.
+                by_document = {row.get("document_id"): row for row in getattr(reader, "_rows", [])}
+                by_file = {item.get("file_id"): item for item in matches} if live else {}
+                share_files = []
+                for ref in dict.fromkeys(answer.source_refs):
+                    row = by_document.get(known[ref].get("document_ref"))
+                    shown = by_file.get(row.get("file_id")) if row else None
+                    if shown and shown.get("file_id") and shown.get("name"):
+                        share_files.append(_share_file(shown))
                 return _outcome(
                     "ok",
                     text,
                     sources=sources,
                     titles=[known[ref]["name"] for ref in dict.fromkeys(answer.source_refs)],
                     truncated=retrieved["truncated"],
+                    share_files=share_files,
                 )
         except PermissionError:
             raise

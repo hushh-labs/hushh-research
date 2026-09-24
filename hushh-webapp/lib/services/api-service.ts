@@ -495,7 +495,7 @@ const KYC_SCAN_WEB_FETCH_TIMEOUT_MS = 95_000;
  * retryable API response rather than becoming a client-side abort.
  */
 const LONG_DRIVE_SHARING_PATH =
-  /^\/api\/connectors\/google_drive\/sharing\/(?:requests\/[0-9a-f-]{36}\/prepare|queries\/[0-9a-f-]{36}\/allow)$/;
+  /^\/api\/connectors\/google_drive\/sharing\/(?:requests\/[0-9a-f-]{36}\/prepare|queries\/[0-9a-f-]{36}\/(?:allow|share))$/;
 
 /** Above the connector proxy's 170 s budget for synchronous Drive work. */
 function isLongDriveSharingPath(path: string): boolean {

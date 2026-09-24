@@ -1,6 +1,7 @@
 """Vault-protected exact-file review, separate from generic/voice confirmation."""
 
 import asyncio
+import re
 from dataclasses import dataclass, field
 from typing import Literal, cast
 from uuid import UUID
@@ -161,6 +162,18 @@ class QueryAllowRequest(DecisionRequest):
     timeZone: str | None = Field(default=None, pattern=r"^[A-Za-z0-9_+\-/]{1,64}$")
 
 
+class QueryShareRequest(StrictRequest):
+    fileRefs: list[str] = Field(min_length=1, max_length=10)
+
+    @model_validator(mode="after")
+    def known_refs(self):
+        if len(set(self.fileRefs)) != len(self.fileRefs) or any(
+            not re.fullmatch(r"f(?:[1-9]|10)", ref) for ref in self.fileRefs
+        ):
+            raise ValueError("Choose files from the answer.")
+        return self
+
+
 class ApprovalRequest(DecisionRequest):
     reviewDigest: str = Field(pattern=r"^[0-9a-f]{64}$")
     documentIds: list[UUID] = Field(min_length=1, max_length=25)
@@ -187,7 +200,12 @@ def _service():
 
 
 def _query_service():
-    return DriveLiveQueryService()
+    from hushh_mcp.services.drive_suggestion_service import DriveSuggestionService
+
+    return DriveLiveQueryService(
+        sharing=lambda require_owner: DriveSharingService(require_owner=require_owner),
+        suggestions=lambda require_owner: DriveSuggestionService(require_owner=require_owner),
+    )
 
 
 def _error(error):
@@ -219,6 +237,15 @@ def _error(error):
         "connector_unavailable": (503, "Document sharing is not available yet."),
         "request_expired": (409, "This question expired."),
         "drive_query_unavailable": (503, "Drive didn't answer. Try again."),
+        "recipient_google_identity_required": (
+            409,
+            "They need to add a Google account to One before files can be shared with them.",
+        ),
+        "recipient_verification_unavailable": (
+            503,
+            "Couldn't check their Google account. Try again.",
+        ),
+        "drive_share_unavailable": (503, "Couldn't prepare these files. Try again."),
         "invalid_argument": (422, "Check the document-sharing request."),
     }
     code = str(error) if isinstance(error, DriveReadError) else "sharing_unavailable"
@@ -468,6 +495,20 @@ async def allow_query(request_id: UUID, body: QueryAllowRequest, owner: Owner = 
         revision=body.revision,
         consent_token=owner.token,
         timezone=body.timeZone or "UTC",
+    )
+
+
+@router.post("/queries/{request_id}/share", status_code=202)
+async def share_query_files(
+    request_id: UUID, body: QueryShareRequest, owner: Owner = Depends(_owner)
+):
+    """A shares chosen files from an answered question with the asker, as Viewer."""
+    return await _call(
+        "share",
+        owner=owner,
+        factory=_query_service,
+        request_id=str(request_id),
+        file_refs=body.fileRefs,
     )
 
 

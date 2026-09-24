@@ -7,6 +7,7 @@ import base64
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -288,6 +289,26 @@ async def test_owner_can_share_some_of_the_reviewed_files(sharing):
     # Only the selected file is queued; the other reviewed file is never granted.
     assert [str(item["document_id"]) for item in operations] == ids[:1]
     assert {item["state"] for item in rows(sharing, "one_action_directive_ledger")} == {"consumed"}
+    # The sealed plan names only the shared file, so dispatch never rechecks
+    # (or is withdrawn by) the file A chose not to share.
+    plan = sharing.sharing_cipher.open(
+        operations[0]["plan_envelope"],
+        user_id="owner",
+        resource_id=str(operations[0]["operation_id"]),
+        purpose="permission-plan",
+    )
+    assert [source["document_id"] for source in plan["approval"]["sources"]] == ids[:1]
+
+
+@pytest.mark.asyncio
+async def test_queue_grants_refuses_a_plan_that_names_other_files(sharing):
+    approval = SimpleNamespace(
+        sources=[SimpleNamespace(document_id="one"), SimpleNamespace(document_id="two")]
+    )
+    with pytest.raises(DriveSharingError, match="invalid_selection"):
+        sharing._queue_grants(
+            None, request=None, approval=approval, sources=[{"document_id": "one"}], batch="b"
+        )
 
 
 @pytest.mark.asyncio
