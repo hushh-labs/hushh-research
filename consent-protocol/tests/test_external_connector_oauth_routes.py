@@ -94,6 +94,86 @@ def test_private_registration_derives_owner_and_never_echoes_secrets(route_clien
     assert response.json()["detail"]["code"] == "connector_registry_unavailable"
 
 
+def test_mcp_review_http_requires_owner_and_explicit_confirmation(route_client, monkeypatch):
+    client, app, _ = route_client
+    body = {
+        "conversationId": "thread",
+        "toolName": "mcp_" + "a" * 40,
+        "arguments": {"q": "synthetic-private-query"},
+    }
+    base = "/api/connectors/custom_synthetic/mcp"
+    prepare = AsyncMock(return_value={"status": "review_required"})
+    confirm = AsyncMock(return_value={"status": "confirmed", "receipt": "synthetic-receipt"})
+    monkeypatch.setattr(routes.mcp_review_service, "prepare_review", prepare)
+    monkeypatch.setattr(routes.mcp_review_service, "confirm_review", confirm)
+    response = client.post(base + "/review", json=body)
+    assert response.status_code == 401
+    assert response.headers["cache-control"] == "no-store"
+    prepare.assert_not_called()
+    response = client.post(
+        base + "/review",
+        content=(b"x" * 16_001 for _ in range(4)),
+        headers={"content-type": "application/json"},
+    )
+    assert response.status_code == 413
+    assert response.headers["cache-control"] == "no-store"
+    assert len(response.text) < 200
+    prepare.assert_not_called()
+    token = {"user_id": "verified-owner", "token": "synthetic-owner-token"}
+    app.dependency_overrides[require_vault_owner_token] = lambda: token
+    oversized = client.post(base + "/review", json={**body, "arguments": {"q": "x" * 32_001}})
+    assert oversized.status_code == 422
+    assert len(oversized.text) < 200
+    prepare.assert_not_called()
+    response = client.post(base + "/review", json=body)
+    assert response.status_code == 200
+    assert prepare.await_args.kwargs["token"] is token
+    assert prepare.await_args.kwargs["conversation_id"] == "thread"
+    confirm_body = {**body, "directiveId": "dir_" + "b" * 32, "confirmed": True}
+    for extra in (
+        {"confirmed": False},
+        {"confirmed": "true"},
+        {"userId": "other"},
+        {"schemaRevision": "forged"},
+    ):
+        response = client.post(base + "/confirm", json={**confirm_body, **extra})
+        assert response.status_code in {400, 422}
+        assert response.headers["cache-control"] == "no-store"
+        assert "synthetic-private-query" not in response.text
+    confirm.assert_not_called()
+    response = client.post(base + "/confirm", json=confirm_body)
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert response.json()["receipt"] == "synthetic-receipt"
+    assert confirm.await_args.kwargs["token"] is token
+
+
+@pytest.mark.parametrize("kind,status", [("authority", 409), ("provider", 502), ("unknown", 503)])
+def test_mcp_review_errors_never_echo_private_diagnostics(route_client, monkeypatch, kind, status):
+    from hushh_mcp.services.action_directive_ledger import ActionDirectiveAuthorityError
+    from hushh_mcp.services.external_mcp_client import ExternalMcpError
+
+    client, app, _ = route_client
+    app.dependency_overrides[require_vault_owner_token] = lambda: {
+        "user_id": "owner",
+        "token": "synthetic",
+    }
+    errors = {
+        "authority": ActionDirectiveAuthorityError("synthetic-private-diagnostic"),
+        "provider": ExternalMcpError("synthetic-private-diagnostic", code="MCP_DISCOVERY_FAILED"),
+        "unknown": RuntimeError("synthetic-private-diagnostic"),
+    }
+    operation = AsyncMock(side_effect=errors[kind])
+    monkeypatch.setattr(routes.mcp_review_service, "prepare_review", operation)
+    response = client.post(
+        "/api/connectors/custom_synthetic/mcp/review",
+        json={"conversationId": "thread", "toolName": "mcp_" + "a" * 40, "arguments": {}},
+    )
+    assert response.status_code == status
+    assert response.headers["cache-control"] == "no-store"
+    assert "synthetic-private-diagnostic" not in response.text
+
+
 def test_connector_catalog_and_key_lookup_are_owner_scoped(route_client, monkeypatch):
     client, app, _ = route_client
     app.dependency_overrides[require_vault_owner_token] = lambda: {"user_id": "verified-owner"}

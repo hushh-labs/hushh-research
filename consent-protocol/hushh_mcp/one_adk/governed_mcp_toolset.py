@@ -138,6 +138,25 @@ def _digest(value: Any) -> str:
     ).hexdigest()
 
 
+def validated_mcp_arguments(schema: dict, args: Any) -> dict[str, Any]:
+    """One argument contract for model calls and the authenticated review UI."""
+    arguments = deepcopy(args)
+    try:
+        if len(json.dumps(arguments, allow_nan=False).encode()) > 32_000:
+            raise ExternalMcpError(
+                "Call is too large to review.", code="MCP_ARGUMENTS_LIMIT", status_code=413
+            )
+    except (TypeError, ValueError):
+        raise ExternalMcpError(
+            "Invalid call arguments.", code="MCP_ARGUMENTS_INVALID", status_code=422
+        ) from None
+    if not Draft202012Validator(schema).is_valid(arguments):
+        raise ExternalMcpError(
+            "Invalid call arguments.", code="MCP_ARGUMENTS_INVALID", status_code=422
+        )
+    return arguments
+
+
 class GovernedMcpToolset(McpToolset):
     """Use ADK's native session/tool machinery without ambient owner authority.
 
@@ -264,13 +283,9 @@ class _GovernedMcpTool(McpTool):
             await owner.get_tools(tool_context)
             if self.epoch != owner.catalog_epoch:
                 raise ExternalMcpError("Connector tools changed.", code="MCP_CATALOG_CHANGED")
-            arguments = deepcopy(args)
-            if len(json.dumps(arguments, allow_nan=False).encode()) > 32_000:
-                return {"error": "MCP_ARGUMENTS_LIMIT"}
             # No coercion or dropped constraints; invalid calls never reach
             # approval or the provider. No remote schema retrieval is admitted.
-            if not Draft202012Validator(self.descriptor["inputSchema"]).is_valid(arguments):
-                return {"error": "MCP_ARGUMENTS_INVALID"}
+            arguments = validated_mcp_arguments(self.descriptor["inputSchema"], args)
             pending = await owner.authorize_call(
                 tool_context,
                 owner.binding,
