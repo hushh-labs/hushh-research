@@ -68,6 +68,16 @@ requires an app-ledger receipt on resume. It is not live roster activation:
 the browser review-card transport, pending-handle confirmation API, and governed
 roster must be connected and verified together before exposing custom tools.
 
+The Chat wire projection buffers native confirmation argument fragments (64 KB
+per call, at most 32 pending envelopes). For private MCP calls it exposes only
+the original call identity with empty arguments and the validated app review
+reference; nested private hints, arguments and extra payload fields are removed.
+The browser fetches exact review arguments through the authenticated review API.
+Malformed, oversized or incomplete confirmations fail closed. Snapshot projection
+also indexes confirmation identities before results, preventing an out-of-order
+confirmation reply from exposing a private payload. Non-MCP confirmation argument
+contracts remain unchanged within the same envelope bounds.
+
 ## 4.1 UI Stream Mapping
 
 The canonical app stream surface is `hushh-webapp/components/app-ui/stream-progress-panel.tsx`. Portfolio import and Agent Chat both use that primitive so progress, optional thinking, and answer text stay visually and semantically consistent.

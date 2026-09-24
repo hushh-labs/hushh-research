@@ -6,7 +6,7 @@ import json
 import re
 from typing import Any
 
-from ag_ui.core import BaseEvent, EventType
+from ag_ui.core import BaseEvent, EventType, ToolCallArgsEvent
 
 from hushh_mcp.one_adk.drive_tools import DRIVE_PRIVATE_SOURCE, DRIVE_READ_TOOL_NAME
 from hushh_mcp.one_adk.selected_drive_status import PRIVATE_SOURCE as SELECTED_STATUS_SOURCE
@@ -25,6 +25,103 @@ def _private_tool_name(name: object) -> bool:
     return isinstance(name, str) and (
         name in _PRIVATE_TOOLS or _DYNAMIC_MCP_TOOL.fullmatch(name) is not None
     )
+
+
+def _confirmation_view(arguments: dict) -> dict | None:
+    original = arguments.get("originalFunctionCall")
+    if not isinstance(original, dict) or not _private_tool_name(original.get("name")):
+        return None
+    confirmation = arguments.get("toolConfirmation")
+    payload = confirmation.get("payload") if isinstance(confirmation, dict) else None
+    safe_payload = {}
+    if (
+        isinstance(payload, dict)
+        and payload.get("kind") == "mcp_call_review"
+        and payload.get("version") == 1
+    ):
+        patterns = {
+            "connectorId": r"[A-Za-z0-9_-]{1,128}",
+            "toolName": r"mcp_[0-9a-f]{40}",
+            "directiveId": r"dir_[0-9a-f]{32}",
+            "pendingHandle": r"one_secret_ref:[A-Za-z0-9_-]{32}",
+            "expiresAt": r"[0-9T:+.Z-]{1,64}",
+        }
+        if all(
+            isinstance(payload.get(key), str) and re.fullmatch(pattern, payload[key])
+            for key, pattern in patterns.items()
+        ):
+            safe_payload = {
+                "kind": "mcp_call_review",
+                "version": 1,
+                **{key: payload[key] for key in patterns},
+            }
+    return {
+        "originalFunctionCall": {"id": original.get("id"), "name": original["name"], "args": {}},
+        "toolConfirmation": {"confirmed": False, "payload": safe_payload},
+    }
+
+
+class ConfirmationWireProjection:
+    """Bound fragmented native confirmations before exposing a review handle."""
+
+    def __init__(self):
+        self._pending: dict[str, tuple[BaseEvent, list[str], int]] = {}
+        self._private_confirmations: set[str] = set()
+
+    def project(self, event: BaseEvent) -> list[BaseEvent]:
+        call_id = str(getattr(event, "tool_call_id", ""))
+        if event.type == EventType.RUN_FINISHED and self._pending:
+            raise ValueError("Connector confirmation was incomplete.")
+        if event.type == EventType.TOOL_CALL_RESULT and call_id in self._private_confirmations:
+            return [
+                event.model_copy(
+                    update={
+                        "content": json.dumps(_safe_result(getattr(event, "content", None))),
+                        "raw_event": None,
+                        "metadata": None,
+                    }
+                )
+            ]
+        if (
+            event.type == EventType.TOOL_CALL_START
+            and getattr(event, "tool_call_name", None) == "adk_request_confirmation"
+        ):
+            if len(self._pending) >= 32:
+                raise ValueError("Too many pending connector confirmations.")
+            self._pending[call_id] = (event, [], 0)
+            return []
+        pending = self._pending.get(call_id)
+        if pending is None:
+            return [event]
+        start, chunks, size = pending
+        if event.type in {EventType.TOOL_CALL_ARGS, EventType.TOOL_CALL_CHUNK}:
+            delta = getattr(event, "delta", "") or ""
+            size += len(delta.encode())
+            if size > 64_000:
+                self._pending.pop(call_id, None)
+                raise ValueError("Connector confirmation is too large to display safely.")
+            chunks.append(delta)
+            self._pending[call_id] = (start, chunks, size)
+            return []
+        if event.type != EventType.TOOL_CALL_END:
+            return [event]
+        self._pending.pop(call_id, None)
+        try:
+            arguments = json.loads("".join(chunks))
+            if not isinstance(arguments, dict):
+                raise ValueError
+        except (TypeError, ValueError):
+            raise ValueError("Connector confirmation is malformed.") from None
+        safe = _confirmation_view(arguments)
+        if safe is not None:
+            self._private_confirmations.add(call_id)
+        return [
+            start.model_copy(update={"raw_event": None, "metadata": None}),
+            ToolCallArgsEvent(
+                tool_call_id=call_id, delta=json.dumps(safe if safe is not None else arguments)
+            ),
+            event.model_copy(update={"raw_event": None, "metadata": None}),
+        ]
 
 
 def _safe_result(value: object) -> dict[str, Any]:
@@ -163,6 +260,18 @@ def redact_drive_wire_event(event: BaseEvent, private_call_ids: set[str]) -> Bas
             for call in getattr(message, "tool_calls", None) or []:
                 if _private_tool_name(getattr(call.function, "name", None)):
                     private_call_ids.add(str(getattr(call, "id", "")))
+                if getattr(call.function, "name", None) == "adk_request_confirmation":
+                    try:
+                        raw = call.function.arguments
+                        if len(raw.encode()) > 64_000:
+                            raise ValueError
+                        parsed = json.loads(raw)
+                        if not isinstance(parsed, dict):
+                            raise ValueError
+                        if _confirmation_view(parsed) is not None:
+                            private_call_ids.add(str(call.id))
+                    except (TypeError, ValueError, AttributeError):
+                        private_call_ids.add(str(call.id))
         safe = []
         changed = False
         for message in getattr(event, "messages", []):
@@ -171,6 +280,31 @@ def redact_drive_wire_event(event: BaseEvent, private_call_ids: set[str]) -> Bas
                 safe_calls = []
                 call_changed = False
                 for call in calls:
+                    if getattr(call.function, "name", None) == "adk_request_confirmation":
+                        try:
+                            raw = call.function.arguments
+                            if len(raw.encode()) > 64_000:
+                                raise ValueError
+                            parsed = json.loads(raw)
+                            if not isinstance(parsed, dict):
+                                raise ValueError
+                            confirmation = _confirmation_view(parsed)
+                        except (TypeError, ValueError, AttributeError):
+                            confirmation = {}
+                        if confirmation is not None:
+                            safe_calls.append(
+                                call.model_copy(
+                                    update={
+                                        "function": call.function.model_copy(
+                                            update={"arguments": json.dumps(confirmation)}
+                                        ),
+                                        "metadata": None,
+                                        "encrypted_value": None,
+                                    }
+                                )
+                            )
+                            call_changed = True
+                            continue
                     if (
                         _private_tool_name(getattr(call.function, "name", None))
                         or str(getattr(call, "id", "")) in private_call_ids
