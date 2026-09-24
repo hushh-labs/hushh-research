@@ -601,6 +601,19 @@ export async function streamAgentChat(input: {
     },
     onToolCallResultEvent: ({ event }) => {
       const toolName = toolNames.get(event.toolCallId) || "";
+      if (/^mcp_[0-9a-f]{40}$/.test(toolName)) {
+        // Connector content belongs to owner presentation/history, never the
+        // generic debug payload or model-authored app-action parser. Approval
+        // references use the separate native interrupt/review contract.
+        const payload = toolPayload(event.toolCallId, toolName);
+        payload.execution = "server";
+        payload.message = parseRecord(event.content)?.status === "ok"
+          ? "Connector call finished."
+          : "Connector call needs attention.";
+        payload.raw = { protocol: "ag-ui", toolName };
+        handlers.onToolResult?.(payload);
+        return;
+      }
       const workspaceConnectorTool =
         toolName === "discover_workspace_tools" ||
         toolName === "read_workspace_tool";

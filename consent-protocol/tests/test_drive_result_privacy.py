@@ -575,6 +575,58 @@ def test_dynamic_mcp_snapshot_before_call_and_storage_are_private():
     assert private not in redact_drive_session_json(json.dumps(document))
 
 
+def test_owner_encrypted_history_keeps_reviewed_success_not_approval_authority():
+    name = "mcp_" + "a" * 40
+    document = {
+        "events": [
+            {
+                "invocationId": "turn",
+                "content": {
+                    "parts": [
+                        {
+                            "functionCall": {
+                                "id": "read",
+                                "name": name,
+                                "args": {"q": "PRIVATE_ARGUMENT"},
+                            }
+                        },
+                        {
+                            "functionResponse": {
+                                "id": "read",
+                                "name": name,
+                                "response": {
+                                    "status": "ok",
+                                    "isError": False,
+                                    "result": {
+                                        "content": [
+                                            {"type": "text", "text": "OWNER_CONNECTOR_INFORMATION"}
+                                        ]
+                                    },
+                                    "approvalReceipt": "DO_NOT_RETAIN_AUTHORITY",
+                                },
+                            }
+                        },
+                        {
+                            "functionResponse": {
+                                "id": "failed",
+                                "name": name,
+                                "response": {
+                                    "status": "blocked",
+                                    "result": "DO_NOT_RETAIN_ERROR_BODY",
+                                },
+                            }
+                        },
+                    ]
+                },
+            }
+        ]
+    }
+    retained = redact_drive_session_json(json.dumps(document))
+    assert "OWNER_CONNECTOR_INFORMATION" in retained
+    assert "PRIVATE_ARGUMENT" not in retained
+    assert "DO_NOT_RETAIN" not in retained
+
+
 def test_dynamic_mcp_start_metadata_and_argument_chunks_are_private():
     name = "mcp_" + "b" * 40
     private = "SYNTHETIC_PRIVATE_CONNECTOR_VALUE"

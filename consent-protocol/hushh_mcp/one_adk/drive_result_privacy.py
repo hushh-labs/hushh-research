@@ -188,10 +188,12 @@ def _safe_result(value: object) -> dict[str, Any]:
 
 
 def redact_drive_session_json(serialized: str) -> str:
-    """Remove the raw function response from the serialized storage copy.
+    """Project session content for the existing owner-bound encrypted store.
 
-    The live ADK session remains untouched until the model finishes this turn.
-    Restored sessions retain the invocation and safe outcome, not provider text.
+    Reviewed native MCP successes are owner information, not diagnostics.
+    Keep their normalized result for recall; never retain approval authority,
+    private call arguments, error bodies or blocked downstream payloads.
+    Legacy provider projections retain their existing separate contracts.
     """
     if "mcp_" not in serialized and not any(name in serialized for name in _PRIVATE_TOOLS):
         return serialized
@@ -273,7 +275,27 @@ def redact_drive_session_json(serialized: str) -> str:
                 or response.get("id") in confirmation_ids
                 or response.get("id") in private_ids
             ):
-                response["response"] = _safe_result(response.get("response"))
+                result = response.get("response")
+                if (
+                    isinstance(response.get("name"), str)
+                    and _DYNAMIC_MCP_TOOL.fullmatch(response["name"])
+                    and isinstance(result, dict)
+                    and result.get("status") == "ok"
+                    and result.get("isError") is False
+                    and "result" in result
+                ):
+                    # This is the application-normalized success envelope,
+                    # after owner/connection/schema/receipt validation. Persist
+                    # content only in the caller's encrypted session, not raw
+                    # protocol fields or executable confirmation references.
+                    response["response"] = {
+                        "status": "ok",
+                        "isError": False,
+                        "result": result["result"],
+                        "truncated": result.get("truncated") is True,
+                    }
+                else:
+                    response["response"] = _safe_result(result)
                 response["parts"] = None
                 changed = True
     return json.dumps(document, separators=(",", ":")) if changed else serialized
