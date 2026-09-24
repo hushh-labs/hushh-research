@@ -51,6 +51,7 @@ class DocumentsAgentA2A:
             conversation_id=task.conversation_id,
             message=task.message or "",
             previous_answer=task.previous_answer or "",
+            timezone=task.timezone or "UTC",
             require_access=require_access,
         )
         await require_access()

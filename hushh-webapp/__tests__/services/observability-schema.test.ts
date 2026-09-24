@@ -4,6 +4,23 @@ import { ONE_LOCATION_JOURNEY_ACTIONS } from "@/lib/observability/events";
 import { validateAndSanitizeEvent } from "@/lib/observability/schema";
 
 describe("observability schema", () => {
+  it.each([
+    ["one_memory_action", "capture_saved", "pkm"],
+    ["one_wallet_action", "card_added", "one_wallet"],
+    ["one_calendar_action", "connected", "one_calendar"],
+    ["one_kyc_action", "reply_sent", "one_kyc"],
+    ["one_crm_action", "record_created", "connected_systems"],
+  ] as const)("keeps only bounded %s feature action metadata", (eventName, action, routeId) => {
+    const result = validateAndSanitizeEvent(eventName, {
+      env: "production", platform: "ios", event_category: "feature",
+      app_version: "1.1.0", route_id: routeId, action, result: "success",
+      email: "person@example.test", wallet_token: "do-not-export",
+      workflow_id: "do-not-export",
+    } as any);
+    expect(result.sanitized).toMatchObject({ route_id: routeId, action, result: "success" });
+    expect(result.droppedKeys).toEqual(expect.arrayContaining(["email", "wallet_token", "workflow_id"]));
+    expect(JSON.stringify(result.sanitized)).not.toContain("example.test");
+  });
   it("accepts metadata-only api payloads", () => {
     const result = validateAndSanitizeEvent("api_request_completed", {
       env: "uat",

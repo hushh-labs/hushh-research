@@ -12,6 +12,7 @@ import json
 import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 import httpx
@@ -30,7 +31,7 @@ RESPONSE_LIMIT = 256 * 1024
 PAGE_LIMIT = 3
 PERMISSION_LIMIT = 200
 FILE_FIELDS = (
-    "id,version,mimeType,trashed,isAppAuthorized,"
+    "id,version,mimeType,modifiedTime,createdTime,trashed,isAppAuthorized,"
     "capabilities(canShare,canDownload,canAccessViaGenAi),"
     "clientEncryptionDetails(encryptionState)"
 )
@@ -258,6 +259,10 @@ class GoogleDrivePermissionAdapter:
         require_current: Fence,
         require_app_authorized: bool = True,
         require_genai_eligibility: bool = True,
+        metadata_only: bool = False,
+        time_field: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
     ) -> None:
         if not isinstance(expected_version, str) or not VERSION.fullmatch(expected_version):
             raise DrivePermissionError("operation_not_allowed")
@@ -272,10 +277,18 @@ class GoogleDrivePermissionAdapter:
             or require_app_authorized
             and result.get("isAppAuthorized") is not True
             or not isinstance(mime, str)
-            or mime not in (SUPPORTED_TYPES if require_app_authorized else LIVE_SUPPORTED_TYPES)
+            or not mime
+            or (
+                mime
+                in {"application/vnd.google-apps.folder", "application/vnd.google-apps.shortcut"}
+                if metadata_only
+                else mime
+                not in (SUPPORTED_TYPES if require_app_authorized else LIVE_SUPPORTED_TYPES)
+            )
             or not isinstance(capabilities, dict)
             or capabilities.get("canShare") is not True
-            or capabilities.get("canDownload") is not True
+            or not metadata_only
+            and capabilities.get("canDownload") is not True
             or require_genai_eligibility
             and capabilities.get("canAccessViaGenAi") is not True
             or (
@@ -289,6 +302,23 @@ class GoogleDrivePermissionAdapter:
             raise DrivePermissionError("source_not_shareable")
         if result.get("version") != expected_version:
             raise DrivePermissionError("source_changed")
+        if metadata_only:
+            if time_field not in {"modifiedTime", "createdTime"} or not all(
+                isinstance(value, str)
+                and re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z", value)
+                for value in (start_time, end_time)
+            ):
+                raise DrivePermissionError("operation_not_allowed")
+            observed = result.get(time_field)
+            try:
+                if not isinstance(observed, str) or not (
+                    datetime.fromisoformat(start_time.replace("Z", "+00:00"))
+                    <= datetime.fromisoformat(observed.replace("Z", "+00:00"))
+                    < datetime.fromisoformat(end_time.replace("Z", "+00:00"))
+                ):
+                    raise DrivePermissionError("source_changed")
+            except (TypeError, ValueError):
+                raise DrivePermissionError("source_changed") from None
         await require_current()
 
     async def list_permissions(

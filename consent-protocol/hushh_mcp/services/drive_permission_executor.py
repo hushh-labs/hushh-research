@@ -99,11 +99,22 @@ class DrivePermissionExecutor:
                     "access_token": credentials["accessToken"],
                     "require_current": lambda: self.store.require_current(job),
                 }
+                inspect_options = (
+                    {
+                        "metadata_only": True,
+                        "time_field": plan["time_field"],
+                        "start_time": plan["start_time"],
+                        "end_time": plan["end_time"],
+                    }
+                    if plan.get("metadata_only")
+                    else {}
+                )
                 await self.adapter.inspect_shareable(
                     **args,
                     expected_version=plan["source_version"],
                     require_app_authorized=plan.get("source_kind") != "live",
                     require_genai_eligibility=plan.get("source_kind") != "live",
+                    **inspect_options,
                 )
                 before = await self.adapter.list_permissions(**args)
                 existing = existing_individual_permission(before, email=plan["recipient"]["email"])
