@@ -191,13 +191,13 @@ describe("personal Gmail information-request scope boundary", () => {
       }),
     );
 
-    fireEvent.click(
-      await screen.findByRole("button", {
-        name: "Unlock to start",
-      }),
-    );
+    const unlock = await screen.findByRole("button", {
+      name: "Unlock to start",
+    });
+    await waitFor(() => expect(unlock).not.toBeDisabled());
+    fireEvent.click(unlock);
 
-    expect(onRequestVaultUnlock).toHaveBeenCalledOnce();
+    await waitFor(() => expect(onRequestVaultUnlock).toHaveBeenCalledOnce());
     expect(gmailServiceMocks.setPreference).not.toHaveBeenCalled();
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Open your private vault before changing KYC monitoring.",
