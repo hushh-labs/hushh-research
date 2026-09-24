@@ -99,13 +99,20 @@ function UnlockedDocumentReview({
   const alive = useRef(false);
   const inFlight = useRef(false);
   const polls = useRef(0);
+  const preparedRevision = useRef<number | null>(null);
   const statusTarget = useRef<HTMLDivElement>(null);
   const now = useCoarseClock(1000);
 
   const load = useCallback(
     async (token: string, guard: SessionGuard): Promise<Snapshot> => {
       guard();
-      const status = await DriveSharingService.status(token, requestId, guard);
+      let status = await DriveSharingService.status(token, requestId, guard);
+      if (status.direction === "incoming" && status.status === "pending" && preparedRevision.current !== status.revision) {
+        preparedRevision.current = status.revision;
+        await DriveSharingService.prepare(token, requestId, guard);
+        guard();
+        status = await DriveSharingService.status(token, requestId, guard);
+      }
       guard();
       if (status.direction === "incoming" && UNDECIDED.has(status.status)) {
         return {
@@ -153,6 +160,7 @@ function UnlockedDocumentReview({
         setSnapshot(result);
       } catch (cause) {
         if (!current()) return;
+        preparedRevision.current = null;
         // A failed refresh must never leave an old review actionable.
         setSnapshot(null);
         const code =
@@ -350,7 +358,7 @@ function UnlockedDocumentReview({
             <label className="flex items-start gap-3 text-sm">
               <input type="checkbox" checked={trustFuture} disabled={busy || !canApprove}
                 onChange={(event) => setTrustFuture(event.target.checked)} />
-              <span>Trust this verified person for these exact files and this same request purpose on future requests while your app is closed. Changed files and new files will require review. You can revoke this rule.</span>
+              <span>Trust {review.recipientEmail} for any requested Drive file, including future files. One may share matching files without asking again, including while you’re away when background preparation is enabled. You can stop future sharing anytime.</span>
             </label>
           ) : null}
           <FlowActionGroup
@@ -360,7 +368,7 @@ function UnlockedDocumentReview({
                 disabled={busy || !canApprove}
                 onClick={() =>
                   mutate((token, guard) => trustFuture
-                    ? DriveSharingService.approve(token, requestId, review, guard, true)
+                    ? DriveSharingService.approve(token, requestId, review, guard, true, "any_requested_drive_file")
                     : DriveSharingService.approve(token, requestId, review, guard))
                 }
               >

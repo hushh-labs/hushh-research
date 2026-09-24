@@ -94,6 +94,9 @@ def period_covered(
 class LiveSearchPlan(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     terms: list[str] = Field(min_length=1, max_length=3)
+    # Omitted intent may discover metadata, but must never trigger a content read.
+    mode: Literal["find", "read"] = "find"
+    exact_title: str | None = Field(default=None, max_length=1024)
 
 
 async def interpret_live_search(*, prompt, user_id):
@@ -159,16 +162,23 @@ class DriveSuggestionService:
         interpreter=interpret_suggestions,
         search_planner=interpret_live_search,
         reader_factory=None,
+        require_owner=None,
     ):
         self.oauth = oauth or get_external_connector_oauth_service().drive()
         self.store = store or DriveSuggestionStore(db=self.oauth.lifecycle.db)
         self.interpreter = interpreter
         self.search_planner = search_planner
         self.reader_factory = reader_factory
+        self.require_owner = require_owner
+
+    async def _require_current(self, job):
+        if self.require_owner is not None:
+            await self.require_owner()
+        await self.store.require_preparation_current(job)
 
     def _reader(self, job):
         async def require_access():
-            await self.store.require_preparation_current(job)
+            await self._require_current(job)
 
         if self.reader_factory:
             return self.reader_factory(user_id=job["user_id"], require_access=require_access)
@@ -184,7 +194,13 @@ class DriveSuggestionService:
         )
 
     async def run_one(self, *, user_id, request_id):
-        job = await self.store.claim_preparation(user_id=user_id, request_id=request_id)
+        if self.require_owner is not None:
+            await self.require_owner()
+        job = await self.store.claim_preparation(
+            user_id=user_id,
+            request_id=request_id,
+            **({"foreground": True} if self.require_owner is not None else {}),
+        )
         if job is None:
             return "not_claimed"
         try:
@@ -194,6 +210,7 @@ class DriveSuggestionService:
                 if len(query.encode()) > 2048:
                     raise DriveSharingError("narrow_selection_required")
                 if job.get("live"):
+                    await self._require_current(job)
                     plan = LiveSearchPlan.model_validate(
                         await self.search_planner(
                             prompt=json.dumps(
@@ -202,7 +219,7 @@ class DriveSuggestionService:
                             user_id=user_id,
                         )
                     )
-                    await self.store.require_preparation_current(job)
+                    await self._require_current(job)
                     retrieved = await reader.search(query=plan.terms)
                 else:
                     retrieved = await reader.search(query=query)
@@ -214,7 +231,7 @@ class DriveSuggestionService:
                     )
                     return "no_ready_files"
                 await reader.require_current()
-                await self.store.require_preparation_current(job)
+                await self._require_current(job)
                 answer = DocumentSuggestions.model_validate(
                     await self.interpreter(
                         prompt=json.dumps(
@@ -246,7 +263,7 @@ class DriveSuggestionService:
                 ):
                     raise ValueError("unsupported coverage")
                 await reader.require_current()
-                await self.store.require_preparation_current(job)
+                await self._require_current(job)
                 observed = {
                     str(row["document_id"]): (
                         LiveReviewedSource if row.get("_live") else ReviewedSource
@@ -270,6 +287,7 @@ class DriveSuggestionService:
                     preparation_lease_id=job["lease_id"],
                     read_sources=list(observed.values()),
                     live_sources=reader._rows if job.get("live") else None,
+                    **({"foreground": True} if self.require_owner is not None else {}),
                 )
                 await wake_drive_work("sharing")
                 return "review_ready"

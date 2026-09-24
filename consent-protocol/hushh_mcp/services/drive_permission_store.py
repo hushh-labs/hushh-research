@@ -126,17 +126,7 @@ class DrivePermissionStore(DriveSharingStore):
                 resource_id=str(rule["rule_id"]),
                 purpose="document-rule",
             )
-            if boundary.get("purpose_digest") != self.sharing_cipher.digest(
-                "rule-purpose", self._open_request(request)["purpose"]
-            ) or sorted(
-                (item["file_id"], item["content_fingerprint"]) for item in boundary["files"]
-            ) != sorted(
-                (
-                    self._source_metadata(item)["file_id"],
-                    self._source_metadata(item)["content_fingerprint"],
-                )
-                for item in sources
-            ):
+            if not self._rule_covers_boundary(boundary, request=request, sources=sources):
                 raise DriveSharingError("approval_superseded")
         return plan
 

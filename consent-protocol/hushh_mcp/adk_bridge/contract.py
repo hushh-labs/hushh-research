@@ -142,6 +142,7 @@ class A2ATask:
     expected_task_id: str | None = None
     specialist_target: Literal["consent", "connections"] | None = None
     execution_surface: Literal["typed_chat"] | None = None
+    previous_answer: str | None = None
 
 
 @dataclass(frozen=True)

@@ -24,6 +24,9 @@ from hushh_mcp.services.drive_document_store import (
 )
 from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
 from hushh_mcp.services.drive_sharing_contract import (
+    BROAD_TRUST_DISCLOSURE,
+    BROAD_TRUST_SCOPE,
+    LEGACY_TRUST_SCOPE,
     MAX_FILES,
     SHARING_ACTION,
     DriveSharingCipher,
@@ -338,11 +341,20 @@ class DriveSharingStore(DriveDocumentStore):
             self._active(connection, user_id, generation)
             self._selection_policy(connection, user_id, feature="drive_document_sharing")
 
-    def _store_live_observations(self, connection, *, user_id, generation, request_id, rows):
+    def _live_preparation_access(self, connection, *, user_id, generation, foreground=False):
+        # foreground is an in-process route authority, never a request-body flag
+        # or persisted worker capability. The service owns its live token fence.
+        preferences = DriveLivePreferences(db=self.db)
+        check = preferences.live_active if foreground else preferences.background_current
+        return check(connection, user_id=user_id, generation=generation)
+
+    def _store_live_observations(
+        self, connection, *, user_id, generation, request_id, rows, foreground=False
+    ):
         if not rows:
             return
-        DriveLivePreferences(db=self.db).background_current(
-            connection, user_id=user_id, generation=generation
+        self._live_preparation_access(
+            connection, user_id=user_id, generation=generation, foreground=foreground
         )
         if len(rows) > MAX_FILES or len({row.get("document_id") for row in rows}) != len(rows):
             raise DriveSharingError("invalid_selection")
@@ -402,6 +414,27 @@ class DriveSharingStore(DriveDocumentStore):
             resource_binding=terms,
         )
 
+    def _rule_covers_boundary(self, boundary, *, request, sources):
+        scope = boundary.get("scope", LEGACY_TRUST_SCOPE)
+        if scope == BROAD_TRUST_SCOPE:
+            return boundary.get("disclosureVersion") == BROAD_TRUST_DISCLOSURE
+        if scope != LEGACY_TRUST_SCOPE:
+            return False
+        try:
+            return boundary.get("purpose_digest") == self.sharing_cipher.digest(
+                "rule-purpose", self._open_request(request)["purpose"]
+            ) and sorted(
+                (item["file_id"], item["content_fingerprint"]) for item in boundary["files"]
+            ) == sorted(
+                (
+                    self._source_metadata(item)["file_id"],
+                    self._source_metadata(item)["content_fingerprint"],
+                )
+                for item in sources
+            )
+        except (KeyError, TypeError):
+            return False
+
     def _matching_rule(self, connection, *, request, sources, coverage, generation):
         if (
             not sources
@@ -412,16 +445,6 @@ class DriveSharingStore(DriveDocumentStore):
             or coverage.get("semanticStage") != "completed"
         ):
             return None
-        purpose_digest = self.sharing_cipher.digest(
-            "rule-purpose", self._open_request(request)["purpose"]
-        )
-        observed = sorted(
-            (
-                self._source_metadata(item)["file_id"],
-                self._source_metadata(item)["content_fingerprint"],
-            )
-            for item in sources
-        )
         candidates = (
             connection.execute(
                 text("""SELECT * FROM drive_document_rules WHERE user_id=:user
@@ -447,13 +470,7 @@ class DriveSharingStore(DriveDocumentStore):
                 resource_id=str(candidate["rule_id"]),
                 purpose="document-rule",
             )
-            if (
-                boundary.get("purpose_digest") == purpose_digest
-                and sorted(
-                    (item["file_id"], item["content_fingerprint"]) for item in boundary["files"]
-                )
-                == observed
-            ):
+            if self._rule_covers_boundary(boundary, request=request, sources=sources):
                 return candidate
         return None
 
@@ -510,6 +527,7 @@ class DriveSharingStore(DriveDocumentStore):
         preparation_lease_id: str | None = None,
         read_sources: list[ReviewedSource | LiveReviewedSource] | None = None,
         live_sources: list[dict] | None = None,
+        foreground: bool = False,
     ) -> dict:
         """Called only after a tool-less suggestion pass; never shares automatically.
 
@@ -523,8 +541,8 @@ class DriveSharingStore(DriveDocumentStore):
         def operation(connection):
             self._participant_gate(connection, user_id, request_id)
             if live_sources:
-                DriveLivePreferences(db=self.db).background_current(
-                    connection, user_id=user_id, generation=generation
+                self._live_preparation_access(
+                    connection, user_id=user_id, generation=generation, foreground=foreground
                 )
             else:
                 self._active(connection, user_id, generation)
@@ -561,6 +579,7 @@ class DriveSharingStore(DriveDocumentStore):
                     generation=generation,
                     request_id=request_id,
                     rows=live_sources or [],
+                    foreground=foreground,
                 )
                 current_reads = self._sources(
                     connection,
@@ -719,10 +738,18 @@ class DriveSharingStore(DriveDocumentStore):
         document_ids: list[str],
         confirmed: bool,
         trust_future_requests: bool = False,
+        trust_scope: str | None = None,
+        trust_disclosure_version: str | None = None,
     ) -> dict:
         self._sharing_admission(user_id)
         if confirmed is not True:
             raise DriveSharingError("explicit_approval_required")
+        if (trust_scope is not None or trust_disclosure_version is not None) and (
+            not trust_future_requests
+            or trust_scope != BROAD_TRUST_SCOPE
+            or trust_disclosure_version != BROAD_TRUST_DISCLOSURE
+        ):
+            raise DriveSharingError("confirmation_required")
 
         def operation(connection):
             self._participant_gate(connection, user_id, request_id)
@@ -801,6 +828,8 @@ class DriveSharingStore(DriveDocumentStore):
             if trust_future_requests:
                 rule_id = str(uuid4())
                 boundary = {
+                    "scope": trust_scope or LEGACY_TRUST_SCOPE,
+                    "disclosureVersion": trust_disclosure_version,
                     "purpose_digest": self.sharing_cipher.digest(
                         "rule-purpose", self._open_request(request)["purpose"]
                     ),
@@ -874,6 +903,19 @@ class DriveSharingStore(DriveDocumentStore):
 
         return cast(dict, await self._transaction(operation))
 
+    def _rule_readiness(self, connection, user_id, generation):
+        preferences = DriveLivePreferences(db=self.db)
+        try:
+            preferences.live_active(connection, user_id=user_id, generation=generation)
+            preferences.background_current(connection, user_id=user_id, generation=generation)
+            return "ready"
+        except DriveReadError as error:
+            return (
+                "background_off"
+                if str(error) == "background_preparation_required"
+                else "reconnect_required"
+            )
+
     async def list_rules(self, *, user_id: str) -> dict:
         def operation(connection):
             rows = (
@@ -903,7 +945,10 @@ class DriveSharingStore(DriveDocumentStore):
                         "recipientEmail": boundary["recipient_email"],
                         "purpose": boundary["purpose"],
                         "fileNames": [item["name"] for item in boundary["files"]],
-                        "scope": "exact_files_same_request_purpose",
+                        "scope": boundary.get("scope", LEGACY_TRUST_SCOPE),
+                        "readiness": self._rule_readiness(
+                            connection, user_id, row["connection_generation"]
+                        ),
                         "status": "Trusted for documents",
                     }
                 )

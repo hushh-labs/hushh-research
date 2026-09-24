@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -85,26 +86,32 @@ def _http_status_from_error(error: BaseException, *, _seen: set[int] | None = No
     return None
 
 
-def _normalize_and_cap(result: Any) -> ExternalMcpToolResult:
+def _normalize_and_cap(
+    result: Any, *, project: Callable[[dict[str, Any]], dict[str, Any]] | None = None
+) -> ExternalMcpToolResult:
     is_error = bool(getattr(result, "isError", False) or getattr(result, "is_error", False))
-    texts: list[str] = []
-    for item in getattr(result, "content", None) or []:
-        text = getattr(item, "text", None)
-        if isinstance(text, str):
-            texts.append(text)
     structured = getattr(result, "structuredContent", None)
     if isinstance(structured, dict):
-        # MCP structured output is authoritative when supplied. Do not discard
-        # it when a provider omits the compatibility TextContent block.
+        # MCP's structured result is authoritative; content text is its
+        # compatibility mirror and can be absent or much larger.
         payload = structured
-    elif len(texts) == 1:
-        try:
-            parsed = json.loads(texts[0])
-        except json.JSONDecodeError:
-            parsed = {"text": texts[0]}
-        payload = parsed if isinstance(parsed, dict) else {"value": parsed}
     else:
-        payload = {"content": texts}
+        texts: list[str] = []
+        for item in getattr(result, "content", None) or []:
+            text = getattr(item, "text", None)
+            if isinstance(text, str):
+                texts.append(text)
+        if len(texts) == 1:
+            try:
+                parsed = json.loads(texts[0])
+            except json.JSONDecodeError:
+                parsed = {"text": texts[0]}
+            payload = parsed if isinstance(parsed, dict) else {"value": parsed}
+        else:
+            payload = {"content": texts}
+
+    if project is not None and not is_error:
+        payload = project(payload)
 
     serialized = json.dumps(payload)
     if len(serialized.encode("utf-8")) <= _MAX_RESULT_BYTES:
@@ -166,6 +173,7 @@ async def call_tool(
     endpoint: str,
     headers: dict[str, str] | None = None,
     timeout_seconds: float | None = None,
+    project: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
 ) -> ExternalMcpToolResult:
     """Invoke one tool on an external connector's MCP server. Raw result,
     size-capped and lightly normalized -- no CRM-shaped response-contract
@@ -184,7 +192,7 @@ async def call_tool(
             async with ClientSession(read_stream, write_stream) as session:
                 await session.initialize()
                 result = await session.call_tool(name, arguments)
-        return _normalize_and_cap(result)
+        return _normalize_and_cap(result, project=project)
 
     try:
         return await asyncio.wait_for(_run(), timeout=timeout_seconds or _DEFAULT_TIMEOUT_SECONDS)

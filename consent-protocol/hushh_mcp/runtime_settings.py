@@ -106,6 +106,7 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "one_location_read_only_state_enabled": "ONE_LOCATION_READ_ONLY_STATE_ENABLED",
     "connections_panel_v2": "CONNECTIONS_PANEL_V2",
     "google_drive_connection": "GOOGLE_DRIVE_CONNECTION",
+    "google_drive_live": "GOOGLE_DRIVE_LIVE",
     "google_drive_picker": "GOOGLE_DRIVE_PICKER",
     "drive_document_indexing": "DRIVE_DOCUMENT_INDEXING",
     "drive_document_sharing": "DRIVE_DOCUMENT_SHARING",

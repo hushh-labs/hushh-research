@@ -5,7 +5,6 @@ from uuid import UUID, uuid4
 from sqlalchemy import text
 
 from hushh_mcp.services.drive_document_store import PROCESSING_DISCLOSURE_VERSION
-from hushh_mcp.services.drive_live_preferences import DriveLivePreferences
 from hushh_mcp.services.drive_sharing_contract import DriveSharingError
 from hushh_mcp.services.drive_sharing_projection_store import DriveSharingProjectionStore
 from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH
@@ -37,7 +36,7 @@ class DriveSuggestionStore(DriveSharingProjectionStore):
 
         return await self._transaction(operation)
 
-    async def claim_preparation(self, *, user_id, request_id):
+    async def claim_preparation(self, *, user_id, request_id, foreground=False):
         self._sharing_admission(user_id)
         request_id = str(UUID(request_id))
 
@@ -47,8 +46,8 @@ class DriveSuggestionStore(DriveSharingProjectionStore):
             generation = current["connection_generation"]
             live = current["verified_policy_hash"] == LIVE_POLICY_HASH
             if live:
-                DriveLivePreferences(db=self.db).background_current(
-                    connection, user_id=user_id, generation=generation
+                self._live_preparation_access(
+                    connection, user_id=user_id, generation=generation, foreground=foreground
                 )
             else:
                 self._active(connection, user_id, generation)
@@ -93,6 +92,7 @@ class DriveSuggestionStore(DriveSharingProjectionStore):
                 "lease_id": lease,
                 "purpose": self._open_request(row)["purpose"],
                 "live": live,
+                "foreground": foreground,
             }
 
         return await self._transaction(operation)
@@ -100,8 +100,11 @@ class DriveSuggestionStore(DriveSharingProjectionStore):
     def _preparation_current(self, connection, job):
         self._participant_gate(connection, job["user_id"], job["request_id"])
         if job.get("live"):
-            DriveLivePreferences(db=self.db).background_current(
-                connection, user_id=job["user_id"], generation=job["generation"]
+            self._live_preparation_access(
+                connection,
+                user_id=job["user_id"],
+                generation=job["generation"],
+                foreground=job.get("foreground", False),
             )
         else:
             self._active(connection, job["user_id"], job["generation"])

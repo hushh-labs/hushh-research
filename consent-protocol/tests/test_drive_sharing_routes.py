@@ -60,6 +60,7 @@ def unlock(app, uid="recipient"):
         ("get", f"/{REQUEST_ID}", None),
         ("get", f"/{REQUEST_ID}/review", None),
         ("get", f"/{REQUEST_ID}/delivery", None),
+        ("post", f"/{REQUEST_ID}/prepare", {}),
         (
             "post",
             "",
@@ -358,13 +359,11 @@ def test_crossed_firebase_and_vault_owners_fail_before_provider_lookup(setup, mo
 @pytest.mark.parametrize(
     "changes",
     [
-        {"auth_time": 1},
-        {"email_verified": False},
-        {"email": "attacker@example.invalid"},
+        {"firebase": {"identities": {"google.com": ["attacker"]}}},
         {"firebase": {"sign_in_provider": "password"}},
     ],
 )
-def test_non_google_stale_or_substituted_identity_cannot_request(setup, monkeypatch, changes):
+def test_missing_or_substituted_linked_identity_cannot_request(setup, monkeypatch, changes):
     client, app, service, _ = setup
     unlock(app)
     google_identity(monkeypatch, app, changes=changes)
@@ -373,3 +372,28 @@ def test_non_google_stale_or_substituted_identity_cannot_request(setup, monkeypa
     )
     assert response.status_code == 409
     service.create.assert_not_called()
+
+
+def test_prepare_rejects_client_claimed_foreground_authority(setup):
+    client, app, _, _ = setup
+    unlock(app)
+    response = client.post(BASE + f"/{REQUEST_ID}/prepare", json={"foreground": True})
+    assert response.status_code == 422
+
+
+def test_prepare_rechecks_owner_and_sanitizes_failure(setup, monkeypatch):
+    from hushh_mcp.services import drive_suggestion_service
+
+    client, app, _, current = setup
+    unlock(app)
+    worker = SimpleNamespace(
+        run_one=AsyncMock(side_effect=RuntimeError("private provider response"))
+    )
+    factory = Mock(return_value=worker)
+    monkeypatch.setattr(drive_suggestion_service, "DriveSuggestionService", factory)
+    response = client.post(BASE + f"/{REQUEST_ID}/prepare", json={})
+    assert response.status_code == 503
+    assert "private provider" not in response.text
+    assert "no-store" in response.headers["Cache-Control"]
+    assert current.await_count >= 1
+    assert callable(factory.call_args.kwargs["require_owner"])

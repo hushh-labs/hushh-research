@@ -342,3 +342,22 @@ def test_permission_path_hides_both_provider_identifiers(as_url):
     rendered = repr(redact_log_value(httpx.URL(url) if as_url else url))
     assert "private-file" not in rendered
     assert "private-grantee" not in rendered
+
+
+async def test_live_sheet_is_shareable_without_selected_parser_support():
+    adapter = acl.GoogleDrivePermissionAdapter()
+    adapter._exchange = AsyncMock(
+        return_value={
+            "id": "synthetic-file",
+            "version": "1",
+            "trashed": False,
+            "mimeType": "application/vnd.google-apps.spreadsheet",
+            "capabilities": {"canShare": True, "canDownload": True},
+        }
+    )
+    await adapter.inspect_shareable(
+        **arguments(),
+        expected_version="1",
+        require_app_authorized=False,
+        require_genai_eligibility=False,
+    )

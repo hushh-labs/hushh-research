@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
 from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
@@ -24,6 +25,42 @@ from hushh_mcp.services.google_drive_mcp_service import GoogleDriveMcpService
 MAX_SEARCH_RESULTS = 25
 MAX_READS = 8
 MAX_CONTEXT_BYTES = 16 * 1024
+SEARCH_PAGE_SIZE = 8
+MAX_SEARCH_PAGES = 6
+
+
+def _open_url(file_id: str, value: object) -> str:
+    """Use Google's view URL only when it names this exact file on Drive/Docs."""
+    fallback = f"https://drive.google.com/open?id={file_id}"
+    if not isinstance(value, str) or not 1 <= len(value) <= 2048:
+        return fallback
+    try:
+        parsed = urlsplit(value)
+        invalid = (
+            parsed.scheme != "https"
+            or parsed.username
+            or parsed.password
+            or parsed.port
+            or parsed.fragment
+        )
+    except ValueError:
+        return fallback
+    if invalid:
+        return fallback
+    path = parsed.path
+    if parsed.hostname == "drive.google.com":
+        if path == "/open" and parse_qs(parsed.query).get("id") == [file_id]:
+            return value
+        if re.fullmatch(rf"/file/d/{re.escape(file_id)}/(?:view|preview)", path):
+            return value
+        if re.fullmatch(rf"/drive(?:/u/\d+)?/folders/{re.escape(file_id)}", path):
+            return value
+    if parsed.hostname == "docs.google.com" and re.fullmatch(
+        rf"/(?:document|spreadsheets|presentation|forms|drawings)/d/{re.escape(file_id)}/(?:edit|view|preview)",
+        path,
+    ):
+        return value
+    return fallback
 
 
 class DriveLiveReader:
@@ -81,7 +118,8 @@ class DriveLiveReader:
                     return value[key]
         raise DriveReadError("unsupported_format")
 
-    async def search(self, *, query: list[str]) -> dict:
+    @staticmethod
+    def _validate_query(query: list[str]) -> list[str]:
         if (
             not isinstance(query, list)
             or not 1 <= len(query) <= 3
@@ -91,10 +129,102 @@ class DriveLiveReader:
             )
         ):
             raise DriveReadError("narrow_selection_required")
+        return list(dict.fromkeys(item.strip() for item in query))
+
+    async def find(self, *, query: list[str]) -> dict:
+        """Search bounded file metadata; no content read, selection, or index."""
+        terms = self._validate_query(query)
+        await self._credential()
+        matches: list[dict] = []
+        seen: set[str] = set()
+        truncated = False
+        pages = 0
+        for term in terms:
+            page_token = None
+            while pages < MAX_SEARCH_PAGES and len(matches) < MAX_SEARCH_RESULTS:
+                await self.require_access()
+                arguments = {
+                    "query": f"(title contains '{term}' or fullText contains '{term}')",
+                    "pageSize": SEARCH_PAGE_SIZE,
+                    "excludeContentSnippets": True,
+                }
+                if page_token:
+                    arguments["pageToken"] = page_token
+                result = await self.mcp.read_tool(
+                    user_id=self.user_id, tool_name="search_files", arguments=arguments
+                )
+                if (
+                    result.is_error
+                    or result.truncated
+                    or not isinstance(result.payload.get("files"), list)
+                    or result.payload.get("overLimit") is True
+                ):
+                    raise DriveReadError("provider_response_invalid")
+                candidates = result.payload["files"]
+                if len(candidates) > SEARCH_PAGE_SIZE:
+                    raise DriveReadError("provider_response_invalid")
+                for candidate in candidates:
+                    if len(matches) >= MAX_SEARCH_RESULTS:
+                        truncated = True
+                        break
+                    if not isinstance(candidate, dict):
+                        truncated = True
+                        continue
+                    file_id = candidate.get("id")
+                    title = candidate.get("title")
+                    mime = candidate.get("mimeType")
+                    modified = candidate.get("modifiedTime")
+                    if (
+                        not isinstance(file_id, str)
+                        or not FILE_ID.fullmatch(file_id)
+                        or not isinstance(title, str)
+                        or not 1 <= len(title) <= 1024
+                        or mime is not None
+                        and (not isinstance(mime, str) or len(mime) > 200)
+                        or modified is not None
+                        and (not isinstance(modified, str) or len(modified) > 64)
+                    ):
+                        truncated = True
+                        continue
+                    if file_id not in seen:
+                        seen.add(file_id)
+                        matches.append(
+                            {
+                                "file_id": file_id,
+                                "name": title,
+                                "mime_type": mime or "",
+                                "modified_time": modified,
+                                "source_ref": "document:"
+                                + hashlib.sha256(str(uuid4()).encode()).hexdigest()[:32],
+                                "open_url": _open_url(file_id, candidate.get("viewUrl")),
+                            }
+                        )
+                pages += 1
+                next_token = result.payload.get("nextPageToken")
+                if next_token is not None and (
+                    not isinstance(next_token, str) or len(next_token) > 1024
+                ):
+                    raise DriveReadError("provider_response_invalid")
+                if not next_token:
+                    page_token = None
+                    break
+                if next_token == page_token:
+                    raise DriveReadError("provider_response_invalid")
+                page_token = next_token
+            if page_token:
+                truncated = True
+            if pages >= MAX_SEARCH_PAGES or len(matches) >= MAX_SEARCH_RESULTS:
+                truncated = True
+                break
+        await self.require_current()
+        return {"matches": matches, "truncated": truncated}
+
+    async def search(self, *, query: list[str]) -> dict:
+        terms = self._validate_query(query)
         credential = await self._credential()
         files = []
         truncated = False
-        for term in dict.fromkeys(item.strip() for item in query):
+        for term in terms:
             drive_query = f"(title contains '{term}' or fullText contains '{term}')"
             result = await self.mcp.read_tool(
                 user_id=self.user_id,
@@ -126,9 +256,37 @@ class DriveLiveReader:
                 seen.add(file_id)
                 unique_files.append(file_id)
         truncated = truncated or len(unique_files) > MAX_READS
+        return await self._read_file_ids(
+            file_ids=unique_files[:MAX_READS], credential=credential, truncated=truncated
+        )
+
+    async def read_matches(self, *, matches: list[dict], truncated: bool = False) -> dict:
+        """Read only the already-found, supported files for an explicit read request."""
+        if not isinstance(matches, list) or len(matches) > MAX_SEARCH_RESULTS:
+            raise DriveReadError("narrow_selection_required")
+        credential = await self._credential()
+        chosen = matches[:MAX_READS]
+        expected = {item["file_id"]: item["name"] for item in chosen}
+        return await self._read_file_ids(
+            file_ids=list(expected),
+            credential=credential,
+            truncated=truncated or len(matches) > MAX_READS,
+            expected_names=expected,
+        )
+
+    async def _read_file_ids(
+        self,
+        *,
+        file_ids: list[str],
+        credential: dict,
+        truncated: bool,
+        expected_names: dict[str, str] | None = None,
+    ) -> dict:
         content: list[dict] = []
         self._rows = []
-        for file_id in unique_files[:MAX_READS]:
+        for file_id in file_ids:
+            if not isinstance(file_id, str) or not FILE_ID.fullmatch(file_id):
+                raise DriveReadError("provider_response_invalid")
             await self.require_access()
             try:
                 metadata = await self.adapter.get_metadata(
@@ -137,6 +295,8 @@ class DriveLiveReader:
                     require_app_authorized=False,
                     require_genai_eligibility=False,
                 )
+                if expected_names is not None and metadata.name != expected_names[file_id]:
+                    raise DriveReadError("source_changed")
                 read = await self.mcp.read_tool(
                     user_id=self.user_id,
                     tool_name="read_file_content",
@@ -162,7 +322,7 @@ class DriveLiveReader:
                 "source_ref": "document:" + hashlib.sha256(document_id.encode()).hexdigest()[:32],
                 "document_ref": document_id,
                 "name": metadata.name,
-                "page": 1,
+                "page": None,
                 "text": body[:4000],
                 "source_version": metadata.version,
             }

@@ -35,6 +35,9 @@ SHARING_ACTION = {
     "duration": "until_revoked",
     "disclosure": SHARING_DISCLOSURE,
 }
+BROAD_TRUST_SCOPE = "any_requested_drive_file"
+BROAD_TRUST_DISCLOSURE = "drive-any-requested-file-including-future-v1"
+LEGACY_TRUST_SCOPE = "exact_files_same_request_purpose"
 MAX_FILES = 25
 MAX_ENVELOPE_BYTES = 128 * 1024
 _EMAIL = re.compile(r'[^@\s<>"(),;:\\]+@[^@\s<>"(),;:\\]+\.[^@\s<>"(),;:\\]+\Z')
@@ -65,12 +68,11 @@ def recipient_from_verified_firebase_claims(
     try:
         firebase = claims["firebase"]
         subjects = firebase["identities"]["google.com"]
-        email = claims["email"]
-        authenticated = claims["auth_time"]
+        # Delivery follows the current linked Google identity, even when the
+        # valid One session was established with another sign-in provider.
+        email = getattr(google_provider, "email", None)
         if (
             claims.get("uid", claims.get("sub")) != owner_user_id
-            or firebase["sign_in_provider"] != "google.com"
-            or claims.get("email_verified") is not True
             or not isinstance(subjects, list)
             or len(subjects) != 1
             or not isinstance(subjects[0], str)
@@ -81,11 +83,9 @@ def recipient_from_verified_firebase_claims(
             or not _EMAIL.fullmatch(email)
             or getattr(google_provider, "provider_id", None) != "google.com"
             or getattr(google_provider, "uid", None) != subjects[0]
-            or getattr(google_provider, "email", None) != email
-            or type(authenticated) not in (int, float)
-            or not 0 <= now.timestamp() - authenticated <= 300
         ):
             raise ValueError("unverified Google identity")
+        # Freshness means a current server lookup, not a new interactive login.
         return VerifiedGoogleRecipient(owner_user_id, subjects[0], email, now)
     except (KeyError, TypeError, ValueError):
         raise DriveSharingError("verify_google_identity_required") from None

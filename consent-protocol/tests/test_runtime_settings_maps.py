@@ -88,3 +88,18 @@ def test_external_crm_gateway_credentials_are_isolated_from_shared_gateway(monke
         ("client_secret", "external-secret"),
     )
     assert runtime_settings.get_omnigateway_transport_headers("unknown") == ()
+
+
+def test_every_connector_feature_is_hydrated_from_structured_config(monkeypatch):
+    from hushh_mcp.services.connector_feature_admission import FEATURES, connector_features
+
+    for name in FEATURES.values():
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("ENVIRONMENT", "uat")
+    monkeypatch.setenv("CONNECTOR_UAT_ALL_USERS", "true")
+    monkeypatch.setenv("CONNECTOR_INTERNAL_OWNER_COHORT", "")
+    monkeypatch.setenv(
+        "BACKEND_RUNTIME_CONFIG_JSON", json.dumps({name: "true" for name in FEATURES})
+    )
+    runtime_settings.hydrate_runtime_environment()
+    assert connector_features("signed-in-user") == dict.fromkeys(FEATURES, True)

@@ -91,6 +91,32 @@
     {
       "a2a_surface": false,
       "declared": {
+        "confirmation_owner": "hub",
+        "executes_in_pod": false,
+        "information_source": "hub",
+        "why": "Drive OAuth and official MCP reads run through hub services; the pod has no Documents owner adapter or provider credentials.",
+        "write_scope": "none"
+      },
+      "derived": {
+        "a2a_scope": null,
+        "door": null,
+        "door_required_scope": null,
+        "hub_doors": [],
+        "one_tool_names": [
+          "ask_documents_agent"
+        ],
+        "pod_dispatchable": false,
+        "registered_specialist": true
+      },
+      "id": "agent_documents",
+      "manifest_path": "consent-protocol/hushh_mcp/agents/documents/agent.yaml",
+      "parent": "agent_one",
+      "required_scopes": [],
+      "status": "experimental"
+    },
+    {
+      "a2a_surface": false,
+      "declared": {
         "confirmation_owner": "none",
         "executes_in_pod": true,
         "information_source": "hub_door",
@@ -378,7 +404,8 @@
       "manifest_path": "consent-protocol/hushh_mcp/agents/one/agent.yaml",
       "parent": null,
       "required_scopes": [
-        "cap.one.invoke"
+        "cap.one.invoke",
+        "vault.owner"
       ],
       "status": "active"
     },
@@ -552,6 +579,7 @@
     "registered_specialists": [
       "agent_connected_systems",
       "agent_connections",
+      "agent_documents",
       "agent_email",
       "agent_location",
       "agent_nav",

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import time
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import httpx
 import jwt
@@ -220,3 +221,30 @@ def test_live_consent_accepts_drive_with_optional_prior_selected_scope(service, 
         profile="live",
     )
     assert oauth.LIVE_DRIVE_SCOPE in credential["grantedScopes"]
+
+
+@pytest.mark.asyncio
+async def test_live_verification_requires_mcp_search_before_marking_connected(service, monkeypatch):
+    from hushh_mcp.services import google_drive_mcp_service as mcp
+
+    monkeypatch.setattr(oauth, "connector_feature_enabled", lambda *_: True)
+    service.current_credential = AsyncMock(
+        return_value=(
+            {"connection_generation": 7, "credential_version": 3},
+            {"accessToken": "synthetic"},
+        )
+    )
+    account = AsyncMock()
+    probe = AsyncMock(side_effect=oauth.DriveOAuthError("connector_unavailable", status_code=502))
+    monkeypatch.setattr(oauth.GoogleDriveAdapter, "account", account)
+    monkeypatch.setattr(mcp.GoogleDriveMcpService, "probe_live_search", probe)
+    service.lifecycle.mark_verified = AsyncMock()
+    with pytest.raises(oauth.DriveOAuthError, match="connector_unavailable"):
+        await service.verify_live(user_id="owner")
+    account.assert_awaited_once()
+    probe.assert_awaited_once()
+    service.lifecycle.mark_verified.assert_not_awaited()
+    probe.side_effect = None
+    assert (
+        await service.verify_live(user_id="owner") is service.lifecycle.mark_verified.return_value
+    )

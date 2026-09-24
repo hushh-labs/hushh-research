@@ -129,3 +129,50 @@ def test_rule_matches_only_complete_exact_repeat(monkeypatch):
         )
         is None
     )
+
+
+def test_broad_rule_requires_exact_disclosure_and_allows_new_requested_files(monkeypatch):
+    from hushh_mcp.services.drive_sharing_contract import BROAD_TRUST_DISCLOSURE, BROAD_TRUST_SCOPE
+
+    monkeypatch.setenv("DRIVE_SHARING_KEY_V1", base64.b64encode(b"x" * 32).decode())
+    store = DriveSharingStore(db=SimpleNamespace())
+    request = {"user_id": "a", "recipient_user_id": "b", "recipient_binding": "a" * 64}
+    store._open_request = lambda _: {"purpose": {"purpose": "A newly requested file"}}
+    source = {"_live": True, "file_id": "new-file", "content_fingerprint": "b" * 64}
+    rule_id = str(uuid4())
+    coverage = {
+        "coverage_status": "complete",
+        "gaps": [],
+        "truncated": False,
+        "semanticStage": "completed",
+    }
+    for disclosure, expected in [(BROAD_TRUST_DISCLOSURE, True), (None, False), ("unknown", False)]:
+        boundary = {"scope": BROAD_TRUST_SCOPE, "disclosureVersion": disclosure}
+        row = {
+            "rule_id": rule_id,
+            "boundary_envelope": store.sharing_cipher.seal(
+                boundary, user_id="a", resource_id=rule_id, purpose="document-rule"
+            ),
+        }
+        assert (
+            bool(
+                store._matching_rule(
+                    Connection([row]),
+                    request=request,
+                    sources=[source],
+                    coverage=coverage,
+                    generation=7,
+                )
+            )
+            is expected
+        )
+        assert (
+            store._matching_rule(
+                Connection([row]),
+                request=request,
+                sources=[source],
+                coverage={**coverage, "gaps": ["uncertain match"]},
+                generation=7,
+            )
+            is None
+        )

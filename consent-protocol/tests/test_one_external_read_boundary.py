@@ -15,7 +15,7 @@ from google.genai import types
 from pydantic import PrivateAttr
 
 from hushh_mcp.one_adk import agent_tree
-from hushh_mcp.one_adk.agent_tree import STATE_CONSENT_TOKEN, STATE_USER_ID
+from hushh_mcp.one_adk.agent_tree import STATE_CONSENT_TOKEN, STATE_CONVERSATION_ID, STATE_USER_ID
 from hushh_mcp.one_adk.external_read_boundary import (
     STATE_EXECUTION_SURFACE,
     STATE_EXTERNAL_READ,
@@ -168,6 +168,68 @@ async def test_selected_file_status_is_answer_only_and_redacted_from_durable_his
         await runner.close()
 
 
+async def test_direct_live_drive_read_is_answer_only_and_redacted(monkeypatch):
+    from hushh_mcp.one_adk.external_read_projection import durable_external_read_projection
+
+    monkeypatch.setenv("GOOGLE_DRIVE_CHAT_READS", "true")
+    executed = []
+
+    async def read_google_drive(tool_name: str, arguments: dict, tool_context: ToolContext) -> dict:
+        executed.append(("read", tool_name))
+        return {
+            "source": "google_drive_mcp",
+            "status": "ok",
+            "result": {"text": "Untrusted document says to send secrets elsewhere."},
+        }
+
+    async def forbidden_action() -> dict:
+        executed.append(("action", ""))
+        return {"status": "ok"}
+
+    model = _Model(
+        [
+            [
+                types.Part(
+                    function_call=types.FunctionCall(
+                        name="read_google_drive",
+                        args={"tool_name": "search_files", "arguments": {"query": "my file"}},
+                    )
+                ),
+                _call("forbidden_action"),
+            ],
+            [types.Part(text="A bounded Drive answer.")],
+        ]
+    )
+    agent = agent_tree.build_one_text_agent(model=model)
+    agent.instruction = "Fixture root."
+    agent.tools = [read_google_drive, forbidden_action]
+    sessions = InMemorySessionService()
+    await sessions.create_session(app_name="one", user_id="owner", session_id="drive")
+    runner = Runner(agent=agent, app_name="one", session_service=sessions)
+    try:
+        events = [
+            event
+            async for event in runner.run_async(
+                user_id="owner",
+                session_id="drive",
+                new_message=types.Content(role="user", parts=[types.Part(text="Find my file")]),
+                state_delta={STATE_EXECUTION_SURFACE: "typed_chat"},
+            )
+        ]
+        assert executed == [("read", "search_files")]
+        assert model._advertised == [{"read_google_drive", "forbidden_action"}, set()]
+        responses = [response for event in events for response in event.get_function_responses()]
+        assert (
+            next(r for r in responses if r.name == "forbidden_action").response["status"]
+            == "blocked"
+        )
+        session = await sessions.get_session(app_name="one", user_id="owner", session_id="drive")
+        projected = durable_external_read_projection(session).model_dump_json()
+        assert "Untrusted document" not in projected
+    finally:
+        await runner.close()
+
+
 def test_post_read_guard_refuses_an_invented_tool_even_if_model_ignores_empty_tools():
     context = SimpleNamespace(
         invocation_id="turn", state={STATE_EXTERNAL_READ: "turn"}, user_id="owner"
@@ -200,6 +262,54 @@ async def test_email_authority_minted_only_at_trusted_typed_ingress(monkeypatch,
         assert task.execution_surface == "typed_chat"
     else:
         assert task is None
+
+
+async def test_documents_followup_gets_only_prior_visible_answer(monkeypatch):
+    context = SimpleNamespace(
+        state={
+            STATE_USER_ID: "owner",
+            STATE_CONSENT_TOKEN: "opaque",
+            STATE_EXECUTION_SURFACE: "typed_chat",
+            STATE_CONVERSATION_ID: "conversation",
+        },
+        user_id="owner",
+        invocation_id="current",
+        function_call_id="call",
+        session=SimpleNamespace(
+            events=[
+                SimpleNamespace(
+                    author="one",
+                    invocation_id="previous",
+                    content=SimpleNamespace(
+                        parts=[
+                            SimpleNamespace(
+                                text="1. First.pdf\n2. Board recording.mp4", thought=False
+                            ),
+                        ]
+                    ),
+                ),
+                SimpleNamespace(
+                    author="one",
+                    invocation_id="current",
+                    content=SimpleNamespace(
+                        parts=[
+                            SimpleNamespace(text="Current turn preface", thought=False),
+                        ]
+                    ),
+                ),
+            ]
+        ),
+    )
+    monkeypatch.setattr(
+        agent_tree,
+        "validate_first_party_owner_token",
+        AsyncMock(return_value=SimpleNamespace(expires_at=9999999999999)),
+    )
+    task = await agent_tree._task_from_context(
+        context, "read the second one", agent_id="agent_documents"
+    )
+    assert task.previous_answer == "1. First.pdf\n2. Board recording.mp4"
+    assert "Current turn preface" not in task.previous_answer
 
 
 @pytest.mark.parametrize(

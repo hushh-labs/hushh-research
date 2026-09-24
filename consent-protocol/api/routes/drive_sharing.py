@@ -147,6 +147,8 @@ class ApprovalRequest(DecisionRequest):
     documentIds: list[UUID] = Field(min_length=1, max_length=25)
     confirmed: StrictBool
     trustFutureRequests: StrictBool = False
+    trustScope: str | None = Field(default=None, max_length=80)
+    trustDisclosureVersion: str | None = Field(default=None, max_length=80)
 
 
 class RuleRevocationRequest(StrictRequest):
@@ -279,6 +281,24 @@ async def delivery(request_id: UUID, owner: Owner = Depends(_owner)):
     return await _call("delivery", owner=owner, request_id=str(request_id))
 
 
+@router.post("/requests/{request_id}/prepare")
+async def prepare_request(request_id: UUID, body: StrictRequest, owner: Owner = Depends(_owner)):
+    from hushh_mcp.services.drive_suggestion_service import DriveSuggestionService
+
+    try:
+        await owner.require_current()
+        result = await DriveSuggestionService(require_owner=owner.require_current).run_one(
+            user_id=owner.user_id, request_id=str(request_id)
+        )
+        await owner.require_current()
+        return {"status": result}
+    except HTTPException as error:
+        error.headers = {**(error.headers or {}), **NO_STORE}
+        raise
+    except Exception as error:
+        raise _error(error) from None
+
+
 @router.post("/requests/{request_id}/approve", status_code=202)
 async def approve(request_id: UUID, body: ApprovalRequest, owner: Owner = Depends(_owner)):
     return await _call(
@@ -290,6 +310,14 @@ async def approve(request_id: UUID, body: ApprovalRequest, owner: Owner = Depend
         document_ids=[str(value) for value in body.documentIds],
         confirmed=body.confirmed,
         trust_future_requests=body.trustFutureRequests,
+        **(
+            {
+                "trust_scope": body.trustScope,
+                "trust_disclosure_version": body.trustDisclosureVersion,
+            }
+            if body.trustScope is not None or body.trustDisclosureVersion is not None
+            else {}
+        ),
     )
 
 

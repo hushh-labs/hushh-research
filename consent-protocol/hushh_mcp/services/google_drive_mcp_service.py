@@ -15,7 +15,13 @@ from typing import Any
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.external_connector_google_oauth import DriveOAuthError
 from hushh_mcp.services.external_connector_oauth_service import get_external_connector_oauth_service
-from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult, call_tool, list_tools
+from hushh_mcp.services.external_mcp_client import (
+    ExternalMcpAuthError,
+    ExternalMcpError,
+    ExternalMcpToolResult,
+    call_tool,
+    list_tools,
+)
 from hushh_mcp.services.google_drive_adapter import LIVE_POLICY_HASH
 from hushh_mcp.services.mcp_capability_policy import (
     admit_catalog,
@@ -37,6 +43,24 @@ GOOGLE_DRIVE_READ_TOOLS = frozenset(
     }
 )
 _CATALOG_TTL_SECONDS = 300
+_SEARCH_FIELDS = frozenset({"id", "title", "mimeType", "modifiedTime", "viewUrl"})
+
+
+def _search_metadata(payload: dict[str, Any]) -> dict[str, Any]:
+    """Drop snippets/descriptions before the shared MCP response-size cap."""
+    files = payload.get("files")
+    if not isinstance(files, list):
+        return payload
+    return {
+        "files": [
+            {key: value for key, value in item.items() if key in _SEARCH_FIELDS}
+            if isinstance(item, dict)
+            else item
+            for item in files[:26]
+        ],
+        "nextPageToken": payload.get("nextPageToken"),
+        "overLimit": len(files) > 25,
+    }
 
 
 class GoogleDriveMcpService:
@@ -78,6 +102,38 @@ class GoogleDriveMcpService:
             raise DriveOAuthError("connection_changed", status_code=409)
         return result
 
+    async def probe_live_search(self, *, access_token: str) -> None:
+        """Prove the granted owner can execute MCP search before verification."""
+        try:
+            catalog = await self.discover_read_tools(access_token=access_token)
+            capabilities = {item["name"]: item for item in catalog}
+            if not {"search_files", "read_file_content"} <= capabilities.keys():
+                raise DriveOAuthError("connector_unavailable", status_code=502)
+            arguments = {
+                "query": "owner = 'me'",
+                "pageSize": 1,
+                "excludeContentSnippets": True,
+            }
+            if not arguments_valid(capabilities["search_files"], arguments):
+                raise DriveOAuthError("connector_unavailable", status_code=502)
+            outcome = await call_tool(
+                "search_files",
+                arguments,
+                endpoint=GOOGLE_DRIVE_MCP_ENDPOINT,
+                headers={"Authorization": f"Bearer {access_token}"},
+                project=_search_metadata,
+            )
+        except ExternalMcpAuthError:
+            raise DriveOAuthError("reconnect_required", status_code=401) from None
+        except ExternalMcpError:
+            raise DriveOAuthError("connector_unavailable", status_code=502) from None
+        if (
+            outcome.is_error
+            or outcome.truncated
+            or not isinstance(outcome.payload.get("files"), list)
+        ):
+            raise DriveOAuthError("connector_unavailable", status_code=502)
+
     async def read_tool(
         self, *, user_id: str, tool_name: str, arguments: dict[str, Any]
     ) -> ExternalMcpToolResult:
@@ -115,6 +171,7 @@ class GoogleDriveMcpService:
             arguments,
             endpoint=GOOGLE_DRIVE_MCP_ENDPOINT,
             headers={"Authorization": f"Bearer {credential['accessToken']}"},
+            **({"project": _search_metadata} if tool_name == "search_files" else {}),
         )
         current = await self._oauth.lifecycle.read(user_id=user_id, connector_id="google_drive")
         if (

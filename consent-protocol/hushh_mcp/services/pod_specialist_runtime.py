@@ -296,6 +296,16 @@ POD_SPECIALIST_EXECUTION: dict[str, dict[str, Any]] = {
         confirmation_owner="hub",
         why="First-run guidance runs on the hub before a pod exists.",
     ),
+    "agent_documents": _declare(
+        executes_in_pod=False,
+        information_source="hub",
+        write_scope="none",
+        confirmation_owner="hub",
+        why=(
+            "Drive OAuth and official MCP reads run through hub services; the pod has no "
+            "Documents owner adapter or provider credentials."
+        ),
+    ),
     "agent_financial_guard": _declare(
         executes_in_pod=False,
         information_source="hub",

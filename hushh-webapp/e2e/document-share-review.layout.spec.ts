@@ -160,7 +160,7 @@ for (const width of [320, 390, 768, 1440])
     await panel.getByLabel("What do you need?").fill(purpose);
     await panel.getByLabel("Start date").fill("2026-01-01");
     await expect(
-      panel.getByRole("button", { name: "Verify Google & send" }),
+      panel.getByRole("button", { name: "Send request" }),
     ).toBeDisabled();
     await panel.getByLabel("End date").fill("2026-06-30");
     expect(submissions).toHaveLength(0);
@@ -168,7 +168,7 @@ for (const width of [320, 390, 768, 1440])
       panel.getByLabel("What do you need?"),
       panel.getByLabel("Start date"),
       panel.getByLabel("End date"),
-      panel.getByRole("button", { name: "Verify Google & send" }),
+      panel.getByRole("button", { name: "Send request" }),
       panel.getByRole("button", { name: "Cancel" }),
     ]) {
       await control.scrollIntoViewIfNeeded();
@@ -180,7 +180,7 @@ for (const width of [320, 390, 768, 1440])
     expect(
       await panel.evaluate((node) => node.scrollWidth <= node.clientWidth + 1),
     ).toBe(true);
-    const submit = panel.getByRole("button", { name: "Verify Google & send" });
+    const submit = panel.getByRole("button", { name: "Send request" });
     await submit.focus();
     await page.keyboard.press("Enter");
     await expect(
