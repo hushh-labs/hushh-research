@@ -402,3 +402,28 @@ def test_suggestion_gene_is_private_tool_less_and_has_no_action_authority():
     assert agent.disallow_transfer_to_parent and agent.disallow_transfer_to_peers
     assert not gene.privacy.plaintext_telemetry
     assert manifest.authorities.actions == []
+
+
+def test_the_model_schema_leaves_nested_source_ref_bounds_to_validation():
+    """Vertex returned 400 INVALID_ARGUMENT for every file request while both
+    nested lists bounded their source_refs (measured on UAT 2026-09-25)."""
+    from hushh_mcp.services.drive_suggestion_service import DocumentSuggestions
+
+    definitions = DocumentSuggestions.model_json_schema()["$defs"]
+    for name in ("SuggestedFile", "CoveredPeriod"):
+        refs = definitions[name]["properties"]["source_refs"]
+        assert "maxItems" not in refs and "minItems" not in refs, name
+
+
+@pytest.mark.parametrize("count", [0, 9])
+def test_source_ref_bounds_still_hold_after_the_model_answers(count):
+    from pydantic import ValidationError
+
+    from hushh_mcp.services.drive_suggestion_service import CoveredPeriod, SuggestedFile
+
+    refs = [f"document:{index:032d}" for index in range(count)]
+    with pytest.raises(ValidationError):
+        SuggestedFile(document_ref="1" * 36, source_refs=refs)
+    with pytest.raises(ValidationError):
+        CoveredPeriod(period_start="2026-04-01", period_end="2026-04-30", source_refs=refs)
+    assert SuggestedFile(document_ref="1" * 36, source_refs=["document:" + "0" * 32])
