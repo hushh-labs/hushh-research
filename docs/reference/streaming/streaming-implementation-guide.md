@@ -49,6 +49,15 @@ a result may precede its call and no start event may have been observed. The liv
 model-turn object remains unchanged. This redaction does not authorize a tool,
 prove receipt consumption, or activate the shared toolset on the Chat roster.
 
+ADK confirmation events duplicate the original call under `originalFunctionCall`.
+The durable projection strips those nested arguments and private confirmation
+payloads too, retaining a non-actionable identity skeleton. Restore reviewed
+arguments only into the authenticated live invocation and revalidate exact-call
+authority before execution; a historical confirmation is not permission to replay.
+The browser resume receipt travels through scrubbed forwarded properties into a
+request-memory reference, never a model-visible tool response. Remove that
+reference from both persisted state deltas and public AG-UI state projections.
+
 ## 4.1 UI Stream Mapping
 
 The canonical app stream surface is `hushh-webapp/components/app-ui/stream-progress-panel.tsx`. Portfolio import and Agent Chat both use that primitive so progress, optional thinking, and answer text stay visually and semantically consistent.

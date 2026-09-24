@@ -23,6 +23,86 @@ from hushh_mcp.one_adk.drive_result_privacy import (
 )
 
 
+def test_native_confirmation_nested_arguments_and_payload_are_not_durable():
+    from google.adk.agents import LlmAgent
+    from google.adk.agents.invocation_context import InvocationContext
+    from google.adk.events import Event, EventActions
+    from google.adk.flows.llm_flows.functions import generate_request_confirmation_event
+    from google.adk.sessions import InMemorySessionService, Session
+    from google.adk.tools.tool_confirmation import ToolConfirmation
+    from google.genai import types
+
+    name = "mcp_" + "a" * 40
+    private = "PRIVATE_REVIEW_ARGUMENT"
+    session = Session(id="thread", app_name="one", user_id="owner")
+    invocation = InvocationContext(
+        agent=LlmAgent(name="one", model="gemini-test"),
+        session=session,
+        session_service=InMemorySessionService(),
+        invocation_id="turn",
+    )
+    call = Event(
+        author="one",
+        content=types.Content(
+            parts=[
+                types.Part(
+                    function_call=types.FunctionCall(
+                        id="call", name=name, args={"recipient": private}
+                    ),
+                )
+            ]
+        ),
+    )
+    response = Event(
+        author="one",
+        content=types.Content(
+            parts=[
+                types.Part(
+                    function_response=types.FunctionResponse(
+                        id="call", name=name, response={"status": "pending"}
+                    ),
+                )
+            ]
+        ),
+        actions=EventActions(
+            requested_tool_confirmations={
+                "call": ToolConfirmation(hint=private, payload={"preview": private}),
+            }
+        ),
+    )
+    confirmation = generate_request_confirmation_event(invocation, call, response)
+    assert confirmation is not None
+    confirmation_id = confirmation.get_function_calls()[0].id
+    reply = Event(
+        author="user",
+        content=types.Content(
+            parts=[
+                types.Part(
+                    function_response=types.FunctionResponse(
+                        id=confirmation_id,
+                        name="adk_request_confirmation",
+                        response={"confirmed": True, "payload": private},
+                    ),
+                )
+            ]
+        ),
+    )
+    session.events = [reply, call, response, confirmation]
+    serialized = session.model_dump_json(by_alias=True)
+    assert private in serialized
+    projected = redact_drive_session_json(serialized)
+    assert private not in projected
+    restored = Session.model_validate_json(projected)
+    nested = restored.events[3].get_function_calls()[0]
+    assert nested.args["originalFunctionCall"] == {"id": "call", "name": name, "args": {}}
+    assert restored.events[2].actions.requested_tool_confirmations["call"].confirmed is False
+    # Projection must never strip the live call before the model/review sees it.
+    assert session.events[1].get_function_calls()[0].args == {"recipient": private}
+    assert session.events[3].get_function_calls()[0].args["originalFunctionCall"]["args"] == {
+        "recipient": private
+    }
+
+
 def test_drive_result_and_snapshot_are_redacted_but_other_tools_unchanged():
     secret = "PRIVATE_DRIVE_SENTINEL"
     result = json.dumps({"source": "google_drive_mcp", "result": secret})

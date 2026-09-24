@@ -57,7 +57,47 @@ def redact_drive_session_json(serialized: str) -> str:
         return serialized
     document: dict[str, Any] = json.loads(serialized)
     changed = False
+    private_ids: set[str] = set()
+    confirmation_ids: set[str] = set()
+    # ADK duplicates a pending call inside its confirmation envelope. Index
+    # both identities before projecting, including out-of-order responses.
     for event in document.get("events", []):
+        for part in (event.get("content") or {}).get("parts") or []:
+            call = part.get("functionCall")
+            if not isinstance(call, dict):
+                continue
+            if _private_tool_name(call.get("name")) and isinstance(call.get("id"), str):
+                private_ids.add(call["id"])
+            if call.get("name") != "adk_request_confirmation":
+                continue
+            arguments = call.get("args")
+            original = (
+                arguments.get("originalFunctionCall") if isinstance(arguments, dict) else None
+            )
+            if isinstance(original, dict) and _private_tool_name(original.get("name")):
+                if isinstance(original.get("id"), str):
+                    private_ids.add(original["id"])
+                if isinstance(call.get("id"), str):
+                    confirmation_ids.add(call["id"])
+                # This is a historical skeleton, never a replay capability.
+                # Native resume must recover reviewed arguments in live memory
+                # and pass the exact-call ledger before dispatch.
+                call["args"] = {
+                    "originalFunctionCall": {
+                        "id": original.get("id"),
+                        "name": original["name"],
+                        "args": {},
+                    },
+                    "toolConfirmation": {"confirmed": False},
+                }
+                call["partialArgs"] = None
+                changed = True
+    for event in document.get("events", []):
+        confirmations = (event.get("actions") or {}).get("requestedToolConfirmations")
+        if isinstance(confirmations, dict):
+            for call_id in private_ids.intersection(confirmations):
+                confirmations[call_id] = {"confirmed": False}
+                changed = True
         for part in (event.get("content") or {}).get("parts") or []:
             call = part.get("functionCall")
             if isinstance(call, dict) and _private_tool_name(call.get("name")):
@@ -65,7 +105,9 @@ def redact_drive_session_json(serialized: str) -> str:
                 call["partialArgs"] = None
                 changed = True
             response = part.get("functionResponse")
-            if isinstance(response, dict) and _private_tool_name(response.get("name")):
+            if isinstance(response, dict) and (
+                _private_tool_name(response.get("name")) or response.get("id") in confirmation_ids
+            ):
                 response["response"] = _safe_result(response.get("response"))
                 response["parts"] = None
                 changed = True
