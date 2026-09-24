@@ -3,11 +3,16 @@ BEGIN;
 -- Extend the existing metadata ledger; no personal inputs or audio are stored.
 ALTER TABLE one_action_directive_ledger DROP CONSTRAINT IF EXISTS one_action_directive_ledger_channel_check;
 ALTER TABLE one_action_directive_ledger DROP CONSTRAINT IF EXISTS one_action_directive_ledger_check;
+-- Release replay re-runs this file on every deploy, after 231 has added the
+-- document_review channel and real rows use it. These checks therefore also
+-- admit that channel (231 defines the same terms and its identity check), or
+-- replay fails with CheckViolationError before 231 can run.
 ALTER TABLE one_action_directive_ledger ADD CONSTRAINT one_action_directive_ledger_channel_check
-  CHECK (channel IN ('typed_chat','voice','command'));
+  CHECK (channel IN ('typed_chat','voice','command','document_review'));
 ALTER TABLE one_action_directive_ledger ADD CONSTRAINT one_action_directive_ledger_check CHECK (
   (channel='typed_chat' AND conversation_id IS NOT NULL AND session_id IS NULL)
   OR (channel IN ('voice','command') AND session_id IS NOT NULL AND conversation_id IS NULL)
+  OR (channel='document_review' AND conversation_id IS NULL AND session_id IS NULL)
 );
 ALTER TABLE one_action_directive_ledger ADD COLUMN IF NOT EXISTS command_effect TEXT NOT NULL DEFAULT 'action' CHECK (command_effect IN ('action','screen'));
 ALTER TABLE one_action_directive_ledger ADD COLUMN IF NOT EXISTS step_hmac TEXT;
