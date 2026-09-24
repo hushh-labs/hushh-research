@@ -789,11 +789,20 @@ export function PkmNaturalPanel({
       if (!result.success || !persistedDomainData) {
         throw new Error(result.message || "This saved detail couldn’t be updated.");
       }
-      clearAgentPkmContext(user.uid);
-      setMetadata(
-        await PersonalKnowledgeModelService.getMetadata(user.uid, true, vaultOwnerToken)
-      );
+      // The encrypted write is the mutation boundary. Record it before the
+      // best-effort metadata refresh so a transient read failure cannot turn
+      // one confirmed write into contradictory success + error outcomes.
       trackEvent("one_memory_action", { route_id: "pkm", action: params.action === "edited" ? "detail_edited" : "detail_deleted", result: "success" });
+      clearAgentPkmContext(user.uid);
+      try {
+        setMetadata(
+          await PersonalKnowledgeModelService.getMetadata(user.uid, true, vaultOwnerToken)
+        );
+      } catch {
+        setMemoryActionError(
+          "Memory was updated, but the latest summary could not refresh. Refresh the page to see it."
+        );
+      }
       morphyToast.success(params.action === "edited" ? "Memory updated." : "Memory forgotten.");
       resetMemoryActionState();
       setSelectedCard(null);

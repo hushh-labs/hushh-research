@@ -800,6 +800,13 @@ async function pollSyncRun(params: {
         attempt > RUN_POLL_MAX_ATTEMPTS ||
         elapsedMs >= RUN_POLL_MAX_ELAPSED_MS
       ) {
+        // The provider run may still be active, but this client can no longer
+        // observe a terminal result within the bounded polling window. Record
+        // the polling failure once; never mislabel the underlying sync itself.
+        trackEvent("gmail_sync_result", {
+          action: "poll",
+          result: "error",
+        });
         updateEntry(normalizedUserId, {
           activeRunId: null,
           activeTaskId: null,

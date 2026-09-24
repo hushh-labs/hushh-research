@@ -111,6 +111,10 @@ export function trackEvent<T extends ObservabilityEventName>(
   };
 
   const validation = validateAndSanitizeEvent(eventName, fullPayload);
+  if (validation.fatal) {
+    debugLog("payload_rejected", eventName, validation.droppedKeys);
+    return false;
+  }
   if (!validation.ok) {
     debugLog("payload_sanitized", eventName, validation.droppedKeys);
   }

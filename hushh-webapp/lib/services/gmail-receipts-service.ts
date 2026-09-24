@@ -180,6 +180,40 @@ interface ErrorEnvelope {
   error?: string;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+async function parseNativeConnectStartResponse(
+  response: Response,
+): Promise<GmailNativeConnectStartResponse> {
+  const payload: unknown = await response.json();
+  if (
+    !isRecord(payload) ||
+    typeof payload.configured !== "boolean" ||
+    typeof payload.server_client_id !== "string" ||
+    (payload.purpose !== "read" && payload.purpose !== "send")
+  ) {
+    throw new Error("Mail OAuth start returned an invalid response.");
+  }
+  return payload as unknown as GmailNativeConnectStartResponse;
+}
+
+async function parseConnectionStatus(
+  response: Response,
+): Promise<GmailConnectionStatus> {
+  const payload: unknown = await response.json();
+  if (
+    !isRecord(payload) ||
+    typeof payload.configured !== "boolean" ||
+    typeof payload.connected !== "boolean" ||
+    !["connected", "disconnected", "error"].includes(String(payload.status))
+  ) {
+    throw new Error("Mail OAuth completion returned an invalid response.");
+  }
+  return payload as unknown as GmailConnectionStatus;
+}
+
 async function extractError(
   response: Response,
   fallback: string,
@@ -320,11 +354,12 @@ export class GmailReceiptsService {
           await extractError(response, "Failed to start native Mail OAuth."),
         );
       }
+      const payload = await parseNativeConnectStartResponse(response);
       trackEvent("gmail_connect_result", {
         action: "start",
         result: "success",
       });
-      return (await response.json()) as GmailNativeConnectStartResponse;
+      return payload;
     } catch (error) {
       trackEvent("gmail_connect_result", {
         action: "start",
@@ -359,11 +394,12 @@ export class GmailReceiptsService {
           await extractError(response, "Failed to complete native Mail OAuth."),
         );
       }
+      const status = await parseConnectionStatus(response);
       trackEvent("gmail_connect_result", {
         action: "complete",
         result: "success",
       });
-      return (await response.json()) as GmailConnectionStatus;
+      return status;
     } catch (error) {
       trackEvent("gmail_connect_result", {
         action: "complete",

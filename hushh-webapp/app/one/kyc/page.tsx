@@ -1185,6 +1185,7 @@ export function OneKycWorkspace({
       }
       setBusy(action);
       setError(null);
+      let recordedSuccessAction: "reply_sent" | "reply_rejected" | "workflow_refreshed" | null = null;
       try {
         const input = {
           userId: auth.userId,
@@ -1296,6 +1297,7 @@ export function OneKycWorkspace({
             pkmWritebackArtifactHash: artifactHash,
           });
           trackEvent("one_kyc_action", { route_id: "one_kyc", action: "reply_sent", result: "success" });
+          recordedSuccessAction = "reply_sent";
 
           let writeback;
           try {
@@ -1349,9 +1351,11 @@ export function OneKycWorkspace({
             reason: "Rejected from KYC.",
           });
           trackEvent("one_kyc_action", { route_id: "one_kyc", action: "reply_rejected", result: "success" });
+          recordedSuccessAction = "reply_rejected";
         } else {
           next = await refreshWorkflowState(workflow);
           trackEvent("one_kyc_action", { route_id: "one_kyc", action: "workflow_refreshed", result: "success" });
+          recordedSuccessAction = "workflow_refreshed";
         }
         updateWorkflow(next);
       } catch (err) {
@@ -1361,8 +1365,17 @@ export function OneKycWorkspace({
             : action === "reject"
               ? "reply_rejected"
               : "workflow_refreshed";
-        trackEvent("one_kyc_action", { route_id: "one_kyc", action: failedAction, result: "error" });
-        setError(oneKycErrorMessage(err, "KYC action failed."));
+        if (recordedSuccessAction !== failedAction) {
+          trackEvent("one_kyc_action", { route_id: "one_kyc", action: failedAction, result: "error" });
+        }
+        setError(
+          recordedSuccessAction === "reply_sent"
+            ? oneKycErrorMessage(
+                err,
+                "Approved reply sent, but the encrypted PKM status could not be updated.",
+              )
+            : oneKycErrorMessage(err, "KYC action failed."),
+        );
       } finally {
         setBusy(null);
       }
@@ -1538,6 +1551,7 @@ export function OneKycWorkspace({
     async (workflow: OneKycWorkflow) => {
       setBusy("consent-approve");
       setError(null);
+      let mutationConfirmed = false;
       try {
         const withRequests = await ensureConsentRequestsForWorkflow(workflow);
         if (
@@ -1569,12 +1583,14 @@ export function OneKycWorkspace({
           });
           await promise;
           trackEvent("one_kyc_action", { route_id: "one_kyc", action: "access_approved", result: "success" });
+          mutationConfirmed = true;
         } else {
           await handleApproveBundle(consents, {
             bundleId: withRequests.consent_bundle_id || undefined,
             bundleLabel: "One access request",
           });
           trackEvent("one_kyc_action", { route_id: "one_kyc", action: "access_approved", result: "success" });
+          mutationConfirmed = true;
         }
         const refreshed = await refreshWorkflowState(withRequests);
         if (refreshed.status === "waiting_on_user") {
@@ -1585,8 +1601,12 @@ export function OneKycWorkspace({
           );
         }
       } catch (err) {
-        trackEvent("one_kyc_action", { route_id: "one_kyc", action: "access_approved", result: "error" });
-        setError(oneKycErrorMessage(err, "Unable to approve access."));
+        if (mutationConfirmed) {
+          setError("Access was approved, but the latest workflow status could not refresh. Refresh to continue.");
+        } else {
+          trackEvent("one_kyc_action", { route_id: "one_kyc", action: "access_approved", result: "error" });
+          setError(oneKycErrorMessage(err, "Unable to approve access."));
+        }
       } finally {
         setBusy(null);
       }
@@ -1604,6 +1624,7 @@ export function OneKycWorkspace({
     async (workflow: OneKycWorkflow) => {
       setBusy("consent-deny");
       setError(null);
+      let mutationConfirmed = false;
       try {
         const withRequests = await ensureConsentRequestsForWorkflow(workflow);
         const requestIds = workflowConsentRequestIds(withRequests);
@@ -1622,17 +1643,23 @@ export function OneKycWorkspace({
           });
           await promise;
           trackEvent("one_kyc_action", { route_id: "one_kyc", action: "access_denied", result: "success" });
+          mutationConfirmed = true;
         } else {
           await handleDenyBundle(requestIds, {
             bundleId: withRequests.consent_bundle_id || undefined,
             bundleLabel: "One access request",
           });
           trackEvent("one_kyc_action", { route_id: "one_kyc", action: "access_denied", result: "success" });
+          mutationConfirmed = true;
         }
         await refreshWorkflowState(withRequests);
       } catch (err) {
-        trackEvent("one_kyc_action", { route_id: "one_kyc", action: "access_denied", result: "error" });
-        setError(err instanceof Error ? err.message : "Unable to deny access.");
+        if (mutationConfirmed) {
+          setError("Access was denied, but the latest workflow status could not refresh. Refresh to continue.");
+        } else {
+          trackEvent("one_kyc_action", { route_id: "one_kyc", action: "access_denied", result: "error" });
+          setError(err instanceof Error ? err.message : "Unable to deny access.");
+        }
       } finally {
         setBusy(null);
       }

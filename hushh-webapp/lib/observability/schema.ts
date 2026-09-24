@@ -437,6 +437,8 @@ function isInvalidGovernedEnum(
 
 export interface EventValidationResult {
   ok: boolean;
+  /** Invalid governed action/result values make the whole event unsafe to emit. */
+  fatal: boolean;
   sanitized: Record<string, PrimitiveEventValue>;
   droppedKeys: string[];
 }
@@ -448,6 +450,7 @@ export function validateAndSanitizeEvent<T extends ObservabilityEventName>(
   const allowed = new Set(EVENT_ALLOWED_KEYS[eventName]);
   const sanitized: Record<string, PrimitiveEventValue> = {};
   const droppedKeys: string[] = [];
+  let fatal = false;
 
   for (const [key, value] of Object.entries(payload as unknown as Record<string, unknown>)) {
     if (!allowed.has(key)) {
@@ -467,6 +470,7 @@ export function validateAndSanitizeEvent<T extends ObservabilityEventName>(
 
     if (isInvalidGovernedEnum(eventName, key, value)) {
       droppedKeys.push(key);
+      fatal = true;
       continue;
     }
 
@@ -480,6 +484,7 @@ export function validateAndSanitizeEvent<T extends ObservabilityEventName>(
 
   return {
     ok: droppedKeys.length === 0,
+    fatal,
     sanitized,
     droppedKeys,
   };

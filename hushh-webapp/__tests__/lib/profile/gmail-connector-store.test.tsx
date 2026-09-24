@@ -447,6 +447,11 @@ describe("gmail-connector-store", () => {
       });
 
       expect(GmailReceiptsService.reconcile).toHaveBeenCalledTimes(1);
+      expect(trackEventMock).toHaveBeenCalledTimes(1);
+      expect(trackEventMock).toHaveBeenCalledWith("gmail_sync_result", {
+        action: "poll",
+        result: "error",
+      });
 
       const view = getConnectorView("user-timeout");
       expect(view.presentation.state).toBe("syncing");

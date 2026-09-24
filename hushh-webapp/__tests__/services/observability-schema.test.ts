@@ -40,6 +40,7 @@ describe("observability schema", () => {
     } as any);
 
     expect(result.ok).toBe(false);
+    expect(result.fatal).toBe(true);
     expect(result.droppedKeys).toEqual(expect.arrayContaining(["action", "result"]));
     expect(result.sanitized).not.toHaveProperty("action");
     expect(result.sanitized).not.toHaveProperty("result");
@@ -64,7 +65,9 @@ describe("observability schema", () => {
     } as any);
 
     expect(valid.ok).toBe(true);
+    expect(valid.fatal).toBe(false);
     expect(invalid.ok).toBe(false);
+    expect(invalid.fatal).toBe(true);
     expect(invalid.sanitized).not.toHaveProperty("action");
   });
 

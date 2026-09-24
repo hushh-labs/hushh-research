@@ -9,10 +9,11 @@ import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 
-const { addToPKM, clearAgentPkmContext, previewAgentPkmMemory } = vi.hoisted(() => ({
+const { addToPKM, clearAgentPkmContext, previewAgentPkmMemory, trackEvent } = vi.hoisted(() => ({
   addToPKM: vi.fn(),
   clearAgentPkmContext: vi.fn(),
   previewAgentPkmMemory: vi.fn(),
+  trackEvent: vi.fn(),
 }));
 
 vi.mock("@/lib/agent/agent-pkm-memory", () => ({
@@ -21,6 +22,8 @@ vi.mock("@/lib/agent/agent-pkm-memory", () => ({
   getIgnoredPkmCards: () => [],
   previewAgentPkmMemory,
 }));
+
+vi.mock("@/lib/observability/client", () => ({ trackEvent }));
 
 const push = vi.fn();
 const getIdToken = vi.fn().mockResolvedValue("id-token");
@@ -401,6 +404,49 @@ describe("PkmNaturalPanel — Memory redesign", () => {
     // Returns to the list after a successful edit.
     await waitFor(() =>
       expect(screen.queryByRole("heading", { name: "Risk Profile" })).toBeNull(),
+    );
+  });
+
+  it("keeps a confirmed memory write successful when only metadata refresh fails", async () => {
+    vi.spyOn(PkmWriteCoordinator, "saveMergedDomain").mockImplementationOnce(async (params) => {
+      const plan = await params.build({
+        currentDomainData: FULL_BLOB.financial,
+        currentManifest: null,
+        currentEncryptedDomain: null,
+        baseFullBlob: FULL_BLOB,
+        attempt: 1,
+        upgradedInSession: false,
+      });
+      return { saveState: "saved", success: true, fullBlob: { financial: plan.domainData } };
+    });
+
+    await openMainScreen("recent");
+    fireEvent.click(screen.getByRole("button", { name: "Open memory: Risk Profile" }));
+    await screen.findByRole("heading", { name: "Risk Profile" });
+    await waitFor(() =>
+      expect(PersonalKnowledgeModelService.getMutationSharingImpact).toHaveBeenCalled(),
+    );
+    vi.mocked(PersonalKnowledgeModelService.getMetadata).mockRejectedValueOnce(
+      new Error("refresh unavailable"),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+    fireEvent.change(
+      await screen.findByRole("textbox", { name: "New value for Risk Profile" }),
+      { target: { value: "growth" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() =>
+      expect(trackEvent).toHaveBeenCalledWith("one_memory_action", {
+        route_id: "pkm",
+        action: "detail_edited",
+        result: "success",
+      }),
+    );
+    expect(trackEvent).not.toHaveBeenCalledWith(
+      "one_memory_action",
+      expect.objectContaining({ action: "detail_edited", result: "error" }),
     );
   });
 

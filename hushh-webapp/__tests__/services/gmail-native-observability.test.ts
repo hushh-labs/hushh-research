@@ -75,4 +75,26 @@ describe("native Gmail observability", () => {
     ]);
     expect(JSON.stringify(mocks.trackEvent.mock.calls)).not.toContain("authorization code rejected");
   });
+
+  it.each([
+    ["start", () => GmailReceiptsService.startNativeConnect({ idToken: "token", purpose: "read" })],
+    ["complete", () => GmailReceiptsService.completeNativeConnect({
+      idToken: "token",
+      userId: "owner",
+      serverAuthCode: "one-time-code",
+    })],
+  ] as const)("does not report %s success for an invalid 2xx payload", async (action, invoke) => {
+    mocks.apiFetch.mockResolvedValueOnce(response({}));
+
+    await expect(invoke()).rejects.toThrow("invalid response");
+
+    expect(mocks.trackEvent.mock.calls).toContainEqual([
+      "gmail_connect_result",
+      { action, result: "error" },
+    ]);
+    expect(mocks.trackEvent.mock.calls).not.toContainEqual([
+      "gmail_connect_result",
+      { action, result: "success" },
+    ]);
+  });
 });
