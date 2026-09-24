@@ -228,17 +228,14 @@ jobs:
             --github-output "$GITHUB_OUTPUT" \
             --json
 
-      - name: Authorize prompt UAT Drive worker wake
+      - name: Verify prompt UAT Drive worker wake grant
         if: steps.scope.outputs.deploy_backend == 'true'
         shell: bash
         run: |
           set -euo pipefail
           # The API only runs the two fixed Drive drain jobs; their scheduled
-          # runs remain the durable recovery path. Cloud Scheduler grants run
-          # through project IAM, so provision this before the new API serves.
-          gcloud projects add-iam-policy-binding "${{ env.GCP_PROJECT_ID }}" \
-            --member="serviceAccount:${{ env.RUNTIME_SERVICE_ACCOUNT }}" \
-            --role=roles/cloudscheduler.jobRunner --condition=None --quiet >/dev/null
+          # runs remain the durable recovery path. Project IAM is provisioned
+          # by an operator; the deployer verifies it before the new API serves.
           gcloud projects get-iam-policy "${{ env.GCP_PROJECT_ID }}" --format=json \
             | RUNTIME_SERVICE_ACCOUNT="${{ env.RUNTIME_SERVICE_ACCOUNT }}" python3 -c '
           import json, os, sys
