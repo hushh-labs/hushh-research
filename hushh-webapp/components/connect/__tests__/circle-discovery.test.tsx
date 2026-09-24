@@ -108,7 +108,7 @@ afterEach(() => {
 });
 
 describe("circle discovery actions", () => {
-  it("guides untouched users every three seconds and stops after interaction", () => {
+  it("guides untouched users every three seconds and stops only for a deliberate choice", () => {
     vi.useFakeTimers();
     render(ui());
     const discovery = screen.getByTestId("connect-living-connections");
@@ -131,13 +131,39 @@ describe("circle discovery actions", () => {
       screen.getByRole("button", { name: "Explore Investor Circle" }),
     ).toHaveAttribute("aria-pressed", "true");
 
-    fireEvent.pointerEnter(
-      screen.getByRole("button", { name: "Explore Investor Circle" }),
+    const investor = screen.getByRole("button", {
+      name: "Explore Investor Circle",
+    });
+    // A pointer merely being over a freshly rendered choice is not intent.
+    fireEvent.pointerEnter(investor);
+    act(() => vi.advanceTimersByTime(3_000));
+    expect(
+      screen.getByRole("button", { name: "Explore Business Circle" }),
+    ).toHaveAttribute("aria-pressed", "true");
+
+    // Moving within a circle option is a desktop hover; pointer down covers touch.
+    fireEvent.pointerMove(
+      screen.getByRole("button", { name: "Explore Business Circle" }),
     );
     expect(discovery).toHaveAttribute("data-auto-tour", "stopped");
     act(() => vi.advanceTimersByTime(9_000));
     expect(
-      screen.getByRole("button", { name: "Explore Investor Circle" }),
+      screen.getByRole("button", { name: "Explore Business Circle" }),
+    ).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("also stops when the matching create CTA is deliberately engaged", () => {
+    vi.useFakeTimers();
+    render(ui());
+    const create = screen.getByTestId("circle-discovery-primary");
+    fireEvent.pointerMove(create);
+    expect(screen.getByTestId("connect-living-connections")).toHaveAttribute(
+      "data-auto-tour",
+      "stopped",
+    );
+    act(() => vi.advanceTimersByTime(6_000));
+    expect(
+      screen.getByRole("button", { name: "Explore Family Circle" }),
     ).toHaveAttribute("aria-pressed", "true");
   });
 

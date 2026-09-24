@@ -118,6 +118,15 @@ export function CircleDiscoveryCard({
     [stopAutoTour],
   );
 
+  const handlePrimaryAction = useCallback(() => {
+    stopAutoTour();
+    if (circle) {
+      onOpenCircle(circle.id);
+      return;
+    }
+    onUseStarter(starter);
+  }, [circle, onOpenCircle, onUseStarter, starter, stopAutoTour]);
+
   useEffect(() => {
     const reducedMotion = window.matchMedia?.(
       "(prefers-reduced-motion: reduce)",
@@ -251,7 +260,11 @@ export function CircleDiscoveryCard({
                 aria-pressed={active}
                 aria-controls={descriptionId}
                 disabled={Boolean(creating)}
-                onPointerEnter={stopAutoTour}
+                // A stationary pointer can be over an item while this card mounts.
+                // Stop only after the person actually moves within this choice, taps it,
+                // or focuses it from the keyboard—not merely from nearby page movement.
+                onPointerMove={stopAutoTour}
+                onPointerDown={stopAutoTour}
                 onFocus={stopAutoTour}
                 onClick={() => selectStarter(item.id)}
                 title={existing?.name ?? item.name}
@@ -370,9 +383,10 @@ export function CircleDiscoveryCard({
               effect="fill"
               disabled={snapshot.loading || Boolean(creating)}
               loading={Boolean(creating)}
-              onClick={() =>
-                circle ? onOpenCircle(circle.id) : onUseStarter(starter)
-              }
+              onPointerMove={stopAutoTour}
+              onPointerDown={stopAutoTour}
+              onFocus={stopAutoTour}
+              onClick={handlePrimaryAction}
               aria-label={
                 creating
                   ? "Creating…"

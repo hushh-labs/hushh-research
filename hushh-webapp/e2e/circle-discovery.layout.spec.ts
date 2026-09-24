@@ -117,7 +117,8 @@ test("circle discovery advances every three seconds until a circle is explored",
   await expect(finance).toHaveAttribute("aria-pressed", "true");
   await expect(hero).toHaveAttribute("data-auto-tour", "running");
 
-  // Reading the card does not halt the guide. Deliberately hovering a circle does.
+  // Reading the card does not halt the guide. A direct movement within a circle
+  // option is deliberate hover; merely mounting under a stationary pointer is not.
   await hero.hover();
   await page.waitForTimeout(3_100);
   await expect(investor).toHaveAttribute("aria-pressed", "true");
