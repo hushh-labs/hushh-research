@@ -134,11 +134,14 @@ async def _resolve_delivery_payload(
             "A reply to a Gmail information request cannot include a Drive attachment.",
             status_code=422,
         )
-    return await get_personal_gmail_information_request_service().resolve_reply_delivery(
-        user_id=user_id,
-        workflow_id=source_workflow_id,
-        body=payload.body,
-        html_body=payload.html_body,
+    return cast(
+        tuple[dict[str, Any], Any | None],
+        await get_personal_gmail_information_request_service().resolve_reply_delivery(
+            user_id=user_id,
+            workflow_id=source_workflow_id,
+            body=payload.body,
+            html_body=payload.html_body,
+        ),
     )
 
 
@@ -235,10 +238,13 @@ async def gmail_email_send(
             ),
         )
         if payload.source_workflow_id:
-            return await get_personal_gmail_information_request_service().record_reply_delivery(
-                user_id=user_id,
-                workflow_id=payload.source_workflow_id,
-                result=result,
+            return cast(
+                dict[str, Any],
+                await get_personal_gmail_information_request_service().record_reply_delivery(
+                    user_id=user_id,
+                    workflow_id=payload.source_workflow_id,
+                    result=result,
+                ),
             )
         return result
     except Exception as exc:
