@@ -27,37 +27,53 @@ TestFlight is complete. Do not initiate Drive OAuth for the user.
 
 ### Current evidence at this checkpoint
 
-- **Main integration:** fetched and normally merged latest `origin/main`
-  `a1b80dcc807126dd43480a79457d9f520fcb16cc` as `4ac22d155`. The merge retained
-  branch-owned One/MCP policy while integrating main's Drive live-search/read
-  implementation. Product-agent registry, capability graph, Location catalog,
-  and runtime topology were regenerated from merged authored sources; their
-  canonical checks pass. The regenerated revisions intentionally supersede
-  main's previous generated digests because the combined authored sources differ.
-  No branch switch, reset, or history rewrite occurred.
-- **Automated:** 93 Drive/ADK backend tests and 126 web connection/Chat tests pass
-  after the merge. The full web build, typecheck, lint, design-system, docs, and
-  render-performance checks passed. Full Vitest reported 9,099 passed and one
-  five-second timeout in an unchanged One Location test; that exact test passes
-  alone in 2.8 seconds. Earlier connector assertion failures also passed in
-  isolation. The local canonical pre-PR gate is therefore not yet green; require
-  exact-head CI and continue classifying the load-sensitive baseline failure.
-- **Browser/runtime:** frontend `3000` and backend `8000` are served from this
-  worktree and return healthy responses. Canonical reviewer preflight and
-  read-only same-session route plus cold re-unlock proof passed for
-  `/one/profile/connectors`. This is not a consent mutation or Drive provider read.
+- **Main integration:** fetched and normally merged `origin/main`
+  `1703b8900cd019faa5c850103511995a554848c3` (PR #7041) as `fd4e19510` on the
+  existing ADK branch. The incoming delta was five People-mobile files and
+  merged without conflict; the earlier ADK/Drive integration at `4ac22d155`
+  remains an ancestor. No branch switch, reset, or history rewrite occurred.
+- **Security gate repair:** commit `30b8513e8` removes `--ancestry-path` from
+  secret-scan ranges, adds a synthetic merge-graph regression, renames test-only
+  idempotency sentinels, and adds only exact gitleaks fingerprints for the old
+  synthetic values. The regression passes; gitleaks scanned 21 commits / about
+  280 KB with zero findings, and GitHub reports zero secret-scanning alerts.
+  Eighteen existing Dependabot alerts remain advisory in this lane.
+- **Automated after current main merge:** 43 focused consent receipt/service
+  backend tests, 79 focused consent/Chat/connector/People web tests, and 521
+  One Voice/native contract tests pass. TypeScript typecheck passes. One Voice
+  generated checks first identified stale capability projections; the owning
+  generator was run and its four projection files are included in this
+  checkpoint. The canonical Capacitor build passed; `verify:native:css` reports
+  5,869 selectors and zero missing. Full canonical pre-PR verification has not
+  yet run on this exact head.
+- **Browser/runtime:** frontend `3000` and backend `8000` were previously
+  verified as this worktree and healthy. The read-only reviewer root-scope trial
+  passed for both identities: one Professional root selection, one review, and
+  a hit-testable Send action across phone/tablet/desktop layouts; both dialogs
+  were cancelled, so no request was submitted. Connector settings route and
+  same-session/cold-unlock preflight have historical browser proof, not current
+  Drive provider proof. Revalidate the served source pair before final browser
+  acceptance.
 - **Connector state:** the Settings catalog and Chat entry are implemented.
   Local reviewer configuration keeps Drive connect disabled; existing UAT
   rollout configuration is enabled. No rollout values were changed and no OAuth
   was started. A real Drive read still requires the user's normal authorization.
-- **Native:** a paired physical iPhone is available. Native static/plugin checks
-  passed before the latest Drive merge; rerun changed-surface native checks.
-  No post-latest-merge native interaction or TestFlight build has been verified.
+- **Native:** a physical iPhone is paired; installed apps are `com.hushh.app`
+  1.4.0 (69) and `ai.hushh.app` 1.0.0 (232), not this branch's build. No app
+  was installed, launched, or erased. The current branch's UAT-backed native
+  export built successfully and passed the CSS freshness check, but current-
+  source physical interaction remains unverified; TestFlight must build the
+  exact landed main SHA and processing/distribution must be checked.
+- **Release:** no open PR currently targets this branch, and the former PR is
+  merged. The branch includes the current main merge; fetch the feature ref
+  again before push. Canonical pre-PR, exact-head
+  PR checks/review resolution, queue/Admin SOP landing, post-merge main smoke,
+  exact-SHA UAT, and TestFlight remain pending.
 - **Still open:** fresh live root-scope submission/approval/readback, three-account
-  Memory fixtures, the full 12-journey Chat/Profile matrix, real Drive provider
-  read, and deployed UAT/TestFlight evidence. Existing grants and their impact
-  boundaries must be inspected before any reviewer mutation; automated tests do
-  not close those gates.
+  Memory fixtures, the full 12-journey Chat/Profile matrix, Drive OAuth and a
+  real provider read, current-source physical iOS interaction, deployed UAT, and
+  TestFlight evidence. Do not promote automated tests or the cancelled dialog
+  trial into live-consent acceptance.
 
 This active continuation supersedes the older status and plans below. Those
 entries remain historical evidence with their original revisions and limits.
@@ -69,7 +85,7 @@ Canonical visual index: [Architecture reference](../architecture/README.md).
 
 | Boundary | Current evidence | Remaining acceptance |
 | --- | --- | --- |
-| Main → ADK branch | Latest fetched main merged locally at `4ac22d155` | Freshness, PR checks, queue/Admin SOP, landed-SHA smoke |
+| Main → ADK branch | Latest fetched main `1703b8900` merged locally at `fd4e19510` | Freshness, PR checks, queue/Admin SOP, landed-SHA smoke |
 | Connector → One | Owner-bound Drive MCP read path and 93 backend/126 web tests pass | User OAuth, actual provider read, and native proof |
 | Consent → Chat | Metadata-only receipt and restoration committed | Browser revisit and fresh encrypted readback |
 | Sidebar → connection authority | Calendar/Plaid owning status, 11 tests | Real authenticated visual rehearsal |
