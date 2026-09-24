@@ -266,10 +266,14 @@ async def test_allow_answers_with_the_cited_file_titles(store, monkeypatch):
         revision=created["revision"],
         consent_token=OWNER_PROOF,
     )
+    # The owner's view adds the shareable files (none here: the fake reader
+    # records no rows) and whether they were shared yet.
     assert answered["answer"] == {
         "text": "The closing balance is 1,204.55.",
         "titles": ["March bank statement.pdf"],
         "truncated": False,
+        "shareRequestId": None,
+        "files": [],
     }
     # The interpreter answers the exact stored question under the owner's token.
     prompt = json.loads(interpreter.await_args.kwargs["prompt"])
@@ -875,3 +879,151 @@ async def test_allow_with_an_unreadable_file_tells_b_only_the_count(store, monke
     # A connection's question carries no earlier owner conversation.
     selector_prompt = json.loads(selector.await_args.kwargs["prompt"])
     assert selector_prompt["document_request"]["previous_answer"] == ""
+
+
+SHARE_ID = "55555555-5555-4555-8555-555555555555"
+SHARED_DOCUMENT = "66666666-6666-4666-8666-666666666666"
+
+
+async def answered_question(store, monkeypatch):
+    chat = live_chat(monkeypatch, reader=fake_reader(), plan={"terms": ["bank"], "mode": "find"})
+    created = await ask(store)
+    await service(store, chat).allow(
+        user_id="owner",
+        request_id=created["requestId"],
+        revision=created["revision"],
+        consent_token=OWNER_PROOF,
+    )
+    return created["requestId"]
+
+
+def sharing_doubles(*, can_approve=True, prepared="review_ready"):
+    sharing = SimpleNamespace(
+        store=SimpleNamespace(create_request=AsyncMock(return_value={"requestId": SHARE_ID})),
+        review=AsyncMock(
+            return_value={
+                "status": "review_ready" if can_approve else "approved",
+                "canApprove": can_approve,
+                "revision": 2,
+                "reviewDigest": "d" * 64,
+                "files": [{"documentId": SHARED_DOCUMENT}],
+            }
+        ),
+        approve=AsyncMock(return_value={"status": "approved"}),
+    )
+    suggestions = SimpleNamespace(run_one=AsyncMock(return_value=prepared))
+    recipient = SimpleNamespace(user_id="recipient")
+    return sharing, suggestions, AsyncMock(return_value=recipient)
+
+
+def sharing_service(store, sharing, suggestions, identity, owner=None):
+    return DriveLiveQueryService(
+        store=store,
+        chat=SimpleNamespace(),
+        require_owner=owner or AsyncMock(),
+        sharing=lambda _owner: sharing,
+        suggestions=lambda _owner: suggestions,
+        recipient_identity=identity,
+    )
+
+
+async def test_the_owner_sees_the_found_files_and_the_asker_never_does(store, monkeypatch):
+    request_id = await answered_question(store, monkeypatch)
+    mine = await store.status(user_id="owner", request_id=request_id)
+    assert mine["answer"]["files"] == [
+        {"ref": "f1", "name": "March bank statement.pdf", "modifiedTime": "2026-03-31T10:00:00Z"}
+    ]
+    # Even the owner's view carries a reference, never the Drive file id.
+    assert FILE_ID not in json.dumps(mine)
+    theirs = await store.status(user_id="recipient", request_id=request_id)
+    assert "files" not in theirs["answer"]
+    shown = json.dumps(theirs)
+    assert FILE_ID not in shown and "ownerFiles" not in shown and "2026-03-31" not in shown
+
+
+async def test_the_owner_shares_chosen_files_with_the_asker_as_viewer(store, monkeypatch):
+    from uuid import NAMESPACE_URL, uuid5
+
+    request_id = await answered_question(store, monkeypatch)
+    sharing, suggestions, identity = sharing_doubles()
+    queries = sharing_service(store, sharing, suggestions, identity)
+    shared = await queries.share(user_id="owner", request_id=request_id, file_refs=["f1"])
+    identity.assert_awaited_once_with("recipient")
+    created = sharing.store.create_request.await_args.kwargs
+    assert created["owner_user_id"] == "owner"
+    assert created["purpose"].purpose == QUESTION
+    # One share per question: a retry finds the same request.
+    assert created["client_request_id"] == str(
+        uuid5(NAMESPACE_URL, f"hushh:drive-query-share:{request_id}")
+    )
+    suggestions.run_one.assert_awaited_once_with(
+        user_id="owner",
+        request_id=SHARE_ID,
+        owner_selected=[
+            {
+                "file_id": FILE_ID,
+                "name": "March bank statement.pdf",
+                "mime_type": "application/pdf",
+                "modified_time": "2026-03-31T10:00:00Z",
+            }
+        ],
+    )
+    sharing.approve.assert_awaited_once_with(
+        user_id="owner",
+        request_id=SHARE_ID,
+        revision=2,
+        review_digest="d" * 64,
+        document_ids=[SHARED_DOCUMENT],
+        confirmed=True,
+    )
+    assert shared["answer"]["shareRequestId"] == SHARE_ID
+    theirs = await store.status(user_id="recipient", request_id=request_id)
+    assert theirs["answer"]["shareRequestId"] == SHARE_ID
+    with pytest.raises(DriveSharingError, match="request_already_decided"):
+        await queries.share(user_id="owner", request_id=request_id, file_refs=["f1"])
+
+
+async def test_a_trust_rule_approval_is_not_approved_twice(store, monkeypatch):
+    request_id = await answered_question(store, monkeypatch)
+    sharing, suggestions, identity = sharing_doubles(can_approve=False)
+    shared = await sharing_service(store, sharing, suggestions, identity).share(
+        user_id="owner", request_id=request_id, file_refs=["f1"]
+    )
+    sharing.approve.assert_not_awaited()
+    assert shared["answer"]["shareRequestId"] == SHARE_ID
+
+
+@pytest.mark.parametrize("refs", [["f2"], ["f1", "f1"], []])
+async def test_only_files_from_the_answer_can_be_shared(store, monkeypatch, refs):
+    request_id = await answered_question(store, monkeypatch)
+    sharing, suggestions, identity = sharing_doubles()
+    with pytest.raises(DriveSharingError):
+        await sharing_service(store, sharing, suggestions, identity).share(
+            user_id="owner", request_id=request_id, file_refs=refs
+        )
+    sharing.store.create_request.assert_not_awaited()
+    identity.assert_not_awaited()
+
+
+async def test_nothing_is_shared_from_a_pending_question_or_by_the_asker(store):
+    created = await ask(store)
+    sharing, suggestions, identity = sharing_doubles()
+    queries = sharing_service(store, sharing, suggestions, identity)
+    with pytest.raises(DriveSharingError, match="request_changed"):
+        await queries.share(user_id="owner", request_id=created["requestId"], file_refs=["f1"])
+    with pytest.raises(DriveSharingError, match="request_unavailable"):
+        await queries.share(user_id="recipient", request_id=created["requestId"], file_refs=["f1"])
+    sharing.store.create_request.assert_not_awaited()
+    suggestions.run_one.assert_not_awaited()
+
+
+async def test_sharing_needs_current_owner_authority(store, monkeypatch):
+    request_id = await answered_question(store, monkeypatch)
+    sharing, suggestions, identity = sharing_doubles()
+    denied = AsyncMock(side_effect=PermissionError("locked"))
+    with pytest.raises(PermissionError):
+        await sharing_service(store, sharing, suggestions, identity, owner=denied).share(
+            user_id="owner", request_id=request_id, file_refs=["f1"]
+        )
+    identity.assert_not_awaited()
+    sharing.store.create_request.assert_not_awaited()

@@ -119,9 +119,22 @@ export type DriveQueryView = {
   createdAt: string;
   expiresAt: string;
   decidedAt: string | null;
-  answer: { text: string; titles: string[]; truncated: boolean } | null;
+  answer: {
+    text: string;
+    titles: string[];
+    truncated: boolean;
+    // Owner only: the files found for this question, by reference, never Drive ids.
+    files: DriveQueryFile[];
+    // Set once the owner shared files from this answer.
+    shareRequestId: string | null;
+  } | null;
   canDecide: boolean;
   lastError: "reconnect_required" | "drive_query_unavailable" | null;
+};
+export type DriveQueryFile = {
+  ref: string;
+  name: string;
+  modifiedTime: string | null;
 };
 export type DriveQueryDraft = { clientRequestId: string; query: string } & (
   | { ownerPersonRef: string; ownerUserId?: never }
@@ -202,6 +215,28 @@ const QUERY_STATUSES = new Set<DriveQueryStatus>([
   "expired",
 ]);
 
+const QUERY_FILE_REF = /^f(?:[1-9]|10)$/;
+
+/** Only the owner ever receives the found files; the asker's view must not carry them. */
+function queryFiles(value: unknown, direction: string): DriveQueryFile[] {
+  if (value == null) return [];
+  if (direction !== "incoming" || !Array.isArray(value) || value.length > 10)
+    throw new DriveSharingError("invalid_response");
+  const files = value.map((item) => {
+    const file = record(item);
+    const ref = string(file.ref, 3);
+    if (!QUERY_FILE_REF.test(ref)) throw new DriveSharingError("invalid_response");
+    return {
+      ref,
+      name: string(file.name, 1024),
+      modifiedTime: file.modifiedTime == null ? null : date(file.modifiedTime),
+    };
+  });
+  if (new Set(files.map((file) => file.ref)).size !== files.length)
+    throw new DriveSharingError("invalid_response");
+  return files;
+}
+
 /** Strict decode: any unexpected shape fails closed instead of rendering. */
 export function parseDriveQueryView(value: unknown): DriveQueryView {
   const result = record(value);
@@ -249,6 +284,9 @@ export function parseDriveQueryView(value: unknown): DriveQueryView {
             string(title, 1024),
           ),
           truncated: rawAnswer.truncated as boolean,
+          files: queryFiles(rawAnswer.files, direction),
+          shareRequestId:
+            rawAnswer.shareRequestId == null ? null : id(rawAnswer.shareRequestId),
         }
       : null,
     // Only the owner of a pending question may ever decide it.
@@ -554,9 +592,10 @@ export class DriveSharingService {
     requestId: string,
     review: SharingReview,
     guard: SharingSessionGuard,
+    // Required: a caller that forgets the selection must not share the whole review.
+    documentIds: string[],
     trustFutureRequests = false,
     trustScope?: "any_requested_drive_file",
-    documentIds: string[] = review.files.map((file) => file.documentId),
   ) {
     if (
       !review.canApprove ||
@@ -754,16 +793,34 @@ export class DriveSharingService {
     });
   }
 
+  /** The owner shares chosen files from an answered question, as Viewer. */
+  static shareQueryFiles(
+    token: string,
+    requestId: string,
+    fileRefs: string[],
+    guard: SharingSessionGuard,
+  ): Promise<DriveQueryView> {
+    if (
+      fileRefs.length === 0 ||
+      fileRefs.length > 10 ||
+      new Set(fileRefs).size !== fileRefs.length ||
+      fileRefs.some((ref) => !QUERY_FILE_REF.test(ref))
+    )
+      throw new DriveSharingError("invalid_selection");
+    return this.queryView(token, requestId, guard, "/share", { fileRefs });
+  }
+
   private static async queryView(
     token: string,
     requestId: string,
     guard: SharingSessionGuard,
-    action: "" | "/allow" | "/deny" | "/cancel",
-    body?: { revision: number; timeZone?: string },
+    action: "" | "/allow" | "/deny" | "/cancel" | "/share",
+    body?: { revision: number; timeZone?: string } | { fileRefs: string[] },
   ): Promise<DriveQueryView> {
     if (
       !DOCUMENT_REQUEST_UUID.test(requestId) ||
       (body !== undefined &&
+        "revision" in body &&
         (!Number.isSafeInteger(body.revision) || body.revision < 0))
     )
       throw new DriveSharingError("invalid_argument");

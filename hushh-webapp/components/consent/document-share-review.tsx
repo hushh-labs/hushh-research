@@ -425,8 +425,8 @@ function UnlockedDocumentReview({
                 disabled={busy || !canApprove || selectedIds.length === 0}
                 onClick={() =>
                   mutate((token, guard) => trustFuture && allSelected
-                    ? DriveSharingService.approve(token, requestId, review, guard, true, "any_requested_drive_file", selectedIds)
-                    : DriveSharingService.approve(token, requestId, review, guard, false, undefined, selectedIds))
+                    ? DriveSharingService.approve(token, requestId, review, guard, selectedIds, true, "any_requested_drive_file")
+                    : DriveSharingService.approve(token, requestId, review, guard, selectedIds))
                 }
               >
                 {allSelected ? "Share files" : `Share ${selectedIds.length} of ${review.files.length} files`}

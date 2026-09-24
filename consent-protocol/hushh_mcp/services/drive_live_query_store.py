@@ -21,10 +21,13 @@ from hushh_mcp.services.connection_graph_service import lock_connection_graph_us
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
 from hushh_mcp.services.drive_sharing_contract import DriveSharingCipher, DriveSharingError
 from hushh_mcp.services.external_connector_lifecycle_store import ExternalConnectorLifecycleStore
+from hushh_mcp.services.google_drive_adapter import FILE_ID
 
 MAX_QUERY_CHARS = 2000
 MAX_QUERY_BYTES = 2048
 MAX_ANSWER_TITLES = 10
+# The files A was shown, kept owner-only so A can share them with the asker.
+MAX_OWNER_FILES = 10
 STALE_CLAIM_SECONDS = 300
 FAILURE_CODES = frozenset({"reconnect_required", "drive_query_unavailable"})
 _PARTICIPANT_SQL = """
@@ -36,6 +39,39 @@ _PARTICIPANT_LOCK_SQL = """
       AND (user_id=:user OR requester_user_id=:user)
     FOR UPDATE
 """
+
+
+def _owner_files(files: object) -> list[dict]:
+    """Bounded, validated file identities for the owner's share action only."""
+    kept: list[dict] = []
+    for item in files if isinstance(files, list) else []:
+        if len(kept) >= MAX_OWNER_FILES or not isinstance(item, dict):
+            break
+        file_id, name = item.get("file_id"), item.get("name")
+        mime, modified = item.get("mime_type") or "", item.get("modified_time")
+        if (
+            not isinstance(file_id, str)
+            or not FILE_ID.fullmatch(file_id)
+            or not isinstance(name, str)
+            or not 1 <= len(name) <= 1024
+            or not isinstance(mime, str)
+            or len(mime) > 200
+            or modified is not None
+            and (not isinstance(modified, str) or len(modified) > 64)
+        ):
+            continue
+        if any(existing["fileId"] == file_id for existing in kept):
+            continue
+        kept.append(
+            {
+                "ref": f"f{len(kept) + 1}",
+                "fileId": file_id,
+                "name": name,
+                "mimeType": mime,
+                "modifiedTime": modified,
+            }
+        )
+    return kept
 
 
 def valid_query(query: object) -> str:
@@ -113,12 +149,24 @@ class DriveLiveQueryStore(ExternalConnectorLifecycleStore):
         )["query"]
         answer = None
         if row["status"] == "answered":
-            answer = self.cipher.open(
+            sealed = self.cipher.open(
                 row["answer_envelope"],
                 user_id=row["user_id"],
                 resource_id=request_id,
                 purpose="live-answer",
             )
+            # B sees the answer text and titles only; file identities stay A's.
+            answer = {
+                "text": sealed["text"],
+                "titles": sealed["titles"],
+                "truncated": sealed["truncated"],
+                "shareRequestId": sealed.get("shareRequestId"),
+            }
+            if incoming:
+                answer["files"] = [
+                    {"ref": item["ref"], "name": item["name"], "modifiedTime": item["modifiedTime"]}
+                    for item in sealed.get("ownerFiles", [])
+                ]
         counterpart = row["requester_user_id"] if incoming else row["user_id"]
         return {
             "requestId": request_id,
@@ -315,12 +363,13 @@ class DriveLiveQueryStore(ExternalConnectorLifecycleStore):
 
         await self._transaction(operation)
 
-    async def complete(self, *, user_id, request_id, revision, answer):
+    async def complete(self, *, user_id, request_id, revision, answer, owner_files=()):
         titles = [str(title)[:180] for title in answer.get("titles", [])][:MAX_ANSWER_TITLES]
         payload = {
             "text": str(answer["text"])[:6000],
             "titles": titles,
             "truncated": bool(answer.get("truncated")),
+            "ownerFiles": _owner_files(list(owner_files)),
         }
         envelope = self.cipher.seal(
             payload, user_id=user_id, resource_id=str(request_id), purpose="live-answer"
@@ -358,6 +407,87 @@ class DriveLiveQueryStore(ExternalConnectorLifecycleStore):
             if not row:
                 raise DriveSharingError("request_changed")
             return self._render(connection, row, user_id)
+
+        return cast(dict, await self._transaction(operation))
+
+    def _answered_owner_row(self, connection, user_id, request_id):
+        row = self._owner_row(connection, user_id, request_id)
+        if row["status"] != "answered":
+            raise DriveSharingError("request_changed")
+        # Sharing reaches the asker only while they are still connected.
+        self._relationship(connection, row["user_id"], row["requester_user_id"])
+        return row
+
+    def _sealed_answer(self, row):
+        return self.cipher.open(
+            row["answer_envelope"],
+            user_id=row["user_id"],
+            resource_id=str(row["request_id"]),
+            purpose="live-answer",
+        )
+
+    async def owner_selection(self, *, user_id, request_id, refs):
+        """The owner's chosen files from an answered question, for sharing."""
+        if not isinstance(refs, list) or not refs or len(set(refs)) != len(refs):
+            raise DriveSharingError("invalid_argument")
+
+        def operation(connection):
+            row = self._answered_owner_row(connection, user_id, request_id)
+            sealed = self._sealed_answer(row)
+            files = {item["ref"]: item for item in sealed.get("ownerFiles", [])}
+            if any(ref not in files for ref in refs):
+                raise DriveSharingError("request_changed")
+            query = self.cipher.open(
+                row["query_envelope"],
+                user_id=row["user_id"],
+                resource_id=str(row["request_id"]),
+                purpose="live-query",
+            )["query"]
+            return {
+                "requesterUserId": row["requester_user_id"],
+                "query": query,
+                "shareRequestId": sealed.get("shareRequestId"),
+                "files": [
+                    {
+                        "file_id": files[ref]["fileId"],
+                        "name": files[ref]["name"],
+                        "mime_type": files[ref]["mimeType"],
+                        "modified_time": files[ref]["modifiedTime"],
+                    }
+                    for ref in refs
+                ],
+            }
+
+        return cast(dict, await self._transaction(operation))
+
+    async def record_share(self, *, user_id, request_id, share_request_id):
+        """Link the question to the file share, so both participants can follow it."""
+        share_request_id = str(UUID(str(share_request_id)))
+
+        def operation(connection):
+            row = self._answered_owner_row(connection, user_id, request_id)
+            sealed = self._sealed_answer(row)
+            if sealed.get("shareRequestId") not in {None, share_request_id}:
+                raise DriveSharingError("request_changed")
+            envelope = self.cipher.seal(
+                {**sealed, "shareRequestId": share_request_id},
+                user_id=row["user_id"],
+                resource_id=str(row["request_id"]),
+                purpose="live-answer",
+            )
+            updated = self._row(
+                connection,
+                """
+                UPDATE drive_live_query_requests
+                SET answer_envelope=CAST(:envelope AS jsonb), updated_at=clock_timestamp()
+                WHERE request_id=:id AND status='answered'
+                RETURNING *
+            """,
+                {"id": str(row["request_id"]), "envelope": json.dumps(envelope)},
+            )
+            if not updated:
+                raise DriveSharingError("request_changed")
+            return self._render(connection, updated, user_id)
 
         return cast(dict, await self._transaction(operation))
 
