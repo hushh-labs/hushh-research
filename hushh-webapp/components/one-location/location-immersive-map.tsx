@@ -2299,13 +2299,26 @@ export function LocationImmersiveMap({
       selfCircleCommandRef.current = next.catch(() => undefined);
       return next;
     };
+    const removeTrackedCircle = async (id: string): Promise<boolean> => {
+      // A bridge can reject while its camera transaction is settling. Retry
+      // once, but never forget an ID that may still be painted: the next queued
+      // lifecycle pass must be able to remove it before adding a replacement.
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          await map.removeCircles([id]);
+          if (selfCircleIdRef.current === id) selfCircleIdRef.current = null;
+          return true;
+        } catch {
+          if (attempt === 0) await Promise.resolve();
+        }
+      }
+      selfCircleIdRef.current = id;
+      return false;
+    };
 
     void enqueue(async () => {
       const staleId = selfCircleIdRef.current;
-      if (staleId) {
-        selfCircleIdRef.current = null;
-        await map.removeCircles([staleId]).catch(() => undefined);
-      }
+      if (staleId && !(await removeTrackedCircle(staleId))) return;
       if (
         generation !== selfCircleGenerationRef.current ||
         cancelled ||
@@ -2345,7 +2358,7 @@ export function LocationImmersiveMap({
 
       if (!id) return;
       if (generation !== selfCircleGenerationRef.current || cancelled) {
-        await map.removeCircles([id]).catch(() => undefined);
+        await removeTrackedCircle(id);
         return;
       }
       selfCircleIdRef.current = id;

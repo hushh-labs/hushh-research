@@ -3128,6 +3128,45 @@ describe("LocationImmersiveMap reported map defects", () => {
     expect(mapHarness.map.removeCircles).not.toHaveBeenCalledWith(["circle-0"]);
   });
 
+  it("never replaces a self dot whose renderer removal failed", async () => {
+    stubPhoneGeometry();
+    serviceHarness.captureCurrentPosition.mockResolvedValue({
+      latitude: 25.46,
+      longitude: 81.85,
+      accuracyM: 12,
+      capturedAt: "2026-09-25T00:00:00.000Z",
+      sourcePlatform: "android",
+    });
+
+    await renderReadyMap();
+    await waitFor(() => {
+      expect(
+        mapHarness.map.addCircles.mock.calls
+          .flatMap((call) => call[0] as Array<Record<string, unknown>>)
+          .some((circle) => circle.title === "Your location"),
+      ).toBe(true);
+    });
+
+    mapHarness.map.addCircles.mockClear();
+    mapHarness.map.removeCircles.mockClear();
+    mapHarness.map.removeCircles.mockRejectedValue(
+      new Error("native map transaction busy"),
+    );
+    await reportCamera({ zoom: 13 });
+
+    await waitFor(() => {
+      expect(mapHarness.map.removeCircles).toHaveBeenCalledTimes(2);
+    });
+    expect(mapHarness.map.addCircles).not.toHaveBeenCalled();
+
+    mapHarness.map.removeCircles.mockResolvedValue(undefined);
+    await reportCamera({ zoom: 14 });
+    await waitFor(() => {
+      expect(mapHarness.map.removeCircles).toHaveBeenCalledTimes(3);
+      expect(mapHarness.map.addCircles).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("names each pin by first name, and draws you as your own avatar", async () => {
     // The reported gap: two pins and no way to tell who is who without opening
     // the tray. "Ankit Kumar Singh" is what the tray says; a pill over a pin
