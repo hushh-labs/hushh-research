@@ -6,8 +6,6 @@ catalog cannot add a write tool to this adapter's exact read allowlist.
 
 from __future__ import annotations
 
-import time
-from copy import deepcopy
 from typing import Any
 
 from hushh_mcp.services.external_mcp_client import ExternalMcpToolResult, call_tool, list_tools
@@ -21,6 +19,7 @@ from hushh_mcp.services.mcp_capability_policy import (
     arguments_bounded,
     arguments_valid,
 )
+from hushh_mcp.services.mcp_catalog_cache import McpCatalogCache
 
 GOOGLE_CALENDAR_MCP_ENDPOINT = "https://calendarmcp.googleapis.com/mcp/v1"
 GOOGLE_CALENDAR_READ_TOOLS = frozenset({"get_event", "list_events", "suggest_time"})
@@ -30,18 +29,21 @@ _CATALOG_TTL_SECONDS = 300
 class GoogleCalendarMcpService:
     def __init__(self, *, connections: GoogleConnectionService | None = None) -> None:
         self._connections = connections or get_google_connection_service()
-        self._catalog: tuple[float, list[dict[str, Any]]] | None = None
+        self._catalog = McpCatalogCache(ttl_seconds=_CATALOG_TTL_SECONDS)
 
     async def _catalog_for_token(self, token: str) -> list[dict[str, Any]]:
-        if self._catalog is not None and self._catalog[0] > time.monotonic():
-            return deepcopy(self._catalog[1])
+        cached = self._catalog.get(token)
+        if cached is not None:
+            return cached
         tools = await list_tools(
             endpoint=GOOGLE_CALENDAR_MCP_ENDPOINT,
             headers={"Authorization": f"Bearer {token}"},
         )
-        result = admit_catalog(tools, allowed_names=GOOGLE_CALENDAR_READ_TOOLS)
-        self._catalog = (time.monotonic() + _CATALOG_TTL_SECONDS, result)
-        return deepcopy(result)
+        result: list[dict[str, Any]] = admit_catalog(
+            tools, allowed_names=GOOGLE_CALENDAR_READ_TOOLS
+        )
+        self._catalog.put(token, result)
+        return result
 
     async def discover_read_tools(self, *, user_id: str) -> list[dict[str, Any]]:
         if not user_id:

@@ -8,8 +8,6 @@ Do not register an unrestricted generic dispatcher in place of this adapter.
 
 from __future__ import annotations
 
-import time
-from copy import deepcopy
 from typing import Any
 
 from hushh_mcp.services.connector_feature_admission import connector_feature_enabled
@@ -28,6 +26,7 @@ from hushh_mcp.services.mcp_capability_policy import (
     arguments_bounded,
     arguments_valid,
 )
+from hushh_mcp.services.mcp_catalog_cache import McpCatalogCache
 
 GOOGLE_DRIVE_MCP_ENDPOINT = "https://drivemcp.googleapis.com/mcp/v1"
 # Explicit reviewed capabilities, not server-supplied annotations, names with
@@ -66,7 +65,7 @@ def _search_metadata(payload: dict[str, Any]) -> dict[str, Any]:
 class GoogleDriveMcpService:
     def __init__(self, *, oauth=None) -> None:
         self._oauth = oauth or get_external_connector_oauth_service().drive()
-        self._catalog: tuple[float, list[dict[str, Any]]] | None = None
+        self._catalog = McpCatalogCache(ttl_seconds=_CATALOG_TTL_SECONDS)
 
     async def discover_read_tools(self, *, access_token: str | None = None) -> list[dict[str, Any]]:
         """Discover official tool descriptions/schemas without an owner grant.
@@ -74,15 +73,16 @@ class GoogleDriveMcpService:
         The public catalog is capability metadata. It supplies no execution
         authority, credential, or private file result.
         """
-        if self._catalog is not None and self._catalog[0] > time.monotonic():
-            return deepcopy(self._catalog[1])
+        cached = self._catalog.get(access_token)
+        if cached is not None:
+            return cached
         tools = await list_tools(
             endpoint=GOOGLE_DRIVE_MCP_ENDPOINT,
             headers={"Authorization": f"Bearer {access_token}"} if access_token else None,
         )
-        result = admit_catalog(tools, allowed_names=GOOGLE_DRIVE_READ_TOOLS)
-        self._catalog = (time.monotonic() + _CATALOG_TTL_SECONDS, result)
-        return deepcopy(result)
+        result: list[dict[str, Any]] = admit_catalog(tools, allowed_names=GOOGLE_DRIVE_READ_TOOLS)
+        self._catalog.put(access_token, result)
+        return result
 
     async def discover_for_owner(self, *, user_id: str) -> list[dict[str, Any]]:
         if not connector_feature_enabled("google_drive_live", user_id):
