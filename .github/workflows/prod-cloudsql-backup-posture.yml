@@ -10,16 +10,35 @@ permissions:
   id-token: write
 
 env:
-  GCP_PROJECT_ID: hushh-pda
-  PROD_CLOUDSQL_INSTANCE_NAME: hushh-vault-db
   BACKUP_MAX_AGE_HOURS: "30"
 
 jobs:
   backup-posture:
-    name: Daily Cloud SQL Backup Posture Check
+    name: Daily Cloud SQL Backup Posture Check (${{ matrix.lane }})
     if: github.repository == 'hushh-labs/hushh-research'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # Without this the job resolves `vars.*` at REPOSITORY scope, where neither
+    # variable is defined -- so every run since 2026-07-28 died on the first
+    # step with "Missing repository variable GCP_WORKLOAD_IDENTITY_PROVIDER".
+    # 42 runs, 42 failures, zero successes: the alarm that watches the backups
+    # had never once run. Both variables live at ENVIRONMENT scope.
+    environment: ${{ matrix.environment }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - lane: prod
+            environment: production
+            project: hushh-pda
+            instance: hushh-vault-db
+          # UAT gained automated backups + PITR on 2026-09-08. It replays 174
+          # migrations against a live database on every deploy, two of which
+          # DROP TABLE, so it is the lane most likely to need a restore.
+          - lane: uat
+            environment: uat
+            project: hushh-pda-uat
+            instance: hushh-uat-pg
 
     steps:
       - name: Checkout code
@@ -29,17 +48,21 @@ jobs:
         shell: bash
         env:
           WIF_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          BACKUP_SERVICE_ACCOUNT: ${{ vars.GCP_BACKUP_SERVICE_ACCOUNT }}
+          # GCP_BACKUP_SERVICE_ACCOUNT was referenced but has never existed in
+          # any scope -- repo, production, uat or dev. This reads backup
+          # metadata only, so the lane's existing deploy identity is the right
+          # least-surprise choice rather than a new identity nobody grants.
+          BACKUP_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
         run: |
           set -euo pipefail
-          test -n "$WIF_PROVIDER" || { echo "Missing repository variable GCP_WORKLOAD_IDENTITY_PROVIDER" >&2; exit 1; }
-          test -n "$BACKUP_SERVICE_ACCOUNT" || { echo "Missing repository variable GCP_BACKUP_SERVICE_ACCOUNT" >&2; exit 1; }
+          test -n "$WIF_PROVIDER" || { echo "Missing ${{ matrix.environment }} environment variable GCP_WORKLOAD_IDENTITY_PROVIDER" >&2; exit 1; }
+          test -n "$BACKUP_SERVICE_ACCOUNT" || { echo "Missing ${{ matrix.environment }} environment variable GCP_DEPLOY_SERVICE_ACCOUNT" >&2; exit 1; }
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ vars.GCP_BACKUP_SERVICE_ACCOUNT }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
 
       - name: Set up Python
         uses: actions/setup-python@v6
@@ -51,10 +74,10 @@ jobs:
         run: |
           set -euo pipefail
           python3 scripts/ops/cloudsql_backup_freshness_check.py \
-            --project-id "${GCP_PROJECT_ID}" \
-            --instance "${PROD_CLOUDSQL_INSTANCE_NAME}" \
+            --project-id "${{ matrix.project }}" \
+            --instance "${{ matrix.instance }}" \
             --max-age-hours "${BACKUP_MAX_AGE_HOURS}" \
-            --report-path /tmp/prod-backup-posture-report.json
+            --report-path /tmp/${{ matrix.lane }}-backup-posture-report.json
 
       - name: Upload backup posture artifact
         if: always()
@@ -62,4 +85,4 @@ jobs:
         with:
           name: prod-backup-posture-${{ github.run_id }}
           if-no-files-found: ignore
-          path: /tmp/prod-backup-posture-report.json
+          path: /tmp/${{ matrix.lane }}-backup-posture-report.json
