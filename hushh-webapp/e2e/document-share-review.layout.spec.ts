@@ -109,6 +109,107 @@ test.beforeAll(async () => {
 });
 
 for (const width of [320, 390, 768, 1440])
+  test(`requesting files preserves chat and bounds the form at ${width}px`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width, height: 820 });
+    const errors: string[] = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    const submissions: unknown[] = [];
+    await page.route("http://localhost/document-request-fixture", (route) =>
+      route.fulfill({
+        contentType: "text/html",
+        body: `<!doctype html><html><head><meta name="viewport" content="width=device-width,initial-scale=1"><style>${css}</style></head><body><div id="root"></div></body></html>`,
+      }),
+    );
+    await page.route(
+      "**/api/connectors/google_drive/sharing/requests",
+      async (route) => {
+        submissions.push(route.request().postDataJSON());
+        expect(route.request().headers().authorization).toBe(
+          "Bearer synthetic-firebase-proof",
+        );
+        expect(route.request().headers()["x-hushh-consent"]).toBe(
+          "synthetic-vault-owner",
+        );
+        await route.fulfill({
+          status: 202,
+          contentType: "application/json",
+          body: JSON.stringify({
+            requestId: "11111111-1111-4111-8111-111111111111",
+            status: "pending",
+            revision: 0,
+          }),
+        });
+      },
+    );
+    await page.goto("http://localhost/document-request-fixture");
+    await page.addScriptTag({ content: script });
+    await awaitProductFont(page);
+    const draft = page.getByRole("textbox", { name: "Chat draft" });
+    await draft.fill("Keep this chat draft");
+    const original = await draft.elementHandle();
+    await page
+      .getByRole("button", { name: "Request files", exact: true })
+      .click();
+    const panel = page.getByRole("dialog", {
+      name: "Request files",
+      exact: true,
+    });
+    const purpose = `${"UntrustedLongPurpose".repeat(20)} <script>text only</script>`;
+    await panel.getByLabel("What do you need?").fill(purpose);
+    await panel.getByLabel("Start date").fill("2026-01-01");
+    await expect(
+      panel.getByRole("button", { name: "Send request" }),
+    ).toBeDisabled();
+    await panel.getByLabel("End date").fill("2026-06-30");
+    expect(submissions).toHaveLength(0);
+    for (const control of [
+      panel.getByLabel("What do you need?"),
+      panel.getByLabel("Start date"),
+      panel.getByLabel("End date"),
+      panel.getByRole("button", { name: "Send request" }),
+      panel.getByRole("button", { name: "Cancel" }),
+    ]) {
+      await control.scrollIntoViewIfNeeded();
+      const bounds = (await control.boundingBox())!;
+      expect(bounds.height).toBeGreaterThanOrEqual(44);
+      expect(bounds.x).toBeGreaterThanOrEqual(0);
+      expect(bounds.x + bounds.width).toBeLessThanOrEqual(width + 1);
+    }
+    expect(
+      await panel.evaluate((node) => node.scrollWidth <= node.clientWidth + 1),
+    ).toBe(true);
+    const submit = panel.getByRole("button", { name: "Send request" });
+    await submit.focus();
+    await page.keyboard.press("Enter");
+    await expect(
+      panel.getByText(
+        "Request sent. No files have been shared yet.",
+      ),
+    ).toBeVisible();
+    expect(submissions).toHaveLength(1);
+    expect(submissions[0]).toMatchObject({
+      ownerPersonRef: "33333333-3333-4333-8333-333333333333",
+      purpose: { purpose, periodStart: "2026-01-01", periodEnd: "2026-06-30" },
+    });
+    await expect(
+      panel.getByRole("link", { name: "View request" }),
+    ).toHaveAttribute("href", /requestView=sent/);
+    await page.keyboard.press("Escape");
+    await expect(draft).toHaveValue("Keep this chat draft");
+    expect(
+      await original!.evaluate(
+        (node) => node === document.querySelector("textarea"),
+      ),
+    ).toBe(true);
+    expect(
+      await page.evaluate(() => localStorage.length + sessionStorage.length),
+    ).toBe(0);
+    expect(errors).toEqual([]);
+  });
+
+for (const width of [320, 390, 768, 1440])
   test(`asking a question preserves chat and bounds the form at ${width}px`, async ({
     page,
   }) => {

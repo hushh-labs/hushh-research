@@ -410,8 +410,15 @@ class DriveSuggestionService:
                             end_time=bounds[1],
                         )
                     else:
+                        # Same two steps as the chat lane: a typed metadata
+                        # search (kind, sharedWithMe, window), then reads of
+                        # exactly the files it found.
                         stage = "search_files"
-                        retrieved = await reader.search(**search_args)
+                        found = await reader.find(**search_args)
+                        stage = "read_file_content"
+                        retrieved = await reader.read_matches(
+                            matches=found["matches"], truncated=found["truncated"]
+                        )
                 else:
                     stage = "search_files"
                     retrieved = await reader.search(query=query)

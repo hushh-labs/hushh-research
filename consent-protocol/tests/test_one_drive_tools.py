@@ -41,6 +41,7 @@ async def test_drive_denies_unauthorized_context_without_calling_provider(monkey
     monkeypatch.setattr(drive_tools, "resolve_request_secret", lambda _ref: "owner-token")
     monkeypatch.setattr(drive_tools, "validate_first_party_owner_token", active)
     monkeypatch.setattr(drive_tools, "_service", lambda: pytest.fail("provider must not be called"))
+    monkeypatch.setattr(drive_tools, "_reader", lambda: pytest.fail("provider must not be called"))
     for context in (_context(admitted=False), _context(user_id="other")):
         assert (await drive_tools.discover_google_drive_tools(context))["status"] == "blocked"
         assert (await drive_tools.read_google_drive("search_files", {}, context))[
@@ -70,7 +71,7 @@ async def test_drive_uses_current_owner_and_refuses_result_after_revocation(monk
     monkeypatch.setattr(drive_tools, "pod_mode", lambda: False)
     monkeypatch.setattr(drive_tools, "resolve_request_secret", lambda _ref: "owner-token")
     monkeypatch.setattr(drive_tools, "validate_first_party_owner_token", validate)
-    monkeypatch.setattr(drive_tools, "_service", Service)
+    monkeypatch.setattr(drive_tools, "_reader", Service)
     result = await drive_tools.read_google_drive("search_files", {"query": "notes"}, _context())
     assert result == {"status": "blocked", "message": "The Drive session changed. Try again."}
     assert seen == [
@@ -91,7 +92,7 @@ async def test_drive_mcp_missing_grant_does_not_misrepresent_selected_file_conne
     monkeypatch.setattr(drive_tools, "pod_mode", lambda: False)
     monkeypatch.setattr(drive_tools, "resolve_request_secret", lambda _ref: "owner-token")
     monkeypatch.setattr(drive_tools, "validate_first_party_owner_token", active)
-    monkeypatch.setattr(drive_tools, "_service", Service)
+    monkeypatch.setattr(drive_tools, "_reader", Service)
     result = await drive_tools.read_google_drive("search_files", {"query": "notes"}, _context())
     assert result["status"] == "permission_required"
     assert "selected-file library in Connectors is separate" in result["message"]

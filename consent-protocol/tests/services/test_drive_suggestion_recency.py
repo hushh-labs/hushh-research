@@ -3,13 +3,14 @@
 import json
 from datetime import UTC, datetime, timedelta, timezone
 from types import SimpleNamespace
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, create_autospec
 from uuid import uuid4
 
 import pytest
 from pydantic import ValidationError
 
 from hushh_mcp.services import drive_suggestion_service as module
+from hushh_mcp.services.drive_live_reader import DriveLiveReader
 from hushh_mcp.services.drive_suggestion_service import DriveSuggestionService, LiveSearchPlan
 
 
@@ -187,8 +188,9 @@ async def test_explicit_statement_period_keeps_content_coverage(plan):
         "foreground": True,
     }
     reader = SimpleNamespace(
-        search=AsyncMock(return_value={"untrusted_external_content": [], "truncated": False}),
-        find=AsyncMock(),
+        search=AsyncMock(),
+        find=AsyncMock(return_value={"matches": [], "truncated": False}),
+        read_matches=AsyncMock(return_value={"untrusted_external_content": [], "truncated": False}),
     )
     store = SimpleNamespace(
         claim_preparation=AsyncMock(return_value=job),
@@ -204,5 +206,52 @@ async def test_explicit_statement_period_keeps_content_coverage(plan):
         require_owner=AsyncMock(),
     )
     assert await service.run_one(user_id="owner", request_id=request_id) == "no_ready_files"
-    reader.search.assert_awaited_once_with(query=["statement"])
-    reader.find.assert_not_awaited()
+    # Content coverage searches without the file-activity window, then reads
+    # exactly what it found.
+    reader.find.assert_awaited_once_with(query=["statement"], file_kind="any", shared_with_me=False)
+    reader.read_matches.assert_awaited_once_with(matches=[], truncated=False)
+    reader.search.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_content_request_calls_the_real_reader_signature():
+    """A spec'd reader fails on any keyword DriveLiveReader does not accept.
+
+    A hand-written fake accepted ``reader.search(file_kind=...)`` and hid a
+    TypeError that sent every content request to review with no files.
+    """
+    request_id = str(uuid4())
+    job = {
+        "user_id": "owner",
+        "request_id": request_id,
+        "revision": 0,
+        "generation": 1,
+        "lease_id": str(uuid4()),
+        "purpose": {"purpose": "My tax return PDF", "periodStart": None, "periodEnd": None},
+        "live": True,
+        "foreground": True,
+    }
+    reader = create_autospec(DriveLiveReader, instance=True)
+    match = {"file_id": "1AbCdEfGhIjKlMnOpQrStUvWxYz012345", "name": "Tax return 2025.pdf"}
+    reader.find.return_value = {"matches": [match], "truncated": False}
+    reader.read_matches.return_value = {"untrusted_external_content": [], "truncated": False}
+    store = SimpleNamespace(
+        claim_preparation=AsyncMock(return_value=job),
+        require_preparation_current=AsyncMock(),
+        fail_preparation=AsyncMock(),
+        indexing_pending=AsyncMock(return_value=False),
+    )
+    service = DriveSuggestionService(
+        oauth=SimpleNamespace(),
+        store=store,
+        search_planner=AsyncMock(return_value={"terms": ["tax return"], "file_kind": "pdf"}),
+        reader_factory=lambda **_: reader,
+        require_owner=AsyncMock(),
+    )
+    assert await service.run_one(user_id="owner", request_id=request_id) == "no_ready_files"
+    reader.find.assert_awaited_once_with(
+        query=["tax return"], file_kind="pdf", shared_with_me=False
+    )
+    reader.read_matches.assert_awaited_once_with(matches=[match], truncated=False)
+    store.fail_preparation.assert_awaited_once()
+    assert store.fail_preparation.await_args.kwargs["code"] == "no_ready_files"
