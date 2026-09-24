@@ -402,6 +402,8 @@ export async function streamAgentChat(input: {
   vaultOwnerToken: string;
   pkmContext?: string;
   personSelectionHandle?: string;
+  /** Opaque owner-selected KYC workflow; Gmail content stays server-side. */
+  gmailInformationRequestWorkflowId?: string;
   screenContext?: Record<string, unknown> | null;
   signal?: AbortSignal;
   handlers?: AgentChatStreamHandlers;
@@ -522,6 +524,7 @@ export async function streamAgentChat(input: {
               timezone,
               pkmContext: input.pkmContext,
               personSelectionHandle: input.personSelectionHandle,
+              gmailInformationRequestWorkflowId: input.gmailInformationRequestWorkflowId,
               screenContext: input.screenContext,
             },
             resume: [{ interruptId, status, payload }],
@@ -767,6 +770,7 @@ export async function streamAgentChat(input: {
         timezone,
         pkmContext: input.pkmContext,
         personSelectionHandle: input.personSelectionHandle,
+        gmailInformationRequestWorkflowId: input.gmailInformationRequestWorkflowId,
         screenContext: input.screenContext,
       },
     }, subscriber);

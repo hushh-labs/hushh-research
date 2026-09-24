@@ -59,6 +59,12 @@ export type GmailInformationRequestCandidateRefresh = {
   candidate_scopes: GmailInformationRequestCandidateScope[];
 };
 
+export type GmailInformationRequestSourcePreview = {
+  from: string;
+  subject: string;
+  body: string;
+};
+
 export type GmailPreparedInformationRequestReply = {
   actionId: string;
   expiresAt: string | null;
@@ -173,6 +179,18 @@ export class GmailInformationRequestsService {
         method: "POST",
         headers: ownerHeaders(input.firebaseIdToken, input.vaultOwnerToken),
       },
+    );
+  }
+
+  /** Fetches the source email only for the unlocked workflow owner on demand. */
+  static getSourcePreview(input: {
+    firebaseIdToken: string;
+    vaultOwnerToken: string;
+    workflowId: string;
+  }): Promise<GmailInformationRequestSourcePreview> {
+    return apiJson<GmailInformationRequestSourcePreview>(
+      `/api/one/email/information-requests/${encodeURIComponent(input.workflowId)}/source-preview`,
+      { headers: ownerHeaders(input.firebaseIdToken, input.vaultOwnerToken) },
     );
   }
 

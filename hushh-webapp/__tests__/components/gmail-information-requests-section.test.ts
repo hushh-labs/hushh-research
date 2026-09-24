@@ -165,7 +165,7 @@ describe("personal Gmail information-request scope boundary", () => {
     );
 
     const start = await screen.findByRole("button", {
-      name: "Start KYC monitoring",
+      name: "Start monitoring",
     });
     await waitFor(() => expect(start).not.toBeDisabled());
     fireEvent.click(start);
@@ -193,7 +193,7 @@ describe("personal Gmail information-request scope boundary", () => {
 
     fireEvent.click(
       await screen.findByRole("button", {
-        name: "Unlock to start monitoring",
+        name: "Unlock to start",
       }),
     );
 
@@ -242,11 +242,16 @@ describe("personal Gmail information-request scope boundary", () => {
         maxResults: 30,
       }),
     );
-    expect(await screen.findByText("Processed now")).toBeVisible();
-    expect(screen.getByText("Already processed")).toBeVisible();
+    expect(await screen.findByText("Emails checked")).toBeVisible();
     expect(screen.getByText("KYC requests found")).toBeVisible();
-    expect(screen.getByText("Pending retry")).toBeVisible();
     expect(screen.getAllByText("1")).toHaveLength(2);
+    expect(screen.getByText("Gmail monitoring is on")).toBeVisible();
+    expect(
+      screen.queryByText(/We process new Inbox messages first/i),
+    ).toBeNull();
+    expect(
+      screen.queryByText(/Processing up to 30 previously unprocessed/i),
+    ).toBeNull();
   });
 
   it("shows partial scan progress and tells the owner that a retry is pending", async () => {
@@ -281,22 +286,19 @@ describe("personal Gmail information-request scope boundary", () => {
       }),
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Scan inbox" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Check now" }));
 
     expect(
       await screen.findByText(
-        "1 mail message could not be classified. Scan again to retry.",
+        "We couldn’t check 1 email. Try again in a moment.",
       ),
     ).toBeVisible();
     expect(
-      screen.getByText("Processed now").nextElementSibling,
+      screen.getByText("Emails checked").nextElementSibling,
     ).toHaveTextContent("1");
     expect(
-      screen.getByText("Already processed").nextElementSibling,
-    ).toHaveTextContent("1");
-    expect(
-      screen.getByText("Pending retry").nextElementSibling,
-    ).toHaveTextContent("1");
+      screen.getByText("KYC requests found").nextElementSibling,
+    ).toHaveTextContent("0");
   });
 
   it("keeps the server's safe scan error visible", async () => {
@@ -325,7 +327,7 @@ describe("personal Gmail information-request scope boundary", () => {
       }),
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Scan inbox" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Check now" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "Personal Gmail monitoring is temporarily unavailable.",
@@ -361,13 +363,13 @@ describe("personal Gmail information-request scope boundary", () => {
     );
 
     const turnOff = await screen.findByRole("button", {
-      name: "Turn off monitoring",
+      name: /^Turn off$/,
     });
     fireEvent.click(turnOff);
 
     expect(await screen.findByText("Turn off monitoring?")).toBeVisible();
     expect(
-      screen.getByText(/Your Mail messages are not deleted/i),
+      screen.getByText(/Your Gmail emails are not deleted/i),
     ).toBeVisible();
     expect(gmailServiceMocks.setPreference).not.toHaveBeenCalled();
 
@@ -439,7 +441,7 @@ describe("personal Gmail information-request scope boundary", () => {
           status: "detected",
           gmail_thread_id: "thread-1",
           received_at: "2026-09-02T00:00:00.000Z",
-          requested_field_labels: ["Passport number"],
+          requested_field_labels: ["passport_number", "education_history"],
           candidate_scopes: [],
           attachment_review_required: false,
         },
@@ -459,7 +461,9 @@ describe("personal Gmail information-request scope boundary", () => {
       }),
     );
 
-    expect(await screen.findByText("Passport number")).toBeVisible();
+    expect(
+      await screen.findByText("Passport number, Education history"),
+    ).toBeVisible();
     expect(
       screen.queryByLabelText("Private information reply draft"),
     ).toBeNull();

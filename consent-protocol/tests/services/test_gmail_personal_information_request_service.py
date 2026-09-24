@@ -67,6 +67,59 @@ def test_classifier_result_requires_high_confidence_and_normalizes_domains():
 
 
 @pytest.mark.asyncio
+async def test_chat_reply_context_refetches_the_source_without_returning_address_headers(
+    monkeypatch,
+):
+    message = _message(body="Please provide your current education details.")
+
+    class GmailService:
+        async def get_personal_inbox_message_for_monitoring(
+            self, *, user_id: str, gmail_message_id: str
+        ):
+            assert (user_id, gmail_message_id) == ("owner", "message-1")
+            return message
+
+    class Connection:
+        async def fetchrow(self, query: str, *args):
+            assert "gmail_message_id" in query
+            assert args == ("workflow-1", "owner")
+            return {
+                "gmail_message_id": "message-1",
+                "gmail_thread_id": "thread-1",
+                "source_hmac": _source_fingerprint(message),
+                "status": "detected",
+            }
+
+    class Acquire:
+        async def __aenter__(self):
+            return Connection()
+
+        async def __aexit__(self, *_args):
+            return False
+
+    class Pool:
+        def acquire(self):
+            return Acquire()
+
+    async def get_pool():
+        return Pool()
+
+    monkeypatch.setattr(
+        monitor_module,
+        "get_core_security_settings",
+        lambda: type("Settings", (), {"app_signing_key": "test-signing-key"})(),
+    )
+    monkeypatch.setattr(monitor_module, "get_pool", get_pool)
+    context = await PersonalGmailInformationRequestService(
+        gmail_service=GmailService()
+    ).get_chat_reply_context(user_id="owner", workflow_id="workflow-1")
+
+    assert "Subject: KYC details" in context
+    assert "Please provide your current education details." in context
+    assert "verify@example.com" not in context
+
+
+@pytest.mark.asyncio
 async def test_classifier_uses_the_bounded_thirty_second_timeout(monkeypatch):
     service = PersonalGmailInformationRequestService()
     calls: dict[str, object] = {}
@@ -1505,7 +1558,7 @@ async def test_refresh_candidate_scopes_uses_current_manifest_metadata(monkeypat
             assert "SELECT requested_field_labels" in query
             assert args == ("workflow-1", "owner")
             return {
-                "requested_field_labels": ["name", "age", "education information"],
+                "requested_field_labels": ["name", "age", "college_information"],
                 "candidate_scopes": [],
                 "status": "detected",
             }
