@@ -91,6 +91,13 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
 
 ## Security and Privacy Checks
 
+- Native custom MCP calls set the external-content barrier before dispatch;
+  parallel unreviewed calls are blocked. Subsequent model requests retain only
+  real native tool objects with the canonical exact-call review authority, not
+  same-named impostors, arbitrary approval callbacks or provider built-ins.
+  Verify reviewed composition through the installed ADK Runner separately from
+  live provider and browser approval acceptance.
+
 - Google connection completion rejects a different active provider subject before
   refresh-token reuse; disconnected accounts require fresh credentials. Cached
   tokens and grants come from one snapshot; refresh writes compare the original

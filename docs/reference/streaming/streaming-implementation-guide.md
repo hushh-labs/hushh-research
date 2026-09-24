@@ -75,8 +75,14 @@ reference; nested private hints, arguments and extra payload fields are removed.
 The browser fetches exact review arguments through the authenticated review API.
 Malformed, oversized or incomplete confirmations fail closed. Snapshot projection
 also indexes confirmation identities before results, preventing an out-of-order
-confirmation reply from exposing a private payload. Non-MCP confirmation argument
-contracts remain unchanged within the same envelope bounds.
+confirmation reply from exposing a private payload. Before a private connector
+call, non-MCP confirmation contracts remain unchanged within those bounds. After
+one, unexpected confirmation arguments are withheld; only the validated native
+MCP review reference survives. Subsequent tool arguments/results are private even
+when the model invents a blocked first-party call. Blocking execution alone is
+not sufficient redaction. Durable projection preserves earlier unrelated calls
+and fresh invocations; snapshot projection restarts that boundary at a new user
+message. Live model objects remain unchanged.
 
 ## 4.1 UI Stream Mapping
 

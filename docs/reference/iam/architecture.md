@@ -148,6 +148,16 @@ establish end-to-end availability.
 Onward sharing and private-agent delegation still require their existing separate
 authorities. Provider file content is untrusted information, not instructions.
 
+Owner-private native MCP tools establish an invocation-local external-content
+barrier before dispatch. Only application-owned native tools using the canonical
+exact-call review callback remain callable after that barrier; a matching tool
+name or provider annotation grants nothing. Each continued call still rechecks
+its owner, connection, schema and reviewed arguments. The model-facing roster
+is rebuilt from those admitted objects, excluding unreviewed first-party tools
+and provider built-ins. This permits reviewed connector composition, not general
+post-read mutation authority. Curated-provider and explicit Memory-capture
+continuation parity remain separate acceptance work.
+
 ### Runtime mapping
 
 1. Agents: consume only consent-approved data slices.
