@@ -356,6 +356,7 @@ Route and smoke policy:
 3. UAT smoke never fabricates GA4 events and never creates Firebase users, reviewer users, app environments, or one-off analytics fixtures.
 4. After the cold `/login` boot, protected-route smoke navigation must use Next client navigation so the in-memory vault key is not lost by full page reloads.
 5. Missing credentials, missing seeded portfolio state, or absent recommendation events are gate failures; fix or reseed the existing reviewer test fixture instead of minting another account.
+6. Shared reviewer automation blocks external telemetry by default. The canonical analytics smoke opts in through an in-memory bridge flag that is honored only on `uat.one.hushh.ai`; the same flag remains blocked on production and local hosts.
 
 Sandbox audit policy:
 
